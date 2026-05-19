@@ -31,13 +31,13 @@ export default function App() {
 }
 
 function AppInner() {
-  const { user, loading, logout, canAccess } = useAuth()
+  const { user, loading, login, logout, canAccess } = useAuth()
   const [dataSource, setDataSource] = useState(null)
   const [lastSync, setLastSync]     = useState(null)
   const [syncOpen, setSyncOpen]     = useState(false)
 
   if (loading) return <div className="loading"><div className="spinner" />Loading…</div>
-  if (!user)   return <Login />
+  if (!user)   return <Login onLogin={login} />
 
   const initials = (user.full_name || user.email)
     .split(' ').slice(0,2).map(w => w[0].toUpperCase()).join('')

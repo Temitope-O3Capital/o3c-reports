@@ -1,8 +1,6 @@
 import { useState } from 'react'
-import { useAuth } from '../hooks/useAuth.js'
 
-export default function Login() {
-  const { login } = useAuth()
+export default function Login({ onLogin }) {
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [error, setError]       = useState('')
@@ -13,7 +11,7 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      await login(email, password)
+      await onLogin(email, password)
     } catch (err) {
       setError(err.message || 'Login failed. Check your credentials.')
     } finally {
