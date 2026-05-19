@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from core.database import get_db_pg, get_db_mssql
@@ -17,18 +17,19 @@ def login(
     db_pg: Session = Depends(get_db_pg),
     db_mssql: Optional[Session] = Depends(get_db_mssql)
 ):
-    rows, _ = dual_query(
-        db_mssql, db_pg,
-        mssql_query="SELECT * FROM dbo.o3c_users WHERE email = :email",
-        pg_query='SELECT * FROM o3c_users WHERE email = :email',
-        params={"email": form.username}
-    )
+    try:
+        rows, _ = dual_query(
+            db_mssql, db_pg,
+            mssql_query="SELECT * FROM dbo.o3c_users WHERE email = :email",
+            pg_query='SELECT * FROM o3c_users WHERE email = :email',
+            params={"email": form.username}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=503, detail="Database unavailable — please try again shortly")
     if not rows:
-        from fastapi import HTTPException
         raise HTTPException(status_code=401, detail="Invalid credentials")
     user = rows[0]
     if not verify_password(form.password, user["password_hash"]):
-        from fastapi import HTTPException
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     pages = ROLE_PAGES.get(user["role"], [])
