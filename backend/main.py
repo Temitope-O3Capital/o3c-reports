@@ -12,12 +12,70 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
 
+SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS o3c_users (
+  id            SERIAL PRIMARY KEY,
+  email         TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  full_name     TEXT NOT NULL,
+  role          TEXT NOT NULL DEFAULT 'call_centre',
+  department    TEXT,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS "Accounts" (
+  "CIF Number" TEXT, "Account Created Date" TIMESTAMPTZ,
+  "First Name" TEXT, "Last Name" TEXT, "Full Address" TEXT,
+  "Birthday" DATE, "Email" TEXT, "Job Title" TEXT, "State" TEXT, "City" TEXT
+);
+CREATE TABLE IF NOT EXISTS "Products" (
+  "CIF Number" TEXT, "Name On Card" TEXT, "Account Manager" TEXT,
+  "Product Name" TEXT, "Account Status" TEXT
+);
+CREATE TABLE IF NOT EXISTS "Transactions" (
+  "Transaction Date" TIMESTAMPTZ, "Amount" NUMERIC,
+  "Description" TEXT, "Merchant_Name" TEXT, "CIF Number" TEXT
+);
+CREATE TABLE IF NOT EXISTS "Monthly Activity" (
+  "CIF Number" TEXT, "ActivityMonth" TIMESTAMPTZ,
+  "TxnCount" INTEGER, "TotalSpend" NUMERIC
+);
+CREATE TABLE IF NOT EXISTS "Collections Log" (
+  "Date" TIMESTAMPTZ, "CIF" TEXT, "Agent" TEXT, "Amount" NUMERIC,
+  "Mode Of Payment" TEXT, "Payment Receipt" TEXT
+);
+CREATE TABLE IF NOT EXISTS "CIF Table" (
+  "CIF Number" TEXT, "Cohort Date" TIMESTAMPTZ, "Cohort Label" TEXT
+);
+CREATE TABLE IF NOT EXISTS "Recovery Master Sheet" (
+  "CIF Number" TEXT, "Recovery Date" TIMESTAMPTZ, "Recovery Amount" NUMERIC,
+  "Recovery Method" TEXT, "Legal Stage" TEXT, "Agent" TEXT, "Status" TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_txn_date      ON "Transactions" ("Transaction Date");
+CREATE INDEX IF NOT EXISTS idx_txn_cif       ON "Transactions" ("CIF Number");
+CREATE INDEX IF NOT EXISTS idx_acc_created   ON "Accounts" ("Account Created Date");
+CREATE INDEX IF NOT EXISTS idx_coll_date     ON "Collections Log" ("Date");
+CREATE INDEX IF NOT EXISTS idx_recovery_date ON "Recovery Master Sheet" ("Recovery Date");
+CREATE INDEX IF NOT EXISTS idx_ma_month      ON "Monthly Activity" ("ActivityMonth");
+CREATE INDEX IF NOT EXISTS idx_cif_cohort    ON "CIF Table" ("Cohort Date");
+INSERT INTO o3c_users (email, password_hash, full_name, role, department)
+VALUES (
+  'admin@o3ccards.com',
+  '$2b$12$GvzdUouzBgirlOTGF0J..OdSBCTJXB4gCtY6TNM3tWrjp/wVQpHuy',
+  'O3C Admin', 'admin', 'Technology'
+) ON CONFLICT (email) DO NOTHING;
+"""
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    log = logging.getLogger("o3c.startup")
     try:
-        Base.metadata.create_all(bind=pg_engine)
+        from sqlalchemy import text as _text
+        with pg_engine.connect() as conn:
+            conn.execute(_text(SCHEMA_SQL))
+            conn.commit()
+        log.info("Schema migration complete")
     except Exception as e:
-        logging.getLogger("o3c.startup").warning(f"DB schema sync skipped (Supabase unreachable): {e}")
+        log.warning(f"Schema migration skipped: {e}")
     yield
 
 app = FastAPI(
