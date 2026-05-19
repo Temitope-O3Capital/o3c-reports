@@ -14,7 +14,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=pg_engine)
+    try:
+        Base.metadata.create_all(bind=pg_engine)
+    except Exception as e:
+        logging.getLogger("o3c.startup").warning(f"DB schema sync skipped (Supabase unreachable): {e}")
     yield
 
 app = FastAPI(
