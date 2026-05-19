@@ -30,16 +30,14 @@ def _build_mssql_url() -> Optional[str]:
         log.warning("MSSQL_SERVER or MSSQL_DATABASE not set — MSSQL disabled")
         return None
     if MSSQL_TRUSTED:
+        # Windows Auth only works when running on the same domain (not Railway)
         conn_str = (
-            f"mssql+pyodbc://{MSSQL_SERVER}/{MSSQL_DATABASE}"
-            "?driver=ODBC+Driver+17+for+SQL+Server"
-            "&trusted_connection=yes"
+            f"mssql+pymssql://{MSSQL_SERVER}/{MSSQL_DATABASE}"
         )
     else:
         conn_str = (
-            f"mssql+pyodbc://{MSSQL_USER}:{MSSQL_PASSWORD}"
+            f"mssql+pymssql://{MSSQL_USER}:{MSSQL_PASSWORD}"
             f"@{MSSQL_SERVER}/{MSSQL_DATABASE}"
-            "?driver=ODBC+Driver+17+for+SQL+Server"
         )
     return conn_str
 
