@@ -8,7 +8,7 @@ Keep this in sync with frontend/src/hooks/useAuth.js
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from datetime import datetime, timedelta
 from typing import Optional
 import os
@@ -17,7 +17,6 @@ SECRET_KEY = os.getenv("SECRET_KEY", "change-this-in-production")
 ALGORITHM  = "HS256"
 TOKEN_EXPIRE_MINUTES = 480  # 8 hours
 
-pwd_context   = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
 # ── Role → allowed pages mapping ─────────────────────────────────────────────
@@ -34,11 +33,11 @@ ROLE_PAGES = {
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
 def create_token(data: dict) -> str:
