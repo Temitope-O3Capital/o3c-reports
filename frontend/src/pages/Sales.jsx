@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useApi } from '../hooks/useApi.js'
-import { KpiCard, LineChartCard, ProgressListCard, StatSummaryCard, fmtNum } from '../components/Charts.jsx'
+import { KpiCard, AreaChartCard, ProgressListCard, StatSummaryCard, fmtNum } from '../components/Charts.jsx'
 import PageShell from '../components/PageShell.jsx'
 
 function calcMoM(arr, key) {
@@ -27,47 +27,24 @@ export default function Sales({ setDs }) {
     <PageShell title="Sales & Growth" subtitle="Customer acquisition, account manager performance, and regional breakdown" source={kpis.dataSource} error={kpis.error}>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          label="Total Customers"
-          value={fmtNum(d.total_customers)}
-          accent="navy"
-          icon="groups"
-          trend={acctMoM}
-        />
-        <KpiCard
-          label="New Accounts (MTD)"
-          value={fmtNum(d.new_mtd)}
-          accent="accent"
-          icon="person_add"
-        />
-        <KpiCard
-          label="MoM Growth"
-          value={d.mom_growth != null ? `${momDir}${d.mom_growth}%` : '—'}
-          accent={d.mom_growth >= 0 ? 'green' : 'accent'}
-          icon="trending_up"
-          sub="vs previous month"
-        />
-        <KpiCard
-          label="States Reached"
-          value={fmtNum((states.data || []).length)}
-          accent="navy"
-          icon="location_on"
-          sub="active regions"
-        />
+        <KpiCard label="Total Customers"    value={fmtNum(d.total_customers)}             icon="groups"       accent="navy"   trend={acctMoM} />
+        <KpiCard label="New Accounts (MTD)" value={fmtNum(d.new_mtd)}                    icon="person_add"   accent="accent" />
+        <KpiCard label="MoM Growth"         value={d.mom_growth != null ? `${momDir}${d.mom_growth}%` : '—'} icon="trending_up" accent={d.mom_growth >= 0 ? 'green' : 'accent'} sub="vs previous month" />
+        <KpiCard label="States Reached"     value={fmtNum((states.data || []).length)}   icon="location_on"  accent="navy"   sub="active regions" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
         <div className="lg:col-span-2">
-          <LineChartCard
+          <AreaChartCard
             title="New Accounts Trend"
             data={trend.data || []}
             xKey="month"
-            lines={[{ key: 'new_accounts', label: 'New Accounts', color: '#C00000' }]}
+            areas={[{ key: 'new_accounts', label: 'New Accounts', color: '#C00000' }]}
             height={280}
           />
         </div>
         <StatSummaryCard
-          title="Top Months"
+          title="Best Months"
           icon="emoji_events"
           accent="amber"
           items={(trend.data || [])
@@ -88,7 +65,7 @@ export default function Sales({ setDs }) {
           maxItems={10}
         />
         <ProgressListCard
-          title="Accounts by Account Manager"
+          title="Accounts by Manager"
           data={managers.data || []}
           nameKey="Account Manager"
           valueKey="accounts"

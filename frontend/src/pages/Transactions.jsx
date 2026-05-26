@@ -1,7 +1,15 @@
 import { useEffect } from 'react'
 import { useApi } from '../hooks/useApi.js'
-import { KpiCard, CurrencyLineCard, HBarCard, DonutCard, fmt, fmtNum } from '../components/Charts.jsx'
+import { KpiCard, AreaChartCard, ProgressListCard, fmt, fmtNum } from '../components/Charts.jsx'
 import PageShell from '../components/PageShell.jsx'
+
+function calcMoM(arr, key) {
+  if (!arr || arr.length < 2) return null
+  const prev = Number(arr[arr.length - 2]?.[key] ?? 0)
+  const curr = Number(arr[arr.length - 1]?.[key] ?? 0)
+  if (prev === 0) return null
+  return ((curr - prev) / prev) * 100
+}
 
 export default function Transactions({ setDs }) {
   const kpis      = useApi('/api/transactions/kpis')
@@ -11,65 +19,63 @@ export default function Transactions({ setDs }) {
 
   useEffect(() => { if (kpis.dataSource) setDs(kpis.dataSource) }, [kpis.dataSource])
 
-  const d = kpis.data || {}
+  const d        = kpis.data || {}
+  const volTrend = calcMoM(trend.data, 'volume')
 
   return (
-    <PageShell title="Transactions" subtitle="Volume, trends and merchant breakdown" source={kpis.dataSource} error={kpis.error}>
-      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-4">
-        <KpiCard label="Total Volume"      value={fmt(d.total_volume)}         accent="accent" icon="payments" />
-        <KpiCard label="Transaction Count" value={fmtNum(d.transaction_count)} accent="navy"   icon="receipt_long" />
-        <KpiCard label="Volume (MTD)"      value={fmt(d.volume_mtd)}           accent="green"  icon="calendar_month" />
-        <KpiCard label="Avg Txn Value"     value={fmt(d.avg_txn_value)}        accent="amber"  icon="calculate" />
-        <KpiCard label="Unique Merchants"  value={fmtNum(d.unique_merchants)}  accent="navy"   icon="store" />
+    <PageShell title="Transactions" subtitle="Volume, trends, and merchant breakdown" source={kpis.dataSource} error={kpis.error}>
+
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <KpiCard label="Total Volume"      value={fmt(d.total_volume)}         icon="payments"      accent="accent" trend={volTrend} />
+        <KpiCard label="Transaction Count" value={fmtNum(d.transaction_count)} icon="receipt_long"  accent="navy" />
+        <KpiCard label="Volume (MTD)"      value={fmt(d.volume_mtd)}           icon="calendar_month" accent="green" />
+        <KpiCard label="Avg Txn Value"     value={fmt(d.avg_txn_value)}        icon="calculate"     accent="amber" />
+        <KpiCard label="Unique Merchants"  value={fmtNum(d.unique_merchants)}  icon="storefront"    accent="navy" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-        <CurrencyLineCard
-          title="Monthly Volume Trend"
-          data={trend.data || []}
-          xKey="month"
-          lines={[{ key: 'volume', label: 'Volume', color: '#C00000' }]}
-        />
-        <DonutCard
-          title="Transactions by Type"
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+        <div className="lg:col-span-2">
+          <AreaChartCard
+            title="Monthly Volume Trend"
+            data={trend.data || []}
+            xKey="month"
+            areas={[{ key: 'volume', label: 'Volume', color: '#C00000' }]}
+            height={260}
+            currency
+          />
+        </div>
+        <ProgressListCard
+          title="Transaction Types"
           data={(byType.data || []).slice(0, 8)}
           nameKey="Description"
           valueKey="count"
-        />
-      </div>
-
-      <div className="mt-4">
-        <HBarCard
-          title="Top 10 Merchants by Volume"
-          data={merchants.data || []}
-          nameKey="Merchant_Name"
-          valueKey="volume"
-          currency
+          maxItems={8}
         />
       </div>
 
       {merchants.data?.length > 0 && (
         <div className="card mt-4 overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-700">
-            <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Top Merchants</p>
+          <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700/60 flex items-center justify-between">
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Top Merchants by Volume</p>
+            <span className="badge badge-grey">{merchants.data.length} merchants</span>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 dark:bg-slate-800/50 text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            <table className="data-table">
+              <thead>
                 <tr>
-                  <th className="px-5 py-3 text-left">#</th>
-                  <th className="px-5 py-3 text-left">Merchant</th>
-                  <th className="px-5 py-3 text-right">Volume</th>
-                  <th className="px-5 py-3 text-right">Transactions</th>
+                  <th className="w-10">#</th>
+                  <th>Merchant</th>
+                  <th className="text-right">Volume</th>
+                  <th className="text-right">Transactions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+              <tbody>
                 {merchants.data.map((row, i) => (
-                  <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                    <td className="px-5 py-3 text-slate-400 font-mono text-xs">{i + 1}</td>
-                    <td className="px-5 py-3 font-semibold text-slate-800 dark:text-slate-200">{row.Merchant_Name}</td>
-                    <td className="px-5 py-3 text-right font-mono text-slate-700 dark:text-slate-300">{fmt(row.volume)}</td>
-                    <td className="px-5 py-3 text-right font-mono text-slate-700 dark:text-slate-300">{fmtNum(row.count)}</td>
+                  <tr key={i}>
+                    <td className="text-slate-300 dark:text-slate-600 font-mono text-xs tabular-nums">{i + 1}</td>
+                    <td className="font-medium text-slate-800 dark:text-slate-200">{row.Merchant_Name}</td>
+                    <td className="text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">{fmt(row.volume)}</td>
+                    <td className="text-right font-mono tabular-nums text-slate-500">{fmtNum(row.count)}</td>
                   </tr>
                 ))}
               </tbody>

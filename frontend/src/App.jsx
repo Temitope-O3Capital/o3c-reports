@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './hooks/useAuth.js'
-import DataBanner from './components/DataBanner.jsx'
 import SyncPanel from './components/SyncPanel.jsx'
+import DataBanner from './components/DataBanner.jsx'
 import Login from './pages/Login.jsx'
 import Overview from './pages/Overview.jsx'
 import Transactions from './pages/Transactions.jsx'
@@ -13,15 +13,14 @@ import Cards from './pages/Cards.jsx'
 import Cohort from './pages/Cohort.jsx'
 import Admin from './pages/Admin.jsx'
 
-const NAV_ITEMS = [
-  { page: 'overview',      label: 'Overview',      path: '/',             icon: 'grid_view' },
-  { page: 'transactions',  label: 'Transactions',  path: '/transactions', icon: 'receipt_long' },
-  { page: 'cards',         label: 'Cards',         path: '/cards',        icon: 'credit_card' },
-  { page: 'sales',         label: 'Sales',         path: '/sales',        icon: 'trending_up' },
-  { page: 'collections',   label: 'Collections',   path: '/collections',  icon: 'account_balance' },
-  { page: 'recovery',      label: 'Recovery',      path: '/recovery',     icon: 'gavel' },
-  { page: 'cohort',        label: 'Cohort',        path: '/cohort',       icon: 'groups' },
-  { page: 'admin',         label: 'Settings',      path: '/admin',        icon: 'manage_accounts' },
+const NAV = [
+  { page: 'overview',     label: 'Overview',      path: '/',             icon: 'space_dashboard' },
+  { page: 'transactions', label: 'Transactions',  path: '/transactions', icon: 'receipt_long' },
+  { page: 'cards',        label: 'Cards',         path: '/cards',        icon: 'credit_card' },
+  { page: 'sales',        label: 'Sales',         path: '/sales',        icon: 'trending_up' },
+  { page: 'collections',  label: 'Collections',   path: '/collections',  icon: 'account_balance_wallet' },
+  { page: 'recovery',     label: 'Recovery',      path: '/recovery',     icon: 'gavel' },
+  { page: 'cohort',       label: 'Cohort',        path: '/cohort',       icon: 'group_work' },
 ]
 
 export default function App() {
@@ -35,22 +34,20 @@ export default function App() {
 function AppInner() {
   const { user, loading, login, logout, canAccess } = useAuth()
   const [dataSource, setDataSource] = useState(null)
-  const [lastSync,   setLastSync]   = useState(null)
   const [syncOpen,   setSyncOpen]   = useState(false)
   const [sideOpen,   setSideOpen]   = useState(false)
   const [isDark,     setIsDark]     = useState(() => localStorage.getItem('o3c_theme') === 'dark')
 
   useEffect(() => {
-    if (isDark) document.documentElement.classList.add('dark')
-    else        document.documentElement.classList.remove('dark')
+    document.documentElement.classList.toggle('dark', isDark)
     localStorage.setItem('o3c_theme', isDark ? 'dark' : 'light')
   }, [isDark])
 
   if (loading) return (
-    <div className="flex items-center justify-center h-screen bg-slate-50 dark:bg-slate-900">
+    <div className="h-screen flex items-center justify-center bg-[#F8FAFC] dark:bg-slate-900">
       <div className="flex flex-col items-center gap-3">
-        <div className="spinner" />
-        <p className="text-sm text-slate-500">Loading…</p>
+        <div className="spinner" style={{ width: 24, height: 24 }} />
+        <p className="text-xs text-slate-400 font-medium">Loading</p>
       </div>
     </div>
   )
@@ -60,167 +57,233 @@ function AppInner() {
   const initials = (user.full_name || user.email)
     .split(' ').slice(0, 2).map(w => w[0].toUpperCase()).join('')
 
-  const visibleNav = NAV_ITEMS.filter(n => canAccess(n.page))
-
-  const Sidebar = ({ mobile = false }) => (
-    <aside className={`flex flex-col bg-primary dark:bg-primary-dark h-full ${mobile ? 'w-72' : 'w-64'}`}>
-      {/* Brand */}
-      <div className="px-6 pt-6 pb-4">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-2xl font-black text-white tracking-tight">
-            O3<span className="text-accent">C</span>
-          </span>
-          <span className="text-white/40 text-xs font-medium mt-0.5">Cards</span>
-        </div>
-        <p className="text-white/40 text-[11px] font-medium tracking-widest uppercase">Reports Dashboard</p>
-      </div>
-
-      <div className="mx-4 border-t border-white/10 mb-3" />
-
-      {/* Nav */}
-      <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
-        <p className="px-3 text-[10px] font-semibold text-white/30 uppercase tracking-widest mb-2">Dashboards</p>
-        {visibleNav.filter(n => n.page !== 'admin').map(n => (
-          <NavLink
-            key={n.page}
-            to={n.path}
-            end={n.path === '/'}
-            onClick={() => setSideOpen(false)}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-white/15 text-white border-l-2 border-accent ml-0 pl-[10px]'
-                  : 'text-white/60 hover:bg-white/10 hover:text-white'
-              }`
-            }
-          >
-            <span className="material-symbols-outlined text-[20px]">{n.icon}</span>
-            {n.label}
-          </NavLink>
-        ))}
-
-        {canAccess('admin') && (
-          <>
-            <div className="mx-3 border-t border-white/10 my-3" />
-            <p className="px-3 text-[10px] font-semibold text-white/30 uppercase tracking-widest mb-2">Admin</p>
-            <NavLink
-              to="/admin"
-              onClick={() => setSideOpen(false)}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-white/15 text-white border-l-2 border-accent pl-[10px]'
-                    : 'text-white/60 hover:bg-white/10 hover:text-white'
-                }`
-              }
-            >
-              <span className="material-symbols-outlined text-[20px]">manage_accounts</span>
-              Settings
-            </NavLink>
-          </>
-        )}
-      </nav>
-
-      {/* Footer */}
-      <div className="p-4 mt-auto">
-        <div className="mx-0 border-t border-white/10 mb-3" />
-        <button
-          onClick={() => setIsDark(d => !d)}
-          className="w-full flex items-center gap-3 px-3 py-2 text-sm text-white/50 hover:text-white hover:bg-white/10 rounded-lg transition-colors mb-2"
-        >
-          <span className="material-symbols-outlined text-[18px]">{isDark ? 'light_mode' : 'dark_mode'}</span>
-          {isDark ? 'Light mode' : 'Dark mode'}
-        </button>
-        <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/10 transition-colors">
-          <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-            {initials}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm text-white font-semibold truncate">{user.full_name || user.email}</p>
-            <p className="text-[11px] text-white/40 capitalize">{(user.role || '').replace('_', ' ')}</p>
-          </div>
-          <button onClick={logout} title="Sign out" className="text-white/40 hover:text-white transition-colors">
-            <span className="material-symbols-outlined text-[18px]">logout</span>
-          </button>
-        </div>
-      </div>
-    </aside>
-  )
+  const visibleNav = NAV.filter(n => canAccess(n.page))
 
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-900 overflow-hidden">
-      {/* Desktop sidebar */}
-      <div className="hidden lg:flex flex-shrink-0 h-screen sticky top-0">
-        <Sidebar />
-      </div>
+    <div className="flex h-screen bg-[#F8FAFC] dark:bg-slate-900 overflow-hidden">
 
-      {/* Mobile sidebar overlay */}
+      {/* ── Mobile overlay ── */}
       {sideOpen && (
         <div className="lg:hidden fixed inset-0 z-50 flex">
-          <div className="fixed inset-0 bg-black/50" onClick={() => setSideOpen(false)} />
-          <div className="relative z-10 h-full">
-            <Sidebar mobile />
-          </div>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setSideOpen(false)} />
+          <aside className="relative z-10 flex flex-col w-64 bg-primary h-full">
+            <SidebarContent
+              visibleNav={visibleNav}
+              canAccess={canAccess}
+              user={user}
+              initials={initials}
+              isDark={isDark}
+              setIsDark={setIsDark}
+              logout={logout}
+              onNav={() => setSideOpen(false)}
+            />
+          </aside>
         </div>
       )}
 
-      {/* Main content */}
+      {/* ── Desktop sidebar ── */}
+      <aside className="hidden lg:flex flex-col w-60 bg-primary dark:bg-primary-dark flex-shrink-0 h-screen">
+        <SidebarContent
+          visibleNav={visibleNav}
+          canAccess={canAccess}
+          user={user}
+          initials={initials}
+          isDark={isDark}
+          setIsDark={setIsDark}
+          logout={logout}
+          onNav={() => {}}
+        />
+      </aside>
+
+      {/* ── Main area ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+
         {/* Topbar */}
-        <header className="sticky top-0 z-40 flex items-center gap-4 bg-white/90 dark:bg-slate-800/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-700 px-4 lg:px-6 py-3">
-          <button
-            className="lg:hidden icon-btn"
-            onClick={() => setSideOpen(true)}
-          >
-            <span className="material-symbols-outlined">menu</span>
+        <header className="flex-shrink-0 h-14 flex items-center gap-3 px-4 lg:px-6 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+          <button className="lg:hidden btn-icon" onClick={() => setSideOpen(true)}>
+            <span className="material-symbols-rounded text-[22px]">menu</span>
           </button>
 
-          <div className="flex-1 min-w-0">
-            <DataBanner source={dataSource} lastSync={lastSync} />
-          </div>
+          <PageTitle />
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 ml-auto">
+            <DataBanner source={dataSource} compact />
+
             {user.role === 'admin' && (
               <button
                 onClick={() => setSyncOpen(true)}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-primary text-white rounded-lg hover:bg-primary-light transition-colors"
+                className="hidden sm:flex btn btn-ghost btn-sm gap-1.5 text-slate-600"
               >
-                <span className="material-symbols-outlined text-[16px]">sync</span>
+                <span className="material-symbols-rounded text-[16px]">sync</span>
                 Sync
               </button>
             )}
+
+            <button
+              onClick={() => setIsDark(d => !d)}
+              className="btn-icon"
+              title={isDark ? 'Light mode' : 'Dark mode'}
+            >
+              <span className="material-symbols-rounded text-[20px]">
+                {isDark ? 'light_mode' : 'dark_mode'}
+              </span>
+            </button>
           </div>
         </header>
 
-        {/* Page body */}
+        {/* Page content */}
         <main className="flex-1 overflow-y-auto">
           <Routes>
-            <Route path="/"             element={<Guard page="overview"     canAccess={canAccess}><Overview     setDs={setDataSource} /></Guard>} />
-            <Route path="/transactions" element={<Guard page="transactions" canAccess={canAccess}><Transactions setDs={setDataSource} /></Guard>} />
-            <Route path="/cards"        element={<Guard page="cards"        canAccess={canAccess}><Cards        setDs={setDataSource} /></Guard>} />
-            <Route path="/sales"        element={<Guard page="sales"        canAccess={canAccess}><Sales        setDs={setDataSource} /></Guard>} />
-            <Route path="/collections"  element={<Guard page="collections"  canAccess={canAccess}><Collections  setDs={setDataSource} /></Guard>} />
-            <Route path="/recovery"     element={<Guard page="recovery"     canAccess={canAccess}><Recovery     setDs={setDataSource} /></Guard>} />
-            <Route path="/cohort"       element={<Guard page="cohort"       canAccess={canAccess}><Cohort       setDs={setDataSource} /></Guard>} />
-            <Route path="/admin"        element={<Guard page="admin"        canAccess={canAccess}><Admin /></Guard>} />
+            <Route path="/"             element={<Guard page="overview"     ca={canAccess}><Overview     setDs={setDataSource} /></Guard>} />
+            <Route path="/transactions" element={<Guard page="transactions" ca={canAccess}><Transactions setDs={setDataSource} /></Guard>} />
+            <Route path="/cards"        element={<Guard page="cards"        ca={canAccess}><Cards        setDs={setDataSource} /></Guard>} />
+            <Route path="/sales"        element={<Guard page="sales"        ca={canAccess}><Sales        setDs={setDataSource} /></Guard>} />
+            <Route path="/collections"  element={<Guard page="collections"  ca={canAccess}><Collections  setDs={setDataSource} /></Guard>} />
+            <Route path="/recovery"     element={<Guard page="recovery"     ca={canAccess}><Recovery     setDs={setDataSource} /></Guard>} />
+            <Route path="/cohort"       element={<Guard page="cohort"       ca={canAccess}><Cohort       setDs={setDataSource} /></Guard>} />
+            <Route path="/admin"        element={<Guard page="admin"        ca={canAccess}><Admin /></Guard>} />
             <Route path="*"             element={<DefaultRedirect canAccess={canAccess} />} />
           </Routes>
         </main>
       </div>
 
-      {syncOpen && (
-        <SyncPanel onClose={() => setSyncOpen(false)} onSynced={setLastSync} />
-      )}
+      {syncOpen && <SyncPanel onClose={() => setSyncOpen(false)} onSynced={() => {}} />}
     </div>
   )
 }
 
-function Guard({ page, canAccess, children }) {
-  if (!canAccess(page)) return <Navigate to="/" replace />
+/* ── Sidebar content ─────────────────────────────────────────────────────── */
+function SidebarContent({ visibleNav, canAccess, user, initials, isDark, setIsDark, logout, onNav }) {
+  return (
+    <>
+      {/* Brand */}
+      <div className="px-5 pt-5 pb-4 flex-shrink-0">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-[22px] font-bold text-white tracking-tight">
+            O3<span className="text-accent">C</span>
+          </span>
+          <span className="text-white/40 text-xs font-medium">Cards</span>
+        </div>
+        <p className="text-[10px] font-semibold text-white/25 uppercase tracking-[0.12em] mt-0.5">
+          Reports Dashboard
+        </p>
+      </div>
+
+      <div className="mx-4 border-t border-white/[0.08]" />
+
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto px-3 py-3">
+        <p className="px-2 text-[10px] font-semibold text-white/25 uppercase tracking-[0.12em] mb-2">
+          Dashboards
+        </p>
+        {visibleNav.map(n => (
+          <NavLink
+            key={n.page}
+            to={n.path}
+            end={n.path === '/'}
+            onClick={onNav}
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all mb-0.5 ${
+                isActive
+                  ? 'bg-white/[0.1] text-white'
+                  : 'text-white/50 hover:text-white/80 hover:bg-white/[0.05]'
+              }`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <span className={`material-symbols-rounded text-[19px] flex-shrink-0 transition-all ${isActive ? 'opacity-100' : 'opacity-60'}`}>
+                  {n.icon}
+                </span>
+                {n.label}
+                {isActive && <span className="ml-auto w-1 h-4 rounded-full bg-accent flex-shrink-0" />}
+              </>
+            )}
+          </NavLink>
+        ))}
+
+        {canAccess('admin') && (
+          <>
+            <div className="mx-2 border-t border-white/[0.08] my-3" />
+            <p className="px-2 text-[10px] font-semibold text-white/25 uppercase tracking-[0.12em] mb-2">
+              Admin
+            </p>
+            <NavLink
+              to="/admin"
+              onClick={onNav}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all ${
+                  isActive
+                    ? 'bg-white/[0.1] text-white'
+                    : 'text-white/50 hover:text-white/80 hover:bg-white/[0.05]'
+                }`
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <span className={`material-symbols-rounded text-[19px] flex-shrink-0 ${isActive ? 'opacity-100' : 'opacity-60'}`}>
+                    manage_accounts
+                  </span>
+                  Settings
+                  {isActive && <span className="ml-auto w-1 h-4 rounded-full bg-accent flex-shrink-0" />}
+                </>
+              )}
+            </NavLink>
+          </>
+        )}
+      </nav>
+
+      {/* User footer */}
+      <div className="flex-shrink-0 p-3">
+        <div className="mx-1 border-t border-white/[0.08] mb-3" />
+        <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-white/[0.05] transition-colors group">
+          <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+            {initials}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-medium text-white truncate leading-tight">
+              {user.full_name || user.email}
+            </p>
+            <p className="text-[10px] text-white/35 capitalize leading-tight mt-0.5">
+              {(user.role || '').replace(/_/g, ' ')}
+            </p>
+          </div>
+          <button
+            onClick={logout}
+            title="Sign out"
+            className="opacity-0 group-hover:opacity-100 text-white/40 hover:text-white/80 transition-all flex-shrink-0"
+          >
+            <span className="material-symbols-rounded text-[18px]">logout</span>
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+/* ── Page title from route ───────────────────────────────────────────────── */
+function PageTitle() {
+  const { pathname } = useLocation()
+  const titles = {
+    '/':             'Overview',
+    '/transactions': 'Transactions',
+    '/cards':        'Cards',
+    '/sales':        'Sales & Growth',
+    '/collections':  'Collections',
+    '/recovery':     'Recovery',
+    '/cohort':       'Cohort Analysis',
+    '/admin':        'Settings',
+  }
+  const title = titles[pathname] || 'Dashboard'
+  return <p className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">{title}</p>
+}
+
+function Guard({ page, ca, children }) {
+  if (!ca(page)) return <Navigate to="/" replace />
   return children
 }
 
 function DefaultRedirect({ canAccess }) {
-  const first = NAV_ITEMS.find(n => canAccess(n.page))
+  const first = NAV.find(n => canAccess(n.page))
   return <Navigate to={first?.path || '/'} replace />
 }

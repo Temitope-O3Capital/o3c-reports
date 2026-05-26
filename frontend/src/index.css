@@ -3,61 +3,127 @@
 @tailwind utilities;
 
 @layer base {
-  html { font-family: 'Manrope', sans-serif; }
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
   * { box-sizing: border-box; }
 
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
   .dark ::-webkit-scrollbar-thumb { background: #334155; }
 }
 
 @layer components {
+  /* ── Cards ── */
   .card {
-    @apply bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm;
+    @apply bg-white dark:bg-slate-800 rounded-xl border border-slate-200/70 dark:border-slate-700/70;
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+    transition: box-shadow 0.15s ease;
   }
-  .icon-btn {
-    @apply p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-300 transition-colors;
+  .card-hover:hover {
+    box-shadow: 0 4px 12px 0 rgb(0 0 0 / 0.08), 0 2px 4px -1px rgb(0 0 0 / 0.04);
   }
+
+  /* ── Buttons ── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 font-medium rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1;
+  }
+  .btn-primary {
+    @apply btn bg-primary text-white hover:bg-primary-light active:scale-[0.98] px-4 py-2 text-sm;
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.1);
+  }
+  .btn-ghost {
+    @apply btn text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-slate-200 px-3 py-2 text-sm;
+  }
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+  .btn-icon {
+    @apply p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200 transition-colors;
+  }
+
+  /* ── Badges ── */
   .badge {
-    @apply inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide;
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold tracking-wide;
   }
-  .badge-green  { @apply bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400; }
-  .badge-red    { @apply bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400; }
-  .badge-amber  { @apply bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400; }
-  .badge-navy   { @apply bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300; }
+  .badge-green  { @apply bg-emerald-50 text-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-400; }
+  .badge-red    { @apply bg-red-50 text-red-700 dark:bg-red-900/25 dark:text-red-400; }
+  .badge-amber  { @apply bg-amber-50 text-amber-700 dark:bg-amber-900/25 dark:text-amber-400; }
+  .badge-blue   { @apply bg-blue-50 text-blue-700 dark:bg-blue-900/25 dark:text-blue-400; }
+  .badge-navy   { @apply bg-primary-50 text-primary dark:bg-primary/20 dark:text-primary-100; }
   .badge-grey   { @apply bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300; }
-  .badge-blue   { @apply bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400; }
+
+  /* ── Table ── */
+  .data-table { @apply w-full text-sm; }
+  .data-table thead { @apply bg-slate-50 dark:bg-slate-800/60; }
+  .data-table thead th {
+    @apply px-5 py-3 text-left text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider whitespace-nowrap;
+  }
+  .data-table tbody tr {
+    @apply border-t border-slate-100 dark:border-slate-700/60 hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors;
+  }
+  .data-table tbody td {
+    @apply px-5 py-3.5;
+  }
+
+  /* ── Form inputs ── */
+  .form-input {
+    @apply block w-full px-3.5 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 transition-colors;
+    outline: none;
+  }
+  .form-input:focus {
+    @apply border-primary dark:border-primary-100;
+    box-shadow: 0 0 0 3px rgb(14 40 65 / 0.08);
+  }
+  .form-label {
+    @apply block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5;
+  }
 }
 
-/* Heatmap */
+/* ── Cohort Heatmap ── */
 .heatmap-wrap { overflow-x: auto; }
-.heatmap-table { border-collapse: collapse; font-size: 12px; white-space: nowrap; }
-.heatmap-table th { padding: 4px 8px; font-weight: 600; color: #64748b; }
+.heatmap-table { border-collapse: separate; border-spacing: 2px; font-size: 11px; white-space: nowrap; }
+.heatmap-table th { padding: 4px 8px; font-weight: 600; color: #94A3B8; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
 .heatmap-table td { padding: 3px 4px; text-align: center; }
-.cohort-label  { text-align: left !important; font-weight: 600; color: #475569; padding-right: 12px !important; }
-.heatmap-cell  { min-width: 42px; font-size: 11px; font-weight: 600; }
+.cohort-label  { text-align: left !important; font-weight: 500; color: #64748B; padding-right: 16px !important; }
+.heatmap-cell  { min-width: 44px; font-size: 11px; font-weight: 600; border-radius: 5px; }
 
-/* Recharts tooltip */
-.recharts-tooltip-wrapper .recharts-default-tooltip {
-  border-radius: 8px !important;
-  border: 1px solid #e2e8f0 !important;
-  font-size: 12px !important;
-  font-family: 'Manrope', sans-serif !important;
+/* ── Recharts custom ── */
+.recharts-tooltip-wrapper { outline: none; }
+
+/* ── Skeleton loading ── */
+.skeleton {
+  background: linear-gradient(90deg, #F1F5F9 25%, #E2E8F0 50%, #F1F5F9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+.dark .skeleton {
+  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background-size: 200% 100%;
 }
 
-/* Loading spinner */
+/* ── Loading spinner ── */
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinner {
   width: 18px; height: 18px;
-  border: 2px solid #e2e8f0;
+  border: 2px solid #E2E8F0;
   border-top-color: #0E2841;
   border-radius: 50%;
-  animation: spin 0.7s linear infinite;
+  animation: spin 0.65s linear infinite;
   display: inline-block;
+  flex-shrink: 0;
 }
+.dark .spinner { border-color: #334155; border-top-color: #94A3B8; }
 
-/* Pulse dot for live indicator */
-@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-.pulse-dot { animation: pulse-dot 2s infinite; }
+/* ── Pulse dot ── */
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+/* ── Nav fade-in ── */
+.page-enter { animation: fade-in 0.18s ease-out; }
