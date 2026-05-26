@@ -54,7 +54,7 @@ export function KpiCard({ label, value, sub, accent = 'navy', icon, trend, trend
   const iconBg = ICON_BG[accent] || ICON_BG.navy
   const trendUp = trend != null && trend >= 0
   return (
-    <div className="card p-5">
+    <div className="card p-6">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider leading-tight truncate">
@@ -91,8 +91,8 @@ export function KpiCard({ label, value, sub, accent = 'navy', icon, trend, trend
 /* ── Shared chart card wrapper ──────────────────────────────────────────────── */
 function ChartCard({ title, children }) {
   return (
-    <div className="card p-5">
-      <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-4">{title}</p>
+    <div className="card p-6">
+      <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-5">{title}</p>
       {children}
     </div>
   )
@@ -212,12 +212,12 @@ export function ProgressListCard({ title, data = [], nameKey, valueKey, currency
   const max = Math.max(...items.map(d => Number(d[valueKey] || 0)), 1)
   const total = items.reduce((s, d) => s + Number(d[valueKey] || 0), 0)
   return (
-    <div className="card p-5">
-      <div className="flex items-center justify-between mb-4">
+    <div className="card p-6">
+      <div className="flex items-center justify-between mb-5">
         <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{title}</p>
         {actions}
       </div>
-      <div className="space-y-3">
+      <div className="space-y-4">
         {items.map((item, i) => {
           const val = Number(item[valueKey] || 0)
           const barPct = (val / max) * 100
@@ -255,8 +255,8 @@ export function ProgressListCard({ title, data = [], nameKey, valueKey, currency
 export function StatSummaryCard({ title, icon, items = [], accent = 'navy' }) {
   const iconBg = ICON_BG[accent] || ICON_BG.navy
   return (
-    <div className="card p-5">
-      <div className="flex items-center gap-3 mb-4">
+    <div className="card p-6">
+      <div className="flex items-center gap-3 mb-5">
         {icon && (
           <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${iconBg}`}>
             <span className="material-symbols-outlined text-[18px]">{icon}</span>
@@ -264,9 +264,9 @@ export function StatSummaryCard({ title, icon, items = [], accent = 'navy' }) {
         )}
         <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{title}</p>
       </div>
-      <div className="space-y-2">
+      <div className="space-y-0">
         {items.map((item, i) => (
-          <div key={i} className="flex items-center justify-between py-1.5 border-b border-slate-100 dark:border-slate-700 last:border-0">
+          <div key={i} className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-700 last:border-0">
             <span className="text-xs text-slate-500 dark:text-slate-400">{item.label}</span>
             <span className={`text-sm font-bold font-mono ${item.color || 'text-slate-800 dark:text-slate-200'}`}>{item.value}</span>
           </div>

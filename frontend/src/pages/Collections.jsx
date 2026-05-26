@@ -33,7 +33,7 @@ export default function Collections({ setDs }) {
   return (
     <PageShell title="Collections" subtitle="Agent performance, collection modes and monthly trends" source={kpis.dataSource} error={kpis.error}>
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-6">
         <KpiCard label="Total Collected"   value={fmt(d.total_collected)}       accent="green"  icon="account_balance" />
         <KpiCard label="Collections (MTD)" value={fmt(d.collections_mtd)}       accent="accent" icon="calendar_month" trend={mTrend} />
         <KpiCard label="Collection Count"  value={fmtNum(d.collection_count)}   accent="navy"   icon="tag" />
@@ -41,7 +41,7 @@ export default function Collections({ setDs }) {
         <KpiCard label="Transfer"          value={fmt(d.transfer_collections)}  accent="navy"   icon="swap_horiz" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
         <div className="lg:col-span-2">
           <CurrencyLineCard
             title="Monthly Collections Trend"
@@ -61,7 +61,7 @@ export default function Collections({ setDs }) {
         />
       </div>
 
-      <div className="mt-4">
+      <div className="mt-6">
         <ProgressListCard
           title="Top 15 Agents by Collections"
           data={agents.data || []}
@@ -73,7 +73,7 @@ export default function Collections({ setDs }) {
       </div>
 
       {log.data?.length > 0 && (
-        <div className="card mt-4 overflow-hidden">
+        <div className="card mt-6 overflow-hidden">
           <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
             <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Collections Log</p>
             <span className="badge badge-grey">{log.data.length} entries</span>
