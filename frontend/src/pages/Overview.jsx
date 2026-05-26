@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useApi } from '../hooks/useApi.js'
-import { KpiCard, CurrencyLineCard, LineChartCard, DonutCard, ProgressListCard, StatSummaryCard, fmt, fmtNum, pct } from '../components/Charts.jsx'
+import { KpiCard, CurrencyLineCard, LineChartCard, ProgressListCard, StatSummaryCard, fmt, fmtNum, pct } from '../components/Charts.jsx'
 import PageShell from '../components/PageShell.jsx'
 
 function calcMoM(arr, key) {
@@ -22,11 +22,8 @@ export default function Overview({ setDs }) {
 
   const d = kpis.data || {}
 
-  const volTrend     = calcMoM(volume.data, 'volume')
-  const acctTrend    = calcMoM(trend.data, 'new_accounts')
-  const txnCntTrend  = calcMoM(volume.data, 'txn_count')
-
-  const totalCards = (byProd.data || []).reduce((s, r) => s + Number(r.count || 0), 0)
+  const volTrend  = calcMoM(volume.data, 'volume')
+  const acctTrend = calcMoM(trend.data, 'new_accounts')
 
   return (
     <PageShell title="Executive Overview" subtitle="Real-time KPIs across all O3C Cards business units" source={kpis.dataSource} error={kpis.error}>
