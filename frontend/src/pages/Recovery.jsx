@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useApi } from '../hooks/useApi.js'
-import { KpiCard, CurrencyLineCard, DonutCard, fmt, fmtNum, pct } from '../components/Charts.jsx'
+import { KpiCard, CurrencyLineCard, ProgressListCard, fmt, fmtNum, pct } from '../components/Charts.jsx'
 import PageShell from '../components/PageShell.jsx'
 
 function LegalBadge({ stage }) {
@@ -41,12 +41,13 @@ export default function Recovery({ setDs }) {
           xKey="month"
           lines={[{ key: 'total', label: 'Recovered', color: '#166534' }]}
         />
-        <DonutCard
+        <ProgressListCard
           title="Recovery by Method"
           data={byMeth.data || []}
           nameKey="Recovery Method"
           valueKey="total"
           currency
+          maxItems={8}
         />
       </div>
 

@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useApi } from '../hooks/useApi.js'
-import { KpiCard, DonutCard, fmtNum, pct } from '../components/Charts.jsx'
+import { KpiCard, DonutCard, ProgressListCard, fmtNum, pct } from '../components/Charts.jsx'
 import PageShell from '../components/PageShell.jsx'
 
 export default function Cards({ setDs }) {
@@ -24,17 +24,19 @@ export default function Cards({ setDs }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-        <DonutCard
+        <ProgressListCard
           title="Cards by Product Type"
           data={byProd.data || []}
           nameKey="Product Name"
           valueKey="count"
+          maxItems={8}
         />
-        <DonutCard
+        <ProgressListCard
           title="Cards by Account Status"
           data={byStatus.data || []}
           nameKey="Account Status"
           valueKey="count"
+          maxItems={8}
         />
       </div>
 

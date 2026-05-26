@@ -1,0 +1,116 @@
+name: Setup Supabase Schema
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run schema setup
+        env:
+          PGPASSWORD: "No@08091130049"
+        run: |
+          sudo apt-get install -y postgresql-client
+
+          psql "postgresql://postgres@db.ojrqdxuffftupltkrlod.supabase.co:5432/postgres?sslmode=require" <<'EOSQL'
+          CREATE TABLE IF NOT EXISTS o3c_users (
+            id            SERIAL PRIMARY KEY,
+            email         TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            full_name     TEXT NOT NULL,
+            role          TEXT NOT NULL DEFAULT 'call_centre',
+            department    TEXT,
+            created_at    TIMESTAMPTZ DEFAULT NOW()
+          );
+
+          CREATE TABLE IF NOT EXISTS "Accounts" (
+            "CIF Number"           TEXT,
+            "Account Created Date" TIMESTAMPTZ,
+            "First Name"           TEXT,
+            "Last Name"            TEXT,
+            "Full Address"         TEXT,
+            "Birthday"             DATE,
+            "Email"                TEXT,
+            "Job Title"            TEXT,
+            "State"                TEXT,
+            "City"                 TEXT
+          );
+
+          CREATE TABLE IF NOT EXISTS "Products" (
+            "CIF Number"      TEXT,
+            "Name On Card"    TEXT,
+            "Account Manager" TEXT,
+            "Product Name"    TEXT,
+            "Account Status"  TEXT
+          );
+
+          CREATE TABLE IF NOT EXISTS "Transactions" (
+            "Transaction Date" TIMESTAMPTZ,
+            "Amount"           NUMERIC,
+            "Description"      TEXT,
+            "Merchant_Name"    TEXT,
+            "CIF Number"       TEXT
+          );
+
+          CREATE TABLE IF NOT EXISTS "Monthly Activity" (
+            "CIF Number"    TEXT,
+            "ActivityMonth" TIMESTAMPTZ,
+            "TxnCount"      INTEGER,
+            "TotalSpend"    NUMERIC
+          );
+
+          CREATE TABLE IF NOT EXISTS "Collections Log" (
+            "Date"            TIMESTAMPTZ,
+            "CIF"             TEXT,
+            "Agent"           TEXT,
+            "Amount"          NUMERIC,
+            "Mode Of Payment" TEXT,
+            "Payment Receipt" TEXT
+          );
+
+          CREATE TABLE IF NOT EXISTS "CIF Table" (
+            "CIF Number"   TEXT,
+            "Cohort Date"  TIMESTAMPTZ,
+            "Cohort Label" TEXT
+          );
+
+          CREATE TABLE IF NOT EXISTS "Recovery Master Sheet" (
+            "CIF Number"      TEXT,
+            "Recovery Date"   TIMESTAMPTZ,
+            "Recovery Amount" NUMERIC,
+            "Recovery Method" TEXT,
+            "Legal Stage"     TEXT,
+            "Agent"           TEXT,
+            "Status"          TEXT
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_txn_date      ON "Transactions" ("Transaction Date");
+          CREATE INDEX IF NOT EXISTS idx_txn_cif       ON "Transactions" ("CIF Number");
+          CREATE INDEX IF NOT EXISTS idx_acc_created   ON "Accounts" ("Account Created Date");
+          CREATE INDEX IF NOT EXISTS idx_coll_date     ON "Collections Log" ("Date");
+          CREATE INDEX IF NOT EXISTS idx_recovery_date ON "Recovery Master Sheet" ("Recovery Date");
+          CREATE INDEX IF NOT EXISTS idx_ma_month      ON "Monthly Activity" ("ActivityMonth");
+          CREATE INDEX IF NOT EXISTS idx_cif_cohort    ON "CIF Table" ("Cohort Date");
+
+          ALTER TABLE "Accounts"              DISABLE ROW LEVEL SECURITY;
+          ALTER TABLE "Products"              DISABLE ROW LEVEL SECURITY;
+          ALTER TABLE "Transactions"          DISABLE ROW LEVEL SECURITY;
+          ALTER TABLE "Monthly Activity"      DISABLE ROW LEVEL SECURITY;
+          ALTER TABLE "Collections Log"       DISABLE ROW LEVEL SECURITY;
+          ALTER TABLE "CIF Table"             DISABLE ROW LEVEL SECURITY;
+          ALTER TABLE "Recovery Master Sheet" DISABLE ROW LEVEL SECURITY;
+          ALTER TABLE o3c_users               DISABLE ROW LEVEL SECURITY;
+
+          INSERT INTO o3c_users (email, password_hash, full_name, role, department)
+          VALUES (
+            'admin@o3ccards.com',
+            '$2b$12$GvzdUouzBgirlOTGF0J..OdSBCTJXB4gCtY6TNM3tWrjp/wVQpHuy',
+            'O3C Admin',
+            'admin',
+            'Technology'
+          )
+          ON CONFLICT (email) DO NOTHING;
+
+          SELECT 'Schema setup complete' AS result;
+          EOSQL
