@@ -13,7 +13,7 @@ from typing import Optional
 from sqlalchemy import text
 
 from core.auth import require_pages, hash_password
-from core.database import get_pg
+from core.database import get_db_pg as get_pg
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
