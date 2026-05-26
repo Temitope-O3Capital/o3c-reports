@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useApi } from '../hooks/useApi.js'
 import { KpiCard, CurrencyLineCard, HBarCard, DonutCard, fmt, fmtNum } from '../components/Charts.jsx'
-import DataBanner from '../components/DataBanner.jsx'
+import PageShell from '../components/PageShell.jsx'
 
 export default function Transactions({ setDs }) {
   const kpis      = useApi('/api/transactions/kpis')
@@ -9,30 +9,21 @@ export default function Transactions({ setDs }) {
   const merchants = useApi('/api/transactions/top-merchants')
   const byType    = useApi('/api/transactions/by-type')
 
-  useEffect(() => {
-    if (kpis.dataSource) setDs(kpis.dataSource)
-  }, [kpis.dataSource])
+  useEffect(() => { if (kpis.dataSource) setDs(kpis.dataSource) }, [kpis.dataSource])
 
   const d = kpis.data || {}
 
   return (
-    <div>
-      <div className="page-header">
-        <h1>Transactions</h1>
-        <DataBanner source={kpis.dataSource} />
+    <PageShell title="Transactions" subtitle="Volume, trends and merchant breakdown" source={kpis.dataSource} error={kpis.error}>
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-4">
+        <KpiCard label="Total Volume"      value={fmt(d.total_volume)}         accent="accent" icon="payments" />
+        <KpiCard label="Transaction Count" value={fmtNum(d.transaction_count)} accent="navy"   icon="receipt_long" />
+        <KpiCard label="Volume (MTD)"      value={fmt(d.volume_mtd)}           accent="green"  icon="calendar_month" />
+        <KpiCard label="Avg Txn Value"     value={fmt(d.avg_txn_value)}        accent="amber"  icon="calculate" />
+        <KpiCard label="Unique Merchants"  value={fmtNum(d.unique_merchants)}  accent="navy"   icon="store" />
       </div>
 
-      {kpis.error && <div className="error-msg">Failed to load KPIs: {kpis.error}</div>}
-
-      <div className="kpi-grid">
-        <KpiCard label="Total Volume"       value={fmt(d.total_volume)}         accent="accent" />
-        <KpiCard label="Transaction Count"  value={fmtNum(d.transaction_count)} accent="navy" />
-        <KpiCard label="Volume (MTD)"       value={fmt(d.volume_mtd)}           accent="green" />
-        <KpiCard label="Avg Txn Value"      value={fmt(d.avg_txn_value)}        accent="amber" />
-        <KpiCard label="Unique Merchants"   value={fmtNum(d.unique_merchants)}  accent="navy" />
-      </div>
-
-      <div className="chart-grid">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
         <CurrencyLineCard
           title="Monthly Volume Trend"
           data={trend.data || []}
@@ -47,7 +38,7 @@ export default function Transactions({ setDs }) {
         />
       </div>
 
-      <div className="section-gap">
+      <div className="mt-4">
         <HBarCard
           title="Top 10 Merchants by Volume"
           data={merchants.data || []}
@@ -57,31 +48,35 @@ export default function Transactions({ setDs }) {
         />
       </div>
 
-      {/* Merchants table */}
-      {merchants.data && merchants.data.length > 0 && (
-        <div className="table-wrap mt-4">
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Merchant</th>
-                <th>Volume</th>
-                <th>Transactions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {merchants.data.map((row, i) => (
-                <tr key={i}>
-                  <td>{i + 1}</td>
-                  <td>{row.Merchant_Name}</td>
-                  <td className="mono">{fmt(row.volume)}</td>
-                  <td className="mono">{fmtNum(row.count)}</td>
+      {merchants.data?.length > 0 && (
+        <div className="card mt-4 overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-700">
+            <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Top Merchants</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 dark:bg-slate-800/50 text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                <tr>
+                  <th className="px-5 py-3 text-left">#</th>
+                  <th className="px-5 py-3 text-left">Merchant</th>
+                  <th className="px-5 py-3 text-right">Volume</th>
+                  <th className="px-5 py-3 text-right">Transactions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                {merchants.data.map((row, i) => (
+                  <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                    <td className="px-5 py-3 text-slate-400 font-mono text-xs">{i + 1}</td>
+                    <td className="px-5 py-3 font-semibold text-slate-800 dark:text-slate-200">{row.Merchant_Name}</td>
+                    <td className="px-5 py-3 text-right font-mono text-slate-700 dark:text-slate-300">{fmt(row.volume)}</td>
+                    <td className="px-5 py-3 text-right font-mono text-slate-700 dark:text-slate-300">{fmtNum(row.count)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
-    </div>
+    </PageShell>
   )
 }

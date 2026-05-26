@@ -22,7 +22,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 # ── Role → allowed pages mapping ─────────────────────────────────────────────
 # Keep in sync with frontend/src/hooks/useAuth.js
 ROLE_PAGES = {
-    "admin":       ["overview","transactions","collections","recovery","sales","cards","cohort"],
+    "admin":       ["overview","transactions","collections","recovery","sales","cards","cohort","admin"],
     "management":  ["overview","transactions","collections","recovery","sales","cards","cohort"],
     "collections": ["collections","recovery"],
     "sales":       ["sales","overview"],

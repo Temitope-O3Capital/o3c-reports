@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from core.database import check_mssql_health, check_pg_health, pg_engine, Base
-from routers import auth, overview, transactions, collections, recovery, sales, cards, cohort
+from routers import auth, overview, transactions, collections, recovery, sales, cards, cohort, admin
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
@@ -102,6 +102,7 @@ app.include_router(recovery.router,     prefix="/api/recovery",     tags=["Recov
 app.include_router(sales.router,        prefix="/api/sales",        tags=["Sales"])
 app.include_router(cards.router,        prefix="/api/cards",        tags=["Cards"])
 app.include_router(cohort.router,       prefix="/api/cohort",       tags=["Cohort"])
+app.include_router(admin.router)
 
 # ── Health endpoint ───────────────────────────────────────────────────────────
 @app.get("/api/health", tags=["Health"])

@@ -1,41 +1,33 @@
 import { useEffect } from 'react'
 import { useApi } from '../hooks/useApi.js'
-import { KpiCard, LineChartCard, HBarCard, BarChartCard, fmtNum, pct } from '../components/Charts.jsx'
-import DataBanner from '../components/DataBanner.jsx'
+import { KpiCard, LineChartCard, HBarCard, BarChartCard, fmtNum } from '../components/Charts.jsx'
+import PageShell from '../components/PageShell.jsx'
 
 export default function Sales({ setDs }) {
-  const kpis    = useApi('/api/sales/kpis')
-  const states  = useApi('/api/sales/accounts-by-state')
-  const trend   = useApi('/api/sales/accounts-trend')
+  const kpis     = useApi('/api/sales/kpis')
+  const states   = useApi('/api/sales/accounts-by-state')
+  const trend    = useApi('/api/sales/accounts-trend')
   const managers = useApi('/api/sales/by-account-manager')
 
-  useEffect(() => {
-    if (kpis.dataSource) setDs(kpis.dataSource)
-  }, [kpis.dataSource])
+  useEffect(() => { if (kpis.dataSource) setDs(kpis.dataSource) }, [kpis.dataSource])
 
-  const d = kpis.data || {}
-
+  const d      = kpis.data || {}
   const momDir = d.mom_growth >= 0 ? '+' : ''
 
   return (
-    <div>
-      <div className="page-header">
-        <h1>Sales</h1>
-        <DataBanner source={kpis.dataSource} />
-      </div>
-
-      {kpis.error && <div className="error-msg">Failed to load KPIs: {kpis.error}</div>}
-
-      <div className="kpi-grid">
-        <KpiCard label="Total Customers"    value={fmtNum(d.total_customers)} accent="navy" />
-        <KpiCard label="New Accounts (MTD)" value={fmtNum(d.new_mtd)}         accent="accent" />
-        <KpiCard label="MoM Growth"
+    <PageShell title="Sales & Growth" subtitle="Customer acquisition, account manager performance, and regional breakdown" source={kpis.dataSource} error={kpis.error}>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <KpiCard label="Total Customers"    value={fmtNum(d.total_customers)} accent="navy"   icon="groups" />
+        <KpiCard label="New Accounts (MTD)" value={fmtNum(d.new_mtd)}         accent="accent" icon="person_add" />
+        <KpiCard
+          label="MoM Growth"
           value={d.mom_growth != null ? `${momDir}${d.mom_growth}%` : '—'}
           accent={d.mom_growth >= 0 ? 'green' : 'accent'}
+          icon="trending_up"
         />
       </div>
 
-      <div className="chart-grid">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
         <LineChartCard
           title="New Accounts Trend"
           data={trend.data || []}
@@ -51,7 +43,7 @@ export default function Sales({ setDs }) {
         />
       </div>
 
-      <div className="section-gap">
+      <div className="mt-4">
         <HBarCard
           title="Accounts by State"
           data={states.data || []}
@@ -60,6 +52,6 @@ export default function Sales({ setDs }) {
           currency={false}
         />
       </div>
-    </div>
+    </PageShell>
   )
 }

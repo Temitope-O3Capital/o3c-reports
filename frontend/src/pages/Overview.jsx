@@ -1,43 +1,34 @@
 import { useEffect } from 'react'
 import { useApi } from '../hooks/useApi.js'
 import { KpiCard, CurrencyLineCard, LineChartCard, DonutCard, fmt, fmtNum, pct } from '../components/Charts.jsx'
-import DataBanner from '../components/DataBanner.jsx'
+import PageShell from '../components/PageShell.jsx'
 
 export default function Overview({ setDs }) {
-  const kpis     = useApi('/api/overview/kpis')
-  const volume   = useApi('/api/overview/monthly-volume')
-  const trend    = useApi('/api/overview/new-accounts-trend')
-  const byProd   = useApi('/api/overview/cards-by-product')
-  const byType   = useApi('/api/overview/txn-by-type')
+  const kpis   = useApi('/api/overview/kpis')
+  const volume = useApi('/api/overview/monthly-volume')
+  const trend  = useApi('/api/overview/new-accounts-trend')
+  const byProd = useApi('/api/overview/cards-by-product')
+  const byType = useApi('/api/overview/txn-by-type')
 
-  useEffect(() => {
-    if (kpis.dataSource) setDs(kpis.dataSource)
-  }, [kpis.dataSource])
+  useEffect(() => { if (kpis.dataSource) setDs(kpis.dataSource) }, [kpis.dataSource])
 
   const d = kpis.data || {}
 
   return (
-    <div>
-      <div className="page-header">
-        <h1>Overview</h1>
-        <DataBanner source={kpis.dataSource} />
+    <PageShell title="Overview" subtitle="Executive KPIs across all business units" source={kpis.dataSource} error={kpis.error}>
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
+        <KpiCard label="Total Cardholders"   value={fmtNum(d.total_cardholders)}  accent="navy"   icon="groups" />
+        <KpiCard label="Active Accounts"     value={fmtNum(d.active_accounts)}    accent="green"  icon="check_circle" />
+        <KpiCard label="Cards Issued"        value={fmtNum(d.total_cards_issued)} accent="navy"   icon="credit_card" />
+        <KpiCard label="New Accounts (MTD)"  value={fmtNum(d.new_accounts_mtd)}   accent="accent" icon="person_add" />
+        <KpiCard label="Total Txn Volume"    value={fmt(d.total_txn_volume)}      accent="navy"   icon="receipt_long" />
+        <KpiCard label="Total Collected"     value={fmt(d.total_collected)}       accent="green"  icon="account_balance" />
+        <KpiCard label="Collections (MTD)"   value={fmt(d.collections_mtd)}       accent="amber"  icon="schedule" />
+        <KpiCard label="Total Recovered"     value={fmt(d.total_recovered)}       accent="accent" icon="gavel" />
+        <KpiCard label="Recovery Rate"       value={pct(d.recovery_rate)}         accent="green"  icon="percent" />
       </div>
 
-      {kpis.error && <div className="error-msg">Failed to load KPIs: {kpis.error}</div>}
-
-      <div className="kpi-grid">
-        <KpiCard label="Total Cardholders"   value={fmtNum(d.total_cardholders)}  accent="navy" />
-        <KpiCard label="Active Accounts"     value={fmtNum(d.active_accounts)}    accent="green" />
-        <KpiCard label="Cards Issued"        value={fmtNum(d.total_cards_issued)} accent="navy" />
-        <KpiCard label="New Accounts (MTD)"  value={fmtNum(d.new_accounts_mtd)}   accent="accent" />
-        <KpiCard label="Total Txn Volume"    value={fmt(d.total_txn_volume)}      accent="navy" />
-        <KpiCard label="Total Collected"     value={fmt(d.total_collected)}       accent="green" />
-        <KpiCard label="Collections (MTD)"   value={fmt(d.collections_mtd)}       accent="amber" />
-        <KpiCard label="Total Recovered"     value={fmt(d.total_recovered)}       accent="accent" />
-        <KpiCard label="Recovery Rate"       value={pct(d.recovery_rate)}         accent="green" />
-      </div>
-
-      <div className="chart-grid">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
         <CurrencyLineCard
           title="Monthly Transaction Volume"
           data={volume.data || []}
@@ -52,7 +43,7 @@ export default function Overview({ setDs }) {
         />
       </div>
 
-      <div className="chart-grid">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
         <DonutCard
           title="Cards by Product Type"
           data={byProd.data || []}
@@ -66,6 +57,6 @@ export default function Overview({ setDs }) {
           valueKey="count"
         />
       </div>
-    </div>
+    </PageShell>
   )
 }

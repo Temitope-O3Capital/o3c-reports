@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 const ROLE_PAGES = {
-  admin:       ['overview','transactions','collections','recovery','sales','cards','cohort'],
+  admin:       ['overview','transactions','collections','recovery','sales','cards','cohort','admin'],
   management:  ['overview','transactions','collections','recovery','sales','cards','cohort'],
   collections: ['collections','recovery'],
   sales:       ['sales','overview'],

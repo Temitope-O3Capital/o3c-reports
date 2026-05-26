@@ -35,9 +35,9 @@ MSSQL_USER     = os.getenv("MSSQL_USER", "")
 MSSQL_PASSWORD = os.getenv("MSSQL_PASSWORD", "")
 MSSQL_TRUSTED  = os.getenv("MSSQL_TRUSTED", "no").lower() == "yes"
 
-SUPABASE_URL   = os.getenv("SUPABASE_URL", "")
+PG_URL = os.getenv("PG_URL", "")
 
-# Table mapping: MSSQL source → Supabase target
+# Table mapping: MSSQL source → Railway PostgreSQL target
 TABLES = [
     {"mssql": "dbo.Accounts",            "pg": '"Accounts"'},
     {"mssql": "dbo.Products",            "pg": '"Products"'},
@@ -66,7 +66,7 @@ def get_mssql_conn():
 
 
 def get_pg_conn():
-    return psycopg2.connect(SUPABASE_URL)
+    return psycopg2.connect(PG_URL)
 
 
 # ── Sync a single table ────────────────────────────────────────────────────────
@@ -174,8 +174,8 @@ def status():
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    if not MSSQL_SERVER or not SUPABASE_URL:
-        log.error("MSSQL_SERVER and SUPABASE_URL must be set in .env")
+    if not MSSQL_SERVER or not PG_URL:
+        log.error("MSSQL_SERVER and PG_URL must be set in .env")
         raise SystemExit(1)
 
     scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
