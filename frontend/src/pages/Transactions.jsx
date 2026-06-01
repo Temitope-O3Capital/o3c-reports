@@ -72,10 +72,10 @@ export default function Transactions({ setDs }) {
               <tbody>
                 {merchants.data.map((row, i) => (
                   <tr key={i}>
-                    <td className="text-slate-300 dark:text-slate-600 font-mono text-xs tabular-nums">{i + 1}</td>
+                    <td className="text-slate-300 dark:text-slate-600 text-xs tabular-nums">{i + 1}</td>
                     <td className="font-medium text-slate-800 dark:text-slate-200">{row.Merchant_Name}</td>
-                    <td className="text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">{fmt(row.volume)}</td>
-                    <td className="text-right font-mono tabular-nums text-slate-500">{fmtNum(row.count)}</td>
+                    <td className="text-right tabular-nums text-slate-700 dark:text-slate-300">{fmt(row.volume)}</td>
+                    <td className="text-right tabular-nums text-slate-500">{fmtNum(row.count)}</td>
                   </tr>
                 ))}
               </tbody>

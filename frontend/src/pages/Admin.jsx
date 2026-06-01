@@ -446,7 +446,7 @@ export default function Admin() {
               </span>
             </div>
             <div>
-              <p className="text-[22px] font-semibold leading-none text-slate-900 dark:text-white font-mono tabular-nums">
+              <p className="text-[22px] font-semibold leading-none text-slate-900 dark:text-white tabular-nums">
                 {s.value}
                 {s.sub && (
                   <span className="text-sm font-normal text-slate-400 ml-1">{s.sub}</span>
@@ -472,7 +472,7 @@ export default function Admin() {
                 className="rounded-lg px-3 py-2.5 text-center"
                 style={{ background: 'rgb(var(--bg-subtle))' }}>
                 <span className="material-symbols-rounded text-[18px] text-slate-400 dark:text-slate-500">{r.icon}</span>
-                <p className="text-lg font-semibold leading-tight mt-1 text-slate-800 dark:text-slate-100 font-mono">{count}</p>
+                <p className="text-lg font-semibold leading-tight mt-1 text-slate-800 dark:text-slate-100">{count}</p>
                 <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">{r.label}</p>
               </div>
             )

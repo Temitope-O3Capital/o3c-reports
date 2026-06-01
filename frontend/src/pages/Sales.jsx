@@ -110,7 +110,7 @@ function LifecycleFunnel({ data }) {
                         }}>
                         {convRate.toFixed(1)}%
                       </span>
-                      <span className="text-sm font-bold font-mono tabular-nums text-slate-800 dark:text-slate-100 w-16 text-right">
+                      <span className="text-sm font-bold tabular-nums text-slate-800 dark:text-slate-100 w-16 text-right">
                         {fmtNum(value)}
                       </span>
                     </div>
@@ -195,7 +195,7 @@ function ManagerLeaderboard({ data }) {
 
               {/* Metrics */}
               <div className="text-right flex-shrink-0">
-                <p className="text-[14px] font-bold font-mono tabular-nums text-slate-800 dark:text-slate-100">
+                <p className="text-[14px] font-bold tabular-nums text-slate-800 dark:text-slate-100">
                   {fmtNum(mgr.total_accounts)}
                 </p>
                 <span className={`text-[10px] font-semibold ${
@@ -244,7 +244,7 @@ function ProductMixCard({ data }) {
                   <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
                     {actRate.toFixed(0)}% active
                   </span>
-                  <span className="text-[13px] font-bold font-mono tabular-nums text-slate-800 dark:text-slate-100">
+                  <span className="text-[13px] font-bold tabular-nums text-slate-800 dark:text-slate-100">
                     {fmtNum(totalN)}
                   </span>
                   <span className="text-[11px] w-8 text-right" style={{ color: 'rgb(var(--fg-3))' }}>
@@ -269,7 +269,7 @@ function ProductMixCard({ data }) {
       <div className="mt-5 pt-4" style={{ borderTop: '1px solid rgb(var(--border) / 0.06)' }}>
         <div className="flex items-center justify-between text-xs" style={{ color: 'rgb(var(--fg-3))' }}>
           <span>Total issued</span>
-          <span className="font-semibold font-mono text-slate-700 dark:text-slate-300 tabular-nums">
+          <span className="font-semibold tabular-nums text-slate-700 dark:text-slate-300">
             {fmtNum(total)}
           </span>
         </div>

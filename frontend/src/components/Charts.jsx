@@ -57,23 +57,6 @@ function useGrid() {
   return document.documentElement.classList.contains('dark') ? GRID_D : GRID_L
 }
 
-/* Icon container colours per accent key */
-const ICON_CLS = {
-  navy:   'bg-primary-50   text-primary       dark:bg-primary/20    dark:text-blue-300',
-  accent: 'bg-accent-50    text-accent        dark:bg-accent/15     dark:text-red-400',
-  green:  'bg-emerald-50   text-emerald-700   dark:bg-emerald-900/20 dark:text-emerald-400',
-  amber:  'bg-amber-50     text-amber-700     dark:bg-amber-900/20  dark:text-amber-400',
-  blue:   'bg-blue-50      text-blue-700      dark:bg-blue-900/20   dark:text-blue-400',
-}
-
-/* Accent CSS border colour for KPI cards */
-const ACCENT_BORDER = {
-  navy:   NAVY,
-  accent: RED,
-  green:  '#10B981',
-  amber:  '#F59E0B',
-  blue:   '#3B82F6',
-}
 
 /* ═══════════════════════════════════════════════════════════════
    CHART TOOLTIP
@@ -92,7 +75,7 @@ function ChartTooltip({ active, payload, label, formatter }) {
             <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.color }} />
             <span className="text-xs text-slate-500 dark:text-slate-400">{p.name}</span>
           </div>
-          <span className="text-xs font-semibold text-slate-900 dark:text-white font-mono tabular-nums">
+          <span className="text-xs font-semibold text-slate-900 dark:text-white tabular-nums">
             {formatter ? formatter(p.value) : p.value}
           </span>
         </div>
@@ -106,53 +89,89 @@ function ChartTooltip({ active, payload, label, formatter }) {
    Stripe-style: accent left-border, large mono value, trend pill
    ═══════════════════════════════════════════════════════════════ */
 
+const ICON_BG = {
+  navy:   { bg: 'rgb(14 40 65 / 0.07)',   fg: '#0E2841' },
+  accent: { bg: 'rgb(192 0 0 / 0.07)',    fg: '#C00000' },
+  green:  { bg: 'rgb(5 150 105 / 0.08)',  fg: '#059669' },
+  amber:  { bg: 'rgb(217 119 6 / 0.08)',  fg: '#D97706' },
+  blue:   { bg: 'rgb(37 99 235 / 0.08)',  fg: '#2563EB' },
+}
+
 export function KpiCard({ label, value, sub, accent = 'navy', icon, trend, trendLabel = 'vs last month' }) {
-  const iconCls    = ICON_CLS[accent] || ICON_CLS.navy
-  const accentColor = ACCENT_BORDER[accent] || NAVY
+  const ib = ICON_BG[accent] || ICON_BG.navy
   const up = trend != null && trend >= 0
 
   return (
-    <div
-      className="card card-hover p-5 flex flex-col gap-3"
-      style={{ borderLeft: `3px solid ${accentColor}` }}
-    >
-      {/* Label + icon row */}
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest leading-tight">
+    <div className="card p-5 flex flex-col">
+      {/* Label + icon */}
+      <div className="flex items-start justify-between gap-2 mb-4">
+        <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'rgb(var(--fg-3))' }}>
           {label}
         </p>
         {icon && (
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${iconCls}`}>
-            <span className="material-symbols-rounded text-[18px]">{icon}</span>
+          <div style={{ width: 34, height: 34, borderRadius: 8, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: ib.bg }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 17, color: ib.fg }}>{icon}</span>
           </div>
         )}
       </div>
 
-      {/* Value */}
-      <p className="text-[26px] font-semibold tracking-tight leading-none font-mono tabular-nums text-slate-900 dark:text-white">
+      {/* Value — large, bold, proportional (not mono) */}
+      <p style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1, marginBottom: 12, color: 'rgb(var(--fg-1))', fontVariantNumeric: 'tabular-nums' }}>
         {value ?? '—'}
       </p>
 
       {/* Trend / sub */}
-      <div className="min-h-[18px]">
+      <div style={{ minHeight: 18 }}>
         {trend != null ? (
-          <div className="flex items-center gap-1.5">
-            <span className={`inline-flex items-center gap-0.5 text-[11px] font-semibold px-1.5 py-0.5 rounded-full ${
-              up
-                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400'
-                : 'bg-red-50    text-red-600    dark:bg-red-900/20    dark:text-red-400'
-            }`}>
-              <span className="material-symbols-rounded leading-none" style={{ fontSize: 12 }}>
-                {up ? 'arrow_upward' : 'arrow_downward'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 2,
+              fontSize: 11, fontWeight: 600, padding: '2px 6px', borderRadius: 20,
+              background: up ? 'rgb(5 150 105 / 0.08)' : 'rgb(220 38 38 / 0.07)',
+              color: up ? '#059669' : '#DC2626',
+            }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 11, lineHeight: 1 }}>
+                {up ? 'trending_up' : 'trending_down'}
               </span>
-              {Math.abs(trend).toFixed(1)}%
+              {up ? '+' : ''}{Math.abs(trend).toFixed(1)}%
             </span>
-            <span className="text-[11px] text-slate-400">{trendLabel}</span>
+            <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>{trendLabel}</span>
           </div>
         ) : sub ? (
-          <p className="text-xs text-slate-400 dark:text-slate-500">{sub}</p>
+          <p style={{ fontSize: 12, color: 'rgb(var(--fg-3))' }}>{sub}</p>
         ) : null}
       </div>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   KPI HERO — dark primary metric card (top of Overview / Collections)
+   ═══════════════════════════════════════════════════════════════ */
+
+export function KpiHero({ label, value, sub, subUp, icon = 'monitoring', children }) {
+  return (
+    <div className="card p-6 md:p-8"
+      style={{ background: `linear-gradient(140deg, ${NAVY} 0%, #091A2D 100%)`, border: 'none' }}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.45)', marginBottom: 14 }}>
+            {label}
+          </p>
+          <p style={{ fontSize: 40, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1, color: 'white', fontVariantNumeric: 'tabular-nums' }}>
+            {value ?? '—'}
+          </p>
+          {sub && (
+            <p style={{ fontSize: 13, marginTop: 10, color: subUp ? '#34D399' : 'rgba(255,255,255,0.5)' }}>
+              {sub}
+            </p>
+          )}
+        </div>
+        <div style={{ width: 44, height: 44, borderRadius: 10, background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 22, color: 'white' }}>{icon}</span>
+        </div>
+      </div>
+      {children && <div style={{ marginTop: 20 }}>{children}</div>}
     </div>
   )
 }
@@ -346,7 +365,7 @@ export function ProgressListCard({ title, subtitle, data = [], nameKey, valueKey
                   <span className="text-[11px] tabular-nums" style={{ color: 'rgb(var(--fg-3))' }}>
                     {share.toFixed(0)}%
                   </span>
-                  <span className="text-[13px] font-semibold font-mono tabular-nums text-slate-800 dark:text-slate-100">
+                  <span className="text-[13px] font-semibold tabular-nums text-slate-800 dark:text-slate-100">
                     {formatter(val)}
                   </span>
                 </div>
@@ -383,13 +402,13 @@ export function ProgressListCard({ title, subtitle, data = [], nameKey, valueKey
    ═══════════════════════════════════════════════════════════════ */
 
 export function StatSummaryCard({ title, icon, items = [], accent = 'navy' }) {
-  const iconCls = ICON_CLS[accent] || ICON_CLS.navy
+  const ib = ICON_BG[accent] || ICON_BG.navy
   return (
     <div className="card p-6">
       <div className="flex items-center gap-3 mb-5">
         {icon && (
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${iconCls}`}>
-            <span className="material-symbols-rounded text-[18px]">{icon}</span>
+          <div style={{ width: 32, height: 32, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: ib.bg }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 17, color: ib.fg }}>{icon}</span>
           </div>
         )}
         <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</p>
@@ -398,7 +417,7 @@ export function StatSummaryCard({ title, icon, items = [], accent = 'navy' }) {
         {items.map((item, i) => (
           <div key={i} className="flex items-center justify-between py-2.5">
             <span className="text-[13px]" style={{ color: 'rgb(var(--fg-2))' }}>{item.label}</span>
-            <span className={`text-[13px] font-semibold font-mono tabular-nums ${item.color || 'text-slate-800 dark:text-slate-100'}`}>
+            <span className={`text-[13px] font-semibold tabular-nums ${item.color || 'text-slate-800 dark:text-slate-100'}`}>
               {item.value}
             </span>
           </div>

@@ -100,7 +100,7 @@ export default function Collections({ setDs }) {
                     </td>
                     <td className="text-slate-600 dark:text-slate-400">{row.Agent || '—'}</td>
                     <td><ModeBadge mode={row['Mode Of Payment']} /></td>
-                    <td className="font-mono tabular-nums text-slate-800 dark:text-slate-200 whitespace-nowrap">{fmt(row.Amount)}</td>
+                    <td className="tabular-nums text-slate-800 dark:text-slate-200 whitespace-nowrap font-semibold">{fmt(row.Amount)}</td>
                     <td className="text-slate-400 text-xs">{row['Payment Receipt'] || '—'}</td>
                   </tr>
                 ))}

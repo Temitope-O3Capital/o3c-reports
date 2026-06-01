@@ -22,10 +22,10 @@
   --red-dark:   150  0   0;   /* #960000 */
 
   /* ── Surface tokens (light) ─────────────────────────────── */
-  --bg-page:    248 250 252;  /* #F8FAFC — canvas */
+  --bg-page:    246 245 242;  /* #F6F5F2 — warm off-white canvas */
   --bg-surface: 255 255 255;  /* #FFFFFF — card / panel */
-  --bg-subtle:  241 245 249;  /* #F1F5F9 — table head, hover */
-  --bg-muted:   226 232 240;  /* #E2E8F0 — dividers, skeleton */
+  --bg-subtle:  248 247 245;  /* #F8F7F5 — hover / row highlight */
+  --bg-muted:   232 230 226;  /* #E8E6E2 — dividers, skeleton */
 
   /* ── Text tokens (light) ────────────────────────────────── */
   --fg-1: 15  23  42;         /* #0F172A — headings */
@@ -116,12 +116,10 @@
   /* ── Card ────────────────────────────────────────────────── */
   .card {
     background-color: rgb(var(--bg-surface));
-    border-radius: var(--r-lg);
-    border: 1px solid rgb(var(--border) / 0.08);
-    box-shadow: var(--shadow-sm);
-    transition: box-shadow var(--t-base);
+    border-radius: 10px;
+    border: 1px solid rgb(var(--border) / 0.1);
   }
-  .card-hover:hover { box-shadow: var(--shadow-md); }
+  .card-hover:hover { border-color: rgb(var(--border) / 0.2); }
 
   /* ── Button base ─────────────────────────────────────────── */
   .btn {
@@ -178,17 +176,18 @@
 
   /* ── Table ───────────────────────────────────────────────── */
   .data-table { @apply w-full text-sm; }
-  .data-table thead { background-color: rgb(var(--bg-subtle)); }
   .data-table thead th {
-    @apply px-5 py-3 text-left font-semibold uppercase tracking-wider whitespace-nowrap;
+    @apply px-5 py-3 text-left font-semibold uppercase whitespace-nowrap;
     font-size: 11px;
+    letter-spacing: 0.06em;
     color: rgb(var(--fg-3));
+    border-bottom: 1px solid rgb(var(--border) / 0.09);
   }
   .data-table tbody tr {
     border-top: 1px solid rgb(var(--border) / 0.06);
     transition: background-color var(--t-fast);
   }
-  .data-table tbody tr:hover { background-color: rgb(var(--bg-subtle) / 0.6); }
+  .data-table tbody tr:hover { background-color: rgb(var(--bg-subtle)); }
   .data-table tbody td { @apply px-5 py-3.5; color: rgb(var(--fg-1)); }
 
   /* ── Form ────────────────────────────────────────────────── */
