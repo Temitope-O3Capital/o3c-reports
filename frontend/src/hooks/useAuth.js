@@ -2,14 +2,17 @@ import { useState, useEffect, useCallback } from 'react'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+const CRM        = ['crm_pipeline','crm_contacts','crm_tasks','crm_requests']
+const CRM_REPORT = ['crm_reports']
+
 const ROLE_PAGES = {
-  admin:       ['overview','transactions','collections','recovery','sales','cards','cohort','admin'],
-  management:  ['overview','transactions','collections','recovery','sales','cards','cohort'],
-  collections: ['collections','recovery'],
-  sales:       ['sales','overview'],
+  admin:       ['overview','transactions','collections','recovery','sales','cards','cohort','admin', ...CRM, ...CRM_REPORT],
+  management:  ['overview','transactions','collections','recovery','sales','cards','cohort',          ...CRM, ...CRM_REPORT],
+  sales:       ['sales','overview',                                                                   ...CRM, ...CRM_REPORT],
+  collections: ['collections','recovery',                                                             ...CRM],
+  recovery:    ['recovery','collections',                                                             ...CRM],
   cards_ops:   ['cards','transactions','overview'],
-  recovery:    ['recovery','collections'],
-  call_centre: ['overview','transactions'],
+  call_centre: ['overview','transactions','crm_requests'],
 }
 
 function parseToken(token) {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './hooks/useAuth.js'
 import SyncPanel from './components/SyncPanel.jsx'
@@ -12,8 +12,14 @@ import Sales from './pages/Sales.jsx'
 import Cards from './pages/Cards.jsx'
 import Cohort from './pages/Cohort.jsx'
 import Admin from './pages/Admin.jsx'
+import CrmPipeline   from './pages/crm/Pipeline.jsx'
+import CrmContacts   from './pages/crm/Contacts.jsx'
+import CrmContact360 from './pages/crm/Contact360.jsx'
+import CrmTasks      from './pages/crm/Tasks.jsx'
+import CrmRequests   from './pages/crm/Requests.jsx'
+import CrmReports    from './pages/crm/CrmReports.jsx'
 
-const NAV = [
+const REPORTING_NAV = [
   { page: 'overview',     label: 'Overview',      path: '/',             icon: 'space_dashboard' },
   { page: 'transactions', label: 'Transactions',  path: '/transactions', icon: 'receipt_long' },
   { page: 'cards',        label: 'Cards',         path: '/cards',        icon: 'credit_card' },
@@ -21,6 +27,14 @@ const NAV = [
   { page: 'collections',  label: 'Collections',   path: '/collections',  icon: 'account_balance_wallet' },
   { page: 'recovery',     label: 'Recovery',      path: '/recovery',     icon: 'gavel' },
   { page: 'cohort',       label: 'Cohort',        path: '/cohort',       icon: 'group_work' },
+]
+
+const CRM_NAV = [
+  { page: 'crm_pipeline', label: 'Pipeline',   path: '/crm/pipeline', icon: 'view_kanban' },
+  { page: 'crm_contacts', label: 'Contacts',   path: '/crm/contacts', icon: 'contacts' },
+  { page: 'crm_tasks',    label: 'Tasks',      path: '/crm/tasks',    icon: 'task_alt' },
+  { page: 'crm_requests', label: 'Requests',   path: '/crm/requests', icon: 'support_agent' },
+  { page: 'crm_reports',  label: 'CRM Reports',path: '/crm/reports',  icon: 'insert_chart' },
 ]
 
 export default function App() {
@@ -57,7 +71,8 @@ function AppInner() {
   const initials = (user.full_name || user.email)
     .split(' ').slice(0, 2).map(w => w[0].toUpperCase()).join('')
 
-  const visibleNav = NAV.filter(n => canAccess(n.page))
+  const visibleNav    = REPORTING_NAV.filter(n => canAccess(n.page))
+  const visibleCrmNav = CRM_NAV.filter(n => canAccess(n.page))
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'rgb(var(--bg-page))' }}>
@@ -69,6 +84,7 @@ function AppInner() {
           <aside className="relative z-10 flex flex-col w-64 bg-primary h-full">
             <SidebarContent
               visibleNav={visibleNav}
+              visibleCrmNav={visibleCrmNav}
               canAccess={canAccess}
               user={user}
               initials={initials}
@@ -85,6 +101,7 @@ function AppInner() {
       <aside className="hidden lg:flex flex-col w-60 bg-primary dark:bg-primary-dark flex-shrink-0 h-screen">
         <SidebarContent
           visibleNav={visibleNav}
+          visibleCrmNav={visibleCrmNav}
           canAccess={canAccess}
           user={user}
           initials={initials}
@@ -138,15 +155,23 @@ function AppInner() {
         {/* Page content */}
         <main className="flex-1 overflow-y-auto">
           <Routes>
-            <Route path="/"             element={<Guard page="overview"     ca={canAccess}><Overview     setDs={setDataSource} /></Guard>} />
-            <Route path="/transactions" element={<Guard page="transactions" ca={canAccess}><Transactions setDs={setDataSource} /></Guard>} />
-            <Route path="/cards"        element={<Guard page="cards"        ca={canAccess}><Cards        setDs={setDataSource} /></Guard>} />
-            <Route path="/sales"        element={<Guard page="sales"        ca={canAccess}><Sales        setDs={setDataSource} /></Guard>} />
-            <Route path="/collections"  element={<Guard page="collections"  ca={canAccess}><Collections  setDs={setDataSource} /></Guard>} />
-            <Route path="/recovery"     element={<Guard page="recovery"     ca={canAccess}><Recovery     setDs={setDataSource} /></Guard>} />
-            <Route path="/cohort"       element={<Guard page="cohort"       ca={canAccess}><Cohort       setDs={setDataSource} /></Guard>} />
-            <Route path="/admin"        element={<Guard page="admin"        ca={canAccess}><Admin /></Guard>} />
-            <Route path="*"             element={<DefaultRedirect canAccess={canAccess} />} />
+            {/* Reporting */}
+            <Route path="/"             element={<Guard page="overview"      ca={canAccess}><Overview     setDs={setDataSource} /></Guard>} />
+            <Route path="/transactions" element={<Guard page="transactions"  ca={canAccess}><Transactions setDs={setDataSource} /></Guard>} />
+            <Route path="/cards"        element={<Guard page="cards"         ca={canAccess}><Cards        setDs={setDataSource} /></Guard>} />
+            <Route path="/sales"        element={<Guard page="sales"         ca={canAccess}><Sales        setDs={setDataSource} /></Guard>} />
+            <Route path="/collections"  element={<Guard page="collections"   ca={canAccess}><Collections  setDs={setDataSource} /></Guard>} />
+            <Route path="/recovery"     element={<Guard page="recovery"      ca={canAccess}><Recovery     setDs={setDataSource} /></Guard>} />
+            <Route path="/cohort"       element={<Guard page="cohort"        ca={canAccess}><Cohort       setDs={setDataSource} /></Guard>} />
+            <Route path="/admin"        element={<Guard page="admin"         ca={canAccess}><Admin /></Guard>} />
+            {/* CRM */}
+            <Route path="/crm/pipeline"         element={<Guard page="crm_pipeline" ca={canAccess}><CrmPipeline /></Guard>} />
+            <Route path="/crm/contacts"         element={<Guard page="crm_contacts" ca={canAccess}><CrmContacts /></Guard>} />
+            <Route path="/crm/contacts/:id"     element={<Guard page="crm_contacts" ca={canAccess}><CrmContact360 /></Guard>} />
+            <Route path="/crm/tasks"            element={<Guard page="crm_tasks"    ca={canAccess}><CrmTasks /></Guard>} />
+            <Route path="/crm/requests"         element={<Guard page="crm_requests" ca={canAccess}><CrmRequests /></Guard>} />
+            <Route path="/crm/reports"          element={<Guard page="crm_reports"  ca={canAccess}><CrmReports /></Guard>} />
+            <Route path="*"                     element={<DefaultRedirect canAccess={canAccess} />} />
           </Routes>
         </main>
       </div>
@@ -157,7 +182,7 @@ function AppInner() {
 }
 
 /* ── Sidebar content ─────────────────────────────────────────────────────── */
-function SidebarContent({ visibleNav, canAccess, user, initials, isDark, setIsDark, logout, onNav }) {
+function SidebarContent({ visibleNav, visibleCrmNav, canAccess, user, initials, isDark, setIsDark, logout, onNav }) {
   return (
     <>
       {/* Brand */}
@@ -205,6 +230,40 @@ function SidebarContent({ visibleNav, canAccess, user, initials, isDark, setIsDa
             )}
           </NavLink>
         ))}
+
+        {/* CRM nav section */}
+        {visibleCrmNav.length > 0 && (
+          <>
+            <div className="mx-2 border-t border-white/[0.08] my-3" />
+            <p className="px-2 text-[10px] font-semibold text-white/25 uppercase tracking-[0.12em] mb-2">
+              CRM
+            </p>
+            {visibleCrmNav.map(n => (
+              <NavLink
+                key={n.page}
+                to={n.path}
+                onClick={onNav}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all mb-0.5 ${
+                    isActive
+                      ? 'bg-white/[0.1] text-white'
+                      : 'text-white/50 hover:text-white/80 hover:bg-white/[0.05]'
+                  }`
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <span className={`material-symbols-rounded text-[19px] flex-shrink-0 ${isActive ? 'opacity-100' : 'opacity-60'}`}>
+                      {n.icon}
+                    </span>
+                    {n.label}
+                    {isActive && <span className="ml-auto w-1 h-4 rounded-full bg-accent flex-shrink-0" />}
+                  </>
+                )}
+              </NavLink>
+            ))}
+          </>
+        )}
 
         {canAccess('admin') && (
           <>
@@ -269,16 +328,23 @@ function SidebarContent({ visibleNav, canAccess, user, initials, isDark, setIsDa
 function PageTitle() {
   const { pathname } = useLocation()
   const titles = {
-    '/':             'Overview',
-    '/transactions': 'Transactions',
-    '/cards':        'Cards',
-    '/sales':        'Sales & Growth',
-    '/collections':  'Collections',
-    '/recovery':     'Recovery',
-    '/cohort':       'Cohort Analysis',
-    '/admin':        'Settings',
+    '/':               'Overview',
+    '/transactions':   'Transactions',
+    '/cards':          'Cards',
+    '/sales':          'Sales & Growth',
+    '/collections':    'Collections',
+    '/recovery':       'Recovery',
+    '/cohort':         'Cohort Analysis',
+    '/admin':          'Settings',
+    '/crm/pipeline':   'Pipeline',
+    '/crm/contacts':   'Contacts',
+    '/crm/tasks':      'Tasks',
+    '/crm/requests':   'Requests',
+    '/crm/reports':    'CRM Reports',
   }
-  const title = titles[pathname] || 'Dashboard'
+  const title = pathname.startsWith('/crm/contacts/')
+    ? 'Customer 360'
+    : (titles[pathname] || 'Dashboard')
   return <p className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">{title}</p>
 }
 

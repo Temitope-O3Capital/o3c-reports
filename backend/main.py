@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from core.database import check_mssql_health, check_pg_health, pg_engine, Base
 from routers import auth, overview, transactions, collections, recovery, sales, cards, cohort, admin
+from routers import crm_contacts, crm_deals, crm_activities, crm_tasks, crm_requests, crm_reports
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
@@ -63,6 +64,131 @@ VALUES (
   '$2b$12$GvzdUouzBgirlOTGF0J..OdSBCTJXB4gCtY6TNM3tWrjp/wVQpHuy',
   'O3C Admin', 'admin', 'Technology'
 ) ON CONFLICT (email) DO NOTHING;
+
+-- ── CRM Tables ────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS crm_pipeline_stages (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL,
+  order_index INT  NOT NULL,
+  color       TEXT DEFAULT '#6B7280',
+  is_won      BOOLEAN DEFAULT FALSE,
+  is_lost     BOOLEAN DEFAULT FALSE
+);
+INSERT INTO crm_pipeline_stages (name, order_index, color, is_won, is_lost) VALUES
+  ('New Lead',     0, '#6B7280', FALSE, FALSE),
+  ('Contacted',    1, '#3B82F6', FALSE, FALSE),
+  ('Interested',   2, '#8B5CF6', FALSE, FALSE),
+  ('KYC Started',  3, '#F59E0B', FALSE, FALSE),
+  ('KYC Complete', 4, '#0EA5E9', FALSE, FALSE),
+  ('Card Issued',  5, '#10B981', TRUE,  FALSE),
+  ('Lost',         6, '#EF4444', FALSE, TRUE)
+ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS crm_contacts (
+  id            SERIAL PRIMARY KEY,
+  first_name    TEXT NOT NULL,
+  last_name     TEXT NOT NULL,
+  phone         TEXT,
+  email         TEXT,
+  state         TEXT,
+  city          TEXT,
+  address       TEXT,
+  date_of_birth DATE,
+  gender        TEXT,
+  occupation    TEXT,
+  employer      TEXT,
+  income_range  TEXT,
+  id_type       TEXT,
+  id_number     TEXT,
+  source        TEXT DEFAULT 'walk_in',
+  cif_number    TEXT,
+  status        TEXT DEFAULT 'lead',
+  assigned_to   INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  tags          TEXT,
+  notes         TEXT,
+  created_by    INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_crm_contacts_cif    ON crm_contacts(cif_number);
+CREATE INDEX IF NOT EXISTS idx_crm_contacts_status ON crm_contacts(status);
+CREATE INDEX IF NOT EXISTS idx_crm_contacts_owner  ON crm_contacts(assigned_to);
+
+CREATE TABLE IF NOT EXISTS crm_deals (
+  id                   SERIAL PRIMARY KEY,
+  contact_id           INT  REFERENCES crm_contacts(id) ON DELETE CASCADE,
+  title                TEXT NOT NULL,
+  stage_id             INT  REFERENCES crm_pipeline_stages(id),
+  product              TEXT,
+  expected_value       NUMERIC,
+  probability          INT  DEFAULT 50,
+  expected_close_date  DATE,
+  lost_reason          TEXT,
+  assigned_to          INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  created_by           INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  created_at           TIMESTAMPTZ DEFAULT NOW(),
+  updated_at           TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_crm_deals_contact ON crm_deals(contact_id);
+CREATE INDEX IF NOT EXISTS idx_crm_deals_stage   ON crm_deals(stage_id);
+
+CREATE TABLE IF NOT EXISTS crm_activities (
+  id              SERIAL PRIMARY KEY,
+  contact_id      INT  REFERENCES crm_contacts(id) ON DELETE CASCADE,
+  deal_id         INT  REFERENCES crm_deals(id) ON DELETE SET NULL,
+  type            TEXT NOT NULL,
+  direction       TEXT,
+  subject         TEXT,
+  body            TEXT,
+  outcome         TEXT,
+  duration_mins   INT,
+  next_follow_up  TIMESTAMPTZ,
+  completed       BOOLEAN DEFAULT TRUE,
+  completed_at    TIMESTAMPTZ,
+  created_by      INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_crm_act_contact ON crm_activities(contact_id);
+CREATE INDEX IF NOT EXISTS idx_crm_act_created ON crm_activities(created_at);
+
+CREATE TABLE IF NOT EXISTS crm_tasks (
+  id           SERIAL PRIMARY KEY,
+  contact_id   INT  REFERENCES crm_contacts(id) ON DELETE SET NULL,
+  deal_id      INT  REFERENCES crm_deals(id)    ON DELETE SET NULL,
+  title        TEXT NOT NULL,
+  description  TEXT,
+  due_date     TIMESTAMPTZ,
+  priority     TEXT DEFAULT 'medium',
+  status       TEXT DEFAULT 'open',
+  assigned_to  INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  created_by   INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_crm_tasks_assigned ON crm_tasks(assigned_to);
+CREATE INDEX IF NOT EXISTS idx_crm_tasks_due      ON crm_tasks(due_date);
+CREATE INDEX IF NOT EXISTS idx_crm_tasks_status   ON crm_tasks(status);
+
+CREATE TABLE IF NOT EXISTS crm_requests (
+  id            SERIAL PRIMARY KEY,
+  contact_id    INT  REFERENCES crm_contacts(id) ON DELETE SET NULL,
+  cif_number    TEXT,
+  request_type  TEXT NOT NULL,
+  subject       TEXT NOT NULL,
+  description   TEXT,
+  priority      TEXT DEFAULT 'medium',
+  status        TEXT DEFAULT 'open',
+  resolution    TEXT,
+  sla_hours     INT  DEFAULT 24,
+  assigned_to   INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  escalated_to  INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  resolved_at   TIMESTAMPTZ,
+  created_by    INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_crm_req_status  ON crm_requests(status);
+CREATE INDEX IF NOT EXISTS idx_crm_req_contact ON crm_requests(contact_id);
 """
 
 @asynccontextmanager
@@ -103,6 +229,12 @@ app.include_router(sales.router,        prefix="/api/sales",        tags=["Sales
 app.include_router(cards.router,        prefix="/api/cards",        tags=["Cards"])
 app.include_router(cohort.router,       prefix="/api/cohort",       tags=["Cohort"])
 app.include_router(admin.router)
+app.include_router(crm_contacts.router,   prefix="/api/crm",  tags=["CRM"])
+app.include_router(crm_deals.router,      prefix="/api/crm",  tags=["CRM"])
+app.include_router(crm_activities.router, prefix="/api/crm",  tags=["CRM"])
+app.include_router(crm_tasks.router,      prefix="/api/crm",  tags=["CRM"])
+app.include_router(crm_requests.router,   prefix="/api/crm",  tags=["CRM"])
+app.include_router(crm_reports.router,    prefix="/api/crm",  tags=["CRM"])
 
 # ── Health endpoint ───────────────────────────────────────────────────────────
 @app.get("/api/health", tags=["Health"])

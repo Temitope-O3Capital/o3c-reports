@@ -21,14 +21,17 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
 # ── Role → allowed pages mapping ─────────────────────────────────────────────
 # Keep in sync with frontend/src/hooks/useAuth.js
+_CRM        = ["crm_pipeline", "crm_contacts", "crm_tasks", "crm_requests"]
+_CRM_REPORT = ["crm_reports"]
+
 ROLE_PAGES = {
-    "admin":       ["overview","transactions","collections","recovery","sales","cards","cohort","admin"],
-    "management":  ["overview","transactions","collections","recovery","sales","cards","cohort"],
-    "collections": ["collections","recovery"],
-    "sales":       ["sales","overview"],
+    "admin":       ["overview","transactions","collections","recovery","sales","cards","cohort","admin"] + _CRM + _CRM_REPORT,
+    "management":  ["overview","transactions","collections","recovery","sales","cards","cohort"]         + _CRM + _CRM_REPORT,
+    "sales":       ["sales","overview"]                                                                  + _CRM + _CRM_REPORT,
+    "collections": ["collections","recovery"]                                                            + _CRM,
+    "recovery":    ["recovery","collections"]                                                            + _CRM,
     "cards_ops":   ["cards","transactions","overview"],
-    "recovery":    ["recovery","collections"],
-    "call_centre": ["overview","transactions"],
+    "call_centre": ["overview","transactions","crm_requests"],
 }
 
 
