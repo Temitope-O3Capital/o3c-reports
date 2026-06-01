@@ -29,5 +29,10 @@ Thumbs.db
 # Logs
 *.log
 
+# One-off scripts with embedded secrets — never commit
+setup_db.js
+package.json
+package-lock.json
+
 # Claude Code local settings
 .claude/

@@ -44,10 +44,10 @@ function AppInner() {
   }, [isDark])
 
   if (loading) return (
-    <div className="h-screen flex items-center justify-center bg-[#F8FAFC] dark:bg-slate-900">
+    <div className="h-screen flex items-center justify-center" style={{ background: 'rgb(var(--bg-page))' }}>
       <div className="flex flex-col items-center gap-3">
         <div className="spinner" style={{ width: 24, height: 24 }} />
-        <p className="text-xs text-slate-400 font-medium">Loading</p>
+        <p className="text-xs font-medium" style={{ color: 'rgb(var(--fg-3))' }}>Loading</p>
       </div>
     </div>
   )
@@ -60,7 +60,7 @@ function AppInner() {
   const visibleNav = NAV.filter(n => canAccess(n.page))
 
   return (
-    <div className="flex h-screen bg-[#F8FAFC] dark:bg-slate-900 overflow-hidden">
+    <div className="flex h-screen overflow-hidden" style={{ background: 'rgb(var(--bg-page))' }}>
 
       {/* ── Mobile overlay ── */}
       {sideOpen && (
@@ -99,7 +99,11 @@ function AppInner() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
         {/* Topbar */}
-        <header className="flex-shrink-0 h-14 flex items-center gap-3 px-4 lg:px-6 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+        <header className="flex-shrink-0 h-14 flex items-center gap-3 px-4 lg:px-6"
+          style={{
+            background: 'rgb(var(--bg-surface))',
+            borderBottom: '1px solid rgb(var(--border) / 0.08)',
+          }}>
           <button className="lg:hidden btn-icon" onClick={() => setSideOpen(true)}>
             <span className="material-symbols-rounded text-[22px]">menu</span>
           </button>

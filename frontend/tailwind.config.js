@@ -1,40 +1,64 @@
 /** @type {import('tailwindcss').Config} */
+
+/*
+ * Tailwind reads design tokens from CSS custom properties defined in index.css.
+ * To change a brand color, shadow, or radius — edit :root in index.css only.
+ * Do NOT hardcode values here; use 'rgb(var(--token) / <alpha-value>)' form.
+ */
+
 export default {
   darkMode: 'class',
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['var(--font-sans)'],
+        mono: ['var(--font-mono)'],
+      },
+
       colors: {
         primary: {
-          DEFAULT: '#0E2841',
-          light:   '#16374F',
-          dark:    '#091a2d',
-          50:      '#EEF3F8',
-          100:     '#C8D8E8',
+          DEFAULT: 'rgb(var(--navy)       / <alpha-value>)',
+          light:   'rgb(var(--navy-light) / <alpha-value>)',
+          dark:    'rgb(var(--navy-dark)  / <alpha-value>)',
+          50:      'rgb(var(--navy)       / 0.05)',
+          100:     'rgb(var(--navy)       / 0.12)',
         },
         accent: {
-          DEFAULT: '#C00000',
-          dark:    '#960000',
-          light:   '#D40000',
-          50:      '#FFF1F1',
+          DEFAULT: 'rgb(var(--red)       / <alpha-value>)',
+          light:   'rgb(var(--red-light) / <alpha-value>)',
+          dark:    'rgb(var(--red-dark)  / <alpha-value>)',
+          50:      'rgb(var(--red)       / 0.05)',
         },
       },
-      fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['DM Mono', 'ui-monospace', 'monospace'],
+
+      boxShadow: {
+        xs:       'var(--shadow-xs)',
+        sm:       'var(--shadow-sm)',
+        card:     'var(--shadow-sm)',
+        'card-md':'var(--shadow-md)',
+        'card-lg':'var(--shadow-lg)',
+        dropdown: 'var(--shadow-xl)',
       },
+
+      borderRadius: {
+        sm:   'var(--r-sm)',
+        md:   'var(--r-md)',
+        lg:   'var(--r-lg)',
+        xl:   'var(--r-xl)',
+        card: 'var(--r-lg)',
+      },
+
       fontSize: {
         '2xs': ['10px', { lineHeight: '14px', letterSpacing: '0.05em' }],
       },
-      boxShadow: {
-        card:      '0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04)',
-        'card-md': '0 4px 12px 0 rgb(0 0 0 / 0.08), 0 2px 4px -1px rgb(0 0 0 / 0.04)',
-        'card-lg': '0 8px 24px 0 rgb(0 0 0 / 0.10), 0 4px 8px -2px rgb(0 0 0 / 0.06)',
-        dropdown:  '0 8px 32px 0 rgb(0 0 0 / 0.14)',
+
+      transitionDuration: {
+        fast: 'var(--t-fast)',
+        base: 'var(--t-base)',
+        slow: 'var(--t-slow)',
       },
-      borderRadius: {
-        card: '12px',
-      },
+
       keyframes: {
         'fade-in': {
           from: { opacity: '0', transform: 'translateY(4px)' },
