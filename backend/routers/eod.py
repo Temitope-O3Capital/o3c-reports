@@ -237,10 +237,11 @@ def by_product(
     date_from: date          = Query(...),
     date_to:   date          = Query(...),
     branch:    Optional[str] = Query(None),
+    txn_type:  Optional[str] = Query(None),
     sign:      Optional[str] = Query(None),
     db = Depends(get_pg), _ = Depends(ACCESS),
 ):
-    where, params = _build_where(date_from, date_to, branch, '', '', sign, '')
+    where, params = _build_where(date_from, date_to, branch, '', txn_type, sign, '')
     rows = db.execute(text(f"""
         SELECT product_code, product_name,
             COUNT(*)                                              AS txn_count,
@@ -261,9 +262,10 @@ def by_type(
     date_to:   date          = Query(...),
     branch:    Optional[str] = Query(None),
     product:   Optional[str] = Query(None),
+    sign:      Optional[str] = Query(None),
     db = Depends(get_pg), _ = Depends(ACCESS),
 ):
-    where, params = _build_where(date_from, date_to, branch, product, '', '', '')
+    where, params = _build_where(date_from, date_to, branch, product, '', sign, '')
     rows = db.execute(text(f"""
         SELECT txn_category,
             COUNT(*)                                              AS txn_count,

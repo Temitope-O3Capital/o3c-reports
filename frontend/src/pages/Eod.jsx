@@ -38,12 +38,12 @@ function toISO(d) { return d.toISOString().split('T')[0] }
 
 function fmtDate(s) {
   if (!s) return '—'
-  return new Date(s + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  return new Date(s + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 function fmtDateLong(s) {
   if (!s) return '—'
-  return new Date(s + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+  return new Date(s + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })
 }
 
 function quarterOf(d) { return Math.floor(d.getMonth() / 3) }
@@ -451,8 +451,8 @@ export default function Eod() {
 
       const [sum, prod, typ, br, tr] = await Promise.all([
         apiFetch(`/api/eod/summary?${p}`),
-        apiFetch(`/api/eod/by-product?date_from=${dateFrom}&date_to=${dateTo}${branch ? `&branch=${branch}` : ''}${sign ? `&sign=${sign}` : ''}`),
-        apiFetch(`/api/eod/by-type?date_from=${dateFrom}&date_to=${dateTo}${branch ? `&branch=${branch}` : ''}${product ? `&product=${product}` : ''}`),
+        apiFetch(`/api/eod/by-product?date_from=${dateFrom}&date_to=${dateTo}${branch ? `&branch=${branch}` : ''}${txnType ? `&txn_type=${txnType}` : ''}${sign ? `&sign=${sign}` : ''}`),
+        apiFetch(`/api/eod/by-type?date_from=${dateFrom}&date_to=${dateTo}${branch ? `&branch=${branch}` : ''}${product ? `&product=${product}` : ''}${sign ? `&sign=${sign}` : ''}`),
         apiFetch(`/api/eod/by-branch?date_from=${dateFrom}&date_to=${dateTo}`),
         apiFetch(`/api/eod/trend?date_from=${dateFrom}&date_to=${dateTo}`),
       ])
@@ -719,7 +719,7 @@ export default function Eod() {
                         const isDr = t.sign === 'DR'
                         return (
                           <tr key={i}>
-                            <td className="text-xs text-slate-500 whitespace-nowrap font-mono">
+                            <td className="text-xs text-slate-500 whitespace-nowrap">
                               {fmtDate(t.txn_date)}
                             </td>
                             <td>

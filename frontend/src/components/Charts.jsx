@@ -430,11 +430,11 @@ export function ProgressListCard({ title, subtitle, data = [], nameKey, valueKey
                     {item[nameKey]}
                   </span>
                 </div>
-                <div className="flex items-center gap-2.5 flex-shrink-0 ml-3">
-                  <span className="text-[11px] tabular-nums" style={{ color: 'rgb(var(--fg-3))' }}>
+                <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                  <span className="text-[11px] tabular-nums text-right" style={{ color: 'rgb(var(--fg-3))', minWidth: 30 }}>
                     {share.toFixed(0)}%
                   </span>
-                  <span className="text-[13px] font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                  <span className="text-[13px] font-semibold tabular-nums text-right text-slate-800 dark:text-slate-100" style={{ minWidth: 72 }}>
                     {formatter(val)}
                   </span>
                 </div>
@@ -462,36 +462,52 @@ export function ProgressListCard({ title, subtitle, data = [], nameKey, valueKey
                   boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
                   minWidth: 200,
                 }}>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: 'rgb(var(--fg-1))', marginBottom: 6, lineHeight: 1.3 }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: 'rgb(var(--fg-1))', marginBottom: 8, lineHeight: 1.3 }}>
                     {item[nameKey]}
                   </p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
-                      <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>Exact value</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    {/* Txn count — shown when available */}
+                    {item.txn_count != null && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
+                        <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>Transactions</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'rgb(var(--fg-1))' }}>
+                          {Number(item.txn_count).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
+                    {/* DR / CR split — shown when available */}
+                    {item.total_dr != null && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
+                        <span style={{ fontSize: 11, color: '#C00000' }}>↑ Debits</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: '#C00000', fontVariantNumeric: 'tabular-nums' }}>
+                          {fmtExact(item.total_dr)}
+                        </span>
+                      </div>
+                    )}
+                    {item.total_cr != null && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
+                        <span style={{ fontSize: 11, color: '#059669' }}>↓ Credits</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: '#059669', fontVariantNumeric: 'tabular-nums' }}>
+                          {fmtExact(item.total_cr)}
+                        </span>
+                      </div>
+                    )}
+                    {/* Divider if DR/CR shown */}
+                    {(item.total_dr != null || item.total_cr != null) && (
+                      <div style={{ borderTop: '1px solid rgb(var(--border) / 0.1)', margin: '2px 0' }} />
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
+                      <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>Exact total</span>
                       <span style={{ fontSize: 12, fontWeight: 700, color: 'rgb(var(--fg-1))', fontVariantNumeric: 'tabular-nums' }}>
                         {fmtExact(val)}
                       </span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
                       <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>Share of total</span>
                       <span style={{ fontSize: 12, fontWeight: 600, color: PALETTE[i % PALETTE.length], fontVariantNumeric: 'tabular-nums' }}>
                         {share.toFixed(2)}%
                       </span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
-                      <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>Rank</span>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: 'rgb(var(--fg-2))' }}>
-                        #{i + 1} of {items.length}
-                      </span>
-                    </div>
-                    {total > 0 && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
-                        <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>Total (all)</span>
-                        <span style={{ fontSize: 12, color: 'rgb(var(--fg-3))', fontVariantNumeric: 'tabular-nums' }}>
-                          {fmtExact(total)}
-                        </span>
-                      </div>
-                    )}
                   </div>
                 </div>
               )}
