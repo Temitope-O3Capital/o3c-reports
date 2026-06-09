@@ -7,20 +7,26 @@ import PageShell from '../components/PageShell.jsx'
    ═══════════════════════════════════════════════════════════════ */
 
 const ROLES = [
-  // Executive titles
-  { value: 'md',          label: 'MD',            group: 'Executive',   desc: 'Managing Director — all dashboards',              icon: 'stars' },
-  { value: 'coo',         label: 'COO',            group: 'Executive',   desc: 'Chief Operating Officer — operations reports',    icon: 'account_tree' },
-  { value: 'cfo',         label: 'CFO',            group: 'Executive',   desc: 'Chief Financial Officer — financial reports',     icon: 'finance' },
-  { value: 'head_it',     label: 'Head of IT',     group: 'Executive',   desc: 'Full access including admin settings',            icon: 'computer' },
-  { value: 'head_hr',     label: 'Head of HR',     group: 'Executive',   desc: 'Overview and Sales reports',                     icon: 'people' },
-  // Functional
-  { value: 'admin',       label: 'Admin',          group: 'Functional',  desc: 'Full access — all pages and settings',           icon: 'admin_panel_settings' },
-  { value: 'management',  label: 'Management',     group: 'Functional',  desc: 'All reports, read-only',                         icon: 'groups' },
-  { value: 'sales',       label: 'Sales',          group: 'Functional',  desc: 'Sales, Overview and CRM',                        icon: 'trending_up' },
-  { value: 'cards_ops',   label: 'Cards Ops',      group: 'Functional',  desc: 'Cards, Transactions & Overview',                 icon: 'credit_card' },
-  { value: 'collections', label: 'Collections',    group: 'Functional',  desc: 'Collections & Recovery',                        icon: 'account_balance_wallet' },
-  { value: 'recovery',    label: 'Recovery',       group: 'Functional',  desc: 'Recovery & Collections',                        icon: 'gavel' },
-  { value: 'call_centre', label: 'Call Centre',    group: 'Functional',  desc: 'Overview & Transactions',                       icon: 'headset_mic' },
+  // Executive
+  { value: 'md',               label: 'MD / CEO',            group: 'Executive',   desc: 'Managing Director — all dashboards',                  icon: 'stars' },
+  { value: 'coo',              label: 'COO',                  group: 'Executive',   desc: 'Chief Operating Officer — operations reports',        icon: 'account_tree' },
+  { value: 'cfo',              label: 'CFO',                  group: 'Executive',   desc: 'Chief Financial Officer — financial reports',         icon: 'finance' },
+  { value: 'cmo',              label: 'CMO',                  group: 'Executive',   desc: 'Chief Marketing Officer — sales & CRM',               icon: 'campaign' },
+  // Unit Heads
+  { value: 'head_it',          label: 'Head of IT',           group: 'Unit Heads',  desc: 'Full access including admin settings',                icon: 'computer' },
+  { value: 'head_ops',         label: 'Head of Operations',   group: 'Unit Heads',  desc: 'Operations, cards, transactions & income',           icon: 'precision_manufacturing' },
+  { value: 'head_hr',          label: 'Head of HR',           group: 'Unit Heads',  desc: 'Overview and sales metrics',                         icon: 'people' },
+  { value: 'head_sales',       label: 'Head of Sales',        group: 'Unit Heads',  desc: 'Sales, CRM pipeline and executive reports',          icon: 'trending_up' },
+  { value: 'head_collections', label: 'Head of Collections',  group: 'Unit Heads',  desc: 'Collections, recovery & executive reports',          icon: 'account_balance_wallet' },
+  { value: 'head_recovery',    label: 'Head of Recovery',     group: 'Unit Heads',  desc: 'Recovery, collections & executive reports',          icon: 'gavel' },
+  // Junior Staff
+  { value: 'admin',            label: 'Admin',                group: 'Junior Staff', desc: 'Full system access including settings',              icon: 'admin_panel_settings' },
+  { value: 'management',       label: 'Management',           group: 'Junior Staff', desc: 'All reports, read-only',                            icon: 'groups' },
+  { value: 'sales',            label: 'Sales',                group: 'Junior Staff', desc: 'Sales, Overview and CRM',                           icon: 'sell' },
+  { value: 'cards_ops',        label: 'Cards Ops',            group: 'Junior Staff', desc: 'Cards, Transactions & Overview',                    icon: 'credit_card' },
+  { value: 'collections',      label: 'Collections',          group: 'Junior Staff', desc: 'Collections & Recovery',                            icon: 'receipt_long' },
+  { value: 'recovery',         label: 'Recovery',             group: 'Junior Staff', desc: 'Recovery & Collections',                            icon: 'handshake' },
+  { value: 'call_centre',      label: 'Call Centre',          group: 'Junior Staff', desc: 'Overview & Transactions',                           icon: 'headset_mic' },
 ]
 
 const DEPARTMENTS = [
@@ -29,33 +35,43 @@ const DEPARTMENTS = [
 ]
 
 const ROLE_ACCESS = {
-  md:          ['Overview','Transactions','Cards','Sales','Collections','Recovery','Cohort','Executive','Income','Uploads','CRM'],
-  coo:         ['Overview','Transactions','Cards','Collections','Recovery','Cohort','Executive','Income','Uploads','CRM'],
-  cfo:         ['Overview','Income','Collections','Recovery','Executive','Transactions','Uploads'],
-  head_it:     ['Overview','Transactions','Cards','Sales','Collections','Recovery','Cohort','Executive','Income','Uploads','Settings','CRM'],
-  head_hr:     ['Overview','Sales','Uploads'],
-  admin:       ['Overview','Transactions','Cards','Sales','Collections','Recovery','Cohort','Executive','Income','Uploads','Settings','CRM'],
-  management:  ['Overview','Transactions','Cards','Sales','Collections','Recovery','Cohort','Executive','Income','Uploads','CRM'],
-  sales:       ['Sales','Overview','Uploads','CRM'],
-  cards_ops:   ['Cards','Transactions','Overview','Uploads'],
-  collections: ['Collections','Recovery','Uploads','CRM'],
-  recovery:    ['Recovery','Collections','Uploads','CRM'],
-  call_centre: ['Overview','Transactions','Uploads'],
+  md:               ['Overview','Transactions','Cards','Sales','Collections','Recovery','Cohort','Executive','Income','Uploads','CRM'],
+  coo:              ['Overview','Transactions','Cards','Collections','Recovery','Cohort','Executive','Income','Uploads','CRM'],
+  cfo:              ['Overview','Income','Collections','Recovery','Executive','Transactions','Uploads'],
+  cmo:              ['Sales','Overview','Executive','Uploads','CRM'],
+  head_it:          ['Overview','Transactions','Cards','Sales','Collections','Recovery','Cohort','Executive','Income','Uploads','Settings','CRM'],
+  head_ops:         ['Overview','Transactions','Cards','Cohort','Executive','Income','Uploads','CRM'],
+  head_hr:          ['Overview','Sales','Uploads'],
+  head_sales:       ['Sales','Overview','Executive','Uploads','CRM'],
+  head_collections: ['Collections','Recovery','Overview','Executive','Uploads','CRM'],
+  head_recovery:    ['Recovery','Collections','Overview','Executive','Uploads','CRM'],
+  admin:            ['Overview','Transactions','Cards','Sales','Collections','Recovery','Cohort','Executive','Income','Uploads','Settings','CRM'],
+  management:       ['Overview','Transactions','Cards','Sales','Collections','Recovery','Cohort','Executive','Income','Uploads','CRM'],
+  sales:            ['Sales','Overview','Uploads','CRM'],
+  cards_ops:        ['Cards','Transactions','Overview','Uploads'],
+  collections:      ['Collections','Recovery','Uploads','CRM'],
+  recovery:         ['Recovery','Collections','Uploads','CRM'],
+  call_centre:      ['Overview','Transactions','Uploads'],
 }
 
 const ROLE_COLOUR = {
-  md:          'bg-indigo-50    text-indigo-700  dark:bg-indigo-900/20   dark:text-indigo-300',
-  coo:         'bg-violet-50    text-violet-700  dark:bg-violet-900/20   dark:text-violet-300',
-  cfo:         'bg-emerald-50   text-emerald-700 dark:bg-emerald-900/20  dark:text-emerald-400',
-  head_it:     'bg-sky-50       text-sky-700     dark:bg-sky-900/20      dark:text-sky-300',
-  head_hr:     'bg-pink-50      text-pink-700    dark:bg-pink-900/20     dark:text-pink-300',
-  admin:       'bg-primary-50   text-primary     dark:bg-primary/20      dark:text-blue-300',
-  management:  'bg-purple-50    text-purple-700  dark:bg-purple-900/20   dark:text-purple-300',
-  sales:       'bg-teal-50      text-teal-700    dark:bg-teal-900/20     dark:text-teal-400',
-  cards_ops:   'bg-blue-50      text-blue-700    dark:bg-blue-900/20     dark:text-blue-300',
-  collections: 'bg-amber-50     text-amber-700   dark:bg-amber-900/20    dark:text-amber-400',
-  recovery:    'bg-red-50       text-red-700     dark:bg-red-900/20      dark:text-red-400',
-  call_centre: 'bg-slate-100    text-slate-600   dark:bg-slate-700       dark:text-slate-300',
+  md:               'bg-indigo-50    text-indigo-700  dark:bg-indigo-900/20   dark:text-indigo-300',
+  coo:              'bg-violet-50    text-violet-700  dark:bg-violet-900/20   dark:text-violet-300',
+  cfo:              'bg-emerald-50   text-emerald-700 dark:bg-emerald-900/20  dark:text-emerald-400',
+  cmo:              'bg-fuchsia-50   text-fuchsia-700 dark:bg-fuchsia-900/20  dark:text-fuchsia-300',
+  head_it:          'bg-sky-50       text-sky-700     dark:bg-sky-900/20      dark:text-sky-300',
+  head_ops:         'bg-cyan-50      text-cyan-700    dark:bg-cyan-900/20     dark:text-cyan-300',
+  head_hr:          'bg-pink-50      text-pink-700    dark:bg-pink-900/20     dark:text-pink-300',
+  head_sales:       'bg-teal-50      text-teal-700    dark:bg-teal-900/20     dark:text-teal-400',
+  head_collections: 'bg-amber-50     text-amber-700   dark:bg-amber-900/20    dark:text-amber-400',
+  head_recovery:    'bg-orange-50    text-orange-700  dark:bg-orange-900/20   dark:text-orange-400',
+  admin:            'bg-primary-50   text-primary     dark:bg-primary/20      dark:text-blue-300',
+  management:       'bg-purple-50    text-purple-700  dark:bg-purple-900/20   dark:text-purple-300',
+  sales:            'bg-teal-50      text-teal-700    dark:bg-teal-900/20     dark:text-teal-400',
+  cards_ops:        'bg-blue-50      text-blue-700    dark:bg-blue-900/20     dark:text-blue-300',
+  collections:      'bg-amber-50     text-amber-700   dark:bg-amber-900/20    dark:text-amber-400',
+  recovery:         'bg-red-50       text-red-700     dark:bg-red-900/20      dark:text-red-400',
+  call_centre:      'bg-slate-100    text-slate-600   dark:bg-slate-700       dark:text-slate-300',
 }
 
 const EMPTY_FORM = { full_name: '', email: '', role: 'call_centre', department: 'Operations' }
@@ -145,8 +161,9 @@ function UserModal({ mode, userId, initial, onSave, onClose }) {
   const selectedRole = ROLES.find(r => r.value === form.role)
 
   // Group roles for the select
-  const execRoles = ROLES.filter(r => r.group === 'Executive')
-  const funcRoles = ROLES.filter(r => r.group === 'Functional')
+  const execRoles   = ROLES.filter(r => r.group === 'Executive')
+  const headRoles   = ROLES.filter(r => r.group === 'Unit Heads')
+  const juniorRoles = ROLES.filter(r => r.group === 'Junior Staff')
 
   async function handleSave() {
     if (!form.full_name.trim() || !form.email.trim()) {
@@ -237,7 +254,7 @@ function UserModal({ mode, userId, initial, onSave, onClose }) {
             <div className="flex items-center gap-2.5 rounded-lg px-4 py-3 text-xs"
               style={{ background: 'rgb(var(--bg-subtle))', color: 'rgb(var(--fg-3))' }}>
               <span className="material-symbols-rounded text-[15px]">key</span>
-              A temporary password (<strong>O3CCards@{new Date().getFullYear()}</strong>) will be generated.
+              A temporary password (<strong>O3Cards@{new Date().getFullYear()}</strong>) will be generated.
               The user must change it on first login.
             </div>
           )}
@@ -251,8 +268,11 @@ function UserModal({ mode, userId, initial, onSave, onClose }) {
                 <optgroup label="Executive">
                   {execRoles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </optgroup>
-                <optgroup label="Functional">
-                  {funcRoles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                <optgroup label="Unit Heads">
+                  {headRoles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                </optgroup>
+                <optgroup label="Junior Staff">
+                  {juniorRoles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </optgroup>
               </select>
               {selectedRole && <p className="text-xs text-slate-400 mt-1">{selectedRole.desc}</p>}
@@ -543,7 +563,11 @@ export default function Admin() {
         <p className="text-xs font-semibold uppercase tracking-wider mb-4" style={{ color: 'rgb(var(--fg-3))' }}>
           Role distribution
         </p>
-        {[['Executive', ROLES.filter(r => r.group === 'Executive')], ['Functional', ROLES.filter(r => r.group === 'Functional')]].map(([group, roles]) => (
+        {[
+          ['Executive', ROLES.filter(r => r.group === 'Executive')],
+          ['Unit Heads', ROLES.filter(r => r.group === 'Unit Heads')],
+          ['Junior Staff', ROLES.filter(r => r.group === 'Junior Staff')],
+        ].map(([group, roles]) => (
           <div key={group} className="mb-3 last:mb-0">
             <p className="text-[10px] text-slate-400 uppercase tracking-widest mb-2">{group}</p>
             <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-7 gap-2">

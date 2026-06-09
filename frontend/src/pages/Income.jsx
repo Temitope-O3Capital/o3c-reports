@@ -118,15 +118,23 @@ function ActivePill({ label, onRemove }) {
 
 /* ── Period Navigator ── */
 function PeriodNavigator({ cycles, cycleId, onChange }) {
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const pickerRef = useRef()
   const idx     = cycles.findIndex(c => c.id === cycleId)
   const current = cycles[idx]
-  const canPrev = idx < cycles.length - 1   // cycles DESC → older = higher index
-  const canNext = idx > 0                    // newer = lower index
+  const canPrev = idx < cycles.length - 1
+  const canNext = idx > 0
+
+  useEffect(() => {
+    if (!pickerOpen) return
+    function handle(e) { if (!pickerRef.current?.contains(e.target)) setPickerOpen(false) }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [pickerOpen])
 
   const navBtn = (enabled, onClick, icon) => (
     <button
-      disabled={!enabled}
-      onClick={onClick}
+      disabled={!enabled} onClick={onClick}
       style={{
         width: 38, display: 'flex', alignItems: 'center', justifyContent: 'center',
         color: 'rgb(var(--fg-2))', opacity: enabled ? 1 : 0.25,
@@ -139,27 +147,88 @@ function PeriodNavigator({ cycles, cycleId, onChange }) {
   )
 
   return (
-    <div style={{
-      display: 'inline-flex', alignItems: 'stretch',
-      borderRadius: 10, border: '1px solid rgb(var(--border) / 0.18)',
-      background: 'rgb(var(--bg-surface))', overflow: 'hidden',
-    }}>
-      {navBtn(canPrev, () => onChange(cycles[idx + 1].id), 'chevron_left')}
-
+    <div ref={pickerRef} style={{ position: 'relative', display: 'inline-flex', alignItems: 'stretch' }}>
       <div style={{
-        padding: '7px 18px', textAlign: 'center', minWidth: 168,
-        borderLeft: '1px solid rgb(var(--border) / 0.12)',
-        borderRight: '1px solid rgb(var(--border) / 0.12)',
+        display: 'inline-flex', alignItems: 'stretch',
+        borderRadius: 10, border: '1px solid rgb(var(--border) / 0.18)',
+        background: 'rgb(var(--bg-surface))', overflow: 'hidden',
       }}>
-        <p style={{ fontSize: 15, fontWeight: 700, color: 'rgb(var(--fg-1))', lineHeight: 1.3, letterSpacing: '-0.01em' }}>
-          {current?.label || '—'}
-        </p>
-        <p style={{ fontSize: 10, color: 'rgb(var(--fg-3))', marginTop: 2, letterSpacing: '0.03em', textTransform: 'uppercase', fontWeight: 500 }}>
-          {current?.cycle_date ? fmtCycleDate(current.cycle_date) : 'No cycle selected'}
-        </p>
+        {navBtn(canPrev, () => onChange(cycles[idx + 1].id), 'chevron_left')}
+
+        <button
+          onClick={() => setPickerOpen(v => !v)}
+          style={{
+            padding: '7px 18px', textAlign: 'center', minWidth: 168,
+            borderLeft: '1px solid rgb(var(--border) / 0.12)',
+            borderRight: '1px solid rgb(var(--border) / 0.12)',
+            background: pickerOpen ? 'rgb(var(--bg-subtle))' : 'transparent',
+            cursor: 'pointer', border: 'none', outline: 'none',
+            borderLeft: '1px solid rgb(var(--border) / 0.12)',
+            borderRight: '1px solid rgb(var(--border) / 0.12)',
+          }}
+        >
+          <p style={{ fontSize: 15, fontWeight: 700, color: 'rgb(var(--fg-1))', lineHeight: 1.3, letterSpacing: '-0.01em' }}>
+            {current?.label || '—'}
+          </p>
+          <p style={{ fontSize: 10, color: 'rgb(var(--fg-3))', marginTop: 2, letterSpacing: '0.03em', textTransform: 'uppercase', fontWeight: 500 }}>
+            {current?.cycle_date ? fmtCycleDate(current.cycle_date) : 'Click to select'}
+          </p>
+        </button>
+
+        {navBtn(canNext, () => onChange(cycles[idx - 1].id), 'chevron_right')}
       </div>
 
-      {navBtn(canNext, () => onChange(cycles[idx - 1].id), 'chevron_right')}
+      {/* Cycle picker dropdown */}
+      {pickerOpen && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 8px)', left: '50%',
+          transform: 'translateX(-50%)', zIndex: 60,
+          background: 'rgb(var(--bg-surface))',
+          border: '1px solid rgb(var(--border) / 0.12)',
+          borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.14)',
+          minWidth: 260, maxHeight: 320, overflowY: 'auto',
+          padding: '6px 0',
+        }}>
+          <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgb(var(--fg-3))', padding: '6px 14px 4px' }}>
+            Select billing cycle
+          </p>
+          {cycles.map(c => {
+            const isSelected = c.id === cycleId
+            const hasData    = Number(c.interest_rows) > 0 || Number(c.charge_rows) > 0
+            return (
+              <button key={c.id}
+                onClick={() => { onChange(c.id); setPickerOpen(false) }}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  width: '100%', padding: '9px 14px', cursor: 'pointer',
+                  background: isSelected ? 'rgb(14 40 65 / 0.06)' : 'transparent',
+                  textAlign: 'left',
+                }}>
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: isSelected ? 700 : 500, color: isSelected ? '#0E2841' : 'rgb(var(--fg-1))', lineHeight: 1.3 }}>
+                    {c.label}
+                  </p>
+                  <p style={{ fontSize: 11, color: 'rgb(var(--fg-3))', marginTop: 1 }}>
+                    {fmtCycleDate(c.cycle_date)}
+                  </p>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  {hasData ? (
+                    <span style={{ fontSize: 10, fontWeight: 500, color: '#059669', background: 'rgb(5 150 105 / 0.08)', padding: '2px 7px', borderRadius: 20 }}>
+                      {(Number(c.interest_rows) || 0).toLocaleString()} rows
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 10, color: 'rgb(var(--fg-3))', background: 'rgb(var(--bg-subtle))', padding: '2px 7px', borderRadius: 20 }}>
+                      empty
+                    </span>
+                  )}
+                  {isSelected && <span className="material-symbols-rounded" style={{ fontSize: 16, color: '#0E2841' }}>check</span>}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -211,19 +280,21 @@ function FilterBar({
           active={!!product}
           onClear={() => onProduct('')}
         >
-          <DropdownItem label="All Products" selected={!product} onClick={() => onProduct('')} />
-          {products.map(p => (
-            <DropdownItem key={p} label={p} selected={product === p} onClick={() => onProduct(p)} />
-          ))}
+          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+            <DropdownItem label="All Products" selected={!product} onClick={() => onProduct('')} />
+            {products.map(p => (
+              <DropdownItem key={p} label={p} selected={product === p} onClick={() => onProduct(p)} />
+            ))}
+          </div>
         </FilterChip>
 
         {/* Currency */}
         <FilterChip
-          label={currency ? `${currency} only` : 'Currency'}
+          label={currency === 'NGN' ? '🇳🇬 NGN' : currency === 'USD' ? '🇺🇸 USD' : 'Currency'}
           active={!!currency}
           onClear={() => onCurrency('')}
         >
-          {[['', 'NGN + USD (all)'], ['NGN', 'NGN only'], ['USD', 'USD only']].map(([val, lbl]) => (
+          {[['', '🌍  NGN + USD'], ['NGN', '🇳🇬  NGN'], ['USD', '🇺🇸  USD']].map(([val, lbl]) => (
             <DropdownItem key={val} label={lbl} selected={currency === val} onClick={() => onCurrency(val)} />
           ))}
         </FilterChip>
@@ -263,7 +334,7 @@ function FilterBar({
             Filtered by:
           </span>
           {product    && <ActivePill label={product}              onRemove={() => onProduct('')} />}
-          {currency   && <ActivePill label={`${currency} only`}   onRemove={() => onCurrency('')} />}
+          {currency   && <ActivePill label={currency === 'NGN' ? '🇳🇬 NGN' : '🇺🇸 USD'}   onRemove={() => onCurrency('')} />}
           {hasOverdue && <ActivePill label="Overdue only"         onRemove={() => onOverdue(false)} />}
           {hasInterest&& <ActivePill label="Has interest"         onRemove={() => onInterest(false)} />}
         </div>
@@ -290,7 +361,7 @@ function KPI({ label, value, icon, sub, accent = '#0E2841', tooltip }) {
           <span className="material-symbols-rounded text-[17px]" style={{ color: accent }}>{icon}</span>
         </div>
       </div>
-      <p className="text-[26px] font-bold tracking-tight leading-none font-mono tabular-nums text-slate-900 dark:text-white">
+      <p className="text-[26px] font-bold tracking-tight leading-none tabular-nums text-slate-900 dark:text-white" style={{ fontVariantNumeric: 'tabular-nums', fontFeatureSettings: '"tnum"' }}>
         {value}
       </p>
       {sub && <p className="text-xs text-slate-400 mt-2">{sub}</p>}
@@ -327,7 +398,10 @@ export default function Income() {
   async function loadCycles() {
     const data = await apiFetch('/api/income/cycles')
     setCycles(data)
-    if (data.length && !cycleId) setCycleId(data[0].id)
+    if (data.length && !cycleId) {
+      const withData = data.find(c => Number(c.interest_rows) > 0 || Number(c.charge_rows) > 0)
+      setCycleId((withData || data[0]).id)
+    }
   }
 
   useEffect(() => { loadCycles() }, [])
@@ -564,20 +638,20 @@ export default function Income() {
                                 : <span className="text-slate-300">—</span>}
                             </td>
                             <td className="text-slate-600 dark:text-slate-400 whitespace-nowrap">{row.product_name}</td>
-                            <td><span className="badge badge-grey text-[10px]">{row.currency}</span></td>
-                            <td className={`text-right font-mono tabular-nums ${n(row.interest) > 0 ? 'text-slate-800 dark:text-slate-100 font-semibold' : 'text-slate-300'}`}>
+                            <td><span className="badge badge-grey text-[10px]">{row.currency === 'NGN' ? '🇳🇬 NGN' : row.currency === 'USD' ? '🇺🇸 USD' : row.currency}</span></td>
+                            <td className={`text-right tabular-nums ${n(row.interest) > 0 ? 'text-slate-800 dark:text-slate-100 font-semibold' : 'text-slate-300'}`}>
                               {n(row.interest) > 0 ? fmt(row.interest) : '—'}
                             </td>
-                            <td className="text-right font-mono tabular-nums text-slate-600">{n(row.fees) > 0 ? fmt(row.fees) : '—'}</td>
-                            <td className="text-right font-mono tabular-nums text-slate-600">{n(row.cash_advance) > 0 ? fmt(row.cash_advance) : '—'}</td>
-                            <td className="text-right font-mono tabular-nums text-slate-600">{n(row.purchase) > 0 ? fmt(row.purchase) : '—'}</td>
-                            <td className="text-right font-mono tabular-nums text-slate-600">{n(row.penalty) > 0 ? fmt(row.penalty) : '—'}</td>
-                            <td className="text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">{n(row.outstanding_bal) > 0 ? fmt(row.outstanding_bal) : '—'}</td>
-                            <td className={`text-right font-mono tabular-nums font-semibold ${isOverdue ? 'text-red-500' : 'text-slate-300'}`}>
+                            <td className="text-right tabular-nums text-slate-600">{n(row.fees) > 0 ? fmt(row.fees) : '—'}</td>
+                            <td className="text-right tabular-nums text-slate-600">{n(row.cash_advance) > 0 ? fmt(row.cash_advance) : '—'}</td>
+                            <td className="text-right tabular-nums text-slate-600">{n(row.purchase) > 0 ? fmt(row.purchase) : '—'}</td>
+                            <td className="text-right tabular-nums text-slate-600">{n(row.penalty) > 0 ? fmt(row.penalty) : '—'}</td>
+                            <td className="text-right tabular-nums text-slate-700 dark:text-slate-300">{n(row.outstanding_bal) > 0 ? fmt(row.outstanding_bal) : '—'}</td>
+                            <td className={`text-right tabular-nums font-semibold ${isOverdue ? 'text-red-500' : 'text-slate-300'}`}>
                               {isOverdue ? fmt(row.overdue) : '—'}
                             </td>
-                            <td className="text-right font-mono tabular-nums text-slate-600">{n(row.min_payment) > 0 ? fmt(row.min_payment) : '—'}</td>
-                            <td className="text-right font-mono tabular-nums text-slate-500">{n(row.current_loc) > 0 ? fmt(row.current_loc) : '—'}</td>
+                            <td className="text-right tabular-nums text-slate-600">{n(row.min_payment) > 0 ? fmt(row.min_payment) : '—'}</td>
+                            <td className="text-right tabular-nums text-slate-500">{n(row.current_loc) > 0 ? fmt(row.current_loc) : '—'}</td>
                           </tr>
                         )
                       })}

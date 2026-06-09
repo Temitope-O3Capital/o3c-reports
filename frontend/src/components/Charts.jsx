@@ -170,7 +170,7 @@ export function KpiCard({ label, value, sub, accent = 'navy', icon, trend, trend
       </div>
 
       {/* Value — large, bold, proportional (not mono) */}
-      <p style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1, marginBottom: 12, color: 'rgb(var(--fg-1))', fontVariantNumeric: 'tabular-nums' }}>
+      <p style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1, marginBottom: 12, color: 'rgb(var(--fg-1))', fontVariantNumeric: 'tabular-nums', fontFamily: 'var(--font-sans, DM Sans, system-ui, sans-serif)', fontFeatureSettings: '"tnum"' }}>
         {value ?? '—'}
       </p>
 
@@ -397,10 +397,17 @@ export function DonutCard({ title, subtitle, data = [], nameKey, valueKey, curre
    ═══════════════════════════════════════════════════════════════ */
 
 export function ProgressListCard({ title, subtitle, data = [], nameKey, valueKey, currency = false, maxItems = 8, actions }) {
+  const [hoveredIdx, setHoveredIdx] = useState(null)
   const formatter = currency ? fmt : fmtNum
   const items = data.slice(0, maxItems)
   const max   = Math.max(...items.map(d => Number(d[valueKey] || 0)), 1)
   const total = items.reduce((s, d) => s + Number(d[valueKey] || 0), 0)
+
+  function fmtExact(v) {
+    const num = Number(v || 0)
+    if (currency) return '₦' + num.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    return num.toLocaleString('en-NG')
+  }
 
   return (
     <ChartCard title={title} subtitle={subtitle} actions={actions}>
@@ -410,7 +417,9 @@ export function ProgressListCard({ title, subtitle, data = [], nameKey, valueKey
           const barWidth = (val / max) * 100
           const share    = total > 0 ? (val / total) * 100 : 0
           return (
-            <div key={i}>
+            <div key={i} style={{ position: 'relative' }}
+              onMouseEnter={() => setHoveredIdx(i)}
+              onMouseLeave={() => setHoveredIdx(null)}>
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
                   <span className="text-[10px] font-semibold w-4 text-right flex-shrink-0 tabular-nums"
@@ -441,6 +450,51 @@ export function ProgressListCard({ title, subtitle, data = [], nameKey, valueKey
                   }}
                 />
               </div>
+
+              {/* Hover tooltip */}
+              {hoveredIdx === i && (
+                <div style={{
+                  position: 'absolute', right: 0, bottom: 'calc(100% + 6px)',
+                  zIndex: 50, pointerEvents: 'none',
+                  background: 'rgb(var(--bg-surface))',
+                  border: '1px solid rgb(var(--border) / 0.12)',
+                  borderRadius: 10, padding: '10px 14px',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                  minWidth: 200,
+                }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: 'rgb(var(--fg-1))', marginBottom: 6, lineHeight: 1.3 }}>
+                    {item[nameKey]}
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+                      <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>Exact value</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'rgb(var(--fg-1))', fontVariantNumeric: 'tabular-nums' }}>
+                        {fmtExact(val)}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+                      <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>Share of total</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: PALETTE[i % PALETTE.length], fontVariantNumeric: 'tabular-nums' }}>
+                        {share.toFixed(2)}%
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+                      <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>Rank</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: 'rgb(var(--fg-2))' }}>
+                        #{i + 1} of {items.length}
+                      </span>
+                    </div>
+                    {total > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+                        <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>Total (all)</span>
+                        <span style={{ fontSize: 12, color: 'rgb(var(--fg-3))', fontVariantNumeric: 'tabular-nums' }}>
+                          {fmtExact(total)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )
         })}

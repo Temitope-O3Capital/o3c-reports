@@ -12,6 +12,11 @@ const ROLE_PAGES = {
   cfo:         ['overview','income','collections','recovery','executive','transactions','uploads'],
   head_it:     ['overview','transactions','collections','recovery','sales','cards','cohort','admin','executive','income','uploads', ...CRM, ...CRM_REPORT],
   head_hr:     ['overview','sales','uploads'],
+  cmo:              ['overview','sales','executive','uploads', ...CRM, ...CRM_REPORT],
+  head_ops:         ['overview','transactions','cards','cohort','executive','income','uploads', ...CRM],
+  head_sales:       ['sales','overview','uploads','executive', ...CRM, ...CRM_REPORT],
+  head_collections: ['collections','recovery','overview','uploads','executive', ...CRM],
+  head_recovery:    ['recovery','collections','overview','uploads','executive', ...CRM],
   // Functional roles
   admin:       ['overview','transactions','collections','recovery','sales','cards','cohort','admin','executive','income','uploads', ...CRM, ...CRM_REPORT],
   management:  ['overview','transactions','collections','recovery','sales','cards','cohort','executive','income','uploads',         ...CRM, ...CRM_REPORT],

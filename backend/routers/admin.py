@@ -23,13 +23,14 @@ ADMIN_ACCESS = require_pages(["admin"])
 
 VALID_ROLES = {
     "md", "coo", "cfo", "head_it", "head_hr",
+    "cmo", "head_ops", "head_sales", "head_collections", "head_recovery",
     "admin", "management", "collections", "sales",
     "cards_ops", "recovery", "call_centre",
 }
 
 
 def _default_password() -> str:
-    return f"O3CCards@{datetime.now().year}"
+    return f"O3Cards@{datetime.now().year}"
 
 
 def _row_to_dict(row) -> dict:
