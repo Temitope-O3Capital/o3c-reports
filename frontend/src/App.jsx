@@ -12,9 +12,10 @@ import Sales from './pages/Sales.jsx'
 import Cards from './pages/Cards.jsx'
 import Cohort from './pages/Cohort.jsx'
 import Admin from './pages/Admin.jsx'
-import Executive     from './pages/Executive.jsx'
-import Income        from './pages/Income.jsx'
-import Uploads       from './pages/Uploads.jsx'
+import Executive       from './pages/Executive.jsx'
+import Income          from './pages/Income.jsx'
+import Uploads         from './pages/Uploads.jsx'
+import ChangePassword  from './pages/ChangePassword.jsx'
 import CrmPipeline   from './pages/crm/Pipeline.jsx'
 import CrmContacts   from './pages/crm/Contacts.jsx'
 import CrmContact360 from './pages/crm/Contact360.jsx'
@@ -52,7 +53,7 @@ export default function App() {
 }
 
 function AppInner() {
-  const { user, loading, login, logout, canAccess } = useAuth()
+  const { user, loading, login, logout, canAccess, clearMustChangePassword } = useAuth()
   const [dataSource, setDataSource] = useState(null)
   const [syncOpen,   setSyncOpen]   = useState(false)
   const [sideOpen,   setSideOpen]   = useState(false)
@@ -73,6 +74,9 @@ function AppInner() {
   )
 
   if (!user) return <Login onLogin={login} />
+
+  if (user.must_change_password)
+    return <ChangePassword user={user} onDone={clearMustChangePassword} />
 
   const initials = (user.full_name || user.email)
     .split(' ').slice(0, 2).map(w => w[0].toUpperCase()).join('')

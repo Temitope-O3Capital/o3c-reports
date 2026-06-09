@@ -294,6 +294,12 @@ CREATE TABLE IF NOT EXISTS upload_audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_at  ON upload_audit_log(uploaded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_who ON upload_audit_log(uploaded_by);
+
+-- ── Onboarding columns (added idempotently) ───────────────────────────────
+ALTER TABLE o3c_users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT TRUE;
+ALTER TABLE o3c_users ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ;
+-- Existing admin account never needs forced reset
+UPDATE o3c_users SET must_change_password = FALSE WHERE email = 'admin@o3ccards.com';
 """
 
 @asynccontextmanager

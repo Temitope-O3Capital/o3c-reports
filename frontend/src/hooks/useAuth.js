@@ -6,8 +6,15 @@ const CRM        = ['crm_pipeline','crm_contacts','crm_tasks','crm_requests']
 const CRM_REPORT = ['crm_reports']
 
 const ROLE_PAGES = {
+  // Executive / senior titles
+  md:          ['overview','transactions','collections','recovery','sales','cards','cohort','executive','income','uploads', ...CRM, ...CRM_REPORT],
+  coo:         ['overview','transactions','collections','recovery','cards','cohort','executive','income','uploads',         ...CRM, ...CRM_REPORT],
+  cfo:         ['overview','income','collections','recovery','executive','transactions','uploads'],
+  head_it:     ['overview','transactions','collections','recovery','sales','cards','cohort','admin','executive','income','uploads', ...CRM, ...CRM_REPORT],
+  head_hr:     ['overview','sales','uploads'],
+  // Functional roles
   admin:       ['overview','transactions','collections','recovery','sales','cards','cohort','admin','executive','income','uploads', ...CRM, ...CRM_REPORT],
-  management:  ['overview','transactions','collections','recovery','sales','cards','cohort','executive','income','uploads',          ...CRM, ...CRM_REPORT],
+  management:  ['overview','transactions','collections','recovery','sales','cards','cohort','executive','income','uploads',         ...CRM, ...CRM_REPORT],
   sales:       ['sales','overview','uploads',                                                                                       ...CRM, ...CRM_REPORT],
   collections: ['collections','recovery','uploads',                                                                                 ...CRM],
   recovery:    ['recovery','collections','uploads',                                                                                 ...CRM],
@@ -72,5 +79,15 @@ export function useAuth() {
     return allowed.includes(page)
   }, [user])
 
-  return { user, loading, login, logout, canAccess, ROLE_PAGES }
+  // Called after a successful password change — clears the flag
+  const clearMustChangePassword = useCallback(() => {
+    setUser(u => {
+      if (!u) return u
+      const updated = { ...u, must_change_password: false }
+      localStorage.setItem('o3c_user', JSON.stringify(updated))
+      return updated
+    })
+  }, [])
+
+  return { user, loading, login, logout, canAccess, clearMustChangePassword, ROLE_PAGES }
 }

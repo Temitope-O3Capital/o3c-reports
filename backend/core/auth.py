@@ -25,6 +25,13 @@ _CRM        = ["crm_pipeline", "crm_contacts", "crm_tasks", "crm_requests"]
 _CRM_REPORT = ["crm_reports"]
 
 ROLE_PAGES = {
+    # Executive / senior titles
+    "md":          ["overview","transactions","collections","recovery","sales","cards","cohort","executive","income","uploads"] + _CRM + _CRM_REPORT,
+    "coo":         ["overview","transactions","collections","recovery","cards","cohort","executive","income","uploads"]         + _CRM + _CRM_REPORT,
+    "cfo":         ["overview","income","collections","recovery","executive","transactions","uploads"],
+    "head_it":     ["overview","transactions","collections","recovery","sales","cards","cohort","admin","executive","income","uploads"] + _CRM + _CRM_REPORT,
+    "head_hr":     ["overview","sales","uploads"],
+    # Functional roles
     "admin":       ["overview","transactions","collections","recovery","sales","cards","cohort","admin","executive","income","uploads"] + _CRM + _CRM_REPORT,
     "management":  ["overview","transactions","collections","recovery","sales","cards","cohort","executive","income","uploads"]         + _CRM + _CRM_REPORT,
     "sales":       ["sales","overview","uploads"]                                                                              + _CRM + _CRM_REPORT,
