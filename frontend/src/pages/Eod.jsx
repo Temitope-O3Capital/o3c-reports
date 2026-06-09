@@ -34,7 +34,13 @@ function fmtExact(v) {
   return '₦' + Number(v || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function toISO(d) { return d.toISOString().split('T')[0] }
+function toISO(d) {
+  // Use local date parts — toISOString() is UTC and shifts dates in UTC+ timezones
+  const yr  = d.getFullYear()
+  const mo  = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${yr}-${mo}-${day}`
+}
 
 function fmtDate(s) {
   if (!s) return '—'
