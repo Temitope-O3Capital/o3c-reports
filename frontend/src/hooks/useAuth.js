@@ -6,8 +6,8 @@ const CRM        = ['crm_pipeline','crm_contacts','crm_tasks','crm_requests']
 const CRM_REPORT = ['crm_reports']
 
 const ROLE_PAGES = {
-  admin:       ['overview','transactions','collections','recovery','sales','cards','cohort','admin','executive', ...CRM, ...CRM_REPORT],
-  management:  ['overview','transactions','collections','recovery','sales','cards','cohort','executive',         ...CRM, ...CRM_REPORT],
+  admin:       ['overview','transactions','collections','recovery','sales','cards','cohort','admin','executive','income', ...CRM, ...CRM_REPORT],
+  management:  ['overview','transactions','collections','recovery','sales','cards','cohort','executive','income',            ...CRM, ...CRM_REPORT],
   sales:       ['sales','overview',                                                                              ...CRM, ...CRM_REPORT],
   collections: ['collections','recovery',                                                                        ...CRM],
   recovery:    ['recovery','collections',                                                                        ...CRM],

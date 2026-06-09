@@ -10,6 +10,7 @@ from core.database import check_mssql_health, check_pg_health, pg_engine, Base
 from routers import auth, overview, transactions, collections, recovery, sales, cards, cohort, admin
 from routers import crm_contacts, crm_deals, crm_activities, crm_tasks, crm_requests, crm_reports
 from routers import executive
+from routers import income
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
@@ -190,6 +191,94 @@ CREATE TABLE IF NOT EXISTS crm_requests (
 );
 CREATE INDEX IF NOT EXISTS idx_crm_req_status  ON crm_requests(status);
 CREATE INDEX IF NOT EXISTS idx_crm_req_contact ON crm_requests(contact_id);
+
+-- ── Income Report Tables ──────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS income_cycles (
+  id         SERIAL PRIMARY KEY,
+  cycle_date DATE        NOT NULL,
+  label      TEXT        NOT NULL,
+  loaded_at  TIMESTAMPTZ DEFAULT NOW(),
+  loaded_by  INT         REFERENCES o3c_users(id) ON DELETE SET NULL,
+  UNIQUE(cycle_date)
+);
+
+CREATE TABLE IF NOT EXISTS income_customers (
+  id         SERIAL PRIMARY KEY,
+  cycle_id   INT  REFERENCES income_cycles(id) ON DELETE CASCADE,
+  cif        TEXT NOT NULL,
+  first_name TEXT,
+  last_name  TEXT,
+  address    TEXT,
+  state      TEXT,
+  city       TEXT,
+  phone      TEXT,
+  email      TEXT,
+  mobile     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_inc_cust_cif ON income_customers(cif, cycle_id);
+
+CREATE TABLE IF NOT EXISTS income_interest (
+  id           SERIAL PRIMARY KEY,
+  cycle_id     INT     REFERENCES income_cycles(id) ON DELETE CASCADE,
+  apnum        TEXT,
+  cif          TEXT    NOT NULL,
+  account      TEXT,
+  currency     TEXT    DEFAULT 'NGN',
+  product_code TEXT,
+  product_name TEXT,
+  interest     NUMERIC DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_inc_int_cif     ON income_interest(cif, cycle_id);
+CREATE INDEX IF NOT EXISTS idx_inc_int_product ON income_interest(product_name, cycle_id);
+
+CREATE TABLE IF NOT EXISTS income_charges (
+  id           SERIAL PRIMARY KEY,
+  cycle_id     INT     REFERENCES income_cycles(id) ON DELETE CASCADE,
+  apnum        TEXT,
+  cif          TEXT    NOT NULL,
+  account      TEXT,
+  currency     TEXT    DEFAULT 'NGN',
+  product_code TEXT,
+  product_name TEXT,
+  fees         NUMERIC DEFAULT 0,
+  interest     NUMERIC DEFAULT 0,
+  penalty      NUMERIC DEFAULT 0,
+  purchase     NUMERIC DEFAULT 0,
+  cash_advance NUMERIC DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_inc_chg_cif ON income_charges(cif, cycle_id);
+
+CREATE TABLE IF NOT EXISTS income_balances (
+  id              SERIAL PRIMARY KEY,
+  cycle_id        INT     REFERENCES income_cycles(id) ON DELETE CASCADE,
+  apnum           TEXT,
+  cif             TEXT    NOT NULL,
+  account         TEXT,
+  currency        TEXT    DEFAULT 'NGN',
+  product_code    TEXT,
+  product_name    TEXT,
+  billed_bal      NUMERIC DEFAULT 0,
+  current_bal     NUMERIC DEFAULT 0,
+  outstanding_bal NUMERIC DEFAULT 0,
+  overdue         NUMERIC DEFAULT 0,
+  min_payment     NUMERIC DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_inc_bal_cif ON income_balances(cif, cycle_id);
+
+CREATE TABLE IF NOT EXISTS income_loc (
+  id           SERIAL PRIMARY KEY,
+  cycle_id     INT     REFERENCES income_cycles(id) ON DELETE CASCADE,
+  apnum        TEXT,
+  cif          TEXT    NOT NULL,
+  account      TEXT,
+  currency     TEXT    DEFAULT 'NGN',
+  product_code TEXT,
+  product_name TEXT,
+  current_loc  NUMERIC DEFAULT 0,
+  loc_change   NUMERIC DEFAULT 0,
+  temp_loc     NUMERIC DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_inc_loc_cif ON income_loc(cif, cycle_id);
 """
 
 @asynccontextmanager
@@ -237,6 +326,7 @@ app.include_router(crm_tasks.router,      prefix="/api/crm",  tags=["CRM"])
 app.include_router(crm_requests.router,   prefix="/api/crm",  tags=["CRM"])
 app.include_router(crm_reports.router,    prefix="/api/crm",  tags=["CRM"])
 app.include_router(executive.router,      prefix="/api/executive", tags=["Executive"])
+app.include_router(income.router,         prefix="/api/income",    tags=["Income"])
 
 # ── Health endpoint ───────────────────────────────────────────────────────────
 @app.get("/api/health", tags=["Health"])

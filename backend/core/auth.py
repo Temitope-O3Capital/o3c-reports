@@ -25,8 +25,8 @@ _CRM        = ["crm_pipeline", "crm_contacts", "crm_tasks", "crm_requests"]
 _CRM_REPORT = ["crm_reports"]
 
 ROLE_PAGES = {
-    "admin":       ["overview","transactions","collections","recovery","sales","cards","cohort","admin","executive"] + _CRM + _CRM_REPORT,
-    "management":  ["overview","transactions","collections","recovery","sales","cards","cohort","executive"]         + _CRM + _CRM_REPORT,
+    "admin":       ["overview","transactions","collections","recovery","sales","cards","cohort","admin","executive","income"] + _CRM + _CRM_REPORT,
+    "management":  ["overview","transactions","collections","recovery","sales","cards","cohort","executive","income"]         + _CRM + _CRM_REPORT,
     "sales":       ["sales","overview"]                                                                              + _CRM + _CRM_REPORT,
     "collections": ["collections","recovery"]                                                                        + _CRM,
     "recovery":    ["recovery","collections"]                                                                        + _CRM,
