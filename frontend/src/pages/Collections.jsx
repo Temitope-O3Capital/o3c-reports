@@ -34,11 +34,11 @@ export default function Collections({ setDs }) {
     <PageShell title="Collections" subtitle="Agent performance, payment modes, and monthly trends" source={kpis.dataSource} error={kpis.error}>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <KpiCard label="Total Collected"   value={fmt(d.total_collected)}      icon="account_balance_wallet" accent="green" />
-        <KpiCard label="Collections (MTD)" value={fmt(d.collections_mtd)}      icon="calendar_month"         accent="accent" trend={mTrend} />
-        <KpiCard label="Collection Count"  value={fmtNum(d.collection_count)}  icon="tag"                    accent="navy" />
-        <KpiCard label="NDD Collections"   value={fmt(d.ndd_collections)}      icon="schedule"               accent="amber" />
-        <KpiCard label="Transfer"          value={fmt(d.transfer_collections)} icon="swap_horiz"             accent="blue" />
+        <KpiCard label="Total Collected"   value={fmt(d.total_collected)}      icon="account_balance_wallet" accent="green"  tooltip="Cumulative amount collected from all overdue accounts across all time" />
+        <KpiCard label="Collections (MTD)" value={fmt(d.collections_mtd)}      icon="calendar_month"         accent="accent" trend={mTrend} tooltip="Collections received in the current calendar month" />
+        <KpiCard label="Collection Count"  value={fmtNum(d.collection_count)}  icon="tag"                    accent="navy"   tooltip="Number of individual collection events logged this month" />
+        <KpiCard label="NDD Collections"   value={fmt(d.ndd_collections)}      icon="schedule"               accent="amber"  tooltip="Near-due-date collections — payments received before the overdue threshold is crossed" />
+        <KpiCard label="Transfer"          value={fmt(d.transfer_collections)} icon="swap_horiz"             accent="blue"   tooltip="Collections received via bank transfer payment method" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">

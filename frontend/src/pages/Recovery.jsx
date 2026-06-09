@@ -29,10 +29,10 @@ export default function Recovery({ setDs }) {
     <PageShell title="Recovery & Legal" subtitle="Written-off accounts, legal proceedings, and recovery performance" source={kpis.dataSource} error={kpis.error}>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard label="Total Recovered"   value={fmt(d.total_recovered)}      icon="payments"        accent="green" />
-        <KpiCard label="Recovery (MTD)"    value={fmt(d.recovery_mtd)}         icon="calendar_month"  accent="accent" />
-        <KpiCard label="Recovery Rate"     value={pct(d.recovery_rate)}        icon="percent"         accent="green" />
-        <KpiCard label="Accounts in Legal" value={fmtNum(d.accounts_in_legal)} icon="gavel"           accent="amber" />
+        <KpiCard label="Total Recovered"   value={fmt(d.total_recovered)}      icon="payments"        accent="green"  tooltip="Total amount recovered from accounts in the recovery portfolio across all time" />
+        <KpiCard label="Recovery (MTD)"    value={fmt(d.recovery_mtd)}         icon="calendar_month"  accent="accent" tooltip="Amount recovered from bad-debt accounts in the current calendar month" />
+        <KpiCard label="Recovery Rate"     value={pct(d.recovery_rate)}        icon="percent"         accent="green"  tooltip="Total recovered as a percentage of the total outstanding recovery portfolio" />
+        <KpiCard label="Accounts in Legal" value={fmtNum(d.accounts_in_legal)} icon="gavel"           accent="amber"  tooltip="Accounts that have been escalated to legal proceedings for debt recovery" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">

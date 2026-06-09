@@ -26,11 +26,11 @@ export default function Transactions({ setDs }) {
     <PageShell title="Transactions" subtitle="Volume, trends, and merchant breakdown" source={kpis.dataSource} error={kpis.error}>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <KpiCard label="Total Volume"      value={fmt(d.total_volume)}         icon="payments"      accent="accent" trend={volTrend} />
-        <KpiCard label="Transaction Count" value={fmtNum(d.transaction_count)} icon="receipt_long"  accent="navy" />
-        <KpiCard label="Volume (MTD)"      value={fmt(d.volume_mtd)}           icon="calendar_month" accent="green" />
-        <KpiCard label="Avg Txn Value"     value={fmt(d.avg_txn_value)}        icon="calculate"     accent="amber" />
-        <KpiCard label="Unique Merchants"  value={fmtNum(d.unique_merchants)}  icon="storefront"    accent="navy" />
+        <KpiCard label="Total Volume"      value={fmt(d.total_volume)}         icon="payments"       accent="accent" trend={volTrend} tooltip="Total naira value of all transactions in the selected date range" />
+        <KpiCard label="Transaction Count" value={fmtNum(d.transaction_count)} icon="receipt_long"   accent="navy"   tooltip="Number of individual card transactions in the selected date range" />
+        <KpiCard label="Volume (MTD)"      value={fmt(d.volume_mtd)}           icon="calendar_month" accent="green"  tooltip="Total transaction value in the current calendar month" />
+        <KpiCard label="Avg Txn Value"     value={fmt(d.avg_txn_value)}        icon="calculate"      accent="amber"  tooltip="Average value per transaction — Total Volume ÷ Transaction Count" />
+        <KpiCard label="Unique Merchants"  value={fmtNum(d.unique_merchants)}  icon="storefront"     accent="navy"   tooltip="Number of distinct merchant locations where O3C cards were used" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">

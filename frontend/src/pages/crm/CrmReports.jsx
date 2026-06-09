@@ -133,16 +133,16 @@ export default function CrmReports() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard label="Total Contacts"   value={fmtNum(ov.total_contacts)}  icon="contacts"       accent="navy" />
-        <KpiCard label="Active Leads"     value={fmtNum(ov.total_leads)}     icon="person_search"  accent="amber" />
-        <KpiCard label="Customers"        value={fmtNum(ov.total_customers)} icon="verified_user"  accent="green" />
-        <KpiCard label="Win Rate"         value={pct(convRate)}              icon="emoji_events"   accent={convRate >= 20 ? 'green' : 'accent'} sub={`${wonDeals} of ${totalDeals} deals`} />
+        <KpiCard label="Total Contacts"   value={fmtNum(ov.total_contacts)}  icon="contacts"       accent="navy"   tooltip="Total contacts in the CRM — includes active leads and converted customers" />
+        <KpiCard label="Active Leads"     value={fmtNum(ov.total_leads)}     icon="person_search"  accent="amber"  tooltip="Contacts with status 'lead' who have not yet been converted to cardholders" />
+        <KpiCard label="Customers"        value={fmtNum(ov.total_customers)} icon="verified_user"  accent="green"  tooltip="Contacts who have been successfully converted to active cardholders" />
+        <KpiCard label="Win Rate"         value={pct(convRate)}              icon="emoji_events"   accent={convRate >= 20 ? 'green' : 'accent'} sub={`${wonDeals} of ${totalDeals} deals`} tooltip="Percentage of closed deals that resulted in a card being issued (won)" />
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
-        <KpiCard label="Activities (30d)" value={fmtNum(ov.activities_30d)}  icon="timeline"       accent="navy" />
-        <KpiCard label="Open Tasks"       value={fmtNum(ov.open_tasks)}      icon="task_alt"       accent={Number(ov.overdue_tasks) > 0 ? 'accent' : 'navy'} sub={ov.overdue_tasks > 0 ? `${ov.overdue_tasks} overdue` : undefined} />
-        <KpiCard label="Open Requests"    value={fmtNum(ov.open_requests)}   icon="support_agent"  accent="amber" />
-        <KpiCard label="SLA Breached"     value={fmtNum(ov.sla_breached)}    icon="alarm"          accent={Number(ov.sla_breached) > 0 ? 'accent' : 'green'} sub={ov.avg_resolution_hrs ? `Avg ${ov.avg_resolution_hrs}h to resolve` : undefined} />
+        <KpiCard label="Activities (30d)" value={fmtNum(ov.activities_30d)}  icon="timeline"       accent="navy"   tooltip="Total calls, emails, meetings and notes logged across all contacts in the last 30 days" />
+        <KpiCard label="Open Tasks"       value={fmtNum(ov.open_tasks)}      icon="task_alt"       accent={Number(ov.overdue_tasks) > 0 ? 'accent' : 'navy'} sub={ov.overdue_tasks > 0 ? `${ov.overdue_tasks} overdue` : undefined} tooltip="Tasks assigned across contacts and deals that have not yet been completed" />
+        <KpiCard label="Open Requests"    value={fmtNum(ov.open_requests)}   icon="support_agent"  accent="amber"  tooltip="Customer service requests currently open and pending resolution" />
+        <KpiCard label="SLA Breached"     value={fmtNum(ov.sla_breached)}    icon="alarm"          accent={Number(ov.sla_breached) > 0 ? 'accent' : 'green'} sub={ov.avg_resolution_hrs ? `Avg ${ov.avg_resolution_hrs}h to resolve` : undefined} tooltip="Requests that exceeded their SLA target time without being resolved" />
       </div>
 
       {/* Pipeline + Activity trend */}

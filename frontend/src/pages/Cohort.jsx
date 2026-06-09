@@ -86,10 +86,10 @@ export default function Cohort({ setDs }) {
     <PageShell title="Cohort Analysis" subtitle="Retention heatmap and monthly activity per cohort" source={kpis.dataSource} error={kpis.error}>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard label="Cohort Size"       value={fmtNum(d.cohort_size)}      icon="groups"        accent="navy" />
-        <KpiCard label="Activated Users"   value={fmtNum(d.activated_cohort)} icon="check_circle"  accent="green" />
-        <KpiCard label="Activation Rate"   value={pct(d.activation_rate)}     icon="percent"       accent="green" />
-        <KpiCard label="Power Users (≥5×)" value={fmtNum(d.power_users)}      icon="bolt"          accent="accent" />
+        <KpiCard label="Cohort Size"       value={fmtNum(d.cohort_size)}      icon="groups"        accent="navy"   tooltip="Total number of customers in the selected cohort group" />
+        <KpiCard label="Activated Users"   value={fmtNum(d.activated_cohort)} icon="check_circle"  accent="green"  tooltip="Cohort members who have completed at least one card transaction" />
+        <KpiCard label="Activation Rate"   value={pct(d.activation_rate)}     icon="percent"       accent="green"  tooltip="Percentage of cohort members who have been activated (Activated ÷ Cohort Size)" />
+        <KpiCard label="Power Users (≥5×)" value={fmtNum(d.power_users)}      icon="bolt"          accent="accent" tooltip="Cohort members who transacted 5 or more times — indicates high engagement" />
       </div>
 
       <div className="mt-4">

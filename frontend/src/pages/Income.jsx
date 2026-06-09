@@ -1,19 +1,23 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../hooks/useApi.js'
+import { InfoTooltip } from '../components/Charts.jsx'
 import { ProgressListCard, AreaChartCard, fmt, fmtNum } from '../components/Charts.jsx'
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 function n(v) { return Number(v || 0) }
 
 /* ── KPI Card ────────────────────────────────────────────────────────────── */
-function KPI({ label, value, icon, sub, accent = '#0E2841' }) {
+function KPI({ label, value, icon, sub, accent = '#0E2841', tooltip }) {
   return (
     <div className="card p-5">
       <div className="flex items-start justify-between mb-3">
-        <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'rgb(var(--fg-3))' }}>
-          {label}
-        </p>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'rgb(var(--fg-3))' }}>
+            {label}
+          </p>
+          {tooltip && <InfoTooltip text={tooltip} />}
+        </div>
         <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
           style={{ background: `${accent}12` }}>
           <span className="material-symbols-rounded text-[17px]" style={{ color: accent }}>{icon}</span>
@@ -244,22 +248,26 @@ export default function Income() {
               {/* ── KPI Cards — Row 1: Income ── */}
               <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-3">Income</p>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-                <KPI label="Total Interest"    value={fmt(s.interest)}       icon="percent"          accent="#0E2841" />
-                <KPI label="Fees Collected"    value={fmt(s.fees)}           icon="receipt"          accent="#8B5CF6" />
-                <KPI label="Cash Advance Fees" value={fmt(s.cash_advance)}   icon="atm"              accent="#C00000" />
-                <KPI label="Purchase Fees"     value={fmt(s.purchase)}       icon="shopping_cart"    accent="#0891B2" />
+                <KPI label="Total Interest"    value={fmt(s.interest)}       icon="percent"       accent="#0E2841" tooltip="Sum of interest charges billed to all accounts in this billing cycle" />
+                <KPI label="Fees Collected"    value={fmt(s.fees)}           icon="receipt"       accent="#8B5CF6" tooltip="Administrative and processing fees charged to accounts this cycle" />
+                <KPI label="Cash Advance Fees" value={fmt(s.cash_advance)}   icon="atm"           accent="#C00000" tooltip="Fees applied to cash advance transactions drawn this cycle" />
+                <KPI label="Purchase Fees"     value={fmt(s.purchase)}       icon="shopping_cart" accent="#0891B2" tooltip="Fees applied to purchase transactions made this cycle" />
               </div>
 
               {/* ── KPI Cards — Row 2: Portfolio ── */}
               <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-3">Portfolio</p>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                <KPI label="Outstanding Balance" value={fmt(s.outstanding_bal)}  icon="account_balance"  accent="#10B981"
-                  sub={`${fmtNum(s.total_accounts)} accounts`} />
-                <KPI label="Total Overdue"       value={fmt(s.overdue)}           icon="warning"          accent="#F59E0B"
-                  sub={`${fmtNum(s.overdue_accounts)} accounts overdue`} />
-                <KPI label="Total LOC Extended"  value={fmt(s.loc_total)}         icon="credit_card"      accent="#0E2841" />
-                <KPI label="LOC Utilisation"     value={`${s.loc_utilisation ?? 0}%`} icon="donut_large" accent={n(s.loc_utilisation) > 80 ? '#C00000' : '#10B981'}
-                  sub={`${fmt(s.outstanding_bal)} of ${fmt(s.loc_total)}`} />
+                <KPI label="Outstanding Balance" value={fmt(s.outstanding_bal)}      icon="account_balance" accent="#10B981"
+                  sub={`${fmtNum(s.total_accounts)} accounts`}
+                  tooltip="Total outstanding balance across all active accounts in this cycle" />
+                <KPI label="Total Overdue"       value={fmt(s.overdue)}               icon="warning"         accent="#F59E0B"
+                  sub={`${fmtNum(s.overdue_accounts)} accounts overdue`}
+                  tooltip="Sum of overdue amounts across accounts that have missed their minimum payment" />
+                <KPI label="Total LOC Extended"  value={fmt(s.loc_total)}             icon="credit_card"     accent="#0E2841"
+                  tooltip="Total credit lines extended to all cardholders in this cycle" />
+                <KPI label="LOC Utilisation"     value={`${s.loc_utilisation ?? 0}%`} icon="donut_large"     accent={n(s.loc_utilisation) > 80 ? '#C00000' : '#10B981'}
+                  sub={`${fmt(s.outstanding_bal)} of ${fmt(s.loc_total)}`}
+                  tooltip="Outstanding balance as a percentage of total credit lines — high utilisation (>80%) signals credit risk" />
               </div>
 
               {/* ── Charts ── */}

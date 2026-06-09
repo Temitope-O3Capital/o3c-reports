@@ -18,12 +18,12 @@ export default function Cards({ setDs }) {
     <PageShell title="Card Production" subtitle="Issuance pipeline, product mix, and activation rates" source={kpis.dataSource} error={kpis.error}>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <KpiCard label="Total Issued"      value={fmtNum(d.total_issued)}  icon="credit_card"  accent="navy" />
-        <KpiCard label="Active Cards"      value={fmtNum(d.active)}        icon="check_circle" accent="green" />
-        <KpiCard label="Activation Rate"   value={pct(d.activation_rate)}  icon="percent"      accent="green" />
-        <KpiCard label="Prepaid Cards"     value={fmtNum(d.prepaid)}       icon="wallet"       accent="navy" />
-        <KpiCard label="Credit Cards"      value={fmtNum(d.credit)}        icon="payments"     accent="accent" />
-        <KpiCard label="International USD" value={fmtNum(d.international)} icon="language"     accent="amber" />
+        <KpiCard label="Total Issued"      value={fmtNum(d.total_issued)}  icon="credit_card"  accent="navy"   tooltip="Total cards issued across all products — includes active, inactive and closed accounts" />
+        <KpiCard label="Active Cards"      value={fmtNum(d.active)}        icon="check_circle" accent="green"  tooltip="Cards with account status 'Active' in the Products table" />
+        <KpiCard label="Activation Rate"   value={pct(d.activation_rate)}  icon="percent"      accent="green"  tooltip="Active cards as a percentage of all cards ever issued" />
+        <KpiCard label="Prepaid Cards"     value={fmtNum(d.prepaid)}       icon="wallet"       accent="navy"   tooltip="Naira prepaid card accounts — spend from loaded balance, no credit facility" />
+        <KpiCard label="Credit Cards"      value={fmtNum(d.credit)}        icon="payments"     accent="accent" tooltip="Credit card accounts with a revolving credit facility" />
+        <KpiCard label="International USD" value={fmtNum(d.international)} icon="language"     accent="amber"  tooltip="USD-denominated cards for international transactions" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">

@@ -44,18 +44,19 @@ export default function Overview({ setDs }) {
             sub={volMoM}
             subUp={volTrend != null && volTrend >= 0}
             icon="payments"
+            tooltip="Combined naira value of all card transactions processed to date"
           />
         </div>
-        <KpiCard label="Total Cardholders"  value={fmtNum(d.total_cardholders)}  icon="groups"        accent="navy"   trend={acctTrend} />
-        <KpiCard label="Active Accounts"    value={fmtNum(d.active_accounts)}    icon="check_circle"  accent="green"  sub={d.total_cards_issued ? `${pct((d.active_accounts / d.total_cards_issued) * 100, 0)} activation` : undefined} />
-        <KpiCard label="New Accounts (MTD)" value={fmtNum(d.new_accounts_mtd)}   icon="person_add"    accent="accent" trend={acctTrend} />
+        <KpiCard label="Total Cardholders"  value={fmtNum(d.total_cardholders)}  icon="groups"        accent="navy"   trend={acctTrend} tooltip="Total number of registered cardholders across all card products" />
+        <KpiCard label="Active Accounts"    value={fmtNum(d.active_accounts)}    icon="check_circle"  accent="green"  sub={d.total_cards_issued ? `${pct((d.active_accounts / d.total_cards_issued) * 100, 0)} activation` : undefined} tooltip="Accounts with at least one transaction in the last 90 days" />
+        <KpiCard label="New Accounts (MTD)" value={fmtNum(d.new_accounts_mtd)}   icon="person_add"    accent="accent" trend={acctTrend} tooltip="New cardholder accounts opened in the current calendar month" />
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
-        <KpiCard label="Cards Issued"      value={fmtNum(d.total_cards_issued)} icon="credit_card"     accent="navy" />
-        <KpiCard label="Total Collected"   value={fmt(d.total_collected)}       icon="account_balance" accent="green" />
-        <KpiCard label="Collections (MTD)" value={fmt(d.collections_mtd)}       icon="calendar_month"  accent="amber" />
-        <KpiCard label="Recovery Rate"     value={pct(d.recovery_rate)}         icon="gavel"           accent={d.recovery_rate >= 50 ? 'green' : 'accent'} sub={fmt(d.total_recovered) !== '—' ? `${fmt(d.total_recovered)} recovered` : undefined} />
+        <KpiCard label="Cards Issued"      value={fmtNum(d.total_cards_issued)} icon="credit_card"     accent="navy"  tooltip="Total physical and virtual cards issued to customers across all products" />
+        <KpiCard label="Total Collected"   value={fmt(d.total_collected)}       icon="account_balance" accent="green" tooltip="Cumulative amount collected from overdue accounts by the collections team" />
+        <KpiCard label="Collections (MTD)" value={fmt(d.collections_mtd)}       icon="calendar_month"  accent="amber" tooltip="Collections received in the current calendar month" />
+        <KpiCard label="Recovery Rate"     value={pct(d.recovery_rate)}         icon="gavel"           accent={d.recovery_rate >= 50 ? 'green' : 'accent'} sub={fmt(d.total_recovered) !== '—' ? `${fmt(d.total_recovered)} recovered` : undefined} tooltip="Percentage of the total outstanding recovery portfolio that has been recovered" />
       </div>
 
       {/* Charts */}

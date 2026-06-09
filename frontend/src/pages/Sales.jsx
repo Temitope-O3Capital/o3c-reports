@@ -503,6 +503,7 @@ export default function Sales({ setDs }) {
           icon="groups"
           accent="navy"
           trend={calcMoM(trend.data, 'new_accounts')}
+          tooltip="Total registered cardholders on the platform across all products"
         />
         <KpiCard
           label="New This Month"
@@ -510,6 +511,7 @@ export default function Sales({ setDs }) {
           icon="person_add"
           accent="accent"
           sub={`${fmtNum(d.prev_month)} last month`}
+          tooltip="New cardholder accounts opened in the current calendar month"
         />
         <KpiCard
           label="MoM Growth"
@@ -517,12 +519,14 @@ export default function Sales({ setDs }) {
           icon="trending_up"
           accent={momUp ? 'green' : 'accent'}
           sub="vs previous month"
+          tooltip="Month-over-month percentage change in new customer acquisitions"
         />
         <KpiCard
           label="YTD New Accounts"
           value={fmtNum(d.ytd_new)}
           icon="calendar_today"
           accent="navy"
+          tooltip="Total new accounts opened from January 1st to today"
         />
         <KpiCard
           label="Activation Rate"
@@ -530,6 +534,7 @@ export default function Sales({ setDs }) {
           icon="check_circle"
           accent={d.activation_rate >= 70 ? 'green' : 'amber'}
           sub={`${fmtNum(d.active_cards)} active cards`}
+          tooltip="Percentage of issued cards that have been activated and used at least once"
         />
         <KpiCard
           label="States Reached"
@@ -537,6 +542,7 @@ export default function Sales({ setDs }) {
           icon="location_on"
           accent="blue"
           sub="active regions"
+          tooltip="Number of Nigerian states with at least one active cardholder"
         />
       </div>
 

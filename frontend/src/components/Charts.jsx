@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   ResponsiveContainer,
   AreaChart, Area,
@@ -85,6 +86,56 @@ function ChartTooltip({ active, payload, label, formatter }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   INFO TOOLTIP
+   Small ⓘ icon next to KPI label; shows a popover on hover.
+   ═══════════════════════════════════════════════════════════════ */
+
+export function InfoTooltip({ text }) {
+  const [visible, setVisible] = useState(false)
+  return (
+    <div
+      className="relative inline-flex items-center flex-shrink-0"
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+    >
+      <span
+        className="material-symbols-rounded select-none"
+        style={{ fontSize: 13, color: 'rgb(var(--fg-3))', opacity: 0.55, cursor: 'help', lineHeight: 1 }}
+      >
+        info
+      </span>
+      {visible && (
+        <div
+          className="absolute bottom-full left-1/2 z-50 pointer-events-none"
+          style={{ transform: 'translateX(-50%)', marginBottom: 8, minWidth: 180, maxWidth: 260 }}
+        >
+          <div
+            className="card px-3 py-2.5"
+            style={{
+              fontSize: 12, lineHeight: 1.55, color: 'rgb(var(--fg-2))',
+              boxShadow: 'var(--shadow-lg)',
+            }}
+          >
+            {text}
+          </div>
+          {/* caret */}
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <div style={{
+              width: 8, height: 8,
+              background: 'rgb(var(--bg-surface))',
+              transform: 'rotate(45deg)',
+              marginTop: -5,
+              borderRight: '1px solid rgb(var(--border) / 0.1)',
+              borderBottom: '1px solid rgb(var(--border) / 0.1)',
+            }} />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════
    KPI CARD
    Stripe-style: accent left-border, large mono value, trend pill
    ═══════════════════════════════════════════════════════════════ */
@@ -97,7 +148,7 @@ const ICON_BG = {
   blue:   { bg: 'rgb(37 99 235 / 0.08)',  fg: '#2563EB' },
 }
 
-export function KpiCard({ label, value, sub, accent = 'navy', icon, trend, trendLabel = 'vs last month' }) {
+export function KpiCard({ label, value, sub, accent = 'navy', icon, trend, trendLabel = 'vs last month', tooltip }) {
   const ib = ICON_BG[accent] || ICON_BG.navy
   const up = trend != null && trend >= 0
 
@@ -105,9 +156,12 @@ export function KpiCard({ label, value, sub, accent = 'navy', icon, trend, trend
     <div className="card p-5 flex flex-col">
       {/* Label + icon */}
       <div className="flex items-start justify-between gap-2 mb-4">
-        <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'rgb(var(--fg-3))' }}>
-          {label}
-        </p>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'rgb(var(--fg-3))' }}>
+            {label}
+          </p>
+          {tooltip && <InfoTooltip text={tooltip} />}
+        </div>
         {icon && (
           <div style={{ width: 34, height: 34, borderRadius: 8, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: ib.bg }}>
             <span className="material-symbols-rounded" style={{ fontSize: 17, color: ib.fg }}>{icon}</span>
@@ -149,15 +203,21 @@ export function KpiCard({ label, value, sub, accent = 'navy', icon, trend, trend
    KPI HERO — dark primary metric card (top of Overview / Collections)
    ═══════════════════════════════════════════════════════════════ */
 
-export function KpiHero({ label, value, sub, subUp, icon = 'monitoring', children }) {
+export function KpiHero({ label, value, sub, subUp, icon = 'monitoring', children, tooltip }) {
   return (
     <div className="card p-6 md:p-8"
       style={{ background: `linear-gradient(140deg, ${NAVY} 0%, #091A2D 100%)`, border: 'none' }}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.45)', marginBottom: 14 }}>
-            {label}
-          </p>
+          <div className="flex items-center gap-1.5" style={{ marginBottom: 14 }}>
+            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.45)' }}>
+              {label}
+            </p>
+            {tooltip && (
+              <span title={tooltip} style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', cursor: 'help', lineHeight: 1 }}
+                className="material-symbols-rounded select-none">info</span>
+            )}
+          </div>
           <p style={{ fontSize: 40, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1, color: 'white', fontVariantNumeric: 'tabular-nums' }}>
             {value ?? '—'}
           </p>
