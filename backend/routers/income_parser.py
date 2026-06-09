@@ -17,7 +17,8 @@ from typing import Optional
 
 # ── Patterns ─────────────────────────────────────────────────────────────────
 PRODUCT_RE = re.compile(r'Account Product \[(\d+)\]\s*:\s*(.+)')
-DATA_RE     = re.compile(r'^\s{1,12}(\d{3})\s+(\d{4,})\s+(\d{9,})\s+(NGN|USD)\s+(.+)$')
+# Leading spaces are optional — data lines start at column 0 in these reports
+DATA_RE     = re.compile(r'^\s*(\d{1,6})\s+(\d{4,})\s+(\d{6,})\s+(NGN|USD)\s+(.+)$')
 
 
 def _nums(tail: str) -> list[float]:
@@ -59,14 +60,19 @@ def parse_cycle_report(content: str, file_type: str) -> tuple[list[dict], date]:
     product_name = None
     cycle_date   = date.today()
 
-    # Extract cycle date from report header line
+    # Extract cycle date from report header line — reports use DDMMYYYY format
     header_date_m = re.search(r'Report Date\s*:\s*(\d{8})', content)
     if header_date_m:
         s = header_date_m.group(1)
-        try:
-            cycle_date = date(int(s[:4]), int(s[4:6]), int(s[6:8]))
-        except ValueError:
-            pass
+        for y, m, d in [
+            (int(s[4:8]), int(s[2:4]), int(s[:2])),   # DDMMYYYY (actual format)
+            (int(s[:4]),  int(s[4:6]), int(s[6:8])),   # YYYYMMDD (fallback)
+        ]:
+            try:
+                cycle_date = date(y, m, d)
+                break
+            except ValueError:
+                pass
 
     for line in content.splitlines():
         # Detect product section
