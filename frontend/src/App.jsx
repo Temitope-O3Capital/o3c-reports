@@ -12,6 +12,7 @@ import Sales from './pages/Sales.jsx'
 import Cards from './pages/Cards.jsx'
 import Cohort from './pages/Cohort.jsx'
 import Admin from './pages/Admin.jsx'
+import Executive     from './pages/Executive.jsx'
 import CrmPipeline   from './pages/crm/Pipeline.jsx'
 import CrmContacts   from './pages/crm/Contacts.jsx'
 import CrmContact360 from './pages/crm/Contact360.jsx'
@@ -20,6 +21,7 @@ import CrmRequests   from './pages/crm/Requests.jsx'
 import CrmReports    from './pages/crm/CrmReports.jsx'
 
 const REPORTING_NAV = [
+  { page: 'executive',    label: 'Executive',     path: '/executive',    icon: 'bar_chart_4_bars' },
   { page: 'overview',     label: 'Overview',      path: '/',             icon: 'space_dashboard' },
   { page: 'transactions', label: 'Transactions',  path: '/transactions', icon: 'receipt_long' },
   { page: 'cards',        label: 'Cards',         path: '/cards',        icon: 'credit_card' },
@@ -164,6 +166,8 @@ function AppInner() {
             <Route path="/recovery"     element={<Guard page="recovery"      ca={canAccess}><Recovery     setDs={setDataSource} /></Guard>} />
             <Route path="/cohort"       element={<Guard page="cohort"        ca={canAccess}><Cohort       setDs={setDataSource} /></Guard>} />
             <Route path="/admin"        element={<Guard page="admin"         ca={canAccess}><Admin /></Guard>} />
+            {/* Executive */}
+            <Route path="/executive"            element={<Guard page="executive"    ca={canAccess}><Executive /></Guard>} />
             {/* CRM */}
             <Route path="/crm/pipeline"         element={<Guard page="crm_pipeline" ca={canAccess}><CrmPipeline /></Guard>} />
             <Route path="/crm/contacts"         element={<Guard page="crm_contacts" ca={canAccess}><CrmContacts /></Guard>} />
@@ -336,6 +340,7 @@ function PageTitle() {
     '/recovery':       'Recovery',
     '/cohort':         'Cohort Analysis',
     '/admin':          'Settings',
+    '/executive':      'Executive Dashboard',
     '/crm/pipeline':   'Pipeline',
     '/crm/contacts':   'Contacts',
     '/crm/tasks':      'Tasks',

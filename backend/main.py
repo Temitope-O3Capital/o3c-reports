@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from core.database import check_mssql_health, check_pg_health, pg_engine, Base
 from routers import auth, overview, transactions, collections, recovery, sales, cards, cohort, admin
 from routers import crm_contacts, crm_deals, crm_activities, crm_tasks, crm_requests, crm_reports
+from routers import executive
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
@@ -235,6 +236,7 @@ app.include_router(crm_activities.router, prefix="/api/crm",  tags=["CRM"])
 app.include_router(crm_tasks.router,      prefix="/api/crm",  tags=["CRM"])
 app.include_router(crm_requests.router,   prefix="/api/crm",  tags=["CRM"])
 app.include_router(crm_reports.router,    prefix="/api/crm",  tags=["CRM"])
+app.include_router(executive.router,      prefix="/api/executive", tags=["Executive"])
 
 # ── Health endpoint ───────────────────────────────────────────────────────────
 @app.get("/api/health", tags=["Health"])
