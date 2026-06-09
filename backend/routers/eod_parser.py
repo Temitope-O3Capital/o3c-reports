@@ -22,19 +22,53 @@ DESCRIPTIONS = [
     'Purchase',
     'Utility Payment Reversal',
     'Utility Payment',
+    'Web Transfer Out Reversal',
     'Web Transfer Out',
+    'Web Transfer In Reversal',
     'Web Transfer In',
+    'Re-Issue Fee',
+    'Joining Fee Reversal',
+    'Joining Fee',
+    'Account Maintenance Fee Reversal',
+    'Account Maintenance Fee',
+    'Membership Fee',
 ]
 
 # ── Transaction code → category ───────────────────────────────────────────────
 TXN_CATEGORY = {
-    '200': 'Purchase',         '201': 'Purchase',
-    '250': 'Purchase Reversal','251': 'Purchase Reversal',
-    '300': 'Cash Advance',     '301': 'Cash Advance',
+    # Purchases
+    '200': 'Purchase',              '201': 'Purchase',
+    '250': 'Purchase Reversal',     '251': 'Purchase Reversal',
+    # Cash Advances
+    '300': 'Cash Advance',          '301': 'Cash Advance',
     '350': 'Cash Advance Reversal', '351': 'Cash Advance Reversal',
-    '303': 'Utility Payment',  '353': 'Utility Payment Reversal',
-    '402': 'Bank Payment',     '452': 'Bank Payment Reversal',
-    '422': 'Transfer In',      '423': 'Transfer Out',
+    # Utility / Bill payments
+    '303': 'Utility Payment',       '353': 'Utility Payment Reversal',
+    # Bank payments (cash in)
+    '402': 'Bank Payment',          '452': 'Bank Payment Reversal',
+    # Web / interbank transfers
+    '422': 'Transfer In',           '423': 'Transfer Out',
+    '472': 'Transfer In Reversal',  '473': 'Transfer Out Reversal',
+    # Account fees
+    '100': 'Account Fee',
+    '104': 'Account Fee',           '105': 'Account Fee',
+    '155': 'Account Fee Reversal',  '158': 'Account Fee Reversal',
+}
+
+# ── Canonical product names (prevents branch context corrupting product names) ─
+# The EODTXN file repeats "Account Product Number : 001 (Default Branch)" inside
+# each branch section. Hardcoding ensures we always use the real product name.
+PRODUCT_NAMES = {
+    '001': 'Amex Naira',
+    '002': 'Amex USD',
+    '003': 'PREP Temporary Virtual',
+    '100': 'Classic Accounts',
+    '105': 'Platinum Accounts',
+    '110': 'Prestige Accounts',
+    '120': 'BB Classic Account',
+    '160': 'Business Accounts',
+    '205': 'PREP',
+    '405': 'Financial Inclusion Account',
 }
 
 # ── Compiled patterns ─────────────────────────────────────────────────────────
@@ -169,11 +203,12 @@ def parse_eod_file(content: str, filename: str = '') -> tuple[list[dict], date]:
             branch_name = mb.group(2).strip()
             continue
 
-        # Product header
+        # Product header — use canonical name to avoid branch context corruption
         mp = PRODUCT_RE.search(line)
         if mp:
             product_code = mp.group(1).strip()
-            product_name = mp.group(2).strip()
+            raw_name     = mp.group(2).strip()
+            product_name = PRODUCT_NAMES.get(product_code, raw_name)
             continue
 
         # Account header
