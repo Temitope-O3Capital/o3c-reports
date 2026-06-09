@@ -177,73 +177,77 @@ function DateRangePicker({ uploads, dateFrom, dateTo, preset, onChange }) {
           position: 'absolute', top: 'calc(100% + 8px)', left: 0, zIndex: 60,
           background: 'rgb(var(--bg-surface))',
           border: '1px solid rgb(var(--border) / 0.12)',
-          borderRadius: 14, boxShadow: '0 12px 40px rgba(0,0,0,0.14)',
-          width: 320, overflow: 'hidden',
+          borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.14)',
+          width: 260, overflow: 'hidden',
         }}>
-          {/* Preset list */}
-          <div style={{ padding: '8px 0' }}>
-            <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgb(var(--fg-3))', padding: '4px 16px 6px' }}>
-              Quick select
-            </p>
+          {/* Preset rows */}
+          <div style={{ padding: '6px 0' }}>
             {PRESETS.map(p => {
               const active = preset === p.key
+              const isCustom = p.key === 'custom'
               return (
-                <button key={p.key}
-                  onClick={() => applyPreset(p.key)}
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    width: '100%', padding: '10px 16px', cursor: 'pointer', textAlign: 'left',
-                    background: active ? 'rgb(14 40 65 / 0.06)' : 'transparent',
-                    borderLeft: active ? '3px solid #0E2841' : '3px solid transparent',
-                    transition: 'background 0.1s',
-                  }}
-                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgb(var(--bg-subtle))' }}
-                  onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
-                >
-                  <div>
-                    <p style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? '#0E2841' : 'rgb(var(--fg-1))', lineHeight: 1.3 }}>
-                      {p.label}
-                    </p>
-                    <p style={{ fontSize: 11, color: 'rgb(var(--fg-3))', marginTop: 1 }}>{p.sub}</p>
-                  </div>
-                  {active && <span className="material-symbols-rounded" style={{ fontSize: 16, color: '#0E2841' }}>check</span>}
-                </button>
+                <div key={p.key}>
+                  <button
+                    onClick={() => applyPreset(p.key)}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      width: '100%', padding: '9px 14px', cursor: 'pointer', textAlign: 'left',
+                      background: active ? 'rgb(14 40 65 / 0.06)' : 'transparent',
+                      borderLeft: active ? '3px solid #0E2841' : '3px solid transparent',
+                    }}
+                    onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgb(var(--bg-subtle))' }}
+                    onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? '#0E2841' : 'rgb(var(--fg-1))' }}>
+                        {p.label}
+                      </p>
+                      {!isCustom && (
+                        <p style={{ fontSize: 10, color: 'rgb(var(--fg-3))', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {p.sub}
+                        </p>
+                      )}
+                    </div>
+                    {active && !isCustom && <span className="material-symbols-rounded" style={{ fontSize: 15, color: '#0E2841', flexShrink: 0, marginLeft: 8 }}>check</span>}
+                    {isCustom && <span className="material-symbols-rounded" style={{ fontSize: 15, color: 'rgb(var(--fg-3))', flexShrink: 0, marginLeft: 8 }}>
+                      {localPreset === 'custom' ? 'expand_less' : 'expand_more'}
+                    </span>}
+                  </button>
+
+                  {/* Inline custom inputs — only when custom is selected */}
+                  {isCustom && localPreset === 'custom' && (
+                    <div style={{ padding: '4px 14px 12px', background: 'rgb(var(--bg-subtle))' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div>
+                          <p style={{ fontSize: 10, fontWeight: 600, color: 'rgb(var(--fg-3))', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>From</p>
+                          <input type="date" className="form-input" value={customFrom}
+                            onChange={e => setCF(e.target.value)}
+                            style={{ width: '100%', fontSize: 12, height: 32 }} />
+                        </div>
+                        <div>
+                          <p style={{ fontSize: 10, fontWeight: 600, color: 'rgb(var(--fg-3))', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>To</p>
+                          <input type="date" className="form-input" value={customTo}
+                            onChange={e => setCT(e.target.value)}
+                            style={{ width: '100%', fontSize: 12, height: 32 }} />
+                        </div>
+                        <button onClick={applyCustom} disabled={!customFrom || !customTo}
+                          className="btn btn-primary gap-1.5 disabled:opacity-50"
+                          style={{ width: '100%', height: 32, fontSize: 12, justifyContent: 'center', marginTop: 2 }}>
+                          <span className="material-symbols-rounded text-[14px]">check</span>Apply
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )
             })}
           </div>
 
-          {/* Custom date inputs */}
-          {(localPreset === 'custom' || preset === 'custom') && (
-            <div style={{ padding: '12px 16px 16px', borderTop: '1px solid rgb(var(--border) / 0.08)', background: 'rgb(var(--bg-subtle))' }}>
-              <p style={{ fontSize: 11, fontWeight: 600, color: 'rgb(var(--fg-3))', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
-                Custom range
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-                <div>
-                  <p style={{ fontSize: 11, color: 'rgb(var(--fg-3))', marginBottom: 4 }}>From</p>
-                  <input type="date" className="form-input text-sm" value={customFrom}
-                    onChange={e => setCF(e.target.value)} style={{ width: '100%' }} />
-                </div>
-                <div>
-                  <p style={{ fontSize: 11, color: 'rgb(var(--fg-3))', marginBottom: 4 }}>To</p>
-                  <input type="date" className="form-input text-sm" value={customTo}
-                    onChange={e => setCT(e.target.value)} style={{ width: '100%' }} />
-                </div>
-              </div>
-              <button onClick={applyCustom} disabled={!customFrom || !customTo}
-                className="btn btn-primary w-full gap-2 disabled:opacity-50">
-                <span className="material-symbols-rounded text-[16px]">check</span>Apply Range
-              </button>
-            </div>
-          )}
-
-          {/* Available days summary */}
+          {/* Footer */}
           {uploads.length > 0 && (
-            <div style={{ padding: '10px 16px', borderTop: '1px solid rgb(var(--border) / 0.08)' }}>
-              <p style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 12, verticalAlign: 'middle', marginRight: 4 }}>info</span>
-                Data loaded for <strong>{uploads.length}</strong> day{uploads.length > 1 ? 's' : ''} ·{' '}
-                {fmtDate(uploads[uploads.length - 1].txn_date)} – {fmtDate(uploads[0].txn_date)}
+            <div style={{ padding: '8px 14px', borderTop: '1px solid rgb(var(--border) / 0.08)', background: 'rgb(var(--bg-subtle))' }}>
+              <p style={{ fontSize: 10, color: 'rgb(var(--fg-3))', lineHeight: 1.5 }}>
+                {uploads.length} days loaded · {fmtDate(uploads[uploads.length - 1].txn_date)} – {fmtDate(uploads[0].txn_date)}
               </p>
             </div>
           )}
