@@ -1,16 +1,16 @@
 """
 eod.py — End-of-Day Transaction Report
 
-POST   /api/eod/upload              upload one or more EODTXN files
-GET    /api/eod/uploads             list all loaded days
-DELETE /api/eod/uploads/{id}        delete a day and all its transactions
-GET    /api/eod/summary             KPI totals for a day
-GET    /api/eod/by-product          volume breakdown by product
-GET    /api/eod/by-type             volume breakdown by transaction category
-GET    /api/eod/by-branch           volume breakdown by branch
-GET    /api/eod/trend               daily totals across all loaded days
-GET    /api/eod/transactions        paginated transaction table
-GET    /api/eod/transactions/export CSV export (respects all filters)
+POST   /api/eod/upload                    upload one or more EODTXN files
+GET    /api/eod/uploads                   list all loaded days (for the picker)
+DELETE /api/eod/uploads/{id}              delete a day
+GET    /api/eod/summary?date_from&date_to KPI totals for a date range
+GET    /api/eod/by-product                volume breakdown by product
+GET    /api/eod/by-type                   volume breakdown by transaction category
+GET    /api/eod/by-branch                 volume breakdown by branch
+GET    /api/eod/trend                     daily totals across all loaded days
+GET    /api/eod/transactions              paginated transaction table
+GET    /api/eod/transactions/export       CSV export
 """
 
 import csv
@@ -19,7 +19,7 @@ import json
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
 from sqlalchemy import text
 
@@ -72,7 +72,6 @@ def _bulk_insert(db, rows: list[dict], upload_id: int):
             params[f'merchant_id_{j}']   = r['merchant_id']
             params[f'merchant_name_{j}'] = r['merchant_name']
             params[f'description_{j}']   = r['description']
-
         col_str = ', '.join(cols)
         sql = f'INSERT INTO eod_transactions ({col_str}) VALUES {", ".join(placeholders)}'
         db.execute(text(sql), params)
@@ -90,19 +89,15 @@ async def upload_eod(
         raise HTTPException(400, 'No files provided')
 
     results = []
-
     for f in files:
         raw     = await f.read()
         content = raw.decode('utf-8', errors='replace')
         fname   = f.filename or ''
 
-        # Only accept EODTXN files
-        if 'EODTXN' not in fname.upper() and not fname.upper().startswith('EODTXN'):
+        if 'EODTXN' not in fname.upper():
             continue
 
         rows, txn_date = parse_eod_file(content, fname)
-
-        # Use filename date if parser returned today as fallback
         fname_date = eod_date_from_filename(fname)
         if fname_date and fname_date != date.today():
             txn_date = fname_date
@@ -112,42 +107,33 @@ async def upload_eod(
 
         label = txn_date.strftime('%d %b %Y')
 
-        # Upsert upload record
         existing = db.execute(
-            text('SELECT id FROM eod_uploads WHERE txn_date = :d'),
-            {'d': txn_date}
+            text('SELECT id FROM eod_uploads WHERE txn_date = :d'), {'d': txn_date}
         ).fetchone()
 
         if existing:
             upload_id = existing.id
             db.execute(text('DELETE FROM eod_transactions WHERE upload_id = :id'), {'id': upload_id})
-            db.execute(
-                text('UPDATE eod_uploads SET filename=:fn, txn_count=:tc, uploaded_at=NOW(), uploaded_by=:u WHERE id=:id'),
-                {'fn': fname, 'tc': len(rows), 'u': user.get('id'), 'id': upload_id}
-            )
+            db.execute(text('UPDATE eod_uploads SET filename=:fn, txn_count=:tc, uploaded_at=NOW(), uploaded_by=:u WHERE id=:id'),
+                       {'fn': fname, 'tc': len(rows), 'u': user.get('id'), 'id': upload_id})
         else:
             row = db.execute(text("""
                 INSERT INTO eod_uploads (txn_date, filename, txn_count, uploaded_by)
-                VALUES (:d, :fn, :tc, :u)
-                RETURNING id
+                VALUES (:d, :fn, :tc, :u) RETURNING id
             """), {'d': txn_date, 'fn': fname, 'tc': len(rows), 'u': user.get('id')}).fetchone()
             upload_id = row.id
 
         _bulk_insert(db, rows, upload_id)
         db.commit()
 
-        # Audit log
         try:
-            dr  = sum(r['amount'] for r in rows if r['sign'] == 'DR')
-            cr  = sum(r['amount'] for r in rows if r['sign'] == 'CR')
+            dr = sum(r['amount'] for r in rows if r['sign'] == 'DR')
+            cr = sum(r['amount'] for r in rows if r['sign'] == 'CR')
             db.execute(text("""
-                INSERT INTO upload_audit_log
-                    (uploaded_by, report_type, file_names, cycle_label, row_counts, status)
+                INSERT INTO upload_audit_log (uploaded_by, report_type, file_names, cycle_label, row_counts, status)
                 VALUES (:uid, 'eod', :fn, :label, :counts, 'success')
-            """), {
-                'uid': user.get('id'), 'fn': fname, 'label': label,
-                'counts': json.dumps({'transactions': len(rows), 'dr': round(dr, 2), 'cr': round(cr, 2)}),
-            })
+            """), {'uid': user.get('id'), 'fn': fname, 'label': label,
+                   'counts': json.dumps({'transactions': len(rows), 'dr': round(dr, 2), 'cr': round(cr, 2)})})
             db.commit()
         except Exception:
             pass
@@ -156,11 +142,10 @@ async def upload_eod(
 
     if not results:
         raise HTTPException(422, 'No valid EODTXN files found. Filename must contain "EODTXN".')
-
     return results
 
 
-# ── Uploads list ──────────────────────────────────────────────────────────────
+# ── Uploads list (for date picker) ───────────────────────────────────────────
 
 @router.get('/uploads')
 def list_uploads(db=Depends(get_pg), _=Depends(ACCESS)):
@@ -180,12 +165,13 @@ def delete_upload(upload_id: int, db=Depends(get_pg), _=Depends(ACCESS)):
     db.commit()
 
 
-# ── Shared filter helper ──────────────────────────────────────────────────────
+# ── Shared filter builder (date range based) ──────────────────────────────────
 
-def _build_where(upload_id: int, branch: str, product: str,
-                 txn_type: str, sign: str, q: str) -> tuple[str, dict]:
-    filters = ['upload_id = :uid']
-    params  = {'uid': upload_id}
+def _build_where(date_from: date, date_to: date,
+                 branch: str, product: str, txn_type: str,
+                 sign: str, q: str) -> tuple[str, dict]:
+    filters = ['txn_date >= :date_from', 'txn_date <= :date_to']
+    params  = {'date_from': date_from, 'date_to': date_to}
     if branch:   filters.append('branch_code = :branch');   params['branch']   = branch
     if product:  filters.append('product_code = :product'); params['product']  = product
     if txn_type: filters.append('txn_category = :ttype');   params['ttype']    = txn_type
@@ -204,7 +190,8 @@ def _build_where(upload_id: int, branch: str, product: str,
 
 @router.get('/summary')
 def summary(
-    upload_id: int           = Query(...),
+    date_from: date          = Query(...),
+    date_to:   date          = Query(...),
     branch:    Optional[str] = Query(None),
     product:   Optional[str] = Query(None),
     txn_type:  Optional[str] = Query(None),
@@ -212,17 +199,18 @@ def summary(
     q:         Optional[str] = Query(None),
     db = Depends(get_pg), _ = Depends(ACCESS),
 ):
-    where, params = _build_where(upload_id, branch, product, txn_type, sign, q)
+    where, params = _build_where(date_from, date_to, branch, product, txn_type, sign, q)
 
     row = db.execute(text(f"""
         SELECT
-            COUNT(*)                                           AS txn_count,
-            COUNT(DISTINCT account_no)                        AS active_accounts,
-            COUNT(DISTINCT cif)                               AS active_cifs,
-            COALESCE(SUM(CASE WHEN sign='DR' THEN amount END),0) AS total_dr,
-            COALESCE(SUM(CASE WHEN sign='CR' THEN amount END),0) AS total_cr,
-            COALESCE(SUM(amount), 0)                          AS total_volume,
-            COALESCE(AVG(amount), 0)                          AS avg_txn_value
+            COUNT(*)                                                  AS txn_count,
+            COUNT(DISTINCT txn_date)                                  AS days_covered,
+            COUNT(DISTINCT account_no)                                AS active_accounts,
+            COUNT(DISTINCT cif)                                       AS active_cifs,
+            COALESCE(SUM(CASE WHEN sign='DR' THEN amount END), 0)    AS total_dr,
+            COALESCE(SUM(CASE WHEN sign='CR' THEN amount END), 0)    AS total_cr,
+            COALESCE(SUM(amount), 0)                                  AS total_volume,
+            COALESCE(AVG(amount), 0)                                  AS avg_txn_value
         FROM eod_transactions
         WHERE {where}
     """), params).fetchone()
@@ -230,114 +218,105 @@ def summary(
     d = dict(row._mapping)
     d['net_movement'] = float(d['total_cr']) - float(d['total_dr'])
 
-    # Available filter options
-    branches = [r[0] for r in db.execute(text(
-        f'SELECT DISTINCT branch_code FROM eod_transactions WHERE {where} ORDER BY 1'
+    branches = [dict(r._mapping) for r in db.execute(text(
+        f'SELECT DISTINCT branch_code, branch_name FROM eod_transactions WHERE {where} ORDER BY 1'
     ), params).fetchall()]
-    products = [r[0] for r in db.execute(text(
-        f'SELECT DISTINCT product_code FROM eod_transactions WHERE {where} ORDER BY 1'
+    products = [dict(r._mapping) for r in db.execute(text(
+        f'SELECT DISTINCT product_code, product_name FROM eod_transactions WHERE {where} ORDER BY 1'
     ), params).fetchall()]
-    branch_names = dict(db.execute(text(
-        f'SELECT DISTINCT branch_code, branch_name FROM eod_transactions WHERE {where}'
-    ), params).fetchall())
-    product_names = dict(db.execute(text(
-        f'SELECT DISTINCT product_code, product_name FROM eod_transactions WHERE {where}'
-    ), params).fetchall())
 
-    d['branches']      = [{'code': b, 'name': branch_names.get(b, b)} for b in branches]
-    d['products']      = [{'code': p, 'name': product_names.get(p, p)} for p in products]
+    d['branches'] = branches
+    d['products'] = products
     return d
 
 
-# ── By-product breakdown ──────────────────────────────────────────────────────
+# ── By-product ────────────────────────────────────────────────────────────────
 
 @router.get('/by-product')
 def by_product(
-    upload_id: int           = Query(...),
+    date_from: date          = Query(...),
+    date_to:   date          = Query(...),
     branch:    Optional[str] = Query(None),
     sign:      Optional[str] = Query(None),
     db = Depends(get_pg), _ = Depends(ACCESS),
 ):
-    where, params = _build_where(upload_id, branch, '', '', sign, '')
+    where, params = _build_where(date_from, date_to, branch, '', '', sign, '')
     rows = db.execute(text(f"""
-        SELECT
-            product_code, product_name,
+        SELECT product_code, product_name,
             COUNT(*)                                              AS txn_count,
             COALESCE(SUM(CASE WHEN sign='DR' THEN amount END),0) AS total_dr,
             COALESCE(SUM(CASE WHEN sign='CR' THEN amount END),0) AS total_cr,
             COALESCE(SUM(amount),0)                              AS total_volume
-        FROM eod_transactions
-        WHERE {where}
-        GROUP BY product_code, product_name
-        ORDER BY total_volume DESC
+        FROM eod_transactions WHERE {where}
+        GROUP BY product_code, product_name ORDER BY total_volume DESC
     """), params).fetchall()
     return [dict(r._mapping) for r in rows]
 
 
-# ── By-type breakdown ─────────────────────────────────────────────────────────
+# ── By-type ───────────────────────────────────────────────────────────────────
 
 @router.get('/by-type')
 def by_type(
-    upload_id: int           = Query(...),
+    date_from: date          = Query(...),
+    date_to:   date          = Query(...),
     branch:    Optional[str] = Query(None),
     product:   Optional[str] = Query(None),
     db = Depends(get_pg), _ = Depends(ACCESS),
 ):
-    where, params = _build_where(upload_id, branch, product, '', '', '')
+    where, params = _build_where(date_from, date_to, branch, product, '', '', '')
     rows = db.execute(text(f"""
-        SELECT
-            txn_category,
+        SELECT txn_category,
             COUNT(*)                                              AS txn_count,
             COALESCE(SUM(CASE WHEN sign='DR' THEN amount END),0) AS total_dr,
             COALESCE(SUM(CASE WHEN sign='CR' THEN amount END),0) AS total_cr,
             COALESCE(SUM(amount),0)                              AS total_volume
-        FROM eod_transactions
-        WHERE {where}
-        GROUP BY txn_category
-        ORDER BY total_volume DESC
+        FROM eod_transactions WHERE {where}
+        GROUP BY txn_category ORDER BY total_volume DESC
     """), params).fetchall()
     return [dict(r._mapping) for r in rows]
 
 
-# ── By-branch breakdown ───────────────────────────────────────────────────────
+# ── By-branch ─────────────────────────────────────────────────────────────────
 
 @router.get('/by-branch')
 def by_branch(
-    upload_id: int           = Query(...),
+    date_from: date = Query(...),
+    date_to:   date = Query(...),
     db = Depends(get_pg), _ = Depends(ACCESS),
 ):
     rows = db.execute(text("""
-        SELECT
-            branch_code, branch_name,
+        SELECT branch_code, branch_name,
             COUNT(*)                                              AS txn_count,
             COUNT(DISTINCT account_no)                           AS accounts,
             COALESCE(SUM(CASE WHEN sign='DR' THEN amount END),0) AS total_dr,
             COALESCE(SUM(CASE WHEN sign='CR' THEN amount END),0) AS total_cr
         FROM eod_transactions
-        WHERE upload_id = :uid
-        GROUP BY branch_code, branch_name
-        ORDER BY total_dr DESC
-    """), {'uid': upload_id}).fetchall()
+        WHERE txn_date >= :date_from AND txn_date <= :date_to
+        GROUP BY branch_code, branch_name ORDER BY total_dr DESC
+    """), {'date_from': date_from, 'date_to': date_to}).fetchall()
     return [dict(r._mapping) for r in rows]
 
 
-# ── Trend (all loaded days) ───────────────────────────────────────────────────
+# ── Daily trend ───────────────────────────────────────────────────────────────
 
 @router.get('/trend')
-def trend(db=Depends(get_pg), _=Depends(ACCESS)):
+def trend(
+    date_from: date = Query(...),
+    date_to:   date = Query(...),
+    db = Depends(get_pg), _ = Depends(ACCESS),
+):
     rows = db.execute(text("""
         SELECT
-            u.txn_date,
-            TO_CHAR(u.txn_date, 'DD Mon') AS label,
-            COUNT(t.id)                                              AS txn_count,
-            COALESCE(SUM(CASE WHEN t.sign='DR' THEN t.amount END),0) AS total_dr,
-            COALESCE(SUM(CASE WHEN t.sign='CR' THEN t.amount END),0) AS total_cr,
-            COALESCE(SUM(t.amount),0)                                AS total_volume
-        FROM eod_uploads u
-        LEFT JOIN eod_transactions t ON t.upload_id = u.id
-        GROUP BY u.txn_date
-        ORDER BY u.txn_date
-    """)).fetchall()
+            txn_date,
+            TO_CHAR(txn_date, 'DD Mon') AS label,
+            COUNT(*)                                              AS txn_count,
+            COALESCE(SUM(CASE WHEN sign='DR' THEN amount END),0) AS total_dr,
+            COALESCE(SUM(CASE WHEN sign='CR' THEN amount END),0) AS total_cr,
+            COALESCE(SUM(amount),0)                              AS total_volume
+        FROM eod_transactions
+        WHERE txn_date >= :date_from AND txn_date <= :date_to
+        GROUP BY txn_date ORDER BY txn_date
+    """), {'date_from': date_from, 'date_to': date_to}).fetchall()
     return [dict(r._mapping) for r in rows]
 
 
@@ -345,7 +324,8 @@ def trend(db=Depends(get_pg), _=Depends(ACCESS)):
 
 @router.get('/transactions')
 def transactions(
-    upload_id: int           = Query(...),
+    date_from: date          = Query(...),
+    date_to:   date          = Query(...),
     branch:    Optional[str] = Query(None),
     product:   Optional[str] = Query(None),
     txn_type:  Optional[str] = Query(None),
@@ -355,21 +335,19 @@ def transactions(
     offset:    int           = Query(0),
     db = Depends(get_pg), _ = Depends(ACCESS),
 ):
-    where, params = _build_where(upload_id, branch, product, txn_type, sign, q)
+    where, params = _build_where(date_from, date_to, branch, product, txn_type, sign, q)
     params['limit']  = limit
     params['offset'] = offset
 
     rows = db.execute(text(f"""
-        SELECT
-            id, txn_date, branch_code, branch_name,
-            product_code, product_name,
-            account_no, cif, customer, balance, arrears, loc,
-            trace_num, auth_num, card_num,
-            txn_code, txn_category, amount, sign, currency,
-            merchant_id, merchant_name, description
+        SELECT id, txn_date, branch_code, branch_name,
+               product_code, product_name, account_no, cif, customer,
+               balance, arrears, loc,
+               trace_num, auth_num, card_num, txn_code, txn_category,
+               amount, sign, currency, merchant_id, merchant_name, description
         FROM eod_transactions
         WHERE {where}
-        ORDER BY amount DESC, id
+        ORDER BY txn_date DESC, amount DESC
         LIMIT :limit OFFSET :offset
     """), params).fetchall()
 
@@ -384,7 +362,8 @@ def transactions(
 
 @router.get('/transactions/export')
 def export_csv(
-    upload_id: int           = Query(...),
+    date_from: date          = Query(...),
+    date_to:   date          = Query(...),
     branch:    Optional[str] = Query(None),
     product:   Optional[str] = Query(None),
     txn_type:  Optional[str] = Query(None),
@@ -392,44 +371,33 @@ def export_csv(
     q:         Optional[str] = Query(None),
     db = Depends(get_pg), _ = Depends(ACCESS),
 ):
-    where, params = _build_where(upload_id, branch, product, txn_type, sign, q)
+    where, params = _build_where(date_from, date_to, branch, product, txn_type, sign, q)
 
     rows = db.execute(text(f"""
         SELECT txn_date, branch_name, product_name, account_no, cif, customer,
                trace_num, auth_num, card_num, txn_code, txn_category,
                amount, sign, currency, merchant_name, description, balance, arrears
-        FROM eod_transactions
-        WHERE {where}
-        ORDER BY amount DESC
+        FROM eod_transactions WHERE {where}
+        ORDER BY txn_date DESC, amount DESC
     """), params).fetchall()
 
-    up = db.execute(
-        text('SELECT txn_date FROM eod_uploads WHERE id = :id'), {'id': upload_id}
-    ).fetchone()
-    label = up.txn_date.strftime('%Y-%m-%d') if up else str(upload_id)
-
+    label = f"{date_from}_{date_to}"
     buf = io.StringIO()
     w   = csv.writer(buf)
-    w.writerow([
-        'Date', 'Branch', 'Product', 'Account No', 'CIF', 'Customer',
-        'Trace #', 'Auth #', 'Card', 'Txn Code', 'Category',
-        'Amount', 'DR/CR', 'Currency', 'Merchant', 'Description', 'Balance', 'Arrears'
-    ])
+    w.writerow(['Date','Branch','Product','Account No','CIF','Customer',
+                'Trace #','Auth #','Card','Txn Code','Category',
+                'Amount','DR/CR','Currency','Merchant','Description','Balance','Arrears'])
     for r in rows:
         m = dict(r._mapping)
-        w.writerow([
-            m['txn_date'], m['branch_name'], m['product_name'],
-            m['account_no'], m['cif'], m['customer'],
-            m['trace_num'], m['auth_num'], m['card_num'],
-            m['txn_code'], m['txn_category'],
-            m['amount'], m['sign'], m['currency'],
-            m['merchant_name'], m['description'],
-            m['balance'], m['arrears'],
-        ])
-
+        w.writerow([m['txn_date'], m['branch_name'], m['product_name'],
+                    m['account_no'], m['cif'], m['customer'],
+                    m['trace_num'], m['auth_num'], m['card_num'],
+                    m['txn_code'], m['txn_category'],
+                    m['amount'], m['sign'], m['currency'],
+                    m['merchant_name'], m['description'],
+                    m['balance'], m['arrears']])
     buf.seek(0)
     return StreamingResponse(
-        io.BytesIO(buf.getvalue().encode()),
-        media_type='text/csv',
+        io.BytesIO(buf.getvalue().encode()), media_type='text/csv',
         headers={'Content-Disposition': f'attachment; filename="eod_{label}.csv"'}
     )
