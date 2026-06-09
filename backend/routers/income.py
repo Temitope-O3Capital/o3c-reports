@@ -13,6 +13,7 @@ Endpoints:
 
 import csv
 import io
+import json
 from datetime import date
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
@@ -147,6 +148,23 @@ async def upload_cycle(
     db.commit()
 
     counts = {k: len(v[0]) for k, v in parsed.items()}
+
+    # Audit log — non-critical, failures must not roll back the upload
+    try:
+        db.execute(text("""
+            INSERT INTO upload_audit_log
+                (uploaded_by, report_type, file_names, cycle_label, row_counts, status)
+            VALUES (:uid, 'income', :fnames, :label, :counts, 'success')
+        """), {
+            "uid":    user.get("id"),
+            "fnames": ", ".join(f.filename or "unknown" for f in files),
+            "label":  label,
+            "counts": json.dumps(counts),
+        })
+        db.commit()
+    except Exception:
+        pass
+
     return {"cycle_id": cycle_id, "cycle_date": str(cycle_date), "label": label, "loaded": counts}
 
 

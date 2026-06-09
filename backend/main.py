@@ -10,7 +10,7 @@ from core.database import check_mssql_health, check_pg_health, pg_engine, Base
 from routers import auth, overview, transactions, collections, recovery, sales, cards, cohort, admin
 from routers import crm_contacts, crm_deals, crm_activities, crm_tasks, crm_requests, crm_reports
 from routers import executive
-from routers import income
+from routers import income, uploads
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
@@ -279,6 +279,21 @@ CREATE TABLE IF NOT EXISTS income_loc (
   temp_loc     NUMERIC DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_inc_loc_cif ON income_loc(cif, cycle_id);
+
+-- ── Upload Audit Log ──────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS upload_audit_log (
+  id          SERIAL PRIMARY KEY,
+  uploaded_by INT REFERENCES o3c_users(id) ON DELETE SET NULL,
+  report_type TEXT NOT NULL,
+  file_names  TEXT,
+  cycle_label TEXT,
+  row_counts  JSONB,
+  status      TEXT DEFAULT 'success',
+  error_msg   TEXT,
+  uploaded_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_at  ON upload_audit_log(uploaded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_who ON upload_audit_log(uploaded_by);
 """
 
 @asynccontextmanager
@@ -327,6 +342,7 @@ app.include_router(crm_requests.router,   prefix="/api/crm",  tags=["CRM"])
 app.include_router(crm_reports.router,    prefix="/api/crm",  tags=["CRM"])
 app.include_router(executive.router,      prefix="/api/executive", tags=["Executive"])
 app.include_router(income.router,         prefix="/api/income",    tags=["Income"])
+app.include_router(uploads.router,        prefix="/api/uploads",   tags=["Uploads"])
 
 # ── Health endpoint ───────────────────────────────────────────────────────────
 @app.get("/api/health", tags=["Health"])

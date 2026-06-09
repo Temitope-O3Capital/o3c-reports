@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../hooks/useApi.js'
 import { ProgressListCard, AreaChartCard, fmt, fmtNum } from '../components/Charts.jsx'
 
@@ -26,116 +27,9 @@ function KPI({ label, value, icon, sub, accent = '#0E2841' }) {
   )
 }
 
-/* ── Upload zone ─────────────────────────────────────────────────────────── */
-function UploadZone({ onUploaded }) {
-  const [files,   setFiles]   = useState([])
-  const [label,   setLabel]   = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState('')
-  const [success, setSuccess] = useState('')
-  const inputRef = useRef()
-
-  function onDrop(e) {
-    e.preventDefault()
-    const dropped = Array.from(e.dataTransfer?.files || [])
-    setFiles(f => [...f, ...dropped])
-  }
-
-  async function upload() {
-    if (!files.length) return
-    setLoading(true); setError(''); setSuccess('')
-    try {
-      const fd = new FormData()
-      files.forEach(f => fd.append('files', f))
-      fd.append('cycle_label', label)
-      const token = localStorage.getItem('o3c_token')
-      const API   = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-      const res   = await fetch(`${API}/api/income/upload`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: fd,
-      })
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}))
-        throw new Error(e.detail || `HTTP ${res.status}`)
-      }
-      const data = await res.json()
-      const counts = Object.entries(data.loaded)
-        .map(([k, v]) => `${k}: ${v}`)
-        .join(' · ')
-      setSuccess(`Cycle "${data.label}" loaded — ${counts}`)
-      setFiles([])
-      onUploaded(data.cycle_id)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <div className="card p-6 mb-6 no-print">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Upload Cycle Files</p>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Drop cyc_int_rpt, cyc_chg_rpt, cyc_bal_rpt, cyc_loc_rpt and/or cust_file
-          </p>
-        </div>
-      </div>
-
-      {/* Drop zone */}
-      <div
-        className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-8 text-center cursor-pointer hover:border-primary/40 hover:bg-primary-50/30 transition-colors mb-4"
-        onDragOver={e => e.preventDefault()}
-        onDrop={onDrop}
-        onClick={() => inputRef.current?.click()}
-      >
-        <span className="material-symbols-rounded text-[36px] text-slate-300 dark:text-slate-600 block mb-2">upload_file</span>
-        <p className="text-sm text-slate-500">
-          {files.length > 0
-            ? <span className="text-primary dark:text-primary-100 font-medium">{files.length} file{files.length > 1 ? 's' : ''} selected</span>
-            : 'Click or drag cycle files here'}
-        </p>
-        <input ref={inputRef} type="file" multiple className="hidden"
-          accept=".csv,application/octet-stream"
-          onChange={e => setFiles(f => [...f, ...Array.from(e.target.files)])} />
-      </div>
-
-      {files.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-4">
-          {files.map((f, i) => (
-            <span key={i} className="badge badge-grey gap-1">
-              {f.name}
-              <button className="ml-0.5 hover:text-red-500" onClick={() => setFiles(fs => fs.filter((_, j) => j !== i))}>×</button>
-            </span>
-          ))}
-        </div>
-      )}
-
-      <div className="flex gap-3 items-end">
-        <div className="flex-1">
-          <label className="form-label">Cycle Label (optional)</label>
-          <input className="form-input" placeholder="e.g. May 2026" value={label}
-            onChange={e => setLabel(e.target.value)} />
-        </div>
-        <button
-          onClick={upload}
-          disabled={loading || !files.length}
-          className="btn btn-primary gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-        >
-          {loading ? <><div className="spinner" style={{ width: 14, height: 14, borderTopColor: 'rgba(255,255,255,0.9)', borderColor: 'rgba(255,255,255,0.25)' }} /> Processing…</> : <><span className="material-symbols-rounded text-[17px]">upload</span> Load Files</>}
-        </button>
-      </div>
-
-      {error   && <div className="mt-3 flex items-center gap-2 text-red-600 text-sm bg-red-50 dark:bg-red-900/15 border border-red-100 rounded-xl px-4 py-3"><span className="material-symbols-rounded text-[16px]">error</span>{error}</div>}
-      {success && <div className="mt-3 flex items-center gap-2 text-emerald-700 text-sm bg-emerald-50 dark:bg-emerald-900/15 border border-emerald-100 rounded-xl px-4 py-3"><span className="material-symbols-rounded text-[16px]">check_circle</span>{success}</div>}
-    </div>
-  )
-}
-
 /* ── Main Page ───────────────────────────────────────────────────────────── */
 export default function Income() {
+  const navigate = useNavigate()
   const [cycles,      setCycles]      = useState([])
   const [cycleId,     setCycleId]     = useState(null)
   const [summary,     setSummary]     = useState(null)
@@ -278,14 +172,15 @@ export default function Income() {
         </div>
       </div>
 
-      {/* ── Upload ── */}
-      <UploadZone onUploaded={id => { loadCycles(); setCycleId(id) }} />
-
       {cycles.length === 0 && (
         <div className="card p-12 flex flex-col items-center text-slate-400">
-          <span className="material-symbols-rounded text-[48px] opacity-25 mb-3">upload_file</span>
-          <p className="font-medium">No cycles loaded yet</p>
-          <p className="text-sm mt-1">Upload your cycle files above to generate the report</p>
+          <span className="material-symbols-rounded text-[48px] opacity-25 mb-4">payments</span>
+          <p className="font-semibold text-slate-600 dark:text-slate-300">No cycles loaded yet</p>
+          <p className="text-sm mt-1 mb-5">Upload income cycle files to generate this report.</p>
+          <button onClick={() => navigate('/uploads')} className="btn btn-primary gap-2">
+            <span className="material-symbols-rounded text-[17px]">upload_file</span>
+            Go to Data Uploads
+          </button>
         </div>
       )}
 

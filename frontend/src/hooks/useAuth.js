@@ -6,13 +6,13 @@ const CRM        = ['crm_pipeline','crm_contacts','crm_tasks','crm_requests']
 const CRM_REPORT = ['crm_reports']
 
 const ROLE_PAGES = {
-  admin:       ['overview','transactions','collections','recovery','sales','cards','cohort','admin','executive','income', ...CRM, ...CRM_REPORT],
-  management:  ['overview','transactions','collections','recovery','sales','cards','cohort','executive','income',            ...CRM, ...CRM_REPORT],
-  sales:       ['sales','overview',                                                                              ...CRM, ...CRM_REPORT],
-  collections: ['collections','recovery',                                                                        ...CRM],
-  recovery:    ['recovery','collections',                                                                        ...CRM],
-  cards_ops:   ['cards','transactions','overview'],
-  call_centre: ['overview','transactions','crm_requests'],
+  admin:       ['overview','transactions','collections','recovery','sales','cards','cohort','admin','executive','income','uploads', ...CRM, ...CRM_REPORT],
+  management:  ['overview','transactions','collections','recovery','sales','cards','cohort','executive','income','uploads',          ...CRM, ...CRM_REPORT],
+  sales:       ['sales','overview','uploads',                                                                                       ...CRM, ...CRM_REPORT],
+  collections: ['collections','recovery','uploads',                                                                                 ...CRM],
+  recovery:    ['recovery','collections','uploads',                                                                                 ...CRM],
+  cards_ops:   ['cards','transactions','overview','uploads'],
+  call_centre: ['overview','transactions','crm_requests','uploads'],
 }
 
 function parseToken(token) {
