@@ -63,6 +63,10 @@ export async function apiFetch(endpoint, options = {}) {
       ...(options.headers || {})
     }
   })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `HTTP ${res.status}`)
+  }
+  if (res.status === 204 || res.headers.get('content-length') === '0') return null
   return res.json()
 }
