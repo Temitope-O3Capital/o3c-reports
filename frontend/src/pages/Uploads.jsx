@@ -54,8 +54,15 @@ function UploadZone({ label: sectionLabel, accept, hint, endpoint, onDone }) {
         throw new Error(e.detail || `HTTP ${res.status}`)
       }
       const data = await res.json()
-      const counts = Object.entries(data.loaded).map(([k, v]) => `${k}: ${v}`).join(' · ')
-      setSuccess(`"${data.label}" loaded — ${counts}`)
+      let msg
+      if (Array.isArray(data)) {
+        // EOD upload returns array of {date, label, txn_count}
+        msg = data.map(d => `${d.label}: ${d.txn_count} txns`).join(' · ')
+      } else {
+        const counts = Object.entries(data.loaded || {}).map(([k, v]) => `${k}: ${v}`).join(' · ')
+        msg = `"${data.label}" loaded — ${counts}`
+      }
+      setSuccess(msg)
       setFiles([])
       setLabel('')
       onDone?.()
@@ -150,7 +157,16 @@ export default function Uploads() {
       endpoint: '/api/income/upload',
       accept:   '.csv,application/octet-stream',
     },
-    // Add more report types here as the platform grows
+    {
+      key:      'eod',
+      label:    'EOD Transaction Files',
+      icon:     'today',
+      desc:     'Upload EODTXN daily transaction files. One file per day — filename must contain "EODTXN" (e.g. EODTXN.20251218.225907).',
+      hint:     'EODTXN.YYYYMMDD.HHMMSS',
+      endpoint: '/api/eod/upload',
+      accept:   'application/octet-stream,text/plain,.txt',
+      onDone:   null,
+    },
   ]
 
   return (

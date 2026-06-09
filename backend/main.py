@@ -10,7 +10,7 @@ from core.database import check_mssql_health, check_pg_health, pg_engine, Base
 from routers import auth, overview, transactions, collections, recovery, sales, cards, cohort, admin
 from routers import crm_contacts, crm_deals, crm_activities, crm_tasks, crm_requests, crm_reports
 from routers import executive
-from routers import income, uploads
+from routers import income, uploads, eod
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
@@ -280,6 +280,50 @@ CREATE TABLE IF NOT EXISTS income_loc (
 );
 CREATE INDEX IF NOT EXISTS idx_inc_loc_cif ON income_loc(cif, cycle_id);
 
+-- ── EOD Transaction Tables ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS eod_uploads (
+  id          SERIAL PRIMARY KEY,
+  txn_date    DATE        NOT NULL UNIQUE,
+  filename    TEXT,
+  txn_count   INT         DEFAULT 0,
+  uploaded_by INT         REFERENCES o3c_users(id) ON DELETE SET NULL,
+  uploaded_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_eod_uploads_date ON eod_uploads(txn_date DESC);
+
+CREATE TABLE IF NOT EXISTS eod_transactions (
+  id            SERIAL PRIMARY KEY,
+  upload_id     INT     REFERENCES eod_uploads(id) ON DELETE CASCADE,
+  txn_date      DATE    NOT NULL,
+  branch_code   TEXT,
+  branch_name   TEXT,
+  product_code  TEXT,
+  product_name  TEXT,
+  account_no    TEXT,
+  cif           TEXT,
+  customer      TEXT,
+  arrears       NUMERIC DEFAULT 0,
+  loc           NUMERIC DEFAULT 0,
+  balance       NUMERIC DEFAULT 0,
+  trace_num     TEXT,
+  auth_num      TEXT,
+  card_num      TEXT,
+  txn_code      TEXT,
+  txn_category  TEXT,
+  amount        NUMERIC NOT NULL DEFAULT 0,
+  sign          TEXT,
+  currency      TEXT    DEFAULT 'NGN',
+  merchant_id   TEXT,
+  merchant_name TEXT,
+  description   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_eod_txn_upload   ON eod_transactions(upload_id);
+CREATE INDEX IF NOT EXISTS idx_eod_txn_date     ON eod_transactions(txn_date);
+CREATE INDEX IF NOT EXISTS idx_eod_txn_cif      ON eod_transactions(cif);
+CREATE INDEX IF NOT EXISTS idx_eod_txn_branch   ON eod_transactions(branch_code);
+CREATE INDEX IF NOT EXISTS idx_eod_txn_product  ON eod_transactions(product_code);
+CREATE INDEX IF NOT EXISTS idx_eod_txn_category ON eod_transactions(txn_category);
+
 -- ── Upload Audit Log ──────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS upload_audit_log (
   id          SERIAL PRIMARY KEY,
@@ -349,6 +393,7 @@ app.include_router(crm_reports.router,    prefix="/api/crm",  tags=["CRM"])
 app.include_router(executive.router,      prefix="/api/executive", tags=["Executive"])
 app.include_router(income.router,         prefix="/api/income",    tags=["Income"])
 app.include_router(uploads.router,        prefix="/api/uploads",   tags=["Uploads"])
+app.include_router(eod.router,            prefix="/api/eod",        tags=["EOD"])
 
 # ── Health endpoint ───────────────────────────────────────────────────────────
 @app.get("/api/health", tags=["Health"])

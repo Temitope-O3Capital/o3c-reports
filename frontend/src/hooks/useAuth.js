@@ -7,23 +7,23 @@ const CRM_REPORT = ['crm_reports']
 
 const ROLE_PAGES = {
   // Executive / senior titles
-  md:          ['overview','transactions','collections','recovery','sales','cards','cohort','executive','income','uploads', ...CRM, ...CRM_REPORT],
-  coo:         ['overview','transactions','collections','recovery','cards','cohort','executive','income','uploads',         ...CRM, ...CRM_REPORT],
-  cfo:         ['overview','income','collections','recovery','executive','transactions','uploads'],
-  head_it:     ['overview','transactions','collections','recovery','sales','cards','cohort','admin','executive','income','uploads', ...CRM, ...CRM_REPORT],
-  head_hr:     ['overview','sales','uploads'],
+  md:               ['overview','transactions','collections','recovery','sales','cards','cohort','executive','income','eod','uploads', ...CRM, ...CRM_REPORT],
+  coo:              ['overview','transactions','collections','recovery','cards','cohort','executive','income','eod','uploads',         ...CRM, ...CRM_REPORT],
+  cfo:              ['overview','income','collections','recovery','executive','transactions','eod','uploads'],
+  head_it:          ['overview','transactions','collections','recovery','sales','cards','cohort','admin','executive','income','eod','uploads', ...CRM, ...CRM_REPORT],
+  head_hr:          ['overview','sales','uploads'],
   cmo:              ['overview','sales','executive','uploads', ...CRM, ...CRM_REPORT],
-  head_ops:         ['overview','transactions','cards','cohort','executive','income','uploads', ...CRM],
+  head_ops:         ['overview','transactions','cards','cohort','executive','income','eod','uploads', ...CRM],
   head_sales:       ['sales','overview','uploads','executive', ...CRM, ...CRM_REPORT],
-  head_collections: ['collections','recovery','overview','uploads','executive', ...CRM],
-  head_recovery:    ['recovery','collections','overview','uploads','executive', ...CRM],
+  head_collections: ['collections','recovery','overview','eod','uploads','executive', ...CRM],
+  head_recovery:    ['recovery','collections','overview','eod','uploads','executive', ...CRM],
   // Functional roles
-  admin:       ['overview','transactions','collections','recovery','sales','cards','cohort','admin','executive','income','uploads', ...CRM, ...CRM_REPORT],
-  management:  ['overview','transactions','collections','recovery','sales','cards','cohort','executive','income','uploads',         ...CRM, ...CRM_REPORT],
-  sales:       ['sales','overview','uploads',                                                                                       ...CRM, ...CRM_REPORT],
-  collections: ['collections','recovery','uploads',                                                                                 ...CRM],
-  recovery:    ['recovery','collections','uploads',                                                                                 ...CRM],
-  cards_ops:   ['cards','transactions','overview','uploads'],
+  admin:       ['overview','transactions','collections','recovery','sales','cards','cohort','admin','executive','income','eod','uploads', ...CRM, ...CRM_REPORT],
+  management:  ['overview','transactions','collections','recovery','sales','cards','cohort','executive','income','eod','uploads',         ...CRM, ...CRM_REPORT],
+  sales:       ['sales','overview','uploads',                                                                                             ...CRM, ...CRM_REPORT],
+  collections: ['collections','recovery','eod','uploads',                                                                                 ...CRM],
+  recovery:    ['recovery','collections','eod','uploads',                                                                                 ...CRM],
+  cards_ops:   ['cards','transactions','overview','eod','uploads'],
   call_centre: ['overview','transactions','crm_requests','uploads'],
 }
 

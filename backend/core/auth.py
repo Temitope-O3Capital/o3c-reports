@@ -26,23 +26,23 @@ _CRM_REPORT = ["crm_reports"]
 
 ROLE_PAGES = {
     # Executive / senior titles
-    "md":          ["overview","transactions","collections","recovery","sales","cards","cohort","executive","income","uploads"] + _CRM + _CRM_REPORT,
-    "coo":         ["overview","transactions","collections","recovery","cards","cohort","executive","income","uploads"]         + _CRM + _CRM_REPORT,
-    "cfo":         ["overview","income","collections","recovery","executive","transactions","uploads"],
-    "head_it":     ["overview","transactions","collections","recovery","sales","cards","cohort","admin","executive","income","uploads"] + _CRM + _CRM_REPORT,
+    "md":          ["overview","transactions","collections","recovery","sales","cards","cohort","executive","income","eod","uploads"] + _CRM + _CRM_REPORT,
+    "coo":         ["overview","transactions","collections","recovery","cards","cohort","executive","income","eod","uploads"]         + _CRM + _CRM_REPORT,
+    "cfo":         ["overview","income","collections","recovery","executive","transactions","eod","uploads"],
+    "head_it":     ["overview","transactions","collections","recovery","sales","cards","cohort","admin","executive","income","eod","uploads"] + _CRM + _CRM_REPORT,
     "head_hr":     ["overview","sales","uploads"],
-    "cmo":          ["overview","sales","executive","uploads"]                                + _CRM + _CRM_REPORT,
-    "head_ops":     ["overview","transactions","cards","cohort","executive","income","uploads"] + _CRM,
-    "head_sales":   ["sales","overview","uploads","executive"]                                 + _CRM + _CRM_REPORT,
-    "head_collections": ["collections","recovery","overview","uploads","executive"]            + _CRM,
-    "head_recovery":    ["recovery","collections","overview","uploads","executive"]            + _CRM,
+    "cmo":              ["overview","sales","executive","uploads"]                                          + _CRM + _CRM_REPORT,
+    "head_ops":         ["overview","transactions","cards","cohort","executive","income","eod","uploads"]   + _CRM,
+    "head_sales":       ["sales","overview","uploads","executive"]                                         + _CRM + _CRM_REPORT,
+    "head_collections": ["collections","recovery","overview","eod","uploads","executive"]                  + _CRM,
+    "head_recovery":    ["recovery","collections","overview","eod","uploads","executive"]                  + _CRM,
     # Functional roles
-    "admin":       ["overview","transactions","collections","recovery","sales","cards","cohort","admin","executive","income","uploads"] + _CRM + _CRM_REPORT,
-    "management":  ["overview","transactions","collections","recovery","sales","cards","cohort","executive","income","uploads"]         + _CRM + _CRM_REPORT,
-    "sales":       ["sales","overview","uploads"]                                                                              + _CRM + _CRM_REPORT,
-    "collections": ["collections","recovery","uploads"]                                                                        + _CRM,
-    "recovery":    ["recovery","collections","uploads"]                                                                        + _CRM,
-    "cards_ops":   ["cards","transactions","overview","uploads"],
+    "admin":       ["overview","transactions","collections","recovery","sales","cards","cohort","admin","executive","income","eod","uploads"] + _CRM + _CRM_REPORT,
+    "management":  ["overview","transactions","collections","recovery","sales","cards","cohort","executive","income","eod","uploads"]         + _CRM + _CRM_REPORT,
+    "sales":       ["sales","overview","uploads"]                                                                                    + _CRM + _CRM_REPORT,
+    "collections": ["collections","recovery","eod","uploads"]                                                                        + _CRM,
+    "recovery":    ["recovery","collections","eod","uploads"]                                                                        + _CRM,
+    "cards_ops":   ["cards","transactions","overview","eod","uploads"],
     "call_centre": ["overview","transactions","crm_requests","uploads"],
 }
 

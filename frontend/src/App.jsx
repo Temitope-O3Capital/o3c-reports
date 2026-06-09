@@ -14,6 +14,7 @@ import Cohort from './pages/Cohort.jsx'
 import Admin from './pages/Admin.jsx'
 import Executive       from './pages/Executive.jsx'
 import Income          from './pages/Income.jsx'
+import Eod             from './pages/Eod.jsx'
 import Uploads         from './pages/Uploads.jsx'
 import ChangePassword  from './pages/ChangePassword.jsx'
 import CrmPipeline   from './pages/crm/Pipeline.jsx'
@@ -26,6 +27,7 @@ import CrmReports    from './pages/crm/CrmReports.jsx'
 const REPORTING_NAV = [
   { page: 'executive',    label: 'Executive',     path: '/executive',    icon: 'bar_chart_4_bars' },
   { page: 'income',       label: 'Income Report', path: '/income',       icon: 'payments' },
+  { page: 'eod',          label: 'EOD Report',    path: '/eod',          icon: 'today' },
   { page: 'uploads',      label: 'Data Uploads',  path: '/uploads',      icon: 'upload_file' },
   { page: 'overview',     label: 'Overview',      path: '/',             icon: 'space_dashboard' },
   { page: 'transactions', label: 'Transactions',  path: '/transactions', icon: 'receipt_long' },
@@ -178,6 +180,7 @@ function AppInner() {
             <Route path="/executive"            element={<Guard page="executive"    ca={canAccess}><Executive /></Guard>} />
             <Route path="/income"               element={<Guard page="income"       ca={canAccess}><Income /></Guard>} />
             <Route path="/uploads"              element={<Guard page="uploads"      ca={canAccess}><Uploads /></Guard>} />
+            <Route path="/eod"                 element={<Guard page="eod"          ca={canAccess}><Eod /></Guard>} />
             {/* CRM */}
             <Route path="/crm/pipeline"         element={<Guard page="crm_pipeline" ca={canAccess}><CrmPipeline /></Guard>} />
             <Route path="/crm/contacts"         element={<Guard page="crm_contacts" ca={canAccess}><CrmContacts /></Guard>} />
@@ -353,6 +356,7 @@ function PageTitle() {
     '/executive':      'Executive Dashboard',
     '/income':         'Income Report',
     '/uploads':        'Data Uploads',
+    '/eod':            'EOD Report',
     '/crm/pipeline':   'Pipeline',
     '/crm/contacts':   'Contacts',
     '/crm/tasks':      'Tasks',
