@@ -85,7 +85,7 @@ export default function Login({ onLogin }) {
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 className="form-input"
-                placeholder="you@o3ccards.com"
+                placeholder="you@o3cards.com"
                 required
                 autoFocus
               />

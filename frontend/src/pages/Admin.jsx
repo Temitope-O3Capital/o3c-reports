@@ -26,7 +26,7 @@ const ROLES = [
   { value: 'cards_ops',        label: 'Cards Ops',            group: 'Junior Staff', desc: 'Cards, Transactions & Overview',                    icon: 'credit_card' },
   { value: 'collections',      label: 'Collections',          group: 'Junior Staff', desc: 'Collections & Recovery',                            icon: 'receipt_long' },
   { value: 'recovery',         label: 'Recovery',             group: 'Junior Staff', desc: 'Recovery & Collections',                            icon: 'handshake' },
-  { value: 'call_centre',      label: 'Call Centre',          group: 'Junior Staff', desc: 'Overview & Transactions',                           icon: 'headset_mic' },
+  { value: 'call_centre',      label: 'Call Centre',          group: 'Junior Staff', desc: 'Overview, Transactions & Call Center module',       icon: 'headset_mic' },
 ]
 
 const DEPARTMENTS = [
@@ -35,23 +35,23 @@ const DEPARTMENTS = [
 ]
 
 const ROLE_ACCESS = {
-  md:               ['Overview','Transactions','Cards','Sales','Collections','Recovery','Cohort','Executive','Income','Uploads','CRM'],
-  coo:              ['Overview','Transactions','Cards','Collections','Recovery','Cohort','Executive','Income','Uploads','CRM'],
-  cfo:              ['Overview','Income','Collections','Recovery','Executive','Transactions','Uploads'],
-  cmo:              ['Sales','Overview','Executive','Uploads','CRM'],
-  head_it:          ['Overview','Transactions','Cards','Sales','Collections','Recovery','Cohort','Executive','Income','Uploads','Settings','CRM'],
-  head_ops:         ['Overview','Transactions','Cards','Cohort','Executive','Income','Uploads','CRM'],
+  md:               ['Overview','Transactions','Cards','Collections','Recovery','Cohort','Executive','Income','Reconciliation','Call Center','Uploads','Sales & CRM'],
+  coo:              ['Overview','Transactions','Cards','Collections','Recovery','Cohort','Executive','Income','Reconciliation','Call Center','Uploads','Sales & CRM'],
+  cfo:              ['Overview','Income','Collections','Recovery','Executive','Transactions','Reconciliation','Uploads'],
+  cmo:              ['Overview','Executive','Uploads','Sales & CRM'],
+  head_it:          ['Overview','Transactions','Cards','Collections','Recovery','Cohort','Executive','Income','Reconciliation','Call Center','Uploads','Settings','Sales & CRM'],
+  head_ops:         ['Overview','Transactions','Cards','Cohort','Executive','Income','Reconciliation','Uploads','CRM'],
   head_hr:          ['Overview','Sales','Uploads'],
-  head_sales:       ['Sales','Overview','Executive','Uploads','CRM'],
-  head_collections: ['Collections','Recovery','Overview','Executive','Uploads','CRM'],
+  head_sales:       ['Overview','Executive','Uploads','Sales & CRM'],
+  head_collections: ['Collections','Recovery','Overview','Executive','Reconciliation','Uploads','CRM'],
   head_recovery:    ['Recovery','Collections','Overview','Executive','Uploads','CRM'],
-  admin:            ['Overview','Transactions','Cards','Sales','Collections','Recovery','Cohort','Executive','Income','Uploads','Settings','CRM'],
-  management:       ['Overview','Transactions','Cards','Sales','Collections','Recovery','Cohort','Executive','Income','Uploads','CRM'],
-  sales:            ['Sales','Overview','Uploads','CRM'],
+  admin:            ['Overview','Transactions','Cards','Collections','Recovery','Cohort','Executive','Income','Reconciliation','Call Center','Uploads','Settings','Sales & CRM'],
+  management:       ['Overview','Transactions','Cards','Collections','Recovery','Cohort','Executive','Income','Reconciliation','Call Center','Uploads','Sales & CRM'],
+  sales:            ['Overview','Uploads','Sales & CRM'],
   cards_ops:        ['Cards','Transactions','Overview','Uploads'],
-  collections:      ['Collections','Recovery','Uploads','CRM'],
+  collections:      ['Collections','Recovery','Reconciliation','Uploads','CRM'],
   recovery:         ['Recovery','Collections','Uploads','CRM'],
-  call_centre:      ['Overview','Transactions','Uploads'],
+  call_centre:      ['Overview','Transactions','Call Center','Uploads'],
 }
 
 const ROLE_COLOUR = {
@@ -233,7 +233,7 @@ function UserModal({ mode, userId, initial, onSave, onClose }) {
               <label className="form-label">Email *</label>
               <input type="email" value={form.email}
                 onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                placeholder="user@o3ccards.com" className="form-input" />
+                placeholder="user@o3cards.com" className="form-input" />
             </div>
           </div>
 
@@ -254,7 +254,7 @@ function UserModal({ mode, userId, initial, onSave, onClose }) {
             <div className="flex items-center gap-2.5 rounded-lg px-4 py-3 text-xs"
               style={{ background: 'rgb(var(--bg-subtle))', color: 'rgb(var(--fg-3))' }}>
               <span className="material-symbols-rounded text-[15px]">key</span>
-              A temporary password (<strong>O3Cards@{new Date().getFullYear()}</strong>) will be generated.
+              A temporary password (<strong>O3Capital@{new Date().getFullYear()}</strong>) will be generated.
               The user must change it on first login.
             </div>
           )}

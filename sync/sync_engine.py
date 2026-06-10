@@ -1,5 +1,5 @@
 """
-sync_engine.py — O3C Cards MSSQL → Supabase sync engine
+sync_engine.py — O3 Capital MSSQL → Supabase sync engine
 
 Runs on the office PC (Windows). Syncs all tables daily Mon–Fri at 18:00.
 Also exposes a Flask API on port 5001 for manual/remote trigger.

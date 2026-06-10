@@ -30,7 +30,7 @@ export default function Transactions({ setDs }) {
         <KpiCard label="Transaction Count" value={fmtNum(d.transaction_count)} icon="receipt_long"   accent="navy"   tooltip="Number of individual card transactions in the selected date range" />
         <KpiCard label="Volume (MTD)"      value={fmt(d.volume_mtd)}           icon="calendar_month" accent="green"  tooltip="Total transaction value in the current calendar month" />
         <KpiCard label="Avg Txn Value"     value={fmt(d.avg_txn_value)}        icon="calculate"      accent="amber"  tooltip="Average value per transaction — Total Volume ÷ Transaction Count" />
-        <KpiCard label="Unique Merchants"  value={fmtNum(d.unique_merchants)}  icon="storefront"     accent="navy"   tooltip="Number of distinct merchant locations where O3C cards were used" />
+        <KpiCard label="Unique Merchants"  value={fmtNum(d.unique_merchants)}  icon="storefront"     accent="navy"   tooltip="Number of distinct merchant locations where O3 Capital cards were used" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">

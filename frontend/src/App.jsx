@@ -17,33 +17,41 @@ import Income          from './pages/Income.jsx'
 import Eod             from './pages/Eod.jsx'
 import Uploads         from './pages/Uploads.jsx'
 import ChangePassword  from './pages/ChangePassword.jsx'
-import CrmPipeline   from './pages/crm/Pipeline.jsx'
-import CrmContacts   from './pages/crm/Contacts.jsx'
-import CrmContact360 from './pages/crm/Contact360.jsx'
-import CrmTasks      from './pages/crm/Tasks.jsx'
-import CrmRequests   from './pages/crm/Requests.jsx'
-import CrmReports    from './pages/crm/CrmReports.jsx'
+import CrmPipeline     from './pages/crm/Pipeline.jsx'
+import CrmContacts     from './pages/crm/Contacts.jsx'
+import CrmContact360   from './pages/crm/Contact360.jsx'
+import CrmTasks        from './pages/crm/Tasks.jsx'
+import CrmRequests     from './pages/crm/Requests.jsx'
+import CrmReports      from './pages/crm/CrmReports.jsx'
+import Reconciliation  from './pages/Reconciliation.jsx'
+import CallCenter      from './pages/CallCenter.jsx'
 
 const REPORTING_NAV = [
-  { page: 'executive',    label: 'Executive',     path: '/executive',    icon: 'bar_chart_4_bars' },
-  { page: 'income',       label: 'Income Report', path: '/income',       icon: 'payments' },
-  { page: 'eod',          label: 'EOD Report',    path: '/eod',          icon: 'today' },
-  { page: 'uploads',      label: 'Data Uploads',  path: '/uploads',      icon: 'upload_file' },
-  { page: 'overview',     label: 'Overview',      path: '/',             icon: 'space_dashboard' },
-  { page: 'transactions', label: 'Transactions',  path: '/transactions', icon: 'receipt_long' },
-  { page: 'cards',        label: 'Cards',         path: '/cards',        icon: 'credit_card' },
-  { page: 'sales',        label: 'Sales',         path: '/sales',        icon: 'trending_up' },
-  { page: 'collections',  label: 'Collections',   path: '/collections',  icon: 'account_balance_wallet' },
-  { page: 'recovery',     label: 'Recovery',      path: '/recovery',     icon: 'gavel' },
-  { page: 'cohort',       label: 'Cohort',        path: '/cohort',       icon: 'group_work' },
+  { page: 'executive',       label: 'Executive',       path: '/executive',       icon: 'bar_chart_4_bars' },
+  { page: 'income',          label: 'Income Report',   path: '/income',          icon: 'payments' },
+  { page: 'eod',             label: 'EOD Report',      path: '/eod',             icon: 'today' },
+  { page: 'reconciliation',  label: 'Reconciliation',  path: '/reconciliation',  icon: 'balance' },
+  { page: 'uploads',         label: 'Data Uploads',    path: '/uploads',         icon: 'upload_file' },
+  { page: 'overview',        label: 'Overview',        path: '/',                icon: 'space_dashboard' },
+  { page: 'transactions',    label: 'Transactions',    path: '/transactions',    icon: 'receipt_long' },
+  { page: 'cards',           label: 'Cards',           path: '/cards',           icon: 'credit_card' },
+  { page: 'collections',     label: 'Collections',     path: '/collections',     icon: 'account_balance_wallet' },
+  { page: 'recovery',        label: 'Recovery',        path: '/recovery',        icon: 'gavel' },
+  { page: 'call_center',     label: 'Call Center',     path: '/call-center',     icon: 'headset_mic' },
+  { page: 'cohort',          label: 'Cohort',          path: '/cohort',          icon: 'group_work' },
+]
+
+// Sales section includes Sales page + CRM sub-pages
+const SALES_NAV = [
+  { page: 'sales',        label: 'Sales',       path: '/sales',        icon: 'trending_up' },
 ]
 
 const CRM_NAV = [
-  { page: 'crm_pipeline', label: 'Pipeline',   path: '/crm/pipeline', icon: 'view_kanban' },
-  { page: 'crm_contacts', label: 'Contacts',   path: '/crm/contacts', icon: 'contacts' },
-  { page: 'crm_tasks',    label: 'Tasks',      path: '/crm/tasks',    icon: 'task_alt' },
-  { page: 'crm_requests', label: 'Requests',   path: '/crm/requests', icon: 'support_agent' },
-  { page: 'crm_reports',  label: 'CRM Reports',path: '/crm/reports',  icon: 'insert_chart' },
+  { page: 'crm_pipeline', label: 'Pipeline',    path: '/crm/pipeline', icon: 'view_kanban' },
+  { page: 'crm_contacts', label: 'Contacts',    path: '/crm/contacts', icon: 'contacts' },
+  { page: 'crm_tasks',    label: 'Tasks',       path: '/crm/tasks',    icon: 'task_alt' },
+  { page: 'crm_requests', label: 'Requests',    path: '/crm/requests', icon: 'support_agent' },
+  { page: 'crm_reports',  label: 'CRM Reports', path: '/crm/reports',  icon: 'insert_chart' },
 ]
 
 export default function App() {
@@ -83,8 +91,9 @@ function AppInner() {
   const initials = (user.full_name || user.email)
     .split(' ').slice(0, 2).map(w => w[0].toUpperCase()).join('')
 
-  const visibleNav    = REPORTING_NAV.filter(n => canAccess(n.page))
-  const visibleCrmNav = CRM_NAV.filter(n => canAccess(n.page))
+  const visibleNav     = REPORTING_NAV.filter(n => canAccess(n.page))
+  const visibleSalesNav = SALES_NAV.filter(n => canAccess(n.page))
+  const visibleCrmNav   = CRM_NAV.filter(n => canAccess(n.page))
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'rgb(var(--bg-page))' }}>
@@ -96,6 +105,7 @@ function AppInner() {
           <aside className="relative z-10 flex flex-col w-64 bg-primary h-full">
             <SidebarContent
               visibleNav={visibleNav}
+              visibleSalesNav={visibleSalesNav}
               visibleCrmNav={visibleCrmNav}
               canAccess={canAccess}
               user={user}
@@ -113,6 +123,7 @@ function AppInner() {
       <aside className="hidden lg:flex flex-col w-60 bg-primary dark:bg-primary-dark flex-shrink-0 h-screen">
         <SidebarContent
           visibleNav={visibleNav}
+          visibleSalesNav={visibleSalesNav}
           visibleCrmNav={visibleCrmNav}
           canAccess={canAccess}
           user={user}
@@ -180,7 +191,9 @@ function AppInner() {
             <Route path="/executive"            element={<Guard page="executive"    ca={canAccess}><Executive /></Guard>} />
             <Route path="/income"               element={<Guard page="income"       ca={canAccess}><Income /></Guard>} />
             <Route path="/uploads"              element={<Guard page="uploads"      ca={canAccess}><Uploads /></Guard>} />
-            <Route path="/eod"                 element={<Guard page="eod"          ca={canAccess}><Eod /></Guard>} />
+            <Route path="/eod"                 element={<Guard page="eod"             ca={canAccess}><Eod /></Guard>} />
+            <Route path="/reconciliation"      element={<Guard page="reconciliation"  ca={canAccess}><Reconciliation /></Guard>} />
+            <Route path="/call-center"         element={<Guard page="call_center"     ca={canAccess}><CallCenter /></Guard>} />
             {/* CRM */}
             <Route path="/crm/pipeline"         element={<Guard page="crm_pipeline" ca={canAccess}><CrmPipeline /></Guard>} />
             <Route path="/crm/contacts"         element={<Guard page="crm_contacts" ca={canAccess}><CrmContacts /></Guard>} />
@@ -199,7 +212,7 @@ function AppInner() {
 }
 
 /* ── Sidebar content ─────────────────────────────────────────────────────── */
-function SidebarContent({ visibleNav, visibleCrmNav, canAccess, user, initials, isDark, setIsDark, logout, onNav }) {
+function SidebarContent({ visibleNav, visibleSalesNav, visibleCrmNav, canAccess, user, initials, isDark, setIsDark, logout, onNav }) {
   return (
     <>
       {/* Brand */}
@@ -247,14 +260,14 @@ function SidebarContent({ visibleNav, visibleCrmNav, canAccess, user, initials, 
           </NavLink>
         ))}
 
-        {/* CRM nav section */}
-        {visibleCrmNav.length > 0 && (
+        {/* Sales & CRM nav section */}
+        {(visibleSalesNav.length > 0 || visibleCrmNav.length > 0) && (
           <>
             <div className="mx-2 border-t border-white/[0.08] my-3" />
             <p className="px-2 text-[10px] font-semibold text-white/25 uppercase tracking-[0.12em] mb-2">
-              CRM
+              Sales & CRM
             </p>
-            {visibleCrmNav.map(n => (
+            {[...visibleSalesNav, ...visibleCrmNav].map(n => (
               <NavLink
                 key={n.page}
                 to={n.path}
@@ -344,23 +357,25 @@ function SidebarContent({ visibleNav, visibleCrmNav, canAccess, user, initials, 
 function PageTitle() {
   const { pathname } = useLocation()
   const titles = {
-    '/':               'Overview',
-    '/transactions':   'Transactions',
-    '/cards':          'Cards',
-    '/sales':          'Sales & Growth',
-    '/collections':    'Collections',
-    '/recovery':       'Recovery',
-    '/cohort':         'Cohort Analysis',
-    '/admin':          'Settings',
-    '/executive':      'Executive Dashboard',
-    '/income':         'Income Report',
-    '/uploads':        'Data Uploads',
-    '/eod':            'EOD Report',
-    '/crm/pipeline':   'Pipeline',
-    '/crm/contacts':   'Contacts',
-    '/crm/tasks':      'Tasks',
-    '/crm/requests':   'Requests',
-    '/crm/reports':    'CRM Reports',
+    '/':                 'Overview',
+    '/transactions':     'Transactions',
+    '/cards':            'Cards',
+    '/sales':            'Sales & Growth',
+    '/collections':      'Collections',
+    '/recovery':         'Recovery',
+    '/cohort':           'Cohort Analysis',
+    '/admin':            'Settings',
+    '/executive':        'Executive Dashboard',
+    '/income':           'Income Report',
+    '/uploads':          'Data Uploads',
+    '/eod':              'EOD Report',
+    '/reconciliation':   'Reconciliation',
+    '/call-center':      'Call Center',
+    '/crm/pipeline':     'Pipeline',
+    '/crm/contacts':     'Contacts',
+    '/crm/tasks':        'Tasks',
+    '/crm/requests':     'Requests',
+    '/crm/reports':      'CRM Reports',
   }
   const title = pathname.startsWith('/crm/contacts/')
     ? 'Customer 360'
@@ -374,6 +389,6 @@ function Guard({ page, ca, children }) {
 }
 
 function DefaultRedirect({ canAccess }) {
-  const first = [...REPORTING_NAV, ...CRM_NAV].find(n => canAccess(n.page))
+  const first = [...REPORTING_NAV, ...SALES_NAV, ...CRM_NAV].find(n => canAccess(n.page))
   return <Navigate to={first?.path || '/'} replace />
 }

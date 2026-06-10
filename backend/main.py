@@ -1,5 +1,5 @@
 """
-O3C Cards Reporting API
+O3 Capital Reporting API
 FastAPI backend — dual source (MSSQL live + Supabase fallback)
 """
 
@@ -11,6 +11,7 @@ from routers import auth, overview, transactions, collections, recovery, sales, 
 from routers import crm_contacts, crm_deals, crm_activities, crm_tasks, crm_requests, crm_reports
 from routers import executive
 from routers import income, uploads, eod
+from routers import reconciliation, call_center
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
@@ -62,9 +63,9 @@ CREATE INDEX IF NOT EXISTS idx_ma_month      ON "Monthly Activity" ("ActivityMon
 CREATE INDEX IF NOT EXISTS idx_cif_cohort    ON "CIF Table" ("Cohort Date");
 INSERT INTO o3c_users (email, password_hash, full_name, role, department)
 VALUES (
-  'admin@o3ccards.com',
+  'admin@o3cards.com',
   '$2b$12$GvzdUouzBgirlOTGF0J..OdSBCTJXB4gCtY6TNM3tWrjp/wVQpHuy',
-  'O3C Admin', 'admin', 'Technology'
+  'O3 Capital Admin', 'admin', 'Technology'
 ) ON CONFLICT (email) DO NOTHING;
 
 -- ── CRM Tables ────────────────────────────────────────────────────────────────
@@ -343,7 +344,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_who ON upload_audit_log(uploaded_by);
 ALTER TABLE o3c_users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT TRUE;
 ALTER TABLE o3c_users ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ;
 -- Existing admin account never needs forced reset
-UPDATE o3c_users SET must_change_password = FALSE WHERE email = 'admin@o3ccards.com';
+UPDATE o3c_users SET must_change_password = FALSE WHERE email = 'admin@o3cards.com';
 """
 
 @asynccontextmanager
@@ -360,7 +361,7 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(
-    title="O3C Cards Reporting API",
+    title="O3 Capital Reporting API",
     version="2.0.0",
     description="Dual-source reporting API: MSSQL (live) with Supabase fallback",
     lifespan=lifespan
@@ -393,7 +394,9 @@ app.include_router(crm_reports.router,    prefix="/api/crm",  tags=["CRM"])
 app.include_router(executive.router,      prefix="/api/executive", tags=["Executive"])
 app.include_router(income.router,         prefix="/api/income",    tags=["Income"])
 app.include_router(uploads.router,        prefix="/api/uploads",   tags=["Uploads"])
-app.include_router(eod.router,            prefix="/api/eod",        tags=["EOD"])
+app.include_router(eod.router,            prefix="/api/eod",             tags=["EOD"])
+app.include_router(reconciliation.router, prefix="/api/reconciliation",  tags=["Reconciliation"])
+app.include_router(call_center.router,    prefix="/api/call-center",     tags=["Call Center"])
 
 # ── Health endpoint ───────────────────────────────────────────────────────────
 @app.get("/api/health", tags=["Health"])
