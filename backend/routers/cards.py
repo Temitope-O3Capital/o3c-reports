@@ -65,13 +65,23 @@ def cards_kpis(
     kpis["activation_rate"] = round(kpis["active"] / kpis["total_issued"] * 100, 1) if kpis["total_issued"] > 0 else 0
 
     # Unique merchants filtered by date range (join Products → Transactions)
-    dtf_ms = _date_filter_ms("t.[Transaction Date]", date_from, date_to)
-    dtf_pg = _date_filter_pg('t."Transaction Date"', date_from, date_to)
-    q(
-        f"SELECT COUNT(DISTINCT t.Merchant_Name) AS val FROM dbo.Transactions t JOIN dbo.Products p ON t.[CIF Number]=p.[CIF Number] WHERE t.Merchant_Name IS NOT NULL AND t.Merchant_Name!=''{dtf_ms}{ct_ms.replace('[Product Name]','p.[Product Name]')}",
-        f"SELECT COUNT(DISTINCT t.\"Merchant_Name\") AS val FROM \"Transactions\" t JOIN \"Products\" p ON t.\"CIF Number\"=p.\"CIF Number\" WHERE t.\"Merchant_Name\" IS NOT NULL AND t.\"Merchant_Name\"!=''{dtf_pg}{ct_pg.replace('\"Product Name\"','p.\"Product Name\"')}",
-        "unique_merchants"
+    dtf_ms   = _date_filter_ms("t.[Transaction Date]", date_from, date_to)
+    dtf_pg   = _date_filter_pg('t."Transaction Date"', date_from, date_to)
+    pn_ms    = ct_ms.replace("[Product Name]", "p.[Product Name]")
+    pn_pg    = ct_pg.replace('"Product Name"', 'p."Product Name"')
+    merch_ms = (
+        "SELECT COUNT(DISTINCT t.Merchant_Name) AS val"
+        " FROM dbo.Transactions t JOIN dbo.Products p ON t.[CIF Number]=p.[CIF Number]"
+        " WHERE t.Merchant_Name IS NOT NULL AND t.Merchant_Name!=''"
+        + dtf_ms + pn_ms
     )
+    merch_pg = (
+        'SELECT COUNT(DISTINCT t."Merchant_Name") AS val'
+        ' FROM "Transactions" t JOIN "Products" p ON t."CIF Number"=p."CIF Number"'
+        ' WHERE t."Merchant_Name" IS NOT NULL AND t."Merchant_Name"!=\'\''
+        + dtf_pg + pn_pg
+    )
+    q(merch_ms, merch_pg, "unique_merchants")
 
     return {"data": kpis, "data_source": "mssql_live" if "mssql_live" in sources else "supabase_snapshot"}
 
@@ -110,8 +120,17 @@ def volume_by_type(
     ct_ms  = f" AND p.[Product Name]='{card_type}'" if card_type else ""
     ct_pg  = f" AND p.\"Product Name\"='{card_type}'" if card_type else ""
 
-    data, src = dual_query(db_mssql, db_pg,
-        f"SELECT p.[Product Name], ISNULL(SUM(t.Amount),0) AS volume, COUNT(t.Amount) AS txn_count FROM dbo.Products p JOIN dbo.Transactions t ON p.[CIF Number]=t.[CIF Number] WHERE 1=1{dtf_ms}{ct_ms} GROUP BY p.[Product Name] ORDER BY volume DESC",
-        f"SELECT p.\"Product Name\", COALESCE(SUM(t.\"Amount\"),0) AS volume, COUNT(t.\"Amount\") AS txn_count FROM \"Products\" p JOIN \"Transactions\" t ON p.\"CIF Number\"=t.\"CIF Number\" WHERE 1=1{dtf_pg}{ct_pg} GROUP BY p.\"Product Name\" ORDER BY volume DESC"
+    vbt_ms = (
+        "SELECT p.[Product Name], ISNULL(SUM(t.Amount),0) AS volume, COUNT(t.Amount) AS txn_count"
+        " FROM dbo.Products p JOIN dbo.Transactions t ON p.[CIF Number]=t.[CIF Number]"
+        " WHERE 1=1" + dtf_ms + ct_ms +
+        " GROUP BY p.[Product Name] ORDER BY volume DESC"
     )
+    vbt_pg = (
+        'SELECT p."Product Name", COALESCE(SUM(t."Amount"),0) AS volume, COUNT(t."Amount") AS txn_count'
+        ' FROM "Products" p JOIN "Transactions" t ON p."CIF Number"=t."CIF Number"'
+        " WHERE 1=1" + dtf_pg + ct_pg +
+        ' GROUP BY p."Product Name" ORDER BY volume DESC'
+    )
+    data, src = dual_query(db_mssql, db_pg, vbt_ms, vbt_pg)
     return {"data": data, "data_source": src}
