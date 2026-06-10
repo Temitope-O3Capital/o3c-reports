@@ -309,7 +309,7 @@ export default function Executive() {
 
       {/* ── Print footer ── */}
       <div className="hidden print:block mt-8 pt-4 border-t border-slate-200 text-[10px] text-slate-400 flex items-center justify-between">
-        <span>O3C Cards Reports — Confidential</span>
+        <span>O3 Capital — Central Reporting System · Confidential</span>
         <span>Generated {today} · {pr.label}</span>
       </div>
 

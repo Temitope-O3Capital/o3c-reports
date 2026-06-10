@@ -530,7 +530,7 @@ export default function Income() {
 
           {/* ── Print header ── */}
           <div className="hidden print:block mb-6">
-            <p className="text-lg font-bold">O3C Cards — Income Report · {currentCycle?.label}</p>
+            <p className="text-lg font-bold">O3 Capital — Income Report · {currentCycle?.label}</p>
             <p className="text-sm text-slate-500">
               Generated {today}
               {product ? ` · Product: ${product}` : ''}
@@ -680,7 +680,7 @@ export default function Income() {
 
               {/* Print footer */}
               <div className="hidden print:block mt-8 pt-4 border-t border-slate-200 text-[10px] text-slate-400">
-                <span>O3C Cards — Income Report · {currentCycle?.label} · Confidential</span>
+                <span>O3 Capital — Income Report · {currentCycle?.label} · Confidential</span>
                 <span className="ml-4">Generated {today}</span>
               </div>
             </>

@@ -31,7 +31,7 @@ export default function Overview({ setDs }) {
   return (
     <PageShell
       title="Executive Overview"
-      subtitle="Real-time performance across all O3C Cards business units"
+      subtitle="Real-time performance across all O3 Capital business units"
       source={kpis.dataSource}
       error={kpis.error}
     >

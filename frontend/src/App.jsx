@@ -204,14 +204,13 @@ function SidebarContent({ visibleNav, visibleCrmNav, canAccess, user, initials, 
     <>
       {/* Brand */}
       <div className="px-5 pt-5 pb-4 flex-shrink-0">
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-[22px] font-bold text-white tracking-tight">
-            O3<span className="text-accent">C</span>
+        <div>
+          <span className="text-[18px] font-bold text-white tracking-tight leading-tight">
+            O3 <span className="text-accent">Capital</span>
           </span>
-          <span className="text-white/40 text-xs font-medium">Cards</span>
         </div>
         <p className="text-[10px] font-semibold text-white/25 uppercase tracking-[0.12em] mt-0.5">
-          Reports Dashboard
+          Central Reporting System
         </p>
       </div>
 

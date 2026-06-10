@@ -396,7 +396,7 @@ export function DonutCard({ title, subtitle, data = [], nameKey, valueKey, curre
    Ranked list with proportional fill bars
    ═══════════════════════════════════════════════════════════════ */
 
-export function ProgressListCard({ title, subtitle, data = [], nameKey, valueKey, currency = false, maxItems = 8, actions }) {
+export function ProgressListCard({ title, subtitle, data = [], nameKey, valueKey, currency = false, maxItems = 8, actions, tooltipItems }) {
   const [hoveredIdx, setHoveredIdx] = useState(null)
   const formatter = currency ? fmt : fmtNum
   const items = data.slice(0, maxItems)
@@ -451,7 +451,7 @@ export function ProgressListCard({ title, subtitle, data = [], nameKey, valueKey
                 />
               </div>
 
-              {/* Hover tooltip */}
+              {/* Hover tooltip — uses unfiltered tooltipItems when provided */}
               {hoveredIdx === i && (
                 <div style={{
                   position: 'absolute', right: 0, bottom: 'calc(100% + 6px)',
@@ -460,55 +460,62 @@ export function ProgressListCard({ title, subtitle, data = [], nameKey, valueKey
                   border: '1px solid rgb(var(--border) / 0.12)',
                   borderRadius: 10, padding: '10px 14px',
                   boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-                  minWidth: 200,
+                  minWidth: 210,
                 }}>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: 'rgb(var(--fg-1))', marginBottom: 8, lineHeight: 1.3 }}>
-                    {item[nameKey]}
-                  </p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                    {/* Txn count — shown when available */}
-                    {item.txn_count != null && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
-                        <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>Transactions</span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: 'rgb(var(--fg-1))' }}>
-                          {Number(item.txn_count).toLocaleString()}
-                        </span>
-                      </div>
-                    )}
-                    {/* DR / CR split — shown when available */}
-                    {item.total_dr != null && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
-                        <span style={{ fontSize: 11, color: '#C00000' }}>↑ Debits</span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: '#C00000', fontVariantNumeric: 'tabular-nums' }}>
-                          {fmtExact(item.total_dr)}
-                        </span>
-                      </div>
-                    )}
-                    {item.total_cr != null && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
-                        <span style={{ fontSize: 11, color: '#059669' }}>↓ Credits</span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: '#059669', fontVariantNumeric: 'tabular-nums' }}>
-                          {fmtExact(item.total_cr)}
-                        </span>
-                      </div>
-                    )}
-                    {/* Divider if DR/CR shown */}
-                    {(item.total_dr != null || item.total_cr != null) && (
-                      <div style={{ borderTop: '1px solid rgb(var(--border) / 0.1)', margin: '2px 0' }} />
-                    )}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
-                      <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>Exact total</span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: 'rgb(var(--fg-1))', fontVariantNumeric: 'tabular-nums' }}>
-                        {fmtExact(val)}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
-                      <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>Share of total</span>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: PALETTE[i % PALETTE.length], fontVariantNumeric: 'tabular-nums' }}>
-                        {share.toFixed(2)}%
-                      </span>
-                    </div>
-                  </div>
+                  {(() => {
+                    // Use unfiltered tooltipItems if provided, fall back to item data
+                    const tip = (tooltipItems && tooltipItems[item[nameKey]]) || item
+                    return (
+                      <>
+                        <p style={{ fontSize: 12, fontWeight: 600, color: 'rgb(var(--fg-1))', marginBottom: 8, lineHeight: 1.3 }}>
+                          {item[nameKey]}
+                        </p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                          {tip.txn_count != null && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
+                              <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>Transactions</span>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: 'rgb(var(--fg-1))' }}>
+                                {Number(tip.txn_count).toLocaleString()}
+                              </span>
+                            </div>
+                          )}
+                          {tip.total_dr != null && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
+                              <span style={{ fontSize: 11, color: '#C00000' }}>↑ Debits</span>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: '#C00000', fontVariantNumeric: 'tabular-nums' }}>
+                                {fmtExact(tip.total_dr)}
+                              </span>
+                            </div>
+                          )}
+                          {tip.total_cr != null && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
+                              <span style={{ fontSize: 11, color: '#059669' }}>↓ Credits</span>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: '#059669', fontVariantNumeric: 'tabular-nums' }}>
+                                {fmtExact(tip.total_cr)}
+                              </span>
+                            </div>
+                          )}
+                          {(tip.total_dr != null || tip.total_cr != null) && (
+                            <div style={{ borderTop: '1px solid rgb(var(--border) / 0.1)', margin: '2px 0' }} />
+                          )}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
+                            <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>
+                              {tooltipItems ? 'Total (unfiltered)' : 'Exact total'}
+                            </span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: 'rgb(var(--fg-1))', fontVariantNumeric: 'tabular-nums' }}>
+                              {fmtExact(tip[valueKey] ?? val)}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
+                            <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>Share of total</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: PALETTE[i % PALETTE.length], fontVariantNumeric: 'tabular-nums' }}>
+                              {share.toFixed(2)}%
+                            </span>
+                          </div>
+                        </div>
+                      </>
+                    )
+                  })()}
                 </div>
               )}
             </div>

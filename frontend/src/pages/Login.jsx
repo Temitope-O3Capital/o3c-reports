@@ -53,7 +53,7 @@ export default function Login({ onLogin }) {
             ))}
           </div>
         </div>
-        <p className="text-[11px] text-white/20">© 2026 O3C Cards · All rights reserved</p>
+        <p className="text-[11px] text-white/20">© 2026 O3 Capital · All rights reserved</p>
       </div>
 
       {/* ── Form panel ── */}
@@ -130,7 +130,7 @@ export default function Login({ onLogin }) {
           </form>
 
           <p className="text-xs text-slate-400 text-center mt-6">
-            Restricted to authorised O3C Cards personnel
+            Restricted to authorised O3 Capital personnel
           </p>
         </div>
       </div>

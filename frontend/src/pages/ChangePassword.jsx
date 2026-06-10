@@ -185,7 +185,7 @@ export default function ChangePassword({ user, onDone }) {
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-4">
-          O3C Cards · Reports Dashboard
+          O3 Capital · Central Reporting System
         </p>
       </div>
     </div>
