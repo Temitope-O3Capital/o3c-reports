@@ -77,13 +77,13 @@ def require_pages(pages: list):
     Dependency factory — raises 403 if the user's role
     doesn't have access to any of the specified pages.
 
-    Usage:
-        @router.get("/kpis")
-        def get_kpis(user=Depends(require_pages(["collections"]))):
-            ...
+    Checks static ROLE_PAGES first, then falls back to JWT-embedded
+    pages (used for custom roles created via the Admin panel).
     """
     def checker(user: dict = Depends(get_current_user)):
-        allowed = ROLE_PAGES.get(user.get("role", ""), [])
+        allowed = set(ROLE_PAGES.get(user.get("role", ""), []))
+        # Custom roles have their pages embedded in the JWT at login time
+        allowed |= set(user.get("pages", []))
         if not any(p in allowed for p in pages):
             raise HTTPException(
                 status_code=403,

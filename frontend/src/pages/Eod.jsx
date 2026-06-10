@@ -131,10 +131,11 @@ export default function Eod() {
   const [trend,       setTrend]       = useState([])
   const [txns,        setTxns]        = useState([])
   const [totalRows,   setTotalRows]   = useState(0)
-  const [loading,     setLoading]     = useState(false)
-  const [loadingTbl,  setLoadingTbl]  = useState(false)
-  const [exporting,   setExporting]   = useState(false)
-  const [page,        setPage]        = useState(0)
+  const [loading,        setLoading]       = useState(false)
+  const [loadingUploads, setLoadingUploads] = useState(true)
+  const [loadingTbl,     setLoadingTbl]    = useState(false)
+  const [exporting,      setExporting]     = useState(false)
+  const [page,           setPage]          = useState(0)
 
   // Filters
   const [branch,   setBranch]   = useState('')
@@ -146,16 +147,19 @@ export default function Eod() {
   const PAGE_SIZE = 200
 
   async function loadUploads() {
+    setLoadingUploads(true)
     try {
       const data = await apiFetch('/api/eod/uploads')
       setUploads(data)
       if (data.length && !dateFrom) {
-        // Default to the month of the latest upload
         const refDate = data[0].txn_date
         const [f, t]  = presetRange('month', refDate)
         setDateFrom(f); setDateTo(t); setPreset('month')
       }
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      setLoadingUploads(false)
+    }
   }
 
   useEffect(() => { loadUploads() }, [])
@@ -257,8 +261,8 @@ export default function Eod() {
         </div>
       </div>
 
-      {/* ── Empty state ── */}
-      {uploads.length === 0 && (
+      {/* ── Empty state — only after upload list has loaded ── */}
+      {!loadingUploads && uploads.length === 0 && (
         <div className="card p-12 flex flex-col items-center text-slate-400">
           <span className="material-symbols-rounded text-[48px] opacity-25 mb-4">receipt_long</span>
           <p className="font-semibold text-slate-600 dark:text-slate-300">No EOD files loaded yet</p>
@@ -266,6 +270,12 @@ export default function Eod() {
           <button onClick={() => navigate('/uploads')} className="btn btn-primary gap-2">
             <span className="material-symbols-rounded text-[17px]">upload_file</span>Go to Data Uploads
           </button>
+        </div>
+      )}
+      {loadingUploads && (
+        <div className="card p-12 flex flex-col items-center gap-3 text-slate-400">
+          <div className="spinner" style={{ width: 28, height: 28 }} />
+          <p className="text-sm">Loading…</p>
         </div>
       )}
 

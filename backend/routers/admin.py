@@ -1,18 +1,24 @@
 """
-admin.py — User management endpoints (admin / head_it role only)
+admin.py — User management + custom roles + activity log
 
-GET    /api/admin/users                   list all users
-POST   /api/admin/users                   create user (auto-generates default password)
-PUT    /api/admin/users/{id}              update user details / role
-DELETE /api/admin/users/{id}              delete user
-POST   /api/admin/users/{id}/reset-password   reset to default password
+GET    /api/admin/users                       list all users
+POST   /api/admin/users                       create user
+PUT    /api/admin/users/{id}                  update user
+DELETE /api/admin/users/{id}                  delete user
+POST   /api/admin/users/{id}/reset-password   reset password
+GET    /api/admin/roles                       list custom roles
+POST   /api/admin/roles                       create custom role
+DELETE /api/admin/roles/{name}                delete custom role
+GET    /api/admin/activity                    staff activity log
+POST   /api/admin/activity                    log a user action
 """
 
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, List
 from sqlalchemy import text
+import json
 
 from core.auth import require_pages, hash_password
 from core.database import get_db_pg as get_pg
@@ -21,7 +27,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 ADMIN_ACCESS = require_pages(["admin"])
 
-VALID_ROLES = {
+STATIC_ROLES = {
     "md", "coo", "cfo", "head_it", "head_hr",
     "cmo", "head_ops", "head_sales", "head_collections", "head_recovery",
     "admin", "management", "collections", "sales",
@@ -29,8 +35,15 @@ VALID_ROLES = {
 }
 
 
+def _valid_role(role: str, db) -> bool:
+    if role in STATIC_ROLES:
+        return True
+    row = db.execute(text("SELECT 1 FROM o3c_custom_roles WHERE name = :n"), {"n": role}).fetchone()
+    return row is not None
+
+
 def _default_password() -> str:
-    return f"O3Cards@{datetime.now().year}"
+    return f"O3Capital@{datetime.now().year}"
 
 
 def _row_to_dict(row) -> dict:
@@ -79,8 +92,8 @@ def create_user(
     db_pg  = Depends(get_pg),
     _      = Depends(ADMIN_ACCESS),
 ):
-    if body.role not in VALID_ROLES:
-        raise HTTPException(status_code=422, detail=f"Invalid role: {body.role}")
+    if not _valid_role(body.role, db_pg):
+        raise HTTPException(status_code=422, detail=f"Unknown role: {body.role}")
 
     existing = db_pg.execute(
         text("SELECT id FROM o3c_users WHERE email = :email"),
@@ -116,8 +129,8 @@ def update_user(
     db_pg    = Depends(get_pg),
     current  = Depends(ADMIN_ACCESS),
 ):
-    if body.role and body.role not in VALID_ROLES:
-        raise HTTPException(status_code=422, detail=f"Invalid role: {body.role}")
+    if body.role and not _valid_role(body.role, db_pg):
+        raise HTTPException(status_code=422, detail=f"Unknown role: {body.role}")
 
     row = db_pg.execute(
         text("SELECT id FROM o3c_users WHERE id = :id"), {"id": user_id}
@@ -187,3 +200,98 @@ def reset_password(
     """), {"pw": hash_password(temp_pw), "id": user_id})
     db_pg.commit()
     return {"temp_password": temp_pw}
+
+
+# ── Custom roles ──────────────────────────────────────────────────────────────
+
+class RoleCreate(BaseModel):
+    name:  str
+    label: str
+    pages: List[str] = []
+
+
+@router.get("/roles")
+def list_custom_roles(db_pg=Depends(get_pg), _=Depends(ADMIN_ACCESS)):
+    rows = db_pg.execute(text(
+        "SELECT id, name, label, pages, created_at FROM o3c_custom_roles ORDER BY created_at DESC"
+    )).fetchall()
+    result = []
+    for r in rows:
+        pages = r.pages if isinstance(r.pages, list) else json.loads(r.pages or "[]")
+        result.append({"id": r.id, "name": r.name, "label": r.label, "pages": pages})
+    return result
+
+
+@router.post("/roles", status_code=201)
+def create_custom_role(body: RoleCreate, db_pg=Depends(get_pg), _=Depends(ADMIN_ACCESS)):
+    slug = body.name.strip().lower().replace(" ", "_")
+    if not slug:
+        raise HTTPException(422, "Role name is required")
+    if slug in STATIC_ROLES:
+        raise HTTPException(409, f"'{slug}' is a built-in role name")
+    existing = db_pg.execute(text("SELECT 1 FROM o3c_custom_roles WHERE name = :n"), {"n": slug}).fetchone()
+    if existing:
+        raise HTTPException(409, f"Role '{slug}' already exists")
+    db_pg.execute(text(
+        "INSERT INTO o3c_custom_roles (name, label, pages) VALUES (:n, :l, :p)"
+    ), {"n": slug, "l": body.label.strip(), "p": json.dumps(body.pages)})
+    db_pg.commit()
+    return {"name": slug, "label": body.label.strip(), "pages": body.pages}
+
+
+@router.delete("/roles/{role_name}", status_code=204)
+def delete_custom_role(role_name: str, db_pg=Depends(get_pg), _=Depends(ADMIN_ACCESS)):
+    db_pg.execute(text("DELETE FROM o3c_custom_roles WHERE name = :n"), {"n": role_name})
+    db_pg.commit()
+
+
+# ── Staff activity log ────────────────────────────────────────────────────────
+
+class ActivityCreate(BaseModel):
+    page:   str
+    action: str = "view"
+    detail: Optional[str] = None
+
+
+@router.post("/activity", status_code=204)
+def log_activity(
+    body:    ActivityCreate,
+    request: Request,
+    db_pg    = Depends(get_pg),
+    user     = Depends(require_pages(["overview"])),   # any authenticated user
+):
+    ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else None)
+    try:
+        db_pg.execute(text("""
+            INSERT INTO o3c_activity_log (user_id, page, action, detail, ip)
+            VALUES (:uid, :page, :action, :detail, :ip)
+        """), {"uid": user.get("id"), "page": body.page, "action": body.action,
+               "detail": body.detail, "ip": ip})
+        db_pg.commit()
+    except Exception:
+        pass   # activity logging must never fail a user request
+
+
+@router.get("/activity")
+def get_activity(
+    limit:   int = 200,
+    user_id: Optional[int] = None,
+    page:    Optional[str] = None,
+    db_pg    = Depends(get_pg),
+    _        = Depends(ADMIN_ACCESS),
+):
+    filters = []
+    params  = {"limit": min(limit, 1000)}
+    if user_id: filters.append("a.user_id = :uid");  params["uid"]  = user_id
+    if page:    filters.append("a.page = :page");     params["page"] = page
+    where = ("WHERE " + " AND ".join(filters)) if filters else ""
+    rows = db_pg.execute(text(f"""
+        SELECT a.id, a.page, a.action, a.detail, a.ip, a.ts,
+               u.full_name, u.email, u.role
+        FROM o3c_activity_log a
+        LEFT JOIN o3c_users u ON u.id = a.user_id
+        {where}
+        ORDER BY a.ts DESC
+        LIMIT :limit
+    """), params).fetchall()
+    return [dict(r._mapping) for r in rows]

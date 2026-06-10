@@ -343,8 +343,29 @@ CREATE INDEX IF NOT EXISTS idx_audit_who ON upload_audit_log(uploaded_by);
 -- ── Onboarding columns (added idempotently) ───────────────────────────────
 ALTER TABLE o3c_users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT TRUE;
 ALTER TABLE o3c_users ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ;
--- Existing admin account never needs forced reset
 UPDATE o3c_users SET must_change_password = FALSE WHERE email = 'admin@o3cards.com';
+
+-- ── Custom roles (admin-defined, supplements static ROLE_PAGES) ───────────
+CREATE TABLE IF NOT EXISTS o3c_custom_roles (
+  id         SERIAL PRIMARY KEY,
+  name       TEXT UNIQUE NOT NULL,
+  label      TEXT NOT NULL,
+  pages      JSONB NOT NULL DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ── Staff activity log ────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS o3c_activity_log (
+  id         SERIAL PRIMARY KEY,
+  user_id    INT REFERENCES o3c_users(id) ON DELETE SET NULL,
+  page       TEXT,
+  action     TEXT,
+  detail     TEXT,
+  ip         TEXT,
+  ts         TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_act_user ON o3c_activity_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_act_ts   ON o3c_activity_log(ts DESC);
 """
 
 @asynccontextmanager

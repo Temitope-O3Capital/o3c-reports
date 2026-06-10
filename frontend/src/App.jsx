@@ -26,10 +26,10 @@ import Reconciliation  from './pages/Reconciliation.jsx'
 import CallCenter      from './pages/CallCenter.jsx'
 
 const REPORTING_NAV = [
-  { page: 'overview',        label: 'Dashboard',       path: '/',                icon: 'space_dashboard' },
+  { page: 'overview',        label: 'Overview',        path: '/',                icon: 'space_dashboard' },
   { page: 'income',          label: 'Income Report',   path: '/income',          icon: 'payments' },
-  { page: 'eod',             label: 'EOD Report',      path: '/eod',             icon: 'today' },
   { page: 'reconciliation',  label: 'Reconciliation',  path: '/reconciliation',  icon: 'balance' },
+  { page: 'eod',             label: 'EOD Report',      path: '/eod',             icon: 'today' },
   { page: 'transactions',    label: 'Transactions',    path: '/transactions',    icon: 'receipt_long' },
   { page: 'cards',           label: 'Cards',           path: '/cards',           icon: 'credit_card' },
   { page: 'collections',     label: 'Collections',     path: '/collections',     icon: 'account_balance_wallet' },
@@ -355,7 +355,7 @@ function SidebarContent({ visibleNav, visibleSalesNav, visibleCrmNav, canAccess,
 function PageTitle() {
   const { pathname } = useLocation()
   const titles = {
-    '/':                 'Dashboard',
+    '/':                 'Overview',
     '/transactions':     'Transactions',
     '/cards':            'Cards',
     '/sales':            'Sales & Growth',

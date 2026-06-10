@@ -1,6 +1,27 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { apiFetch } from '../hooks/useApi.js'
 import PageShell from '../components/PageShell.jsx'
+
+/* All pages that can be granted to a custom role */
+const ALL_PAGES = [
+  { key: 'overview',       label: 'Overview' },
+  { key: 'transactions',   label: 'Transactions' },
+  { key: 'cards',          label: 'Cards' },
+  { key: 'collections',    label: 'Collections' },
+  { key: 'recovery',       label: 'Recovery' },
+  { key: 'income',         label: 'Income Report' },
+  { key: 'eod',            label: 'EOD Report' },
+  { key: 'reconciliation', label: 'Reconciliation' },
+  { key: 'call_center',    label: 'Call Center' },
+  { key: 'cohort',         label: 'Cohort' },
+  { key: 'uploads',        label: 'Data Uploads' },
+  { key: 'admin',          label: 'Admin / Settings' },
+  { key: 'crm_pipeline',   label: 'CRM Pipeline' },
+  { key: 'crm_contacts',   label: 'CRM Contacts' },
+  { key: 'crm_tasks',      label: 'CRM Tasks' },
+  { key: 'crm_requests',   label: 'CRM Requests' },
+  { key: 'crm_reports',    label: 'CRM Reports' },
+]
 
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
@@ -20,13 +41,13 @@ const ROLES = [
   { value: 'head_collections', label: 'Head of Collections',  group: 'Unit Heads',  desc: 'Collections, recovery & executive reports',          icon: 'account_balance_wallet' },
   { value: 'head_recovery',    label: 'Head of Recovery',     group: 'Unit Heads',  desc: 'Recovery, collections & executive reports',          icon: 'gavel' },
   // Junior Staff
-  { value: 'admin',            label: 'Admin',                group: 'Junior Staff', desc: 'Full system access including settings',              icon: 'admin_panel_settings' },
-  { value: 'management',       label: 'Management',           group: 'Junior Staff', desc: 'All reports, read-only',                            icon: 'groups' },
-  { value: 'sales',            label: 'Sales',                group: 'Junior Staff', desc: 'Sales, Overview and CRM',                           icon: 'sell' },
-  { value: 'cards_ops',        label: 'Cards Ops',            group: 'Junior Staff', desc: 'Cards, Transactions & Overview',                    icon: 'credit_card' },
-  { value: 'collections',      label: 'Collections',          group: 'Junior Staff', desc: 'Collections & Recovery',                            icon: 'receipt_long' },
-  { value: 'recovery',         label: 'Recovery',             group: 'Junior Staff', desc: 'Recovery & Collections',                            icon: 'handshake' },
-  { value: 'call_centre',      label: 'Call Centre',          group: 'Junior Staff', desc: 'Overview, Transactions & Call Center module',       icon: 'headset_mic' },
+  { value: 'admin',            label: 'Admin',                group: 'Staff', desc: 'Full system access including settings',              icon: 'admin_panel_settings' },
+  { value: 'management',       label: 'Management',           group: 'Staff', desc: 'All reports, read-only',                            icon: 'groups' },
+  { value: 'sales',            label: 'Sales',                group: 'Staff', desc: 'Sales, Overview and CRM',                           icon: 'sell' },
+  { value: 'cards_ops',        label: 'Cards Ops',            group: 'Staff', desc: 'Cards, Transactions & Overview',                    icon: 'credit_card' },
+  { value: 'collections',      label: 'Collections',          group: 'Staff', desc: 'Collections & Recovery',                            icon: 'receipt_long' },
+  { value: 'recovery',         label: 'Recovery',             group: 'Staff', desc: 'Recovery & Collections',                            icon: 'handshake' },
+  { value: 'call_centre',      label: 'Call Centre',          group: 'Staff', desc: 'Overview, Transactions & Call Center module',       icon: 'headset_mic' },
 ]
 
 const DEPARTMENTS = [
@@ -153,31 +174,45 @@ function TempPasswordBanner({ password, onDismiss }) {
    USER MODAL (create + edit)
    ═══════════════════════════════════════════════════════════════ */
 
-function UserModal({ mode, userId, initial, onSave, onClose }) {
-  const [form,   setForm]   = useState(initial)
-  const [error,  setError]  = useState('')
-  const [saving, setSaving] = useState(false)
+function UserModal({ mode, userId, initial, onSave, onClose, customRoles = [] }) {
+  const [form,        setForm]       = useState(initial)
+  const [error,       setError]      = useState('')
+  const [saving,      setSaving]     = useState(false)
+  const [isCustom,    setIsCustom]   = useState(false)
+  const [customLabel, setCustomLabel]= useState('')
+  const [customPages, setCustomPages]= useState([])
   const isCreate = mode === 'create'
-  const selectedRole = ROLES.find(r => r.value === form.role)
 
-  // Group roles for the select
-  const execRoles   = ROLES.filter(r => r.group === 'Executive')
-  const headRoles   = ROLES.filter(r => r.group === 'Unit Heads')
-  const juniorRoles = ROLES.filter(r => r.group === 'Junior Staff')
+  const allRoles     = [...ROLES, ...customRoles.map(r => ({ value: r.name, label: r.label, group: 'Custom', desc: `Custom role — ${r.pages?.length || 0} pages`, icon: 'badge' }))]
+  const selectedRole = allRoles.find(r => r.value === form.role)
+  const execRoles    = ROLES.filter(r => r.group === 'Executive')
+  const headRoles    = ROLES.filter(r => r.group === 'Unit Heads')
+  const staffRoles   = ROLES.filter(r => r.group === 'Staff')
+
+  function togglePage(key) {
+    setCustomPages(prev => prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key])
+  }
 
   async function handleSave() {
-    if (!form.full_name.trim() || !form.email.trim()) {
-      setError('Name and email are required.')
-      return
-    }
-    setSaving(true)
-    setError('')
+    if (!form.full_name.trim() || !form.email.trim()) { setError('Name and email are required.'); return }
+    if (isCustom && !customLabel.trim()) { setError('Custom role name is required.'); return }
+    setSaving(true); setError('')
     try {
+      let roleToUse = form.role
+      if (isCustom) {
+        const slug = customLabel.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+        await apiFetch('/api/admin/roles', {
+          method: 'POST',
+          body: JSON.stringify({ name: slug, label: customLabel.trim(), pages: customPages }),
+        })
+        roleToUse = slug
+      }
+      const payload = { ...form, role: roleToUse }
       let result
       if (isCreate) {
-        result = await apiFetch('/api/admin/users', { method: 'POST', body: JSON.stringify(form) })
+        result = await apiFetch('/api/admin/users', { method: 'POST', body: JSON.stringify(payload) })
       } else {
-        const body = { ...form }
+        const body = { ...payload }
         if (!body.password) delete body.password
         result = await apiFetch(`/api/admin/users/${userId}`, { method: 'PUT', body: JSON.stringify(body) })
       }
@@ -254,28 +289,67 @@ function UserModal({ mode, userId, initial, onSave, onClose }) {
             <div className="flex items-center gap-2.5 rounded-lg px-4 py-3 text-xs"
               style={{ background: 'rgb(var(--bg-subtle))', color: 'rgb(var(--fg-3))' }}>
               <span className="material-symbols-rounded text-[15px]">key</span>
-              A temporary password (<strong>O3Capital@{new Date().getFullYear()}</strong>) will be generated.
-              The user must change it on first login.
+              A temporary password will be generated and shown after creation. The user must change it on first login.
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="form-label">Role *</label>
-              <select value={form.role}
-                onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
-                className="form-input">
-                <optgroup label="Executive">
-                  {execRoles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-                </optgroup>
-                <optgroup label="Unit Heads">
-                  {headRoles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-                </optgroup>
-                <optgroup label="Junior Staff">
-                  {juniorRoles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-                </optgroup>
-              </select>
-              {selectedRole && <p className="text-xs text-slate-400 mt-1">{selectedRole.desc}</p>}
+              {!isCustom ? (
+                <>
+                  <select value={form.role}
+                    onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
+                    className="form-input">
+                    <optgroup label="Executive">
+                      {execRoles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                    </optgroup>
+                    <optgroup label="Unit Heads">
+                      {headRoles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                    </optgroup>
+                    <optgroup label="Staff">
+                      {staffRoles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                    </optgroup>
+                    {customRoles.length > 0 && (
+                      <optgroup label="Custom">
+                        {customRoles.map(r => <option key={r.name} value={r.name}>{r.label}</option>)}
+                      </optgroup>
+                    )}
+                  </select>
+                  {selectedRole && <p className="text-xs text-slate-400 mt-1">{selectedRole.desc}</p>}
+                  <button type="button" onClick={() => setIsCustom(true)}
+                    className="text-xs text-primary dark:text-primary-100 mt-1 hover:underline">
+                    + Create new role
+                  </button>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <input
+                    value={customLabel}
+                    onChange={e => setCustomLabel(e.target.value)}
+                    placeholder="e.g. Head of BI"
+                    className="form-input"
+                    autoFocus
+                  />
+                  <button type="button" onClick={() => setIsCustom(false)}
+                    className="text-xs text-slate-400 hover:underline">
+                    ← Pick existing role
+                  </button>
+                  <div className="rounded-lg p-3" style={{ background: 'rgb(var(--bg-subtle))', border: '1px solid rgb(var(--border) / 0.08)' }}>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'rgb(var(--fg-3))' }}>Page access</p>
+                    <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto">
+                      {ALL_PAGES.map(p => (
+                        <label key={p.key} className="flex items-center gap-2 cursor-pointer text-xs py-0.5">
+                          <input type="checkbox" checked={customPages.includes(p.key)}
+                            onChange={() => togglePage(p.key)}
+                            className="rounded" />
+                          {p.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             <div>
               <label className="form-label">Department</label>
@@ -459,6 +533,7 @@ function ResetPasswordModal({ user, onDone, onClose }) {
 
 export default function Admin() {
   const [users,        setUsers]        = useState([])
+  const [customRoles,  setCustomRoles]  = useState([])
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState(null)
   const [modal,        setModal]        = useState(null)
@@ -471,7 +546,12 @@ export default function Admin() {
   async function loadUsers() {
     setLoading(true); setError(null)
     try {
-      setUsers(await apiFetch('/api/admin/users'))
+      const [u, r] = await Promise.all([
+        apiFetch('/api/admin/users'),
+        apiFetch('/api/admin/roles').catch(() => []),
+      ])
+      setUsers(u)
+      setCustomRoles(r)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -566,7 +646,7 @@ export default function Admin() {
         {[
           ['Executive', ROLES.filter(r => r.group === 'Executive')],
           ['Unit Heads', ROLES.filter(r => r.group === 'Unit Heads')],
-          ['Junior Staff', ROLES.filter(r => r.group === 'Junior Staff')],
+          ['Staff', ROLES.filter(r => r.group === 'Staff')],
         ].map(([group, roles]) => (
           <div key={group} className="mb-3 last:mb-0">
             <p className="text-[10px] text-slate-400 uppercase tracking-widest mb-2">{group}</p>
@@ -701,6 +781,7 @@ export default function Admin() {
           mode={modal.mode}
           userId={modal.id}
           initial={modal.initial}
+          customRoles={customRoles}
           onSave={modal.mode === 'create' ? handleCreateSave : () => { setModal(null); loadUsers() }}
           onClose={() => setModal(null)}
         />

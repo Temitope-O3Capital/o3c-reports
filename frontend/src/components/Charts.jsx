@@ -170,7 +170,7 @@ export function KpiCard({ label, value, sub, accent = 'navy', icon, trend, trend
       </div>
 
       {/* Value — large, bold, DM Mono tabular nums */}
-      <p style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1, marginBottom: 12, color: 'rgb(var(--fg-1))', fontVariantNumeric: 'tabular-nums', fontFamily: 'DM Mono, monospace', fontFeatureSettings: '"tnum"' }}>
+      <p style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1, marginBottom: 12, color: 'rgb(var(--fg-1))', fontVariantNumeric: 'tabular-nums', fontFamily: 'var(--font-mono)', fontFeatureSettings: '"tnum"' }}>
         {value ?? '—'}
       </p>
 

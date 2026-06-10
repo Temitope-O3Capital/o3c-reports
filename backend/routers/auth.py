@@ -41,6 +41,18 @@ def login(
         pass
 
     pages = ROLE_PAGES.get(user["role"], [])
+    if not pages:
+        # Custom role — look up from DB
+        try:
+            row = db_pg.execute(
+                text("SELECT pages FROM o3c_custom_roles WHERE name = :name"),
+                {"name": user["role"]}
+            ).fetchone()
+            if row:
+                import json as _json
+                pages = _json.loads(row.pages) if isinstance(row.pages, str) else list(row.pages)
+        except Exception:
+            pass
     must_change = bool(user.get("must_change_password", False))
     token = create_token({
         "sub":        user["email"],

@@ -49,7 +49,7 @@ function KPI({ label, value, icon, accent = '#0E2841', sub, tooltip }) {
           <span className="material-symbols-rounded text-[17px]" style={{ color: accent }}>{icon}</span>
         </div>
       </div>
-      <p style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1, fontVariantNumeric: 'tabular-nums', fontFamily: 'DM Mono, monospace', fontFeatureSettings: '"tnum"', color: 'rgb(var(--fg-1))' }}>
+      <p style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1, fontVariantNumeric: 'tabular-nums', fontFamily: 'var(--font-mono)', fontFeatureSettings: '"tnum"', color: 'rgb(var(--fg-1))' }}>
         {value ?? '—'}
       </p>
       {sub && <p style={{ fontSize: 11, color: 'rgb(var(--fg-3))', marginTop: 8 }}>{sub}</p>}
@@ -182,7 +182,7 @@ export default function Cards() {
                       <StatusBadge status={row['Account Status']} />
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>{share.toFixed(1)}%</span>
-                        <span style={{ fontSize: 14, fontWeight: 700, fontFamily: 'DM Mono, monospace', fontVariantNumeric: 'tabular-nums', color: 'rgb(var(--fg-1))' }}>
+                        <span style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: 'rgb(var(--fg-1))' }}>
                           {Number(row.count).toLocaleString()}
                         </span>
                       </div>
