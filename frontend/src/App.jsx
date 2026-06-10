@@ -12,7 +12,6 @@ import Sales from './pages/Sales.jsx'
 import Cards from './pages/Cards.jsx'
 import Cohort from './pages/Cohort.jsx'
 import Admin from './pages/Admin.jsx'
-import Executive       from './pages/Executive.jsx'
 import Income          from './pages/Income.jsx'
 import Eod             from './pages/Eod.jsx'
 import Uploads         from './pages/Uploads.jsx'
@@ -27,18 +26,17 @@ import Reconciliation  from './pages/Reconciliation.jsx'
 import CallCenter      from './pages/CallCenter.jsx'
 
 const REPORTING_NAV = [
-  { page: 'executive',       label: 'Executive',       path: '/executive',       icon: 'bar_chart_4_bars' },
+  { page: 'overview',        label: 'Dashboard',       path: '/',                icon: 'space_dashboard' },
   { page: 'income',          label: 'Income Report',   path: '/income',          icon: 'payments' },
   { page: 'eod',             label: 'EOD Report',      path: '/eod',             icon: 'today' },
   { page: 'reconciliation',  label: 'Reconciliation',  path: '/reconciliation',  icon: 'balance' },
-  { page: 'uploads',         label: 'Data Uploads',    path: '/uploads',         icon: 'upload_file' },
-  { page: 'overview',        label: 'Overview',        path: '/',                icon: 'space_dashboard' },
   { page: 'transactions',    label: 'Transactions',    path: '/transactions',    icon: 'receipt_long' },
   { page: 'cards',           label: 'Cards',           path: '/cards',           icon: 'credit_card' },
   { page: 'collections',     label: 'Collections',     path: '/collections',     icon: 'account_balance_wallet' },
   { page: 'recovery',        label: 'Recovery',        path: '/recovery',        icon: 'gavel' },
   { page: 'call_center',     label: 'Call Center',     path: '/call-center',     icon: 'headset_mic' },
   { page: 'cohort',          label: 'Cohort',          path: '/cohort',          icon: 'group_work' },
+  { page: 'uploads',         label: 'Data Uploads',    path: '/uploads',         icon: 'upload_file' },
 ]
 
 // Sales section includes Sales page + CRM sub-pages
@@ -187,8 +185,8 @@ function AppInner() {
             <Route path="/recovery"     element={<Guard page="recovery"      ca={canAccess}><Recovery     setDs={setDataSource} /></Guard>} />
             <Route path="/cohort"       element={<Guard page="cohort"        ca={canAccess}><Cohort       setDs={setDataSource} /></Guard>} />
             <Route path="/admin"        element={<Guard page="admin"         ca={canAccess}><Admin /></Guard>} />
-            {/* Executive */}
-            <Route path="/executive"            element={<Guard page="executive"    ca={canAccess}><Executive /></Guard>} />
+            {/* /executive redirects to Dashboard */}
+            <Route path="/executive"            element={<Navigate to="/" replace />} />
             <Route path="/income"               element={<Guard page="income"       ca={canAccess}><Income /></Guard>} />
             <Route path="/uploads"              element={<Guard page="uploads"      ca={canAccess}><Uploads /></Guard>} />
             <Route path="/eod"                 element={<Guard page="eod"             ca={canAccess}><Eod /></Guard>} />
@@ -357,7 +355,7 @@ function SidebarContent({ visibleNav, visibleSalesNav, visibleCrmNav, canAccess,
 function PageTitle() {
   const { pathname } = useLocation()
   const titles = {
-    '/':                 'Overview',
+    '/':                 'Dashboard',
     '/transactions':     'Transactions',
     '/cards':            'Cards',
     '/sales':            'Sales & Growth',
@@ -365,7 +363,6 @@ function PageTitle() {
     '/recovery':         'Recovery',
     '/cohort':           'Cohort Analysis',
     '/admin':            'Settings',
-    '/executive':        'Executive Dashboard',
     '/income':           'Income Report',
     '/uploads':          'Data Uploads',
     '/eod':              'EOD Report',

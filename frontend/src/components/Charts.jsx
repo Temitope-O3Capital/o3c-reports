@@ -169,8 +169,8 @@ export function KpiCard({ label, value, sub, accent = 'navy', icon, trend, trend
         )}
       </div>
 
-      {/* Value — large, bold, proportional (not mono) */}
-      <p style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1, marginBottom: 12, color: 'rgb(var(--fg-1))', fontVariantNumeric: 'tabular-nums', fontFamily: 'var(--font-sans, DM Sans, system-ui, sans-serif)', fontFeatureSettings: '"tnum"' }}>
+      {/* Value — large, bold, DM Mono tabular nums */}
+      <p style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1, marginBottom: 12, color: 'rgb(var(--fg-1))', fontVariantNumeric: 'tabular-nums', fontFamily: 'DM Mono, monospace', fontFeatureSettings: '"tnum"' }}>
         {value ?? '—'}
       </p>
 
