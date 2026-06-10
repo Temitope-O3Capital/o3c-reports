@@ -12,7 +12,7 @@ const ROLE_PAGES = {
   cfo:              ['overview','income','collections','recovery','executive','transactions','eod','uploads','reconciliation'],
   head_it:          ['overview','transactions','collections','recovery','sales','cards','cohort','admin','executive','income','eod','uploads','reconciliation','call_center', ...CRM, ...CRM_REPORT],
   head_hr:          ['overview','sales','uploads'],
-  cmo:              ['overview','sales','executive','uploads', ...CRM, ...CRM_REPORT],
+  cmo:              ['overview','sales','cohort','executive','uploads', ...CRM, ...CRM_REPORT],
   head_ops:         ['overview','transactions','cards','cohort','executive','income','eod','uploads','reconciliation', ...CRM],
   head_sales:       ['sales','overview','uploads','executive', ...CRM, ...CRM_REPORT],
   head_collections: ['collections','recovery','overview','eod','uploads','executive','reconciliation', ...CRM],
@@ -24,7 +24,7 @@ const ROLE_PAGES = {
   collections: ['collections','recovery','eod','uploads','reconciliation',                                                                                              ...CRM],
   recovery:    ['recovery','collections','eod','uploads',                                                                                                               ...CRM],
   cards_ops:   ['cards','transactions','overview','eod','uploads'],
-  call_centre: ['overview','transactions','call_center','crm_requests','uploads'],
+  call_centre: ['overview','transactions','call_center','crm_requests','crm_contacts','uploads'],
 }
 
 function parseToken(token) {

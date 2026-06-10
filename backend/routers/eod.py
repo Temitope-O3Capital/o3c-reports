@@ -88,9 +88,12 @@ async def upload_eod(
     if not files:
         raise HTTPException(400, 'No files provided')
 
+    MAX_BYTES = 50 * 1024 * 1024  # 50 MB per file
     results = []
     for f in files:
-        raw     = await f.read()
+        raw = await f.read()
+        if len(raw) > MAX_BYTES:
+            raise HTTPException(413, f"File '{f.filename}' exceeds the 50 MB upload limit")
         content = raw.decode('utf-8', errors='replace')
         fname   = f.filename or ''
 
@@ -175,7 +178,10 @@ def _build_where(date_from: date, date_to: date,
     if branch:   filters.append('branch_code = :branch');   params['branch']   = branch
     if product:  filters.append('product_code = :product'); params['product']  = product
     if txn_type: filters.append('txn_category = :ttype');   params['ttype']    = txn_type
-    if sign:     filters.append('sign = :sign');             params['sign']     = sign
+    if sign:
+        if sign not in ('DR', 'CR'):
+            raise HTTPException(400, "sign must be 'DR' or 'CR'")
+        filters.append('sign = :sign');  params['sign'] = sign
     if q:
         filters.append(
             '(cif ILIKE :q OR customer ILIKE :q OR account_no ILIKE :q '

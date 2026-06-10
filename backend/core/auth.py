@@ -9,11 +9,16 @@ from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 import bcrypt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import os
 
-SECRET_KEY = os.getenv("SECRET_KEY", "change-this-in-production")
+SECRET_KEY = os.getenv("SECRET_KEY", "")
+if not SECRET_KEY or SECRET_KEY == "change-this-in-production":
+    raise RuntimeError(
+        "SECRET_KEY environment variable must be set to a secure random value. "
+        "Generate one with: openssl rand -hex 32"
+    )
 ALGORITHM  = "HS256"
 TOKEN_EXPIRE_MINUTES = 480  # 8 hours
 
@@ -31,7 +36,7 @@ ROLE_PAGES = {
     "cfo":         ["overview","income","collections","recovery","executive","transactions","eod","uploads","reconciliation"],
     "head_it":     ["overview","transactions","collections","recovery","sales","cards","cohort","admin","executive","income","eod","uploads","reconciliation","call_center"] + _CRM + _CRM_REPORT,
     "head_hr":     ["overview","sales","uploads"],
-    "cmo":              ["overview","sales","executive","uploads"]                                                          + _CRM + _CRM_REPORT,
+    "cmo":              ["overview","sales","cohort","executive","uploads"]                                                   + _CRM + _CRM_REPORT,
     "head_ops":         ["overview","transactions","cards","cohort","executive","income","eod","uploads","reconciliation"]  + _CRM,
     "head_sales":       ["sales","overview","uploads","executive"]                                                         + _CRM + _CRM_REPORT,
     "head_collections": ["collections","recovery","overview","eod","uploads","executive","reconciliation"]                 + _CRM,
@@ -43,7 +48,7 @@ ROLE_PAGES = {
     "collections": ["collections","recovery","eod","uploads","reconciliation"]                                                                                      + _CRM,
     "recovery":    ["recovery","collections","eod","uploads"]                                                                                                       + _CRM,
     "cards_ops":   ["cards","transactions","overview","eod","uploads"],
-    "call_centre": ["overview","transactions","call_center","crm_requests","uploads"],
+    "call_centre": ["overview","transactions","call_center","crm_requests","crm_contacts","uploads"],
 }
 
 
@@ -57,7 +62,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_token(data: dict) -> str:
     payload = data.copy()
-    payload["exp"] = datetime.utcnow() + timedelta(minutes=TOKEN_EXPIRE_MINUTES)
+    payload["exp"] = datetime.now(timezone.utc) + timedelta(minutes=TOKEN_EXPIRE_MINUTES)
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 

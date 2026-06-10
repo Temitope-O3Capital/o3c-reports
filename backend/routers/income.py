@@ -67,8 +67,11 @@ async def upload_cycle(
     parsed       = {}      # file_type → (rows, cycle_date)
     detected_date = None
 
+    MAX_BYTES = 50 * 1024 * 1024  # 50 MB per file
     for f in files:
-        raw     = await f.read()
+        raw = await f.read()
+        if len(raw) > MAX_BYTES:
+            raise HTTPException(413, f"File '{f.filename}' exceeds the 50 MB upload limit")
         content = raw.decode("utf-8", errors="replace")
         ftype   = detect_file_type(f.filename or "")
 

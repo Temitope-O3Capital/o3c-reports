@@ -1,7 +1,9 @@
-import { useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useApi } from '../hooks/useApi.js'
 import { KpiCard, AreaChartCard, ProgressListCard, fmt, fmtNum, pct } from '../components/Charts.jsx'
 import PageShell from '../components/PageShell.jsx'
+
+const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 function LegalBadge({ stage }) {
   if (!stage) return <span className="badge badge-grey">—</span>
@@ -20,13 +22,42 @@ export default function Recovery({ setDs }) {
   const byMeth = useApi('/api/recovery/by-method')
   const trend  = useApi('/api/recovery/monthly-trend')
   const cases  = useApi('/api/recovery/cases')
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => { if (kpis.dataSource) setDs(kpis.dataSource) }, [kpis.dataSource])
 
   const d = kpis.data || {}
 
+  async function exportCSV() {
+    setExporting(true)
+    try {
+      const token = localStorage.getItem('o3c_token')
+      const res = await fetch(`${API}/api/recovery/export`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url; a.download = 'recovery_cases.csv'; a.click()
+      URL.revokeObjectURL(url)
+    } finally { setExporting(false) }
+  }
+
   return (
-    <PageShell title="Recovery & Legal" subtitle="Written-off accounts, legal proceedings, and recovery performance" source={kpis.dataSource} error={kpis.error}>
+    <PageShell
+      title="Recovery & Legal"
+      subtitle="Written-off accounts, legal proceedings, and recovery performance"
+      source={kpis.dataSource}
+      error={kpis.error}
+      actions={
+        <button onClick={exportCSV} disabled={exporting}
+          className="btn btn-ghost gap-1.5 text-sm disabled:opacity-60">
+          {exporting
+            ? <><div className="spinner" style={{ width: 14, height: 14 }} />Exporting…</>
+            : <><span className="material-symbols-rounded text-[17px]">download</span>Export CSV</>}
+        </button>
+      }
+    >
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard label="Total Recovered"   value={fmt(d.total_recovered)}      icon="payments"        accent="green"  tooltip="Total amount recovered from accounts in the recovery portfolio across all time" />
@@ -56,7 +87,7 @@ export default function Recovery({ setDs }) {
         />
       </div>
 
-      {cases.data?.length > 0 && (
+      {(cases.data || []).length > 0 && (
         <div className="card mt-4 overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700/60 flex items-center justify-between">
             <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Active Recovery Cases</p>

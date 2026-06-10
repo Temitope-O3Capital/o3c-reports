@@ -1,8 +1,18 @@
-from fastapi import APIRouter, Depends, Query
+import re
+from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import Optional
 from core.database import get_db_pg, get_db_mssql
 from core.auth import require_pages
 from core.dual_query import dual_query, dual_scalar
+
+_DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+
+def _validate_date(d: Optional[str], name: str) -> Optional[str]:
+    if d is None:
+        return None
+    if not _DATE_RE.match(d):
+        raise HTTPException(400, f"Invalid {name} — must be YYYY-MM-DD")
+    return d
 
 router = APIRouter()
 ACCESS = require_pages(["cards"])
@@ -37,6 +47,8 @@ def cards_kpis(
     db_mssql=Depends(get_db_mssql),
     user=Depends(ACCESS),
 ):
+    date_from = _validate_date(date_from, "date_from")
+    date_to   = _validate_date(date_to,   "date_to")
     kpis, sources = {}, []
 
     def q(ms, pg, key):
@@ -115,6 +127,8 @@ def volume_by_type(
     db_mssql=Depends(get_db_mssql),
     user=Depends(ACCESS),
 ):
+    date_from = _validate_date(date_from, "date_from")
+    date_to   = _validate_date(date_to,   "date_to")
     dtf_ms = _date_filter_ms("t.[Transaction Date]", date_from, date_to)
     dtf_pg = _date_filter_pg('t."Transaction Date"', date_from, date_to)
     ct_ms  = f" AND p.[Product Name]='{card_type}'" if card_type else ""

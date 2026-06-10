@@ -15,8 +15,10 @@ from sqlalchemy import text
 log = logging.getLogger("o3c.dual_query")
 
 
-def execute(db: Session, query: str, params: dict = {}) -> list[dict]:
+def execute(db: Session, query: str, params: dict = None) -> list[dict]:
     """Execute a query and return list of dicts."""
+    if params is None:
+        params = {}
     result = db.execute(text(query), params)
     cols = list(result.keys())
     return [dict(zip(cols, row)) for row in result.fetchall()]
@@ -27,7 +29,7 @@ def dual_query(
     db_pg: Session,
     mssql_query: str,
     pg_query: str,
-    params: dict = {}
+    params: dict = None
 ) -> tuple[list[dict], str]:
     """
     Try MSSQL first, fall back to Supabase PostgreSQL.
@@ -43,6 +45,8 @@ def dual_query(
         )
         return {"data": data, "data_source": source}
     """
+    if params is None:
+        params = {}
     # Try MSSQL first
     if db_mssql is not None:
         try:
@@ -67,7 +71,7 @@ def dual_scalar(
     db_pg: Session,
     mssql_query: str,
     pg_query: str,
-    params: dict = {},
+    params: dict = None,
     column: str = "val"
 ) -> tuple[any, str]:
     """

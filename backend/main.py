@@ -3,8 +3,9 @@ O3 Capital Reporting API
 FastAPI backend — dual source (MSSQL live + Supabase fallback)
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from core.database import check_mssql_health, check_pg_health, pg_engine, Base
 from routers import auth, overview, transactions, collections, recovery, sales, cards, cohort, admin
@@ -12,6 +13,7 @@ from routers import crm_contacts, crm_deals, crm_activities, crm_tasks, crm_requ
 from routers import executive
 from routers import income, uploads, eod
 from routers import reconciliation, call_center
+import os
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
@@ -59,6 +61,10 @@ CREATE INDEX IF NOT EXISTS idx_txn_cif       ON "Transactions" ("CIF Number");
 CREATE INDEX IF NOT EXISTS idx_acc_created   ON "Accounts" ("Account Created Date");
 CREATE INDEX IF NOT EXISTS idx_coll_date     ON "Collections Log" ("Date");
 CREATE INDEX IF NOT EXISTS idx_recovery_date ON "Recovery Master Sheet" ("Recovery Date");
+CREATE INDEX IF NOT EXISTS idx_prod_status   ON "Products" ("Account Status");
+CREATE INDEX IF NOT EXISTS idx_prod_name     ON "Products" ("Product Name");
+CREATE INDEX IF NOT EXISTS idx_coll_agent    ON "Collections Log" ("Agent");
+CREATE INDEX IF NOT EXISTS idx_rec_method    ON "Recovery Master Sheet" ("Recovery Method");
 CREATE INDEX IF NOT EXISTS idx_ma_month      ON "Monthly Activity" ("ActivityMonth");
 CREATE INDEX IF NOT EXISTS idx_cif_cohort    ON "CIF Table" ("Cohort Date");
 INSERT INTO o3c_users (email, password_hash, full_name, role, department)
@@ -388,13 +394,28 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+ALLOWED_ORIGINS = [
+    o.strip() for o in
+    os.getenv("ALLOWED_ORIGINS", "https://o3capital.pages.dev,http://localhost:3000").split(",")
+    if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Frame-Options"]           = "DENY"
+    response.headers["X-Content-Type-Options"]    = "nosniff"
+    response.headers["Referrer-Policy"]           = "strict-origin-when-cross-origin"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(auth.router,         prefix="/api/auth",         tags=["Auth"])

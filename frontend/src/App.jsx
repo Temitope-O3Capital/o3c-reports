@@ -3,27 +3,29 @@ import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 're
 import { useAuth } from './hooks/useAuth.js'
 import SyncPanel from './components/SyncPanel.jsx'
 import DataBanner from './components/DataBanner.jsx'
-import Login from './pages/Login.jsx'
-import Overview from './pages/Overview.jsx'
-import Transactions from './pages/Transactions.jsx'
-import Collections from './pages/Collections.jsx'
-import Recovery from './pages/Recovery.jsx'
-import Sales from './pages/Sales.jsx'
-import Cards from './pages/Cards.jsx'
-import Cohort from './pages/Cohort.jsx'
-import Admin from './pages/Admin.jsx'
-import Income          from './pages/Income.jsx'
-import Eod             from './pages/Eod.jsx'
-import Uploads         from './pages/Uploads.jsx'
-import ChangePassword  from './pages/ChangePassword.jsx'
-import CrmPipeline     from './pages/crm/Pipeline.jsx'
-import CrmContacts     from './pages/crm/Contacts.jsx'
-import CrmContact360   from './pages/crm/Contact360.jsx'
-import CrmTasks        from './pages/crm/Tasks.jsx'
-import CrmRequests     from './pages/crm/Requests.jsx'
-import CrmReports      from './pages/crm/CrmReports.jsx'
-import Reconciliation  from './pages/Reconciliation.jsx'
-import CallCenter      from './pages/CallCenter.jsx'
+import Login         from './pages/Login.jsx'
+import ChangePassword from './pages/ChangePassword.jsx'
+
+// Lazy-load all pages to reduce initial bundle size
+const Overview      = lazy(() => import('./pages/Overview.jsx'))
+const Transactions  = lazy(() => import('./pages/Transactions.jsx'))
+const Collections   = lazy(() => import('./pages/Collections.jsx'))
+const Recovery      = lazy(() => import('./pages/Recovery.jsx'))
+const Sales         = lazy(() => import('./pages/Sales.jsx'))
+const Cards         = lazy(() => import('./pages/Cards.jsx'))
+const Cohort        = lazy(() => import('./pages/Cohort.jsx'))
+const Admin         = lazy(() => import('./pages/Admin.jsx'))
+const Income        = lazy(() => import('./pages/Income.jsx'))
+const Eod           = lazy(() => import('./pages/Eod.jsx'))
+const Uploads       = lazy(() => import('./pages/Uploads.jsx'))
+const Reconciliation = lazy(() => import('./pages/Reconciliation.jsx'))
+const CallCenter    = lazy(() => import('./pages/CallCenter.jsx'))
+const CrmPipeline   = lazy(() => import('./pages/crm/Pipeline.jsx'))
+const CrmContacts   = lazy(() => import('./pages/crm/Contacts.jsx'))
+const CrmContact360 = lazy(() => import('./pages/crm/Contact360.jsx'))
+const CrmTasks      = lazy(() => import('./pages/crm/Tasks.jsx'))
+const CrmRequests   = lazy(() => import('./pages/crm/Requests.jsx'))
+const CrmReports    = lazy(() => import('./pages/crm/CrmReports.jsx'))
 
 const REPORTING_NAV = [
   { page: 'overview',        label: 'Overview',        path: '/',                icon: 'space_dashboard' },
@@ -175,6 +177,11 @@ function AppInner() {
 
         {/* Page content */}
         <main className="flex-1 overflow-y-auto">
+          <Suspense fallback={
+            <div className="flex items-center justify-center h-64">
+              <div className="spinner" style={{ width: 28, height: 28 }} />
+            </div>
+          }>
           <Routes>
             {/* Reporting */}
             <Route path="/"             element={<Guard page="overview"      ca={canAccess}><Overview     setDs={setDataSource} /></Guard>} />
@@ -201,6 +208,7 @@ function AppInner() {
             <Route path="/crm/reports"          element={<Guard page="crm_reports"  ca={canAccess}><CrmReports /></Guard>} />
             <Route path="*"                     element={<DefaultRedirect canAccess={canAccess} />} />
           </Routes>
+          </Suspense>
         </main>
       </div>
 
@@ -381,7 +389,10 @@ function PageTitle() {
 }
 
 function Guard({ page, ca, children }) {
-  if (!ca(page)) return <Navigate to="/" replace />
+  if (!ca(page)) {
+    const first = [...REPORTING_NAV, ...SALES_NAV, ...CRM_NAV].find(n => ca(n.page))
+    return <Navigate to={first?.path || '/login'} replace />
+  }
   return children
 }
 

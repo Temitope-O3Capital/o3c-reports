@@ -99,20 +99,21 @@ def get_db_mssql() -> Generator[Optional[Session], None, None]:
         yield None
         return
     db = MSSQLSession()
+    closed = False
     try:
-        # Quick health check — fail fast
         db.execute(text("SELECT 1"))
         yield db
     except Exception as e:
         log.warning(f"MSSQL session health check failed: {e}")
         db.close()
+        closed = True
         yield None
-        return
     finally:
-        try:
-            db.close()
-        except Exception:
-            pass
+        if not closed:
+            try:
+                db.close()
+            except Exception:
+                pass
 
 
 def check_mssql_health() -> dict:
@@ -124,7 +125,8 @@ def check_mssql_health() -> dict:
         db.execute(text("SELECT 1"))
         return {"status": "online"}
     except Exception as e:
-        return {"status": "offline", "reason": str(e)}
+        log.warning(f"MSSQL health check failed: {e}")
+        return {"status": "offline", "reason": "Connection unavailable"}
     finally:
         db.close()
 
@@ -136,6 +138,7 @@ def check_pg_health() -> dict:
         db.execute(text("SELECT 1"))
         return {"status": "online"}
     except Exception as e:
-        return {"status": "offline", "reason": str(e)}
+        log.warning(f"Supabase health check failed: {e}")
+        return {"status": "offline", "reason": "Connection unavailable"}
     finally:
         db.close()

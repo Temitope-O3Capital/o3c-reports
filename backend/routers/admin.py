@@ -13,6 +13,8 @@ GET    /api/admin/activity                    staff activity log
 POST   /api/admin/activity                    log a user action
 """
 
+import secrets
+import string
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr
@@ -43,7 +45,8 @@ def _valid_role(role: str, db) -> bool:
 
 
 def _default_password() -> str:
-    return f"O3Capital@{datetime.now().year}"
+    alphabet = string.ascii_letters + string.digits + "!@#$%"
+    return ''.join(secrets.choice(alphabet) for _ in range(16))
 
 
 def _row_to_dict(row) -> dict:

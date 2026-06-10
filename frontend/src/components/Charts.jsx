@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   ResponsiveContainer,
   AreaChart, Area,
@@ -54,8 +54,17 @@ const GRID_L = '#F1F5F9'   /* light: --bg-subtle */
 const GRID_D = '#1E293B'   /* dark:  --bg-subtle */
 
 function useGrid() {
-  if (typeof document === 'undefined') return GRID_L
-  return document.documentElement.classList.contains('dark') ? GRID_D : GRID_L
+  const [grid, setGrid] = useState(() =>
+    typeof document !== 'undefined' && document.documentElement.classList.contains('dark') ? GRID_D : GRID_L
+  )
+  useEffect(() => {
+    const obs = new MutationObserver(() => {
+      setGrid(document.documentElement.classList.contains('dark') ? GRID_D : GRID_L)
+    })
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => obs.disconnect()
+  }, [])
+  return grid
 }
 
 
@@ -261,9 +270,19 @@ export function ChartCard({ title, subtitle, children, actions }) {
    AREA CHART CARD
    ═══════════════════════════════════════════════════════════════ */
 
+function EmptyChart({ height }) {
+  return (
+    <div style={{ height, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'rgb(var(--fg-3))' }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 32, opacity: 0.25 }}>bar_chart</span>
+      <p style={{ fontSize: 12 }}>No data for this period</p>
+    </div>
+  )
+}
+
 export function AreaChartCard({ title, subtitle, data = [], xKey, areas = [], height = 240, currency = false }) {
   const formatter = currency ? fmt : fmtNum
   const grid = useGrid()
+  if (!data.length) return <ChartCard title={title} subtitle={subtitle}><EmptyChart height={height} /></ChartCard>
   return (
     <ChartCard title={title} subtitle={subtitle}>
       <ResponsiveContainer width="100%" height={height}>
@@ -299,6 +318,7 @@ export function AreaChartCard({ title, subtitle, data = [], xKey, areas = [], he
 export function LineChartCard({ title, subtitle, data = [], xKey, lines = [], height = 240, currency = false }) {
   const formatter = currency ? fmt : fmtNum
   const grid = useGrid()
+  if (!data.length) return <ChartCard title={title} subtitle={subtitle}><EmptyChart height={height} /></ChartCard>
   return (
     <ChartCard title={title} subtitle={subtitle}>
       <ResponsiveContainer width="100%" height={height}>
@@ -325,6 +345,7 @@ export function LineChartCard({ title, subtitle, data = [], xKey, lines = [], he
 export function BarChartCard({ title, subtitle, data = [], xKey, bars = [], height = 240, currency = false }) {
   const formatter = currency ? fmt : fmtNum
   const grid = useGrid()
+  if (!data.length) return <ChartCard title={title} subtitle={subtitle}><EmptyChart height={height} /></ChartCard>
   return (
     <ChartCard title={title} subtitle={subtitle}>
       <ResponsiveContainer width="100%" height={height}>
@@ -383,7 +404,7 @@ export function DonutCard({ title, subtitle, data = [], nameKey, valueKey, curre
               <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
             ))}
           </Pie>
-          <Tooltip formatter={v => [formatter(v)]} />
+          <Tooltip content={<ChartTooltip formatter={formatter} />} />
           <Legend wrapperStyle={{ fontSize: 11, fontFamily: FONT }} />
         </PieChart>
       </ResponsiveContainer>

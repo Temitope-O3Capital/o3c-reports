@@ -2,16 +2,20 @@ import { useState, useEffect, useCallback } from 'react'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+function getToken() {
+  return localStorage.getItem('o3c_token')
+}
+
+function forceLogout() {
+  localStorage.removeItem('o3c_token')
+  localStorage.removeItem('o3c_user')
+  window.location.href = '/'
+}
+
 /**
  * useApi — fetches from the O3C API and unwraps the dual-source response.
- *
- * API responses have shape: { data: [...], data_source: "mssql_live" | "supabase_snapshot" }
- * This hook returns:
- *   data        — the unwrapped data array or object
- *   dataSource  — "mssql_live" | "supabase_snapshot"
- *   loading     — boolean
- *   error       — string or null
- *   refetch     — function to manually re-fetch
+ * Token is read fresh on every request so stale closures cannot use expired tokens.
+ * 401 responses force a logout and redirect to login.
  */
 export function useApi(endpoint, deps = []) {
   const [data, setData]             = useState(null)
@@ -19,25 +23,24 @@ export function useApi(endpoint, deps = []) {
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState(null)
 
-  const token = localStorage.getItem('o3c_token')
-
   const fetchData = useCallback(async () => {
     if (!endpoint) return
+    const token = getToken()
+    if (!token) { forceLogout(); return }
     setLoading(true)
     setError(null)
     try {
       const res = await fetch(`${API}${endpoint}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
+      if (res.status === 401) { forceLogout(); return }
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = await res.json()
 
-      // Unwrap dual-source response
       if (json && typeof json === 'object' && 'data' in json && 'data_source' in json) {
         setData(json.data)
         setDataSource(json.data_source)
       } else {
-        // Fallback for endpoints that don't use dual-source pattern
         setData(json)
         setDataSource(null)
       }
@@ -46,7 +49,7 @@ export function useApi(endpoint, deps = []) {
     } finally {
       setLoading(false)
     }
-  }, [endpoint, token, ...deps])
+  }, [endpoint, ...deps])   // token intentionally NOT in deps — read fresh each call
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -54,7 +57,7 @@ export function useApi(endpoint, deps = []) {
 }
 
 export async function apiFetch(endpoint, options = {}) {
-  const token = localStorage.getItem('o3c_token')
+  const token = getToken()
   const res = await fetch(`${API}${endpoint}`, {
     ...options,
     headers: {
@@ -63,6 +66,7 @@ export async function apiFetch(endpoint, options = {}) {
       ...(options.headers || {})
     }
   })
+  if (res.status === 401) { forceLogout(); return }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(err.detail || `HTTP ${res.status}`)

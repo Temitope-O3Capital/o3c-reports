@@ -148,12 +148,23 @@ def start_scheduler():
 # ── Flask API ──────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 
+SYNC_SECRET = os.getenv("SYNC_SECRET", "")
+
+def _require_secret():
+    from flask import request, jsonify
+    provided = request.headers.get("X-Sync-Secret", "")
+    if not SYNC_SECRET or provided != SYNC_SECRET:
+        return jsonify({"error": "Unauthorized"}), 401
+    return None
+
 @app.route("/health")
 def health():
     return jsonify({"status": "ok", "service": "o3c-sync-engine"})
 
 @app.route("/sync", methods=["POST"])
 def trigger_sync():
+    err = _require_secret()
+    if err: return err
     log.info("Manual sync triggered via API")
     result = run_sync()
     code = 200 if result.get("status") in ("ok", "partial") else 500
@@ -164,11 +175,12 @@ def trigger_sync():
 
 @app.route("/status")
 def status():
+    err = _require_secret()
+    if err: return err
     return jsonify({
-        "mssql_server": MSSQL_SERVER,
-        "mssql_db": MSSQL_DB,
-        "tables": [t["mssql"] for t in TABLES],
+        "tables": len(TABLES),
         "schedule": "Mon–Fri 18:00",
+        "status": "running"
     })
 
 

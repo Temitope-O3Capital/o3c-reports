@@ -32,11 +32,14 @@ def get_period_dates(period: str, start: str, end: str):
         q  = (today.month - 1) // 3
         cs = date(today.year, q * 3 + 1, 1)
         ce = today
+        # Prior quarter: same day-count offset into the previous quarter
         if q == 0:
             ps = date(today.year - 1, 10, 1)
         else:
             ps = date(today.year, (q - 1) * 3 + 1, 1)
-        pe = ps + timedelta(days=(ce - cs).days)
+        # Limit prior period to the same number of days as current period
+        days_into_quarter = (ce - cs).days
+        pe = ps + timedelta(days=days_into_quarter)
 
     elif period == "year":
         cs = date(today.year, 1, 1)

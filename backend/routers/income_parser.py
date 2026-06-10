@@ -35,7 +35,7 @@ def _cycle_date_from_name(filename: str) -> Optional[date]:
             return date(int(s[:4]), int(s[4:6]), int(s[6:8]))
         except ValueError:
             pass
-    return date.today()
+    return None
 
 
 def detect_file_type(filename: str) -> str:
