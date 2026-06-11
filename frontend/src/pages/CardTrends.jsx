@@ -1,10 +1,22 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../hooks/useApi.js'
 import { BarChartCard, LineChartCard, fmtNum, pct } from '../components/Charts.jsx'
-import { FilterChip, DropItem } from '../components/FilterBar.jsx'
+import { DateRangePicker, FilterChip, DropItem } from '../components/FilterBar.jsx'
 import PageShell from '../components/PageShell.jsx'
 
 const PRODUCTS = ['PREP', 'Amex Naira', 'Amex USD', 'Classic Accounts', 'Prestige Accounts', 'Platinum Accounts', 'Business Accounts']
+
+/* Year preset helpers */
+function yearRange(y) {
+  return { dateFrom: `${y}-01-01`, dateTo: `${y}-12-31` }
+}
+const YEAR_PRESETS = [
+  { label: 'All Time',   dateFrom: '',           dateTo: '' },
+  { label: '2024',       ...yearRange(2024) },
+  { label: '2025',       ...yearRange(2025) },
+  { label: '2026',       ...yearRange(2026) },
+  { label: '2024–2026',  dateFrom: '2024-01-01', dateTo: '2026-12-31' },
+]
 
 function KPI({ label, value, sub, icon, accent = '#0E2841' }) {
   return (
@@ -23,6 +35,10 @@ function KPI({ label, value, sub, icon, accent = '#0E2841' }) {
 
 export default function CardTrends() {
   const [product,    setProduct]    = useState('')
+  const [dateFrom,   setDateFrom]   = useState('')
+  const [dateTo,     setDateTo]     = useState('')
+  const [preset,     setPreset]     = useState('All Time')
+
   const [kpis,       setKpis]       = useState(null)
   const [creation,   setCreation]   = useState([])
   const [cohort,     setCohort]     = useState([])
@@ -33,13 +49,18 @@ export default function CardTrends() {
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
-    const qs = product ? `?product=${encodeURIComponent(product)}` : ''
+    const p = new URLSearchParams()
+    if (product)  p.set('product',   product)
+    if (dateFrom) p.set('date_from', dateFrom)
+    if (dateTo)   p.set('date_to',   dateTo)
+    const qs = p.toString() ? `?${p}` : ''
+
     try {
       const [k, cr, co, bp] = await Promise.all([
         apiFetch(`/api/card-trends/kpis${qs}`),
         apiFetch(`/api/card-trends/creation-trend${qs}`),
         apiFetch(`/api/card-trends/status-by-cohort${qs}`),
-        apiFetch('/api/card-trends/by-product'),
+        apiFetch(`/api/card-trends/by-product${qs}`),
       ])
       setKpis(k.data || {}); setDataSource(k.data_source)
       setCreation(cr.data || [])
@@ -50,11 +71,18 @@ export default function CardTrends() {
     } finally {
       setLoading(false)
     }
-  }, [product])
+  }, [product, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
+  function applyPreset(p) {
+    setPreset(p.label)
+    setDateFrom(p.dateFrom)
+    setDateTo(p.dateTo)
+  }
+
   const d = kpis || {}
+  const rangeLabel = dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : 'All time'
 
   return (
     <PageShell
@@ -63,25 +91,47 @@ export default function CardTrends() {
       source={dataSource}
       error={error}
       actions={
-        <FilterChip label={product || 'All Products'} active={!!product} onClear={() => setProduct('')}>
-          <DropItem label="All Products" selected={!product} onClick={() => setProduct('')} />
-          {PRODUCTS.map(p => <DropItem key={p} label={p} selected={product === p} onClick={() => setProduct(p)} />)}
-        </FilterChip>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Year / date range picker */}
+          <FilterChip
+            label={preset}
+            active={!!dateFrom || !!dateTo}
+            onClear={() => applyPreset(YEAR_PRESETS[0])}
+          >
+            {YEAR_PRESETS.map(p => (
+              <DropItem key={p.label} label={p.label} selected={preset === p.label} onClick={() => applyPreset(p)} />
+            ))}
+          </FilterChip>
+
+          {/* Custom date range */}
+          <DateRangePicker
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            preset={null}
+            onChange={(f, t) => { setDateFrom(f); setDateTo(t); setPreset('Custom') }}
+          />
+
+          {/* Product filter */}
+          <FilterChip label={product || 'All Products'} active={!!product} onClear={() => setProduct('')}>
+            <DropItem label="All Products" selected={!product} onClick={() => setProduct('')} />
+            {PRODUCTS.map(p => <DropItem key={p} label={p} selected={product === p} onClick={() => setProduct(p)} />)}
+          </FilterChip>
+        </div>
       }
     >
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPI label="Total Issued"      value={fmtNum(d.total_issued)}    icon="credit_card"  accent="#0E2841" />
-        <KPI label="Active Cards"      value={fmtNum(d.total_active)}    icon="check_circle" accent="#059669" sub={`${pct(d.activation_rate)} activation rate`} />
-        <KPI label="Deactivated"       value={fmtNum(d.total_deactivated)} icon="cancel"     accent="#C00000" />
-        <KPI label="Issued This Month" value={fmtNum(d.created_mtd)}     icon="add_card"     accent="#D97706" />
+        <KPI label="Total Issued"      value={fmtNum(d.total_issued)}      icon="credit_card"  accent="#0E2841" sub={rangeLabel} />
+        <KPI label="Active Cards"      value={fmtNum(d.total_active)}      icon="check_circle" accent="#059669" sub={`${pct(d.activation_rate)} activation rate`} />
+        <KPI label="Deactivated"       value={fmtNum(d.total_deactivated)} icon="cancel"       accent="#C00000" />
+        <KPI label="Issued This Month" value={fmtNum(d.created_mtd)}       icon="add_card"     accent="#D97706" />
       </div>
 
       {/* Creation Trend */}
       <div className="mt-4">
         <LineChartCard
           title="Monthly Card Issuance"
-          subtitle={product ? `Product: ${product}` : 'All products'}
+          subtitle={`${product ? `${product} · ` : ''}${rangeLabel}`}
           data={creation}
           xKey="month"
           lines={[{ key: 'cards_created', label: 'Cards Issued', color: '#0E2841' }]}
@@ -92,8 +142,8 @@ export default function CardTrends() {
       {/* Active vs Deactivated by Cohort */}
       <div className="mt-4">
         <BarChartCard
-          title="Active vs Deactivated — by Issuance Month"
-          subtitle="Cards grouped by when they were issued, showing current status"
+          title="Issued vs Active vs Deactivated — by Month"
+          subtitle={`${product ? `${product} · ` : ''}${rangeLabel} · each bar shows current status of cards issued that month`}
           data={cohort}
           xKey="month"
           bars={[
@@ -109,7 +159,10 @@ export default function CardTrends() {
       {byProduct.length > 0 && (
         <div className="card mt-4 overflow-hidden">
           <div className="px-6 py-4" style={{ borderBottom: '1px solid rgb(var(--border) / 0.08)' }}>
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Product Breakdown</p>
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+              Product Breakdown
+              {(dateFrom || dateTo) && <span className="ml-2 text-xs font-normal text-slate-400">{rangeLabel}</span>}
+            </p>
           </div>
           <div className="overflow-x-auto">
             <table className="data-table">

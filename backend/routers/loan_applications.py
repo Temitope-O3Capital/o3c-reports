@@ -172,9 +172,16 @@ def create_application(
              :ltype, :amt, :purpose, :by)
         RETURNING *
     """), {
-        "ref": ref, "cif": body.cif, "fn": body.first_name, "ln": body.last_name,
-        "phone": body.phone, "email": body.email, "ltype": body.loan_type,
-        "amt": body.loan_amount, "purpose": body.purpose, "by": user["sub"],
+        "ref": ref,
+        "cif":   body.cif   or None,
+        "fn":    body.first_name,
+        "ln":    body.last_name,
+        "phone": body.phone  or None,
+        "email": body.email  or None,
+        "ltype": body.loan_type,
+        "amt":   body.loan_amount,
+        "purpose": body.purpose or None,
+        "by": user["id"],
     }).fetchone()
     db.commit()
     return _app_row(row)
@@ -221,7 +228,7 @@ def update_application(
     updates = {"id": app_id, "updated_at": _now()}
     if body.status:
         updates["status"] = body.status
-        updates["reviewed_by"] = user["sub"]
+        updates["reviewed_by"] = user["id"]
         updates["reviewed_at"] = _now()
     if body.notes is not None:
         updates["notes"] = body.notes
@@ -268,7 +275,7 @@ def update_document(
     updates = {
         "id":           doc_id,
         "status":       body.status,
-        "confirmed_by": user["sub"] if body.status == "confirmed" else None,
+        "confirmed_by": user["id"] if body.status == "confirmed" else None,
         "confirmed_at": _now()      if body.status == "confirmed" else None,
     }
     if body.notes is not None:
