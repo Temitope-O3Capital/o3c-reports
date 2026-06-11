@@ -9,6 +9,8 @@ Start: python sync_engine.py
 
 import os
 import logging
+import decimal
+import datetime as dt
 import schedule
 import time
 import threading
@@ -125,6 +127,18 @@ def get_pg_conn():
 
 
 # ── Sync a single table ────────────────────────────────────────────────────────
+def _pg_type(type_code) -> str:
+    if type_code in (dt.datetime, dt.date):
+        return "TIMESTAMPTZ"
+    if type_code in (decimal.Decimal, float):
+        return "NUMERIC"
+    if type_code == int:
+        return "BIGINT"
+    if type_code == bool:
+        return "BOOLEAN"
+    return "TEXT"
+
+
 def sync_table(ms_conn, pg_conn, mssql_table: str, pg_table: str, select_sql: str = None) -> int:
     log.info(f"Syncing {mssql_table} → {pg_table}")
     ms_cur = ms_conn.cursor()
@@ -132,15 +146,18 @@ def sync_table(ms_conn, pg_conn, mssql_table: str, pg_table: str, select_sql: st
 
     query = select_sql.strip() if select_sql else f"SELECT * FROM {mssql_table}"
     ms_cur.execute(query)
-    cols = [desc[0] for desc in ms_cur.description]
+    col_names = [desc[0] for desc in ms_cur.description]
+    col_types = [_pg_type(desc[1]) for desc in ms_cur.description]
     rows = ms_cur.fetchall()
 
-    pg_cols = ", ".join(f'"{c}"' for c in cols)
-    placeholders = ", ".join(["%s"] * len(cols))
-
-    pg_cur.execute(f'TRUNCATE TABLE {pg_table}')
+    # Drop and recreate so schema always matches the MSSQL source
+    col_defs = ", ".join(f'"{n}" {t}' for n, t in zip(col_names, col_types))
+    pg_cur.execute(f'DROP TABLE IF EXISTS {pg_table}')
+    pg_cur.execute(f'CREATE TABLE {pg_table} ({col_defs})')
 
     if rows:
+        pg_cols = ", ".join(f'"{c}"' for c in col_names)
+        placeholders = ", ".join(["%s"] * len(col_names))
         data = [tuple(row) for row in rows]
         insert_sql = f'INSERT INTO {pg_table} ({pg_cols}) VALUES ({placeholders})'
         psycopg2.extras.execute_batch(pg_cur, insert_sql, data, page_size=500)
