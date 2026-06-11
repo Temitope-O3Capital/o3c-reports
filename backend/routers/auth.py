@@ -32,6 +32,10 @@ def login(
     user = rows[0]
     if not verify_password(form.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    if user.get("deleted_at") is not None:
+        raise HTTPException(status_code=403, detail="This account has been removed. Contact your administrator.")
+    if user.get("is_active") is False:
+        raise HTTPException(status_code=403, detail="Your account is deactivated. Contact your administrator.")
 
     # Update last_login (best-effort)
     try:

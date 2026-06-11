@@ -19,7 +19,9 @@ const Income        = lazy(() => import('./pages/Income.jsx'))
 const Eod           = lazy(() => import('./pages/Eod.jsx'))
 const Uploads       = lazy(() => import('./pages/Uploads.jsx'))
 const Reconciliation = lazy(() => import('./pages/Reconciliation.jsx'))
-const CallCenter    = lazy(() => import('./pages/CallCenter.jsx'))
+const CallCenter       = lazy(() => import('./pages/CallCenter.jsx'))
+const CardTrends       = lazy(() => import('./pages/CardTrends.jsx'))
+const LoanApplications = lazy(() => import('./pages/LoanApplications.jsx'))
 const CrmPipeline   = lazy(() => import('./pages/crm/Pipeline.jsx'))
 const CrmContacts   = lazy(() => import('./pages/crm/Contacts.jsx'))
 const CrmContact360 = lazy(() => import('./pages/crm/Contact360.jsx'))
@@ -34,6 +36,7 @@ const REPORTING_NAV = [
   { page: 'eod',             label: 'EOD Report',      path: '/eod',             icon: 'today' },
   { page: 'transactions',    label: 'Transactions',    path: '/transactions',    icon: 'receipt_long' },
   { page: 'cards',           label: 'Cards',           path: '/cards',           icon: 'credit_card' },
+  { page: 'card_trends',    label: 'Card Trends',     path: '/card-trends',     icon: 'show_chart' },
   { page: 'collections',     label: 'Collections',     path: '/collections',     icon: 'account_balance_wallet' },
   { page: 'recovery',        label: 'Recovery',        path: '/recovery',        icon: 'gavel' },
   { page: 'call_center',     label: 'Call Center',     path: '/call-center',     icon: 'headset_mic' },
@@ -44,6 +47,7 @@ const REPORTING_NAV = [
 // Sales section includes Sales page + CRM sub-pages
 const SALES_NAV = [
   { page: 'sales',        label: 'Sales',       path: '/sales',        icon: 'trending_up' },
+  { page: 'loans',        label: 'Loan Applications', path: '/loans', icon: 'request_quote' },
 ]
 
 const CRM_NAV = [
@@ -199,6 +203,8 @@ function AppInner() {
             <Route path="/eod"                 element={<Guard page="eod"             ca={canAccess}><Eod /></Guard>} />
             <Route path="/reconciliation"      element={<Guard page="reconciliation"  ca={canAccess}><Reconciliation /></Guard>} />
             <Route path="/call-center"         element={<Guard page="call_center"     ca={canAccess}><CallCenter /></Guard>} />
+            <Route path="/card-trends"        element={<Guard page="card_trends"     ca={canAccess}><CardTrends /></Guard>} />
+            <Route path="/loans"              element={<Guard page="loans"           ca={canAccess}><LoanApplications /></Guard>} />
             {/* CRM */}
             <Route path="/crm/pipeline"         element={<Guard page="crm_pipeline" ca={canAccess}><CrmPipeline /></Guard>} />
             <Route path="/crm/contacts"         element={<Guard page="crm_contacts" ca={canAccess}><CrmContacts /></Guard>} />

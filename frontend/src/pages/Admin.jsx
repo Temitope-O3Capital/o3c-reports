@@ -410,8 +410,8 @@ function DeleteModal({ user, onConfirm, onClose, deleting }) {
               <span className="material-symbols-rounded text-[20px] text-red-500">delete</span>
             </div>
             <div>
-              <h2 className="text-[15px] font-semibold text-slate-900 dark:text-white">Delete User</h2>
-              <p className="text-xs text-slate-400 mt-0.5">This action cannot be undone</p>
+              <h2 className="text-[15px] font-semibold text-slate-900 dark:text-white">Remove Staff Member</h2>
+              <p className="text-xs text-slate-400 mt-0.5">They cannot log in — historical data is preserved</p>
             </div>
           </div>
           <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
@@ -577,7 +577,7 @@ export default function Admin() {
   async function handleDelete() {
     setDeleting(true)
     try {
-      await apiFetch(`/api/admin/users/${deleteTarget.id}`, { method: 'DELETE' })
+      await apiFetch(`/api/admin/users/${deleteTarget.id}/remove`, { method: 'PATCH' })
       setDeleteTarget(null)
       await loadUsers()
     } catch (e) {
@@ -750,6 +750,11 @@ export default function Admin() {
                           <span className="material-symbols-rounded text-[11px]">schedule</span>
                           First login pending
                         </span>
+                      ) : u.is_active === false ? (
+                        <span className="badge text-xs bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400 gap-1">
+                          <span className="material-symbols-rounded text-[11px]">block</span>
+                          Deactivated
+                        </span>
                       ) : (
                         <span className="badge text-xs bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400 gap-1">
                           <span className="material-symbols-rounded text-[11px]">check_circle</span>
@@ -770,13 +775,28 @@ export default function Admin() {
                           style={{ color: '#D97706' }}>
                           <span className="material-symbols-rounded text-[16px]">lock_reset</span>
                         </button>
+                        {u.is_active !== false ? (
+                          <button
+                            onClick={async () => { await apiFetch(`/api/admin/users/${u.id}/deactivate`, { method: 'PATCH' }); loadUsers() }}
+                            className="icon-btn" title="Deactivate — blocks login, preserves data"
+                            style={{ color: '#D97706' }}>
+                            <span className="material-symbols-rounded text-[16px]">block</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={async () => { await apiFetch(`/api/admin/users/${u.id}/reactivate`, { method: 'PATCH' }); loadUsers() }}
+                            className="icon-btn" title="Reactivate"
+                            style={{ color: '#059669' }}>
+                            <span className="material-symbols-rounded text-[16px]">check_circle</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => setDeleteTarget(u)}
-                          className="icon-btn" title="Delete user"
+                          className="icon-btn" title="Remove from system (soft-delete, data preserved)"
                           style={{ color: '#F87171' }}
                           onMouseEnter={e => { e.currentTarget.style.background = 'rgb(239 68 68 / 0.07)'; e.currentTarget.style.color = '#DC2626' }}
                           onMouseLeave={e => { e.currentTarget.style.background = ''; e.currentTarget.style.color = '#F87171' }}>
-                          <span className="material-symbols-rounded text-[16px]">delete</span>
+                          <span className="material-symbols-rounded text-[16px]">person_remove</span>
                         </button>
                       </div>
                     </td>

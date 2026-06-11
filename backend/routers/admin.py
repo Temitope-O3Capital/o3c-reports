@@ -50,7 +50,7 @@ def _default_password() -> str:
 
 
 def _row_to_dict(row) -> dict:
-    d = {
+    return {
         "id":                   row.id,
         "email":                row.email,
         "full_name":            row.full_name,
@@ -59,8 +59,9 @@ def _row_to_dict(row) -> dict:
         "created_at":           row.created_at.isoformat() if row.created_at else None,
         "must_change_password": bool(row.must_change_password) if row.must_change_password is not None else True,
         "last_login":           row.last_login.isoformat() if getattr(row, "last_login", None) else None,
+        "is_active":            bool(row.is_active) if getattr(row, "is_active", None) is not None else True,
+        "deleted_at":           row.deleted_at.isoformat() if getattr(row, "deleted_at", None) else None,
     }
-    return d
 
 
 class UserCreate(BaseModel):
@@ -79,11 +80,16 @@ class UserUpdate(BaseModel):
 
 
 @router.get("/users")
-def list_users(db_pg=Depends(get_pg), _=Depends(ADMIN_ACCESS)):
-    rows = db_pg.execute(text("""
+def list_users(
+    include_removed: bool = False,
+    db_pg=Depends(get_pg), _=Depends(ADMIN_ACCESS)
+):
+    where = "" if include_removed else "WHERE deleted_at IS NULL"
+    rows = db_pg.execute(text(f"""
         SELECT id, email, full_name, role, department, created_at,
-               must_change_password, last_login
+               must_change_password, last_login, is_active, deleted_at
         FROM o3c_users
+        {where}
         ORDER BY created_at DESC
     """)).fetchall()
     return [_row_to_dict(r) for r in rows]
@@ -181,6 +187,54 @@ def delete_user(
 
     db_pg.execute(text("DELETE FROM o3c_users WHERE id = :id"), {"id": user_id})
     db_pg.commit()
+
+
+@router.patch("/users/{user_id}/deactivate")
+def deactivate_user(
+    user_id: int,
+    db_pg    = Depends(get_pg),
+    current  = Depends(ADMIN_ACCESS),
+):
+    if current.get("id") and int(current["id"]) == user_id:
+        raise HTTPException(400, "Cannot deactivate your own account")
+    row = db_pg.execute(text("SELECT id FROM o3c_users WHERE id=:id AND deleted_at IS NULL"), {"id": user_id}).fetchone()
+    if not row:
+        raise HTTPException(404, "User not found")
+    db_pg.execute(text("UPDATE o3c_users SET is_active=FALSE WHERE id=:id"), {"id": user_id})
+    db_pg.commit()
+    return {"detail": "User deactivated"}
+
+
+@router.patch("/users/{user_id}/reactivate")
+def reactivate_user(
+    user_id: int,
+    db_pg    = Depends(get_pg),
+    _        = Depends(ADMIN_ACCESS),
+):
+    db_pg.execute(text("UPDATE o3c_users SET is_active=TRUE WHERE id=:id"), {"id": user_id})
+    db_pg.commit()
+    return {"detail": "User reactivated"}
+
+
+@router.patch("/users/{user_id}/remove")
+def remove_user(
+    user_id: int,
+    db_pg    = Depends(get_pg),
+    current  = Depends(ADMIN_ACCESS),
+):
+    """Soft-delete a staff member. They cannot log in but their name is preserved
+    in all audit logs and historical reports."""
+    if current.get("id") and int(current["id"]) == user_id:
+        raise HTTPException(400, "Cannot remove your own account")
+    row = db_pg.execute(text("SELECT id FROM o3c_users WHERE id=:id"), {"id": user_id}).fetchone()
+    if not row:
+        raise HTTPException(404, "User not found")
+    db_pg.execute(
+        text("UPDATE o3c_users SET is_active=FALSE, deleted_at=NOW() WHERE id=:id"),
+        {"id": user_id}
+    )
+    db_pg.commit()
+    return {"detail": "User removed from system"}
 
 
 @router.post("/users/{user_id}/reset-password")

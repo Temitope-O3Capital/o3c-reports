@@ -13,6 +13,7 @@ from routers import crm_contacts, crm_deals, crm_activities, crm_tasks, crm_requ
 from routers import executive
 from routers import income, uploads, eod
 from routers import reconciliation, call_center
+from routers import card_trends, loan_applications
 import os
 import logging
 
@@ -354,6 +355,48 @@ CREATE TABLE IF NOT EXISTS o3c_custom_roles (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ── Staff status columns (deactivate / soft-delete) ─────────────────────
+ALTER TABLE o3c_users ADD COLUMN IF NOT EXISTS is_active  BOOLEAN     DEFAULT TRUE;
+ALTER TABLE o3c_users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ DEFAULT NULL;
+UPDATE o3c_users SET is_active=TRUE WHERE is_active IS NULL;
+
+-- ── Loan Applications ─────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS loan_applications (
+  id           SERIAL PRIMARY KEY,
+  ref_no       TEXT UNIQUE NOT NULL,
+  cif          TEXT,
+  first_name   TEXT NOT NULL,
+  last_name    TEXT NOT NULL,
+  phone        TEXT,
+  email        TEXT,
+  loan_type    TEXT NOT NULL DEFAULT 'Personal Loan',
+  loan_amount  NUMERIC,
+  purpose      TEXT,
+  status       TEXT NOT NULL DEFAULT 'pending',
+  notes        TEXT,
+  created_by   INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  reviewed_by  INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  reviewed_at  TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_loan_app_status ON loan_applications(status);
+CREATE INDEX IF NOT EXISTS idx_loan_app_cif    ON loan_applications(cif);
+CREATE INDEX IF NOT EXISTS idx_loan_app_at     ON loan_applications(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS loan_documents (
+  id             SERIAL PRIMARY KEY,
+  application_id INT  REFERENCES loan_applications(id) ON DELETE CASCADE,
+  doc_type       TEXT NOT NULL,
+  filename       TEXT,
+  notes          TEXT,
+  status         TEXT NOT NULL DEFAULT 'submitted',
+  confirmed_by   INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  confirmed_at   TIMESTAMPTZ,
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_loan_doc_app ON loan_documents(application_id);
+
 -- ── Staff activity log ────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS o3c_activity_log (
   id         SERIAL PRIMARY KEY,
@@ -431,8 +474,10 @@ app.include_router(executive.router,      prefix="/api/executive", tags=["Execut
 app.include_router(income.router,         prefix="/api/income",    tags=["Income"])
 app.include_router(uploads.router,        prefix="/api/uploads",   tags=["Uploads"])
 app.include_router(eod.router,            prefix="/api/eod",             tags=["EOD"])
-app.include_router(reconciliation.router, prefix="/api/reconciliation",  tags=["Reconciliation"])
-app.include_router(call_center.router,    prefix="/api/call-center",     tags=["Call Center"])
+app.include_router(reconciliation.router,    prefix="/api/reconciliation",  tags=["Reconciliation"])
+app.include_router(call_center.router,       prefix="/api/call-center",     tags=["Call Center"])
+app.include_router(card_trends.router,       prefix="/api/card-trends",     tags=["Card Trends"])
+app.include_router(loan_applications.router, prefix="/api/loans",           tags=["Loans"])
 
 # ── Health endpoint ───────────────────────────────────────────────────────────
 @app.get("/api/health", tags=["Health"])
