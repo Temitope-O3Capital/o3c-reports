@@ -23,37 +23,37 @@ def overview_kpis(
         sources.append(src)
 
     q(
-        "SELECT COUNT(DISTINCT [CIF Number]) AS val FROM dbo.Accounts",
+        "SELECT COUNT(DISTINCT CIF) AS val FROM dbo.Contact",
         'SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Accounts"',
         "total_cardholders"
     )
     q(
-        "SELECT COUNT(DISTINCT [CIF Number]) AS val FROM dbo.Products WHERE [Account Status]='Open'",
-        'SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Products" WHERE "Account Status"=\'Open\'',
+        "SELECT COUNT(DISTINCT CIF_Number) AS val FROM dbo.Account WHERE Status IN ('Open','Active')",
+        'SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Products" WHERE "Account Status" IN (\'Open\',\'Active\')',
         "active_accounts"
     )
     q(
-        "SELECT COUNT(*) AS val FROM dbo.Products",
+        "SELECT COUNT(*) AS val FROM dbo.Account",
         'SELECT COUNT(*) AS val FROM "Products"',
         "total_cards_issued"
     )
     q(
-        "SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.Transactions",
+        "SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.Transaction_Listing",
         'SELECT COALESCE(SUM("Amount"),0) AS val FROM "Transactions"',
         "total_txn_volume"
     )
     q(
-        "SELECT COUNT(DISTINCT [CIF Number]) AS val FROM dbo.Accounts WHERE MONTH([Account Created Date])=MONTH(GETDATE()) AND YEAR([Account Created Date])=YEAR(GETDATE())",
+        "SELECT COUNT(DISTINCT CIF) AS val FROM dbo.Contact WHERE MONTH(Account_Created)=MONTH(GETDATE()) AND YEAR(Account_Created)=YEAR(GETDATE())",
         'SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Accounts" WHERE DATE_TRUNC(\'month\',"Account Created Date")=DATE_TRUNC(\'month\',CURRENT_DATE)',
         "new_accounts_mtd"
     )
     q(
-        "SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.CollectionsLog",
+        "SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.o3_loan_Repayment",
         'SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log"',
         "total_collected"
     )
     q(
-        "SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.CollectionsLog WHERE MONTH([Date])=MONTH(GETDATE()) AND YEAR([Date])=YEAR(GETDATE())",
+        "SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.o3_loan_Repayment WHERE MONTH(Repayment_Date)=MONTH(GETDATE()) AND YEAR(Repayment_Date)=YEAR(GETDATE())",
         'SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log" WHERE DATE_TRUNC(\'month\',"Date")=DATE_TRUNC(\'month\',CURRENT_DATE)',
         "collections_mtd"
     )
@@ -79,13 +79,13 @@ def monthly_volume(
     data, source = dual_query(
         db_mssql, db_pg,
         mssql_query="""
-            SELECT FORMAT([Transaction Date],'MMM yyyy') AS month,
-                   DATEFROMPARTS(YEAR([Transaction Date]),MONTH([Transaction Date]),1) AS month_sort,
+            SELECT FORMAT(Transaction_Date,'MMM yyyy') AS month,
+                   DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1) AS month_sort,
                    ISNULL(SUM(Amount),0) AS volume,
                    COUNT(*) AS txn_count
-            FROM dbo.Transactions
-            GROUP BY DATEFROMPARTS(YEAR([Transaction Date]),MONTH([Transaction Date]),1),
-                     FORMAT([Transaction Date],'MMM yyyy')
+            FROM dbo.Transaction_Listing
+            GROUP BY DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1),
+                     FORMAT(Transaction_Date,'MMM yyyy')
             ORDER BY month_sort
         """,
         pg_query="""
@@ -110,12 +110,13 @@ def new_accounts_trend(
     data, source = dual_query(
         db_mssql, db_pg,
         mssql_query="""
-            SELECT FORMAT([Account Created Date],'MMM yyyy') AS month,
-                   DATEFROMPARTS(YEAR([Account Created Date]),MONTH([Account Created Date]),1) AS month_sort,
-                   COUNT(DISTINCT [CIF Number]) AS new_accounts
-            FROM dbo.Accounts
-            GROUP BY DATEFROMPARTS(YEAR([Account Created Date]),MONTH([Account Created Date]),1),
-                     FORMAT([Account Created Date],'MMM yyyy')
+            SELECT FORMAT(Account_Created,'MMM yyyy') AS month,
+                   DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1) AS month_sort,
+                   COUNT(DISTINCT CIF) AS new_accounts
+            FROM dbo.Contact
+            WHERE Account_Created IS NOT NULL
+            GROUP BY DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1),
+                     FORMAT(Account_Created,'MMM yyyy')
             ORDER BY month_sort
         """,
         pg_query="""
@@ -123,6 +124,7 @@ def new_accounts_trend(
                    DATE_TRUNC('month',"Account Created Date") AS month_sort,
                    COUNT(DISTINCT "CIF Number") AS new_accounts
             FROM "Accounts"
+            WHERE "Account Created Date" IS NOT NULL
             GROUP BY DATE_TRUNC('month',"Account Created Date")
             ORDER BY month_sort
         """
@@ -138,8 +140,8 @@ def cards_by_product(
 ):
     data, source = dual_query(
         db_mssql, db_pg,
-        mssql_query="SELECT [Product Name], COUNT(*) AS count FROM dbo.Products GROUP BY [Product Name] ORDER BY count DESC",
-        pg_query='SELECT "Product Name", COUNT(*) AS count FROM "Products" GROUP BY "Product Name" ORDER BY count DESC'
+        mssql_query="SELECT Product_Name, COUNT(*) AS count FROM dbo.Account WHERE Product_Name IS NOT NULL GROUP BY Product_Name ORDER BY count DESC",
+        pg_query='SELECT "Product Name", COUNT(*) AS count FROM "Products" WHERE "Product Name" IS NOT NULL GROUP BY "Product Name" ORDER BY count DESC'
     )
     return {"data": data, "data_source": source}
 
@@ -152,7 +154,7 @@ def txn_by_type(
 ):
     data, source = dual_query(
         db_mssql, db_pg,
-        mssql_query="SELECT TOP 10 Description, COUNT(*) AS count, ISNULL(SUM(Amount),0) AS volume FROM dbo.Transactions GROUP BY Description ORDER BY count DESC",
-        pg_query='SELECT "Description", COUNT(*) AS count, COALESCE(SUM("Amount"),0) AS volume FROM "Transactions" GROUP BY "Description" ORDER BY count DESC LIMIT 10'
+        mssql_query="SELECT TOP 10 Description, COUNT(*) AS count, ISNULL(SUM(Amount),0) AS volume FROM dbo.Transaction_Listing WHERE Description IS NOT NULL GROUP BY Description ORDER BY count DESC",
+        pg_query='SELECT "Description", COUNT(*) AS count, COALESCE(SUM("Amount"),0) AS volume FROM "Transactions" WHERE "Description" IS NOT NULL GROUP BY "Description" ORDER BY count DESC LIMIT 10'
     )
     return {"data": data, "data_source": source}

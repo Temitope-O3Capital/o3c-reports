@@ -37,15 +37,70 @@ MSSQL_TRUSTED  = os.getenv("MSSQL_TRUSTED", "no").lower() == "yes"
 
 PG_URL = os.getenv("PG_URL", "")
 
-# Table mapping: MSSQL source → Railway PostgreSQL target
+# Table mapping: MSSQL source → Supabase target with explicit column aliasing
+# This normalises actual Sage CRM column names to the expected dashboard column names.
 TABLES = [
-    {"mssql": "dbo.Accounts",            "pg": '"Accounts"'},
-    {"mssql": "dbo.Products",            "pg": '"Products"'},
-    {"mssql": "dbo.Transactions",        "pg": '"Transactions"'},
-    {"mssql": "dbo.MonthlyActivity",     "pg": '"Monthly Activity"'},
-    {"mssql": "dbo.CollectionsLog",      "pg": '"Collections Log"'},
-    {"mssql": "dbo.CIFTable",            "pg": '"CIF Table"'},
-    {"mssql": "dbo.RecoveryMasterSheet", "pg": '"Recovery Master Sheet"'},
+    {
+        "mssql": "dbo.Contact",
+        "pg": '"Accounts"',
+        "select": """
+            SELECT
+                CIF                  AS "CIF Number",
+                Account_Created      AS "Account Created Date",
+                First_Name           AS "First Name",
+                Last_Name            AS "Last Name",
+                Full_Address         AS "Full Address",
+                Birthday,
+                Email,
+                Job_Title            AS "Job Title",
+                State_               AS "State",
+                City
+            FROM dbo.Contact
+        """
+    },
+    {
+        "mssql": "dbo.Account",
+        "pg": '"Products"',
+        "select": """
+            SELECT
+                CIF_Number           AS "CIF Number",
+                Name_On_Card         AS "Name On Card",
+                Account_Manager_txt  AS "Account Manager",
+                Product_Name         AS "Product Name",
+                Status               AS "Account Status",
+                Account_Created_Date AS "Account Created Date"
+            FROM dbo.Account
+        """
+    },
+    {
+        "mssql": "dbo.Transaction_Listing",
+        "pg": '"Transactions"',
+        "select": """
+            SELECT
+                Transaction_Date AS "Transaction Date",
+                Amount,
+                Description,
+                Merchant_Name,
+                CIF              AS "CIF Number",
+                Product_Name     AS "Product Name"
+            FROM dbo.Transaction_Listing
+        """
+    },
+    {
+        "mssql": "dbo.o3_loan_Repayment",
+        "pg": '"Collections Log"',
+        "select": """
+            SELECT
+                r.Repayment_Date     AS "Date",
+                a.CIF_Number         AS "CIF",
+                r.Rn_Create_User     AS "Agent",
+                r.Amount,
+                NULL                 AS "Mode Of Payment",
+                r.Comments           AS "Payment Receipt"
+            FROM dbo.o3_loan_Repayment r
+            LEFT JOIN dbo.Account a ON r.Loan_Account = a.Account_Id
+        """
+    },
 ]
 
 # ── MSSQL connection ───────────────────────────────────────────────────────────
@@ -70,12 +125,13 @@ def get_pg_conn():
 
 
 # ── Sync a single table ────────────────────────────────────────────────────────
-def sync_table(ms_conn, pg_conn, mssql_table: str, pg_table: str) -> int:
+def sync_table(ms_conn, pg_conn, mssql_table: str, pg_table: str, select_sql: str = None) -> int:
     log.info(f"Syncing {mssql_table} → {pg_table}")
     ms_cur = ms_conn.cursor()
     pg_cur = pg_conn.cursor()
 
-    ms_cur.execute(f"SELECT * FROM {mssql_table}")
+    query = select_sql.strip() if select_sql else f"SELECT * FROM {mssql_table}"
+    ms_cur.execute(query)
     cols = [desc[0] for desc in ms_cur.description]
     rows = ms_cur.fetchall()
 
@@ -109,7 +165,7 @@ def run_sync():
 
     for table in TABLES:
         try:
-            count = sync_table(ms_conn, pg_conn, table["mssql"], table["pg"])
+            count = sync_table(ms_conn, pg_conn, table["mssql"], table["pg"], table.get("select"))
             results[table["mssql"]] = count
         except Exception as e:
             log.error(f"Failed to sync {table['mssql']}: {e}")

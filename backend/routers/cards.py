@@ -56,34 +56,33 @@ def cards_kpis(
         kpis[key] = int(val) if val else 0
         sources.append(src)
 
-    ct_ms = f" AND [Product Name]='{card_type}'" if card_type else ""
+    ct_ms = f" AND Product_Name='{card_type}'" if card_type else ""
     ct_pg = f" AND \"Product Name\"='{card_type}'" if card_type else ""
 
-    q(f"SELECT COUNT(*) AS val FROM dbo.Products WHERE 1=1{ct_ms}",
+    q(f"SELECT COUNT(*) AS val FROM dbo.Account WHERE 1=1{ct_ms}",
       f"SELECT COUNT(*) AS val FROM \"Products\" WHERE 1=1{ct_pg}",
       "total_issued")
-    q(f"SELECT COUNT(*) AS val FROM dbo.Products WHERE [Account Status]='Open'{ct_ms}",
-      f"SELECT COUNT(*) AS val FROM \"Products\" WHERE \"Account Status\"='Open'{ct_pg}",
+    q(f"SELECT COUNT(*) AS val FROM dbo.Account WHERE Status IN ('Open','Active'){ct_ms}",
+      f"SELECT COUNT(*) AS val FROM \"Products\" WHERE \"Account Status\" IN ('Open','Active'){ct_pg}",
       "active")
-    q(f"SELECT COUNT(*) AS val FROM dbo.Products WHERE [Account Status]!='Open'{ct_ms}",
-      f"SELECT COUNT(*) AS val FROM \"Products\" WHERE \"Account Status\"!='Open'{ct_pg}",
+    q(f"SELECT COUNT(*) AS val FROM dbo.Account WHERE Status NOT IN ('Open','Active'){ct_ms}",
+      f"SELECT COUNT(*) AS val FROM \"Products\" WHERE \"Account Status\" NOT IN ('Open','Active'){ct_pg}",
       "inactive")
 
-    for p in ["Prepaid", "Credit", "International"]:
-        q(f"SELECT COUNT(*) AS val FROM dbo.Products WHERE [Product Name]='{p}'{ct_ms}",
+    for p in ["PREP", "Amex Naira", "Amex USD", "Classic Accounts"]:
+        q(f"SELECT COUNT(*) AS val FROM dbo.Account WHERE Product_Name='{p}'{ct_ms}",
           f"SELECT COUNT(*) AS val FROM \"Products\" WHERE \"Product Name\"='{p}'{ct_pg}",
-          p.lower())
+          p.lower().replace(" ", "_"))
 
     kpis["activation_rate"] = round(kpis["active"] / kpis["total_issued"] * 100, 1) if kpis["total_issued"] > 0 else 0
 
-    # Unique merchants filtered by date range (join Products → Transactions)
-    dtf_ms   = _date_filter_ms("t.[Transaction Date]", date_from, date_to)
+    dtf_ms   = _date_filter_ms("t.Transaction_Date", date_from, date_to)
     dtf_pg   = _date_filter_pg('t."Transaction Date"', date_from, date_to)
-    pn_ms    = ct_ms.replace("[Product Name]", "p.[Product Name]")
-    pn_pg    = ct_pg.replace('"Product Name"', 'p."Product Name"')
+    pn_ms    = f" AND p.Product_Name='{card_type}'" if card_type else ""
+    pn_pg    = f" AND p.\"Product Name\"='{card_type}'" if card_type else ""
     merch_ms = (
         "SELECT COUNT(DISTINCT t.Merchant_Name) AS val"
-        " FROM dbo.Transactions t JOIN dbo.Products p ON t.[CIF Number]=p.[CIF Number]"
+        " FROM dbo.Transaction_Listing t JOIN dbo.Account p ON t.CIF=p.CIF_Number"
         " WHERE t.Merchant_Name IS NOT NULL AND t.Merchant_Name!=''"
         + dtf_ms + pn_ms
     )
@@ -103,8 +102,8 @@ def by_product(
     db_pg=Depends(get_db_pg), db_mssql=Depends(get_db_mssql), user=Depends(ACCESS)
 ):
     data, src = dual_query(db_mssql, db_pg,
-        "SELECT [Product Name], COUNT(*) AS count FROM dbo.Products GROUP BY [Product Name] ORDER BY count DESC",
-        'SELECT "Product Name", COUNT(*) AS count FROM "Products" GROUP BY "Product Name" ORDER BY count DESC')
+        "SELECT Product_Name, COUNT(*) AS count FROM dbo.Account WHERE Product_Name IS NOT NULL GROUP BY Product_Name ORDER BY count DESC",
+        'SELECT "Product Name", COUNT(*) AS count FROM "Products" WHERE "Product Name" IS NOT NULL GROUP BY "Product Name" ORDER BY count DESC')
     return {"data": data, "data_source": src}
 
 
@@ -113,7 +112,7 @@ def by_status(
     db_pg=Depends(get_db_pg), db_mssql=Depends(get_db_mssql), user=Depends(ACCESS)
 ):
     data, src = dual_query(db_mssql, db_pg,
-        "SELECT [Account Status], COUNT(*) AS count FROM dbo.Products GROUP BY [Account Status] ORDER BY count DESC",
+        "SELECT Status, COUNT(*) AS count FROM dbo.Account GROUP BY Status ORDER BY count DESC",
         'SELECT "Account Status", COUNT(*) AS count FROM "Products" GROUP BY "Account Status" ORDER BY count DESC')
     return {"data": data, "data_source": src}
 
@@ -129,16 +128,16 @@ def volume_by_type(
 ):
     date_from = _validate_date(date_from, "date_from")
     date_to   = _validate_date(date_to,   "date_to")
-    dtf_ms = _date_filter_ms("t.[Transaction Date]", date_from, date_to)
+    dtf_ms = _date_filter_ms("t.Transaction_Date", date_from, date_to)
     dtf_pg = _date_filter_pg('t."Transaction Date"', date_from, date_to)
-    ct_ms  = f" AND p.[Product Name]='{card_type}'" if card_type else ""
+    ct_ms  = f" AND p.Product_Name='{card_type}'" if card_type else ""
     ct_pg  = f" AND p.\"Product Name\"='{card_type}'" if card_type else ""
 
     vbt_ms = (
-        "SELECT p.[Product Name], ISNULL(SUM(t.Amount),0) AS volume, COUNT(t.Amount) AS txn_count"
-        " FROM dbo.Products p JOIN dbo.Transactions t ON p.[CIF Number]=t.[CIF Number]"
+        "SELECT p.Product_Name, ISNULL(SUM(t.Amount),0) AS volume, COUNT(t.Amount) AS txn_count"
+        " FROM dbo.Account p JOIN dbo.Transaction_Listing t ON p.CIF_Number=t.CIF"
         " WHERE 1=1" + dtf_ms + ct_ms +
-        " GROUP BY p.[Product Name] ORDER BY volume DESC"
+        " GROUP BY p.Product_Name ORDER BY volume DESC"
     )
     vbt_pg = (
         'SELECT p."Product Name", COALESCE(SUM(t."Amount"),0) AS volume, COUNT(t."Amount") AS txn_count'

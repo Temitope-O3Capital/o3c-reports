@@ -35,22 +35,15 @@ CREATE TABLE IF NOT EXISTS "Accounts" (
 );
 CREATE TABLE IF NOT EXISTS "Products" (
   "CIF Number" TEXT, "Name On Card" TEXT, "Account Manager" TEXT,
-  "Product Name" TEXT, "Account Status" TEXT
+  "Product Name" TEXT, "Account Status" TEXT, "Account Created Date" TIMESTAMPTZ
 );
 CREATE TABLE IF NOT EXISTS "Transactions" (
   "Transaction Date" TIMESTAMPTZ, "Amount" NUMERIC,
-  "Description" TEXT, "Merchant_Name" TEXT, "CIF Number" TEXT
-);
-CREATE TABLE IF NOT EXISTS "Monthly Activity" (
-  "CIF Number" TEXT, "ActivityMonth" TIMESTAMPTZ,
-  "TxnCount" INTEGER, "TotalSpend" NUMERIC
+  "Description" TEXT, "Merchant_Name" TEXT, "CIF Number" TEXT, "Product Name" TEXT
 );
 CREATE TABLE IF NOT EXISTS "Collections Log" (
   "Date" TIMESTAMPTZ, "CIF" TEXT, "Agent" TEXT, "Amount" NUMERIC,
   "Mode Of Payment" TEXT, "Payment Receipt" TEXT
-);
-CREATE TABLE IF NOT EXISTS "CIF Table" (
-  "CIF Number" TEXT, "Cohort Date" TIMESTAMPTZ, "Cohort Label" TEXT
 );
 CREATE TABLE IF NOT EXISTS "Recovery Master Sheet" (
   "CIF Number" TEXT, "Recovery Date" TIMESTAMPTZ, "Recovery Amount" NUMERIC,
@@ -63,10 +56,11 @@ CREATE INDEX IF NOT EXISTS idx_coll_date     ON "Collections Log" ("Date");
 CREATE INDEX IF NOT EXISTS idx_recovery_date ON "Recovery Master Sheet" ("Recovery Date");
 CREATE INDEX IF NOT EXISTS idx_prod_status   ON "Products" ("Account Status");
 CREATE INDEX IF NOT EXISTS idx_prod_name     ON "Products" ("Product Name");
+CREATE INDEX IF NOT EXISTS idx_prod_created  ON "Products" ("Account Created Date");
 CREATE INDEX IF NOT EXISTS idx_coll_agent    ON "Collections Log" ("Agent");
 CREATE INDEX IF NOT EXISTS idx_rec_method    ON "Recovery Master Sheet" ("Recovery Method");
-CREATE INDEX IF NOT EXISTS idx_ma_month      ON "Monthly Activity" ("ActivityMonth");
-CREATE INDEX IF NOT EXISTS idx_cif_cohort    ON "CIF Table" ("Cohort Date");
+ALTER TABLE "Products" ADD COLUMN IF NOT EXISTS "Account Created Date" TIMESTAMPTZ;
+ALTER TABLE "Transactions" ADD COLUMN IF NOT EXISTS "Product Name" TEXT;
 INSERT INTO o3c_users (email, password_hash, full_name, role, department)
 VALUES (
   'admin@o3cards.com',
