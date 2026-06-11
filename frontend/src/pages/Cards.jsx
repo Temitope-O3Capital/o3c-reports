@@ -36,7 +36,7 @@ function StatusBadge({ status }) {
   )
 }
 
-/* ── KPI card (DM Mono, consistent with EOD) ── */
+/* ── KPI card ── */
 function KPI({ label, value, icon, accent = '#0E2841', sub, tooltip }) {
   return (
     <div className="card p-5">

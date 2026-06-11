@@ -532,16 +532,19 @@ function ResetPasswordModal({ user, onDone, onClose }) {
    ═══════════════════════════════════════════════════════════════ */
 
 export default function Admin() {
-  const [users,        setUsers]        = useState([])
-  const [customRoles,  setCustomRoles]  = useState([])
-  const [loading,      setLoading]      = useState(true)
-  const [error,        setError]        = useState(null)
-  const [modal,        setModal]        = useState(null)
-  const [deleteTarget, setDeleteTarget] = useState(null)
-  const [resetTarget,  setResetTarget]  = useState(null)
-  const [deleting,     setDeleting]     = useState(false)
-  const [search,       setSearch]       = useState('')
-  const [tempPwBanner, setTempPwBanner] = useState(null)
+  const [users,          setUsers]          = useState([])
+  const [customRoles,    setCustomRoles]    = useState([])
+  const [loading,        setLoading]        = useState(true)
+  const [error,          setError]          = useState(null)
+  const [modal,          setModal]          = useState(null)
+  const [deleteTarget,   setDeleteTarget]   = useState(null)
+  const [resetTarget,    setResetTarget]    = useState(null)
+  const [deleting,       setDeleting]       = useState(false)
+  const [search,         setSearch]         = useState('')
+  const [tempPwBanner,   setTempPwBanner]   = useState(null)
+  const [activity,       setActivity]       = useState([])
+  const [activityLoad,   setActivityLoad]   = useState(false)
+  const [activitySearch, setActivitySearch] = useState('')
 
   async function loadUsers() {
     setLoading(true); setError(null)
@@ -559,7 +562,17 @@ export default function Admin() {
     }
   }
 
-  useEffect(() => { loadUsers() }, [])
+  async function loadActivity() {
+    setActivityLoad(true)
+    try {
+      const rows = await apiFetch('/api/admin/activity?limit=500')
+      setActivity(rows)
+    } catch { /* non-critical */ } finally {
+      setActivityLoad(false)
+    }
+  }
+
+  useEffect(() => { loadUsers(); loadActivity() }, [])
 
   async function handleDelete() {
     setDeleting(true)
@@ -766,6 +779,89 @@ export default function Admin() {
                           <span className="material-symbols-rounded text-[16px]">delete</span>
                         </button>
                       </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Staff Activity */}
+      <div className="card mt-4 overflow-hidden">
+        <div className="flex items-center justify-between gap-4 px-5 py-4"
+          style={{ borderBottom: '1px solid rgb(var(--border) / 0.08)' }}>
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-rounded text-[18px]" style={{ color: 'rgb(var(--navy))' }}>monitoring</span>
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Staff Activity</p>
+            <span className="px-1.5 py-0.5 text-xs font-normal rounded-full"
+              style={{ background: 'rgb(var(--bg-subtle))', color: 'rgb(var(--fg-3))' }}>
+              {activity.length}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <span className="material-symbols-rounded text-[15px] pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2"
+                style={{ color: 'rgb(var(--fg-3))' }}>search</span>
+              <input value={activitySearch} onChange={e => setActivitySearch(e.target.value)}
+                placeholder="Filter by user or page…" className="form-input pl-8 py-1.5 text-xs w-48" />
+            </div>
+            <button onClick={loadActivity} className="icon-btn" title="Refresh">
+              <span className="material-symbols-rounded text-[16px]">refresh</span>
+            </button>
+          </div>
+        </div>
+        {activityLoad ? (
+          <div className="flex items-center justify-center gap-3 py-10" style={{ color: 'rgb(var(--fg-3))' }}>
+            <div className="spinner" /><span className="text-sm">Loading activity…</span>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Page</th>
+                  <th>Action</th>
+                  <th>Detail</th>
+                  <th>IP</th>
+                  <th>When</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activity.filter(a => {
+                  const q = activitySearch.toLowerCase()
+                  return !q || a.full_name?.toLowerCase().includes(q) || a.page?.toLowerCase().includes(q) || a.action?.toLowerCase().includes(q)
+                }).length === 0 ? (
+                  <tr><td colSpan={6}>
+                    <div className="flex flex-col items-center justify-center py-10 gap-2" style={{ color: 'rgb(var(--fg-3))' }}>
+                      <span className="material-symbols-rounded text-[36px] opacity-30">monitoring</span>
+                      <p className="text-sm">No activity recorded yet</p>
+                    </div>
+                  </td></tr>
+                ) : activity.filter(a => {
+                  const q = activitySearch.toLowerCase()
+                  return !q || a.full_name?.toLowerCase().includes(q) || a.page?.toLowerCase().includes(q) || a.action?.toLowerCase().includes(q)
+                }).slice(0, 200).map(a => (
+                  <tr key={a.id}>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <Avatar name={a.full_name} email={a.email} />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{a.full_name || '—'}</p>
+                          <p className="text-xs text-slate-400 truncate">{a.email || ''}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <span className="badge badge-grey capitalize text-xs">{a.page || '—'}</span>
+                    </td>
+                    <td className="text-xs capitalize" style={{ color: 'rgb(var(--fg-2))' }}>{a.action || 'view'}</td>
+                    <td className="text-xs max-w-[200px] truncate" style={{ color: 'rgb(var(--fg-3))' }} title={a.detail}>{a.detail || '—'}</td>
+                    <td className="text-xs font-mono" style={{ color: 'rgb(var(--fg-3))' }}>{a.ip || '—'}</td>
+                    <td className="text-xs whitespace-nowrap" style={{ color: 'rgb(var(--fg-3))' }}>
+                      {a.ts ? new Date(a.ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
                     </td>
                   </tr>
                 ))}
