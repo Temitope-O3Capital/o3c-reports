@@ -72,8 +72,10 @@ SUPABASE_URL = os.getenv(
 pg_engine = create_engine(
     SUPABASE_URL,
     pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
+    pool_size=3,
+    max_overflow=5,
+    pool_timeout=10,   # fail fast instead of queuing for 30s
+    pool_recycle=300,  # recycle stale connections every 5 min
 )
 PGSession = sessionmaker(bind=pg_engine, autocommit=False, autoflush=False)
 log.info("Supabase PostgreSQL engine created")

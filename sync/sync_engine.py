@@ -139,6 +139,9 @@ def _pg_type(type_code) -> str:
     return "TEXT"
 
 
+BATCH_COMMIT_SIZE = 10_000  # commit every N rows so the DB isn't locked for minutes
+
+
 def sync_table(ms_conn, pg_conn, mssql_table: str, pg_table: str, select_sql: str = None) -> int:
     log.info(f"Syncing {mssql_table} → {pg_table}")
     ms_cur = ms_conn.cursor()
@@ -150,19 +153,25 @@ def sync_table(ms_conn, pg_conn, mssql_table: str, pg_table: str, select_sql: st
     col_types = [_pg_type(desc[1]) for desc in ms_cur.description]
     rows = ms_cur.fetchall()
 
-    # Drop and recreate so schema always matches the MSSQL source
+    # Rebuild the table with the current MSSQL schema — commit DDL immediately
     col_defs = ", ".join(f'"{n}" {t}' for n, t in zip(col_names, col_types))
     pg_cur.execute(f'DROP TABLE IF EXISTS {pg_table}')
     pg_cur.execute(f'CREATE TABLE {pg_table} ({col_defs})')
+    pg_conn.commit()  # DDL committed — table exists and is empty
 
     if rows:
-        pg_cols = ", ".join(f'"{c}"' for c in col_names)
+        pg_cols    = ", ".join(f'"{c}"' for c in col_names)
         placeholders = ", ".join(["%s"] * len(col_names))
-        data = [tuple(row) for row in rows]
         insert_sql = f'INSERT INTO {pg_table} ({pg_cols}) VALUES ({placeholders})'
-        psycopg2.extras.execute_batch(pg_cur, insert_sql, data, page_size=500)
+        data = [tuple(row) for row in rows]
 
-    pg_conn.commit()
+        # Insert in batches — each batch commits so the DB isn't locked for minutes
+        for i in range(0, len(data), BATCH_COMMIT_SIZE):
+            batch = data[i:i + BATCH_COMMIT_SIZE]
+            psycopg2.extras.execute_batch(pg_cur, insert_sql, batch, page_size=500)
+            pg_conn.commit()
+            log.info(f"    {i + len(batch):,} / {len(data):,} rows → {pg_table}")
+
     log.info(f"  → {len(rows):,} rows synced to {pg_table}")
     return len(rows)
 
