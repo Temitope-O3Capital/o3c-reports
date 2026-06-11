@@ -70,7 +70,9 @@ TABLES = [
                 Account_Manager_txt  AS "Account Manager",
                 Product_Name         AS "Product Name",
                 Status               AS "Account Status",
-                Account_Created_Date AS "Account Created Date"
+                Account_Created_Date AS "Account Created Date",
+                Card_Product         AS "Card Product",
+                Card_Program         AS "Card Program"
             FROM dbo.Account
         """
     },
