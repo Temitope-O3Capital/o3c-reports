@@ -341,14 +341,14 @@ export function LineChartCard({ title, subtitle, data = [], xKey, lines = [], he
    BAR CHART CARD
    ═══════════════════════════════════════════════════════════════ */
 
-export function BarChartCard({ title, subtitle, data = [], xKey, bars = [], height = 240, currency = false }) {
+export function BarChartCard({ title, subtitle, data = [], xKey, bars = [], height = 240, currency = false, stacked = false }) {
   const formatter = currency ? fmt : fmtNum
   const grid = useGrid()
   if (!data.length) return <ChartCard title={title} subtitle={subtitle}><EmptyChart height={height} /></ChartCard>
   return (
     <ChartCard title={title} subtitle={subtitle}>
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} barGap={4}>
+        <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} barGap={stacked ? 0 : 4}>
           <CartesianGrid strokeDasharray="0" stroke={grid} vertical={false} />
           <XAxis dataKey={xKey} tick={AXIS} tickLine={false} axisLine={false} dy={8} />
           <YAxis tick={AXIS} tickLine={false} axisLine={false} tickFormatter={formatter} dx={-4} width={60} />
@@ -356,7 +356,10 @@ export function BarChartCard({ title, subtitle, data = [], xKey, bars = [], heig
           {bars.length > 1 && <Legend wrapperStyle={{ fontSize: 11, fontFamily: FONT }} />}
           {bars.map((b, i) => (
             <Bar key={b.key} dataKey={b.key} name={b.label || b.key}
-              fill={b.color || PALETTE[i]} radius={[4, 4, 0, 0]} maxBarSize={40} />
+              fill={b.color || PALETTE[i]}
+              radius={stacked ? (i === bars.length - 1 ? [4,4,0,0] : [0,0,0,0]) : [4,4,0,0]}
+              maxBarSize={stacked ? 60 : 40}
+              stackId={stacked ? 'stack' : undefined} />
           ))}
         </BarChart>
       </ResponsiveContainer>
