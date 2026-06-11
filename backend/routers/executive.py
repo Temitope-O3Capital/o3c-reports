@@ -121,15 +121,15 @@ def executive_summary(
 
     # ── Collections ──────────────────────────────────────────────────────────
     coll_curr = S(
-        f"SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.CollectionsLog WHERE [Date] BETWEEN '{s(cs)}' AND '{s(ce)}'",
+        f"SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.o3_loan_Repayment WHERE Repayment_Date BETWEEN '{s(cs)}' AND '{s(ce)}'",
         f'SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log" WHERE "Date" BETWEEN \'{s(cs)}\' AND \'{s(ce)}\''
     )
     coll_prev = S(
-        f"SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.CollectionsLog WHERE [Date] BETWEEN '{s(ps)}' AND '{s(pe)}'",
+        f"SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.o3_loan_Repayment WHERE Repayment_Date BETWEEN '{s(ps)}' AND '{s(pe)}'",
         f'SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log" WHERE "Date" BETWEEN \'{s(ps)}\' AND \'{s(pe)}\''
     )
     coll_count_curr = S(
-        f"SELECT COUNT(*) AS val FROM dbo.CollectionsLog WHERE [Date] BETWEEN '{s(cs)}' AND '{s(ce)}'",
+        f"SELECT COUNT(*) AS val FROM dbo.o3_loan_Repayment WHERE Repayment_Date BETWEEN '{s(cs)}' AND '{s(ce)}'",
         f'SELECT COUNT(*) AS val FROM "Collections Log" WHERE "Date" BETWEEN \'{s(cs)}\' AND \'{s(ce)}\''
     )
 
@@ -145,42 +145,42 @@ def executive_summary(
 
     # ── Transactions ─────────────────────────────────────────────────────────
     txn_vol_curr = S(
-        f"SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.Transactions WHERE [Transaction Date] BETWEEN '{s(cs)}' AND '{s(ce)}'",
+        f"SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.Transaction_Listing WHERE Transaction_Date BETWEEN '{s(cs)}' AND '{s(ce)}'",
         f'SELECT COALESCE(SUM("Amount"),0) AS val FROM "Transactions" WHERE "Transaction Date" BETWEEN \'{s(cs)}\' AND \'{s(ce)}\''
     )
     txn_vol_prev = S(
-        f"SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.Transactions WHERE [Transaction Date] BETWEEN '{s(ps)}' AND '{s(pe)}'",
+        f"SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.Transaction_Listing WHERE Transaction_Date BETWEEN '{s(ps)}' AND '{s(pe)}'",
         f'SELECT COALESCE(SUM("Amount"),0) AS val FROM "Transactions" WHERE "Transaction Date" BETWEEN \'{s(ps)}\' AND \'{s(pe)}\''
     )
     txn_cnt_curr = S(
-        f"SELECT COUNT(*) AS val FROM dbo.Transactions WHERE [Transaction Date] BETWEEN '{s(cs)}' AND '{s(ce)}'",
+        f"SELECT COUNT(*) AS val FROM dbo.Transaction_Listing WHERE Transaction_Date BETWEEN '{s(cs)}' AND '{s(ce)}'",
         f'SELECT COUNT(*) AS val FROM "Transactions" WHERE "Transaction Date" BETWEEN \'{s(cs)}\' AND \'{s(ce)}\''
     )
     txn_cnt_prev = S(
-        f"SELECT COUNT(*) AS val FROM dbo.Transactions WHERE [Transaction Date] BETWEEN '{s(ps)}' AND '{s(pe)}'",
+        f"SELECT COUNT(*) AS val FROM dbo.Transaction_Listing WHERE Transaction_Date BETWEEN '{s(ps)}' AND '{s(pe)}'",
         f'SELECT COUNT(*) AS val FROM "Transactions" WHERE "Transaction Date" BETWEEN \'{s(ps)}\' AND \'{s(pe)}\''
     )
     avg_txn = round(txn_vol_curr / txn_cnt_curr, 2) if txn_cnt_curr > 0 else 0
 
     # ── Customer Acquisition ─────────────────────────────────────────────────
     new_curr = S(
-        f"SELECT COUNT(*) AS val FROM dbo.Accounts WHERE [Account Created Date] BETWEEN '{s(cs)}' AND '{s(ce)}'",
+        f"SELECT COUNT(*) AS val FROM dbo.Contact WHERE Account_Created BETWEEN '{s(cs)}' AND '{s(ce)}'",
         f'SELECT COUNT(*) AS val FROM "Accounts" WHERE "Account Created Date" BETWEEN \'{s(cs)}\' AND \'{s(ce)}\''
     )
     new_prev = S(
-        f"SELECT COUNT(*) AS val FROM dbo.Accounts WHERE [Account Created Date] BETWEEN '{s(ps)}' AND '{s(pe)}'",
+        f"SELECT COUNT(*) AS val FROM dbo.Contact WHERE Account_Created BETWEEN '{s(ps)}' AND '{s(pe)}'",
         f'SELECT COUNT(*) AS val FROM "Accounts" WHERE "Account Created Date" BETWEEN \'{s(ps)}\' AND \'{s(pe)}\''
     )
     total_customers = S(
-        "SELECT COUNT(*) AS val FROM dbo.Accounts",
+        "SELECT COUNT(*) AS val FROM dbo.Contact",
         'SELECT COUNT(*) AS val FROM "Accounts"'
     )
     active_cards = S(
-        "SELECT COUNT(*) AS val FROM dbo.Products WHERE [Account Status]='Open'",
-        'SELECT COUNT(*) AS val FROM "Products" WHERE "Account Status"=\'Open\''
+        "SELECT COUNT(*) AS val FROM dbo.Account WHERE Status IN ('Open','Active')",
+        'SELECT COUNT(*) AS val FROM "Products" WHERE "Account Status" IN (\'Open\',\'Active\')'
     )
     total_cards = S(
-        "SELECT COUNT(*) AS val FROM dbo.Products",
+        "SELECT COUNT(*) AS val FROM dbo.Account",
         'SELECT COUNT(*) AS val FROM "Products"'
     )
     activation_rate = round((active_cards / total_cards) * 100, 1) if total_cards > 0 else 0
@@ -191,20 +191,20 @@ def executive_summary(
         'SELECT COALESCE(SUM("Recovery Amount"),0) AS val FROM "Recovery Master Sheet"'
     )
     total_collected_all = S(
-        'SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.CollectionsLog',
+        'SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.o3_loan_Repayment',
         'SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log"'
     )
     recovery_rate_pct = round((total_recovered_all / total_collected_all) * 100, 1) if total_collected_all > 0 else 0
 
     # ── States covered ───────────────────────────────────────────────────────
     states_count = S(
-        "SELECT COUNT(DISTINCT State) AS val FROM dbo.Accounts WHERE State IS NOT NULL AND State!=''",
+        "SELECT COUNT(DISTINCT State_) AS val FROM dbo.Contact WHERE State_ IS NOT NULL AND State_!=''",
         'SELECT COUNT(DISTINCT "State") AS val FROM "Accounts" WHERE "State" IS NOT NULL AND "State"!=\'\''
     )
 
     # ── Collections monthly trend (last 12 months) ────────────────────────────
     coll_trend = Q(
-        "SELECT FORMAT([Date],'MMM yyyy') AS month, DATEFROMPARTS(YEAR([Date]),MONTH([Date]),1) AS sort_key, ISNULL(SUM(Amount),0) AS collections, COUNT(*) AS count FROM dbo.CollectionsLog WHERE [Date] >= DATEADD(MONTH,-11,DATEFROMPARTS(YEAR(GETDATE()),MONTH(GETDATE()),1)) GROUP BY DATEFROMPARTS(YEAR([Date]),MONTH([Date]),1), FORMAT([Date],'MMM yyyy') ORDER BY sort_key",
+        "SELECT FORMAT(Repayment_Date,'MMM yyyy') AS month, DATEFROMPARTS(YEAR(Repayment_Date),MONTH(Repayment_Date),1) AS sort_key, ISNULL(SUM(Amount),0) AS collections, COUNT(*) AS count FROM dbo.o3_loan_Repayment WHERE Repayment_Date >= DATEADD(MONTH,-11,DATEFROMPARTS(YEAR(GETDATE()),MONTH(GETDATE()),1)) GROUP BY DATEFROMPARTS(YEAR(Repayment_Date),MONTH(Repayment_Date),1), FORMAT(Repayment_Date,'MMM yyyy') ORDER BY sort_key",
         'SELECT TO_CHAR(DATE_TRUNC(\'month\',"Date"),\'Mon YYYY\') AS month, DATE_TRUNC(\'month\',"Date") AS sort_key, COALESCE(SUM("Amount"),0) AS collections, COUNT(*) AS count FROM "Collections Log" WHERE "Date" >= DATE_TRUNC(\'month\',CURRENT_DATE) - INTERVAL \'11 months\' GROUP BY DATE_TRUNC(\'month\',"Date") ORDER BY sort_key'
     )
 
@@ -216,31 +216,31 @@ def executive_summary(
 
     # ── Txn volume monthly trend (last 12 months) ────────────────────────────
     txn_trend = Q(
-        "SELECT FORMAT([Transaction Date],'MMM yyyy') AS month, DATEFROMPARTS(YEAR([Transaction Date]),MONTH([Transaction Date]),1) AS sort_key, ISNULL(SUM(Amount),0) AS volume, COUNT(*) AS txn_count FROM dbo.Transactions WHERE [Transaction Date] >= DATEADD(MONTH,-11,DATEFROMPARTS(YEAR(GETDATE()),MONTH(GETDATE()),1)) GROUP BY DATEFROMPARTS(YEAR([Transaction Date]),MONTH([Transaction Date]),1), FORMAT([Transaction Date],'MMM yyyy') ORDER BY sort_key",
+        "SELECT FORMAT(Transaction_Date,'MMM yyyy') AS month, DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1) AS sort_key, ISNULL(SUM(Amount),0) AS volume, COUNT(*) AS txn_count FROM dbo.Transaction_Listing WHERE Transaction_Date >= DATEADD(MONTH,-11,DATEFROMPARTS(YEAR(GETDATE()),MONTH(GETDATE()),1)) GROUP BY DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1), FORMAT(Transaction_Date,'MMM yyyy') ORDER BY sort_key",
         'SELECT TO_CHAR(DATE_TRUNC(\'month\',"Transaction Date"),\'Mon YYYY\') AS month, DATE_TRUNC(\'month\',"Transaction Date") AS sort_key, COALESCE(SUM("Amount"),0) AS volume, COUNT(*) AS txn_count FROM "Transactions" WHERE "Transaction Date" >= DATE_TRUNC(\'month\',CURRENT_DATE) - INTERVAL \'11 months\' GROUP BY DATE_TRUNC(\'month\',"Transaction Date") ORDER BY sort_key'
     )
 
     # ── New accounts monthly trend (last 12 months) ───────────────────────────
     acq_trend = Q(
-        "SELECT FORMAT([Account Created Date],'MMM yyyy') AS month, DATEFROMPARTS(YEAR([Account Created Date]),MONTH([Account Created Date]),1) AS sort_key, COUNT(*) AS new_accounts FROM dbo.Accounts WHERE [Account Created Date] >= DATEADD(MONTH,-11,DATEFROMPARTS(YEAR(GETDATE()),MONTH(GETDATE()),1)) GROUP BY DATEFROMPARTS(YEAR([Account Created Date]),MONTH([Account Created Date]),1), FORMAT([Account Created Date],'MMM yyyy') ORDER BY sort_key",
+        "SELECT FORMAT(Account_Created,'MMM yyyy') AS month, DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1) AS sort_key, COUNT(*) AS new_accounts FROM dbo.Contact WHERE Account_Created >= DATEADD(MONTH,-11,DATEFROMPARTS(YEAR(GETDATE()),MONTH(GETDATE()),1)) GROUP BY DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1), FORMAT(Account_Created,'MMM yyyy') ORDER BY sort_key",
         'SELECT TO_CHAR(DATE_TRUNC(\'month\',"Account Created Date"),\'Mon YYYY\') AS month, DATE_TRUNC(\'month\',"Account Created Date") AS sort_key, COUNT(*) AS new_accounts FROM "Accounts" WHERE "Account Created Date" >= DATE_TRUNC(\'month\',CURRENT_DATE) - INTERVAL \'11 months\' GROUP BY DATE_TRUNC(\'month\',"Account Created Date") ORDER BY sort_key'
     )
 
     # ── Top states ────────────────────────────────────────────────────────────
     top_states = Q(
-        "SELECT TOP 10 State, COUNT(*) AS count FROM dbo.Accounts WHERE State IS NOT NULL AND State!='' GROUP BY State ORDER BY count DESC",
+        "SELECT TOP 10 State_, COUNT(*) AS count FROM dbo.Contact WHERE State_ IS NOT NULL AND State_!='' GROUP BY State_ ORDER BY count DESC",
         'SELECT "State", COUNT(*) AS count FROM "Accounts" WHERE "State" IS NOT NULL AND "State"!=\'\' GROUP BY "State" ORDER BY count DESC LIMIT 10'
     )
 
     # ── Product mix ───────────────────────────────────────────────────────────
     product_mix = Q(
-        "SELECT [Product Name], COUNT(*) AS count FROM dbo.Products GROUP BY [Product Name] ORDER BY count DESC",
-        'SELECT "Product Name", COUNT(*) AS count FROM "Products" GROUP BY "Product Name" ORDER BY count DESC'
+        "SELECT Product_Name, COUNT(*) AS count FROM dbo.Account WHERE Product_Name IS NOT NULL GROUP BY Product_Name ORDER BY count DESC",
+        'SELECT "Product Name", COUNT(*) AS count FROM "Products" WHERE "Product Name" IS NOT NULL GROUP BY "Product Name" ORDER BY count DESC'
     )
 
     # ── Top collections agents (period) ───────────────────────────────────────
     top_agents = Q(
-        f"SELECT TOP 10 Agent, ISNULL(SUM(Amount),0) AS total, COUNT(*) AS count FROM dbo.CollectionsLog WHERE [Date] BETWEEN '{s(cs)}' AND '{s(ce)}' AND Agent IS NOT NULL AND Agent!='' GROUP BY Agent ORDER BY total DESC",
+        f"SELECT TOP 10 Rn_Create_User AS Agent, ISNULL(SUM(Amount),0) AS total, COUNT(*) AS count FROM dbo.o3_loan_Repayment WHERE Repayment_Date BETWEEN '{s(cs)}' AND '{s(ce)}' AND Rn_Create_User IS NOT NULL AND Rn_Create_User!='' GROUP BY Rn_Create_User ORDER BY total DESC",
         f'SELECT "Agent", COALESCE(SUM("Amount"),0) AS total, COUNT(*) AS count FROM "Collections Log" WHERE "Date" BETWEEN \'{s(cs)}\' AND \'{s(ce)}\' AND "Agent" IS NOT NULL AND "Agent"!=\'\' GROUP BY "Agent" ORDER BY total DESC LIMIT 10'
     )
 

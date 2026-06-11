@@ -74,7 +74,7 @@ def cases(
     df_ms = f" AND CAST(r.[Recovery Date] AS DATE) BETWEEN '{date_from}' AND '{date_to}'" if date_from and date_to else ""
     df_pg = f' AND r."Recovery Date"::date BETWEEN \'{date_from}\' AND \'{date_to}\'' if date_from and date_to else ""
     data, src = dual_query(db_mssql, db_pg,
-        f"SELECT TOP {limit} r.[CIF Number],a.[First Name],a.[Last Name],r.[Recovery Amount],r.[Recovery Method],r.[Legal Stage],r.Agent,r.Status,r.[Recovery Date] FROM dbo.RecoveryMasterSheet r LEFT JOIN dbo.Accounts a ON r.[CIF Number]=a.[CIF Number] WHERE 1=1{df_ms} ORDER BY r.[Recovery Date] DESC",
+        f"SELECT TOP {limit} r.[CIF Number],a.First_Name AS [First Name],a.Last_Name AS [Last Name],r.[Recovery Amount],r.[Recovery Method],r.[Legal Stage],r.Agent,r.Status,r.[Recovery Date] FROM dbo.RecoveryMasterSheet r LEFT JOIN dbo.Contact a ON r.[CIF Number]=a.CIF WHERE 1=1{df_ms} ORDER BY r.[Recovery Date] DESC",
         f'SELECT r."CIF Number",a."First Name",a."Last Name",r."Recovery Amount",r."Recovery Method",r."Legal Stage",r."Agent",r."Status",r."Recovery Date" FROM "Recovery Master Sheet" r LEFT JOIN "Accounts" a ON r."CIF Number"=a."CIF Number" WHERE 1=1{df_pg} ORDER BY r."Recovery Date" DESC LIMIT {limit}')
     return {"data": data, "data_source": src}
 
@@ -89,7 +89,7 @@ def export_csv(
     df_ms = f" AND CAST(r.[Recovery Date] AS DATE) BETWEEN '{date_from}' AND '{date_to}'" if date_from and date_to else ""
     df_pg = f' AND r."Recovery Date"::date BETWEEN \'{date_from}\' AND \'{date_to}\'' if date_from and date_to else ""
     data, _ = dual_query(db_mssql, db_pg,
-        f"SELECT r.[CIF Number],a.[First Name],a.[Last Name],r.[Recovery Amount],r.[Recovery Method],r.[Legal Stage],r.Agent,r.Status,r.[Recovery Date] FROM dbo.RecoveryMasterSheet r LEFT JOIN dbo.Accounts a ON r.[CIF Number]=a.[CIF Number] WHERE 1=1{df_ms} ORDER BY r.[Recovery Date] DESC",
+        f"SELECT r.[CIF Number],a.First_Name AS [First Name],a.Last_Name AS [Last Name],r.[Recovery Amount],r.[Recovery Method],r.[Legal Stage],r.Agent,r.Status,r.[Recovery Date] FROM dbo.RecoveryMasterSheet r LEFT JOIN dbo.Contact a ON r.[CIF Number]=a.CIF WHERE 1=1{df_ms} ORDER BY r.[Recovery Date] DESC",
         f'SELECT r."CIF Number",a."First Name",a."Last Name",r."Recovery Amount",r."Recovery Method",r."Legal Stage",r."Agent",r."Status",r."Recovery Date" FROM "Recovery Master Sheet" r LEFT JOIN "Accounts" a ON r."CIF Number"=a."CIF Number" WHERE 1=1{df_pg} ORDER BY r."Recovery Date" DESC')
 
     def stream():

@@ -12,9 +12,9 @@ function initRange() {
 }
 
 function ModeBadge({ mode }) {
-  const m = (mode || '').toUpperCase()
-  if (m === 'NDD')      return <span className="badge badge-blue">NDD</span>
-  if (m === 'TRANSFER') return <span className="badge badge-green">Transfer</span>
+  const m = (mode || '').toLowerCase()
+  if (m === 'paid')    return <span className="badge badge-green">Paid</span>
+  if (m === 'pending') return <span className="badge badge-grey">Pending</span>
   return <span className="badge badge-grey">{mode || '—'}</span>
 }
 
@@ -111,8 +111,8 @@ export default function Collections({ setDs }) {
         <KpiCard label="Total Collected"   value={fmt(d.total_collected)}      icon="account_balance_wallet" accent="green"  tooltip="Cumulative amount collected in the selected period" />
         <KpiCard label="Collections (MTD)" value={fmt(d.collections_mtd)}      icon="calendar_month"         accent="accent" tooltip="Collections received in the current calendar month" />
         <KpiCard label="Collection Count"  value={fmtNum(d.collection_count)}  icon="tag"                    accent="navy"   tooltip="Number of individual collection events in the selected period" />
-        <KpiCard label="NDD Collections"   value={fmt(d.ndd_collections)}      icon="schedule"               accent="amber"  tooltip="Near-due-date collections" />
-        <KpiCard label="Transfer"          value={fmt(d.transfer_collections)} icon="swap_horiz"             accent="blue"   tooltip="Collections received via bank transfer" />
+        <KpiCard label="Paid"              value={fmt(d.paid_collections)}     icon="check_circle"           accent="green"  tooltip="Repayments marked as paid" />
+        <KpiCard label="Pending"           value={fmt(d.pending_collections)}  icon="schedule"               accent="amber"  tooltip="Repayments not yet marked as paid" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
@@ -125,7 +125,7 @@ export default function Collections({ setDs }) {
             height={260} currency
           />
         </div>
-        <ProgressListCard title="Collections by Mode" data={modes} nameKey="Mode Of Payment" valueKey="total" currency maxItems={6} />
+        <ProgressListCard title="Collections by Status" data={modes} nameKey="payment_status" valueKey="total" currency maxItems={6} />
       </div>
 
       <div className="mt-4">
@@ -154,7 +154,7 @@ export default function Collections({ setDs }) {
                       {[row['First Name'], row['Last Name']].filter(Boolean).join(' ') || '—'}
                     </td>
                     <td className="text-slate-600 dark:text-slate-400">{row.Agent || '—'}</td>
-                    <td><ModeBadge mode={row['Mode Of Payment']} /></td>
+                    <td><ModeBadge mode={row['Mode Of Payment'] || (row.Paid ? 'Paid' : 'Pending')} /></td>
                     <td className="font-mono tabular-nums text-slate-800 dark:text-slate-200 whitespace-nowrap font-semibold">{fmt(row.Amount)}</td>
                     <td className="text-slate-400 text-xs">{row['Payment Receipt'] || '—'}</td>
                   </tr>

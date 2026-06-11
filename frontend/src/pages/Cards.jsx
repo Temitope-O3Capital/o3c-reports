@@ -57,7 +57,7 @@ function KPI({ label, value, icon, accent = '#0E2841', sub, tooltip }) {
   )
 }
 
-const CARD_TYPES = ['Prepaid', 'Credit', 'International']
+const CARD_TYPES = ['PREP', 'Amex Naira', 'Amex USD', 'Classic Accounts']
 
 export default function Cards() {
   const init = initRange()
@@ -153,10 +153,11 @@ export default function Cards() {
       </div>
 
       {/* ── KPIs row 2 ── */}
-      <div className="grid grid-cols-3 gap-4 mt-4">
-        <KPI label="Prepaid"         value={fmtNum(d.prepaid)}       icon="wallet"    accent="#0E2841" tooltip="Naira prepaid card accounts" />
-        <KPI label="Credit"          value={fmtNum(d.credit)}        icon="payments"  accent="#C00000" tooltip="Credit card accounts with revolving credit facility" />
-        <KPI label="International USD" value={fmtNum(d.international)} icon="language" accent="#D97706" tooltip="USD-denominated cards for international transactions" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+        <KPI label="PREP"          value={fmtNum(d.prep)}           icon="wallet"    accent="#0E2841" tooltip="Naira prepaid card accounts (PREP product)" />
+        <KPI label="Amex Naira"    value={fmtNum(d.amex_naira)}     icon="payments"  accent="#C00000" tooltip="Naira-denominated Amex cards" />
+        <KPI label="Amex USD"      value={fmtNum(d.amex_usd)}       icon="language"  accent="#D97706" tooltip="USD-denominated Amex cards for international use" />
+        <KPI label="Classic"       value={fmtNum(d.classic_accounts)} icon="credit_card" accent="#6366F1" tooltip="Classic account cards" />
       </div>
 
       {/* ── Charts row ── */}
