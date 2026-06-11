@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../hooks/useApi.js'
 import { BarChartCard, LineChartCard, DonutCard, fmtNum, pct } from '../components/Charts.jsx'
-import { FilterChip, DropItem } from '../components/FilterBar.jsx'
+import { FilterChip, DropItem, fmtDate } from '../components/FilterBar.jsx'
 import PageShell from '../components/PageShell.jsx'
 
 /* ── Year presets ── */
@@ -94,7 +94,6 @@ export default function CardTrends() {
     if (cardProgram) p.set('card_program', cardProgram)
     const qs = p.toString() ? `?${p}` : ''
 
-    // program + product breakdowns don't take the product filter (they ARE the breakdown)
     const bpParams = new URLSearchParams()
     if (dateFrom)    bpParams.set('date_from', dateFrom)
     if (dateTo)      bpParams.set('date_to',   dateTo)
@@ -106,23 +105,33 @@ export default function CardTrends() {
     if (dateTo)   pgParams.set('date_to',   dateTo)
     const pgQs = pgParams.toString() ? `?${pgParams}` : ''
 
-    try {
-      const [k, is, h, sd, bp, pg] = await Promise.all([
-        apiFetch(`/api/card-trends/kpis${qs}`),
-        apiFetch(`/api/card-trends/issuance-trend${qs}`),
-        apiFetch(`/api/card-trends/portfolio-health${qs}`),
-        apiFetch(`/api/card-trends/status-distribution${qs}`),
-        apiFetch(`/api/card-trends/by-product${bpQs}`),
-        apiFetch(`/api/card-trends/by-program${pgQs}`),
-      ])
-      setKpis(k.data || {}); setDataSource(k.data_source)
-      setIssuance(is.data || [])
-      setHealth(h.data || [])
-      setStatusDist(sd.data || [])
-      setByProduct(bp.data || [])
-      setByProgram(pg.data || [])
-    } catch (e) { setError(e.message) }
-    finally { setLoading(false) }
+    // allSettled so one failing endpoint (e.g. by-program before sync runs) doesn't kill the page
+    const results = await Promise.allSettled([
+      apiFetch(`/api/card-trends/kpis${qs}`),
+      apiFetch(`/api/card-trends/issuance-trend${qs}`),
+      apiFetch(`/api/card-trends/portfolio-health${qs}`),
+      apiFetch(`/api/card-trends/status-distribution${qs}`),
+      apiFetch(`/api/card-trends/by-product${bpQs}`),
+      apiFetch(`/api/card-trends/by-program${pgQs}`),
+    ])
+
+    const ok  = (r, fb = {}) => r.status === 'fulfilled' ? r.value : fb
+    const [k, is, h, sd, bp, pg] = results
+
+    const kData = ok(k, {}).data || {}
+    setKpis(kData)
+    setDataSource(ok(k, {}).data_source || null)
+    setIssuance(ok(is, {}).data   || [])
+    setHealth(ok(h, {}).data      || [])
+    setStatusDist(ok(sd, {}).data || [])
+    setByProduct(ok(bp, {}).data  || [])
+    setByProgram(ok(pg, {}).data  || [])
+
+    const failed = results.filter(r => r.status === 'rejected')
+    if (failed.length === results.length) {
+      setError('Failed to load card data. Please try again.')
+    }
+    setLoading(false)
   }, [dateFrom, dateTo, product, cardProgram])
 
   useEffect(() => { load() }, [load])
@@ -147,15 +156,33 @@ export default function CardTrends() {
       error={error}
       actions={
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Year presets */}
-          <FilterChip label={preset} active={!!dateFrom || !!dateTo} onClear={() => applyPreset(YEAR_PRESETS[0])}>
+          {/* Period — year presets only, no calendar picker conflict */}
+          <div className="flex items-center gap-1 rounded-lg p-0.5" style={{ background: 'rgb(var(--bg-subtle))', border: '1px solid rgb(var(--border) / 0.1)' }}>
             {YEAR_PRESETS.map(p => (
-              <DropItem key={p.label} label={p.label} selected={preset === p.label} onClick={() => applyPreset(p)} />
+              <button
+                key={p.label}
+                onClick={() => applyPreset(p)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-md transition-all"
+                style={preset === p.label ? {
+                  background: 'rgb(var(--bg-surface))',
+                  color: 'rgb(var(--navy))',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
+                } : {
+                  color: 'rgb(var(--fg-3))',
+                  background: 'transparent'
+                }}
+              >
+                {p.label}
+              </button>
             ))}
-          </FilterChip>
+          </div>
 
           {/* Card Program (BLINK) */}
-          <FilterChip label={cardProgram ? cardProgram.slice(0, 20) + '…' : 'Card Program'} active={!!cardProgram} onClear={() => setCardProgram('')}>
+          <FilterChip
+            label={cardProgram ? cardProgram.slice(0, 22) + (cardProgram.length > 22 ? '…' : '') : 'Card Program'}
+            active={!!cardProgram}
+            onClear={() => setCardProgram('')}
+          >
             <DropItem label="All Programs" selected={!cardProgram} onClick={() => setCardProgram('')} />
             {programs.map(pg => (
               <DropItem key={pg} label={pg} selected={cardProgram === pg} onClick={() => setCardProgram(pg)} />
@@ -167,7 +194,7 @@ export default function CardTrends() {
             <DropItem label="All Products" selected={!product} onClick={() => setProduct('')} />
             {byProduct.map(r => {
               const n = r['Product Name'] || r.Product_Name || ''
-              return <DropItem key={n} label={n} selected={product === n} onClick={() => setProduct(n)} />
+              return n ? <DropItem key={n} label={n} selected={product === n} onClick={() => setProduct(n)} /> : null
             })}
           </FilterChip>
         </div>

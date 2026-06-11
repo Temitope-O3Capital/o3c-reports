@@ -174,22 +174,25 @@ def by_program(
 ):
     date_from = _vd(date_from, "date_from"); date_to = _vd(date_to, "date_to")
     fms, fpg = _filters(None, None, date_from, date_to)
-    data, src = dual_query(db_mssql, db_pg,
-        f"""SELECT Card_Product AS program,
-               COUNT(*) AS total,
-               SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END) AS active,
-               SUM(CASE WHEN Status NOT IN ('Open','Active') THEN 1 ELSE 0 END) AS inactive,
-               ROUND(100.0 * SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END) / COUNT(*), 1) AS activation_rate
-            FROM dbo.Account WHERE Card_Product IS NOT NULL AND Card_Product != ''{fms}
-            GROUP BY Card_Product ORDER BY total DESC""",
-        f"""SELECT "Card Product" AS program,
-               COUNT(*) AS total,
-               SUM(CASE WHEN "Account Status" IN ('Open','Active') THEN 1 ELSE 0 END) AS active,
-               SUM(CASE WHEN "Account Status" NOT IN ('Open','Active') THEN 1 ELSE 0 END) AS inactive,
-               ROUND(100.0 * SUM(CASE WHEN "Account Status" IN ('Open','Active') THEN 1 ELSE 0 END) / COUNT(*), 1) AS activation_rate
-            FROM "Products" WHERE "Card Product" IS NOT NULL AND "Card Product" != ''{fpg}
-            GROUP BY "Card Product" ORDER BY total DESC""")
-    return {"data": data, "data_source": src}
+    try:
+        data, src = dual_query(db_mssql, db_pg,
+            f"""SELECT Card_Product AS program,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END) AS active,
+                   SUM(CASE WHEN Status NOT IN ('Open','Active') THEN 1 ELSE 0 END) AS inactive,
+                   ROUND(100.0 * SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END) / COUNT(*), 1) AS activation_rate
+                FROM dbo.Account WHERE Card_Product IS NOT NULL AND Card_Product != ''{fms}
+                GROUP BY Card_Product ORDER BY total DESC""",
+            f"""SELECT "Card Product" AS program,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN "Account Status" IN ('Open','Active') THEN 1 ELSE 0 END) AS active,
+                   SUM(CASE WHEN "Account Status" NOT IN ('Open','Active') THEN 1 ELSE 0 END) AS inactive,
+                   ROUND(100.0 * SUM(CASE WHEN "Account Status" IN ('Open','Active') THEN 1 ELSE 0 END) / COUNT(*), 1) AS activation_rate
+                FROM "Products" WHERE "Card Product" IS NOT NULL AND "Card Product" != ''{fpg}
+                GROUP BY "Card Product" ORDER BY total DESC""")
+        return {"data": data, "data_source": src}
+    except Exception:
+        return {"data": [], "data_source": "supabase_snapshot"}
 
 
 # ── Product breakdown ─────────────────────────────────────────────────────────
@@ -227,7 +230,10 @@ def by_product(
 def list_programs(
     db_pg=Depends(get_db_pg), db_mssql=Depends(get_db_mssql), user=Depends(ACCESS)
 ):
-    data, src = dual_query(db_mssql, db_pg,
-        "SELECT DISTINCT Card_Product AS program FROM dbo.Account WHERE Card_Product IS NOT NULL AND Card_Product != '' ORDER BY Card_Product",
-        'SELECT DISTINCT "Card Product" AS program FROM "Products" WHERE "Card Product" IS NOT NULL AND "Card Product" != \'\' ORDER BY "Card Product"')
-    return {"data": [r["program"] for r in data], "data_source": src}
+    try:
+        data, src = dual_query(db_mssql, db_pg,
+            "SELECT DISTINCT Card_Product AS program FROM dbo.Account WHERE Card_Product IS NOT NULL AND Card_Product != '' ORDER BY Card_Product",
+            'SELECT DISTINCT "Card Product" AS program FROM "Products" WHERE "Card Product" IS NOT NULL AND "Card Product" != \'\' ORDER BY "Card Product"')
+        return {"data": [r["program"] for r in data], "data_source": src}
+    except Exception:
+        return {"data": [], "data_source": "supabase_snapshot"}
