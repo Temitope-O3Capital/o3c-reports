@@ -50,7 +50,7 @@ const REPORTING_NAV = [
 // Sales section includes Sales page + CRM sub-pages
 const SALES_NAV = [
   { page: 'sales',        label: 'Sales',       path: '/sales',        icon: 'trending_up' },
-  { page: 'loans',        label: 'Loan Applications', path: '/loans', icon: 'request_quote' },
+  { page: 'loans',        label: 'Applications', path: '/loans', icon: 'request_quote' },
 ]
 
 const CRM_NAV = [
@@ -431,6 +431,7 @@ function PageTitle() {
     '/eod':              'EOD Report',
     '/reconciliation':   'Reconciliation',
     '/call-center':      'Call Center',
+    '/loans':            'Applications',
     '/crm/pipeline':        'Pipeline',
     '/crm/contacts':        'Contacts',
     '/crm/tasks':           'Tasks',

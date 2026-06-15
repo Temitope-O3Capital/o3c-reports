@@ -468,7 +468,7 @@ function NewAppModal({ meta, users, onClose, onCreated }) {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div className="card" style={{ width: '100%', maxWidth: 560, maxHeight: '90vh', overflow: 'auto' }}>
         <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid rgb(var(--border) / 0.1)' }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700 }}>New Loan Application</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700 }}>New Application</h2>
           <button onClick={onClose} className="btn btn-icon btn-ghost">
             <span className="material-symbols-rounded" style={{ fontSize: 18 }}>close</span>
           </button>
@@ -572,8 +572,8 @@ export default function LoanApplications() {
 
   return (
     <PageShell
-      title="Loan Applications"
-      subtitle="Track each application through the full review pipeline"
+      title="Applications"
+      subtitle="Track loan and card applications through the full review pipeline"
       error={error}
       actions={
         <div className="flex items-center gap-2">
