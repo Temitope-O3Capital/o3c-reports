@@ -58,14 +58,13 @@ export function useApi(endpoint, deps = []) {
 
 export async function apiFetch(endpoint, options = {}) {
   const token = getToken()
-  const res = await fetch(`${API}${endpoint}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...(options.headers || {})
-    }
-  })
+  const { isFormData, ...fetchOptions } = options
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
+    ...(fetchOptions.headers || {}),
+  }
+  const res = await fetch(`${API}${endpoint}`, { ...fetchOptions, headers })
   if (res.status === 401) { forceLogout(); return }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))

@@ -1,359 +1,650 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { apiFetch } from '../hooks/useApi.js'
-import PageShell from '../components/PageShell.jsx'
 import { useAuth } from '../hooks/useAuth.js'
+import PageShell from '../components/PageShell.jsx'
 
-const STATUS_STYLE = {
-  pending:      { bg: '#FEF9C3', fg: '#854D0E', label: 'Pending' },
-  under_review: { bg: '#DBEAFE', fg: '#1D4ED8', label: 'Under Review' },
-  approved:     { bg: '#DCFCE7', fg: '#166534', label: 'Approved' },
-  rejected:     { bg: '#FEE2E2', fg: '#991B1B', label: 'Rejected' },
+/* ── Stage config ── */
+const STAGES = [
+  { key: 'new',            label: 'New',            color: '#6B7280', bg: '#F3F4F6' },
+  { key: 'submitted',      label: 'Submitted',      color: '#3B82F6', bg: '#EFF6FF' },
+  { key: 'doc_collection', label: 'Docs Needed',    color: '#F59E0B', bg: '#FFFBEB' },
+  { key: 'under_review',   label: 'Under Review',   color: '#8B5CF6', bg: '#F5F3FF' },
+  { key: 'finance_review', label: 'Finance Review', color: '#0EA5E9', bg: '#F0F9FF' },
+  { key: 'approved',       label: 'Approved',       color: '#059669', bg: '#F0FDF4' },
+  { key: 'rejected',       label: 'Rejected',       color: '#C00000', bg: '#FFF0F0' },
+  { key: 'on_hold',        label: 'On Hold',        color: '#D97706', bg: '#FFFBEB' },
+]
+const STAGE_MAP = Object.fromEntries(STAGES.map(s => [s.key, s]))
+
+function StageBadge({ stage }) {
+  const s = STAGE_MAP[stage] || STAGES[0]
+  return (
+    <span style={{
+      fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+      padding: '2px 8px', borderRadius: 999,
+      color: s.color, background: s.bg, border: `1px solid ${s.color}33`,
+    }}>{s.label}</span>
+  )
 }
-const DOC_STATUS_STYLE = {
-  submitted:  { bg: '#F1F5F9', fg: '#475569', label: 'Submitted' },
-  confirmed:  { bg: '#DCFCE7', fg: '#166534', label: 'Confirmed' },
-  rejected:   { bg: '#FEE2E2', fg: '#991B1B', label: 'Rejected' },
+
+function Initials({ name, size = 28 }) {
+  if (!name) return null
+  const parts = name.trim().split(' ')
+  const init  = (parts[0]?.[0] || '') + (parts[1]?.[0] || '')
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%', background: '#0E2841',
+      color: '#fff', fontSize: size * 0.38, fontWeight: 700, flexShrink: 0,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      textTransform: 'uppercase',
+    }}>{init.toUpperCase()}</div>
+  )
 }
-function StatusBadge({ status, map }) {
-  const s = (map || STATUS_STYLE)[status] || { bg: '#F1F5F9', fg: '#64748B', label: status }
-  return <span style={{ padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: s.bg, color: s.fg }}>{s.label}</span>
+
+function fmtAmt(n) {
+  if (!n) return '—'
+  return '₦' + Number(n).toLocaleString()
 }
 
-export default function LoanApplications() {
-  const { user } = useAuth()
-  const isRisk   = ['admin','head_it','head_recovery','recovery','management','md','coo','cfo'].includes(user?.role)
+/* ── Kanban card ── */
+function AppCard({ app, selected, onClick }) {
+  const docPct = app.doc_count > 0
+    ? Math.round((app.confirmed_count / app.doc_count) * 100) : 0
+  return (
+    <div onClick={onClick} className="card card-hover"
+      style={{
+        padding: '12px 14px', cursor: 'pointer', marginBottom: 8,
+        border: selected ? '1.5px solid #0E2841' : undefined,
+        background: selected ? 'rgba(14,40,65,0.03)' : undefined,
+      }}>
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <p style={{ fontSize: 13, fontWeight: 600, color: 'rgb(var(--fg-1))', lineHeight: 1.3 }}>
+          {app.first_name} {app.last_name}
+        </p>
+        {app.assigned_to_name && <Initials name={app.assigned_to_name} size={22} />}
+      </div>
+      <p style={{ fontSize: 11, color: 'rgb(var(--fg-3))', marginBottom: 6 }}>
+        {app.ref_no} · {app.loan_type}
+      </p>
+      {app.loan_amount && (
+        <p style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#0E2841', marginBottom: 8 }}>
+          {fmtAmt(app.loan_amount)}
+        </p>
+      )}
+      {app.doc_count > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-1" style={{ fontSize: 10, color: 'rgb(var(--fg-3))' }}>
+            <span>Docs</span>
+            <span>{app.confirmed_count}/{app.doc_count}</span>
+          </div>
+          <div style={{ height: 3, background: 'rgb(var(--bg-muted))', borderRadius: 2 }}>
+            <div style={{
+              width: `${docPct}%`, height: '100%', borderRadius: 2,
+              background: docPct === 100 ? '#059669' : '#F59E0B',
+            }} />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
-  const [apps,       setApps]       = useState([])
-  const [meta,       setMeta]       = useState({ loan_types: [], doc_types: [], statuses: [] })
-  const [loading,    setLoading]    = useState(true)
-  const [error,      setError]      = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+/* ── Kanban column ── */
+function KanbanCol({ stage, apps, selectedId, onSelect }) {
+  const s = STAGE_MAP[stage.key]
+  const total = apps.reduce((sum, a) => sum + (Number(a.loan_amount) || 0), 0)
+  return (
+    <div style={{ minWidth: 220, width: 220, flexShrink: 0 }}>
+      <div className="flex items-center gap-2 mb-3">
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0, display: 'inline-block' }} />
+        <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgb(var(--fg-2))' }}>
+          {s.label}
+        </span>
+        <span style={{
+          fontSize: 11, fontWeight: 600, background: 'rgb(var(--bg-muted))',
+          color: 'rgb(var(--fg-3))', borderRadius: 999, padding: '1px 7px',
+        }}>{apps.length}</span>
+        {total > 0 && (
+          <span style={{ fontSize: 10, color: 'rgb(var(--fg-3))', marginLeft: 'auto', fontFamily: 'var(--font-mono)' }}>
+            ₦{(total / 1_000_000).toFixed(1)}M
+          </span>
+        )}
+      </div>
+      <div style={{ minHeight: 120, overflowY: 'auto', maxHeight: 'calc(100vh - 320px)' }}>
+        {apps.map(a => (
+          <AppCard key={a.id} app={a} selected={selectedId === a.id} onClick={() => onSelect(a)} />
+        ))}
+        {apps.length === 0 && (
+          <div style={{
+            padding: '24px 12px', textAlign: 'center', borderRadius: 8,
+            border: '1.5px dashed rgb(var(--border) / 0.15)',
+          }}>
+            <p style={{ fontSize: 11, color: 'rgb(var(--fg-4))' }}>Empty</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
-  // ── Detail panel
-  const [selected,   setSelected]   = useState(null)
-  const [detail,     setDetail]     = useState(null)
-  const [detailLoad, setDetailLoad] = useState(false)
+/* ── Activity timeline entry ── */
+function ActivityEntry({ entry }) {
+  const icons = {
+    created: 'add_circle', stage_changed: 'swap_horiz', status_changed: 'flag',
+    doc_added: 'attach_file', doc_confirmed: 'check_circle', doc_rejected: 'cancel',
+    doc_removed: 'delete', doc_resubmitted: 'refresh', assigned: 'person',
+    note_added: 'sticky_note_2', comment_added: 'chat_bubble',
+  }
+  const when = entry.created_at ? new Date(entry.created_at).toLocaleString('en-GB', {
+    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+  }) : ''
+  return (
+    <div className="flex gap-3 mb-4">
+      <div style={{
+        width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+        background: 'rgb(var(--bg-subtle))', border: '2px solid rgb(var(--bg-muted))',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <span className="material-symbols-rounded" style={{ fontSize: 13, color: '#0E2841' }}>
+          {icons[entry.action] || 'circle'}
+        </span>
+      </div>
+      <div style={{ flex: 1 }}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'rgb(var(--fg-1))' }}>{entry.user_name || 'System'}</span>
+          <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>{(entry.action || '').replace(/_/g, ' ')}</span>
+          {entry.old_value && entry.new_value && (
+            <span style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>
+              <span style={{ textDecoration: 'line-through', opacity: 0.6 }}>{entry.old_value}</span>
+              {' → '}
+              <span style={{ fontWeight: 600, color: 'rgb(var(--fg-1))' }}>{entry.new_value}</span>
+            </span>
+          )}
+        </div>
+        {entry.note && <p style={{ fontSize: 11, color: 'rgb(var(--fg-3))', marginTop: 1 }}>{entry.note}</p>}
+        <p style={{ fontSize: 10, color: 'rgb(var(--fg-4))', marginTop: 1 }}>{when}</p>
+      </div>
+    </div>
+  )
+}
 
-  // ── Create modal
-  const [showCreate, setShowCreate] = useState(false)
-  const [form,       setForm]       = useState({ first_name:'',last_name:'',cif:'',phone:'',email:'',loan_type:'Personal Loan',loan_amount:'',purpose:'' })
-  const [saving,     setSaving]     = useState(false)
+/* ── Document row ── */
+function DocRow({ doc, isRisk, isSales, onConfirm, onReject, onDelete }) {
+  const SC = { submitted: '#F59E0B', confirmed: '#059669', rejected: '#C00000' }
+  const st = doc.status || 'submitted'
+  return (
+    <div className="flex items-start gap-3 py-3" style={{ borderBottom: '1px solid rgb(var(--border) / 0.08)' }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 18, color: '#0E2841', marginTop: 1, flexShrink: 0 }}>description</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontSize: 13, fontWeight: 600, color: 'rgb(var(--fg-1))' }}>{doc.doc_type}</p>
+        {doc.filename && <p style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>{doc.filename}</p>}
+        {doc.notes    && <p style={{ fontSize: 11, color: 'rgb(var(--fg-3))', fontStyle: 'italic' }}>{doc.notes}</p>}
+        {doc.confirmed_by_name && <p style={{ fontSize: 11, color: '#059669' }}>Confirmed by {doc.confirmed_by_name}</p>}
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <span style={{
+          fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+          padding: '2px 7px', borderRadius: 999,
+          color: SC[st], background: SC[st] + '18',
+        }}>{st}</span>
+        {isRisk && st === 'submitted' && (
+          <>
+            <button onClick={() => onConfirm(doc.id)} className="btn btn-icon btn-ghost" style={{ color: '#059669' }} title="Confirm">
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>check</span>
+            </button>
+            <button onClick={() => onReject(doc.id)} className="btn btn-icon btn-ghost" style={{ color: '#C00000' }} title="Reject">
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>close</span>
+            </button>
+          </>
+        )}
+        {isSales && (
+          <button onClick={() => onDelete(doc.id)} className="btn btn-icon btn-ghost" style={{ color: 'rgb(var(--fg-3))' }} title="Remove">
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>delete</span>
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
 
-  // ── Add document
-  const [docForm,    setDocForm]    = useState({ doc_type:'', filename:'', notes:'' })
-  const [addingDoc,  setAddingDoc]  = useState(false)
+/* ── Detail panel ── */
+const NEXT_STAGES = {
+  new:            ['submitted'],
+  submitted:      ['doc_collection', 'under_review'],
+  doc_collection: ['submitted', 'under_review'],
+  under_review:   ['finance_review', 'approved', 'rejected', 'on_hold'],
+  finance_review: ['approved', 'rejected', 'on_hold'],
+  approved:       [],
+  rejected:       [],
+  on_hold:        ['under_review', 'finance_review', 'approved', 'rejected'],
+}
 
-  const loadApps = useCallback(async () => {
-    setLoading(true); setError('')
-    try {
-      const [a, m] = await Promise.all([
-        apiFetch(`/api/loans/applications${statusFilter ? `?status=${statusFilter}` : ''}`),
-        apiFetch('/api/loans/meta'),
-      ])
-      setApps(a || [])
-      setMeta(m || { loan_types: [], doc_types: [], statuses: [] })
-    } catch (e) { setError(e.message) }
-    finally { setLoading(false) }
-  }, [statusFilter])
+function DetailPanel({ app, meta, users, user, onRefresh, onClose }) {
+  const [tab, setTab]         = useState('docs')
+  const [docForm, setDocForm] = useState({ doc_type: '', filename: '', notes: '' })
+  const [comment, setComment] = useState('')
+  const [saving,  setSaving]  = useState(false)
 
-  useEffect(() => { loadApps() }, [loadApps])
+  const isRisk  = ['admin','head_it','management','md','coo','cfo','head_recovery','recovery'].includes(user?.role)
+  const isSales = ['sales','head_sales','admin','head_it','management','md','coo'].includes(user?.role)
 
-  async function loadDetail(id) {
-    setDetailLoad(true)
-    try { setDetail(await apiFetch(`/api/loans/applications/${id}`)) }
-    catch { /* non-critical */ }
-    finally { setDetailLoad(false) }
+  const patch = async (body) => {
+    await apiFetch(`/api/loans/applications/${app.id}`, { method: 'PATCH', body: JSON.stringify(body) })
+    onRefresh()
   }
 
-  function selectApp(app) { setSelected(app.id); loadDetail(app.id) }
-
-  async function createApp() {
-    if (!form.first_name.trim() || !form.last_name.trim()) return
+  const addDoc = async (e) => {
+    e.preventDefault()
+    if (!docForm.doc_type) return
     setSaving(true)
     try {
-      await apiFetch('/api/loans/applications', { method: 'POST', body: JSON.stringify({ ...form, loan_amount: form.loan_amount ? Number(form.loan_amount) : null }) })
-      setShowCreate(false)
-      setForm({ first_name:'',last_name:'',cif:'',phone:'',email:'',loan_type:'Personal Loan',loan_amount:'',purpose:'' })
-      loadApps()
-    } catch (e) { setError(e.message) }
-    finally { setSaving(false) }
+      await apiFetch(`/api/loans/applications/${app.id}/documents`, { method: 'POST', body: JSON.stringify(docForm) })
+      setDocForm({ doc_type: '', filename: '', notes: '' })
+      onRefresh()
+    } finally { setSaving(false) }
   }
 
-  async function updateStatus(id, status) {
+  const sendComment = async (e) => {
+    e.preventDefault()
+    if (!comment.trim()) return
+    setSaving(true)
     try {
-      await apiFetch(`/api/loans/applications/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) })
-      loadApps(); if (selected === id) loadDetail(id)
-    } catch (e) { setError(e.message) }
+      await apiFetch(`/api/loans/applications/${app.id}/comments`, { method: 'POST', body: JSON.stringify({ body: comment }) })
+      setComment('')
+      onRefresh()
+    } finally { setSaving(false) }
   }
 
-  async function addDoc() {
-    if (!docForm.doc_type) return
-    setAddingDoc(true)
+  const nextStages = NEXT_STAGES[app.stage] || []
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Header */}
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid rgb(var(--border) / 0.1)' }}>
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: 'rgb(var(--fg-1))' }}>
+                {app.first_name} {app.last_name}
+              </h2>
+              <StageBadge stage={app.stage} />
+            </div>
+            <p style={{ fontSize: 11, color: 'rgb(var(--fg-3))' }}>
+              {app.ref_no} · {app.loan_type}{app.cif ? ` · CIF ${app.cif}` : ''}
+            </p>
+          </div>
+          <button onClick={onClose} className="btn btn-icon btn-ghost">
+            <span className="material-symbols-rounded" style={{ fontSize: 18 }}>close</span>
+          </button>
+        </div>
+
+        {/* Stage advance buttons */}
+        {nextStages.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap mt-2">
+            <span style={{ fontSize: 10, color: 'rgb(var(--fg-3))', fontWeight: 600 }}>MOVE TO</span>
+            {nextStages.map(sk => {
+              const st = STAGE_MAP[sk]
+              return (
+                <button key={sk} onClick={() => patch({ stage: sk })}
+                  style={{
+                    fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 999,
+                    border: `1px solid ${st.color}44`, color: st.color, background: st.bg, cursor: 'pointer',
+                  }}>
+                  {st.label}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Assign to */}
+        <div className="flex items-center gap-2 mt-2">
+          <span className="material-symbols-rounded" style={{ fontSize: 13, color: 'rgb(var(--fg-3))' }}>person</span>
+          <select style={{ fontSize: 11, border: 'none', background: 'transparent', color: 'rgb(var(--fg-2))', cursor: 'pointer' }}
+            value={app.assigned_to || ''}
+            onChange={e => e.target.value && patch({ assigned_to: Number(e.target.value) })}>
+            <option value="">Unassigned</option>
+            {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Info grid */}
+      <div style={{ padding: '12px 20px', borderBottom: '1px solid rgb(var(--border) / 0.08)' }}>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+          {[
+            ['Amount',   app.loan_amount ? fmtAmt(app.loan_amount) : '—'],
+            ['Submitted', app.created_at  ? new Date(app.created_at).toLocaleDateString('en-GB') : '—'],
+            ['Created by', app.created_by_name  || '—'],
+            ['Reviewer',   app.reviewed_by_name || '—'],
+            ['Phone', app.phone || '—'],
+            ['Email', app.email || '—'],
+          ].map(([k, v]) => (
+            <div key={k}>
+              <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgb(var(--fg-3))' }}>{k}</p>
+              <p style={{ fontSize: 12, color: 'rgb(var(--fg-1))' }}>{v}</p>
+            </div>
+          ))}
+        </div>
+        {app.purpose && (
+          <div className="mt-2">
+            <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgb(var(--fg-3))' }}>Purpose</p>
+            <p style={{ fontSize: 12, color: 'rgb(var(--fg-2))' }}>{app.purpose}</p>
+          </div>
+        )}
+        {app.notes && (
+          <div className="mt-2 p-2 rounded-lg" style={{ background: 'rgb(var(--bg-subtle))' }}>
+            <p style={{ fontSize: 11, color: 'rgb(var(--fg-2))' }}>{app.notes}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <div className="flex" style={{ borderBottom: '1px solid rgb(var(--border) / 0.08)', padding: '0 20px' }}>
+        {[
+          { key: 'docs',     label: 'Documents', count: app.documents?.length  },
+          { key: 'activity', label: 'Activity',  count: app.activity?.length   },
+          { key: 'comments', label: 'Comments',  count: app.comments?.length   },
+        ].map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)} style={{
+            fontSize: 12, fontWeight: tab === t.key ? 700 : 500,
+            color: tab === t.key ? '#0E2841' : 'rgb(var(--fg-3))',
+            padding: '9px 12px',
+            borderBottom: tab === t.key ? '2px solid #0E2841' : '2px solid transparent',
+            background: 'none', cursor: 'pointer',
+          }}>
+            {t.label}{t.count ? ` (${t.count})` : ''}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab body */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 20px' }}>
+
+        {tab === 'docs' && (
+          <>
+            {(app.documents || []).map(d => (
+              <DocRow key={d.id} doc={d}
+                isRisk={isRisk} isSales={isSales}
+                onConfirm={id => apiFetch(`/api/loans/applications/${app.id}/documents/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'confirmed' }) }).then(onRefresh)}
+                onReject={id  => apiFetch(`/api/loans/applications/${app.id}/documents/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'rejected'  }) }).then(onRefresh)}
+                onDelete={id  => { if (confirm('Remove this document?')) apiFetch(`/api/loans/applications/${app.id}/documents/${id}`, { method: 'DELETE' }).then(onRefresh) }}
+              />
+            ))}
+            {isSales && (
+              <form onSubmit={addDoc} className="mt-4 p-3 rounded-lg" style={{ background: 'rgb(var(--bg-subtle))' }}>
+                <p style={{ fontSize: 11, fontWeight: 600, marginBottom: 8, color: 'rgb(var(--fg-2))' }}>Add Document</p>
+                <select className="form-input mb-2" style={{ fontSize: 12 }}
+                  value={docForm.doc_type}
+                  onChange={e => setDocForm(f => ({ ...f, doc_type: e.target.value }))} required>
+                  <option value="">Document type…</option>
+                  {(meta?.doc_types || []).map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <input className="form-input mb-2" style={{ fontSize: 12 }} placeholder="Filename (optional)"
+                  value={docForm.filename} onChange={e => setDocForm(f => ({ ...f, filename: e.target.value }))} />
+                <input className="form-input mb-2" style={{ fontSize: 12 }} placeholder="Notes (optional)"
+                  value={docForm.notes} onChange={e => setDocForm(f => ({ ...f, notes: e.target.value }))} />
+                <button type="submit" className="btn btn-primary btn-sm" disabled={saving || !docForm.doc_type}>
+                  {saving ? 'Adding…' : 'Add Document'}
+                </button>
+              </form>
+            )}
+          </>
+        )}
+
+        {tab === 'activity' && (
+          <>
+            {(app.activity || []).length === 0
+              ? <p style={{ fontSize: 12, color: 'rgb(var(--fg-3))', textAlign: 'center', padding: '24px 0' }}>No activity yet</p>
+              : (app.activity || []).map(a => <ActivityEntry key={a.id} entry={a} />)
+            }
+          </>
+        )}
+
+        {tab === 'comments' && (
+          <>
+            {(app.comments || []).map(c => (
+              <div key={c.id} className="flex gap-3 mb-4">
+                <Initials name={c.user_name} size={28} />
+                <div style={{ flex: 1 }}>
+                  <div className="flex items-baseline gap-2">
+                    <span style={{ fontSize: 12, fontWeight: 600, color: 'rgb(var(--fg-1))' }}>{c.user_name}</span>
+                    <span style={{ fontSize: 10, color: 'rgb(var(--fg-4))' }}>
+                      {c.created_at ? new Date(c.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 13, color: 'rgb(var(--fg-1))', marginTop: 3, lineHeight: 1.5 }}>{c.body}</p>
+                </div>
+              </div>
+            ))}
+            <form onSubmit={sendComment} className="flex gap-2 mt-2">
+              <input className="form-input" style={{ flex: 1, fontSize: 13 }}
+                placeholder="Add a comment…" value={comment}
+                onChange={e => setComment(e.target.value)} />
+              <button type="submit" className="btn btn-primary btn-sm" disabled={saving || !comment.trim()}>
+                <span className="material-symbols-rounded" style={{ fontSize: 16 }}>send</span>
+              </button>
+            </form>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ── New Application modal ── */
+function NewAppModal({ meta, users, onClose, onCreated }) {
+  const [form, setForm] = useState({
+    first_name: '', last_name: '', cif: '', phone: '', email: '',
+    loan_type: 'Personal Loan', loan_amount: '', purpose: '', assigned_to: '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error,  setError]  = useState('')
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setSaving(true); setError('')
     try {
-      await apiFetch(`/api/loans/applications/${selected}/documents`, { method: 'POST', body: JSON.stringify(docForm) })
-      setDocForm({ doc_type:'', filename:'', notes:'' })
-      loadDetail(selected); loadApps()
-    } catch (e) { setError(e.message) }
-    finally { setAddingDoc(false) }
+      const app = await apiFetch('/api/loans/applications', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...form,
+          loan_amount: form.loan_amount ? Number(form.loan_amount) : null,
+          assigned_to: form.assigned_to ? Number(form.assigned_to) : null,
+          cif:   form.cif   || null,
+          phone: form.phone || null,
+          email: form.email || null,
+        }),
+      })
+      onCreated(app)
+    } catch (e) {
+      setError(e.message || 'Failed to create')
+    } finally { setSaving(false) }
   }
 
-  async function confirmDoc(docId, status) {
+  const F = (field) => ({ value: form[field], onChange: e => setForm(f => ({ ...f, [field]: e.target.value })) })
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div className="card" style={{ width: '100%', maxWidth: 560, maxHeight: '90vh', overflow: 'auto' }}>
+        <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid rgb(var(--border) / 0.1)' }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700 }}>New Loan Application</h2>
+          <button onClick={onClose} className="btn btn-icon btn-ghost">
+            <span className="material-symbols-rounded" style={{ fontSize: 18 }}>close</span>
+          </button>
+        </div>
+        <form onSubmit={submit} style={{ padding: 20 }}>
+          {error && <p style={{ color: '#C00000', fontSize: 13, marginBottom: 12 }}>{error}</p>}
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className="form-label">First Name *</label><input className="form-input" required {...F('first_name')} /></div>
+            <div><label className="form-label">Last Name *</label><input className="form-input" required {...F('last_name')} /></div>
+            <div><label className="form-label">CIF Number</label><input className="form-input" placeholder="If existing customer" {...F('cif')} /></div>
+            <div><label className="form-label">Phone</label><input className="form-input" {...F('phone')} /></div>
+            <div><label className="form-label">Email</label><input className="form-input" type="email" {...F('email')} /></div>
+            <div>
+              <label className="form-label">Loan Type *</label>
+              <select className="form-input" required {...F('loan_type')}>
+                {(meta?.loan_types || []).map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div><label className="form-label">Amount (₦)</label><input className="form-input" type="number" min="0" {...F('loan_amount')} /></div>
+            <div>
+              <label className="form-label">Assign To</label>
+              <select className="form-input" {...F('assigned_to')}>
+                <option value="">Unassigned</option>
+                {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="mt-4">
+            <label className="form-label">Purpose</label>
+            <textarea className="form-input" rows={3} placeholder="Brief purpose…" {...F('purpose')} />
+          </div>
+          <div className="flex justify-end gap-3 mt-5">
+            <button type="button" onClick={onClose} className="btn btn-ghost">Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving ? 'Creating…' : 'Create Application'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+/* ── Main page ── */
+export default function LoanApplications() {
+  const { user } = useAuth()
+  const [apps,    setApps]    = useState([])
+  const [detail,  setDetail]  = useState(null)
+  const [meta,    setMeta]    = useState(null)
+  const [users,   setUsers]   = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error,   setError]   = useState('')
+  const [showNew, setShowNew] = useState(false)
+  const [filter,  setFilter]  = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('')
     try {
-      await apiFetch(`/api/loans/applications/${selected}/documents/${docId}`, { method: 'PATCH', body: JSON.stringify({ status }) })
-      loadDetail(selected)
-    } catch (e) { setError(e.message) }
-  }
+      const [appList, metaData, userList] = await Promise.all([
+        apiFetch('/api/loans/applications?limit=500'),
+        apiFetch('/api/loans/meta'),
+        apiFetch('/api/loans/users'),
+      ])
+      setApps(appList || [])
+      setMeta(metaData)
+      setUsers(userList || [])
+    } catch (e) {
+      setError(e.message || 'Failed to load')
+    } finally { setLoading(false) }
+  }, [])
 
-  async function removeDoc(docId) {
+  const loadDetail = useCallback(async (id) => {
     try {
-      await apiFetch(`/api/loans/applications/${selected}/documents/${docId}`, { method: 'DELETE' })
-      loadDetail(selected); loadApps()
-    } catch (e) { setError(e.message) }
-  }
+      const d = await apiFetch(`/api/loans/applications/${id}`)
+      setDetail(d)
+    } catch {/* ignore */ }
+  }, [])
 
-  const STATUSES = ['pending','under_review','approved','rejected']
+  useEffect(() => { load() }, [load])
+
+  const refresh = useCallback(async () => {
+    await load()
+    if (detail) await loadDetail(detail.id)
+  }, [load, loadDetail, detail])
+
+  const grouped = STAGES.reduce((acc, s) => {
+    acc[s.key] = apps.filter(a => {
+      const st = a.stage || 'new'
+      return st === s.key &&
+        (!filter || `${a.first_name} ${a.last_name} ${a.ref_no}`.toLowerCase().includes(filter.toLowerCase()))
+    })
+    return acc
+  }, {})
+
+  const stats = {
+    total:    apps.length,
+    active:   apps.filter(a => !['approved','rejected'].includes(a.stage)).length,
+    approved: apps.filter(a => a.stage === 'approved').length,
+    value:    apps.reduce((s, a) => s + (Number(a.loan_amount) || 0), 0),
+  }
 
   return (
     <PageShell
       title="Loan Applications"
-      subtitle="Sales submits customer documents · Risk reviews and approves"
+      subtitle="Track each application through the full review pipeline"
       error={error}
       actions={
         <div className="flex items-center gap-2">
-          {/* Status filter */}
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="form-input py-1.5 text-sm">
-            <option value="">All statuses</option>
-            {STATUSES.map(s => <option key={s} value={s}>{STATUS_STYLE[s]?.label || s}</option>)}
-          </select>
-          <button onClick={() => setShowCreate(true)} className="btn btn-primary gap-2 text-sm">
-            <span className="material-symbols-rounded text-[17px]">add</span>New Application
+          <div style={{ position: 'relative' }}>
+            <span className="material-symbols-rounded" style={{
+              position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
+              fontSize: 16, color: 'rgb(var(--fg-3))', pointerEvents: 'none',
+            }}>search</span>
+            <input className="form-input" style={{ paddingLeft: 32, width: 220 }}
+              placeholder="Search…" value={filter} onChange={e => setFilter(e.target.value)} />
+          </div>
+          <button className="btn btn-primary" onClick={() => setShowNew(true)}>
+            <span className="material-symbols-rounded" style={{ fontSize: 18 }}>add</span>
+            New Application
           </button>
         </div>
       }
     >
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4" style={{ minHeight: 500 }}>
-
-        {/* ── Applications list (left) ── */}
-        <div className="lg:col-span-2 card overflow-hidden flex flex-col">
-          <div className="px-4 py-3" style={{ borderBottom: '1px solid rgb(var(--border) / 0.08)' }}>
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-              Applications <span className="ml-1.5 text-xs font-normal text-slate-400">{apps.length}</span>
-            </p>
-          </div>
-          <div className="overflow-y-auto flex-1">
-            {loading ? (
-              <div className="flex justify-center py-12"><div className="spinner" /></div>
-            ) : apps.length === 0 ? (
-              <div className="flex flex-col items-center py-12 gap-2" style={{ color: 'rgb(var(--fg-3))' }}>
-                <span className="material-symbols-rounded text-[36px] opacity-30">folder_open</span>
-                <p className="text-sm">No applications</p>
-              </div>
-            ) : apps.map(app => (
-              <button key={app.id} onClick={() => selectApp(app)}
-                className={`w-full text-left px-4 py-3 transition-colors ${selected === app.id ? 'bg-primary/5 dark:bg-primary/10' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
-                style={{ borderBottom: '1px solid rgb(var(--border) / 0.05)' }}>
-                <div className="flex items-start justify-between gap-2 mb-1.5">
-                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">
-                    {app.first_name} {app.last_name}
-                  </p>
-                  <StatusBadge status={app.status} />
-                </div>
-                <div className="flex items-center gap-3 text-xs text-slate-400">
-                  <span className="font-mono">{app.ref_no}</span>
-                  <span>·</span>
-                  <span>{app.loan_type}</span>
-                  {app.loan_amount && <><span>·</span><span>₦{Number(app.loan_amount).toLocaleString()}</span></>}
-                </div>
-                <div className="flex items-center gap-2 mt-1.5">
-                  <span className="text-xs text-slate-400">
-                    {app.doc_count} doc{app.doc_count !== 1 ? 's' : ''}
-                  </span>
-                  {app.confirmed_count > 0 && (
-                    <span className="text-xs font-medium text-emerald-600">{app.confirmed_count} confirmed</span>
-                  )}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Detail panel (right) ── */}
-        <div className="lg:col-span-3 card overflow-hidden flex flex-col">
-          {!selected ? (
-            <div className="flex flex-col items-center justify-center h-full py-16 gap-3" style={{ color: 'rgb(var(--fg-3))' }}>
-              <span className="material-symbols-rounded text-[48px] opacity-20">description</span>
-              <p className="text-sm">Select an application to view details</p>
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        {[
+          { label: 'Total',       value: stats.total,    icon: 'folder_open',  color: '#0E2841' },
+          { label: 'In Progress', value: stats.active,   icon: 'pending',      color: '#F59E0B' },
+          { label: 'Approved',    value: stats.approved, icon: 'check_circle', color: '#059669' },
+          { label: 'Total Value', value: '₦' + (stats.value / 1_000_000).toFixed(1) + 'M', icon: 'payments', color: '#8B5CF6' },
+        ].map(k => (
+          <div key={k.label} className="card p-4 flex items-center gap-3">
+            <div style={{ width: 36, height: 36, borderRadius: 8, background: k.color + '14', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 18, color: k.color }}>{k.icon}</span>
             </div>
-          ) : detailLoad ? (
-            <div className="flex justify-center py-16"><div className="spinner" /></div>
-          ) : detail ? (
-            <div className="flex flex-col h-full overflow-y-auto">
-              {/* Header */}
-              <div className="px-5 py-4 flex items-start justify-between" style={{ borderBottom: '1px solid rgb(var(--border) / 0.08)' }}>
-                <div>
-                  <p className="text-base font-bold text-slate-900 dark:text-white">{detail.first_name} {detail.last_name}</p>
-                  <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-400">
-                    <span className="font-mono">{detail.ref_no}</span>
-                    {detail.cif && <><span>·</span><span>CIF: {detail.cif}</span></>}
-                    {detail.phone && <><span>·</span><span>{detail.phone}</span></>}
-                  </div>
-                </div>
-                <StatusBadge status={detail.status} />
-              </div>
-
-              {/* Loan info */}
-              <div className="px-5 py-4 grid grid-cols-2 gap-3 text-sm" style={{ borderBottom: '1px solid rgb(var(--border) / 0.08)' }}>
-                <div><p className="text-xs text-slate-400 mb-0.5">Loan Type</p><p className="font-medium">{detail.loan_type}</p></div>
-                {detail.loan_amount && <div><p className="text-xs text-slate-400 mb-0.5">Amount</p><p className="font-medium font-mono">₦{Number(detail.loan_amount).toLocaleString()}</p></div>}
-                {detail.purpose && <div className="col-span-2"><p className="text-xs text-slate-400 mb-0.5">Purpose</p><p>{detail.purpose}</p></div>}
-                <div><p className="text-xs text-slate-400 mb-0.5">Submitted by</p><p className="font-medium">{detail.created_by_name || '—'}</p></div>
-                <div><p className="text-xs text-slate-400 mb-0.5">Reviewed by</p><p className="font-medium">{detail.reviewed_by_name || '—'}</p></div>
-              </div>
-
-              {/* Risk actions */}
-              {isRisk && detail.status !== 'approved' && detail.status !== 'rejected' && (
-                <div className="px-5 py-3 flex items-center gap-2 flex-wrap" style={{ borderBottom: '1px solid rgb(var(--border) / 0.08)', background: 'rgb(var(--bg-subtle))' }}>
-                  <p className="text-xs font-semibold text-slate-500 mr-1">Risk decision:</p>
-                  <button onClick={() => updateStatus(detail.id, 'under_review')} className="btn btn-ghost text-xs px-3 py-1.5 gap-1">
-                    <span className="material-symbols-rounded text-[14px]">visibility</span>Mark Under Review
-                  </button>
-                  <button onClick={() => updateStatus(detail.id, 'approved')}
-                    className="btn text-xs px-3 py-1.5 gap-1 font-semibold text-white"
-                    style={{ background: '#059669', borderRadius: 'var(--r-md)' }}>
-                    <span className="material-symbols-rounded text-[14px]">check_circle</span>Approve
-                  </button>
-                  <button onClick={() => updateStatus(detail.id, 'rejected')}
-                    className="btn text-xs px-3 py-1.5 gap-1 font-semibold text-white"
-                    style={{ background: '#C00000', borderRadius: 'var(--r-md)' }}>
-                    <span className="material-symbols-rounded text-[14px]">cancel</span>Reject
-                  </button>
-                </div>
-              )}
-
-              {/* Documents */}
-              <div className="px-5 py-4 flex-1">
-                <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'rgb(var(--fg-3))' }}>
-                  Documents ({detail.documents?.length || 0})
-                </p>
-                <div className="space-y-2">
-                  {(detail.documents || []).map(doc => (
-                    <div key={doc.id} className="rounded-lg px-3 py-2.5 flex items-center justify-between gap-3"
-                      style={{ background: 'rgb(var(--bg-subtle))', border: '1px solid rgb(var(--border) / 0.06)' }}>
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="material-symbols-rounded text-[18px] text-slate-400 flex-shrink-0">description</span>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{doc.doc_type}</p>
-                          {doc.filename && <p className="text-xs text-slate-400 truncate">{doc.filename}</p>}
-                          {doc.notes && <p className="text-xs text-slate-400 italic truncate">{doc.notes}</p>}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <StatusBadge status={doc.status} map={DOC_STATUS_STYLE} />
-                        {isRisk && doc.status === 'submitted' && (
-                          <>
-                            <button onClick={() => confirmDoc(doc.id, 'confirmed')} title="Confirm document"
-                              className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors">
-                              <span className="material-symbols-rounded text-[16px] text-emerald-600">check</span>
-                            </button>
-                            <button onClick={() => confirmDoc(doc.id, 'rejected')} title="Reject document"
-                              className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-                              <span className="material-symbols-rounded text-[16px] text-red-500">close</span>
-                            </button>
-                          </>
-                        )}
-                        {!isRisk && (
-                          <button onClick={() => removeDoc(doc.id)} title="Remove document"
-                            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 transition-colors">
-                            <span className="material-symbols-rounded text-[15px] text-slate-400 hover:text-red-500">delete</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Add document (Sales) */}
-                {!isRisk && (
-                  <div className="mt-3 rounded-lg p-3" style={{ border: '1px dashed rgb(var(--border) / 0.2)' }}>
-                    <p className="text-xs font-semibold text-slate-400 mb-2">Add Document</p>
-                    <div className="grid grid-cols-1 gap-2">
-                      <select value={docForm.doc_type} onChange={e => setDocForm(f => ({...f, doc_type: e.target.value}))} className="form-input text-sm py-1.5">
-                        <option value="">Select document type…</option>
-                        {(meta.doc_types || []).map(t => <option key={t} value={t}>{t}</option>)}
-                      </select>
-                      <input value={docForm.filename} onChange={e => setDocForm(f => ({...f, filename: e.target.value}))}
-                        placeholder="Filename / reference (optional)" className="form-input text-sm py-1.5" />
-                      <input value={docForm.notes} onChange={e => setDocForm(f => ({...f, notes: e.target.value}))}
-                        placeholder="Notes (optional)" className="form-input text-sm py-1.5" />
-                      <button onClick={addDoc} disabled={addingDoc || !docForm.doc_type}
-                        className="btn btn-primary text-sm py-1.5 gap-1.5 disabled:opacity-50">
-                        <span className="material-symbols-rounded text-[15px]">attach_file</span>
-                        {addingDoc ? 'Adding…' : 'Add Document'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+            <div>
+              <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgb(var(--fg-3))' }}>{k.label}</p>
+              <p style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'rgb(var(--fg-1))' }}>{k.value}</p>
             </div>
-          ) : null}
-        </div>
+          </div>
+        ))}
       </div>
 
-      {/* Create Application Modal */}
-      {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.5)' }}
-          onClick={e => e.target === e.currentTarget && setShowCreate(false)}>
-          <div className="w-full max-w-lg rounded-xl overflow-hidden" style={{ background: 'rgb(var(--bg-surface))', boxShadow: 'var(--shadow-xl)' }}>
-            <div className="px-6 py-4" style={{ borderBottom: '1px solid rgb(var(--border) / 0.08)' }}>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">New Loan Application</h2>
-            </div>
-            <div className="px-6 py-5 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="form-label">First Name *</label>
-                  <input value={form.first_name} onChange={e => setForm(f=>({...f,first_name:e.target.value}))} className="form-input" />
-                </div>
-                <div>
-                  <label className="form-label">Last Name *</label>
-                  <input value={form.last_name} onChange={e => setForm(f=>({...f,last_name:e.target.value}))} className="form-input" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="form-label">CIF Number</label>
-                  <input value={form.cif} onChange={e => setForm(f=>({...f,cif:e.target.value}))} className="form-input" placeholder="If existing customer" />
-                </div>
-                <div>
-                  <label className="form-label">Phone</label>
-                  <input value={form.phone} onChange={e => setForm(f=>({...f,phone:e.target.value}))} className="form-input" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="form-label">Loan Type</label>
-                  <select value={form.loan_type} onChange={e => setForm(f=>({...f,loan_type:e.target.value}))} className="form-input">
-                    {(meta.loan_types || []).map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="form-label">Loan Amount (₦)</label>
-                  <input type="number" value={form.loan_amount} onChange={e => setForm(f=>({...f,loan_amount:e.target.value}))} className="form-input" placeholder="0.00" />
-                </div>
-              </div>
-              <div>
-                <label className="form-label">Purpose</label>
-                <input value={form.purpose} onChange={e => setForm(f=>({...f,purpose:e.target.value}))} className="form-input" placeholder="Brief description of loan purpose" />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 px-6 py-4" style={{ borderTop: '1px solid rgb(var(--border) / 0.08)', background: 'rgb(var(--bg-subtle))' }}>
-              <button onClick={() => setShowCreate(false)} className="btn btn-ghost text-sm px-4 py-2">Cancel</button>
-              <button onClick={createApp} disabled={saving || !form.first_name.trim() || !form.last_name.trim()}
-                className="btn btn-primary gap-2 disabled:opacity-50">
-                {saving ? 'Creating…' : 'Create Application'}
-              </button>
-            </div>
+      {loading ? (
+        <div className="flex justify-center py-16"><div className="spinner" /></div>
+      ) : (
+        <div style={{ display: 'flex', gap: 16, height: 'calc(100vh - 290px)' }}>
+          {/* Board */}
+          <div style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', display: 'flex', gap: 16, paddingBottom: 8 }}>
+            {STAGES.map(stage => (
+              <KanbanCol key={stage.key} stage={stage}
+                apps={grouped[stage.key] || []}
+                selectedId={detail?.id}
+                onSelect={a => { setDetail(null); loadDetail(a.id) }}
+              />
+            ))}
           </div>
+
+          {/* Detail */}
+          {detail && (
+            <div className="card" style={{ width: 400, flexShrink: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+              <DetailPanel
+                app={detail} meta={meta} users={users} user={user}
+                onRefresh={refresh}
+                onClose={() => setDetail(null)}
+              />
+            </div>
+          )}
         </div>
+      )}
+
+      {showNew && (
+        <NewAppModal meta={meta} users={users}
+          onClose={() => setShowNew(false)}
+          onCreated={async (app) => { setShowNew(false); await refresh(); loadDetail(app.id) }}
+        />
       )}
     </PageShell>
   )

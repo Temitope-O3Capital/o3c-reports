@@ -14,6 +14,7 @@ from routers import executive
 from routers import income, uploads, eod
 from routers import reconciliation, call_center
 from routers import card_trends, loan_applications
+from routers import campaigns, contact_lists, message_templates
 import os
 import logging
 
@@ -397,6 +398,136 @@ CREATE TABLE IF NOT EXISTS loan_documents (
 );
 CREATE INDEX IF NOT EXISTS idx_loan_doc_app ON loan_documents(application_id);
 
+-- ── Loan Pipeline Enhancements ────────────────────────────────────────────
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS assigned_to INT REFERENCES o3c_users(id) ON DELETE SET NULL;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS stage TEXT NOT NULL DEFAULT 'new';
+CREATE INDEX IF NOT EXISTS idx_loan_app_stage    ON loan_applications(stage);
+CREATE INDEX IF NOT EXISTS idx_loan_app_assigned ON loan_applications(assigned_to);
+
+CREATE TABLE IF NOT EXISTS loan_activity_log (
+  id             SERIAL PRIMARY KEY,
+  application_id INT  REFERENCES loan_applications(id) ON DELETE CASCADE,
+  user_id        INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  user_name      TEXT,
+  action         TEXT NOT NULL,
+  old_value      TEXT,
+  new_value      TEXT,
+  note           TEXT,
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_loan_act_app ON loan_activity_log(application_id);
+CREATE INDEX IF NOT EXISTS idx_loan_act_at  ON loan_activity_log(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS loan_comments (
+  id             SERIAL PRIMARY KEY,
+  application_id INT  REFERENCES loan_applications(id) ON DELETE CASCADE,
+  user_id        INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  user_name      TEXT NOT NULL DEFAULT '',
+  body           TEXT NOT NULL,
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_loan_comment_app ON loan_comments(application_id);
+
+-- ── Campaign Module ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS contact_lists (
+  id           SERIAL PRIMARY KEY,
+  name         TEXT NOT NULL,
+  description  TEXT,
+  source       TEXT DEFAULT 'manual',
+  member_count INT  NOT NULL DEFAULT 0,
+  created_by   INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS contact_list_members (
+  id         SERIAL PRIMARY KEY,
+  list_id    INT  REFERENCES contact_lists(id) ON DELETE CASCADE,
+  first_name TEXT,
+  last_name  TEXT,
+  phone      TEXT,
+  email      TEXT,
+  cif_number TEXT,
+  merge_data JSONB NOT NULL DEFAULT '{}',
+  status     TEXT DEFAULT 'active',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_clm_list   ON contact_list_members(list_id);
+CREATE INDEX IF NOT EXISTS idx_clm_status ON contact_list_members(list_id, status);
+
+CREATE TABLE IF NOT EXISTS message_templates (
+  id              SERIAL PRIMARY KEY,
+  name            TEXT NOT NULL,
+  channel         TEXT NOT NULL,
+  category        TEXT DEFAULT 'general',
+  sms_body        TEXT,
+  email_subject   TEXT,
+  email_body_html TEXT,
+  email_body_text TEXT,
+  merge_tags      TEXT[] NOT NULL DEFAULT '{}',
+  created_by      INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_msg_tpl_channel ON message_templates(channel);
+
+CREATE TABLE IF NOT EXISTS campaigns (
+  id               SERIAL PRIMARY KEY,
+  name             TEXT NOT NULL,
+  description      TEXT,
+  type             TEXT NOT NULL,
+  status           TEXT NOT NULL DEFAULT 'draft',
+  scheduled_at     TIMESTAMPTZ,
+  list_id          INT  REFERENCES contact_lists(id) ON DELETE SET NULL,
+  email_subject    TEXT,
+  email_body_html  TEXT,
+  email_body_text  TEXT,
+  from_name        TEXT,
+  from_email       TEXT,
+  sms_body         TEXT,
+  total_contacts   INT NOT NULL DEFAULT 0,
+  sms_sent         INT NOT NULL DEFAULT 0,
+  sms_delivered    INT NOT NULL DEFAULT 0,
+  sms_failed       INT NOT NULL DEFAULT 0,
+  emails_sent      INT NOT NULL DEFAULT 0,
+  emails_delivered INT NOT NULL DEFAULT 0,
+  emails_opened    INT NOT NULL DEFAULT 0,
+  emails_clicked   INT NOT NULL DEFAULT 0,
+  emails_bounced   INT NOT NULL DEFAULT 0,
+  created_by       INT  REFERENCES o3c_users(id) ON DELETE SET NULL,
+  started_at       TIMESTAMPTZ,
+  completed_at     TIMESTAMPTZ,
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_campaigns_status  ON campaigns(status);
+CREATE INDEX IF NOT EXISTS idx_campaigns_created ON campaigns(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_campaigns_type    ON campaigns(type);
+
+CREATE TABLE IF NOT EXISTS campaign_contacts (
+  id                SERIAL PRIMARY KEY,
+  campaign_id       INT  REFERENCES campaigns(id) ON DELETE CASCADE,
+  first_name        TEXT,
+  last_name         TEXT,
+  phone             TEXT,
+  email             TEXT,
+  cif_number        TEXT,
+  merge_data        JSONB NOT NULL DEFAULT '{}',
+  position          INT NOT NULL DEFAULT 0,
+  sms_status        TEXT DEFAULT 'pending',
+  email_status      TEXT DEFAULT 'pending',
+  sms_provider_id   TEXT,
+  email_provider_id TEXT,
+  sms_sent_at       TIMESTAMPTZ,
+  email_sent_at     TIMESTAMPTZ,
+  email_opened_at   TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cc_campaign ON campaign_contacts(campaign_id, position);
+CREATE INDEX IF NOT EXISTS idx_cc_sms      ON campaign_contacts(campaign_id, sms_status);
+CREATE INDEX IF NOT EXISTS idx_cc_email    ON campaign_contacts(campaign_id, email_status);
+
 -- ── Staff activity log ────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS o3c_activity_log (
   id         SERIAL PRIMARY KEY,
@@ -477,7 +608,10 @@ app.include_router(eod.router,            prefix="/api/eod",             tags=["
 app.include_router(reconciliation.router,    prefix="/api/reconciliation",  tags=["Reconciliation"])
 app.include_router(call_center.router,       prefix="/api/call-center",     tags=["Call Center"])
 app.include_router(card_trends.router,       prefix="/api/card-trends",     tags=["Card Trends"])
-app.include_router(loan_applications.router, prefix="/api/loans",           tags=["Loans"])
+app.include_router(loan_applications.router,  prefix="/api/loans",            tags=["Loans"])
+app.include_router(campaigns.router,          prefix="/api/campaigns",        tags=["Campaigns"])
+app.include_router(contact_lists.router,      prefix="/api/contact-lists",    tags=["Campaigns"])
+app.include_router(message_templates.router,  prefix="/api/message-templates",tags=["Campaigns"])
 
 # ── Health endpoint ───────────────────────────────────────────────────────────
 @app.get("/api/health", tags=["Health"])

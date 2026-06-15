@@ -28,23 +28,24 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 # Keep in sync with frontend/src/hooks/useAuth.js
 _CRM        = ["crm_pipeline", "crm_contacts", "crm_tasks", "crm_requests"]
 _CRM_REPORT = ["crm_reports"]
+_CAMPAIGNS  = ["campaigns", "contact_lists", "message_templates"]
 
 ROLE_PAGES = {
     # Executive / senior titles
-    "md":          ["overview","transactions","collections","recovery","sales","cards","cohort","card_trends","executive","income","eod","uploads","reconciliation","call_center","loans"] + _CRM + _CRM_REPORT,
-    "coo":         ["overview","transactions","collections","recovery","cards","cohort","card_trends","executive","income","eod","uploads","reconciliation","call_center","loans"]         + _CRM + _CRM_REPORT,
+    "md":          ["overview","transactions","collections","recovery","sales","cards","cohort","card_trends","executive","income","eod","uploads","reconciliation","call_center","loans"] + _CRM + _CRM_REPORT + _CAMPAIGNS,
+    "coo":         ["overview","transactions","collections","recovery","cards","cohort","card_trends","executive","income","eod","uploads","reconciliation","call_center","loans"]         + _CRM + _CRM_REPORT + _CAMPAIGNS,
     "cfo":         ["overview","income","collections","recovery","executive","transactions","eod","uploads","reconciliation","loans"],
-    "head_it":     ["overview","transactions","collections","recovery","sales","cards","cohort","card_trends","admin","executive","income","eod","uploads","reconciliation","call_center","loans"] + _CRM + _CRM_REPORT,
+    "head_it":     ["overview","transactions","collections","recovery","sales","cards","cohort","card_trends","admin","executive","income","eod","uploads","reconciliation","call_center","loans"] + _CRM + _CRM_REPORT + _CAMPAIGNS,
     "head_hr":     ["overview","sales","uploads"],
-    "cmo":              ["overview","sales","cohort","executive","uploads"]                                                              + _CRM + _CRM_REPORT,
+    "cmo":              ["overview","sales","cohort","executive","uploads"]                                                              + _CRM + _CRM_REPORT + _CAMPAIGNS,
     "head_ops":         ["overview","transactions","cards","card_trends","cohort","executive","income","eod","uploads","reconciliation"] + _CRM,
-    "head_sales":       ["sales","overview","uploads","executive","loans"]                                                              + _CRM + _CRM_REPORT,
+    "head_sales":       ["sales","overview","uploads","executive","loans"]                                                              + _CRM + _CRM_REPORT + _CAMPAIGNS,
     "head_collections": ["collections","recovery","overview","eod","uploads","executive","reconciliation","loans"]                      + _CRM,
     "head_recovery":    ["recovery","collections","overview","eod","uploads","executive","loans"]                                       + _CRM,
     # Functional roles
-    "admin":       ["overview","transactions","collections","recovery","sales","cards","card_trends","cohort","admin","executive","income","eod","uploads","reconciliation","call_center","loans"] + _CRM + _CRM_REPORT,
-    "management":  ["overview","transactions","collections","recovery","sales","cards","card_trends","cohort","executive","income","eod","uploads","reconciliation","call_center"]                 + _CRM + _CRM_REPORT,
-    "sales":       ["sales","overview","uploads","loans"]                                                                                                                + _CRM + _CRM_REPORT,
+    "admin":       ["overview","transactions","collections","recovery","sales","cards","card_trends","cohort","admin","executive","income","eod","uploads","reconciliation","call_center","loans"] + _CRM + _CRM_REPORT + _CAMPAIGNS,
+    "management":  ["overview","transactions","collections","recovery","sales","cards","card_trends","cohort","executive","income","eod","uploads","reconciliation","call_center"]                 + _CRM + _CRM_REPORT + _CAMPAIGNS,
+    "sales":       ["sales","overview","uploads","loans"]                                                                                                                + _CRM + _CRM_REPORT + _CAMPAIGNS,
     "collections": ["collections","recovery","eod","uploads","reconciliation"]                                                                                          + _CRM,
     "recovery":    ["recovery","collections","eod","uploads","loans"]                                                                                                   + _CRM,
     "cards_ops":   ["cards","card_trends","transactions","overview","eod","uploads"],

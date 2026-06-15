@@ -28,6 +28,9 @@ const CrmContact360 = lazy(() => import('./pages/crm/Contact360.jsx'))
 const CrmTasks      = lazy(() => import('./pages/crm/Tasks.jsx'))
 const CrmRequests   = lazy(() => import('./pages/crm/Requests.jsx'))
 const CrmReports    = lazy(() => import('./pages/crm/CrmReports.jsx'))
+const Campaigns        = lazy(() => import('./pages/Campaigns.jsx'))
+const CampaignDetail   = lazy(() => import('./pages/CampaignDetail.jsx'))
+const MessageTemplates = lazy(() => import('./pages/MessageTemplates.jsx'))
 
 const REPORTING_NAV = [
   { page: 'overview',        label: 'Overview',        path: '/',                icon: 'space_dashboard' },
@@ -58,6 +61,12 @@ const CRM_NAV = [
   { page: 'crm_reports',  label: 'CRM Reports', path: '/crm/reports',  icon: 'insert_chart' },
 ]
 
+const CAMPAIGNS_NAV = [
+  { page: 'campaigns',         label: 'Campaigns',  path: '/campaigns',         icon: 'campaign' },
+  { page: 'message_templates', label: 'Templates',  path: '/message-templates', icon: 'article' },
+  { page: 'contact_lists',     label: 'Contact Lists', path: '/contact-lists',  icon: 'group' },
+]
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -68,10 +77,10 @@ export default function App() {
 
 function AppInner() {
   const { user, loading, login, logout, canAccess, clearMustChangePassword } = useAuth()
-  const [dataSource, setDataSource] = useState(null)
-  const [syncOpen,   setSyncOpen]   = useState(false)
-  const [sideOpen,   setSideOpen]   = useState(false)
-  const [isDark,     setIsDark]     = useState(() => localStorage.getItem('o3c_theme') === 'dark')
+  const [dataSource,  setDataSource]  = useState(null)
+  const [syncOpen,    setSyncOpen]    = useState(false)
+  const [sideOpen,    setSideOpen]    = useState(false)
+  const [isDark,      setIsDark]      = useState(() => localStorage.getItem('o3c_theme') === 'dark')
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark)
@@ -95,9 +104,10 @@ function AppInner() {
   const initials = (user.full_name || user.email)
     .split(' ').slice(0, 2).map(w => w[0].toUpperCase()).join('')
 
-  const visibleNav     = REPORTING_NAV.filter(n => canAccess(n.page))
-  const visibleSalesNav = SALES_NAV.filter(n => canAccess(n.page))
-  const visibleCrmNav   = CRM_NAV.filter(n => canAccess(n.page))
+  const visibleNav          = REPORTING_NAV.filter(n => canAccess(n.page))
+  const visibleSalesNav      = SALES_NAV.filter(n => canAccess(n.page))
+  const visibleCrmNav        = CRM_NAV.filter(n => canAccess(n.page))
+  const visibleCampaignsNav  = CAMPAIGNS_NAV.filter(n => canAccess(n.page))
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'rgb(var(--bg-page))' }}>
@@ -111,6 +121,7 @@ function AppInner() {
               visibleNav={visibleNav}
               visibleSalesNav={visibleSalesNav}
               visibleCrmNav={visibleCrmNav}
+              visibleCampaignsNav={visibleCampaignsNav}
               canAccess={canAccess}
               user={user}
               initials={initials}
@@ -129,6 +140,7 @@ function AppInner() {
           visibleNav={visibleNav}
           visibleSalesNav={visibleSalesNav}
           visibleCrmNav={visibleCrmNav}
+          visibleCampaignsNav={visibleCampaignsNav}
           canAccess={canAccess}
           user={user}
           initials={initials}
@@ -212,6 +224,10 @@ function AppInner() {
             <Route path="/crm/tasks"            element={<Guard page="crm_tasks"    ca={canAccess}><CrmTasks /></Guard>} />
             <Route path="/crm/requests"         element={<Guard page="crm_requests" ca={canAccess}><CrmRequests /></Guard>} />
             <Route path="/crm/reports"          element={<Guard page="crm_reports"  ca={canAccess}><CrmReports /></Guard>} />
+            {/* Campaigns */}
+            <Route path="/campaigns"            element={<Guard page="campaigns"          ca={canAccess}><Campaigns /></Guard>} />
+            <Route path="/campaigns/:id"        element={<Guard page="campaigns"          ca={canAccess}><CampaignDetail /></Guard>} />
+            <Route path="/message-templates"    element={<Guard page="message_templates"  ca={canAccess}><MessageTemplates /></Guard>} />
             <Route path="*"                     element={<DefaultRedirect canAccess={canAccess} />} />
           </Routes>
           </Suspense>
@@ -224,7 +240,7 @@ function AppInner() {
 }
 
 /* ── Sidebar content ─────────────────────────────────────────────────────── */
-function SidebarContent({ visibleNav, visibleSalesNav, visibleCrmNav, canAccess, user, initials, isDark, setIsDark, logout, onNav }) {
+function SidebarContent({ visibleNav, visibleSalesNav, visibleCrmNav, visibleCampaignsNav, canAccess, user, initials, isDark, setIsDark, logout, onNav }) {
   return (
     <>
       {/* Brand */}
@@ -280,6 +296,39 @@ function SidebarContent({ visibleNav, visibleSalesNav, visibleCrmNav, canAccess,
               Sales & CRM
             </p>
             {[...visibleSalesNav, ...visibleCrmNav].map(n => (
+              <NavLink
+                key={n.page}
+                to={n.path}
+                onClick={onNav}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all mb-0.5 ${
+                    isActive
+                      ? 'bg-white/[0.1] text-white'
+                      : 'text-white/50 hover:text-white/80 hover:bg-white/[0.05]'
+                  }`
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <span className={`material-symbols-rounded text-[19px] flex-shrink-0 ${isActive ? 'opacity-100' : 'opacity-60'}`}>
+                      {n.icon}
+                    </span>
+                    {n.label}
+                    {isActive && <span className="ml-auto w-1 h-4 rounded-full bg-accent flex-shrink-0" />}
+                  </>
+                )}
+              </NavLink>
+            ))}
+          </>
+        )}
+
+        {visibleCampaignsNav.length > 0 && (
+          <>
+            <div className="mx-2 border-t border-white/[0.08] my-3" />
+            <p className="px-2 text-[10px] font-semibold text-white/25 uppercase tracking-[0.12em] mb-2">
+              Campaigns
+            </p>
+            {visibleCampaignsNav.map(n => (
               <NavLink
                 key={n.page}
                 to={n.path}
@@ -382,27 +431,32 @@ function PageTitle() {
     '/eod':              'EOD Report',
     '/reconciliation':   'Reconciliation',
     '/call-center':      'Call Center',
-    '/crm/pipeline':     'Pipeline',
-    '/crm/contacts':     'Contacts',
-    '/crm/tasks':        'Tasks',
-    '/crm/requests':     'Requests',
-    '/crm/reports':      'CRM Reports',
+    '/crm/pipeline':        'Pipeline',
+    '/crm/contacts':        'Contacts',
+    '/crm/tasks':           'Tasks',
+    '/crm/requests':        'Requests',
+    '/crm/reports':         'CRM Reports',
+    '/campaigns':           'Campaigns',
+    '/message-templates':   'Message Templates',
+    '/contact-lists':       'Contact Lists',
   }
   const title = pathname.startsWith('/crm/contacts/')
     ? 'Customer 360'
+    : pathname.startsWith('/campaigns/')
+    ? 'Campaign'
     : (titles[pathname] || 'Dashboard')
   return <p className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">{title}</p>
 }
 
 function Guard({ page, ca, children }) {
   if (!ca(page)) {
-    const first = [...REPORTING_NAV, ...SALES_NAV, ...CRM_NAV].find(n => ca(n.page))
+    const first = [...REPORTING_NAV, ...SALES_NAV, ...CRM_NAV, ...CAMPAIGNS_NAV].find(n => ca(n.page))
     return <Navigate to={first?.path || '/login'} replace />
   }
   return children
 }
 
 function DefaultRedirect({ canAccess }) {
-  const first = [...REPORTING_NAV, ...SALES_NAV, ...CRM_NAV].find(n => canAccess(n.page))
+  const first = [...REPORTING_NAV, ...SALES_NAV, ...CRM_NAV, ...CAMPAIGNS_NAV].find(n => canAccess(n.page))
   return <Navigate to={first?.path || '/'} replace />
 }
