@@ -31,6 +31,7 @@ const CrmReports    = lazy(() => import('./pages/crm/CrmReports.jsx'))
 const Campaigns        = lazy(() => import('./pages/Campaigns.jsx'))
 const CampaignDetail   = lazy(() => import('./pages/CampaignDetail.jsx'))
 const MessageTemplates = lazy(() => import('./pages/MessageTemplates.jsx'))
+const ContactLists     = lazy(() => import('./pages/ContactLists.jsx'))
 
 const REPORTING_NAV = [
   { page: 'overview',        label: 'Overview',        path: '/',                icon: 'space_dashboard' },
@@ -47,18 +48,17 @@ const REPORTING_NAV = [
   { page: 'uploads',         label: 'Data Uploads',    path: '/uploads',         icon: 'upload_file' },
 ]
 
-// Sales section includes Sales page + CRM sub-pages
 const SALES_NAV = [
-  { page: 'sales',        label: 'Sales',       path: '/sales',        icon: 'trending_up' },
-  { page: 'loans',        label: 'Applications', path: '/loans', icon: 'request_quote' },
+  { page: 'sales',        label: 'Sales',          path: '/sales',        icon: 'trending_up' },
+  { page: 'loans',        label: 'Applications',   path: '/loans',        icon: 'request_quote' },
+  { page: 'crm_pipeline', label: 'Sales Pipeline', path: '/crm/pipeline', icon: 'view_kanban' },
 ]
 
 const CRM_NAV = [
-  { page: 'crm_pipeline', label: 'Pipeline',    path: '/crm/pipeline', icon: 'view_kanban' },
-  { page: 'crm_contacts', label: 'Contacts',    path: '/crm/contacts', icon: 'contacts' },
-  { page: 'crm_tasks',    label: 'Tasks',       path: '/crm/tasks',    icon: 'task_alt' },
-  { page: 'crm_requests', label: 'Requests',    path: '/crm/requests', icon: 'support_agent' },
-  { page: 'crm_reports',  label: 'CRM Reports', path: '/crm/reports',  icon: 'insert_chart' },
+  { page: 'crm_contacts', label: 'Contacts',         path: '/crm/contacts', icon: 'contacts' },
+  { page: 'crm_tasks',    label: 'Tasks',            path: '/crm/tasks',    icon: 'task_alt' },
+  { page: 'crm_requests', label: 'Service Requests', path: '/crm/requests', icon: 'support_agent' },
+  { page: 'crm_reports',  label: 'CRM Analytics',   path: '/crm/reports',  icon: 'insert_chart' },
 ]
 
 const CAMPAIGNS_NAV = [
@@ -228,6 +228,7 @@ function AppInner() {
             <Route path="/campaigns"            element={<Guard page="campaigns"          ca={canAccess}><Campaigns /></Guard>} />
             <Route path="/campaigns/:id"        element={<Guard page="campaigns"          ca={canAccess}><CampaignDetail /></Guard>} />
             <Route path="/message-templates"    element={<Guard page="message_templates"  ca={canAccess}><MessageTemplates /></Guard>} />
+            <Route path="/contact-lists"        element={<Guard page="contact_lists"      ca={canAccess}><ContactLists /></Guard>} />
             <Route path="*"                     element={<DefaultRedirect canAccess={canAccess} />} />
           </Routes>
           </Suspense>
@@ -288,14 +289,48 @@ function SidebarContent({ visibleNav, visibleSalesNav, visibleCrmNav, visibleCam
           </NavLink>
         ))}
 
-        {/* Sales & CRM nav section */}
-        {(visibleSalesNav.length > 0 || visibleCrmNav.length > 0) && (
+        {/* Sales nav section */}
+        {visibleSalesNav.length > 0 && (
           <>
             <div className="mx-2 border-t border-white/[0.08] my-3" />
             <p className="px-2 text-[10px] font-semibold text-white/25 uppercase tracking-[0.12em] mb-2">
-              Sales & CRM
+              Sales
             </p>
-            {[...visibleSalesNav, ...visibleCrmNav].map(n => (
+            {visibleSalesNav.map(n => (
+              <NavLink
+                key={n.page}
+                to={n.path}
+                onClick={onNav}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all mb-0.5 ${
+                    isActive
+                      ? 'bg-white/[0.1] text-white'
+                      : 'text-white/50 hover:text-white/80 hover:bg-white/[0.05]'
+                  }`
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <span className={`material-symbols-rounded text-[19px] flex-shrink-0 ${isActive ? 'opacity-100' : 'opacity-60'}`}>
+                      {n.icon}
+                    </span>
+                    {n.label}
+                    {isActive && <span className="ml-auto w-1 h-4 rounded-full bg-accent flex-shrink-0" />}
+                  </>
+                )}
+              </NavLink>
+            ))}
+          </>
+        )}
+
+        {/* CRM nav section */}
+        {visibleCrmNav.length > 0 && (
+          <>
+            <div className="mx-2 border-t border-white/[0.08] my-3" />
+            <p className="px-2 text-[10px] font-semibold text-white/25 uppercase tracking-[0.12em] mb-2">
+              CRM
+            </p>
+            {visibleCrmNav.map(n => (
               <NavLink
                 key={n.page}
                 to={n.path}
@@ -435,8 +470,9 @@ function PageTitle() {
     '/crm/pipeline':        'Pipeline',
     '/crm/contacts':        'Contacts',
     '/crm/tasks':           'Tasks',
-    '/crm/requests':        'Requests',
-    '/crm/reports':         'CRM Reports',
+    '/crm/requests':        'Service Requests',
+    '/crm/reports':         'CRM Analytics',
+    '/card-trends':         'Card Trends',
     '/campaigns':           'Campaigns',
     '/message-templates':   'Message Templates',
     '/contact-lists':       'Contact Lists',

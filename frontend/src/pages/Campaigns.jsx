@@ -1,9 +1,8 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../hooks/useApi.js'
 import PageShell from '../components/PageShell.jsx'
-
-const EmailEditor = lazy(() => import('react-email-editor'))
+import EmailBlockEditor, { exportToHtml } from '../components/EmailBlockEditor.jsx'
 
 /* ── Helpers ── */
 const TYPE_CONFIG = {
@@ -190,34 +189,9 @@ function Step2Audience({ form, setForm, lists }) {
   )
 }
 
-function Step3Compose({ form, setForm, editorRef }) {
+function Step3Compose({ form, setForm }) {
   const isSms   = form.type === 'sms'   || form.type === 'multi'
   const isEmail = form.type === 'email' || form.type === 'multi'
-  const [previewHtml, setPreviewHtml] = useState('')
-  const [showPreview, setShowPreview] = useState(false)
-
-  const getHtml = () => new Promise((resolve) => {
-    if (editorRef.current?.editor) {
-      editorRef.current.editor.exportHtml(data => resolve({ html: data.html, text: '' }))
-    } else {
-      resolve({ html: form.email_body_html || '', text: form.email_body_text || '' })
-    }
-  })
-
-  const openPreview = async () => {
-    const { html } = await getHtml()
-    setForm(f => ({ ...f, email_body_html: html }))
-    setPreviewHtml(html)
-    setShowPreview(true)
-  }
-
-  const saveAndNext = async () => {
-    if (isEmail && editorRef.current?.editor) {
-      const { html, text } = await getHtml()
-      setForm(f => ({ ...f, email_body_html: html, email_body_text: text }))
-    }
-  }
-
   const SMS_CHAR_LIMIT = 160
   const smsChars = (form.sms_body || '').length
   const smsParts = Math.ceil(smsChars / SMS_CHAR_LIMIT) || 1
@@ -228,20 +202,23 @@ function Step3Compose({ form, setForm, editorRef }) {
         <div className="mb-6">
           <div className="flex items-center justify-between mb-2">
             <label className="form-label" style={{ marginBottom: 0 }}>SMS Message *</label>
-            <span style={{
-              fontSize: 11, fontFamily: 'var(--font-mono)',
-              color: smsChars > SMS_CHAR_LIMIT ? '#D97706' : 'rgb(var(--fg-3))',
-            }}>
-              {smsChars} chars · {smsParts} SMS part{smsParts > 1 ? 's' : ''}
+            <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: smsChars > SMS_CHAR_LIMIT ? '#D97706' : 'rgb(var(--fg-3))' }}>
+              {smsChars} chars · {smsParts} part{smsParts > 1 ? 's' : ''}
             </span>
           </div>
           <textarea className="form-input" rows={5}
             placeholder="Dear {{first_name}}, your card is ready for pickup…"
             value={form.sms_body || ''}
             onChange={e => setForm(f => ({ ...f, sms_body: e.target.value }))} />
-          <p style={{ fontSize: 11, color: 'rgb(var(--fg-3))', marginTop: 6 }}>
-            Merge tags: {'{{first_name}}'}, {'{{last_name}}'}, {'{{amount}}'}, {'{{due_date}}'} — auto-filled per contact
-          </p>
+          <div className="flex flex-wrap gap-1 mt-2">
+            {['{{first_name}}', '{{last_name}}', '{{amount}}', '{{due_date}}'].map(t => (
+              <button key={t} type="button"
+                onClick={() => setForm(f => ({ ...f, sms_body: (f.sms_body || '') + t }))}
+                style={{ fontSize: 10, padding: '1px 7px', borderRadius: 4, background: 'rgb(var(--bg-muted))', border: '1px solid rgb(var(--border)/0.2)', cursor: 'pointer', fontFamily: 'monospace', color: 'rgb(var(--fg-2))' }}>
+                {t}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -251,84 +228,24 @@ function Step3Compose({ form, setForm, editorRef }) {
             <div>
               <label className="form-label">From Name</label>
               <input className="form-input" placeholder="O3C Cards"
-                value={form.from_name || ''}
-                onChange={e => setForm(f => ({ ...f, from_name: e.target.value }))} />
+                value={form.from_name || ''} onChange={e => setForm(f => ({ ...f, from_name: e.target.value }))} />
             </div>
             <div>
               <label className="form-label">From Email</label>
               <input className="form-input" type="email" placeholder="campaigns@o3ccards.com"
-                value={form.from_email || ''}
-                onChange={e => setForm(f => ({ ...f, from_email: e.target.value }))} />
+                value={form.from_email || ''} onChange={e => setForm(f => ({ ...f, from_email: e.target.value }))} />
             </div>
           </div>
           <div className="mb-4">
             <label className="form-label">Subject Line *</label>
-            <input className="form-input"
-              placeholder="Your O3C Card is ready — {{first_name}}"
-              value={form.email_subject || ''}
-              onChange={e => setForm(f => ({ ...f, email_subject: e.target.value }))} />
+            <input className="form-input" placeholder="Your O3C Card is ready — {{first_name}}"
+              value={form.email_subject || ''} onChange={e => setForm(f => ({ ...f, email_subject: e.target.value }))} />
           </div>
-
-          <div className="flex items-center justify-between mb-3">
-            <label className="form-label" style={{ marginBottom: 0 }}>Email Body</label>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={openPreview}>
-              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>preview</span>
-              Preview
-            </button>
-          </div>
-
-          <div style={{ border: '1px solid rgb(var(--border) / 0.2)', borderRadius: 8, overflow: 'hidden', minHeight: 400 }}>
-            <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: 'rgb(var(--fg-3))' }}>Loading editor…</div>}>
-              <EmailEditor
-                ref={editorRef}
-                onLoad={() => {
-                  if (form.email_body_html && editorRef.current?.editor) {
-                    // Load existing HTML if editing
-                  }
-                }}
-                onReady={saveAndNext}
-                options={{
-                  appearance: { theme: 'light', panels: { tools: { dock: 'left' } } },
-                  features: { imageEditor: { enabled: true } },
-                  mergeTags: [
-                    { name: 'First Name', value: '{{first_name}}' },
-                    { name: 'Last Name',  value: '{{last_name}}'  },
-                    { name: 'Amount',     value: '{{amount}}'     },
-                    { name: 'Due Date',   value: '{{due_date}}'   },
-                    { name: 'CIF',        value: '{{cif}}'        },
-                  ],
-                }}
-                style={{ minHeight: 500 }}
-              />
-            </Suspense>
-          </div>
-        </div>
-      )}
-
-      {showPreview && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 2000, display: 'flex', flexDirection: 'column' }}>
-          <div className="flex items-center justify-between p-4" style={{ background: '#0E2841' }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Email Preview</span>
-            <div className="flex gap-3">
-              <button type="button" onClick={() => setShowPreview(false)}
-                style={{ color: '#fff', background: 'none', fontSize: 14, cursor: 'pointer' }}>
-                Close Preview
-              </button>
-            </div>
-          </div>
-          <div style={{ flex: 1, background: '#f0f0f0', overflow: 'auto', padding: 20 }}>
-            <div style={{ maxWidth: 680, margin: '0 auto', background: '#fff', boxShadow: '0 4px 24px rgba(0,0,0,0.15)', borderRadius: 8, overflow: 'hidden' }}>
-              <div style={{ padding: '12px 20px', background: '#f8f8f8', borderBottom: '1px solid #eee', fontSize: 13, color: '#555' }}>
-                <strong>Subject:</strong> {form.email_subject || '(no subject)'}
-                <span style={{ marginLeft: 20 }}><strong>From:</strong> {form.from_name || 'O3C Cards'} &lt;{form.from_email || ''}&gt;</span>
-              </div>
-              <iframe
-                srcDoc={previewHtml}
-                style={{ width: '100%', minHeight: 600, border: 'none', display: 'block' }}
-                title="Email preview"
-              />
-            </div>
-          </div>
+          <label className="form-label">Email Body</label>
+          <EmailBlockEditor
+            value={{ blocks: form.email_blocks || [] }}
+            onChange={({ blocks }) => setForm(f => ({ ...f, email_blocks: blocks }))}
+          />
         </div>
       )}
     </div>
@@ -381,12 +298,11 @@ function Step4Review({ form, lists }) {
 
 /* ── Campaign creation wizard modal ── */
 function CampaignWizard({ lists, onClose, onCreated }) {
-  const editorRef = useRef(null)
   const [step, setStep] = useState(0)
   const [form, setForm] = useState({
     name: '', description: '', type: 'sms',
     list_id: null, list_name: '',
-    sms_body: '', email_subject: '', email_body_html: '', email_body_text: '',
+    sms_body: '', email_subject: '', email_blocks: [],
     from_name: '', from_email: '',
   })
   const [saving, setSaving] = useState(false)
@@ -404,32 +320,15 @@ function CampaignWizard({ lists, onClose, onCreated }) {
     return true
   }
 
-  const next = async () => {
-    // Export HTML from editor before advancing from step 2
-    if (step === 2 && editorRef.current?.editor) {
-      await new Promise(resolve => {
-        editorRef.current.editor.exportHtml(data => {
-          setForm(f => ({ ...f, email_body_html: data.html }))
-          resolve()
-        })
-      })
-    }
-    setStep(s => Math.min(s + 1, 3))
-  }
+  const next = () => setStep(s => Math.min(s + 1, 3))
 
   const create = async () => {
     setSaving(true); setError('')
     try {
-      // Capture final HTML
-      let html = form.email_body_html
-      if (editorRef.current?.editor) {
-        await new Promise(resolve => {
-          editorRef.current.editor.exportHtml(data => { html = data.html; resolve() })
-        })
-      }
+      const email_body_html = exportToHtml(form.email_blocks || [])
       const campaign = await apiFetch('/api/campaigns', {
         method: 'POST',
-        body: JSON.stringify({ ...form, email_body_html: html }),
+        body: JSON.stringify({ ...form, email_body_html }),
       })
       if (launch) {
         await apiFetch(`/api/campaigns/${campaign.id}/start`, { method: 'POST' })
@@ -480,7 +379,7 @@ function CampaignWizard({ lists, onClose, onCreated }) {
           {error && <p style={{ color: '#C00000', fontSize: 13, marginBottom: 12 }}>{error}</p>}
           {step === 0 && <Step1Channel form={form} setForm={setForm} />}
           {step === 1 && <Step2Audience form={form} setForm={setForm} lists={lists} />}
-          {step === 2 && <Step3Compose  form={form} setForm={setForm} editorRef={editorRef} />}
+          {step === 2 && <Step3Compose  form={form} setForm={setForm} />}
           {step === 3 && <Step4Review   form={form} lists={lists} />}
         </div>
 

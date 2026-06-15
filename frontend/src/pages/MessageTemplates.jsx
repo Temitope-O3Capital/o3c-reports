@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../hooks/useApi.js'
 import PageShell from '../components/PageShell.jsx'
-
-const EmailEditor = lazy(() => import('react-email-editor'))
+import EmailBlockEditor, { exportToHtml } from '../components/EmailBlockEditor.jsx'
 
 const CATEGORIES = ['general','collections','marketing','onboarding','repayment_reminder']
 const CAT_LABELS = {
@@ -29,44 +28,26 @@ function CatBadge({ category }) {
 
 /* ── Template form modal ── */
 function TemplateModal({ tpl, onClose, onSaved }) {
-  const editorRef = useRef(null)
   const [form, setForm] = useState({
-    name:            tpl?.name            || '',
-    channel:         tpl?.channel         || 'sms',
-    category:        tpl?.category        || 'general',
-    sms_body:        tpl?.sms_body        || '',
-    email_subject:   tpl?.email_subject   || '',
-    email_body_html: tpl?.email_body_html || '',
-    email_body_text: tpl?.email_body_text || '',
-    merge_tags:      tpl?.merge_tags      || [],
+    name:          tpl?.name          || '',
+    channel:       tpl?.channel       || 'sms',
+    category:      tpl?.category      || 'general',
+    sms_body:      tpl?.sms_body      || '',
+    email_subject: tpl?.email_subject || '',
+    email_blocks:  tpl?.email_blocks  || [],
+    merge_tags:    tpl?.merge_tags    || [],
   })
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState('')
-  const [preview, setPreview] = useState(false)
-  const [previewHtml, setPreviewHtml] = useState('')
-
   const isEmail = form.channel === 'email'
   const isSms   = form.channel === 'sms'
-
-  const exportHtml = () => new Promise(resolve => {
-    if (editorRef.current?.editor) {
-      editorRef.current.editor.exportHtml(data => resolve(data.html))
-    } else { resolve(form.email_body_html) }
-  })
-
-  const openPreview = async () => {
-    const html = await exportHtml()
-    setPreviewHtml(html)
-    setPreview(true)
-  }
 
   const save = async () => {
     if (!form.name.trim()) return setError('Name is required')
     setSaving(true); setError('')
     try {
-      let html = form.email_body_html
-      if (isEmail) html = await exportHtml()
-      const body = { ...form, email_body_html: html }
+      const email_body_html = isEmail ? exportToHtml(form.email_blocks || []) : ''
+      const body = { ...form, email_body_html }
       const saved = tpl?.id
         ? await apiFetch(`/api/message-templates/${tpl.id}`, { method: 'PUT', body: JSON.stringify(body) })
         : await apiFetch('/api/message-templates', { method: 'POST', body: JSON.stringify(body) })
@@ -81,7 +62,7 @@ function TemplateModal({ tpl, onClose, onSaved }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div className="card" style={{ width: '100%', maxWidth: isEmail ? 900 : 560, maxHeight: '94vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="card" style={{ width: '100%', maxWidth: isEmail ? 960 : 560, maxHeight: '94vh', display: 'flex', flexDirection: 'column' }}>
         <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid rgb(var(--border) / 0.1)' }}>
           <h2 style={{ fontSize: 15, fontWeight: 700 }}>{tpl?.id ? 'Edit Template' : 'New Template'}</h2>
           <button className="btn btn-icon btn-ghost" onClick={onClose}>
@@ -89,10 +70,10 @@ function TemplateModal({ tpl, onClose, onSaved }) {
           </button>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
-          {error && <p style={{ color: '#C00000', fontSize: 13, marginBottom: 12 }}>{error}</p>}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {error && <p style={{ color: '#C00000', fontSize: 13 }}>{error}</p>}
 
-          <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="form-label">Template Name *</label>
               <input className="form-input" placeholder="Collections SMS — June"
@@ -107,9 +88,8 @@ function TemplateModal({ tpl, onClose, onSaved }) {
             </div>
           </div>
 
-          {/* Channel — locked once editing */}
           {!tpl?.id && (
-            <div className="mb-4">
+            <div>
               <label className="form-label">Channel</label>
               <div className="flex gap-2">
                 {[['sms','SMS','sms'],['email','Email','email']].map(([k, label, icon]) => (
@@ -138,10 +118,8 @@ function TemplateModal({ tpl, onClose, onSaved }) {
                   {smsChars} chars · {smsParts} part{smsParts > 1 ? 's' : ''}
                 </span>
               </div>
-              <textarea className="form-input" rows={6}
-                placeholder="Dear {{first_name}}, …"
-                value={form.sms_body}
-                onChange={e => setForm(f => ({ ...f, sms_body: e.target.value }))} />
+              <textarea className="form-input" rows={6} placeholder="Dear {{first_name}}, …"
+                value={form.sms_body} onChange={e => setForm(f => ({ ...f, sms_body: e.target.value }))} />
               <div className="flex flex-wrap gap-1 mt-2">
                 {MERGE_TAGS_HELP.map(tag => (
                   <button key={tag} type="button"
@@ -155,34 +133,18 @@ function TemplateModal({ tpl, onClose, onSaved }) {
           )}
 
           {isEmail && (
-            <div>
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="form-label">Subject Line *</label>
-                  <input className="form-input" placeholder="Your card is ready — {{first_name}}"
-                    value={form.email_subject}
-                    onChange={e => setForm(f => ({ ...f, email_subject: e.target.value }))} />
-                </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label className="form-label">Subject Line *</label>
+                <input className="form-input" placeholder="Your card is ready — {{first_name}}"
+                  value={form.email_subject} onChange={e => setForm(f => ({ ...f, email_subject: e.target.value }))} />
               </div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="form-label" style={{ marginBottom: 0 }}>Email Body</label>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={openPreview}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 15 }}>preview</span>
-                  Preview
-                </button>
-              </div>
-              <div style={{ border: '1px solid rgb(var(--border) / 0.2)', borderRadius: 8, overflow: 'hidden' }}>
-                <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: 'rgb(var(--fg-3))' }}>Loading editor…</div>}>
-                  <EmailEditor
-                    ref={editorRef}
-                    options={{
-                      appearance: { theme: 'light' },
-                      features: { imageEditor: { enabled: true } },
-                      mergeTags: MERGE_TAGS_HELP.map(t => ({ name: t.replace(/[{}]/g, ''), value: t })),
-                    }}
-                    style={{ minHeight: 460 }}
-                  />
-                </Suspense>
+              <div>
+                <label className="form-label">Email Body</label>
+                <EmailBlockEditor
+                  value={{ blocks: form.email_blocks || [] }}
+                  onChange={({ blocks }) => setForm(f => ({ ...f, email_blocks: blocks }))}
+                />
               </div>
             </div>
           )}
@@ -195,20 +157,6 @@ function TemplateModal({ tpl, onClose, onSaved }) {
           </button>
         </div>
       </div>
-
-      {preview && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 2000, display: 'flex', flexDirection: 'column' }}>
-          <div className="flex items-center justify-between p-4" style={{ background: '#0E2841' }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Email Preview — {form.email_subject || '(no subject)'}</span>
-            <button type="button" onClick={() => setPreview(false)} style={{ color: '#fff', background: 'none', fontSize: 14, cursor: 'pointer' }}>Close</button>
-          </div>
-          <div style={{ flex: 1, overflow: 'auto', padding: 20, background: '#f0f0f0' }}>
-            <div style={{ maxWidth: 680, margin: '0 auto', background: '#fff', boxShadow: '0 4px 24px rgba(0,0,0,0.15)', borderRadius: 8, overflow: 'hidden' }}>
-              <iframe srcDoc={previewHtml} style={{ width: '100%', minHeight: 600, border: 'none', display: 'block' }} title="Email preview" />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
