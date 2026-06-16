@@ -63,7 +63,7 @@ func main() {
 	})
 
 	// Public campaign webhooks (Termii / SendGrid — no JWT)
-	r.Route("/api/campaigns", func(r chi.Router) {
+	r.Route("/api/campaign-webhooks", func(r chi.Router) {
 		handlers.RegisterCampaignWebhooks(r, db)
 	})
 
