@@ -5,26 +5,27 @@ const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 const CRM        = ['crm_pipeline','crm_contacts','crm_tasks','crm_requests']
 const CRM_REPORT = ['crm_reports']
 const CAMPAIGNS  = ['campaigns','contact_lists','message_templates']
+const OPERATIONS = ['credit_portfolio','fixed_deposit','settlement','mobile_app','blink_card']
 
 const ROLE_PAGES = {
   // Executive / senior titles
-  md:               ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
-  coo:              ['overview','transactions','collections','recovery','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center','loans',          ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
-  cfo:              ['overview','income','collections','recovery','executive','transactions','eod','uploads','reconciliation','loans'],
-  head_it:          ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','admin','executive','income','eod','uploads','reconciliation','call_center','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
+  md:               ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS],
+  coo:              ['overview','transactions','collections','recovery','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center','loans',          ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS],
+  cfo:              ['overview','income','collections','recovery','executive','transactions','eod','uploads','reconciliation','loans','credit_portfolio','fixed_deposit','settlement'],
+  head_it:          ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','admin','executive','income','eod','uploads','reconciliation','call_center','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS, 'mobile_app','blink_card'],
   head_hr:          ['overview','sales','uploads'],
   cmo:              ['overview','sales','cohort','executive','uploads', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
-  head_ops:         ['overview','transactions','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation', ...CRM],
-  head_sales:       ['sales','overview','uploads','executive','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
-  head_collections: ['collections','recovery','overview','eod','uploads','executive','reconciliation','loans', ...CRM],
-  head_recovery:    ['recovery','collections','overview','eod','uploads','executive','loans', ...CRM],
+  head_ops:         ['overview','transactions','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','credit_portfolio','fixed_deposit','settlement', ...CRM],
+  head_sales:       ['sales','overview','uploads','executive','loans','credit_portfolio', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
+  head_collections: ['collections','recovery','overview','eod','uploads','executive','reconciliation','loans','credit_portfolio', ...CRM],
+  head_recovery:    ['recovery','collections','overview','eod','uploads','executive','loans','credit_portfolio', ...CRM],
   // Functional roles
-  admin:       ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','admin','executive','income','eod','uploads','reconciliation','call_center','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
-  management:  ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center',                 ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
-  sales:       ['sales','overview','uploads','loans',                                                                                                                    ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
-  collections: ['collections','recovery','eod','uploads','reconciliation',                                                                                              ...CRM],
-  recovery:    ['recovery','collections','eod','uploads','loans',                                                                                                       ...CRM],
-  cards_ops:   ['cards','card_trends','transactions','overview','eod','uploads'],
+  admin:       ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','admin','executive','income','eod','uploads','reconciliation','call_center','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS],
+  management:  ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center',                 ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS],
+  sales:       ['sales','overview','uploads','loans','credit_portfolio',                                                                                                 ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
+  collections: ['collections','recovery','eod','uploads','reconciliation','credit_portfolio',                                                                            ...CRM],
+  recovery:    ['recovery','collections','eod','uploads','loans','credit_portfolio',                                                                                     ...CRM],
+  cards_ops:   ['cards','card_trends','transactions','overview','eod','uploads','blink_card'],
   call_centre: ['overview','transactions','call_center','crm_requests','crm_contacts','uploads'],
 }
 

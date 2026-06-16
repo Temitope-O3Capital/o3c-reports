@@ -9,11 +9,11 @@ jobs:
     steps:
       - name: Run schema setup
         env:
-          PGPASSWORD: "No@08091130049"
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
           sudo apt-get install -y postgresql-client
 
-          psql "postgresql://postgres@db.ojrqdxuffftupltkrlod.supabase.co:5432/postgres?sslmode=require" <<'EOSQL'
+          psql "postgresql://postgres@db.${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co:5432/postgres?sslmode=require" <<'EOSQL'
           CREATE TABLE IF NOT EXISTS o3c_users (
             id            SERIAL PRIMARY KEY,
             email         TEXT UNIQUE NOT NULL,
@@ -104,7 +104,7 @@ jobs:
 
           INSERT INTO o3c_users (email, password_hash, full_name, role, department)
           VALUES (
-            'admin@o3ccards.com',
+            'admin@o3cards.com',
             '$2b$12$GvzdUouzBgirlOTGF0J..OdSBCTJXB4gCtY6TNM3tWrjp/wVQpHuy',
             'O3C Admin',
             'admin',

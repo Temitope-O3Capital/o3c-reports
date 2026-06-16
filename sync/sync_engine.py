@@ -7,6 +7,7 @@ Also exposes a Flask API on port 5001 for manual/remote trigger.
 Start: python sync_engine.py
 """
 
+import hmac
 import os
 import logging
 import decimal
@@ -15,7 +16,8 @@ import schedule
 import time
 import threading
 from datetime import datetime
-from flask import Flask, jsonify
+from flask import Flask, request, jsonify
+from waitress import serve
 from dotenv import load_dotenv
 
 import pyodbc
@@ -38,6 +40,8 @@ MSSQL_PASSWORD = os.getenv("MSSQL_PASSWORD", "")
 MSSQL_TRUSTED  = os.getenv("MSSQL_TRUSTED", "no").lower() == "yes"
 
 PG_URL = os.getenv("PG_URL", "")
+
+SYNC_SECRET = os.getenv("SYNC_SECRET", "")
 
 # Table mapping: MSSQL source → Supabase target with explicit column aliasing
 # This normalises actual Sage CRM column names to the expected dashboard column names.
@@ -141,7 +145,7 @@ def _pg_type(type_code) -> str:
     return "TEXT"
 
 
-BATCH_COMMIT_SIZE = 10_000  # commit every N rows so the DB isn't locked for minutes
+BATCH_COMMIT_SIZE = 10_000
 
 
 def sync_table(ms_conn, pg_conn, mssql_table: str, pg_table: str, select_sql: str = None) -> int:
@@ -153,29 +157,39 @@ def sync_table(ms_conn, pg_conn, mssql_table: str, pg_table: str, select_sql: st
     ms_cur.execute(query)
     col_names = [desc[0] for desc in ms_cur.description]
     col_types = [_pg_type(desc[1]) for desc in ms_cur.description]
-    rows = ms_cur.fetchall()
 
-    # Rebuild the table with the current MSSQL schema — commit DDL immediately
-    col_defs = ", ".join(f'"{n}" {t}' for n, t in zip(col_names, col_types))
+    # Staging table — same name with _sync_staging suffix
+    bare    = pg_table.strip('"')
+    staging = f'"{bare}_sync_staging"'
+
+    col_defs     = ", ".join(f'"{n}" {t}' for n, t in zip(col_names, col_types))
+    pg_cols      = ", ".join(f'"{c}"' for c in col_names)
+    placeholders = ", ".join(["%s"] * len(col_names))
+    insert_sql   = f'INSERT INTO {staging} ({pg_cols}) VALUES ({placeholders})'
+
+    # Create fresh staging table
+    pg_cur.execute(f'DROP TABLE IF EXISTS {staging}')
+    pg_cur.execute(f'CREATE TABLE {staging} ({col_defs})')
+    pg_conn.commit()
+
+    # Stream rows in batches — never loads the full table into RAM
+    total = 0
+    while True:
+        batch = ms_cur.fetchmany(BATCH_COMMIT_SIZE)
+        if not batch:
+            break
+        psycopg2.extras.execute_batch(pg_cur, insert_sql, [tuple(r) for r in batch], page_size=500)
+        pg_conn.commit()
+        total += len(batch)
+        log.info(f"    {total:,} rows → {staging}")
+
+    # Atomic swap — original table is unavailable for microseconds, not minutes
     pg_cur.execute(f'DROP TABLE IF EXISTS {pg_table}')
-    pg_cur.execute(f'CREATE TABLE {pg_table} ({col_defs})')
-    pg_conn.commit()  # DDL committed — table exists and is empty
+    pg_cur.execute(f'ALTER TABLE {staging} RENAME TO "{bare}"')
+    pg_conn.commit()
 
-    if rows:
-        pg_cols    = ", ".join(f'"{c}"' for c in col_names)
-        placeholders = ", ".join(["%s"] * len(col_names))
-        insert_sql = f'INSERT INTO {pg_table} ({pg_cols}) VALUES ({placeholders})'
-        data = [tuple(row) for row in rows]
-
-        # Insert in batches — each batch commits so the DB isn't locked for minutes
-        for i in range(0, len(data), BATCH_COMMIT_SIZE):
-            batch = data[i:i + BATCH_COMMIT_SIZE]
-            psycopg2.extras.execute_batch(pg_cur, insert_sql, batch, page_size=500)
-            pg_conn.commit()
-            log.info(f"    {i + len(batch):,} / {len(data):,} rows → {pg_table}")
-
-    log.info(f"  → {len(rows):,} rows synced to {pg_table}")
-    return len(rows)
+    log.info(f"  → {total:,} rows synced to {pg_table}")
+    return total
 
 
 # ── Full sync ──────────────────────────────────────────────────────────────────
@@ -232,23 +246,26 @@ def start_scheduler():
 # ── Flask API ──────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 
-SYNC_SECRET = os.getenv("SYNC_SECRET", "")
 
 def _require_secret():
-    from flask import request, jsonify
     provided = request.headers.get("X-Sync-Secret", "")
-    if not SYNC_SECRET or provided != SYNC_SECRET:
+    if not SYNC_SECRET:
+        return jsonify({"error": "SYNC_SECRET not configured"}), 401
+    if not hmac.compare_digest(provided.encode(), SYNC_SECRET.encode()):
         return jsonify({"error": "Unauthorized"}), 401
     return None
+
 
 @app.route("/health")
 def health():
     return jsonify({"status": "ok", "service": "o3c-sync-engine"})
 
+
 @app.route("/sync", methods=["POST"])
 def trigger_sync():
     err = _require_secret()
-    if err: return err
+    if err:
+        return err
     log.info("Manual sync triggered via API")
     result = run_sync()
     code = 200 if result.get("status") in ("ok", "partial") else 500
@@ -257,10 +274,12 @@ def trigger_sync():
         **result
     }), code
 
+
 @app.route("/status")
 def status():
     err = _require_secret()
-    if err: return err
+    if err:
+        return err
     return jsonify({
         "tables": len(TABLES),
         "schedule": "Mon–Fri 18:00",
@@ -278,4 +297,4 @@ if __name__ == "__main__":
     scheduler_thread.start()
 
     log.info("Sync engine API starting on port 5001")
-    app.run(host="0.0.0.0", port=5001)
+    serve(app, host="0.0.0.0", port=5001)

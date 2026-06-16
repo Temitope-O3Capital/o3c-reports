@@ -48,11 +48,12 @@ def collections_kpis(
     kpis, sources = {}, []
     df_ms = _df_ms(date_from, date_to)
     df_pg = _df_pg(date_from, date_to)
-    ag_ms = f" AND Rn_Create_User='{agent}'" if agent else ""
-    ag_pg = f" AND \"Agent\"='{agent}'" if agent else ""
+    ag_ms = " AND Rn_Create_User=:agent" if agent else ""
+    ag_pg = ' AND "Agent"=:agent'        if agent else ""
+    ag_p  = {"agent": agent}             if agent else {}
 
     def q(ms, pg, key):
-        val, src = dual_scalar(db_mssql, db_pg, ms, pg)
+        val, src = dual_scalar(db_mssql, db_pg, ms, pg, params=ag_p)
         kpis[key] = float(val) if val else 0
         sources.append(src)
 
@@ -114,11 +115,13 @@ def log_entries(
 ):
     date_from = _vd(date_from, "date_from"); date_to = _vd(date_to, "date_to")
     df_ms = _df_ms(date_from, date_to); df_pg = _df_pg(date_from, date_to)
-    ag_ms = f" AND r.Rn_Create_User='{agent}'" if agent else ""
-    ag_pg = f' AND cl."Agent"=\'{agent}\'' if agent else ""
+    ag_ms = " AND r.Rn_Create_User=:agent" if agent else ""
+    ag_pg = ' AND cl."Agent"=:agent'       if agent else ""
+    ag_p  = {"agent": agent}               if agent else {}
     data, src = dual_query(db_mssql, db_pg,
         f"SELECT TOP {limit} r.Repayment_Date AS [Date], a.CIF_Number AS CIF, c.First_Name AS [First Name], c.Last_Name AS [Last Name], r.Rn_Create_User AS Agent, r.Amount, NULL AS [Mode Of Payment], r.Comments AS [Payment Receipt] FROM dbo.o3_loan_Repayment r LEFT JOIN dbo.Account a ON r.Loan_Account=a.Account_Id LEFT JOIN dbo.Contact c ON a.CIF_Number=c.CIF WHERE 1=1{df_ms}{ag_ms} ORDER BY r.Repayment_Date DESC",
-        f'SELECT cl."Date",cl."CIF",a."First Name",a."Last Name",cl."Agent",cl."Amount",cl."Mode Of Payment",cl."Payment Receipt" FROM "Collections Log" cl LEFT JOIN "Accounts" a ON cl."CIF"=a."CIF Number" WHERE 1=1{df_pg}{ag_pg} ORDER BY cl."Date" DESC LIMIT {limit}')
+        f'SELECT cl."Date",cl."CIF",a."First Name",a."Last Name",cl."Agent",cl."Amount",cl."Mode Of Payment",cl."Payment Receipt" FROM "Collections Log" cl LEFT JOIN "Accounts" a ON cl."CIF"=a."CIF Number" WHERE 1=1{df_pg}{ag_pg} ORDER BY cl."Date" DESC LIMIT {limit}',
+        params=ag_p)
     return {"data": data, "data_source": src}
 
 
@@ -131,11 +134,13 @@ def export_csv(
 ):
     date_from = _vd(date_from, "date_from"); date_to = _vd(date_to, "date_to")
     df_ms = _df_ms(date_from, date_to); df_pg = _df_pg(date_from, date_to)
-    ag_ms = f" AND r.Rn_Create_User='{agent}'" if agent else ""
-    ag_pg = f' AND cl."Agent"=\'{agent}\'' if agent else ""
+    ag_ms = " AND r.Rn_Create_User=:agent" if agent else ""
+    ag_pg = ' AND cl."Agent"=:agent'       if agent else ""
+    ag_p  = {"agent": agent}               if agent else {}
     data, _ = dual_query(db_mssql, db_pg,
         f"SELECT r.Repayment_Date AS [Date], a.CIF_Number AS CIF, c.First_Name AS [First Name], c.Last_Name AS [Last Name], r.Rn_Create_User AS Agent, r.Amount, r.Comments AS Notes FROM dbo.o3_loan_Repayment r LEFT JOIN dbo.Account a ON r.Loan_Account=a.Account_Id LEFT JOIN dbo.Contact c ON a.CIF_Number=c.CIF WHERE 1=1{df_ms}{ag_ms} ORDER BY r.Repayment_Date DESC",
-        f'SELECT cl."Date",cl."CIF",a."First Name",a."Last Name",cl."Agent",cl."Amount",cl."Payment Receipt" FROM "Collections Log" cl LEFT JOIN "Accounts" a ON cl."CIF"=a."CIF Number" WHERE 1=1{df_pg}{ag_pg} ORDER BY cl."Date" DESC')
+        f'SELECT cl."Date",cl."CIF",a."First Name",a."Last Name",cl."Agent",cl."Amount",cl."Payment Receipt" FROM "Collections Log" cl LEFT JOIN "Accounts" a ON cl."CIF"=a."CIF Number" WHERE 1=1{df_pg}{ag_pg} ORDER BY cl."Date" DESC',
+        params=ag_p)
 
     def stream():
         buf = io.StringIO()

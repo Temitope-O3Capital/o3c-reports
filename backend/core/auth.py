@@ -64,12 +64,13 @@ def verify_password(plain: str, hashed: str) -> bool:
 def create_token(data: dict) -> str:
     payload = data.copy()
     payload["exp"] = datetime.now(timezone.utc) + timedelta(minutes=TOKEN_EXPIRE_MINUTES)
+    payload["aud"] = "o3c:api"
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def decode_token(token: str = Depends(oauth2_scheme)) -> dict:
     try:
-        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], audience="o3c:api")
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 

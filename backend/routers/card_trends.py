@@ -34,13 +34,18 @@ def _df_pg(df, dt):
     return ""
 
 def _filters(product, card_program, df, dt):
-    ms = (_df_ms(df, dt)
-        + (f" AND Product_Name='{product}'" if product else "")
-        + (f" AND Card_Product='{card_program}'" if card_program else ""))
-    pg = (_df_pg(df, dt)
-        + (f" AND \"Product Name\"='{product}'" if product else "")
-        + (f" AND \"Card Product\"='{card_program}'" if card_program else ""))
-    return ms, pg
+    ms = _df_ms(df, dt)
+    pg = _df_pg(df, dt)
+    params: dict = {}
+    if product:
+        ms += " AND Product_Name=:product"
+        pg += ' AND "Product Name"=:product'
+        params["product"] = product
+    if card_program:
+        ms += " AND Card_Product=:card_program"
+        pg += ' AND "Card Product"=:card_program'
+        params["card_program"] = card_program
+    return ms, pg, params
 
 
 # ── Portfolio KPIs ────────────────────────────────────────────────────────────
@@ -54,11 +59,11 @@ def kpis(
     db_pg=Depends(get_db_pg), db_mssql=Depends(get_db_mssql), user=Depends(ACCESS)
 ):
     date_from = _vd(date_from, "date_from"); date_to = _vd(date_to, "date_to")
-    fms, fpg = _filters(product, card_program, date_from, date_to)
+    fms, fpg, fp = _filters(product, card_program, date_from, date_to)
     k, s = {}, []
 
     def q(ms, pg, key, cast=int):
-        val, src = dual_scalar(db_mssql, db_pg, ms, pg)
+        val, src = dual_scalar(db_mssql, db_pg, ms, pg, params=fp)
         k[key] = cast(val) if val is not None else 0
         s.append(src)
 
@@ -96,7 +101,7 @@ def issuance_trend(
     db_pg=Depends(get_db_pg), db_mssql=Depends(get_db_mssql), user=Depends(ACCESS)
 ):
     date_from = _vd(date_from, "date_from"); date_to = _vd(date_to, "date_to")
-    fms, fpg = _filters(product, card_program, date_from, date_to)
+    fms, fpg, fp = _filters(product, card_program, date_from, date_to)
     data, src = dual_query(db_mssql, db_pg,
         f"""SELECT FORMAT(Account_Created_Date,'MMM yyyy') AS month,
                DATEFROMPARTS(YEAR(Account_Created_Date),MONTH(Account_Created_Date),1) AS month_sort,
@@ -109,7 +114,8 @@ def issuance_trend(
                DATE_TRUNC('month',"Account Created Date") AS month_sort,
                COUNT(*) AS issued
             FROM "Products" WHERE "Account Created Date" IS NOT NULL{fpg}
-            GROUP BY DATE_TRUNC('month',"Account Created Date") ORDER BY month_sort""")
+            GROUP BY DATE_TRUNC('month',"Account Created Date") ORDER BY month_sort""",
+        params=fp)
     return {"data": data, "data_source": src}
 
 
@@ -125,7 +131,7 @@ def portfolio_health(
 ):
     """Monthly cohort view: of cards issued each month, how many are active vs inactive today."""
     date_from = _vd(date_from, "date_from"); date_to = _vd(date_to, "date_to")
-    fms, fpg = _filters(product, card_program, date_from, date_to)
+    fms, fpg, fp = _filters(product, card_program, date_from, date_to)
     data, src = dual_query(db_mssql, db_pg,
         f"""SELECT FORMAT(Account_Created_Date,'MMM yyyy') AS month,
                DATEFROMPARTS(YEAR(Account_Created_Date),MONTH(Account_Created_Date),1) AS month_sort,
@@ -142,7 +148,8 @@ def portfolio_health(
                SUM(CASE WHEN "Account Status" NOT IN ('Open','Active') THEN 1 ELSE 0 END) AS inactive,
                COUNT(*) AS total
             FROM "Products" WHERE "Account Created Date" IS NOT NULL{fpg}
-            GROUP BY DATE_TRUNC('month',"Account Created Date") ORDER BY month_sort""")
+            GROUP BY DATE_TRUNC('month',"Account Created Date") ORDER BY month_sort""",
+        params=fp)
     return {"data": data, "data_source": src}
 
 
@@ -157,10 +164,11 @@ def status_distribution(
     db_pg=Depends(get_db_pg), db_mssql=Depends(get_db_mssql), user=Depends(ACCESS)
 ):
     date_from = _vd(date_from, "date_from"); date_to = _vd(date_to, "date_to")
-    fms, fpg = _filters(product, card_program, date_from, date_to)
+    fms, fpg, fp = _filters(product, card_program, date_from, date_to)
     data, src = dual_query(db_mssql, db_pg,
         f"SELECT Status AS status, COUNT(*) AS count FROM dbo.Account WHERE 1=1{fms} GROUP BY Status ORDER BY count DESC",
-        f'SELECT "Account Status" AS status, COUNT(*) AS count FROM "Products" WHERE 1=1{fpg} GROUP BY "Account Status" ORDER BY count DESC')
+        f'SELECT "Account Status" AS status, COUNT(*) AS count FROM "Products" WHERE 1=1{fpg} GROUP BY "Account Status" ORDER BY count DESC',
+        params=fp)
     return {"data": data, "data_source": src}
 
 
@@ -173,7 +181,7 @@ def by_program(
     db_pg=Depends(get_db_pg), db_mssql=Depends(get_db_mssql), user=Depends(ACCESS)
 ):
     date_from = _vd(date_from, "date_from"); date_to = _vd(date_to, "date_to")
-    fms, fpg = _filters(None, None, date_from, date_to)
+    fms, fpg, fp = _filters(None, None, date_from, date_to)
     try:
         data, src = dual_query(db_mssql, db_pg,
             f"""SELECT Card_Product AS program,
@@ -189,7 +197,8 @@ def by_program(
                    SUM(CASE WHEN "Account Status" NOT IN ('Open','Active') THEN 1 ELSE 0 END) AS inactive,
                    ROUND(100.0 * SUM(CASE WHEN "Account Status" IN ('Open','Active') THEN 1 ELSE 0 END) / COUNT(*), 1) AS activation_rate
                 FROM "Products" WHERE "Card Product" IS NOT NULL AND "Card Product" != ''{fpg}
-                GROUP BY "Card Product" ORDER BY total DESC""")
+                GROUP BY "Card Product" ORDER BY total DESC""",
+            params=fp)
         return {"data": data, "data_source": src}
     except Exception:
         return {"data": [], "data_source": "supabase_snapshot"}
@@ -205,7 +214,7 @@ def by_product(
     db_pg=Depends(get_db_pg), db_mssql=Depends(get_db_mssql), user=Depends(ACCESS)
 ):
     date_from = _vd(date_from, "date_from"); date_to = _vd(date_to, "date_to")
-    fms, fpg = _filters(None, card_program, date_from, date_to)
+    fms, fpg, fp = _filters(None, card_program, date_from, date_to)
     data, src = dual_query(db_mssql, db_pg,
         f"""SELECT Product_Name,
                COUNT(*) AS total,
@@ -220,7 +229,8 @@ def by_product(
                SUM(CASE WHEN "Account Status" NOT IN ('Open','Active') THEN 1 ELSE 0 END) AS inactive,
                ROUND(100.0 * SUM(CASE WHEN "Account Status" IN ('Open','Active') THEN 1 ELSE 0 END) / COUNT(*), 1) AS activation_rate
             FROM "Products" WHERE "Product Name" IS NOT NULL{fpg}
-            GROUP BY "Product Name" ORDER BY total DESC""")
+            GROUP BY "Product Name" ORDER BY total DESC""",
+        params=fp)
     return {"data": data, "data_source": src}
 
 

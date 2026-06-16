@@ -51,35 +51,37 @@ def cards_kpis(
     date_to   = _validate_date(date_to,   "date_to")
     kpis, sources = {}, []
 
-    def q(ms, pg, key):
-        val, src = dual_scalar(db_mssql, db_pg, ms, pg)
+    ct_p  = {"card_type": card_type} if card_type else {}
+    ct_ms = " AND Product_Name=:card_type"         if card_type else ""
+    ct_pg = ' AND "Product Name"=:card_type'       if card_type else ""
+
+    def q(ms, pg, key, extra_params=None):
+        p = {**ct_p, **(extra_params or {})}
+        val, src = dual_scalar(db_mssql, db_pg, ms, pg, params=p)
         kpis[key] = int(val) if val else 0
         sources.append(src)
 
-    ct_ms = f" AND Product_Name='{card_type}'" if card_type else ""
-    ct_pg = f" AND \"Product Name\"='{card_type}'" if card_type else ""
-
     q(f"SELECT COUNT(*) AS val FROM dbo.Account WHERE 1=1{ct_ms}",
-      f"SELECT COUNT(*) AS val FROM \"Products\" WHERE 1=1{ct_pg}",
+      f'SELECT COUNT(*) AS val FROM "Products" WHERE 1=1{ct_pg}',
       "total_issued")
     q(f"SELECT COUNT(*) AS val FROM dbo.Account WHERE Status IN ('Open','Active'){ct_ms}",
-      f"SELECT COUNT(*) AS val FROM \"Products\" WHERE \"Account Status\" IN ('Open','Active'){ct_pg}",
+      f'SELECT COUNT(*) AS val FROM "Products" WHERE "Account Status" IN (\'Open\',\'Active\'){ct_pg}',
       "active")
     q(f"SELECT COUNT(*) AS val FROM dbo.Account WHERE Status NOT IN ('Open','Active'){ct_ms}",
-      f"SELECT COUNT(*) AS val FROM \"Products\" WHERE \"Account Status\" NOT IN ('Open','Active'){ct_pg}",
+      f'SELECT COUNT(*) AS val FROM "Products" WHERE "Account Status" NOT IN (\'Open\',\'Active\'){ct_pg}',
       "inactive")
 
     for p in ["PREP", "Amex Naira", "Amex USD", "Classic Accounts"]:
-        q(f"SELECT COUNT(*) AS val FROM dbo.Account WHERE Product_Name='{p}'{ct_ms}",
-          f"SELECT COUNT(*) AS val FROM \"Products\" WHERE \"Product Name\"='{p}'{ct_pg}",
-          p.lower().replace(" ", "_"))
+        q(f"SELECT COUNT(*) AS val FROM dbo.Account WHERE Product_Name=:pname{ct_ms}",
+          f'SELECT COUNT(*) AS val FROM "Products" WHERE "Product Name"=:pname{ct_pg}',
+          p.lower().replace(" ", "_"), extra_params={"pname": p})
 
     kpis["activation_rate"] = round(kpis["active"] / kpis["total_issued"] * 100, 1) if kpis["total_issued"] > 0 else 0
 
     dtf_ms   = _date_filter_ms("t.Transaction_Date", date_from, date_to)
     dtf_pg   = _date_filter_pg('t."Transaction Date"', date_from, date_to)
-    pn_ms    = f" AND p.Product_Name='{card_type}'" if card_type else ""
-    pn_pg    = f" AND p.\"Product Name\"='{card_type}'" if card_type else ""
+    pn_ms    = " AND p.Product_Name=:card_type"       if card_type else ""
+    pn_pg    = ' AND p."Product Name"=:card_type'     if card_type else ""
     merch_ms = (
         "SELECT COUNT(DISTINCT t.Merchant_Name) AS val"
         " FROM dbo.Transaction_Listing t JOIN dbo.Account p ON t.CIF=p.CIF_Number"
@@ -92,7 +94,7 @@ def cards_kpis(
         ' WHERE t."Merchant_Name" IS NOT NULL AND t."Merchant_Name"!=\'\''
         + dtf_pg + pn_pg
     )
-    q(merch_ms, merch_pg, "unique_merchants")
+    q(merch_ms, merch_pg, "unique_merchants", extra_params={"card_type": card_type} if card_type else {})
 
     return {"data": kpis, "data_source": "mssql_live" if "mssql_live" in sources else "supabase_snapshot"}
 
@@ -130,8 +132,9 @@ def volume_by_type(
     date_to   = _validate_date(date_to,   "date_to")
     dtf_ms = _date_filter_ms("t.Transaction_Date", date_from, date_to)
     dtf_pg = _date_filter_pg('t."Transaction Date"', date_from, date_to)
-    ct_ms  = f" AND p.Product_Name='{card_type}'" if card_type else ""
-    ct_pg  = f" AND p.\"Product Name\"='{card_type}'" if card_type else ""
+    ct_ms  = " AND p.Product_Name=:card_type"      if card_type else ""
+    ct_pg  = ' AND p."Product Name"=:card_type'    if card_type else ""
+    ct_p   = {"card_type": card_type}               if card_type else {}
 
     vbt_ms = (
         "SELECT p.Product_Name, ISNULL(SUM(t.Amount),0) AS volume, COUNT(t.Amount) AS txn_count"
@@ -145,5 +148,5 @@ def volume_by_type(
         " WHERE 1=1" + dtf_pg + ct_pg +
         ' GROUP BY p."Product Name" ORDER BY volume DESC'
     )
-    data, src = dual_query(db_mssql, db_pg, vbt_ms, vbt_pg)
+    data, src = dual_query(db_mssql, db_pg, vbt_ms, vbt_pg, params=ct_p)
     return {"data": data, "data_source": src}

@@ -176,16 +176,20 @@ def delete_user(
     db_pg    = Depends(get_pg),
     current  = Depends(ADMIN_ACCESS),
 ):
+    """Soft-delete — preserves audit trail. Use /remove for the same effect via PATCH."""
     if current.get("id") and int(current["id"]) == user_id:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
 
     row = db_pg.execute(
-        text("SELECT id FROM o3c_users WHERE id = :id"), {"id": user_id}
+        text("SELECT id FROM o3c_users WHERE id = :id AND deleted_at IS NULL"), {"id": user_id}
     ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="User not found")
 
-    db_pg.execute(text("DELETE FROM o3c_users WHERE id = :id"), {"id": user_id})
+    db_pg.execute(
+        text("UPDATE o3c_users SET is_active=FALSE, deleted_at=NOW() WHERE id=:id"),
+        {"id": user_id}
+    )
     db_pg.commit()
 
 
@@ -317,7 +321,9 @@ def log_activity(
     db_pg    = Depends(get_pg),
     user     = Depends(require_pages(["overview"])),   # any authenticated user
 ):
-    ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else None)
+    # Use rightmost X-Forwarded-For — Railway appends the real IP last; leftmost is attacker-controlled
+    fwd = request.headers.get("X-Forwarded-For", "")
+    ip  = fwd.split(",")[-1].strip() if fwd else (request.client.host if request.client else None)
     try:
         db_pg.execute(text("""
             INSERT INTO o3c_activity_log (user_id, page, action, detail, ip)

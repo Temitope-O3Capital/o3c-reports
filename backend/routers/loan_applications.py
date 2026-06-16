@@ -220,11 +220,11 @@ def create_application(
         "assigned_to": body.assigned_to,
         "stage": body.stage,
     }).fetchone()
-    _log(db, row.id, user["id"], user.get("name", ""), "created",
+    _log(db, row.id, user["id"], user.get("full_name", ""), "created",
          new_value=ref, note=f"{body.loan_type} — {body.first_name} {body.last_name}")
     db.commit()
     result = _app_row(row)
-    result["created_by_name"] = user.get("name", "")
+    result["created_by_name"] = user.get("full_name", "")
     return result
 
 
@@ -304,7 +304,7 @@ def update_application(
         raise HTTPException(422, f"Invalid stage. Options: {STAGES}")
 
     updates = {"id": app_id, "updated_at": _now()}
-    user_name = user.get("name", "")
+    user_name = user.get("full_name", "")
 
     if body.stage and body.stage != row.stage:
         updates["stage"] = body.stage
@@ -359,8 +359,8 @@ def add_comment(
     row = db.execute(text("""
         INSERT INTO loan_comments (application_id, user_id, user_name, body)
         VALUES (:aid, :uid, :uname, :body) RETURNING *
-    """), {"aid": app_id, "uid": user["id"], "uname": user.get("name",""), "body": body.body.strip()}).fetchone()
-    _log(db, app_id, user["id"], user.get("name",""), "comment_added")
+    """), {"aid": app_id, "uid": user["id"], "uname": user.get("full_name",""), "body": body.body.strip()}).fetchone()
+    _log(db, app_id, user["id"], user.get("full_name",""), "comment_added")
     db.commit()
     return {
         "id": row.id, "user_id": row.user_id, "user_name": row.user_name,
@@ -381,7 +381,7 @@ def add_document(
         INSERT INTO loan_documents (application_id, doc_type, filename, notes)
         VALUES (:aid, :dtype, :fname, :notes) RETURNING *
     """), {"aid": app_id, "dtype": body.doc_type, "fname": body.filename, "notes": body.notes}).fetchone()
-    _log(db, app_id, user["id"], user.get("name",""), "doc_added",
+    _log(db, app_id, user["id"], user.get("full_name",""), "doc_added",
          new_value=body.doc_type, note=body.filename)
     db.commit()
     return _doc_row(row)
@@ -414,7 +414,7 @@ def update_document(
     db.execute(text(f"UPDATE loan_documents SET {sets} WHERE id=:id"), updates)
     action = "doc_confirmed" if body.status == "confirmed" else \
              "doc_rejected"  if body.status == "rejected"  else "doc_resubmitted"
-    _log(db, app_id, user["id"], user.get("name",""), action,
+    _log(db, app_id, user["id"], user.get("full_name",""), action,
          old_value=doc.status, new_value=body.status, note=doc.doc_type)
     db.commit()
     updated = db.execute(text("SELECT * FROM loan_documents WHERE id=:id"), {"id": doc_id}).fetchone()
@@ -433,7 +433,7 @@ def delete_document(
     if not doc:
         raise HTTPException(404, "Document not found")
     db.execute(text("DELETE FROM loan_documents WHERE id=:id"), {"id": doc_id})
-    _log(db, app_id, user["id"], user.get("name",""), "doc_removed", old_value=doc.doc_type)
+    _log(db, app_id, user["id"], user.get("full_name",""), "doc_removed", old_value=doc.doc_type)
     db.commit()
 
 

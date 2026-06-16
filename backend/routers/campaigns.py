@@ -17,6 +17,7 @@ POST   /api/campaigns/sms-webhook           Termii delivery webhook (public)
 POST   /api/campaigns/email-webhook         SendGrid event webhook (public)
 """
 import csv
+import hmac
 import io
 import os
 import re
@@ -38,12 +39,14 @@ router  = APIRouter()
 ACCESS  = require_pages(["campaigns"])
 log     = logging.getLogger("o3c.campaigns")
 
-TERMII_API_KEY      = os.getenv("TERMII_API_KEY", "")
-TERMII_SENDER_ID    = os.getenv("TERMII_SENDER_ID", "O3CCARDS")
-SENDGRID_API_KEY    = os.getenv("SENDGRID_API_KEY", "")
-SENDGRID_FROM_EMAIL = os.getenv("SENDGRID_FROM_EMAIL", "")
-SENDGRID_FROM_NAME  = os.getenv("SENDGRID_FROM_NAME", "O3C Cards")
-SUPABASE_URL        = os.getenv("DATABASE_URL", "")  # used for storage base URL derivation
+TERMII_API_KEY       = os.getenv("TERMII_API_KEY", "")
+TERMII_SENDER_ID     = os.getenv("TERMII_SENDER_ID", "O3CCARDS")
+SENDGRID_API_KEY     = os.getenv("SENDGRID_API_KEY", "")
+SENDGRID_FROM_EMAIL  = os.getenv("SENDGRID_FROM_EMAIL", "")
+SENDGRID_FROM_NAME   = os.getenv("SENDGRID_FROM_NAME", "O3C Cards")
+SUPABASE_URL         = os.getenv("DATABASE_URL", "")
+SMS_WEBHOOK_SECRET   = os.getenv("SMS_WEBHOOK_SECRET", "")
+EMAIL_WEBHOOK_SECRET = os.getenv("EMAIL_WEBHOOK_SECRET", "")
 
 CAMPAIGN_TYPES = ["sms", "email", "multi"]
 CAMPAIGN_STATUSES = ["draft", "scheduled", "active", "paused", "completed", "cancelled"]
@@ -548,11 +551,25 @@ async def upload_image(
     return {"url": public_url}
 
 
-# ── Public webhooks (no auth) ─────────────────────────────────────────────────
+# ── Webhook token verification ────────────────────────────────────────────────
+
+def _check_webhook_token(request: Request, expected: str) -> bool:
+    """Constant-time compare of the ?secret= query param against the configured secret.
+    Register webhooks with ?secret=SECRET in the URL in Termii/SendGrid dashboards."""
+    if not expected:
+        log.warning("Webhook secret not configured — request accepted without verification")
+        return True
+    provided = request.query_params.get("secret", "")
+    return hmac.compare_digest(provided.encode(), expected.encode())
+
+
+# ── Public webhooks ────────────────────────────────────────────────────────────
 
 @router.post("/sms-webhook", include_in_schema=False)
 async def sms_webhook(request: Request, db = Depends(get_db_pg)):
     """Termii delivery status webhook — updates campaign_contacts.sms_status."""
+    if not _check_webhook_token(request, SMS_WEBHOOK_SECRET):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     try:
         data = await request.json()
         provider_id = data.get("id") or data.get("message_id", "")
@@ -583,6 +600,8 @@ async def sms_webhook(request: Request, db = Depends(get_db_pg)):
 @router.post("/email-webhook", include_in_schema=False)
 async def email_webhook(request: Request, db = Depends(get_db_pg)):
     """SendGrid event webhook — updates email open/click/bounce stats."""
+    if not _check_webhook_token(request, EMAIL_WEBHOOK_SECRET):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     try:
         events = await request.json()
         if not isinstance(events, list):
