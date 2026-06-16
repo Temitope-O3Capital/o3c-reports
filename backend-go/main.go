@@ -47,10 +47,6 @@ func main() {
 
 	// ── Public endpoints ───────────────────────────────────────────────────────
 	r.Get("/api/health", healthHandler(db))
-	r.Post("/api/auth/token", func(w http.ResponseWriter, r *http.Request) {
-		// auth token endpoint does not require an existing token
-		chi.RouteContext(r.Context())
-	})
 
 	// Mount auth routes (token is public, me/change-password require auth)
 	r.Route("/api/auth", func(r chi.Router) {
