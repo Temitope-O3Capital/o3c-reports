@@ -34,7 +34,9 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(),
 			`SELECT id, email, password_hash, full_name, role, department,
-			        must_change_password, is_active, deleted_at
+			        COALESCE(must_change_password, false) AS must_change_password,
+			        COALESCE(is_active, true)             AS is_active,
+			        deleted_at
 			 FROM o3c_users WHERE email = $1`, email)
 		if err != nil {
 			respondErr(w, 503, "Database unavailable — please try again")
@@ -93,7 +95,7 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			User: map[string]any{
 				"id":                   u["id"],
 				"email":                str(u["email"]),
-				"full_name":            str(u["full_name"]),
+				"name":                 str(u["full_name"]),
 				"role":                 role,
 				"department":           str(u["department"]),
 				"pages":                pages,
