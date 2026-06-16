@@ -2,268 +2,87 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ═══════════════════════════════════════════════════════════════
-   DESIGN TOKENS — single source of truth for the entire app.
-   Change a token here; every component updates automatically.
-   Pattern: Stripe / Vercel / Linear.
-   ═══════════════════════════════════════════════════════════════ */
-
-:root {
-  /* ── Typography ──────────────────────────────────────────── */
-  --font-sans: 'DM Sans',  system-ui, -apple-system, sans-serif;
-  --font-mono: 'DM Mono',  ui-monospace, 'Cascadia Code', monospace;
-
-  /* ── Brand palette (RGB channels → Tailwind opacity support) */
-  --navy:       14  40  65;   /* #0E2841 */
-  --navy-light: 22  55  79;   /* #16374F */
-  --navy-dark:   9  26  45;   /* #091A2D */
-  --red:        192  0   0;   /* #C00000 */
-  --red-light:  212  0   0;   /* #D40000 */
-  --red-dark:   150  0   0;   /* #960000 */
-
-  /* ── Surface tokens (light) ─────────────────────────────── */
-  --bg-page:    246 245 242;  /* #F6F5F2 — warm off-white canvas */
-  --bg-surface: 255 255 255;  /* #FFFFFF — card / panel */
-  --bg-subtle:  248 247 245;  /* #F8F7F5 — hover / row highlight */
-  --bg-muted:   232 230 226;  /* #E8E6E2 — dividers, skeleton */
-
-  /* ── Text tokens (light) ────────────────────────────────── */
-  --fg-1: 15  23  42;         /* #0F172A — headings */
-  --fg-2: 71  85  105;        /* #475569 — body */
-  --fg-3: 148 163 184;        /* #94A3B8 — muted / labels */
-  --fg-4: 203 213 225;        /* #CBD5E1 — disabled */
-
-  /* ── Border ─────────────────────────────────────────────── */
-  --border:   15 23 42;       /* used at /8 opacity in light */
-  --border-strong: 15 23 42;  /* used at /14 opacity */
-
-  /* ── Radius ─────────────────────────────────────────────── */
-  --r-sm:   6px;
-  --r-md:   8px;
-  --r-lg:   12px;
-  --r-xl:   16px;
-  --r-full: 9999px;
-
-  /* ── Elevation / shadow ─────────────────────────────────── */
-  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.07), 0 1px 2px -1px rgb(0 0 0 / 0.04);
-  --shadow-md: 0 4px 12px 0 rgb(0 0 0 / 0.08), 0 2px 4px -1px rgb(0 0 0 / 0.04);
-  --shadow-lg: 0 8px 24px 0 rgb(0 0 0 / 0.10), 0 4px 8px -2px rgb(0 0 0 / 0.06);
-  --shadow-xl: 0 20px 40px 0 rgb(0 0 0 / 0.14), 0 8px 16px -4px rgb(0 0 0 / 0.08);
-
-  /* ── Transition ─────────────────────────────────────────── */
-  --t-fast: 100ms ease;
-  --t-base: 150ms ease;
-  --t-slow: 250ms ease;
-
-  /* ── Sidebar ────────────────────────────────────────────── */
-  --sidebar-w: 240px;
-}
-
-/* ── Dark mode token overrides ─────────────────────────────── */
-.dark {
-  --bg-page:    11  17  32;   /* #0B1120 */
-  --bg-surface: 17  24  39;   /* #111827 */
-  --bg-subtle:  30  41  59;   /* #1E293B */
-  --bg-muted:   41  53  72;   /* #293548 */
-
-  --fg-1: 248 250 252;        /* #F8FAFC */
-  --fg-2: 148 163 184;        /* #94A3B8 */
-  --fg-3:  71  85 105;        /* #475569 */
-  --fg-4:  51  65  85;        /* #334155 */
-
-  --border:        255 255 255;
-  --border-strong: 255 255 255;
-
-  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.25), 0 1px 2px -1px rgb(0 0 0 / 0.15);
-  --shadow-md: 0 4px 12px 0 rgb(0 0 0 / 0.30), 0 2px 4px -1px rgb(0 0 0 / 0.18);
-  --shadow-lg: 0 8px 24px 0 rgb(0 0 0 / 0.40), 0 4px 8px -2px rgb(0 0 0 / 0.25);
-  --shadow-xl: 0 20px 40px 0 rgb(0 0 0 / 0.50), 0 8px 16px -4px rgb(0 0 0 / 0.30);
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   BASE
-   ═══════════════════════════════════════════════════════════════ */
-
 @layer base {
   html {
-    font-family: var(--font-sans);
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    font-feature-settings: 'ss01' 1;
-    color: rgb(var(--fg-1));
-    background-color: rgb(var(--bg-page));
+    background-color: #F6F5F2;
+    color: #0F172A;
   }
-
+  html.dark {
+    background-color: #0B1120;
+    color: #F1F5F9;
+  }
   * { box-sizing: border-box; }
-
-  /* Numbers always tabular */
-  [class*="font-mono"], .tabular { font-variant-numeric: tabular-nums; }
-
-  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgb(var(--fg-4)); border-radius: var(--r-full); }
-  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--fg-3)); }
+  ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 9999px; }
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   COMPONENTS — classes that multiple elements share.
-   All values reference tokens above.
-   ═══════════════════════════════════════════════════════════════ */
 
 @layer components {
-
-  /* ── Card ────────────────────────────────────────────────── */
   .card {
-    background-color: rgb(var(--bg-surface));
+    background: #fff;
     border-radius: 10px;
-    border: 1px solid rgb(var(--border) / 0.1);
+    border: 1px solid rgba(15,23,42,0.08);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.03);
   }
-  .card-hover:hover { border-color: rgb(var(--border) / 0.2); }
-
-  /* ── Button base ─────────────────────────────────────────── */
-  .btn {
-    @apply inline-flex items-center justify-center gap-2 font-medium transition-all
-           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1;
-    border-radius: var(--r-md);
-    font-family: var(--font-sans);
+  .dark .card {
+    background: #111827;
+    border-color: rgba(255,255,255,0.07);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
   }
+  .skeleton {
+    background: linear-gradient(90deg, #F1F5F9 25%, #E2E8F0 50%, #F1F5F9 75%);
+    background-size: 200% 100%;
+    animation: skeleton-wave 1.5s ease-in-out infinite;
+    border-radius: 6px;
+  }
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 cursor-pointer w-full;
+    color: rgba(255,255,255,0.6);
+  }
+  .nav-item:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.9); }
+  .nav-item.active {
+    background: rgba(192,0,0,0.12);
+    color: #fff;
+    border-left: 2px solid #C00000;
+    padding-left: calc(0.75rem - 2px);
+  }
+  .nav-item.active .nav-icon { color: #C00000; }
   .btn-primary {
-    @apply btn text-white active:scale-[0.98] px-4 py-2 text-sm;
-    background-color: rgb(var(--navy));
-    box-shadow: var(--shadow-xs);
+    @apply inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-lg transition-all;
+    background: #0E2841;
   }
-  .btn-primary:hover { background-color: rgb(var(--navy-light)); }
+  .btn-primary:hover { background: #16374F; }
   .btn-ghost {
-    @apply btn px-3 py-2 text-sm;
-    color: rgb(var(--fg-2));
+    @apply inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-all;
+    color: #64748B;
   }
-  .btn-ghost:hover {
-    background-color: rgb(var(--bg-subtle));
-    color: rgb(var(--fg-1));
-  }
-  .btn-sm { @apply px-3 py-1.5 text-xs; }
-  .btn-icon {
-    @apply p-2 transition-colors;
-    border-radius: var(--r-md);
-    color: rgb(var(--fg-3));
-  }
-  .btn-icon:hover {
-    background-color: rgb(var(--bg-subtle));
-    color: rgb(var(--fg-1));
-  }
-  .icon-btn {
-    @apply p-1.5 rounded-lg transition-colors;
-    color: rgb(var(--fg-3));
-  }
-  .icon-btn:hover {
-    background-color: rgb(var(--bg-subtle));
-    color: rgb(var(--fg-2));
-  }
-
-  /* ── Badge ───────────────────────────────────────────────── */
-  .badge {
-    @apply inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold tracking-wide;
-    border-radius: var(--r-full);
-  }
-  .badge-green  { @apply bg-emerald-50  text-emerald-700  dark:bg-emerald-900/25 dark:text-emerald-400; }
-  .badge-red    { @apply bg-red-50      text-red-700      dark:bg-red-900/25     dark:text-red-400; }
-  .badge-amber  { @apply bg-amber-50    text-amber-700    dark:bg-amber-900/25   dark:text-amber-400; }
-  .badge-blue   { @apply bg-blue-50     text-blue-700     dark:bg-blue-900/25    dark:text-blue-400; }
-  .badge-grey   { background-color: rgb(var(--bg-subtle)); color: rgb(var(--fg-2)); }
-  .badge-navy   { background-color: rgb(var(--navy) / 0.08); color: rgb(var(--navy)); }
-  .dark .badge-navy { background-color: rgb(var(--navy) / 0.25); color: rgb(var(--navy-light)); }
-
-  /* ── Table ───────────────────────────────────────────────── */
-  .data-table { @apply w-full text-sm; }
-  .data-table thead th {
-    @apply px-5 py-3 text-left font-semibold uppercase whitespace-nowrap;
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    color: rgb(var(--fg-3));
-    border-bottom: 1px solid rgb(var(--border) / 0.09);
-  }
-  .data-table tbody tr {
-    border-top: 1px solid rgb(var(--border) / 0.06);
-    transition: background-color var(--t-fast);
-  }
-  .data-table tbody tr:hover { background-color: rgb(var(--bg-subtle)); }
-  .data-table tbody td { @apply px-5 py-3.5; color: rgb(var(--fg-1)); }
-
-  /* ── Form ────────────────────────────────────────────────── */
-  .form-input {
-    @apply block w-full px-3.5 py-2.5 text-sm transition-colors;
-    border-radius: var(--r-md);
-    background-color: rgb(var(--bg-surface));
-    border: 1px solid rgb(var(--border) / 0.18);
-    color: rgb(var(--fg-1));
-    font-family: var(--font-sans);
-    outline: none;
-  }
-  .form-input::placeholder { color: rgb(var(--fg-3)); }
-  .form-input:focus {
-    border-color: rgb(var(--navy));
-    box-shadow: 0 0 0 3px rgb(var(--navy) / 0.08);
-  }
-  .form-label {
-    @apply block text-sm font-medium mb-1.5;
-    color: rgb(var(--fg-2));
-  }
+  .btn-ghost:hover { background: rgba(15,23,42,0.05); color: #0F172A; }
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   UTILITIES & ONE-OFF PATTERNS
-   ═══════════════════════════════════════════════════════════════ */
-
-/* Cohort heatmap */
-.heatmap-wrap  { overflow-x: auto; }
-.heatmap-table { border-collapse: separate; border-spacing: 2px; font-size: 11px; white-space: nowrap; font-family: var(--font-sans); }
-.heatmap-table th { padding: 4px 8px; font-weight: 600; color: rgb(var(--fg-3)); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
-.heatmap-table td { padding: 3px 4px; text-align: center; }
-.cohort-label  { text-align: left !important; font-weight: 500; color: rgb(var(--fg-2)); padding-right: 16px !important; }
-.heatmap-cell  { min-width: 44px; font-size: 11px; font-weight: 600; border-radius: var(--r-sm); }
-
-/* Recharts */
-.recharts-tooltip-wrapper { outline: none; }
-
-/* Skeleton */
-.skeleton {
-  background: linear-gradient(90deg,
-    rgb(var(--bg-subtle)) 25%,
-    rgb(var(--bg-muted))  50%,
-    rgb(var(--bg-subtle)) 75%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
-  border-radius: var(--r-md);
+@keyframes skeleton-wave {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
-/* Spinner */
-@keyframes spin { to { transform: rotate(360deg); } }
-.spinner {
-  width: 18px; height: 18px;
-  border: 2px solid rgb(var(--bg-muted));
-  border-top-color: rgb(var(--navy));
-  border-radius: var(--r-full);
-  animation: spin 0.65s linear infinite;
-  display: inline-block;
-  flex-shrink: 0;
+.material-symbols-rounded { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20; }
+.fill-icon { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20; }
+
+/* IBM Plex Mono — reporting number settings */
+.font-mono {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: 'tnum' 1, 'lnum' 1, 'zero' 1;
+  letter-spacing: -0.01em;
 }
 
-/* Pulse */
-@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-.pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
-
-/* Page transition */
-.page-enter { animation: fade-in 0.18s ease-out; }
-
-
-/* ── Print styles ──────────────────────────────────────────────────────────── */
-@media print {
-  body { background: #fff !important; color: #000 !important; }
-  .no-print { display: none !important; }
-  aside, header { display: none !important; }
-  main { overflow: visible !important; }
-  .card { box-shadow: none !important; border: 1px solid #e2e8f0 !important; }
-  @page { margin: 16mm; }
+/* Large headline KPI numbers */
+.kpi-number {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: 'tnum' 1, 'lnum' 1, 'zero' 1;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  font-size-adjust: none;
 }
