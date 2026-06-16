@@ -1,0 +1,52 @@
+const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+export async function apiFetch<T = any>(path: string, init?: RequestInit): Promise<T> {
+  const token = localStorage.getItem('o3c_token')
+  const res = await fetch(`${API}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
+  })
+  if (res.status === 401) {
+    localStorage.removeItem('o3c_token')
+    localStorage.removeItem('o3c_user')
+    window.location.href = '/login'
+    throw new Error('Session expired')
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as any).detail || `Request failed (${res.status})`)
+  }
+  return res.json()
+}
+
+export async function apiPost<T = any>(path: string, body: unknown): Promise<T> {
+  return apiFetch<T>(path, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function apiPut<T = any>(path: string, body: unknown): Promise<T> {
+  return apiFetch<T>(path, { method: 'PUT', body: JSON.stringify(body) })
+}
+
+export async function apiDelete(path: string): Promise<void> {
+  await apiFetch(path, { method: 'DELETE' })
+}
+
+export async function apiExport(path: string, filename: string): Promise<void> {
+  const token = localStorage.getItem('o3c_token')
+  const res = await fetch(`${API}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${filename}_${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+export { API }

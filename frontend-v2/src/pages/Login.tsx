@@ -1,14 +1,9 @@
 import { useState, FormEvent } from 'react'
+import { AuthUser } from '../hooks/useAuth'
 
-type User = { name: string; role: string; email: string }
+const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-const DEMO_USERS: Record<string, User> = {
-  'admin@o3cards.com':       { name: 'Temitope Opemiposi', role: 'admin',       email: 'admin@o3cards.com' },
-  'collections@o3cards.com': { name: 'Amaka Okonkwo',      role: 'collections', email: 'collections@o3cards.com' },
-  'sales@o3cards.com':       { name: 'Chidi Nwankwo',      role: 'sales',       email: 'sales@o3cards.com' },
-}
-
-export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
+export default function Login({ onLogin }: { onLogin: (u: AuthUser) => void }) {
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
   const [showPw,   setShowPw]   = useState(false)
@@ -20,14 +15,38 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
     setError('')
     if (!email || !password) { setError('Please enter your email and password.'); return }
     setLoading(true)
-    await new Promise(r => setTimeout(r, 900))
-    const user = DEMO_USERS[email.toLowerCase()]
-    if (user && password.length >= 4) {
-      onLogin(user)
-    } else {
-      setError('Invalid credentials. Try admin@o3cards.com with any password.')
+    try {
+      const res = await fetch(`${API}/api/auth/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ username: email, password }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error((err as any).detail || 'Invalid credentials')
+      }
+      const data = await res.json()
+      localStorage.setItem('o3c_token', data.access_token)
+      localStorage.setItem('o3c_user', JSON.stringify(data.user))
+      onLogin(data.user)
+    } catch (err: any) {
+      setError(err.message || 'Login failed. Please try again.')
       setLoading(false)
     }
+  }
+
+  const inputBase = {
+    background: '#fff',
+    borderColor: error ? '#DC2626' : 'rgba(15,23,42,0.15)',
+  }
+
+  function focusStyle(e: React.FocusEvent<HTMLInputElement>) {
+    e.currentTarget.style.borderColor = '#0E2841'
+    e.currentTarget.style.boxShadow   = '0 0 0 3px rgba(14,40,65,0.08)'
+  }
+  function blurStyle(e: React.FocusEvent<HTMLInputElement>) {
+    e.currentTarget.style.borderColor = error ? '#DC2626' : 'rgba(15,23,42,0.15)'
+    e.currentTarget.style.boxShadow   = 'none'
   }
 
   return (
@@ -52,9 +71,9 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
 
           <div className="mt-10 space-y-4">
             {[
-              { icon: 'bolt',        label: 'Live MSSQL data via Cloudflare Tunnel' },
-              { icon: 'shield',      label: 'Role-based access — 7 permission levels' },
-              { icon: 'bar_chart',   label: '₦3.1B+ in monthly transaction volume' },
+              { icon: 'bolt',      label: 'Live MSSQL data via Cloudflare Tunnel' },
+              { icon: 'shield',    label: 'Role-based access — 17 permission levels' },
+              { icon: 'bar_chart', label: '₦3.1B+ in monthly transaction volume' },
             ].map(({ icon, label }) => (
               <div key={label} className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
@@ -93,32 +112,25 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
                 type="email" value={email} onChange={e => setEmail(e.target.value)}
                 placeholder="you@o3cards.com" autoComplete="email"
                 className="w-full px-3.5 py-2.5 text-sm rounded-lg border transition-all outline-none"
-                style={{
-                  background: '#fff', borderColor: error ? '#DC2626' : 'rgba(15,23,42,0.15)',
-                  boxShadow: 'none',
-                }}
-                onFocus={e => { e.currentTarget.style.borderColor = '#0E2841'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(14,40,65,0.08)' }}
-                onBlur={e => { e.currentTarget.style.borderColor = error ? '#DC2626' : 'rgba(15,23,42,0.15)'; e.currentTarget.style.boxShadow = 'none' }}
+                style={inputBase}
+                onFocus={focusStyle}
+                onBlur={blurStyle}
               />
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-sm font-medium text-slate-700">Password</label>
-                <button type="button" className="text-xs font-medium" style={{ color: '#C00000' }}>
-                  Forgot password?
-                </button>
               </div>
               <div className="relative">
                 <input
-                  type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                  type={showPw ? 'text' : 'password'} value={password}
+                  onChange={e => setPassword(e.target.value)}
                   placeholder="••••••••" autoComplete="current-password"
                   className="w-full px-3.5 py-2.5 pr-10 text-sm rounded-lg border transition-all outline-none"
-                  style={{
-                    background: '#fff', borderColor: error ? '#DC2626' : 'rgba(15,23,42,0.15)',
-                  }}
-                  onFocus={e => { e.currentTarget.style.borderColor = '#0E2841'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(14,40,65,0.08)' }}
-                  onBlur={e => { e.currentTarget.style.borderColor = error ? '#DC2626' : 'rgba(15,23,42,0.15)'; e.currentTarget.style.boxShadow = 'none' }}
+                  style={inputBase}
+                  onFocus={focusStyle}
+                  onBlur={blurStyle}
                 />
                 <button type="button" onClick={() => setShowPw(!showPw)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
@@ -129,24 +141,21 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
             </div>
 
             {error && (
-              <div className="flex items-start gap-2.5 p-3 rounded-lg text-sm" style={{ background: 'rgba(220,38,38,0.06)', color: '#B91C1C' }}>
+              <div className="flex items-start gap-2.5 p-3 rounded-lg text-sm"
+                style={{ background: 'rgba(220,38,38,0.06)', color: '#B91C1C' }}>
                 <span className="material-symbols-rounded text-[16px] flex-shrink-0 mt-px">error</span>
                 {error}
               </div>
             )}
 
             <button type="submit" disabled={loading}
-              className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-white rounded-lg transition-all mt-2"
-              style={{ background: loading ? '#16374F' : '#0E2841' }}>
+              className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-white rounded-lg transition-all mt-2 disabled:opacity-60"
+              style={{ background: '#0E2841' }}>
               {loading
                 ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Signing in…</>
                 : 'Sign in'}
             </button>
           </form>
-
-          <p className="mt-6 text-center text-xs text-slate-400">
-            Demo: use <span className="font-medium text-slate-600">admin@o3cards.com</span> + any password
-          </p>
         </div>
       </div>
     </div>

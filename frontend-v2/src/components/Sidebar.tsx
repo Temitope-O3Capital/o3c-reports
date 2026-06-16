@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-
-type User = { name: string; role: string }
+import { AuthUser } from '../hooks/useAuth'
 
 interface SubItem { label: string; to: string }
 interface Dept    { id: string; label: string; icon: string; items: SubItem[] }
 
 const TOP = [
-  { label: 'Dashboard', icon: 'dashboard',           to: '/' },
+  { label: 'Dashboard', icon: 'dashboard',           to: '/',          badge: undefined },
   { label: 'Approvals', icon: 'approval_delegation', to: '/approvals', badge: 3 },
 ]
 
@@ -50,12 +49,22 @@ const DEPTS: Dept[] = [
       { label: 'Reports',  to: '/crm/reports' },
     ],
   },
+  {
+    id: 'operations', label: 'Operations', icon: 'business_center',
+    items: [
+      { label: 'Credit Portfolio', to: '/operations/credit-portfolio' },
+      { label: 'Fixed Deposit',    to: '/operations/fixed-deposit' },
+      { label: 'Settlement',       to: '/operations/settlement' },
+      { label: 'Mobile App',       to: '/operations/mobile-app' },
+      { label: 'Blink Card',       to: '/operations/blink-card' },
+    ],
+  },
 ]
 
 const OPS = [
-  { label: 'Campaigns', icon: 'campaign',   to: '/marketing/campaigns' },
-  { label: 'Watch',     icon: 'visibility', to: '/watch',    badge: 4 },
-  { label: 'Settings',  icon: 'settings',   to: '/settings' },
+  { label: 'Campaigns', icon: 'campaign',   to: '/marketing/campaigns', badge: undefined },
+  { label: 'Watch',     icon: 'visibility', to: '/watch',               badge: 4 },
+  { label: 'Settings',  icon: 'settings',   to: '/settings',            badge: undefined },
 ]
 
 const IDLE_TEXT   = 'rgba(255,255,255,0.58)'
@@ -93,20 +102,14 @@ function NavItem({ label, icon, to, badge, end: endProp = false }: {
   )
 }
 
-export default function Sidebar({ user, onLogout }: { user: User; onLogout: () => void }) {
+export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const location = useLocation()
 
   const activeDeptId = DEPTS.find(d =>
     d.items.some(i => location.pathname === i.to || location.pathname.startsWith(i.to + '/'))
   )?.id ?? null
 
-  // Accordion: only one dept open at a time; auto-open the active one on mount
   const [openId, setOpenId] = useState<string | null>(activeDeptId)
-
-  // Navigate to the dept's overview page and ensure it's the only open dept
-  function openDept(id: string) {
-    setOpenId(prev => (prev === id ? id : id)) // always keep clicked one open
-  }
 
   const initials = user.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
 
@@ -155,7 +158,6 @@ export default function Sidebar({ user, onLogout }: { user: User; onLogout: () =
 
           return (
             <div key={dept.id}>
-              {/* Department header — navigates to overview + opens accordion */}
               <NavLink
                 to={dept.items[0].to}
                 onClick={() => setOpenId(dept.id)}
@@ -173,11 +175,14 @@ export default function Sidebar({ user, onLogout }: { user: User; onLogout: () =
                       {dept.icon}
                     </span>
                     <span className="flex-1">{dept.label}</span>
+                    <span className="material-symbols-rounded text-[14px] transition-transform"
+                      style={{ color: 'rgba(255,255,255,0.25)', transform: isOpen ? 'rotate(180deg)' : 'none' }}>
+                      expand_more
+                    </span>
                   </span>
                 )}
               </NavLink>
 
-              {/* Sub-items — accordion, one open at a time */}
               <div className="overflow-hidden transition-all duration-200 ease-out"
                 style={{ maxHeight: isOpen ? `${dept.items.length * 34}px` : '0px' }}>
                 <div className="ml-[30px] mt-0.5 mb-1"
@@ -193,7 +198,6 @@ export default function Sidebar({ user, onLogout }: { user: User; onLogout: () =
                             borderLeft:  isActive ? `2px solid ${ACCENT}` : '2px solid transparent',
                             color:       isActive ? '#ffffff' : 'rgba(255,255,255,0.5)',
                             fontWeight:  isActive ? 600 : 400,
-                            background:  'transparent',
                           }}>
                           {label}
                         </span>
@@ -208,7 +212,7 @@ export default function Sidebar({ user, onLogout }: { user: User; onLogout: () =
 
         <p className="px-3 pt-3 pb-1.5 text-[10px] font-bold uppercase tracking-[0.1em]"
           style={{ color: 'rgba(255,255,255,0.28)' }}>
-          Operations
+          Platform
         </p>
         {OPS.map(({ label, icon, to, badge }) => (
           <NavItem key={to} label={label} icon={icon} to={to} badge={badge} />
@@ -226,7 +230,7 @@ export default function Sidebar({ user, onLogout }: { user: User; onLogout: () =
           <div className="flex-1 min-w-0">
             <p className="text-[12px] font-semibold text-white truncate leading-tight">{user.name}</p>
             <p className="text-[11px] capitalize leading-tight" style={{ color: 'rgba(255,255,255,0.4)' }}>
-              {user.role}
+              {(user.role || '').replace(/_/g, ' ')}
             </p>
           </div>
           <button onClick={onLogout} title="Sign out" aria-label="Sign out"
