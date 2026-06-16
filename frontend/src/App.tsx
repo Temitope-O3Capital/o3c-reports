@@ -88,16 +88,27 @@ export default function App() {
   const [dark,    setDark]    = useState(false)
 
   useEffect(() => {
-    const token = localStorage.getItem('o3c_token')
-    const stored = localStorage.getItem('o3c_user')
-    if (token && stored) {
-      const payload = parseToken(token)
-      if (payload && payload.exp * 1000 > Date.now()) {
-        setUser(JSON.parse(stored))
-      } else {
-        localStorage.removeItem('o3c_token')
-        localStorage.removeItem('o3c_user')
+    try {
+      const token = localStorage.getItem('o3c_token')
+      const stored = localStorage.getItem('o3c_user')
+      if (token && stored) {
+        const payload = parseToken(token)
+        if (payload && payload.exp * 1000 > Date.now()) {
+          const u = JSON.parse(stored)
+          if (u && typeof u.name === 'string' && typeof u.role === 'string') {
+            setUser(u)
+          } else {
+            localStorage.removeItem('o3c_token')
+            localStorage.removeItem('o3c_user')
+          }
+        } else {
+          localStorage.removeItem('o3c_token')
+          localStorage.removeItem('o3c_user')
+        }
       }
+    } catch {
+      localStorage.removeItem('o3c_token')
+      localStorage.removeItem('o3c_user')
     }
     setLoading(false)
   }, [])
