@@ -514,7 +514,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
-              <THead cols={['Reference & Date', 'Recipient', 'Bank / Account', 'Amount', 'Paystack Fee *', 'O3C Net', 'Status', 'Reason']} />
+              <THead cols={['Reference & Date', 'Recipient', 'Bank / Account', 'Amount Sent', 'Paystack Fee *', 'Wallet Debited', 'Status', 'Reason']} />
               <tbody>
                 {loadingXfr ? <Loading cols={9} />
                   : !((xfrData as any)?.data?.length)
@@ -532,7 +532,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                     const feeEst    = xferEst + stampEst
                     const fee       = feeActual > 0 ? feeActual : (t.status === 'success' ? feeEst : 0)
                     const isEst     = !actual && feeActual === 0 && t.status === 'success'
-                    const net       = amt - fee
+                    const net       = amt + fee   // wallet debited = transfer amount + fees on top
                     return (
                       <tr key={i} className="hover:bg-slate-50 transition-colors"
                         style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
@@ -559,7 +559,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                             </span>
                           ) : '—'}
                         </td>
-                        <td className="px-4 py-3.5 font-mono font-bold text-[14px]" style={{ color: t.status === 'success' ? GREEN : '#94A3B8' }}>
+                        <td className="px-4 py-3.5 font-mono font-bold text-[14px]" style={{ color: t.status === 'success' ? RED : '#94A3B8' }}>
                           {t.status === 'success' ? kobo(net) : '—'}
                         </td>
                         <td className="px-4 py-3.5"><StatusBadge status={t.status || 'pending'} /></td>
