@@ -173,6 +173,105 @@ func changePasswordHandler(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// BootstrapHandler creates the first admin user when no users exist.
+// Once any user exists this endpoint returns 403 — it self-disables.
+func BootstrapHandler(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Email     string `json:"email"`
+		Password  string `json:"password"`
+		FullName  string `json:"full_name"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Guard: refuse if any user already exists
+		rows, err := db.PGQuery(r.Context(), `SELECT 1 FROM o3c_users LIMIT 1`)
+		if err != nil {
+			respondErr(w, 503, "Database unavailable")
+			return
+		}
+		if len(rows) > 0 {
+			respondErr(w, 403, "Platform already has users — use the admin panel to add more")
+			return
+		}
+
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.Email == "" || b.Password == "" {
+			respondErr(w, 422, "email and password are required")
+			return
+		}
+		if len(b.Password) < 8 {
+			respondErr(w, 422, "Password must be at least 8 characters")
+			return
+		}
+		if b.FullName == "" {
+			b.FullName = "Admin"
+		}
+
+		hash, err := core.HashPassword(b.Password)
+		if err != nil {
+			respondErr(w, 500, "Password hashing failed")
+			return
+		}
+
+		created, err := db.PGQuery(r.Context(),
+			`INSERT INTO o3c_users (email, password_hash, full_name, first_name, last_name, role, must_change_password)
+			 VALUES ($1, $2, $3, $3, '', 'admin', FALSE)
+			 RETURNING id, email, full_name, role`,
+			b.Email, hash, b.FullName)
+		if err != nil {
+			respondErr(w, 500, "Failed to create admin user: "+err.Error())
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"message": "Admin user created successfully. You can now log in.",
+			"user":    created[0],
+		})
+	}
+}
+
+// ResetAdminHandler resets a user's password. Requires X-Admin-Secret header matching SECRET_KEY.
+// Remove this endpoint after the password has been reset.
+func ResetAdminHandler(db *core.DB, secretKey string) http.HandlerFunc {
+	type body struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Admin-Secret") != secretKey {
+			respondErr(w, 403, "Forbidden")
+			return
+		}
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.Email == "" || len(b.Password) < 8 {
+			respondErr(w, 422, "email and password (min 8 chars) required")
+			return
+		}
+		hash, err := core.HashPassword(b.Password)
+		if err != nil {
+			respondErr(w, 500, "Hashing failed")
+			return
+		}
+		res, err := db.PGQuery(r.Context(),
+			`UPDATE o3c_users SET password_hash=$1, must_change_password=FALSE, is_active=TRUE, deleted_at=NULL
+			 WHERE email=$2 RETURNING id, email, role`, hash, b.Email)
+		if err != nil || len(res) == 0 {
+			respondErr(w, 404, "User not found: "+b.Email)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"message": "Password reset", "user": res[0]}) //nolint:errcheck
+	}
+}
+
 // ── small type helpers used across handler files ──────────────────────────────
 
 func str(v any) string {

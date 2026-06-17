@@ -52,6 +52,8 @@ func main() {
 	// Mount auth routes (token is public, me/change-password require auth)
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Post("/token", loginPublic(db))
+		r.Post("/bootstrap", handlers.BootstrapHandler(db))
+		r.Post("/reset-admin", handlers.ResetAdminHandler(db, cfg.SecretKey))
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
 			r.Get("/me", mePublic())
