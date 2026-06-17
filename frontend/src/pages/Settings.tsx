@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Page, SectionCard, NAVY } from '../components/UI'
+import { roleLabel } from '../lib/roles'
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
@@ -43,7 +44,7 @@ export default function Settings() {
               <p className="text-[13px] text-slate-500">{user.email || '—'}</p>
               <span className="inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded capitalize"
                 style={{ background: 'rgba(14,40,65,0.07)', color: '#475569' }}>
-                {(user.role || '').replace(/_/g, ' ')}
+                {roleLabel(user.role || '')}
               </span>
             </div>
           </div>
@@ -51,7 +52,7 @@ export default function Settings() {
             {[
               { label: 'Full Name',  value: user.name,  icon: 'person' },
               { label: 'Email',      value: user.email, icon: 'mail' },
-              { label: 'Role',       value: (user.role || '').replace(/_/g, ' '), icon: 'badge' },
+              { label: 'Role',       value: roleLabel(user.role || ''), icon: 'badge' },
               { label: 'Account ID', value: `#${user.id || '—'}`, icon: 'tag' },
             ].map(f => (
               <div key={f.label} className="flex items-center gap-3">

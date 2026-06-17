@@ -1,3 +1,4 @@
+import { snake } from '../../lib/labels'
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, KpiCard, SectionCard, DataTable, ColDef,
@@ -259,7 +260,7 @@ function AppDrawer({ initial, onClose, onSaved }: AppDrawerProps) {
             </div>
             {fld('Company', 'company', form, set, 'text', { placeholder: 'Employer or business name' })}
             {fld('Requested Amount (₦)', 'requested_amount', form, set, 'number', { placeholder: '0.00', min: 0, step: 0.01 })}
-            {sel('Status', 'status', APP_STATUSES.map(s => ({ value: s, label: s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) })), form, set)}
+            {sel('Status', 'status', APP_STATUSES.map(s => ({ value: s, label: snake(s) })), form, set)}
             {sel('Application Type', 'application_type', [{ value: 'new', label: 'New' }, { value: 'return', label: 'Return' }], form, set)}
             {sel('Location', 'location', [{ value: '', label: '— Select —' }, ...LOCATIONS.map(l => ({ value: l, label: l }))], form, set)}
             {fld('Account Officer', 'account_officer', form, set)}
@@ -717,7 +718,7 @@ function ApplicationsTab({ typeFilter, dateFrom, dateTo, label }: ApplicationsTa
             className="px-3 py-1.5 rounded-lg border text-[13px] outline-none bg-white"
             style={{ borderColor: 'rgba(15,23,42,0.15)', color: status ? NAVY : '#94A3B8' }}>
             <option value="">All Statuses</option>
-            {APP_STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+            {APP_STATUSES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
           </select>
         </div>
         <button onClick={() => { setEditApp(null); setDrawerOpen(true) }}

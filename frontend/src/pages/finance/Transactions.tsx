@@ -28,10 +28,11 @@ export default function Transactions() {
         apiFetch(`/api/transactions/top-merchants?${qs}`),
         apiFetch(`/api/transactions/by-type?${qs}`),
       ])
+      const asArr = (v: any): any[] => Array.isArray(v) ? v : Array.isArray(v?.data) ? v.data : []
       setKpis(k.data ?? k)
-      setTrend(tr.data ?? tr)
-      setMerchants(me.data ?? me)
-      setByType(bt.data ?? bt)
+      setTrend(asArr(tr))
+      setMerchants(asArr(me))
+      setByType(asArr(bt))
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [from, to])

@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -33,7 +34,10 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 		}
 
 		rows, err := db.PGQuery(r.Context(),
-			`SELECT id, email, password_hash, full_name, role, department,
+			`SELECT id, email, password_hash, full_name,
+			        COALESCE(first_name,'') AS first_name,
+			        COALESCE(last_name,'')  AS last_name,
+			        role, department,
 			        COALESCE(must_change_password, false) AS must_change_password,
 			        COALESCE(is_active, true)             AS is_active,
 			        deleted_at
@@ -56,8 +60,20 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Update last_login (best-effort)
+		// Update last_login and record session (best-effort)
 		db.PGExec(r.Context(), `UPDATE o3c_users SET last_login = NOW() WHERE id = $1`, u["id"]) //nolint:errcheck
+		// Rightmost X-Forwarded-For — Railway appends real IP last
+		ip := ""
+		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+			parts := strings.Split(fwd, ",")
+			ip = strings.TrimSpace(parts[len(parts)-1])
+		}
+		if ip == "" {
+			ip = r.RemoteAddr
+		}
+		db.PGExec(r.Context(), //nolint:errcheck
+			`INSERT INTO user_sessions (user_id, ip_address, user_agent) VALUES ($1,$2,$3)`,
+			u["id"], ip, r.Header.Get("User-Agent"))
 
 		role := str(u["role"])
 		pages := core.RolePages[role]
@@ -96,6 +112,8 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 				"id":                   u["id"],
 				"email":                str(u["email"]),
 				"name":                 str(u["full_name"]),
+				"first_name":           str(u["first_name"]),
+				"last_name":            str(u["last_name"]),
 				"role":                 role,
 				"department":           str(u["department"]),
 				"pages":                pages,

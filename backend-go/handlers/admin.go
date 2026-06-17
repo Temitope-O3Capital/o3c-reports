@@ -1,18 +1,30 @@
 package handlers
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
 	"math/big"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
 )
 
+// adminOnly gates routes to admin/head_it roles.
+func adminOnly(next http.Handler) http.Handler {
+	return core.RequirePages("admin_users")(next)
+}
+
 func RegisterAdmin(r chi.Router, db *core.DB) {
-	r.Use(core.RequirePages("admin"))
+	r.Use(core.RequirePages("admin_users", "admin"))
 	r.Get("/users", listUsers(db))
 	r.Post("/users", createUser(db))
 	r.Put("/users/{id}", updateUser(db))
@@ -24,6 +36,12 @@ func RegisterAdmin(r chi.Router, db *core.DB) {
 	r.Post("/roles", createRole(db))
 	r.Delete("/roles/{name}", deleteRole(db))
 	r.Get("/activity", getActivity(db))
+	r.Get("/users/{id}/activity", getUserActivity(db))
+	r.Get("/users/{id}/sessions", getUserSessions(db))
+
+	r.With(adminOnly).Get("/api-keys", listApiKeys(db))
+	r.With(adminOnly).Put("/api-keys/{name}", updateApiKey(db))
+	r.With(adminOnly).Post("/api-keys/{name}/test", testApiKey(db))
 }
 
 // RegisterActivityLog is mounted outside the admin guard (any authenticated user can log).
@@ -56,7 +74,10 @@ func listUsers(db *core.DB) http.HandlerFunc {
 			where = ""
 		}
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT id, email, full_name, role, department, created_at,
+			SELECT id, email, full_name,
+			       COALESCE(first_name,'') AS first_name,
+			       COALESCE(last_name,'')  AS last_name,
+			       role, department, created_at,
 			       must_change_password, last_login, is_active, deleted_at
 			FROM o3c_users `+where+` ORDER BY created_at DESC`)
 		if err != nil {
@@ -70,7 +91,8 @@ func listUsers(db *core.DB) http.HandlerFunc {
 
 func createUser(db *core.DB) http.HandlerFunc {
 	type body struct {
-		FullName   string `json:"full_name"`
+		FirstName  string `json:"first_name"`
+		LastName   string `json:"last_name"`
 		Email      string `json:"email"`
 		Role       string `json:"role"`
 		Department string `json:"department"`
@@ -81,8 +103,8 @@ func createUser(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.Email == "" || b.FullName == "" {
-			respondErr(w, 422, "full_name and email are required")
+		if b.Email == "" || b.FirstName == "" {
+			respondErr(w, 422, "first_name and email are required")
 			return
 		}
 		if b.Role == "" {
@@ -97,6 +119,7 @@ func createUser(db *core.DB) http.HandlerFunc {
 			respondErr(w, 409, "A user with this email already exists")
 			return
 		}
+		fullName := strings.TrimSpace(b.FirstName + " " + b.LastName)
 		tempPW := genPassword()
 		hash, err := core.HashPassword(tempPW)
 		if err != nil {
@@ -104,10 +127,10 @@ func createUser(db *core.DB) http.HandlerFunc {
 			return
 		}
 		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO o3c_users (email, password_hash, full_name, role, department, must_change_password)
-			VALUES ($1,$2,$3,$4,$5,TRUE)
-			RETURNING id, email, full_name, role, department, created_at, must_change_password`,
-			b.Email, hash, b.FullName, b.Role, b.Department)
+			INSERT INTO o3c_users (email, password_hash, full_name, first_name, last_name, role, department, must_change_password)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE)
+			RETURNING id, email, full_name, first_name, last_name, role, department, created_at, must_change_password`,
+			b.Email, hash, fullName, b.FirstName, b.LastName, b.Role, b.Department)
 		if err != nil {
 			respondErr(w, 500, "Create failed")
 			return
@@ -122,7 +145,8 @@ func createUser(db *core.DB) http.HandlerFunc {
 
 func updateUser(db *core.DB) http.HandlerFunc {
 	type body struct {
-		FullName   *string `json:"full_name"`
+		FirstName  *string `json:"first_name"`
+		LastName   *string `json:"last_name"`
 		Email      *string `json:"email"`
 		Role       *string `json:"role"`
 		Department *string `json:"department"`
@@ -142,8 +166,24 @@ func updateUser(db *core.DB) http.HandlerFunc {
 
 		// Whitelist columns to avoid injection via column name
 		setCols := map[string]any{}
-		if b.FullName != nil {
-			setCols["full_name"] = *b.FullName
+		if b.FirstName != nil {
+			setCols["first_name"] = *b.FirstName
+		}
+		if b.LastName != nil {
+			setCols["last_name"] = *b.LastName
+		}
+		// Keep full_name in sync
+		if b.FirstName != nil || b.LastName != nil {
+			// Fetch current values to build full_name
+			cur, _ := db.PGQuery(r.Context(),
+				`SELECT COALESCE(first_name,'') AS fn, COALESCE(last_name,'') AS ln FROM o3c_users WHERE id=$1`, chi.URLParam(r, "id"))
+			fn, ln := "", ""
+			if len(cur) > 0 {
+				fn = str(cur[0]["fn"]); ln = str(cur[0]["ln"])
+			}
+			if b.FirstName != nil { fn = *b.FirstName }
+			if b.LastName != nil  { ln = *b.LastName  }
+			setCols["full_name"] = strings.TrimSpace(fn + " " + ln)
 		}
 		if b.Email != nil {
 			setCols["email"] = *b.Email
@@ -409,4 +449,276 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(buf[pos:])
+}
+
+// ── API key encryption ────────────────────────────────────────────────────────
+
+// encryptionKey32 derives a 32-byte AES key from ENCRYPTION_KEY env var.
+// Returns nil (plaintext mode) if the env var is not set.
+func encryptionKey32() []byte {
+	raw := os.Getenv("ENCRYPTION_KEY")
+	if raw == "" {
+		return nil
+	}
+	key := []byte(raw)
+	// Pad or truncate to exactly 32 bytes.
+	out := make([]byte, 32)
+	copy(out, key)
+	return out
+}
+
+// encryptValue encrypts plaintext using AES-GCM. Falls back to base64 plaintext
+// prefixed with "plain:" if ENCRYPTION_KEY is not set.
+func encryptValue(plaintext string) (string, error) {
+	key := encryptionKey32()
+	if key == nil {
+		slog.Warn("ENCRYPTION_KEY not set — storing API key as base64 plaintext")
+		return "plain:" + base64.StdEncoding.EncodeToString([]byte(plaintext)), nil
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", fmt.Errorf("aes.NewCipher: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("cipher.NewGCM: %w", err)
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", fmt.Errorf("nonce: %w", err)
+	}
+	sealed := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return base64.StdEncoding.EncodeToString(sealed), nil
+}
+
+// decryptValue reverses encryptValue.
+func decryptValue(stored string) (string, error) {
+	if strings.HasPrefix(stored, "plain:") {
+		b, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(stored, "plain:"))
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
+	}
+	key := encryptionKey32()
+	if key == nil {
+		return "", fmt.Errorf("ENCRYPTION_KEY not set but value is encrypted")
+	}
+	data, err := base64.StdEncoding.DecodeString(stored)
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	ns := gcm.NonceSize()
+	if len(data) < ns {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+	plain, err := gcm.Open(nil, data[:ns], data[ns:], nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plain), nil
+}
+
+// ── API Keys handlers ─────────────────────────────────────────────────────────
+
+func listApiKeys(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT key_name, description, category, is_active,
+			       (encrypted_value IS NOT NULL AND encrypted_value <> '') AS has_value,
+			       last_tested_at, test_status, updated_at, updated_by
+			FROM api_credentials
+			ORDER BY category, key_name`)
+		if err != nil {
+			// Table may not exist yet — return empty array gracefully.
+			slog.Warn("api_credentials query failed", "err", err)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]any{}) //nolint:errcheck
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
+	}
+}
+
+func updateApiKey(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Value string `json:"value"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := chi.URLParam(r, "name")
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if strings.TrimSpace(b.Value) == "" {
+			respondErr(w, 422, "value is required")
+			return
+		}
+		enc, err := encryptValue(b.Value)
+		if err != nil {
+			respondErr(w, 500, "Encryption failed")
+			return
+		}
+		caller := core.UserFromCtx(r.Context())
+		var updatedBy any
+		if caller != nil {
+			updatedBy = caller.ID // bigint FK — must be int64, not email string
+		}
+		_, err = db.PGExec(r.Context(),
+			`UPDATE api_credentials SET encrypted_value=$1, updated_at=NOW(), updated_by=$2,
+			 test_status=NULL, last_tested_at=NULL WHERE key_name=$3`,
+			enc, updatedBy, name)
+		if err != nil {
+			respondErr(w, 500, "Update failed")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"detail": "saved"}) //nolint:errcheck
+	}
+}
+
+func testApiKey(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := chi.URLParam(r, "name")
+
+		rows, err := db.PGQuery(r.Context(),
+			`SELECT key_name, category, encrypted_value FROM api_credentials WHERE key_name=$1`, name)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Key not found")
+			return
+		}
+		row := rows[0]
+		encVal, _ := row["encrypted_value"].(string)
+		if encVal == "" {
+			respondErr(w, 422, "No value stored for this key — save a value first")
+			return
+		}
+		plaintext, err := decryptValue(encVal)
+		if err != nil {
+			respondErr(w, 500, "Could not decrypt key value")
+			return
+		}
+
+		category, _ := row["category"].(string)
+		status, detail := pingExternalAPI(name, category, plaintext)
+
+		db.PGExec(r.Context(), //nolint:errcheck
+			`UPDATE api_credentials SET last_tested_at=NOW(), test_status=$1 WHERE key_name=$2`,
+			status, name)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+			"status": status,
+			"detail": detail,
+		})
+	}
+}
+
+// pingExternalAPI performs a lightweight liveness check for known providers.
+func pingExternalAPI(keyName, category, value string) (status, detail string) {
+	client := &http.Client{Timeout: 10 * 1e9} // 10s in nanoseconds (time.Duration)
+
+	upper := strings.ToUpper(keyName)
+
+	switch {
+	case strings.Contains(upper, "SENDGRID"):
+		req, _ := http.NewRequest("GET", "https://api.sendgrid.com/v3/user/account", nil)
+		req.Header.Set("Authorization", "Bearer "+value)
+		resp, err := client.Do(req)
+		if err != nil {
+			return "failed", "Request error: " + err.Error()
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == 200 {
+			return "ok", fmt.Sprintf("SendGrid responded %d", resp.StatusCode)
+		}
+		return "failed", fmt.Sprintf("SendGrid responded %d", resp.StatusCode)
+
+	case strings.Contains(upper, "TERMII"):
+		req, _ := http.NewRequest("GET",
+			"https://api.ng.termii.com/api/get-balance?api_key="+value, nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			return "failed", "Request error: " + err.Error()
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == 200 {
+			return "ok", fmt.Sprintf("Termii responded %d", resp.StatusCode)
+		}
+		return "failed", fmt.Sprintf("Termii responded %d", resp.StatusCode)
+
+	case strings.Contains(upper, "PAYSTACK"):
+		req, _ := http.NewRequest("GET", "https://api.paystack.co/customer", nil)
+		req.Header.Set("Authorization", "Bearer "+value)
+		resp, err := client.Do(req)
+		if err != nil {
+			return "failed", "Request error: " + err.Error()
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == 200 {
+			return "ok", fmt.Sprintf("Paystack responded %d", resp.StatusCode)
+		}
+		return "failed", fmt.Sprintf("Paystack responded %d", resp.StatusCode)
+
+	default:
+		_ = category
+		return "test_not_implemented", "No test defined for " + keyName
+	}
+}
+
+// ── Per-user activity & sessions ──────────────────────────────────────────────
+
+func getUserActivity(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT id, page, action, detail, ip,
+			       COALESCE(resource,'') AS resource,
+			       COALESCE(method,'')   AS method,
+			       ts
+			FROM o3c_activity_log
+			WHERE user_id = $1
+			ORDER BY ts DESC
+			LIMIT 200`, id)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if rows == nil {
+			rows = []map[string]any{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"data": rows}) //nolint:errcheck
+	}
+}
+
+func getUserSessions(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT id, ip_address, user_agent, logged_in_at, last_active_at
+			FROM user_sessions
+			WHERE user_id = $1
+			ORDER BY logged_in_at DESC
+			LIMIT 50`, id)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if rows == nil {
+			rows = []map[string]any{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"data": rows}) //nolint:errcheck
+	}
 }

@@ -31,16 +31,19 @@ export function fmtPct(n: unknown, dec = 1): string {
   return Number(n ?? 0).toFixed(dec) + '%'
 }
 
+function pad2(n: number): string { return String(n).padStart(2, '0') }
+
 export function today(): string {
-  return new Date().toISOString().slice(0, 10)
+  const d = new Date()
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
 }
 
 export function monthStart(d = new Date()): string {
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10)
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-01`
 }
 
 export function yearStart(d = new Date()): string {
-  return new Date(d.getFullYear(), 0, 1).toISOString().slice(0, 10)
+  return `${d.getFullYear()}-01-01`
 }
 
 export function n(v: unknown): number { return Number(v ?? 0) }

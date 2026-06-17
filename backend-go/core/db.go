@@ -6,12 +6,25 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/microsoft/go-mssqldb"
 )
+
+// isTableMissing returns true when the error is a PostgreSQL "relation does not exist"
+// (SQLSTATE 42P01). Used to return empty results for tables that haven't been created yet.
+func isTableMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "does not exist") ||
+		strings.Contains(msg, "42P01") ||
+		strings.Contains(msg, "undefined table")
+}
 
 // Row is a single result row as a string-keyed map.
 type Row = map[string]any
@@ -140,10 +153,17 @@ func (d *DB) DualScalar(ctx context.Context, col, msQ, pgQ string, args ...any) 
 }
 
 // PGQuery runs a query directly against PostgreSQL (for PG-only data like CRM, loans).
+// Returns empty rows (not an error) when the table doesn't exist yet — allows pages
+// to show a clean empty state while the schema is being built out.
 func (d *DB) PGQuery(ctx context.Context, q string, args ...any) ([]Row, error) {
 	pgCtx, cancel := context.WithTimeout(ctx, pgTimeout)
 	defer cancel()
-	return queryRows(pgCtx, d.PG, q, args)
+	rows, err := queryRows(pgCtx, d.PG, q, args)
+	if isTableMissing(err) {
+		d.log.Warn("PGQuery: table not found — returning empty result", "err", err)
+		return []Row{}, nil
+	}
+	return rows, err
 }
 
 // PGExec executes a statement against PostgreSQL (INSERT/UPDATE/DELETE).

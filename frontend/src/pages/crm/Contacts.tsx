@@ -1,3 +1,4 @@
+import { snake } from '../../lib/labels'
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
@@ -104,7 +105,7 @@ function ContactModal({ contact, onClose, onSaved }: ModalProps) {
         style={{ borderColor: 'rgba(15,23,42,0.18)' }}
         value={form[name] ?? ''} onChange={set(name)}>
         <option value="">—</option>
-        {options.map(o => <option key={o} value={o}>{o.replace(/_/g, ' ')}</option>)}
+        {options.map(o => <option key={o} value={o}>{snake(o)}</option>)}
       </select>
     </div>
   )
@@ -166,7 +167,7 @@ function ContactModal({ contact, onClose, onSaved }: ModalProps) {
               <select className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none bg-white"
                 style={{ borderColor: 'rgba(15,23,42,0.18)' }}
                 value={form.source ?? 'walk_in'} onChange={set('source')}>
-                {SOURCES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+                {SOURCES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
               </select>
             </div>
             <div>
@@ -254,7 +255,7 @@ export default function Contacts() {
       render: c => (
         <span className="text-[11px] font-semibold px-2 py-0.5 rounded"
           style={{ background: 'rgba(14,40,65,0.06)', color: '#475569' }}>
-          {(c.source ?? '').replace(/_/g, ' ')}
+          {snake(c.source ?? '')}
         </span>
       ),
     },

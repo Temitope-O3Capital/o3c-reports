@@ -1,5 +1,6 @@
 // Shared UI primitives used across all pages
 import { useState, useRef, useEffect, ReactNode } from 'react'
+import { STATUS_LABELS, snake } from '../lib/labels'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -79,7 +80,7 @@ export function KpiCard({ label, value, sub, change, icon, accent = NAVY, loadin
           <span className="material-symbols-rounded text-[16px]" style={{ color: accent }}>{icon}</span>
         </div>
       </div>
-      <p className="kpi-number text-[26px] leading-none text-slate-900 dark:text-white">{value}</p>
+      <p className="kpi-number text-[26px] leading-none text-slate-900">{value}</p>
       <div className="flex items-center gap-2 mt-3">
         {change != null
           ? <><ChangeBadge value={change} /><span className="text-[11px] text-slate-400">WoW</span></>
@@ -102,7 +103,7 @@ export function SectionCard({
       <div className="flex items-center justify-between px-5 py-3.5"
         style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
         <div>
-          <p className="text-[14px] font-semibold text-slate-800 dark:text-slate-100">{title}</p>
+          <p className="text-[14px] font-semibold text-slate-800">{title}</p>
           {subtitle && <p className="text-[12px] text-slate-400 mt-0.5">{subtitle}</p>}
         </div>
         <div className="flex items-center gap-2">
@@ -195,7 +196,7 @@ export function DataTable<T extends Record<string, any>>({
                 </tr>
               )
             : data.map((row, i) => (
-                <tr key={i} className="transition-colors hover:bg-slate-50 dark:hover:bg-white/[0.025]"
+                <tr key={i} className="transition-colors hover:bg-slate-50"
                   style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
                   {cols.map(c => (
                     <td key={c.key} className={`px-5 py-3 ${c.right ? 'text-right' : ''}`}>
@@ -214,13 +215,13 @@ export function DataTable<T extends Record<string, any>>({
 function ChartTip({ active, payload, label, currency }: any) {
   if (!active || !payload?.length) return null
   return (
-    <div className="bg-white dark:bg-[#1E293B] rounded-lg border px-3 py-2.5 shadow-lg"
+    <div className="bg-white rounded-lg border px-3 py-2.5 shadow-lg"
       style={{ borderColor: 'rgba(15,23,42,0.1)', fontSize: 12 }}>
       <p className="text-slate-400 text-[10px] font-semibold uppercase tracking-wider mb-1.5">{label}</p>
       {payload.map((p: any, i: number) => (
         <div key={i} className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: p.color ?? p.fill }} />
-          <span className="font-semibold font-mono text-slate-800 dark:text-slate-100">
+          <span className="font-semibold font-mono text-slate-800">
             {currency ? fmt(p.value) : fmtNum(p.value)}
           </span>
         </div>
@@ -247,7 +248,7 @@ export function AreaChartCard({
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={height}>
-            <AreaChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+            <AreaChart data={data} margin={{ top: 20, right: 12, left: 0, bottom: 4 }}>
               <defs>
                 <linearGradient id={`grad-${areaKey}`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%"   stopColor={color} stopOpacity={0.13} />
@@ -257,7 +258,8 @@ export function AreaChartCard({
               <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
               <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false}
-                tickFormatter={v => currency ? fmt(v) : fmtNum(v)} width={currency ? 56 : 40} />
+                tickFormatter={v => currency ? fmt(v) : fmtNum(v)} width={currency ? 60 : 44}
+                domain={[(dataMin: number) => dataMin < 0 ? Math.floor(dataMin * 1.12) : 0, (dataMax: number) => Math.ceil(dataMax * 1.15) || 10]} />
               <Tooltip content={<ChartTip currency={currency} />} />
               <Area type="monotone" dataKey={areaKey} stroke={color} strokeWidth={1.5}
                 fill={`url(#grad-${areaKey})`} dot={false}
@@ -288,11 +290,12 @@ export function BarChartCard({
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={height}>
-            <BarChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barSize={20}>
+            <BarChart data={data} margin={{ top: 20, right: 12, left: 0, bottom: 4 }} barSize={20}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
               <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false}
-                tickFormatter={v => currency ? fmt(v) : fmtNum(v)} width={currency ? 56 : 40} />
+                tickFormatter={v => currency ? fmt(v) : fmtNum(v)} width={currency ? 60 : 44}
+                domain={[(dataMin: number) => dataMin < 0 ? Math.floor(dataMin * 1.12) : 0, (dataMax: number) => Math.ceil(dataMax * 1.15) || 10]} />
               <Tooltip content={<ChartTip currency={currency} />} />
               <Bar dataKey={barKey} fill={color} radius={[3, 3, 0, 0]} />
             </BarChart>
@@ -336,10 +339,10 @@ export function DonutCard({
                 <div key={i} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
-                    <span className="text-[12px] text-slate-500 dark:text-slate-400">{d[nameKey]}</span>
+                    <span className="text-[12px] text-slate-500">{d[nameKey]}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[12px] font-semibold font-mono text-slate-800 dark:text-slate-100">{fmt(d[valueKey])}</span>
+                    <span className="text-[12px] font-semibold font-mono text-slate-800">{fmt(d[valueKey])}</span>
                     {total > 0 && <span className="text-[11px] text-slate-400">({((n(d[valueKey]) / total) * 100).toFixed(0)}%)</span>}
                   </div>
                 </div>
@@ -368,8 +371,8 @@ export function ProgressList({
           : data.map((d, i) => (
               <div key={i}>
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[12px] text-slate-600 dark:text-slate-400 truncate max-w-[60%]">{d[nameKey]}</span>
-                  <span className="text-[12px] font-semibold font-mono text-slate-800 dark:text-slate-100">
+                  <span className="text-[12px] text-slate-600 truncate max-w-[60%]">{d[nameKey]}</span>
+                  <span className="text-[12px] font-semibold font-mono text-slate-800">
                     {currency ? fmt(d[valueKey]) : fmtNum(d[valueKey])}
                   </span>
                 </div>
@@ -386,29 +389,68 @@ export function ProgressList({
 
 /* ── Status badge ───────────────────────────────────────────────── */
 const STATUS_STYLES: Record<string, { bg: string; color: string }> = {
-  paid:        { bg: 'rgba(5,150,105,0.08)',   color: GREEN },
-  active:      { bg: 'rgba(5,150,105,0.08)',   color: GREEN },
-  approved:    { bg: 'rgba(5,150,105,0.08)',   color: GREEN },
-  disbursed:   { bg: 'rgba(8,145,178,0.08)',   color: '#0891B2' },
-  inflow:      { bg: 'rgba(5,150,105,0.08)',   color: GREEN },
-  pending:     { bg: 'rgba(245,158,11,0.1)',   color: AMBER },
-  partial:     { bg: 'rgba(245,158,11,0.1)',   color: AMBER },
-  overdue:     { bg: 'rgba(220,38,38,0.07)',   color: '#DC2626' },
-  declined:    { bg: 'rgba(220,38,38,0.07)',   color: '#DC2626' },
-  liquidation: { bg: 'rgba(192,0,0,0.07)',     color: RED },
-  written_off: { bg: 'rgba(30,41,59,0.07)',    color: '#475569' },
-  incomplete:  { bg: 'rgba(139,92,246,0.08)',  color: '#7C3AED' },
-  inactive:    { bg: 'rgba(100,116,139,0.08)', color: '#64748B' },
-  returned:    { bg: 'rgba(100,116,139,0.08)', color: '#64748B' },
+  // positive
+  paid:           { bg: 'rgba(5,150,105,0.09)',   color: GREEN },
+  active:         { bg: 'rgba(5,150,105,0.09)',   color: GREEN },
+  approved:       { bg: 'rgba(5,150,105,0.09)',   color: GREEN },
+  success:        { bg: 'rgba(5,150,105,0.09)',   color: GREEN },
+  successful:     { bg: 'rgba(5,150,105,0.09)',   color: GREEN },
+  resolved:       { bg: 'rgba(5,150,105,0.09)',   color: GREEN },
+  processed:      { bg: 'rgba(5,150,105,0.09)',   color: GREEN },
+  settled:        { bg: 'rgba(5,150,105,0.09)',   color: GREEN },
+  disbursed:      { bg: 'rgba(8,145,178,0.09)',   color: '#0891B2' },
+  inflow:         { bg: 'rgba(5,150,105,0.09)',   color: GREEN },
+  // neutral / warning
+  pending:        { bg: 'rgba(217,119,6,0.09)',   color: AMBER },
+  partial:        { bg: 'rgba(217,119,6,0.09)',   color: AMBER },
+  abandoned:      { bg: 'rgba(217,119,6,0.09)',   color: AMBER },
+  reversed:       { bg: 'rgba(217,119,6,0.09)',   color: AMBER },
+  incomplete:     { bg: 'rgba(139,92,246,0.09)',  color: '#7C3AED' },
+  // negative
+  failed:         { bg: 'rgba(192,0,0,0.08)',     color: RED },
+  overdue:        { bg: 'rgba(192,0,0,0.08)',     color: RED },
+  declined:       { bg: 'rgba(192,0,0,0.08)',     color: RED },
+  liquidation:    { bg: 'rgba(192,0,0,0.08)',     color: RED },
+  // neutral
+  written_off:    { bg: 'rgba(30,41,59,0.07)',    color: '#475569' },
+  inactive:       { bg: 'rgba(100,116,139,0.08)', color: '#64748B' },
+  returned:       { bg: 'rgba(100,116,139,0.08)', color: '#64748B' },
 }
 
 export function StatusBadge({ status }: { status: string }) {
-  const s = STATUS_STYLES[(status || '').toLowerCase()] ?? { bg: 'rgba(14,40,65,0.06)', color: '#475569' }
-  const label = (status || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  const key = (status || '').toLowerCase().replace(/[- ]/g, '_')
+  const s = STATUS_STYLES[key] ?? { bg: 'rgba(14,40,65,0.06)', color: '#475569' }
+  const label = STATUS_LABELS[key] ?? snake(status)
   return (
-    <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded whitespace-nowrap"
+    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full whitespace-nowrap"
       style={{ background: s.bg, color: s.color }}>
+      <span style={{
+        width: 5, height: 5, borderRadius: '50%',
+        background: s.color, display: 'inline-block', flexShrink: 0,
+      }} />
       {label}
+    </span>
+  )
+}
+
+/* ── Channel badge ───────────────────────────────────────────────── */
+const CHANNEL_STYLES: Record<string, { label: string; bg: string; color: string; icon: string }> = {
+  bank_transfer: { label: 'Bank Transfer', bg: 'rgba(8,145,178,0.09)',   color: '#0369A1', icon: 'account_balance' },
+  card:          { label: 'Card',          bg: 'rgba(124,58,237,0.09)',  color: '#7C3AED', icon: 'credit_card' },
+  ussd:          { label: 'USSD',          bg: 'rgba(217,119,6,0.09)',   color: AMBER,     icon: 'phone' },
+  mobile_money:  { label: 'Mobile Money',  bg: 'rgba(5,150,105,0.09)',   color: GREEN,     icon: 'smartphone' },
+  qr:            { label: 'QR Code',       bg: 'rgba(14,40,65,0.09)',    color: NAVY,      icon: 'qr_code' },
+  eft:           { label: 'EFT',           bg: 'rgba(8,145,178,0.09)',   color: '#0369A1', icon: 'swap_horiz' },
+}
+
+export function ChannelBadge({ channel }: { channel: string | null | undefined }) {
+  const key = (channel || '').toLowerCase().replace(/[- ]/g, '_')
+  const s = CHANNEL_STYLES[key] ?? { label: channel || '—', bg: 'rgba(14,40,65,0.06)', color: '#64748B', icon: 'payments' }
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full whitespace-nowrap"
+      style={{ background: s.bg, color: s.color }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 12 }}>{s.icon}</span>
+      {s.label}
     </span>
   )
 }
@@ -419,14 +461,18 @@ const PRESETS = [
   { label: 'This week', get: () => {
     const d = new Date(), day = d.getDay()
     const mon = new Date(d); mon.setDate(d.getDate() - (day === 0 ? 6 : day - 1))
-    return [mon.toISOString().slice(0, 10), today()] as const
+    const p = (n: number) => String(n).padStart(2, '0')
+    const start = `${mon.getFullYear()}-${p(mon.getMonth() + 1)}-${p(mon.getDate())}`
+    return [start, today()] as const
   }},
   { label: 'This month', get: () => [monthStart(), today()] as const },
   { label: 'Last month', get: () => {
     const d = new Date()
-    const start = new Date(d.getFullYear(), d.getMonth() - 1, 1)
-    const end   = new Date(d.getFullYear(), d.getMonth(), 0)
-    return [start.toISOString().slice(0, 10), end.toISOString().slice(0, 10)] as const
+    const p = (n: number) => String(n).padStart(2, '0')
+    const prevM = d.getMonth() === 0 ? 12 : d.getMonth()
+    const prevY = d.getMonth() === 0 ? d.getFullYear() - 1 : d.getFullYear()
+    const lastDay = new Date(d.getFullYear(), d.getMonth(), 0).getDate()
+    return [`${prevY}-${p(prevM)}-01`, `${prevY}-${p(prevM)}-${p(lastDay)}`] as const
   }},
   { label: 'This year', get: () => [yearStart(), today()] as const },
 ]
@@ -455,7 +501,7 @@ export function DateFilter({
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all bg-white dark:bg-[#111827]"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all bg-white"
         style={{ borderColor: open ? NAVY : 'rgba(15,23,42,0.15)', color: '#334155' }}>
         <span className="material-symbols-rounded text-[15px] text-slate-400">calendar_month</span>
         {label}
@@ -518,7 +564,7 @@ export function Page({
               <span className="text-slate-500">{title}</span>
             </p>
           )}
-          <h1 className="text-[26px] font-bold tracking-tight text-slate-900 dark:text-white leading-tight">
+          <h1 className="text-[26px] font-bold tracking-tight text-slate-900 leading-tight">
             {title}
           </h1>
           {subtitle && <p className="text-[13px] text-slate-400 mt-0.5">{subtitle}</p>}
@@ -534,7 +580,7 @@ export function Page({
 export function ExportBtn({ onClick, loading }: { onClick: () => void; loading: boolean }) {
   return (
     <button onClick={onClick} disabled={loading}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all bg-white dark:bg-[#111827] disabled:opacity-60"
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all bg-white disabled:opacity-60"
       style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#475569' }}>
       {loading
         ? <><div className="w-3.5 h-3.5 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />Exporting…</>

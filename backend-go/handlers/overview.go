@@ -62,8 +62,10 @@ func overviewKPIs(db *core.DB) http.HandlerFunc {
 		for _, s := range specs {
 			val, src, err := db.DualScalar(ctx, "val", s.msSQL, s.pgSQL)
 			if err != nil {
-				respondErr(w, 500, "Query failed: "+s.key)
-				return
+				// Don't hard-fail — just return 0 for this stat so the page still renders
+				kpis[s.key] = 0
+				sources = append(sources, "error")
+				continue
 			}
 			kpis[s.key] = val
 			sources = append(sources, src)
@@ -99,7 +101,7 @@ func overviewMonthlyVolume(db *core.DB) http.HandlerFunc {
 			 GROUP BY DATE_TRUNC('month',"Transaction Date")
 			 ORDER BY month_sort`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respond(w, []any{}, "error")
 			return
 		}
 		respond(w, data, src)
@@ -123,7 +125,7 @@ func overviewNewAccountsTrend(db *core.DB) http.HandlerFunc {
 			 GROUP BY DATE_TRUNC('month',"Account Created Date")
 			 ORDER BY month_sort`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respond(w, []any{}, "error")
 			return
 		}
 		respond(w, data, src)
@@ -138,7 +140,7 @@ func overviewCardsByProduct(db *core.DB) http.HandlerFunc {
 			`SELECT "Product Name", COUNT(*) AS count FROM "Products"
 			 WHERE "Product Name" IS NOT NULL GROUP BY "Product Name" ORDER BY count DESC`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respond(w, []any{}, "error")
 			return
 		}
 		respond(w, data, src)
@@ -155,7 +157,7 @@ func overviewTxnByType(db *core.DB) http.HandlerFunc {
 			 FROM "Transactions" WHERE "Description" IS NOT NULL
 			 GROUP BY "Description" ORDER BY count DESC LIMIT 10`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respond(w, []any{}, "error")
 			return
 		}
 		respond(w, data, src)

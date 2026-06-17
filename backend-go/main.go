@@ -35,6 +35,7 @@ func main() {
 	}
 
 	core.InitAuth(cfg.SecretKey)
+	handlers.RunBatchNightly(db)
 
 	r := chi.NewRouter()
 
@@ -66,6 +67,7 @@ func main() {
 	// ── Protected routes (all require valid JWT) ───────────────────────────────
 	r.Group(func(r chi.Router) {
 		r.Use(core.AuthMiddleware)
+		r.Use(activityLogger(db))
 
 		r.Route("/api/overview", func(r chi.Router) {
 			handlers.RegisterOverview(r, db)
@@ -147,6 +149,50 @@ func main() {
 		})
 		// Activity log — any authenticated user (not just admins)
 		handlers.RegisterActivityLog(r, db)
+
+		// ── New platform modules ────────────────────────────────────────────────
+		r.Route("/api/los", func(r chi.Router) {
+			handlers.RegisterLOS(r, db)
+		})
+		r.Route("/api/customer360", func(r chi.Router) {
+			handlers.RegisterCustomer360(r, db)
+		})
+		r.Route("/api/hr", func(r chi.Router) {
+			handlers.RegisterHR(r, db)
+		})
+		r.Route("/api/compliance", func(r chi.Router) {
+			handlers.RegisterCompliance(r, db)
+		})
+		r.Route("/api/notifications", func(r chi.Router) {
+			handlers.RegisterNotifications(r, db)
+		})
+		r.Route("/api/settings", func(r chi.Router) {
+			handlers.RegisterSettings(r, db)
+		})
+		r.Route("/api/kpi", func(r chi.Router) {
+			handlers.RegisterKPI(r, db)
+		})
+		r.Route("/api/reports", func(r chi.Router) {
+			handlers.RegisterReports(r, db)
+		})
+		r.Route("/api/batch", func(r chi.Router) {
+			handlers.RegisterBatch(r, db)
+		})
+		r.Route("/api/collections-ops", func(r chi.Router) {
+			handlers.RegisterCollectionsOps(r, db)
+		})
+		r.Route("/api/recovery-ops", func(r chi.Router) {
+			handlers.RegisterRecoveryOps(r, db)
+		})
+		r.Route("/api/approvals", func(r chi.Router) {
+			handlers.RegisterApprovals(r, db)
+		})
+		r.Route("/api/risk", func(r chi.Router) {
+			handlers.RegisterRisk(r, db)
+		})
+		r.Route("/api/customer-service", func(r chi.Router) {
+			handlers.RegisterCustomerService(r, db)
+		})
 	})
 
 	// ── Server ─────────────────────────────────────────────────────────────────
@@ -173,6 +219,53 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		slog.Error("Server error", "err", err)
 		os.Exit(1)
+	}
+}
+
+// ── Activity logger middleware ────────────────────────────────────────────────
+// Logs every non-GET authenticated request to o3c_activity_log.
+
+func activityLogger(db *core.DB) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r)
+			if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+				return
+			}
+			user := core.UserFromCtx(r.Context())
+			if user == nil {
+				return
+			}
+			ip := ""
+			if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+				parts := strings.Split(fwd, ",")
+				ip = strings.TrimSpace(parts[len(parts)-1])
+			}
+			if ip == "" {
+				ip = r.RemoteAddr
+			}
+			// Derive a human-readable action from method + path
+			path := r.URL.Path
+			action := r.Method + " " + path
+			page := ""
+			// Map path prefix to page key for display
+			for _, seg := range []string{
+				"transactions", "collections", "recovery", "sales", "cards",
+				"loans", "los", "admin", "crm", "hr", "compliance", "reports",
+				"credit-portfolio", "fixed-deposit", "settlement", "uploads",
+				"reconciliation", "kpi", "batch", "collections-ops", "recovery-ops",
+				"approvals", "customer360", "customer-service", "risk",
+			} {
+				if strings.Contains(path, "/api/"+seg) {
+					page = seg
+					break
+				}
+			}
+			go db.PGExec(r.Context(), //nolint:errcheck
+				`INSERT INTO o3c_activity_log (user_id, page, action, detail, ip, resource, method)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				user.ID, page, action, "", ip, path, r.Method)
+		})
 	}
 }
 

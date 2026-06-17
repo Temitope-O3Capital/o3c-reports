@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../lib/api'
 import { fmtDate } from '../lib/fmt'
 import { Page, SectionCard, DataTable, ColDef, KpiCard, ErrBanner, StatusBadge, NAVY, RED } from '../components/UI'
+import { roleLabel } from '../lib/roles'
 
 interface User {
   id: number
@@ -83,7 +84,7 @@ export default function AdminUsers() {
     { key: 'role',       label: 'Role',      render: r => (
         <span className="text-[12px] font-medium px-2 py-0.5 rounded capitalize"
           style={{ background: 'rgba(14,40,65,0.06)', color: '#475569' }}>
-          {(r.role || '').replace(/_/g, ' ')}
+          {roleLabel(r.role || '')}
         </span>
       )},
     { key: 'status',     label: 'Status',    render: r => <StatusBadge status={r.status || 'inactive'} /> },
@@ -172,7 +173,7 @@ export default function AdminUsers() {
                   className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
                   style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
                   {ROLES.map(r => (
-                    <option key={r} value={r}>{r.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
+                    <option key={r} value={r}>{roleLabel(r)}</option>
                   ))}
                 </select>
               </div>

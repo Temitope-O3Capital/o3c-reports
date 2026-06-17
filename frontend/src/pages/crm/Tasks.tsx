@@ -1,3 +1,4 @@
+import { snake } from '../../lib/labels'
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
@@ -59,7 +60,7 @@ function TaskStatusBadge({ status }: { status: string }) {
   return (
     <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded whitespace-nowrap"
       style={{ background: s.bg, color: s.color }}>
-      {status.replace(/_/g, ' ')}
+      {snake(status)}
     </span>
   )
 }
@@ -136,7 +137,7 @@ function TaskModal({ task, onClose, onSaved }: TaskModalProps) {
               <select className="w-full px-3 py-2 rounded-lg border text-[13px] bg-white outline-none"
                 style={{ borderColor: 'rgba(15,23,42,0.18)' }}
                 value={form.status} onChange={set('status')}>
-                {STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+                {STATUSES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
               </select>
             </div>
           </div>
@@ -295,7 +296,7 @@ export default function Tasks() {
           style={{ borderColor: 'rgba(15,23,42,0.15)' }}
           value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
           <option value="">All statuses</option>
-          {STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+          {STATUSES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
         </select>
         <select className="px-3 py-2 rounded-lg border text-[13px] bg-white outline-none"
           style={{ borderColor: 'rgba(15,23,42,0.15)' }}

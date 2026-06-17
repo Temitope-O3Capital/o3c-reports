@@ -1,59 +1,120 @@
-import { Page, KpiCard, SectionCard, NAVY, RED, GREEN, AMBER } from '../../components/UI'
+import { useState, useEffect } from 'react'
+import { apiFetch } from '../../lib/api'
+import { fmt, fmtNum, n, today, monthStart } from '../../lib/fmt'
+import {
+  Page, KpiCard, DateFilter, AreaChartCard, BarChartCard,
+  ErrBanner, NAVY, GREEN, AMBER, RED,
+} from '../../components/UI'
 
-const FEATURES = [
-  { icon: 'download',        label: 'Downloads & Installs',  desc: 'Track daily app installs from App Store and Google Play' },
-  { icon: 'person',          label: 'Active Users (DAU/MAU)', desc: 'Monitor daily and monthly active user trends' },
-  { icon: 'bar_chart',       label: 'Feature Usage',         desc: 'See which in-app features customers use most' },
-  { icon: 'star',            label: 'Store Ratings',         desc: 'App Store and Google Play ratings over time' },
-]
+interface SummaryRow {
+  active_users: number
+  txn_count: number
+  total_volume: number
+  avg_txn_size: number
+}
 
-const METRICS = [
-  { label: 'App Downloads',   icon: 'download',   accent: NAVY },
-  { label: 'DAU',             icon: 'person',     accent: GREEN },
-  { label: 'MAU',             icon: 'group',      accent: '#2563EB' },
-  { label: 'Avg Session (min)', icon: 'timer',    accent: AMBER },
-  { label: 'Crash Rate',      icon: 'bug_report', accent: RED },
-  { label: 'App Rating',      icon: 'star',       accent: '#D97706' },
-]
+interface TrendRow {
+  month: string
+  active_users: number
+  txn_count: number
+}
 
 export default function MobileApp() {
+  const [summary, setSummary] = useState<SummaryRow | null>(null)
+  const [trend,   setTrend]   = useState<TrendRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error,   setError]   = useState('')
+  const [from,    setFrom]    = useState(monthStart())
+  const [to,      setTo]      = useState(today())
+
+  useEffect(() => {
+    setLoading(true)
+    setError('')
+    apiFetch(`/api/mobile-app/summary?date_from=${from}&date_to=${to}`)
+      .then(res => {
+        // Handle both wrapper shapes:
+        //   { data: { summary: [...], trend: [...] }, data_source }
+        //   { summary: [...], trend: [...] }
+        const inner = res?.data ?? res
+        const summaryArr: SummaryRow[] = inner?.summary ?? []
+        const trendArr: TrendRow[]     = inner?.trend   ?? []
+        setSummary(summaryArr[0] ?? null)
+        setTrend(trendArr)
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [from, to])
+
+  const s = summary
+
   return (
-    <Page dept="Operations" title="Mobile App" subtitle="Customer mobile application analytics">
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-5">
-        {METRICS.map(m => (
-          <KpiCard key={m.label} label={m.label} value="—" icon={m.icon} accent={m.accent} sub="Coming soon" />
-        ))}
+    <Page
+      dept="Operations"
+      title="Mobile App"
+      subtitle="App usage and customer activity metrics"
+      actions={
+        <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
+      }
+    >
+      <ErrBanner msg={error} />
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+        <KpiCard
+          label="Active Users"
+          value={loading ? '—' : fmtNum(n(s?.active_users))}
+          icon="person"
+          accent={NAVY}
+          loading={loading}
+        />
+        <KpiCard
+          label="Transactions"
+          value={loading ? '—' : fmtNum(n(s?.txn_count))}
+          icon="receipt"
+          accent={GREEN}
+          loading={loading}
+        />
+        <KpiCard
+          label="Total Volume"
+          value={loading ? '—' : fmt(n(s?.total_volume))}
+          icon="payments"
+          accent={AMBER}
+          loading={loading}
+        />
+        <KpiCard
+          label="Avg Transaction"
+          value={loading ? '—' : fmt(n(s?.avg_txn_size))}
+          icon="bar_chart"
+          accent={RED}
+          loading={loading}
+        />
       </div>
 
-      <SectionCard title="Mobile App Dashboard" subtitle="Under active development">
-        <div className="px-5 py-10 text-center">
-          <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
-            style={{ background: 'rgba(14,40,65,0.06)' }}>
-            <span className="material-symbols-rounded text-[28px]" style={{ color: NAVY }}>smartphone</span>
-          </div>
-          <h3 className="text-[15px] font-semibold text-slate-800 mb-2">Mobile App Analytics Coming Soon</h3>
-          <p className="text-[13px] text-slate-400 max-w-sm mx-auto mb-8 leading-relaxed">
-            Real-time visibility into the O3C customer mobile app — from download funnels
-            to in-app transaction behaviour.
-          </p>
+      {/* Monthly active users trend */}
+      <div className="mb-5">
+        <AreaChartCard
+          title="Monthly Active Users"
+          subtitle="Active user count over time"
+          data={trend}
+          xKey="month"
+          areaKey="active_users"
+          color={NAVY}
+          height={220}
+          loading={loading}
+        />
+      </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl mx-auto text-left">
-            {FEATURES.map(f => (
-              <div key={f.label} className="flex items-start gap-3 p-3.5 rounded-xl"
-                style={{ background: 'rgba(14,40,65,0.04)', border: '1px solid rgba(14,40,65,0.07)' }}>
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{ background: 'rgba(14,40,65,0.08)' }}>
-                  <span className="material-symbols-rounded text-[16px]" style={{ color: NAVY }}>{f.icon}</span>
-                </div>
-                <div>
-                  <p className="text-[12.5px] font-semibold text-slate-700">{f.label}</p>
-                  <p className="text-[11.5px] text-slate-400 mt-0.5 leading-relaxed">{f.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </SectionCard>
+      {/* Monthly transaction count */}
+      <BarChartCard
+        title="Monthly Transactions"
+        subtitle="Transaction count per month"
+        data={trend}
+        xKey="month"
+        barKey="txn_count"
+        color={GREEN}
+        height={220}
+        loading={loading}
+      />
     </Page>
   )
 }

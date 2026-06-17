@@ -475,8 +475,20 @@ func incSummary(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cycleID := int64(qint(r, "cycle_id", 0, 1, 1<<30))
 		if cycleID == 0 {
-			respondErr(w, 422, "cycle_id is required")
-			return
+			// No cycle selected — auto-pick the latest uploaded cycle
+			latestRows, err := db.PGQuery(r.Context(), `SELECT id FROM income_cycles ORDER BY report_date DESC, id DESC LIMIT 1`)
+			if err != nil || len(latestRows) == 0 {
+				// No cycles uploaded yet — return zeros
+				respond(w, map[string]any{
+					"total_interest": 0, "total_charges": 0,
+					"total_balance": 0, "total_loc": 0,
+					"by_product": []any{}, "by_currency": []any{},
+				}, "pg")
+				return
+			}
+			if id, ok := latestRows[0]["id"].(int64); ok {
+				cycleID = id
+			}
 		}
 		product  := qstr(r, "product")
 		currency := qstr(r, "currency")
@@ -574,7 +586,7 @@ func incByProduct(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cycleID := int64(qint(r, "cycle_id", 0, 1, 1<<30))
 		if cycleID == 0 {
-			respondErr(w, 422, "cycle_id is required")
+			respond(w, []any{}, "pg")
 			return
 		}
 		currency := qstr(r, "currency")

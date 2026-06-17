@@ -50,14 +50,12 @@ func cardsKPIs(db *core.DB) http.HandlerFunc {
 
 		// per-product counts for the 4 known products
 		for _, product := range []string{"PREP", "Amex Naira", "Amex USD", "Classic Accounts"} {
+			// When card_type filter is set, skip products that don't match
+			if cardType != "" && product != cardType {
+				continue
+			}
 			var pf Filter
 			pf.Eq(" AND Product_Name=?", ` AND "Product Name"=?`, product)
-			if cardType != "" {
-				// compound: also filter by card_type (dedup if same)
-				if product != cardType {
-					pf.Eq(" AND Product_Name=?", ` AND "Product Name"=?`, cardType)
-				}
-			}
 			key := slugify(product)
 			val, src, err := db.DualScalar(ctx, "val",
 				fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Account WHERE 1=1%s", pf.MS()),

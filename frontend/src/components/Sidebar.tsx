@@ -1,245 +1,437 @@
 import { useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { AuthUser } from '../hooks/useAuth'
+import { roleLabel } from '../lib/roles'
 
-interface SubItem { label: string; to: string }
-interface Dept    { id: string; label: string; icon: string; items: SubItem[] }
+// ── Role helpers ──────────────────────────────────────────────────────────────
 
-const TOP = [
-  { label: 'Dashboard', icon: 'dashboard',           to: '/',          badge: undefined },
-  { label: 'Approvals', icon: 'approval_delegation', to: '/approvals', badge: 3 },
-]
+const MGMT = ['md', 'coo', 'cfo', 'cmo', 'executive', 'admin', 'management', 'head_ops', 'head_it']
 
-const DEPTS: Dept[] = [
+function hasAccess(role: string, moduleRoles: string[]): boolean {
+  return MGMT.includes(role) || moduleRoles.includes(role)
+}
+
+// ── Nav data types ────────────────────────────────────────────────────────────
+
+interface SubItem {
+  label: string
+  to:    string
+  icon:  string
+}
+
+interface Module {
+  id:    string
+  label: string
+  icon:  string
+  roles: string[]    // non-management roles that can see this module
+  items: SubItem[]   // empty means single-page (no sub-items)
+}
+
+// ── Module definitions ────────────────────────────────────────────────────────
+
+const MODULES: Module[] = [
+  {
+    id: 'overview', label: 'Overview', icon: 'dashboard',
+    roles: [],  // management only — hasAccess handles this via MGMT check
+    items: [],
+  },
+  {
+    id: 'sales', label: 'Sales & CRM', icon: 'trending_up',
+    roles: ['sales_officer', 'sales_head'],
+    items: [
+      { label: 'Customers',     to: '/sales/customers',    icon: 'people' },
+      { label: 'CRM Pipeline',  to: '/sales/crm',          icon: 'account_tree' },
+      { label: 'Tasks',         to: '/sales/tasks',        icon: 'task_alt' },
+      { label: 'Applications',  to: '/sales/applications', icon: 'description' },
+      { label: 'Customer 360',  to: '/customer360',        icon: 'manage_search' },
+    ],
+  },
+  {
+    id: 'risk', label: 'Risk & Credit', icon: 'shield',
+    roles: ['risk_officer', 'risk_head'],
+    items: [
+      { label: 'App Review', to: '/risk/applications',   icon: 'rate_review' },
+      { label: 'Portfolio',  to: '/risk/portfolio',      icon: 'pie_chart' },
+    ],
+  },
   {
     id: 'finance', label: 'Finance', icon: 'account_balance',
+    roles: ['finance_officer', 'finance_head', 'cfo', 'head_of_reconciliation'],
     items: [
-      { label: 'Overview',       to: '/finance' },
-      { label: 'Transactions',   to: '/finance/transactions' },
-      { label: 'Collections',    to: '/finance/collections' },
-      { label: 'Recovery',       to: '/finance/recovery' },
-      { label: 'Reconciliation', to: '/finance/reconciliation' },
-      { label: 'EOD Reports',    to: '/finance/eod' },
-      { label: 'Income',         to: '/finance/income' },
+      { label: 'Transactions',   to: '/finance/transactions',   icon: 'receipt_long' },
+      { label: 'Income',         to: '/finance/income',         icon: 'trending_up' },
+      { label: 'Fixed Deposits', to: '/finance/fixed-deposit',  icon: 'savings' },
+      { label: 'EOD/EOB',        to: '/finance/eod',            icon: 'event_available' },
     ],
   },
   {
-    id: 'sales', label: 'Sales', icon: 'trending_up',
+    id: 'collections', label: 'Collections', icon: 'payments',
+    roles: ['collections_agent', 'collections_head'],
     items: [
-      { label: 'Overview',           to: '/sales' },
-      { label: 'Customer Directory', to: '/sales/customers' },
-      { label: 'Card Issuance',      to: '/sales/cards' },
-      { label: 'Cohort Analysis',    to: '/sales/cohort' },
+      { label: 'Agent Queue',     to: '/collections/queue',    icon: 'format_list_bulleted' },
+      { label: 'Targets',         to: '/collections/targets',  icon: 'flag' },
+      { label: 'Promise-to-Pay',  to: '/collections/promises', icon: 'handshake' },
     ],
   },
   {
-    id: 'cards', label: 'Cards & Ops', icon: 'credit_card',
+    id: 'recovery', label: 'Recovery', icon: 'refresh',
+    roles: ['recovery_agent', 'recovery_head'],
     items: [
-      { label: 'Overview',        to: '/cards' },
-      { label: 'Card Trends',     to: '/cards/trends' },
-      { label: 'Card Management', to: '/cards/management' },
+      { label: 'Cases',        to: '/recovery/cases',   icon: 'folder_open' },
+      { label: 'Legal',        to: '/recovery/legal',   icon: 'gavel' },
+      { label: 'Field Visits', to: '/recovery/visits',  icon: 'directions_car' },
     ],
   },
   {
-    id: 'crm', label: 'CRM', icon: 'contacts',
+    id: 'settlements', label: 'Settlements', icon: 'compare_arrows',
+    roles: ['finance_head', 'cfo', 'head_of_reconciliation'],
     items: [
-      { label: 'Contacts', to: '/crm/contacts' },
-      { label: 'Pipeline', to: '/crm/pipeline' },
-      { label: 'Tasks',    to: '/crm/tasks' },
-      { label: 'Reports',  to: '/crm/reports' },
+      { label: 'Settlement',     to: '/settlements',       icon: 'payments' },
+      { label: 'Reconciliation', to: '/settlements/recon', icon: 'balance' },
     ],
   },
   {
-    id: 'operations', label: 'Operations', icon: 'business_center',
+    id: 'cards', label: 'Cards & Channels', icon: 'credit_card',
+    roles: ['cards_ops_officer', 'cards_ops_head'],
     items: [
-      { label: 'Credit Portfolio', to: '/operations/credit-portfolio' },
-      { label: 'Fixed Deposit',    to: '/operations/fixed-deposit' },
-      { label: 'Settlement',       to: '/operations/settlement' },
-      { label: 'Mobile App',       to: '/operations/mobile-app' },
-      { label: 'Blink Card',       to: '/operations/blink-card' },
+      { label: 'Trends',      to: '/cards/trends',      icon: 'show_chart' },
+      { label: 'Management',  to: '/cards/management',  icon: 'manage_accounts' },
+      { label: 'Blink Card',  to: '/cards/blink',       icon: 'contactless' },
+      { label: 'Mobile App',  to: '/cards/mobile-app',  icon: 'smartphone' },
+    ],
+  },
+  {
+    id: 'customer-service', label: 'Customer Service', icon: 'headset_mic',
+    roles: ['call_center_agent', 'call_center_head'],
+    items: [
+      { label: 'Call Log',     to: '/customer-service/calls', icon: 'call' },
+      { label: 'Customer 360', to: '/customer360',            icon: 'manage_search' },
+    ],
+  },
+  {
+    id: 'compliance', label: 'Compliance', icon: 'policy',
+    roles: ['compliance_officer', 'compliance_head', 'internal_control_head'],
+    items: [
+      { label: 'AML Watchlist',to: '/compliance/watchlist',     icon: 'security' },
+      { label: 'AML Watchlist',to: '/compliance/watchlist',     icon: 'security' },
+      { label: 'SAR Filing',   to: '/compliance/sars',          icon: 'report' },
+      { label: 'CBN Reports',  to: '/compliance/cbn-reports',   icon: 'article' },
+      { label: 'Findings',     to: '/compliance/findings',      icon: 'search' },
+      { label: 'Checklists',   to: '/compliance/checklists',    icon: 'checklist' },
+      { label: 'Audit Trail',  to: '/compliance/audit-trail',   icon: 'history' },
+    ],
+  },
+  {
+    id: 'hr', label: 'HR', icon: 'groups',
+    roles: ['hr_officer', 'hr_manager'],
+    items: [
+      { label: 'Employees',     to: '/hr/employees',     icon: 'badge' },
+      { label: 'Leave',         to: '/hr/leave',         icon: 'event_available' },
+      { label: 'Performance',   to: '/hr/performance',   icon: 'star' },
+      { label: 'Disciplinary',  to: '/hr/disciplinary',  icon: 'warning' },
+      { label: 'Training',      to: '/hr/training',      icon: 'school' },
+    ],
+  },
+  {
+    id: 'campaigns', label: 'Campaigns', icon: 'campaign',
+    roles: ['cmo'],
+    items: [
+      { label: 'Campaigns',     to: '/campaigns',           icon: 'send' },
+      { label: 'Templates',     to: '/campaigns/templates', icon: 'article' },
+      { label: 'Contact Lists', to: '/campaigns/lists',     icon: 'list_alt' },
+    ],
+  },
+  {
+    id: 'reports', label: 'Reports', icon: 'bar_chart',
+    roles: [
+      'sales_head', 'risk_head', 'finance_head', 'collections_head',
+      'recovery_head', 'cards_ops_head', 'call_center_head', 'compliance_head',
+      'internal_control_head', 'hr_manager',
+    ],
+    items: [],
+  },
+  {
+    id: 'admin', label: 'Admin', icon: 'admin_panel_settings',
+    roles: ['it_admin', 'head_it'],
+    items: [
+      { label: 'Users',      to: '/admin/users',    icon: 'manage_accounts' },
+      { label: 'API Keys',   to: '/admin/api-keys', icon: 'key' },
+      { label: 'Settings',   to: '/admin/settings', icon: 'settings' },
+      { label: 'Sync Status',to: '/admin/sync',     icon: 'sync' },
     ],
   },
 ]
 
-const OPS = [
-  { label: 'Campaigns', icon: 'campaign',   to: '/marketing/campaigns', badge: undefined },
-  { label: 'Watch',     icon: 'visibility', to: '/watch',               badge: 4 },
-  { label: 'Settings',  icon: 'settings',   to: '/settings',            badge: undefined },
-]
+// Module → primary route (clicking the section header navigates here)
+const MODULE_PRIMARY: Record<string, string> = {
+  overview:         '/',
+  reports:          '/reports',
+  sales:            '/sales',
+  risk:             '/risk',
+  finance:          '/finance',
+  collections:      '/collections',
+  recovery:         '/recovery',
+  cards:            '/cards',
+  'customer-service': '/customer-service',
+  compliance:       '/compliance',
+  hr:               '/hr',
+  settlements:      '/settlements',
+  campaigns:        '/campaigns',
+  los:              '/los',
+  crm:              '/crm',
+  admin:            '/admin/users',
+}
 
+function primaryRoute(mod: Module): string {
+  return MODULE_PRIMARY[mod.id] ?? (mod.items[0]?.to ?? '/')
+}
+
+// ── Design tokens ─────────────────────────────────────────────────────────────
+
+const NAVY   = '#0E2841'
+const ACCENT = '#C00000'
 const IDLE_TEXT   = 'rgba(255,255,255,0.58)'
 const IDLE_ICON   = 'rgba(255,255,255,0.38)'
 const ACTIVE_TEXT = '#ffffff'
-const ACCENT      = '#C00000'
 
-function NavItem({ label, icon, to, badge, end: endProp = false }: {
-  label: string; icon: string; to: string; badge?: number; end?: boolean
-}) {
+// ── Sub-item nav link ─────────────────────────────────────────────────────────
+
+function SubNavItem({ label, to, icon }: SubItem) {
   return (
-    <NavLink to={to} end={endProp}>
+    <NavLink to={to} end>
       {({ isActive }) => (
         <span
-          className={`flex items-center gap-2.5 px-3 py-[7px] rounded-lg text-[13px] font-medium transition-colors cursor-pointer w-full ${!isActive ? 'hover:bg-white/[0.07]' : ''}`}
+          className={`flex items-center gap-2 py-[6px] text-[12.5px] cursor-pointer w-full transition-colors rounded-r-lg ${!isActive ? 'hover:bg-white/[0.07]' : ''}`}
           style={{
-            color:       isActive ? ACTIVE_TEXT : IDLE_TEXT,
+            marginLeft:  '-1px',
+            paddingLeft: isActive ? '11px' : '12px',
             borderLeft:  isActive ? `2px solid ${ACCENT}` : '2px solid transparent',
-            paddingLeft: isActive ? 'calc(0.75rem - 2px)' : '0.75rem',
+            color:       isActive ? ACTIVE_TEXT : 'rgba(255,255,255,0.52)',
+            fontWeight:  isActive ? 600 : 400,
           }}>
-          <span className="material-symbols-rounded text-[17px] flex-shrink-0"
-            style={{ color: isActive ? '#fff' : IDLE_ICON }}>
+          <span className="material-symbols-rounded text-[14px] flex-shrink-0"
+            style={{ color: isActive ? '#fff' : 'rgba(255,255,255,0.3)' }}>
             {icon}
           </span>
-          <span className="flex-1">{label}</span>
-          {badge != null && (
-            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white"
-              style={{ background: ACCENT }}>
-              {badge}
-            </span>
-          )}
+          {label}
         </span>
       )}
     </NavLink>
   )
 }
 
+// ── Main Sidebar ──────────────────────────────────────────────────────────────
+
 export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const location = useLocation()
+  const navigate  = useNavigate()
+  const role = user.role as string
 
-  const activeDeptId = DEPTS.find(d =>
-    d.items.some(i => location.pathname === i.to || location.pathname.startsWith(i.to + '/'))
-  )?.id ?? null
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('o3c_sidebar_collapsed') === '1' } catch { return false }
+  })
 
-  const [openId, setOpenId] = useState<string | null>(activeDeptId)
+  function toggleCollapse() {
+    const next = !collapsed
+    setCollapsed(next)
+    try { localStorage.setItem('o3c_sidebar_collapsed', next ? '1' : '0') } catch {}
+  }
+
+  // Visible modules for this user's role
+  const visibleModules = MODULES.filter(m => {
+    // 'overview' module is management-only; hasAccess with empty roles means only MGMT can see it
+    if (m.id === 'overview') return MGMT.includes(role)
+    return hasAccess(role, m.roles)
+  })
+
+  // Which module's section is currently active (by pathname prefix)
+  function isModuleActive(mod: Module): boolean {
+    if (mod.items.length === 0) {
+      // Single-page module
+      const pr = primaryRoute(mod)
+      if (pr === '/') return location.pathname === '/'
+      return location.pathname === pr || location.pathname.startsWith(pr + '/')
+    }
+    return mod.items.some(i =>
+      location.pathname === i.to || location.pathname.startsWith(i.to + '/')
+    )
+  }
+
+  // Open state for expanded accordion — auto-open the active section
+  const initialOpen = visibleModules.find(m => isModuleActive(m) && m.items.length > 0)?.id ?? null
+  const [openId, setOpenId] = useState<string | null>(initialOpen)
 
   const initials = user.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
 
   return (
-    <aside className="flex flex-col w-[220px] flex-shrink-0 h-screen"
-      style={{ background: '#0E2841', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+    <aside
+      className={`flex flex-col flex-shrink-0 h-screen transition-all duration-200 ${collapsed ? 'w-[64px]' : 'w-[220px]'}`}
+      style={{ background: NAVY, borderRight: '1px solid rgba(255,255,255,0.06)' }}>
 
       {/* ── Logo ── */}
-      <div className="flex items-center gap-2.5 px-4 pt-4 pb-3 flex-shrink-0">
+      <div className={`flex items-center gap-2.5 px-4 pt-4 pb-3 flex-shrink-0 ${collapsed ? 'justify-center px-2' : ''}`}>
         <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
           style={{ background: ACCENT, boxShadow: '0 1px 6px rgba(192,0,0,0.35)' }}>
           <span className="text-white font-extrabold text-[12px] tracking-tight">O3</span>
         </div>
-        <div>
-          <p className="font-bold text-[14px] tracking-tight text-white leading-tight">O3 Capital</p>
-          <p className="text-[10px] leading-tight" style={{ color: 'rgba(255,255,255,0.38)' }}>Cards Platform</p>
-        </div>
-      </div>
-
-      {/* ── Search ── */}
-      <div className="px-3 mb-3">
-        <button className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-[12.5px] transition-colors"
-          style={{ background: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.35)' }}>
-          <span className="material-symbols-rounded text-[15px]">search</span>
-          <span className="flex-1 text-left">Search…</span>
-          <kbd className="text-[10px] px-1.5 py-0.5 rounded font-medium"
-            style={{ background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.3)' }}>⌘K</kbd>
-        </button>
+        {!collapsed && (
+          <div>
+            <p className="font-bold text-[14px] tracking-tight text-white leading-tight">O3 Capital</p>
+            <p className="text-[10px] leading-tight" style={{ color: 'rgba(255,255,255,0.38)' }}>Cards Platform</p>
+          </div>
+        )}
       </div>
 
       {/* ── Nav ── */}
-      <nav className="flex-1 overflow-y-auto px-2 space-y-0.5 pb-2">
+      <nav className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
+        {visibleModules.map(mod => {
+          const active  = isModuleActive(mod)
+          const primary = primaryRoute(mod)
+          const hasSubs = mod.items.length > 0
 
-        {TOP.map(({ label, icon, to, badge }) => (
-          <NavItem key={to} label={label} icon={icon} to={to} badge={badge} end={to === '/'} />
-        ))}
+          // ── Collapsed: just icon, links to primary route ──
+          if (collapsed) {
+            return (
+              <NavLink key={mod.id} to={primary} end={primary === '/'} title={mod.label}>
+                {({ isActive: linkActive }) => {
+                  // For multi-item modules, use our own active check
+                  const shown = hasSubs ? active : linkActive
+                  return (
+                    <span
+                      className={`flex items-center justify-center w-full py-[7px] rounded-lg transition-colors cursor-pointer ${!shown ? 'hover:bg-white/[0.07]' : ''}`}
+                      style={{ borderLeft: shown ? `2px solid ${ACCENT}` : '2px solid transparent' }}>
+                      <span className="material-symbols-rounded text-[18px]"
+                        style={{ color: shown ? '#fff' : IDLE_ICON }}>
+                        {mod.icon}
+                      </span>
+                    </span>
+                  )
+                }}
+              </NavLink>
+            )
+          }
 
-        <p className="px-3 pt-3 pb-1.5 text-[10px] font-bold uppercase tracking-[0.1em]"
-          style={{ color: 'rgba(255,255,255,0.28)' }}>
-          Departments
-        </p>
-
-        {DEPTS.map(dept => {
-          const isOpen     = openId === dept.id
-          const deptActive = dept.id === activeDeptId
-
-          return (
-            <div key={dept.id}>
-              <NavLink
-                to={dept.items[0].to}
-                onClick={() => setOpenId(dept.id)}
-              >
-                {() => (
+          // ── Single-page module (no sub-items) ──
+          if (!hasSubs) {
+            return (
+              <NavLink key={mod.id} to={primary} end={primary === '/'}>
+                {({ isActive: linkActive }) => (
                   <span
-                    className={`flex items-center gap-2.5 w-full px-3 py-[7px] rounded-lg text-[13px] font-semibold transition-colors cursor-pointer ${!deptActive ? 'hover:bg-white/[0.07]' : ''}`}
+                    className={`flex items-center gap-2.5 w-full px-3 py-[7px] rounded-lg text-[13px] font-medium transition-colors cursor-pointer ${!linkActive ? 'hover:bg-white/[0.07]' : ''}`}
                     style={{
-                      color:       deptActive ? ACTIVE_TEXT : IDLE_TEXT,
-                      borderLeft:  deptActive ? `2px solid ${ACCENT}` : '2px solid transparent',
-                      paddingLeft: deptActive ? 'calc(0.75rem - 2px)' : '0.75rem',
+                      color:       linkActive ? ACTIVE_TEXT : IDLE_TEXT,
+                      borderLeft:  linkActive ? `2px solid ${ACCENT}` : '2px solid transparent',
+                      paddingLeft: linkActive ? 'calc(0.75rem - 2px)' : '0.75rem',
                     }}>
-                    <span className="material-symbols-rounded text-[17px] flex-shrink-0"
-                      style={{ color: deptActive ? '#fff' : IDLE_ICON }}>
-                      {dept.icon}
+                    <span className="material-symbols-rounded text-[18px] flex-shrink-0"
+                      style={{ color: linkActive ? '#fff' : IDLE_ICON }}>
+                      {mod.icon}
                     </span>
-                    <span className="flex-1">{dept.label}</span>
-                    <span className="material-symbols-rounded text-[14px] transition-transform"
-                      style={{ color: 'rgba(255,255,255,0.25)', transform: isOpen ? 'rotate(180deg)' : 'none' }}>
-                      expand_more
-                    </span>
+                    <span className="flex-1">{mod.label}</span>
                   </span>
                 )}
               </NavLink>
+            )
+          }
 
-              <div className="overflow-hidden transition-all duration-200 ease-out"
-                style={{ maxHeight: isOpen ? `${dept.items.length * 34}px` : '0px' }}>
+          // ── Multi-item module with accordion ──
+          const isOpen = openId === mod.id
+
+          return (
+            <div key={mod.id}>
+              {/* Section header — clicking navigates to the module overview and opens accordion */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => { setOpenId(mod.id); navigate(primary) }}
+                onKeyDown={e => { if (e.key === 'Enter') { setOpenId(mod.id); navigate(primary) } }}
+                className={`flex items-center gap-2.5 w-full px-3 py-[7px] rounded-lg text-[13px] font-semibold transition-colors cursor-pointer ${!active ? 'hover:bg-white/[0.07]' : ''}`}
+                style={{
+                  color:       active ? ACTIVE_TEXT : IDLE_TEXT,
+                  borderLeft:  active ? `2px solid ${ACCENT}` : '2px solid transparent',
+                  paddingLeft: active ? 'calc(0.75rem - 2px)' : '0.75rem',
+                }}>
+                <span className="material-symbols-rounded text-[18px] flex-shrink-0"
+                  style={{ color: active ? '#fff' : IDLE_ICON }}>
+                  {mod.icon}
+                </span>
+                <span className="flex-1 text-left">{mod.label}</span>
+                <span className="material-symbols-rounded text-[14px] transition-transform"
+                  style={{
+                    color:     'rgba(255,255,255,0.25)',
+                    transform: isOpen ? 'rotate(180deg)' : 'none',
+                  }}>
+                  expand_more
+                </span>
+              </div>
+
+              {/* Sub-items accordion */}
+              <div
+                className="overflow-hidden transition-all duration-200 ease-out"
+                style={{ maxHeight: isOpen ? `${mod.items.length * 36}px` : '0px' }}>
                 <div className="ml-[30px] mt-0.5 mb-1"
                   style={{ borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
-                  {dept.items.map(({ label, to }) => (
-                    <NavLink key={to} to={to} end>
-                      {({ isActive }) => (
-                        <span
-                          className={`flex items-center py-[7px] text-[12.5px] cursor-pointer w-full transition-colors rounded-r-lg ${!isActive ? 'hover:bg-white/[0.07]' : ''}`}
-                          style={{
-                            marginLeft:  '-1px',
-                            paddingLeft: isActive ? '11px' : '12px',
-                            borderLeft:  isActive ? `2px solid ${ACCENT}` : '2px solid transparent',
-                            color:       isActive ? '#ffffff' : 'rgba(255,255,255,0.5)',
-                            fontWeight:  isActive ? 600 : 400,
-                          }}>
-                          {label}
-                        </span>
-                      )}
-                    </NavLink>
+                  {mod.items.map(item => (
+                    <SubNavItem key={item.to} {...item} />
                   ))}
                 </div>
               </div>
             </div>
           )
         })}
-
-        <p className="px-3 pt-3 pb-1.5 text-[10px] font-bold uppercase tracking-[0.1em]"
-          style={{ color: 'rgba(255,255,255,0.28)' }}>
-          Platform
-        </p>
-        {OPS.map(({ label, icon, to, badge }) => (
-          <NavItem key={to} label={label} icon={icon} to={to} badge={badge} />
-        ))}
       </nav>
 
+      {/* ── Collapse toggle ── */}
+      <div className="flex-shrink-0 px-2 py-1.5" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+        <button
+          onClick={toggleCollapse}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className={`flex items-center gap-2 w-full px-3 py-2 rounded-lg text-[12px] transition-colors hover:bg-white/[0.07] ${collapsed ? 'justify-center' : ''}`}
+          style={{ color: 'rgba(255,255,255,0.38)' }}>
+          <span className="material-symbols-rounded text-[16px]">
+            {collapsed ? 'chevron_right' : 'chevron_left'}
+          </span>
+          {!collapsed && <span>Collapse</span>}
+        </button>
+      </div>
+
       {/* ── User footer ── */}
-      <div className="flex-shrink-0 px-2 py-2"
-        style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-        <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors group cursor-pointer hover:bg-white/[0.07]">
-          <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
+      <div className="flex-shrink-0 px-2 py-2" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+        <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors group cursor-pointer hover:bg-white/[0.07] ${collapsed ? 'justify-center px-0' : ''}`}>
+          <div
+            className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
             style={{ background: ACCENT }}>
             {initials}
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[12px] font-semibold text-white truncate leading-tight">{user.name}</p>
-            <p className="text-[11px] capitalize leading-tight" style={{ color: 'rgba(255,255,255,0.4)' }}>
-              {(user.role || '').replace(/_/g, ' ')}
-            </p>
-          </div>
-          <button onClick={onLogout} title="Sign out" aria-label="Sign out"
-            className="p-1 rounded transition-all opacity-0 group-hover:opacity-100"
-            style={{ color: 'rgba(255,255,255,0.45)' }}
-            onMouseEnter={e => (e.currentTarget.style.color = '#fff')}
-            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.45)')}>
-            <span className="material-symbols-rounded text-[15px]">logout</span>
-          </button>
+          {!collapsed && (
+            <div className="flex-1 min-w-0">
+              <p className="text-[12px] font-semibold text-white truncate leading-tight">{user.name}</p>
+              <p className="text-[11px] leading-tight" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                {roleLabel(role)}
+              </p>
+            </div>
+          )}
+          {!collapsed && (
+            <button
+              onClick={onLogout}
+              title="Sign out"
+              aria-label="Sign out"
+              className="p-1 rounded transition-all opacity-0 group-hover:opacity-100"
+              style={{ color: 'rgba(255,255,255,0.45)' }}
+              onMouseEnter={e => (e.currentTarget.style.color = '#fff')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.45)')}>
+              <span className="material-symbols-rounded text-[15px]">logout</span>
+            </button>
+          )}
+          {collapsed && (
+            <button
+              onClick={onLogout}
+              title="Sign out"
+              className="p-1 rounded hover:bg-white/10"
+              style={{ color: 'rgba(255,255,255,0.38)' }}>
+              <span className="material-symbols-rounded text-[15px]">logout</span>
+            </button>
+          )}
         </div>
       </div>
     </aside>

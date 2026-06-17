@@ -18,16 +18,36 @@ import (
 
 // ── Paystack config ───────────────────────────────────────────────────────────
 
-var (
-	paystackSecretKey = os.Getenv("PAYSTACK_SECRET_KEY")
-	paystackBase      = coalesce(os.Getenv("PAYSTACK_BASE_URL"), "https://api.paystack.co")
-)
+var paystackBase = coalesce(os.Getenv("PAYSTACK_BASE_URL"), "https://api.paystack.co")
 
-func paystackConfigured() bool { return paystackSecretKey != "" }
+// resolvePaystackKey returns the live secret key: env var first, then DB-stored credential.
+func resolvePaystackKey(ctx context.Context, db *core.DB) string {
+	if k := os.Getenv("PAYSTACK_SECRET_KEY"); k != "" {
+		return k
+	}
+	rows, err := db.PGQuery(ctx,
+		`SELECT encrypted_value FROM api_credentials WHERE key_name='PAYSTACK_SECRET_KEY'`)
+	if err != nil || len(rows) == 0 {
+		return ""
+	}
+	enc, _ := rows[0]["encrypted_value"].(string)
+	if enc == "" {
+		return ""
+	}
+	plain, err := decryptValue(enc)
+	if err != nil {
+		return ""
+	}
+	return plain
+}
 
 var paystackHTTP = &http.Client{Timeout: 20 * time.Second}
 
-func paystackFetch(ctx context.Context, path string, params url.Values) (map[string]any, error) {
+func paystackFetch(ctx context.Context, db *core.DB, path string, params url.Values) (map[string]any, error) {
+	key := resolvePaystackKey(ctx, db)
+	if key == "" {
+		return nil, fmt.Errorf("Paystack secret key not configured")
+	}
 	reqURL := paystackBase + path
 	if len(params) > 0 {
 		reqURL += "?" + params.Encode()
@@ -36,7 +56,7 @@ func paystackFetch(ctx context.Context, path string, params url.Values) (map[str
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+paystackSecretKey)
+	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := paystackHTTP.Do(req)
@@ -190,13 +210,80 @@ func toFloat64(v any) float64 {
 	return 0
 }
 
+// ── Paystack: Balance ─────────────────────────────────────────────────────────
+
+func psReconBalance(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if resolvePaystackKey(r.Context(), db) == "" {
+			respondErr(w, 503, "Paystack not configured")
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		result, err := paystackFetch(ctx, db, "/balance", nil)
+		if err != nil {
+			respondErr(w, 502, "Paystack API error: "+err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"data_source": "paystack",
+			"data":        result["data"],
+		})
+	}
+}
+
+// psProxy is a generic Paystack pass-through — fetches psPath with pagination
+// params plus any extras returned by extraParams(r). extraParams may be nil.
+func psProxy(db *core.DB, psPath string, extraParams func(*http.Request) url.Values) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if resolvePaystackKey(r.Context(), db) == "" {
+			respondErr(w, 503, "Paystack not configured")
+			return
+		}
+		params := url.Values{
+			"perPage": {coalesce(qstr(r, "per_page"), "50")},
+			"page":    {coalesce(qstr(r, "page"), "1")},
+		}
+		if extraParams != nil {
+			for k, vs := range extraParams(r) {
+				params[k] = vs
+			}
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		result, err := paystackFetch(ctx, db, psPath, params)
+		if err != nil {
+			respondErr(w, 502, "Paystack API error: "+err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"data_source": "paystack",
+			"data":        result["data"],
+			"meta":        result["meta"],
+		})
+	}
+}
+
 // ── Register ──────────────────────────────────────────────────────────────────
 
 func RegisterPaystackRecon(r chi.Router, db *core.DB) {
 	access := core.RequirePages("reconciliation")
-	r.With(access).Get("/summary", psReconSummary(db))
-	r.With(access).Get("/transactions", psReconTransactions())
-	r.With(access).Get("/settlements", psReconSettlements())
+	r.With(access).Get("/summary",      psReconSummary(db))
+	r.With(access).Get("/transactions", psReconTransactions(db))
+	r.With(access).Get("/settlements",  psReconSettlements(db))
+	r.With(access).Get("/balance",      psReconBalance(db))
+	r.With(access).Get("/ledger",       psProxy(db, "/balance/ledger", nil))
+	r.With(access).Get("/transfers",    psProxy(db, "/transfer", func(r *http.Request) url.Values {
+		p := url.Values{}
+		if v := qstr(r, "from"); v != "" { p.Set("from", v) }
+		if v := qstr(r, "to");   v != "" { p.Set("to", v) }
+		if v := qstr(r, "status"); v != "" { p.Set("status", v) }
+		return p
+	}))
+	r.With(access).Get("/refunds",   psProxy(db, "/refund", nil))
+	r.With(access).Get("/disputes",  psProxy(db, "/dispute", nil))
 }
 
 func RegisterInterspwitchRecon(r chi.Router, db *core.DB) {
@@ -210,7 +297,7 @@ func RegisterInterspwitchRecon(r chi.Router, db *core.DB) {
 func psReconSummary(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if !paystackConfigured() {
+		if resolvePaystackKey(r.Context(), db) == "" {
 			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 				"data_source": "paystack", "configured": false,
 				"message": "Set PAYSTACK_SECRET_KEY",
@@ -233,7 +320,7 @@ func psReconSummary(db *core.DB) http.HandlerFunc {
 		psFrom := dateFrom + "T00:00:00.000Z"
 		psTo   := dateTo + "T23:59:59.000Z"
 
-		psResult, psErr := paystackFetch(ctx, "/transaction", url.Values{
+		psResult, psErr := paystackFetch(ctx, db, "/transaction", url.Values{
 			"from": {psFrom}, "to": {psTo},
 			"perPage": {"100"}, "page": {"1"},
 		})
@@ -255,24 +342,26 @@ func psReconSummary(db *core.DB) http.HandlerFunc {
 		if psErr != nil {
 			ps.Error = psErr.Error()
 		} else if psResult != nil {
-			// Extract meta.total for full count
 			if meta, ok := psResult["meta"].(map[string]any); ok {
 				ps.TotalCount = toInt64(meta["total"])
+				// meta.total_volume is the true sum across ALL pages for this filter period
+				if tv := toFloat64(meta["total_volume"]); tv > 0 {
+					ps.TotalVolumeKobo = tv
+					ps.TotalVolumeNGN = math.Round(tv) / 100
+				}
 			}
-			// Aggregate first page for breakdown
+			// Count status breakdown from first page (for success/failed KPIs)
 			if data, ok := psResult["data"].([]any); ok {
 				for _, item := range data {
 					if t, ok := item.(map[string]any); ok {
-						amt := toFloat64(t["amount"]) // in kobo
-						ps.TotalVolumeKobo += amt
-						if zohoStr(t["status"]) == "success" {
+						switch zohoStr(t["status"]) {
+						case "success":
 							ps.Success++
-						} else if zohoStr(t["status"]) == "failed" {
+						case "failed":
 							ps.Failed++
 						}
 					}
 				}
-				ps.TotalVolumeNGN = math.Round(ps.TotalVolumeKobo) / 100
 			}
 		}
 
@@ -302,10 +391,10 @@ func psReconSummary(db *core.DB) http.HandlerFunc {
 
 // ── Paystack: Transactions ────────────────────────────────────────────────────
 
-func psReconTransactions() http.HandlerFunc {
+func psReconTransactions(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !paystackConfigured() {
-			respondErr(w, 503, "Paystack not configured")
+		if resolvePaystackKey(r.Context(), db) == "" {
+			respondErr(w, 503, "Paystack not configured — set PAYSTACK_SECRET_KEY")
 			return
 		}
 
@@ -329,7 +418,7 @@ func psReconTransactions() http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
 
-		result, err := paystackFetch(ctx, "/transaction", params)
+		result, err := paystackFetch(ctx, db, "/transaction", params)
 		if err != nil {
 			respondErr(w, 502, "Paystack API error: "+err.Error())
 			return
@@ -346,10 +435,10 @@ func psReconTransactions() http.HandlerFunc {
 
 // ── Paystack: Settlements ─────────────────────────────────────────────────────
 
-func psReconSettlements() http.HandlerFunc {
+func psReconSettlements(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !paystackConfigured() {
-			respondErr(w, 503, "Paystack not configured")
+		if resolvePaystackKey(r.Context(), db) == "" {
+			respondErr(w, 503, "Paystack not configured — set PAYSTACK_SECRET_KEY")
 			return
 		}
 
@@ -367,7 +456,7 @@ func psReconSettlements() http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
 
-		result, err := paystackFetch(ctx, "/settlement", params)
+		result, err := paystackFetch(ctx, db, "/settlement", params)
 		if err != nil {
 			respondErr(w, 502, "Paystack API error: "+err.Error())
 			return

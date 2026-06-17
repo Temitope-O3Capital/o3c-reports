@@ -213,8 +213,20 @@ func fdSummary(db *core.DB) http.HandlerFunc {
 				COALESCE(SUM(interest_paid) FILTER (WHERE transaction_type='liquidation'), 0) AS total_interest,
 				COUNT(*) AS total_transactions
 			FROM fd_transactions WHERE %s`, where), args...)
-		if err != nil || len(rows) == 0 {
+		if err != nil {
 			respondErr(w, 500, "Summary failed"); return
+		}
+		if len(rows) == 0 {
+			// Table exists but no transactions yet — return zero summary
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"inflow_count": 0, "liquidation_count": 0,
+				"total_inflow_ngn": 0, "total_inflow_usd": 0,
+				"total_liquidated": 0, "total_principal": 0,
+				"total_interest": 0, "total_transactions": 0,
+				"net_position": 0,
+			})
+			return
 		}
 
 		s := rows[0]

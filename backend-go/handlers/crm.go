@@ -342,7 +342,7 @@ func listStages(db *core.DB) http.HandlerFunc {
 
 func getPipeline(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		stages, err := db.PGQuery(r.Context(), "SELECT * FROM crm_pipeline_stages ORDER BY order_index")
+		stages, err := db.PGQuery(r.Context(), "SELECT DISTINCT ON (LOWER(name)) * FROM crm_pipeline_stages ORDER BY LOWER(name), order_index")
 		if err != nil {
 			respondErr(w, 500, "Query failed"); return
 		}

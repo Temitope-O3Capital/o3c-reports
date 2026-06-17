@@ -1,53 +1,169 @@
-import { Page, KpiCard, SectionCard, NAVY, RED } from '../../components/UI'
+import { useState, useEffect } from 'react'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Legend,
+} from 'recharts'
+import { apiFetch } from '../../lib/api'
+import { fmt, fmtNum, n, today, monthStart } from '../../lib/fmt'
+import {
+  Page, KpiCard, SectionCard, DataTable, DateFilter,
+  ErrBanner, ColDef, NAVY, RED, GREEN, AMBER,
+} from '../../components/UI'
 
-const FEATURES = [
-  { icon: 'compare_arrows', label: 'Reconciliation',   desc: 'Match card transactions with processor settlements daily' },
-  { icon: 'receipt_long',   label: 'Exception Tracking', desc: 'Flag mismatched or missing settlements for investigation' },
-  { icon: 'account_balance',label: 'Net Position',     desc: 'See net settlement position by processor and card scheme' },
-  { icon: 'schedule',       label: 'Settlement Cycles', desc: 'Track T+1 and T+2 settlement timelines by channel' },
+interface SettlementRow {
+  settlement_date: string
+  txn_count: number
+  credits: number
+  debits: number
+  net_position: number
+}
+
+const COLS: ColDef<SettlementRow>[] = [
+  { key: 'settlement_date', label: 'Date' },
+  { key: 'txn_count', label: 'Transactions', right: true,
+    render: r => <span className="kpi-number">{n(r.txn_count).toLocaleString()}</span> },
+  { key: 'credits', label: 'Credits (₦)', right: true,
+    render: r => <span className="kpi-number font-semibold" style={{ color: GREEN }}>{fmt(r.credits)}</span> },
+  { key: 'debits', label: 'Debits (₦)', right: true,
+    render: r => <span className="kpi-number font-semibold" style={{ color: RED }}>{fmt(r.debits)}</span> },
+  { key: 'net_position', label: 'Net Position (₦)', right: true,
+    render: r => {
+      const v = n(r.net_position)
+      return <span className="kpi-number font-semibold" style={{ color: v >= 0 ? GREEN : RED }}>{fmt(v)}</span>
+    } },
 ]
 
 export default function Settlement() {
-  return (
-    <Page dept="Operations" title="Settlement" subtitle="Card processor settlement management">
+  const [data, setData]     = useState<SettlementRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError]   = useState('')
+  const [from, setFrom]     = useState(monthStart())
+  const [to, setTo]         = useState(today())
 
+  useEffect(() => {
+    setLoading(true)
+    setError('')
+    apiFetch(`/api/settlement/summary?date_from=${from}&date_to=${to}`)
+      .then(res => {
+        const rows: SettlementRow[] = Array.isArray(res) ? res : (res?.data ?? res?.rows ?? [])
+        setData(rows)
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [from, to])
+
+  const totalCredits = data.reduce((s, r) => s + n(r.credits), 0)
+  const totalDebits  = data.reduce((s, r) => s + n(r.debits), 0)
+  const netPosition  = data.reduce((s, r) => s + n(r.net_position), 0)
+  const totalTxns    = data.reduce((s, r) => s + n(r.txn_count), 0)
+
+  return (
+    <Page
+      dept="Operations"
+      title="Settlement"
+      subtitle="Daily card processor settlement breakdown"
+      actions={
+        <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
+      }
+    >
+      <ErrBanner msg={error} />
+
+      {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-        {['Gross Settlement', 'Fees Deducted', 'Net Received', 'Exceptions'].map((label, i) => (
-          <KpiCard key={label} label={label} value="—"
-            icon={['payments', 'remove_circle', 'check_circle', 'warning'][i]}
-            accent={[NAVY, RED, '#059669', '#D97706'][i]}
-            sub="Coming soon" />
-        ))}
+        <KpiCard
+          label="Total Credits"
+          value={loading ? '—' : fmt(totalCredits)}
+          icon="arrow_downward"
+          accent={GREEN}
+          loading={loading}
+        />
+        <KpiCard
+          label="Total Debits"
+          value={loading ? '—' : fmt(totalDebits)}
+          icon="arrow_upward"
+          accent={RED}
+          loading={loading}
+        />
+        <KpiCard
+          label="Net Position"
+          value={loading ? '—' : fmt(netPosition)}
+          icon="account_balance"
+          accent={netPosition >= 0 ? NAVY : RED}
+          loading={loading}
+        />
+        <KpiCard
+          label="Transaction Count"
+          value={loading ? '—' : fmtNum(totalTxns)}
+          icon="receipt_long"
+          accent={AMBER}
+          loading={loading}
+        />
       </div>
 
-      <SectionCard title="Settlement Module" subtitle="Under active development">
-        <div className="px-5 py-10 text-center">
-          <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
-            style={{ background: 'rgba(14,40,65,0.06)' }}>
-            <span className="material-symbols-rounded text-[28px]" style={{ color: NAVY }}>compare_arrows</span>
-          </div>
-          <h3 className="text-[15px] font-semibold text-slate-800 mb-2">Settlement Reporting Coming Soon</h3>
-          <p className="text-[13px] text-slate-400 max-w-sm mx-auto mb-8 leading-relaxed">
-            The settlement module will reconcile Paystack and Interswitch processor
-            settlements against card transactions in real time.
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl mx-auto text-left">
-            {FEATURES.map(f => (
-              <div key={f.label} className="flex items-start gap-3 p-3.5 rounded-xl"
-                style={{ background: 'rgba(14,40,65,0.04)', border: '1px solid rgba(14,40,65,0.07)' }}>
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{ background: 'rgba(14,40,65,0.08)' }}>
-                  <span className="material-symbols-rounded text-[16px]" style={{ color: NAVY }}>{f.icon}</span>
-                </div>
-                <div>
-                  <p className="text-[12.5px] font-semibold text-slate-700">{f.label}</p>
-                  <p className="text-[11.5px] text-slate-400 mt-0.5 leading-relaxed">{f.desc}</p>
-                </div>
+      {/* Credits vs Debits bar chart */}
+      <div className="mb-5">
+        <SectionCard
+          title="Credits vs Debits by Day"
+          subtitle="Settlement amounts per day in the selected period"
+        >
+          <div className="px-5 py-4">
+            {loading ? (
+              <div className="flex items-end gap-3" style={{ height: 220 }}>
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="flex-1 skeleton rounded-t" style={{ height: `${25 + i * 10}%` }} />
+                ))}
               </div>
-            ))}
+            ) : data.length === 0 ? (
+              <p className="text-[13px] text-slate-400 py-16 text-center">No settlement data for this period</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={data} margin={{ top: 20, right: 12, left: 0, bottom: 4 }} barSize={14}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                  <XAxis dataKey="settlement_date" tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false}
+                    tickFormatter={v => fmt(v)} width={60}
+                    domain={[(dataMin: number) => dataMin < 0 ? Math.floor(dataMin * 1.12) : 0, (dataMax: number) => Math.ceil(dataMax * 1.15) || 10]} />
+                  <Tooltip
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null
+                      return (
+                        <div className="bg-white rounded-lg border px-3 py-2.5 shadow-lg"
+                          style={{ borderColor: 'rgba(15,23,42,0.1)', fontSize: 12 }}>
+                          <p className="text-slate-400 text-[10px] font-semibold uppercase tracking-wider mb-1.5">{label}</p>
+                          {payload.map((p: any, i: number) => (
+                            <div key={i} className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: p.fill }} />
+                              <span className="text-slate-600">{p.name}:</span>
+                              <span className="font-semibold font-mono text-slate-800">{fmt(p.value)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                  <Bar dataKey="credits" name="Credits" fill={GREEN} radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="debits"  name="Debits"  fill={RED}   radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
-        </div>
+        </SectionCard>
+      </div>
+
+      {/* Detail table */}
+      <SectionCard
+        title="Settlement Breakdown"
+        subtitle="Row-by-row daily settlement detail"
+        badge={loading ? undefined : data.length}
+      >
+        <DataTable<SettlementRow>
+          cols={COLS}
+          rows={data}
+          loading={loading}
+          emptyIcon="compare_arrows"
+          emptyMsg="No settlement records for this period"
+        />
       </SectionCard>
     </Page>
   )

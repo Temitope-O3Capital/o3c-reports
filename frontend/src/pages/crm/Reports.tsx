@@ -1,3 +1,4 @@
+import { snake } from '../../lib/labels'
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtDate, n } from '../../lib/fmt'
@@ -154,7 +155,7 @@ export default function CrmReports() {
 
   /* SLA table cols */
   const slaCols: ColDef<SLARow>[] = [
-    { key: 'request_type', label: 'Request Type', render: r => <span className="font-medium text-slate-700 capitalize">{r.request_type.replace(/_/g, ' ')}</span> },
+    { key: 'request_type', label: 'Request Type', render: r => <span className="font-medium text-slate-700 capitalize">{snake(r.request_type)}</span> },
     { key: 'total',    label: 'Total',    right: true, render: r => <span className="kpi-number text-[12px]">{r.total}</span> },
     { key: 'resolved', label: 'Resolved', right: true, render: r => <span className="kpi-number text-[12px] text-green-600">{r.resolved}</span> },
     {

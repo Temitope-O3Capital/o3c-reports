@@ -228,7 +228,10 @@ export default function Pipeline() {
 
   useEffect(() => { load() }, [])
 
-  const stages = data?.stages ?? []
+  // Deduplicate stages by name (DB may have seeded duplicates)
+  const rawStages = data?.stages ?? []
+  const seen = new Set<string>()
+  const stages = rawStages.filter(s => { const k = s.name?.toLowerCase(); return k && !seen.has(k) && seen.add(k) })
   const dealMap = data?.deals ?? {}
   const allDeals: Deal[] = stages.flatMap(s => dealMap[String(s.id)] ?? [])
   const wonDeals = allDeals.filter(d => d.is_won)
