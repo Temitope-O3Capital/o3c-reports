@@ -433,8 +433,16 @@ func cpSummary(db *core.DB) http.HandlerFunc {
 				COUNT(*) FILTER (WHERE type='loan')                             AS loan_count,
 				COUNT(*) FILTER (WHERE type='card')                             AS card_count
 			FROM credit_applications WHERE %s`, where), args...)
-		if err != nil || len(rows) == 0 {
+		if err != nil {
 			respondErr(w, 500, "Summary failed"); return
+		}
+		if len(rows) == 0 {
+			rows = []core.Row{{
+				"total_applications": 0, "approved": 0, "declined": 0,
+				"pending": 0, "incomplete": 0, "disbursed": 0,
+				"total_requested": 0, "total_approved": 0, "total_disbursed": 0,
+				"loan_count": 0, "card_count": 0,
+			}}
 		}
 
 		// Approval rate

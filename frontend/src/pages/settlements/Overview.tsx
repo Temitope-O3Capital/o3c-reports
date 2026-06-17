@@ -67,7 +67,9 @@ function ReconPanel({ data, loading }: { data: ReconSummary | null; loading: boo
       <div className="flex items-center justify-between">
         <span className="text-[13px] font-semibold text-slate-800">{data.processor}</span>
         {data.last_run_at && (
-          <span className="text-[11px] text-slate-400">Last run: {fmtDate(data.last_run_at)}</span>
+          <span className="text-[11px] text-slate-400">
+            Live · as of {new Date(data.last_run_at).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}
+          </span>
         )}
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -189,7 +191,7 @@ export default function SettlementsOverview() {
           total_debits:    n(d.total_debits  ?? d.debits  ?? 0),
           matched_count:   n(d.matched_count ?? d.matched ?? 0),
           exception_count: n(d.exception_count ?? d.exceptions ?? 0),
-          last_run_at:     d.last_run_at ?? d.updated_at,
+          last_run_at:     d.fetched_at ?? d.last_run_at ?? d.updated_at,
         })
       } else {
         setPaystackRecon(null)
@@ -203,7 +205,7 @@ export default function SettlementsOverview() {
           total_debits:    n(d.total_debits  ?? d.debits  ?? 0),
           matched_count:   n(d.matched_count ?? d.matched ?? 0),
           exception_count: n(d.exception_count ?? d.exceptions ?? 0),
-          last_run_at:     d.last_run_at ?? d.updated_at,
+          last_run_at:     d.fetched_at ?? d.last_run_at ?? d.updated_at,
         })
       } else {
         setInterswitchRecon(null)

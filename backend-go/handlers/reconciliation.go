@@ -372,6 +372,7 @@ func psReconSummary(db *core.DB) http.HandlerFunc {
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"data_source": "paystack",
 			"configured":  true,
+			"fetched_at":  time.Now().UTC().Format(time.RFC3339),
 			"period":      map[string]string{"from": dateFrom, "to": dateTo},
 			"paystack":    ps,
 			"eod": map[string]any{
@@ -535,6 +536,7 @@ func iswReconSummary(db *core.DB) http.HandlerFunc {
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"data_source": "interswitch",
 			"configured":  true,
+			"fetched_at":  time.Now().UTC().Format(time.RFC3339),
 			"period":      map[string]string{"from": dateFrom, "to": dateTo},
 			"interswitch": map[string]any{
 				"txn_count":    iswCount,
