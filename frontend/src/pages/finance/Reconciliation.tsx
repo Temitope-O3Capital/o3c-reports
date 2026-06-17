@@ -587,9 +587,14 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
               { key: 'Transfer_Charge', label: 'Transfer Fees', icon: 'price_change', accent: RED },
               { key: 'Transfer_Stamp_Duty_Charge', label: 'Stamp Duty', icon: 'receipt', accent: AMBER },
               { key: 'Transfer', label: 'Transfers (Debits)', icon: 'send', accent: NAVY },
+              { key: '__credits__', label: 'Wallet Funded', icon: 'account_balance_wallet', accent: GREEN },
             ].map(({ key, label, icon, accent }) => {
-              const rows = allLedger.filter(r => r.model_responsible === key)
-              const total = rows.reduce((s: number, r: any) => s + Math.abs(n(r.difference)), 0)
+              const rows = key === '__credits__'
+                ? allLedger.filter((r: any) => n(r.difference) > 0)
+                : allLedger.filter(r => r.model_responsible === key)
+              const total = key === '__credits__'
+                ? rows.reduce((s: number, r: any) => s + n(r.difference), 0)
+                : rows.reduce((s: number, r: any) => s + Math.abs(n(r.difference)), 0)
               return (
                 <KpiCard key={key} label={label} icon={icon} accent={accent}
                   value={total > 0 ? fmtExact(total / 100) : '—'}

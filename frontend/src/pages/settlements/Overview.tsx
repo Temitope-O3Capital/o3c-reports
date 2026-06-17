@@ -165,8 +165,8 @@ export default function SettlementsOverview() {
     try {
       const [settRes, psRes, isRes] = await Promise.allSettled([
         apiFetch(`/api/settlement/summary?date_from=${from}&date_to=${to}`),
-        apiFetch('/api/reconciliation/paystack/summary'),
-        apiFetch('/api/reconciliation/interswitch/summary'),
+        apiFetch(`/api/reconciliation/paystack/summary?date_from=${from}&date_to=${to}`),
+        apiFetch(`/api/reconciliation/interswitch/summary?date_from=${from}&date_to=${to}`),
       ])
 
       if (settRes.status === 'fulfilled') {
