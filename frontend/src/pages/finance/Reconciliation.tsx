@@ -514,7 +514,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
-              <THead cols={['Reference & Date', 'Recipient', 'Bank / Account', 'Amount', 'Paystack Fee', 'O3C Net', 'Status', 'Reason']} />
+              <THead cols={['Reference & Date', 'Recipient', 'Bank / Account', 'Amount', 'Paystack Fee *', 'O3C Net', 'Status', 'Reason']} />
               <tbody>
                 {loadingXfr ? <Loading cols={9} />
                   : !((xfrData as any)?.data?.length)
@@ -523,8 +523,12 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                     const recip   = t.recipient || {}
                     const details = recip.details || {}
                     const amt     = n(t.amount)
-                    const fee     = n(t.fee_charged)
-                    const net     = amt - fee
+                    // Paystack doesn't return fee_charged in transfer list — calculate from standard schedule
+                    const feeActual = n(t.fee_charged)
+                    const feeEst    = amt <= 500000 ? 1000 : amt <= 5000000 ? 2500 : 5000
+                    const fee       = feeActual > 0 ? feeActual : (t.status === 'success' ? feeEst : 0)
+                    const isEst     = feeActual === 0 && t.status === 'success'
+                    const net       = amt - fee
                     return (
                       <tr key={i} className="hover:bg-slate-50 transition-colors"
                         style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
@@ -541,8 +545,9 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                           <p className="font-mono text-[10px] text-slate-400 mt-0.5">{details.account_number || '—'}</p>
                         </td>
                         <td className="px-4 py-3.5 font-mono font-bold text-[14px] text-slate-700">{kobo(amt)}</td>
-                        <td className="px-4 py-3.5 font-mono font-semibold text-[13px]" style={{ color: fee > 0 ? RED : '#94A3B8' }}>
-                          {fee > 0 ? kobo(fee) : '—'}
+                        <td className="px-4 py-3.5 font-mono font-semibold text-[13px]" style={{ color: RED }}>
+                          <span>{kobo(fee)}</span>
+                          {isEst && <span className="text-[10px] text-slate-400 ml-1">est.</span>}
                         </td>
                         <td className="px-4 py-3.5 font-mono font-bold text-[14px]" style={{ color: t.status === 'success' ? GREEN : '#94A3B8' }}>
                           {t.status === 'success' ? kobo(net) : '—'}
@@ -557,6 +562,9 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
             </table>
           </div>
           <Pager page={xfrPage} total={n((xfrData as any)?.meta?.total)} perPage={PER_PAGE} onChange={setXfrPage} />
+          <p className="text-[11px] text-slate-400 px-4 pb-3">
+            * Paystack does not return per-transfer fees via API — fees marked <em>est.</em> are calculated from the standard schedule (₦10 / ₦25 / ₦50) and deducted from your Paystack balance, not from the transfer amount.
+          </p>
         </div>
       )}
 
