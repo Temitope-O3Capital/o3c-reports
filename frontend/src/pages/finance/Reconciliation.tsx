@@ -523,11 +523,15 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                     const recip   = t.recipient || {}
                     const details = recip.details || {}
                     const amt     = n(t.amount)
-                    // Paystack doesn't return fee_charged in transfer list — calculate from standard schedule
-                    const feeActual = n(t.fee_charged)
-                    const feeEst    = amt <= 500000 ? 1000 : amt <= 5000000 ? 2500 : 5000
+                    // Use actual fees from ledger if backend matched them; else estimate
+                    const actual    = t.actual_fees
+                    const feeActual = actual ? Math.round(n(actual.total) * 100) : n(t.fee_charged)
+                    // Estimate: transfer fee (₦10/₦25/₦50) + stamp duty ₦50 for ≥ ₦10,000
+                    const xferEst   = amt <= 500000 ? 1000 : amt <= 5000000 ? 2500 : 5000
+                    const stampEst  = amt >= 1000000 ? 5000 : 0  // ₦50 stamp duty for ≥ ₦10,000
+                    const feeEst    = xferEst + stampEst
                     const fee       = feeActual > 0 ? feeActual : (t.status === 'success' ? feeEst : 0)
-                    const isEst     = feeActual === 0 && t.status === 'success'
+                    const isEst     = !actual && feeActual === 0 && t.status === 'success'
                     const net       = amt - fee
                     return (
                       <tr key={i} className="hover:bg-slate-50 transition-colors"
@@ -545,9 +549,15 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                           <p className="font-mono text-[10px] text-slate-400 mt-0.5">{details.account_number || '—'}</p>
                         </td>
                         <td className="px-4 py-3.5 font-mono font-bold text-[14px] text-slate-700">{kobo(amt)}</td>
-                        <td className="px-4 py-3.5 font-mono font-semibold text-[13px]" style={{ color: RED }}>
-                          <span>{kobo(fee)}</span>
-                          {isEst && <span className="text-[10px] text-slate-400 ml-1">est.</span>}
+                        <td className="px-4 py-3.5 font-mono font-semibold text-[13px]" style={{ color: fee > 0 ? RED : '#94A3B8' }}>
+                          {fee > 0 ? (
+                            <span title={actual
+                              ? `Transfer fee: ₦${(n(actual.transfer_fee)).toFixed(2)} · Stamp duty: ₦${(n(actual.stamp_duty)).toFixed(2)}`
+                              : `Estimated: transfer fee + ${amt >= 1000000 ? '₦50 stamp duty' : 'no stamp duty'}`}>
+                              {kobo(fee)}
+                              {isEst && <span className="text-[10px] text-slate-400 ml-1">est.</span>}
+                            </span>
+                          ) : '—'}
                         </td>
                         <td className="px-4 py-3.5 font-mono font-bold text-[14px]" style={{ color: t.status === 'success' ? GREEN : '#94A3B8' }}>
                           {t.status === 'success' ? kobo(net) : '—'}

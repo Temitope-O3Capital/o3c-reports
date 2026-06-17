@@ -266,6 +266,122 @@ func psProxy(db *core.DB, psPath string, extraParams func(*http.Request) url.Val
 	}
 }
 
+// psTransfers fetches outbound transfers and enriches each one with actual fees
+// pulled from the balance ledger (Transfer Fee + Stamp Duty per TRF code).
+// It also applies T00:00:00 / T23:59:59 time bounds so the full `to` day is included.
+func psTransfers(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if resolvePaystackKey(r.Context(), db) == "" {
+			respondErr(w, 503, "Paystack not configured")
+			return
+		}
+		dateFrom := qstr(r, "from")
+		dateTo   := qstr(r, "to")
+		status   := qstr(r, "status")
+		page     := coalesce(qstr(r, "page"), "1")
+		perPage  := coalesce(qstr(r, "per_page"), "50")
+
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+
+		// Build transfer params — append full-day time bounds so `to` day is included
+		txfParams := url.Values{"page": {page}, "perPage": {perPage}}
+		if dateFrom != "" { txfParams.Set("from", dateFrom+"T00:00:00.000Z") }
+		if dateTo   != "" { txfParams.Set("to",   dateTo+"T23:59:59.000Z") }
+		if status   != "" { txfParams.Set("status", status) }
+
+		// Fetch transfers and ledger concurrently
+		type result struct {
+			data map[string]any
+			err  error
+		}
+		txfCh  := make(chan result, 1)
+		ledCh  := make(chan result, 1)
+
+		go func() {
+			d, e := paystackFetch(ctx, db, "/transfer", txfParams)
+			txfCh <- result{d, e}
+		}()
+		go func() {
+			// Fetch up to 100 ledger entries for the same day range
+			lp := url.Values{"perPage": {"100"}, "page": {"1"}}
+			if dateFrom != "" { lp.Set("from", dateFrom+"T00:00:00.000Z") }
+			if dateTo   != "" { lp.Set("to",   dateTo+"T23:59:59.000Z") }
+			d, e := paystackFetch(ctx, db, "/balance/ledger", lp)
+			ledCh <- result{d, e}
+		}()
+
+		txfRes := <-txfCh
+		ledRes := <-ledCh
+
+		if txfRes.err != nil {
+			respondErr(w, 502, "Paystack API error: "+txfRes.err.Error())
+			return
+		}
+
+		// Build map: TRF_code → {transfer_fee, stamp_duty} from ledger entries
+		type feeBreakdown struct {
+			TransferFee float64 `json:"transfer_fee"`
+			StampDuty   float64 `json:"stamp_duty"`
+			Total       float64 `json:"total"`
+		}
+		fees := map[string]*feeBreakdown{}
+
+		if ledRes.err == nil && ledRes.data != nil {
+			if entries, ok := ledRes.data["data"].([]any); ok {
+				for _, entry := range entries {
+					e, ok := entry.(map[string]any)
+					if !ok { continue }
+					reason := zohoStr(e["reason"])
+					// Extract TRF code from reason like "Charge for transfer: TRF_xxx"
+					// or "Stamp Duty for transfer: TRF_xxx"
+					code := ""
+					for _, prefix := range []string{"Charge for transfer: ", "Stamp Duty for transfer: "} {
+						if idx := strings.Index(reason, prefix); idx >= 0 {
+							code = strings.TrimSpace(reason[idx+len(prefix):])
+							break
+						}
+					}
+					if code == "" { continue }
+					if fees[code] == nil {
+						fees[code] = &feeBreakdown{}
+					}
+					// Paystack ledger amounts are in NGN (not kobo) as negative debits
+					amt := math.Abs(toFloat64(e["amount"]))
+					typeStr := zohoStr(e["type"])
+					switch {
+					case strings.Contains(strings.ToLower(typeStr), "stamp"):
+						fees[code].StampDuty += amt
+					default:
+						fees[code].TransferFee += amt
+					}
+					fees[code].Total = fees[code].TransferFee + fees[code].StampDuty
+				}
+			}
+		}
+
+		// Enrich each transfer with its fee breakdown
+		transfers := txfRes.data["data"]
+		if items, ok := transfers.([]any); ok {
+			for _, item := range items {
+				t, ok := item.(map[string]any)
+				if !ok { continue }
+				code := zohoStr(t["transfer_code"])
+				if fb, found := fees[code]; found {
+					t["actual_fees"] = fb
+				}
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"data_source": "paystack",
+			"data":        transfers,
+			"meta":        txfRes.data["meta"],
+		})
+	}
+}
+
 // ── Register ──────────────────────────────────────────────────────────────────
 
 func RegisterPaystackRecon(r chi.Router, db *core.DB) {
@@ -275,13 +391,7 @@ func RegisterPaystackRecon(r chi.Router, db *core.DB) {
 	r.With(access).Get("/settlements",  psReconSettlements(db))
 	r.With(access).Get("/balance",      psReconBalance(db))
 	r.With(access).Get("/ledger",       psProxy(db, "/balance/ledger", nil))
-	r.With(access).Get("/transfers",    psProxy(db, "/transfer", func(r *http.Request) url.Values {
-		p := url.Values{}
-		if v := qstr(r, "from"); v != "" { p.Set("from", v) }
-		if v := qstr(r, "to");   v != "" { p.Set("to", v) }
-		if v := qstr(r, "status"); v != "" { p.Set("status", v) }
-		return p
-	}))
+	r.With(access).Get("/transfers", psTransfers(db))
 	r.With(access).Get("/refunds",   psProxy(db, "/refund", nil))
 	r.With(access).Get("/disputes",  psProxy(db, "/dispute", nil))
 }
