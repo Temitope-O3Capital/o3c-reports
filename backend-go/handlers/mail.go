@@ -354,8 +354,8 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 		"from":             map[string]string{"email": opt.FromEmail, "name": opt.FromName},
 		"subject":          opt.Subject,
 		"content": []any{
-			map[string]string{"type": "text/html", "value": opt.HTMLBody},
 			map[string]string{"type": "text/plain", "value": opt.TextBody},
+			map[string]string{"type": "text/html", "value": opt.HTMLBody},
 		},
 	}
 	if opt.ReplyToEmail != "" {
