@@ -9,18 +9,33 @@ import {
 interface Campaign {
   id: number
   name: string
-  type: 'sms' | 'email'
+  type: 'sms' | 'email' | 'multi'
   status: 'draft' | 'active' | 'paused' | 'completed' | 'cancelled'
   channel: string
+  total_contacts?: number
   recipient_count: number
+  sms_sent?: number
+  emails_sent?: number
   sent_count: number
+  sms_delivered?: number
+  emails_delivered?: number
   delivered_count: number
+  sms_failed?: number
+  emails_bounced?: number
   failed_count: number
+  emails_opened?: number
   open_count: number
   scheduled_at: string | null
   started_at: string | null
   created_at: string
   created_by: string
+}
+
+interface ContactList {
+  id: number
+  name: string
+  member_count?: number
+  total_members?: number
 }
 
 interface WizardData {
@@ -29,7 +44,7 @@ interface WizardData {
   type: 'sms' | 'email'
   goal: string
   // Step 2 — Audience
-  recipient_filter: string
+  list_id: number | null
   // Step 3 — Message
   message: string
   subject: string
@@ -41,19 +56,12 @@ interface WizardData {
 
 const EMPTY: WizardData = {
   name: '', type: 'sms', goal: '',
-  recipient_filter: 'all',
+  list_id: null,
   message: '', subject: '', template_id: null,
   send_when: 'now', scheduled_at: '',
 }
 
 const STEPS = ['Details', 'Audience', 'Message', 'Schedule', 'Review']
-
-const AUDIENCE_OPTIONS = [
-  { value: 'all',      label: 'All Active Customers',      desc: 'Everyone with an active account',           icon: 'group' },
-  { value: 'overdue',  label: 'Overdue Borrowers',          desc: 'Customers with outstanding payments',       icon: 'warning' },
-  { value: 'inactive', label: 'Inactive Cards (90d+)',       desc: 'Cards with no transactions in 90 days',    icon: 'credit_card_off' },
-  { value: 'new',      label: 'New Customers (30d)',         desc: 'Customers who joined in the last 30 days', icon: 'person_add' },
-]
 
 const GOAL_OPTIONS = [
   { value: 'repayment',    label: 'Repayment Reminder' },
@@ -114,6 +122,22 @@ function Field({ label, children, hint }: { label: string; children: React.React
 const INPUT = 'w-full px-3 py-2 rounded-lg border text-[13px] outline-none focus:border-slate-400 transition-colors'
 const IBRD  = { borderColor: 'rgba(15,23,42,0.15)' }
 
+function normalizeCampaign(row: any): Campaign {
+  const sent = (row.sms_sent ?? 0) + (row.emails_sent ?? 0)
+  const delivered = (row.sms_delivered ?? 0) + (row.emails_delivered ?? 0)
+  const failed = (row.sms_failed ?? 0) + (row.emails_bounced ?? 0)
+
+  return {
+    ...row,
+    recipient_count: row.recipient_count ?? row.total_contacts ?? 0,
+    sent_count: row.sent_count ?? sent,
+    delivered_count: row.delivered_count ?? delivered,
+    failed_count: row.failed_count ?? failed,
+    open_count: row.open_count ?? row.emails_opened ?? 0,
+    created_by: row.created_by_name ?? row.created_by ?? '',
+  }
+}
+
 /* ── Wizard modal ─────────────────────────────────────────────────── */
 function CampaignWizard({
   onClose,
@@ -123,6 +147,8 @@ function CampaignWizard({
   const [data, setData]   = useState<WizardData>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [err, setErr]     = useState('')
+  const [lists, setLists] = useState<ContactList[]>([])
+  const [listsLoading, setListsLoading] = useState(true)
 
   function set<K extends keyof WizardData>(k: K, v: WizardData[K]) {
     setData(d => ({ ...d, [k]: v }))
@@ -130,9 +156,28 @@ function CampaignWizard({
 
   function canAdvance() {
     if (step === 0) return data.name.trim() !== ''
+    if (step === 1) return data.list_id !== null
     if (step === 2) return data.message.trim() !== ''
     return true
   }
+
+  useEffect(() => {
+    let alive = true
+    async function loadLists() {
+      setListsLoading(true)
+      try {
+        const res = await apiFetch('/api/contact-lists')
+        const rows = res.data ?? res ?? []
+        if (alive) setLists(Array.isArray(rows) ? rows : [])
+      } catch (e: any) {
+        if (alive) setErr(e.message)
+      } finally {
+        if (alive) setListsLoading(false)
+      }
+    }
+    loadLists()
+    return () => { alive = false }
+  }, [])
 
   async function submit() {
     setSaving(true); setErr('')
@@ -142,10 +187,12 @@ function CampaignWizard({
         body: JSON.stringify({
           name: data.name,
           type: data.type,
-          goal: data.goal,
-          recipient_filter: data.recipient_filter,
-          message: data.message,
-          subject: data.subject,
+          description: data.goal || undefined,
+          list_id: data.list_id,
+          sms_body: data.type === 'sms' ? data.message : undefined,
+          email_subject: data.type === 'email' ? data.subject : undefined,
+          email_body_html: data.type === 'email' ? data.message.replace(/\n/g, '<br>') : undefined,
+          email_body_text: data.type === 'email' ? data.message : undefined,
           template_id: data.template_id,
           scheduled_at: data.send_when === 'later' ? data.scheduled_at : null,
         }),
@@ -155,7 +202,7 @@ function CampaignWizard({
     finally { setSaving(false) }
   }
 
-  const audience = AUDIENCE_OPTIONS.find(o => o.value === data.recipient_filter)!
+  const selectedList = lists.find(l => l.id === data.list_id)
 
   return (
     <div
@@ -230,31 +277,42 @@ function CampaignWizard({
           {/* ── Step 1: Audience ── */}
           {step === 1 && (
             <div className="space-y-3">
-              <p className="text-[12px] text-slate-500 mb-1">Choose who receives this campaign.</p>
-              {AUDIENCE_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => set('recipient_filter', opt.value)}
-                  className="w-full flex items-center gap-4 px-4 py-3 rounded-xl border-2 transition-all text-left"
-                  style={{
-                    borderColor: data.recipient_filter === opt.value ? NAVY : 'rgba(15,23,42,0.12)',
-                    background: data.recipient_filter === opt.value ? 'rgba(14,40,65,0.04)' : '#fff',
-                  }}
-                >
-                  <span
-                    className="material-symbols-rounded text-[22px] shrink-0"
-                    style={{ color: data.recipient_filter === opt.value ? NAVY : '#94A3B8' }}
-                  >{opt.icon}</span>
-                  <div>
-                    <p className="text-[13px] font-semibold text-slate-800">{opt.label}</p>
-                    <p className="text-[11px] text-slate-400">{opt.desc}</p>
-                  </div>
-                  {data.recipient_filter === opt.value && (
-                    <span className="material-symbols-rounded text-[18px] ml-auto" style={{ color: NAVY }}>check_circle</span>
-                  )}
-                </button>
-              ))}
+              <p className="text-[12px] text-slate-500 mb-1">Choose the contact list for this campaign.</p>
+              {listsLoading ? (
+                <div className="py-8 text-center text-[12px] text-slate-400">Loading contact lists...</div>
+              ) : lists.length === 0 ? (
+                <div className="rounded-xl border px-4 py-5 text-center" style={{ borderColor: 'rgba(15,23,42,0.12)' }}>
+                  <span className="material-symbols-rounded text-[28px] text-slate-300 block mb-2">list_alt</span>
+                  <p className="text-[13px] font-semibold text-slate-700">No contact lists yet</p>
+                  <p className="text-[12px] text-slate-400 mt-1">Create or upload a list from Contact Lists before launching mail.</p>
+                </div>
+              ) : lists.map(list => {
+                const count = list.member_count ?? list.total_members ?? 0
+                return (
+                  <button
+                    key={list.id}
+                    type="button"
+                    onClick={() => set('list_id', list.id)}
+                    className="w-full flex items-center gap-4 px-4 py-3 rounded-xl border-2 transition-all text-left"
+                    style={{
+                      borderColor: data.list_id === list.id ? NAVY : 'rgba(15,23,42,0.12)',
+                      background: data.list_id === list.id ? 'rgba(14,40,65,0.04)' : '#fff',
+                    }}
+                  >
+                    <span
+                      className="material-symbols-rounded text-[22px] shrink-0"
+                      style={{ color: data.list_id === list.id ? NAVY : '#94A3B8' }}
+                    >group</span>
+                    <div>
+                      <p className="text-[13px] font-semibold text-slate-800">{list.name}</p>
+                      <p className="text-[11px] text-slate-400">{fmtNum(count)} active contacts</p>
+                    </div>
+                    {data.list_id === list.id && (
+                      <span className="material-symbols-rounded text-[18px] ml-auto" style={{ color: NAVY }}>check_circle</span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           )}
 
@@ -360,7 +418,7 @@ function CampaignWizard({
                   { label: 'Name',     value: data.name },
                   { label: 'Channel',  value: data.type.toUpperCase() },
                   { label: 'Goal',     value: GOAL_OPTIONS.find(g => g.value === data.goal)?.label || '—' },
-                  { label: 'Audience', value: audience.label },
+                  { label: 'Audience', value: selectedList?.name || '—' },
                   { label: 'Message',  value: data.message.slice(0, 80) + (data.message.length > 80 ? '…' : '') },
                   { label: 'Sending',  value: data.send_when === 'now' ? 'Immediately' : data.scheduled_at || '—' },
                 ].map(row => (
@@ -428,7 +486,8 @@ export default function Campaigns() {
       if (statusFilter !== 'all') params.status = statusFilter
       const qs = new URLSearchParams(params).toString()
       const res = await apiFetch(`/api/campaigns${qs ? '?' + qs : ''}`)
-      setCampaigns(Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [])
+      const rows = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : []
+      setCampaigns(rows.map(normalizeCampaign))
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [typeFilter, statusFilter])

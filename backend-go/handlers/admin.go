@@ -139,6 +139,12 @@ func createUser(db *core.DB) http.HandlerFunc {
 		}
 		result := rows[0]
 		result["temp_password"] = tempPW // returned once only
+		mailRes := SendTemporaryPasswordEmail(r.Context(), db,
+			str(result["email"]), str(result["full_name"]), tempPW, toInt64(result["id"]))
+		result["email_sent"] = mailRes.OK
+		if !mailRes.OK && mailRes.Error != "" {
+			result["email_error"] = mailRes.Error
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(result) //nolint:errcheck
@@ -181,10 +187,15 @@ func updateUser(db *core.DB) http.HandlerFunc {
 				`SELECT COALESCE(first_name,'') AS fn, COALESCE(last_name,'') AS ln FROM o3c_users WHERE id=$1`, chi.URLParam(r, "id"))
 			fn, ln := "", ""
 			if len(cur) > 0 {
-				fn = str(cur[0]["fn"]); ln = str(cur[0]["ln"])
+				fn = str(cur[0]["fn"])
+				ln = str(cur[0]["ln"])
 			}
-			if b.FirstName != nil { fn = *b.FirstName }
-			if b.LastName != nil  { ln = *b.LastName  }
+			if b.FirstName != nil {
+				fn = *b.FirstName
+			}
+			if b.LastName != nil {
+				ln = *b.LastName
+			}
 			setCols["full_name"] = strings.TrimSpace(fn + " " + ln)
 		}
 		if b.Email != nil {
@@ -254,7 +265,7 @@ func deleteUser(db *core.DB) http.HandlerFunc {
 func resetPassword(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
-		rows, _ := db.PGQuery(r.Context(), `SELECT id FROM o3c_users WHERE id=$1`, id)
+		rows, _ := db.PGQuery(r.Context(), `SELECT id, email, full_name FROM o3c_users WHERE id=$1`, id)
 		if len(rows) == 0 {
 			respondErr(w, 404, "User not found")
 			return
@@ -263,8 +274,14 @@ func resetPassword(db *core.DB) http.HandlerFunc {
 		hash, _ := core.HashPassword(tempPW)
 		db.PGExec(r.Context(), //nolint:errcheck
 			`UPDATE o3c_users SET password_hash=$1, must_change_password=TRUE WHERE id=$2`, hash, id)
+		mailRes := SendTemporaryPasswordEmail(r.Context(), db,
+			str(rows[0]["email"]), str(rows[0]["full_name"]), tempPW, toInt64(rows[0]["id"]))
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"temp_password": tempPW}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"temp_password": tempPW,
+			"email_sent":    mailRes.OK,
+			"email_error":   mailRes.Error,
+		})
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,11 +21,12 @@ import (
 // ── Config ────────────────────────────────────────────────────────────────────
 
 var (
-	termiiSenderID     = coalesce(os.Getenv("TERMII_SENDER_ID"), "O3CCARDS")
-	sendgridFromEmail  = os.Getenv("SENDGRID_FROM_EMAIL")
-	sendgridFromName   = coalesce(os.Getenv("SENDGRID_FROM_NAME"), "O3C Cards")
-	smsWebhookSecret   = os.Getenv("SMS_WEBHOOK_SECRET")
-	emailWebhookSecret = os.Getenv("EMAIL_WEBHOOK_SECRET")
+	termiiSenderID           = coalesce(os.Getenv("TERMII_SENDER_ID"), "O3CCARDS")
+	sendgridFromEmail        = os.Getenv("SENDGRID_FROM_EMAIL")
+	sendgridFromName         = coalesce(os.Getenv("SENDGRID_FROM_NAME"), "O3C Cards")
+	smsWebhookSecret         = os.Getenv("SMS_WEBHOOK_SECRET")
+	emailWebhookSecret       = os.Getenv("EMAIL_WEBHOOK_SECRET")
+	sendgridWebhookPublicKey = os.Getenv("SENDGRID_WEBHOOK_PUBLIC_KEY")
 )
 
 // resolveCredKey returns the credential value: env var first, then DB-stored (encrypted).
@@ -83,50 +85,23 @@ func sendSMS(ctx context.Context, db *core.DB, phone, body string) (ok bool, pro
 }
 
 func sendEmail(ctx context.Context, db *core.DB, toEmail, toName, fromEmail, fromName, subject, htmlBody, textBody, contactRef string) (ok bool, providerID string) {
-	apiKey := resolveCredKey(ctx, db, "SENDGRID_API_KEY")
-	if apiKey == "" {
-		return false, "SENDGRID_API_KEY not configured"
-	}
-	if fromEmail == "" {
-		fromEmail = sendgridFromEmail
-	}
-	if fromName == "" {
-		fromName = sendgridFromName
-	}
-	if fromEmail == "" {
-		return false, "SENDGRID_FROM_EMAIL not configured"
-	}
-	if htmlBody == "" {
-		htmlBody = "<p></p>"
-	}
-	if textBody == "" {
-		textBody = "Please enable HTML to view this email."
-	}
-	payload, _ := json.Marshal(map[string]any{
-		"personalizations": []any{map[string]any{"to": []any{map[string]string{"email": toEmail, "name": toName}}}},
-		"from":             map[string]string{"email": fromEmail, "name": fromName},
-		"subject":          subject,
-		"content": []any{
-			map[string]string{"type": "text/html", "value": htmlBody},
-			map[string]string{"type": "text/plain", "value": textBody},
-		},
-		"custom_args": map[string]string{"o3c_contact_id": contactRef},
-		"tracking_settings": map[string]any{
-			"click_tracking": map[string]any{"enable": true, "enable_text": false},
-			"open_tracking":  map[string]any{"enable": true},
+	res := SendMail(ctx, db, SendMailOptions{
+		To:        []MailAddress{{Email: toEmail, Name: toName}},
+		FromEmail: fromEmail,
+		FromName:  fromName,
+		Subject:   subject,
+		HTMLBody:  htmlBody,
+		TextBody:  textBody,
+		Category:  "campaign",
+		Kind:      "campaign",
+		CustomArgs: map[string]string{
+			"o3c_contact_id": contactRef,
 		},
 	})
-	resp, err := httpPost("https://api.sendgrid.com/v3/mail/send", "application/json",
-		"Bearer "+apiKey, payload, 20*time.Second)
-	if err != nil {
-		return false, err.Error()
+	if !res.OK {
+		return false, res.Error
 	}
-	defer resp.Body.Close()
-	io.ReadAll(resp.Body) //nolint:errcheck
-	if resp.StatusCode == 200 || resp.StatusCode == 202 {
-		return true, resp.Header.Get("X-Message-Id")
-	}
-	return false, fmt.Sprintf("HTTP %d", resp.StatusCode)
+	return true, res.ProviderID
 }
 
 func httpPost(url, contentType, auth string, body []byte, timeout time.Duration) (*http.Response, error) {
@@ -140,6 +115,30 @@ func httpPost(url, contentType, auth string, body []byte, timeout time.Duration)
 		req.Header.Set("Authorization", auth)
 	}
 	return (&http.Client{Timeout: timeout}).Do(req)
+}
+
+func intSetting(ctx context.Context, db *core.DB, key string, fallback int) int {
+	rows, err := db.PGQuery(ctx, `SELECT value FROM settings WHERE key=$1`, key)
+	if err != nil || len(rows) == 0 {
+		return fallback
+	}
+	v, err := strconv.Atoi(str(rows[0]["value"]))
+	if err != nil {
+		return fallback
+	}
+	return v
+}
+
+func campaignMailSentToday(ctx context.Context, db *core.DB) int {
+	rows, err := db.PGQuery(ctx, `
+		SELECT COUNT(*) AS n
+		FROM mail_messages
+		WHERE kind='campaign' AND created_at::date=CURRENT_DATE
+		  AND status NOT IN ('failed')`)
+	if err != nil || len(rows) == 0 {
+		return 0
+	}
+	return int(toInt64(rows[0]["n"]))
 }
 
 // ── Background dispatch ───────────────────────────────────────────────────────
@@ -159,6 +158,8 @@ func startDispatch(db *core.DB, campaignID int64) {
 		}
 		isSMS := str(camp["type"]) == "sms" || str(camp["type"]) == "multi"
 		isEmail := str(camp["type"]) == "email" || str(camp["type"]) == "multi"
+		sendDelay := time.Duration(intSetting(ctx, db, "campaign_send_delay_ms", 100)) * time.Millisecond
+		dailyLimit := intSetting(ctx, db, "campaign_daily_email_limit", 0)
 
 		contactRows, err := db.PGQuery(ctx, `
 			SELECT * FROM campaign_contacts
@@ -207,6 +208,11 @@ func startDispatch(db *core.DB, campaignID int64) {
 			}
 
 			if isEmail && str(c["email_status"]) == "pending" && str(c["email"]) != "" {
+				if dailyLimit > 0 && campaignMailSentToday(ctx, db) >= dailyLimit {
+					db.PGExec(ctx, "UPDATE campaigns SET status='paused', updated_at=NOW() WHERE id=$1", campaignID) //nolint:errcheck
+					slog.Info("Campaign paused because daily email limit was reached", "id", campaignID, "limit", dailyLimit)
+					return
+				}
 				subject := renderTemplate(str(camp["email_subject"]), mergeData)
 				htmlBody := renderTemplate(str(camp["email_body_html"]), mergeData)
 				textBody := renderTemplate(str(camp["email_body_text"]), mergeData)
@@ -229,7 +235,7 @@ func startDispatch(db *core.DB, campaignID int64) {
 					fmt.Sprintf("UPDATE campaigns SET %s=%s+1, updated_at=NOW() WHERE id=$1", emailCol, emailCol), campaignID)
 			}
 
-			time.Sleep(100 * time.Millisecond) // rate-limit provider calls
+			time.Sleep(sendDelay) // rate-limit provider calls
 		}
 
 		db.PGExec(ctx, //nolint:errcheck
@@ -277,10 +283,14 @@ func listCampaigns(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 		if v := qstr(r, "type"); v != "" {
-			where += fmt.Sprintf(" AND c.type=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND c.type=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "status"); v != "" {
-			where += fmt.Sprintf(" AND c.status=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND c.status=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		args = append(args, limit)
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
@@ -290,7 +300,8 @@ func listCampaigns(db *core.DB) http.HandlerFunc {
 			LEFT JOIN contact_lists cl ON c.list_id=cl.id
 			WHERE %s ORDER BY c.created_at DESC LIMIT $%d`, where, n), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		jsonRows(w, rows)
 	}
@@ -304,6 +315,8 @@ func createCampaign(db *core.DB) http.HandlerFunc {
 			Type          string  `json:"type"`
 			ListID        *int64  `json:"list_id"`
 			ScheduledAt   *string `json:"scheduled_at"`
+			Subject       *string `json:"subject"`
+			Message       *string `json:"message"`
 			EmailSubject  *string `json:"email_subject"`
 			EmailBodyHTML *string `json:"email_body_html"`
 			EmailBodyText *string `json:"email_body_text"`
@@ -312,13 +325,30 @@ func createCampaign(db *core.DB) http.HandlerFunc {
 			SMSBody       *string `json:"sms_body"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if b.Name == "" {
-			respondErr(w, 422, "name is required"); return
+			respondErr(w, 422, "name is required")
+			return
 		}
 		if b.Type != "sms" && b.Type != "email" && b.Type != "multi" {
 			b.Type = "sms"
+		}
+		if b.EmailSubject == nil {
+			b.EmailSubject = b.Subject
+		}
+		if b.Message != nil {
+			if b.Type == "email" || b.Type == "multi" {
+				if b.EmailBodyHTML == nil {
+					b.EmailBodyHTML = b.Message
+				}
+			}
+			if b.Type == "sms" || b.Type == "multi" {
+				if b.SMSBody == nil {
+					b.SMSBody = b.Message
+				}
+			}
 		}
 
 		var total int64
@@ -333,13 +363,14 @@ func createCampaign(db *core.DB) http.HandlerFunc {
 			INSERT INTO campaigns
 			    (name, description, type, list_id, email_subject, email_body_html,
 			     email_body_text, from_name, from_email, sms_body,
-			     total_contacts, created_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+			     scheduled_at, total_contacts, created_by)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
 			b.Name, b.Description, b.Type, b.ListID,
 			b.EmailSubject, b.EmailBodyHTML, b.EmailBodyText, b.FromName, b.FromEmail,
-			b.SMSBody, total, user.ID)
+			b.SMSBody, b.ScheduledAt, total, user.ID)
 		if err != nil {
-			respondErr(w, 500, "Create failed"); return
+			respondErr(w, 500, "Create failed")
+			return
 		}
 		camp := rows[0]
 		campID := toInt64(camp["id"])
@@ -370,7 +401,8 @@ func getCampaign(db *core.DB) http.HandlerFunc {
 			LEFT JOIN contact_lists cl ON c.list_id=cl.id
 			WHERE c.id=$1`, id)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "Campaign not found"); return
+			respondErr(w, 404, "Campaign not found")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -382,19 +414,23 @@ func updateCampaign(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		stRows, _ := db.PGQuery(r.Context(), "SELECT status FROM campaigns WHERE id=$1", id)
 		if len(stRows) == 0 {
-			respondErr(w, 404, "Campaign not found"); return
+			respondErr(w, 404, "Campaign not found")
+			return
 		}
 		if st := str(stRows[0]["status"]); st != "draft" && st != "scheduled" {
-			respondErr(w, 400, "Only draft or scheduled campaigns can be edited"); return
+			respondErr(w, 400, "Only draft or scheduled campaigns can be edited")
+			return
 		}
 
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		parts, args := buildSet(body, campaignUpdateCols, 1)
 		if len(parts) == 0 {
-			respondErr(w, 422, "No fields to update"); return
+			respondErr(w, 422, "No fields to update")
+			return
 		}
 
 		// If list_id changed, recount members
@@ -419,7 +455,8 @@ func updateCampaign(db *core.DB) http.HandlerFunc {
 			LEFT JOIN contact_lists cl ON c.list_id=cl.id
 			WHERE c.id=$1`, id)
 		if len(rows) == 0 {
-			respondErr(w, 404, "Not found"); return
+			respondErr(w, 404, "Not found")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -431,12 +468,14 @@ func startCampaign(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		campRows, _ := db.PGQuery(r.Context(), "SELECT id,status,list_id FROM campaigns WHERE id=$1", id)
 		if len(campRows) == 0 {
-			respondErr(w, 404, "Campaign not found"); return
+			respondErr(w, 404, "Campaign not found")
+			return
 		}
 		camp := campRows[0]
 		status := str(camp["status"])
 		if status != "draft" && status != "scheduled" && status != "paused" {
-			respondErr(w, 400, fmt.Sprintf("Cannot start a campaign with status '%s'", status)); return
+			respondErr(w, 400, fmt.Sprintf("Cannot start a campaign with status '%s'", status))
+			return
 		}
 
 		campID := toInt64(camp["id"])
@@ -473,10 +512,12 @@ func pauseCampaign(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		rows, _ := db.PGQuery(r.Context(), "SELECT status FROM campaigns WHERE id=$1", id)
 		if len(rows) == 0 {
-			respondErr(w, 404, "Campaign not found"); return
+			respondErr(w, 404, "Campaign not found")
+			return
 		}
 		if str(rows[0]["status"]) != "active" {
-			respondErr(w, 400, "Only active campaigns can be paused"); return
+			respondErr(w, 400, "Only active campaigns can be paused")
+			return
 		}
 		db.PGExec(r.Context(), "UPDATE campaigns SET status='paused', updated_at=NOW() WHERE id=$1", id) //nolint:errcheck
 		w.Header().Set("Content-Type", "application/json")
@@ -489,11 +530,13 @@ func cancelCampaign(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		rows, _ := db.PGQuery(r.Context(), "SELECT status FROM campaigns WHERE id=$1", id)
 		if len(rows) == 0 {
-			respondErr(w, 404, "Campaign not found"); return
+			respondErr(w, 404, "Campaign not found")
+			return
 		}
 		st := str(rows[0]["status"])
 		if st == "completed" || st == "cancelled" {
-			respondErr(w, 400, fmt.Sprintf("Campaign is already %s", st)); return
+			respondErr(w, 400, fmt.Sprintf("Campaign is already %s", st))
+			return
 		}
 		db.PGExec(r.Context(), "UPDATE campaigns SET status='cancelled', updated_at=NOW() WHERE id=$1", id) //nolint:errcheck
 		w.Header().Set("Content-Type", "application/json")
@@ -510,16 +553,21 @@ func listCampaignContacts(db *core.DB) http.HandlerFunc {
 		args := []any{id}
 		n := 2
 		if v := qstr(r, "sms_status"); v != "" {
-			where += fmt.Sprintf(" AND sms_status=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND sms_status=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "email_status"); v != "" {
-			where += fmt.Sprintf(" AND email_status=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND email_status=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "search"); v != "" {
 			where += fmt.Sprintf(
 				" AND (first_name ILIKE $%d OR last_name ILIKE $%d OR phone ILIKE $%d OR email ILIKE $%d)",
 				n, n, n, n)
-			args = append(args, "%"+v+"%"); n++
+			args = append(args, "%"+v+"%")
+			n++
 		}
 		filterArgs := append([]any(nil), args...)
 		args = append(args, limit, offset)
@@ -533,7 +581,8 @@ func listCampaignContacts(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf("SELECT * FROM campaign_contacts WHERE %s ORDER BY position ASC LIMIT $%d OFFSET $%d",
 				where, n, n+1), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"total": total, "contacts": rows}) //nolint:errcheck
@@ -564,11 +613,13 @@ func checkWebhookToken(r *http.Request, expected string) bool {
 func smsWebhook(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !checkWebhookToken(r, smsWebhookSecret) {
-			w.WriteHeader(401); return
+			w.WriteHeader(401)
+			return
 		}
 		var data map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-			w.WriteHeader(204); return
+			w.WriteHeader(204)
+			return
 		}
 		providerID := coalesce(str(data["id"]), str(data["message_id"]))
 		statusRaw := strings.ToLower(coalesce(str(data["status"]), str(data["delivery_status"])))
@@ -597,13 +648,34 @@ func smsWebhook(db *core.DB) http.HandlerFunc {
 
 func emailWebhook(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !checkWebhookToken(r, emailWebhookSecret) {
-			w.WriteHeader(401); return
+		body, _ := io.ReadAll(r.Body)
+		publicKey := sendgridWebhookPublicKey
+		if publicKey == "" {
+			publicKey = resolveCredKey(r.Context(), db, "SENDGRID_WEBHOOK_PUBLIC_KEY")
+		}
+		if publicKey != "" {
+			ok := verifySendGridSignature(
+				publicKey,
+				r.Header.Get("X-Twilio-Email-Event-Webhook-Timestamp"),
+				r.Header.Get("X-Twilio-Email-Event-Webhook-Signature"),
+				body,
+			)
+			if !ok {
+				w.WriteHeader(401)
+				return
+			}
+		} else if !checkWebhookToken(r, emailWebhookSecret) {
+			w.WriteHeader(401)
+			return
 		}
 		var events []map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
-			// SendGrid may send a single object; try wrapping
-			w.WriteHeader(204); return
+		if err := json.Unmarshal(body, &events); err != nil {
+			var single map[string]any
+			if err := json.Unmarshal(body, &single); err != nil {
+				w.WriteHeader(204)
+				return
+			}
+			events = []map[string]any{single}
 		}
 		ctx := r.Context()
 		for _, ev := range events {
@@ -613,7 +685,11 @@ func emailWebhook(db *core.DB) http.HandlerFunc {
 			if pid == "" {
 				continue
 			}
+			recordMailEvent(ctx, db, pid, event, ev)
 			switch event {
+			case "processed":
+				db.PGExec(ctx, //nolint:errcheck
+					"UPDATE campaign_contacts SET email_status='processed', updated_at=NOW() WHERE email_provider_id=$1 AND email_status NOT IN ('delivered','opened','clicked')", pid)
 			case "delivered":
 				db.PGExec(ctx, //nolint:errcheck
 					"UPDATE campaign_contacts SET email_status='delivered', updated_at=NOW() WHERE email_provider_id=$1", pid)
@@ -632,12 +708,15 @@ func emailWebhook(db *core.DB) http.HandlerFunc {
 				if sub, _ := db.PGQuery(ctx, "SELECT campaign_id FROM campaign_contacts WHERE email_provider_id=$1 LIMIT 1", pid); len(sub) > 0 {
 					db.PGExec(ctx, "UPDATE campaigns SET emails_clicked=emails_clicked+1, updated_at=NOW() WHERE id=$1", sub[0]["campaign_id"]) //nolint:errcheck
 				}
-			case "bounce", "spamreport", "unsubscribe":
+			case "bounce", "dropped", "spamreport", "unsubscribe", "group_unsubscribe":
 				db.PGExec(ctx, //nolint:errcheck
 					"UPDATE campaign_contacts SET email_status='bounced', updated_at=NOW() WHERE email_provider_id=$1", pid)
 				if sub, _ := db.PGQuery(ctx, "SELECT campaign_id FROM campaign_contacts WHERE email_provider_id=$1 LIMIT 1", pid); len(sub) > 0 {
 					db.PGExec(ctx, "UPDATE campaigns SET emails_bounced=emails_bounced+1, updated_at=NOW() WHERE id=$1", sub[0]["campaign_id"]) //nolint:errcheck
 				}
+			case "deferred":
+				db.PGExec(ctx, //nolint:errcheck
+					"UPDATE campaign_contacts SET email_status='deferred', updated_at=NOW() WHERE email_provider_id=$1 AND email_status NOT IN ('delivered','opened','clicked')", pid)
 			}
 		}
 		w.WriteHeader(204)

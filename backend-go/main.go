@@ -78,6 +78,9 @@ func main() {
 	r.Route("/api/campaign-webhooks", func(r chi.Router) {
 		handlers.RegisterCampaignWebhooks(r, db)
 	})
+	r.Route("/api/mail", func(r chi.Router) {
+		handlers.RegisterMailPublic(r, db)
+	})
 
 	// SSE stream — no JWT header (EventSource can't set headers); uses short-lived ticket
 	r.Route("/api/notifications", func(r chi.Router) {
@@ -137,12 +140,15 @@ func main() {
 		r.Route("/api/message-templates", func(r chi.Router) {
 			handlers.RegisterMessageTemplates(r, db)
 		})
+		r.Route("/api/mail", func(r chi.Router) {
+			handlers.RegisterMail(r, db)
+		})
 		r.Route("/api/reconciliation/paystack", func(r chi.Router) {
-				handlers.RegisterPaystackRecon(r, db)
-			})
-			r.Route("/api/reconciliation/interswitch", func(r chi.Router) {
-				handlers.RegisterInterspwitchRecon(r, db)
-			})
+			handlers.RegisterPaystackRecon(r, db)
+		})
+		r.Route("/api/reconciliation/interswitch", func(r chi.Router) {
+			handlers.RegisterInterspwitchRecon(r, db)
+		})
 		r.Route("/api/uploads", func(r chi.Router) {
 			handlers.RegisterUploads(r, db)
 		})

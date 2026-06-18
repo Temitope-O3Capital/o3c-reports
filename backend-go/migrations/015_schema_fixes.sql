@@ -15,6 +15,20 @@ DO $$ BEGIN
     FOREIGN KEY (updated_by) REFERENCES o3c_users(id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+INSERT INTO api_credentials (key_name, description, category) VALUES
+  ('MS_GRAPH_TENANT_ID', 'Microsoft Entra tenant ID for Graph mailbox sending', 'messaging'),
+  ('MS_GRAPH_CLIENT_ID', 'Microsoft Graph app client ID with Mail.Send application permission', 'messaging'),
+  ('MS_GRAPH_CLIENT_SECRET', 'Microsoft Graph app client secret', 'messaging'),
+  ('SENDGRID_WEBHOOK_PUBLIC_KEY', 'SendGrid signed event webhook public verification key', 'messaging')
+ON CONFLICT (key_name) DO NOTHING;
+
+INSERT INTO settings (key, value) VALUES
+  ('app_base_url', ''),
+  ('mail_domain', ''),
+  ('campaign_send_delay_ms', '100'),
+  ('campaign_daily_email_limit', '0')
+ON CONFLICT (key) DO NOTHING;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 2. Fix migration 013: cs_interactions.agent_id also references the missing
 --    "users" table. Correct it to o3c_users.
@@ -27,7 +41,109 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 3. campaigns table (013 alters it but never creates it).
+-- 3. campaign prerequisites — handlers/contact_lists.go and
+--    handlers/message_templates.go require these tables.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS contact_lists (
+  id           BIGSERIAL PRIMARY KEY,
+  name         TEXT NOT NULL,
+  description  TEXT,
+  member_count INT NOT NULL DEFAULT 0,
+  created_by   BIGINT REFERENCES o3c_users(id),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS contact_list_members (
+  id          BIGSERIAL PRIMARY KEY,
+  list_id     BIGINT NOT NULL REFERENCES contact_lists(id) ON DELETE CASCADE,
+  first_name  TEXT,
+  last_name   TEXT,
+  phone       TEXT,
+  email       TEXT,
+  cif_number  TEXT,
+  merge_data  JSONB NOT NULL DEFAULT '{}',
+  status      TEXT NOT NULL DEFAULT 'active',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_contact_list_members_list ON contact_list_members(list_id);
+CREATE INDEX IF NOT EXISTS idx_contact_list_members_email ON contact_list_members(email) WHERE email IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_contact_list_members_phone ON contact_list_members(phone) WHERE phone IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS message_templates (
+  id               BIGSERIAL PRIMARY KEY,
+  name             TEXT NOT NULL,
+  channel          TEXT NOT NULL,
+  category         TEXT NOT NULL DEFAULT 'general',
+  sms_body         TEXT,
+  email_subject    TEXT,
+  email_body_html  TEXT,
+  email_body_text  TEXT,
+  email_blocks     JSONB NOT NULL DEFAULT '[]',
+  merge_tags       JSONB NOT NULL DEFAULT '[]',
+  created_by       BIGINT REFERENCES o3c_users(id),
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_message_templates_channel ON message_templates(channel);
+CREATE INDEX IF NOT EXISTS idx_message_templates_category ON message_templates(category);
+
+ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS email_blocks JSONB NOT NULL DEFAULT '[]';
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 4. generic outbound email ledger — used by campaign, notification, reset,
+--    and single-send mail.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS mail_messages (
+  id                  BIGSERIAL PRIMARY KEY,
+  kind                TEXT NOT NULL DEFAULT 'transactional',
+  related_type        TEXT,
+  related_id          BIGINT,
+  subject             TEXT NOT NULL DEFAULT '',
+  from_email          TEXT,
+  from_name           TEXT,
+  recipients          JSONB NOT NULL DEFAULT '{}',
+  status              TEXT NOT NULL DEFAULT 'sending',
+  provider_message_id TEXT,
+  queued_at           TIMESTAMPTZ,
+  delivered_at        TIMESTAMPTZ,
+  opened_at           TIMESTAMPTZ,
+  clicked_at          TIMESTAMPTZ,
+  bounced_at          TIMESTAMPTZ,
+  last_error          TEXT,
+  created_by          BIGINT REFERENCES o3c_users(id),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_mail_messages_provider ON mail_messages(provider_message_id) WHERE provider_message_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_mail_messages_created_by ON mail_messages(created_by, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mail_messages_status ON mail_messages(status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS mail_events (
+  id                BIGSERIAL PRIMARY KEY,
+  mail_message_id   BIGINT NOT NULL REFERENCES mail_messages(id) ON DELETE CASCADE,
+  provider_event_id TEXT UNIQUE,
+  event_type        TEXT NOT NULL,
+  event_data        JSONB NOT NULL DEFAULT '{}',
+  occurred_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_mail_events_message ON mail_events(mail_message_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mail_events_type ON mail_events(event_type, occurred_at DESC);
+
+CREATE TABLE IF NOT EXISTS mail_suppressions (
+  email      TEXT PRIMARY KEY,
+  reason     TEXT NOT NULL DEFAULT 'suppressed',
+  source     TEXT NOT NULL DEFAULT 'manual',
+  is_active  BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_mail_suppressions_active ON mail_suppressions(is_active, updated_at DESC);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 5. campaigns table (013 alters it but never creates it).
 --    Column set derived from handlers/campaigns.go actual INSERT/UPDATE queries.
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS campaigns (
@@ -74,7 +190,7 @@ ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS sendgrid_batch_id TEXT;
 ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS termii_message_id TEXT;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 4. campaign_contacts — required by startDispatch / listCampaignContacts
+-- 6. campaign_contacts — required by startDispatch / listCampaignContacts
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS campaign_contacts (
   id                  BIGSERIAL PRIMARY KEY,
@@ -101,7 +217,7 @@ CREATE INDEX IF NOT EXISTS idx_campaign_contacts_sms_pid  ON campaign_contacts(s
 CREATE INDEX IF NOT EXISTS idx_campaign_contacts_email_pid ON campaign_contacts(email_provider_id) WHERE email_provider_id IS NOT NULL;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 5. o3c_custom_roles — admin.go listRoles selects id, name, label, pages
+-- 7. o3c_custom_roles — admin.go listRoles selects id, name, label, pages
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS o3c_custom_roles (
   id          BIGSERIAL PRIMARY KEY,
@@ -117,7 +233,7 @@ CREATE TABLE IF NOT EXISTS o3c_custom_roles (
 ALTER TABLE o3c_custom_roles ADD COLUMN IF NOT EXISTS label TEXT NOT NULL DEFAULT '';
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 6. user_sessions — admin.go getUserSessions reads logged_in_at, last_active_at
+-- 8. user_sessions — admin.go getUserSessions reads logged_in_at, last_active_at
 --    auth.go INSERT writes user_id, ip_address, user_agent
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS user_sessions (

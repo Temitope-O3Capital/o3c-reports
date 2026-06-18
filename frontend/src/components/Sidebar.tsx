@@ -137,6 +137,7 @@ const MODULES: Module[] = [
     roles: ['cmo'],
     items: [
       { label: 'Campaigns',     to: '/campaigns',           icon: 'send' },
+      { label: 'Compose Mail',  to: '/campaigns/compose',   icon: 'outgoing_mail' },
       { label: 'Templates',     to: '/campaigns/templates', icon: 'article' },
       { label: 'Contact Lists', to: '/campaigns/lists',     icon: 'list_alt' },
     ],
@@ -156,6 +157,7 @@ const MODULES: Module[] = [
     items: [
       { label: 'Users',      to: '/admin/users',    icon: 'manage_accounts' },
       { label: 'API Keys',   to: '/admin/api-keys', icon: 'key' },
+      { label: 'Mail Health',to: '/admin/mail',     icon: 'mark_email_read' },
       { label: 'Settings',   to: '/admin/settings', icon: 'settings' },
       { label: 'Sync Status',to: '/admin/sync',     icon: 'sync' },
     ],

@@ -104,6 +104,7 @@ const Checklists       = lazy(() => import('./pages/compliance/Checklists'))
 const Campaigns        = lazy(() => import('./pages/Campaigns'))
 const MessageTemplates = lazy(() => import('./pages/marketing/MessageTemplates'))
 const ContactLists     = lazy(() => import('./pages/marketing/ContactLists'))
+const ComposeMail      = lazy(() => import('./pages/marketing/ComposeMail'))
 
 // Customer Service
 const CSOverview       = lazy(() => import('./pages/customer-service/Overview'))
@@ -114,6 +115,7 @@ const UserManagement   = lazy(() => import('./pages/admin/UserManagement'))
 const PlatformSettings = lazy(() => import('./pages/admin/PlatformSettings'))
 const SyncStatus       = lazy(() => import('./pages/admin/SyncStatus'))
 const ApiKeys          = lazy(() => import('./pages/admin/ApiKeys'))
+const MailHealth       = lazy(() => import('./pages/admin/MailHealth'))
 
 // Reports & Approvals
 const Reports          = lazy(() => import('./pages/reports/Reports'))
@@ -588,6 +590,7 @@ export default function App() {
 
                 {/* ── Campaigns ── */}
                 <Route path="/campaigns"           element={<Campaigns />} />
+                <Route path="/campaigns/compose"   element={<ComposeMail />} />
                 <Route path="/campaigns/templates" element={<MessageTemplates />} />
                 <Route path="/campaigns/lists"     element={<ContactLists />} />
 
@@ -598,6 +601,7 @@ export default function App() {
                 <Route path="/admin"          element={<RequireAccess page="admin_users" user={user}><Navigate to="/admin/users" replace /></RequireAccess>} />
                 <Route path="/admin/users"    element={<RequireAccess page="admin_users" user={user}><UserManagement /></RequireAccess>} />
                 <Route path="/admin/api-keys" element={<RequireAccess page="admin_api_keys" user={user}><ApiKeys /></RequireAccess>} />
+                <Route path="/admin/mail"     element={<RequireAccess page="admin_api_keys" user={user}><MailHealth /></RequireAccess>} />
                 <Route path="/admin/settings" element={<RequireAccess page="settings" user={user}><PlatformSettings /></RequireAccess>} />
                 <Route path="/admin/sync"     element={<RequireAccess page="sync_status" user={user}><SyncStatus /></RequireAccess>} />
 

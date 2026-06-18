@@ -270,15 +270,22 @@ func ResetAdminHandler(db *core.DB, resetSecret string) http.HandlerFunc {
 		}
 		res, err := db.PGQuery(r.Context(),
 			`UPDATE o3c_users SET password_hash=$1, must_change_password=FALSE, is_active=TRUE, deleted_at=NULL
-			 WHERE email=$2 RETURNING id, email, role`, hash, b.Email)
+			 WHERE email=$2 RETURNING id, email, full_name, role`, hash, b.Email)
 		if err != nil || len(res) == 0 {
 			slog.Warn("ResetAdminHandler: user not found", "email", b.Email, "ip", ip)
 			respondErr(w, 404, "User not found")
 			return
 		}
+		mailRes := SendTemporaryPasswordEmail(r.Context(), db,
+			str(res[0]["email"]), str(res[0]["full_name"]), b.Password, toInt64(res[0]["id"]))
 		slog.Warn("ResetAdminHandler: password reset performed", "email", b.Email, "ip", ip)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"message": "Password reset", "user": res[0]}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"message":     "Password reset",
+			"user":        res[0],
+			"email_sent":  mailRes.OK,
+			"email_error": mailRes.Error,
+		})
 	}
 }
 

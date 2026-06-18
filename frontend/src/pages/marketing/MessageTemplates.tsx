@@ -9,10 +9,16 @@ interface Template {
   id: number
   name: string
   channel: string
-  subject?: string
+  category?: string
+  subject: string
   body: string
+  sms_body?: string
+  email_subject?: string
+  email_body_html?: string
+  email_body_text?: string
   email_blocks?: EmailBlock[]
   variables: string[]
+  merge_tags?: string[]
   created_at: string
   updated_at: string
 }
@@ -97,6 +103,67 @@ const CHANNEL_STYLES: Record<string, { bg: string; color: string; icon: string }
   sms:   { bg: 'rgba(14,40,65,0.08)',     color: '#0E2841',  icon: 'sms' },
   email: { bg: 'rgba(37,99,235,0.09)',    color: '#1D4ED8',  icon: 'mail' },
   push:  { bg: 'rgba(124,58,237,0.09)',   color: '#7C3AED',  icon: 'notifications' },
+}
+
+function asArray<T = any>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[]
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+function stripHtml(html: string) {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function escapeHtml(text: string) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function starterEmailBlocks(body: string): EmailBlock[] {
+  const html = body
+    .split(/\n{2,}/)
+    .map(p => `<p style="margin:0 0 14px;">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`)
+    .join('')
+
+  return [
+    { id: `header-${Date.now()}`, type: 'header', logoText: 'O3C Cards', tagline: '', bg: NAVY, textColor: '#ffffff', padding: 28 },
+    { id: `text-${Date.now()}`, type: 'text', html },
+    { id: `footer-${Date.now()}`, type: 'footer', text: 'O3C Cards | Lagos, Nigeria', unsubscribe: true },
+  ]
+}
+
+function normalizeTemplate(row: any): Template {
+  const channel = String(row.channel || 'sms').toLowerCase()
+  const subject = row.email_subject ?? row.subject ?? ''
+  const body = channel === 'email'
+    ? row.email_body_html ?? row.body ?? ''
+    : row.sms_body ?? row.body ?? ''
+
+  return {
+    ...row,
+    channel,
+    subject,
+    body,
+    email_blocks: asArray<EmailBlock>(row.email_blocks),
+    variables: asArray<string>(row.merge_tags ?? row.variables),
+  }
 }
 
 function channelStyle(channel: string) {
@@ -335,7 +402,8 @@ export default function MessageTemplates() {
     setLoading(true); setError('')
     try {
       const res = await apiFetch('/api/message-templates')
-      setTemplates(res.data ?? res ?? [])
+      const rows = res.data ?? res ?? []
+      setTemplates(Array.isArray(rows) ? rows.map(normalizeTemplate) : [])
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -357,7 +425,7 @@ export default function MessageTemplates() {
       channel: s.channel,
       subject: s.subject ?? '',
       body: s.body,
-      email_blocks: [],
+      email_blocks: s.channel === 'email' ? starterEmailBlocks(s.body) : [],
       variables: s.variables.join(', '),
     })
     setEditing(null)
@@ -393,10 +461,13 @@ export default function MessageTemplates() {
     const payload = {
       name: form.name,
       channel: form.channel,
-      subject: form.channel === 'email' ? form.subject : undefined,
-      body: form.channel === 'email' ? exportToHtml(form.email_blocks) : form.body,
+      category: 'general',
+      sms_body: form.channel === 'sms' ? form.body : undefined,
+      email_subject: form.channel === 'email' ? form.subject : undefined,
+      email_body_html: form.channel === 'email' ? exportToHtml(form.email_blocks) : undefined,
+      email_body_text: form.channel === 'email' ? stripHtml(exportToHtml(form.email_blocks)) : undefined,
       email_blocks: form.channel === 'email' ? form.email_blocks : undefined,
-      variables: parseVars(form.variables),
+      merge_tags: parseVars(form.variables),
     }
     try {
       if (modalMode === 'create') {
