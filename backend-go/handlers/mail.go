@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
@@ -70,10 +71,13 @@ type SendMailResult struct {
 	Error      string
 }
 
-var ensureMailSchemaOnce sync.Once
+var mailSchemaMu sync.Mutex
+var mailSchemaReady bool
 
 func RegisterMail(r chi.Router, db *core.DB) {
-	ensureMailSchema(context.Background(), db)
+	if err := ensureMailSchema(context.Background(), db); err != nil {
+		slog.Warn("Mail schema setup failed", "err", err)
+	}
 	access := core.RequirePages("campaigns", "crm_contacts", "customer_service")
 	r.With(access).Post("/send", sendSingleMail(db))
 	r.With(access).Get("/messages", listMailMessages(db))
@@ -82,7 +86,9 @@ func RegisterMail(r chi.Router, db *core.DB) {
 }
 
 func RegisterMailPublic(r chi.Router, db *core.DB) {
-	ensureMailSchema(context.Background(), db)
+	if err := ensureMailSchema(context.Background(), db); err != nil {
+		slog.Warn("Mail schema setup failed", "err", err)
+	}
 	r.Get("/unsubscribe", mailUnsubscribe(db))
 }
 
@@ -98,6 +104,10 @@ func sendSingleMail(db *core.DB) http.HandlerFunc {
 		SendCopyToSender *bool            `json:"send_copy_to_sender"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed: "+err.Error())
+			return
+		}
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -149,6 +159,10 @@ func sendSingleMail(db *core.DB) http.HandlerFunc {
 
 func listMailMessages(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed: "+err.Error())
+			return
+		}
 		user := core.UserFromCtx(r.Context())
 		limit := qint(r, "limit", 100, 1, 500)
 		rows, err := db.PGQuery(r.Context(), `
@@ -169,6 +183,10 @@ func listMailMessages(db *core.DB) http.HandlerFunc {
 
 func mailMetrics(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed: "+err.Error())
+			return
+		}
 		user := core.UserFromCtx(r.Context())
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT status, kind, COUNT(*) AS count
@@ -186,6 +204,10 @@ func mailMetrics(db *core.DB) http.HandlerFunc {
 
 func mailDeliverability(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed: "+err.Error())
+			return
+		}
 		domain := mailDomain(r.Context(), db)
 		checks := []map[string]any{}
 		add := func(key, label string, ok bool, detail string) {
@@ -220,6 +242,10 @@ func mailDeliverability(db *core.DB) http.HandlerFunc {
 
 func mailUnsubscribe(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			http.Error(w, "Mail storage setup failed", http.StatusInternalServerError)
+			return
+		}
 		mailID, _ := strconv.ParseInt(r.URL.Query().Get("mail_id"), 10, 64)
 		if mailID <= 0 {
 			http.Error(w, "Invalid unsubscribe link", http.StatusBadRequest)
@@ -243,6 +269,9 @@ func mailUnsubscribe(db *core.DB) http.HandlerFunc {
 }
 
 func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailResult {
+	if err := ensureMailSchema(ctx, db); err != nil {
+		return SendMailResult{Error: "Mail storage setup failed: " + err.Error()}
+	}
 	if len(opt.To) == 0 {
 		return SendMailResult{Error: "at least one recipient is required"}
 	}
@@ -417,57 +446,66 @@ func addSuppression(ctx context.Context, db *core.DB, email, reason, source stri
 		email, reason, source)
 }
 
-func ensureMailSchema(ctx context.Context, db *core.DB) {
-	ensureMailSchemaOnce.Do(func() {
-		_, _ = db.PGExec(ctx, `
-			CREATE TABLE IF NOT EXISTS mail_messages (
-			  id                  BIGSERIAL PRIMARY KEY,
-			  kind                TEXT NOT NULL DEFAULT 'transactional',
-			  related_type        TEXT,
-			  related_id          BIGINT,
-			  subject             TEXT NOT NULL DEFAULT '',
-			  from_email          TEXT,
-			  from_name           TEXT,
-			  recipients          JSONB NOT NULL DEFAULT '{}',
-			  status              TEXT NOT NULL DEFAULT 'sending',
-			  provider_message_id TEXT,
-			  queued_at           TIMESTAMPTZ,
-			  delivered_at        TIMESTAMPTZ,
-			  opened_at           TIMESTAMPTZ,
-			  clicked_at          TIMESTAMPTZ,
-			  bounced_at          TIMESTAMPTZ,
-			  last_error          TEXT,
-			  created_by          BIGINT REFERENCES o3c_users(id),
-			  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
-			);
-			CREATE INDEX IF NOT EXISTS idx_mail_messages_provider ON mail_messages(provider_message_id) WHERE provider_message_id IS NOT NULL;
-			CREATE INDEX IF NOT EXISTS idx_mail_messages_created_by ON mail_messages(created_by, created_at DESC);
-			CREATE INDEX IF NOT EXISTS idx_mail_messages_status ON mail_messages(status, created_at DESC);
-
-			CREATE TABLE IF NOT EXISTS mail_events (
-			  id                BIGSERIAL PRIMARY KEY,
-			  mail_message_id   BIGINT NOT NULL REFERENCES mail_messages(id) ON DELETE CASCADE,
-			  provider_event_id TEXT UNIQUE,
-			  event_type        TEXT NOT NULL,
-			  event_data        JSONB NOT NULL DEFAULT '{}',
-			  occurred_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
-			);
-			CREATE INDEX IF NOT EXISTS idx_mail_events_message ON mail_events(mail_message_id, occurred_at DESC);
-			CREATE INDEX IF NOT EXISTS idx_mail_events_type ON mail_events(event_type, occurred_at DESC);
-
-			CREATE TABLE IF NOT EXISTS mail_suppressions (
-			  email      TEXT PRIMARY KEY,
-			  reason     TEXT NOT NULL DEFAULT 'suppressed',
-			  source     TEXT NOT NULL DEFAULT 'manual',
-			  is_active  BOOLEAN NOT NULL DEFAULT true,
-			  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-			);
-			CREATE INDEX IF NOT EXISTS idx_mail_suppressions_active ON mail_suppressions(is_active, updated_at DESC);
-		`)
-	})
+func ensureMailSchema(ctx context.Context, db *core.DB) error {
+	mailSchemaMu.Lock()
+	defer mailSchemaMu.Unlock()
+	if mailSchemaReady {
+		return nil
+	}
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS mail_messages (
+		  id                  BIGSERIAL PRIMARY KEY,
+		  kind                TEXT NOT NULL DEFAULT 'transactional',
+		  related_type        TEXT,
+		  related_id          BIGINT,
+		  subject             TEXT NOT NULL DEFAULT '',
+		  from_email          TEXT,
+		  from_name           TEXT,
+		  recipients          JSONB NOT NULL DEFAULT '{}',
+		  status              TEXT NOT NULL DEFAULT 'sending',
+		  provider_message_id TEXT,
+		  queued_at           TIMESTAMPTZ,
+		  delivered_at        TIMESTAMPTZ,
+		  opened_at           TIMESTAMPTZ,
+		  clicked_at          TIMESTAMPTZ,
+		  bounced_at          TIMESTAMPTZ,
+		  last_error          TEXT,
+		  created_by          BIGINT REFERENCES o3c_users(id),
+		  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_mail_messages_provider ON mail_messages(provider_message_id) WHERE provider_message_id IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_mail_messages_created_by ON mail_messages(created_by, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_mail_messages_status ON mail_messages(status, created_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS mail_events (
+		  id                BIGSERIAL PRIMARY KEY,
+		  mail_message_id   BIGINT NOT NULL REFERENCES mail_messages(id) ON DELETE CASCADE,
+		  provider_event_id TEXT UNIQUE,
+		  event_type        TEXT NOT NULL,
+		  event_data        JSONB NOT NULL DEFAULT '{}',
+		  occurred_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_mail_events_message ON mail_events(mail_message_id, occurred_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_mail_events_type ON mail_events(event_type, occurred_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS mail_suppressions (
+		  email      TEXT PRIMARY KEY,
+		  reason     TEXT NOT NULL DEFAULT 'suppressed',
+		  source     TEXT NOT NULL DEFAULT 'manual',
+		  is_active  BOOLEAN NOT NULL DEFAULT true,
+		  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_mail_suppressions_active ON mail_suppressions(is_active, updated_at DESC)`,
+	}
+	for _, stmt := range statements {
+		if _, err := db.PGExec(ctx, stmt); err != nil {
+			slog.Error("Mail schema statement failed", "err", err, "statement", stmt)
+			return err
+		}
+	}
+	mailSchemaReady = true
+	return nil
 }
 
 func appendUnsubscribeHTML(ctx context.Context, db *core.DB, html string, mailID int64) string {
