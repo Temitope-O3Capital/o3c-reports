@@ -225,9 +225,10 @@ func mailDeliverability(db *core.DB) http.HandlerFunc {
 		} else {
 			spfOK, spfDetail := checkSPF(domain)
 			dmarcOK, dmarcDetail := checkDMARC(domain)
+			dkimOK, dkimDetail := checkDKIM(domain)
 			add("spf", "SPF includes SendGrid", spfOK, spfDetail)
 			add("dmarc", "DMARC record exists", dmarcOK, dmarcDetail)
-			add("dkim", "DKIM/domain authentication", false, "Verify DKIM CNAMEs inside SendGrid; selector names are account-specific")
+			add("dkim", "DKIM/domain authentication", dkimOK, dkimDetail)
 		}
 
 		suppressed := int64(0)
@@ -299,6 +300,9 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 	}
 	if opt.FromEmail == "" {
 		return SendMailResult{Error: "SENDGRID_FROM_EMAIL not configured"}
+	}
+	if opt.ReplyToEmail == "" {
+		opt.ReplyToEmail = defaultReplyToEmail(ctx, db)
 	}
 	if opt.HTMLBody == "" {
 		opt.HTMLBody = "<p></p>"
@@ -586,6 +590,37 @@ func checkDMARC(domain string) (bool, string) {
 		}
 	}
 	return false, "No DMARC record found"
+}
+
+func checkDKIM(domain string) (bool, string) {
+	selectors := []string{"s1", "s2"}
+	missing := []string{}
+	for _, selector := range selectors {
+		host := selector + "._domainkey." + domain
+		cnames, err := net.LookupCNAME(host)
+		if err != nil {
+			missing = append(missing, host)
+			continue
+		}
+		target := strings.ToLower(strings.TrimSuffix(cnames, "."))
+		if !strings.Contains(target, "sendgrid.net") {
+			return false, host + " points to " + target + ", expected SendGrid"
+		}
+	}
+	if len(missing) > 0 {
+		return false, "Missing SendGrid DKIM CNAMEs: " + strings.Join(missing, ", ")
+	}
+	return true, "s1/s2 DKIM CNAMEs point to SendGrid"
+}
+
+func defaultReplyToEmail(ctx context.Context, db *core.DB) string {
+	if value := strings.TrimSpace(os.Getenv("SENDGRID_REPLY_TO_EMAIL")); value != "" {
+		return value
+	}
+	if rows, _ := db.PGQuery(ctx, `SELECT value FROM settings WHERE key='sendgrid_reply_to_email'`); len(rows) > 0 {
+		return strings.TrimSpace(str(rows[0]["value"]))
+	}
+	return sendgridFromEmail
 }
 
 func resolveSendGridWebhookPublicKey(ctx context.Context, db *core.DB) string {
