@@ -15,6 +15,9 @@ import (
 const tokenAudience = "o3c:api"
 const tokenExpiry = 8 * time.Hour
 
+const sseTokenAudience = "o3c:sse"
+const sseTokenExpiry = 2 * time.Minute
+
 // Claims is the JWT payload.
 type Claims struct {
 	Sub        string   `json:"sub"`
@@ -45,6 +48,35 @@ func CreateToken(c *Claims) (string, error) {
 		Audience:  jwt.ClaimStrings{tokenAudience},
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString([]byte(secretKey))
+}
+
+// CreateSSEToken issues a short-lived (2 min) token for the SSE endpoint.
+// EventSource cannot set headers, so the token is passed as a query param;
+// using a short-lived ticket limits log-exposure risk.
+func CreateSSEToken(userID int64) (string, error) {
+	c := &Claims{
+		ID: userID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(sseTokenExpiry)),
+			Audience:  jwt.ClaimStrings{sseTokenAudience},
+		},
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString([]byte(secretKey))
+}
+
+// VerifySSEToken validates a ticket issued by CreateSSEToken.
+func VerifySSEToken(raw string) (*Claims, error) {
+	c := &Claims{}
+	_, err := jwt.ParseWithClaims(raw, c, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(secretKey), nil
+	}, jwt.WithAudience(sseTokenAudience))
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 func VerifyToken(raw string) (*Claims, error) {

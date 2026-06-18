@@ -69,28 +69,34 @@ export default function NotificationBell() {
     return () => clearInterval(interval)
   }, [fetchCount])
 
-  // SSE for real-time push
+  // SSE for real-time push — uses a short-lived ticket to avoid putting the
+  // long-lived JWT in the URL (EventSource cannot send Authorization headers).
   useEffect(() => {
-    const token = localStorage.getItem('o3c_token')
-    if (!token) return
-    const url = `${API}/api/notifications/sse?token=${encodeURIComponent(token)}`
-    const es = new EventSource(url, { withCredentials: true })
+    let es: EventSource | null = null
+    let cancelled = false
 
-    es.onmessage = (e) => {
+    async function connect() {
       try {
-        const data = JSON.parse(e.data)
-        if (data?.type === 'ping') return
-        setUnread(prev => prev + 1)
-        toast(data.title ?? 'New notification', {
-          description: data.body ?? '',
-          duration: 5000,
-        })
+        const res = await apiFetch<{ ticket: string }>('/api/notifications/sse-ticket', { method: 'POST' })
+        if (cancelled || !res?.ticket) return
+        es = new EventSource(`${API}/api/notifications/sse?ticket=${encodeURIComponent(res.ticket)}`)
+        es.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data)
+            if (data?.type === 'ping') return
+            setUnread(prev => prev + 1)
+            toast(data.title ?? 'New notification', {
+              description: data.body ?? '',
+              duration: 5000,
+            })
+          } catch {}
+        }
+        es.onerror = () => { es?.close(); es = null }
       } catch {}
     }
 
-    es.onerror = () => { es.close() }
-
-    return () => es.close()
+    connect()
+    return () => { cancelled = true; es?.close() }
   }, [])
 
   // Open dropdown — fetch list

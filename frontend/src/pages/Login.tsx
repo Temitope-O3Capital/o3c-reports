@@ -26,9 +26,13 @@ export default function Login({ onLogin }: { onLogin: (u: AuthUser) => void }) {
         throw new Error((err as any).detail || 'Invalid credentials')
       }
       const data = await res.json()
+      const user = data.user
+      if (!user || typeof user.id === 'undefined' || !user.email || !user.role) {
+        throw new Error('Unexpected response from server. Please try again.')
+      }
       localStorage.setItem('o3c_token', data.access_token)
-      localStorage.setItem('o3c_user', JSON.stringify(data.user))
-      onLogin(data.user)
+      localStorage.setItem('o3c_user', JSON.stringify(user))
+      onLogin(user)
     } catch (err: any) {
       setError(err.message || 'Login failed. Please try again.')
       setLoading(false)

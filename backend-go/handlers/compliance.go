@@ -387,9 +387,8 @@ func complianceSARList(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// complianceSARGet returns full SAR detail including subject fields.
-// subject_name_encrypted and subject_id_encrypted are returned as-is
-// (real decryption is TBD — values are stored encrypted at rest).
+// complianceSARGet returns full SAR detail. Encrypted fields are decrypted server-side
+// and returned as plain-text alongside the raw encrypted columns.
 func complianceSARGet(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -405,6 +404,19 @@ func complianceSARGet(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		sar := rows[0]
+		for src, dst := range map[string]string{
+			"subject_name_encrypted": "subject_name",
+			"subject_id_encrypted":   "subject_id",
+			"summary_encrypted":      "summary",
+		} {
+			if enc, _ := sar[src].(string); enc != "" {
+				if plain, err := decryptValue(enc); err == nil {
+					sar[dst] = plain
+				}
+			}
+		}
+
 		escalations, _ := db.PGQuery(ctx, `
 			SELECT sel.*, u.full_name AS actor_name
 			FROM sar_escalation_log sel
@@ -414,7 +426,7 @@ func complianceSARGet(db *core.DB) http.HandlerFunc {
 			escalations = []core.Row{}
 		}
 
-		respond(w, map[string]any{"sar": rows[0], "escalations": escalations}, "pg")
+		respond(w, map[string]any{"sar": sar, "escalations": escalations}, "pg")
 	}
 }
 

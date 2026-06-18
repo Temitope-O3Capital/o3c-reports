@@ -17,25 +17,28 @@ import (
 	"github.com/o3c/reports/core"
 )
 
-// ── Config (read once at startup) ─────────────────────────────────────────────
+// ── Config ────────────────────────────────────────────────────────────────────
 
 var (
-	termiiAPIKey      = os.Getenv("TERMII_API_KEY")
-	termiiSenderID    = os.Getenv("TERMII_SENDER_ID")
-	sendgridAPIKey    = os.Getenv("SENDGRID_API_KEY")
-	sendgridFromEmail = os.Getenv("SENDGRID_FROM_EMAIL")
-	sendgridFromName  = os.Getenv("SENDGRID_FROM_NAME")
-	smsWebhookSecret  = os.Getenv("SMS_WEBHOOK_SECRET")
+	termiiSenderID     = coalesce(os.Getenv("TERMII_SENDER_ID"), "O3CCARDS")
+	sendgridFromEmail  = os.Getenv("SENDGRID_FROM_EMAIL")
+	sendgridFromName   = coalesce(os.Getenv("SENDGRID_FROM_NAME"), "O3C Cards")
+	smsWebhookSecret   = os.Getenv("SMS_WEBHOOK_SECRET")
 	emailWebhookSecret = os.Getenv("EMAIL_WEBHOOK_SECRET")
 )
 
-func init() {
-	if termiiSenderID == "" {
-		termiiSenderID = "O3CCARDS"
+// resolveCredKey returns the credential value: env var first, then DB-stored (encrypted).
+func resolveCredKey(ctx context.Context, db *core.DB, envKey string) string {
+	if v := os.Getenv(envKey); v != "" {
+		return v
 	}
-	if sendgridFromName == "" {
-		sendgridFromName = "O3C Cards"
+	rows, _ := db.PGQuery(ctx, `SELECT encrypted_value FROM api_credentials WHERE key_name=$1`, envKey)
+	if len(rows) == 0 {
+		return ""
 	}
+	enc, _ := rows[0]["encrypted_value"].(string)
+	plain, _ := decryptValue(enc)
+	return plain
 }
 
 var mergePlaceholderRE = regexp.MustCompile(`\{\{[^}]+\}\}`)
@@ -53,12 +56,13 @@ func renderTemplate(tmpl string, data map[string]any) string {
 
 // ── Provider functions ────────────────────────────────────────────────────────
 
-func sendSMS(phone, body string) (ok bool, providerID string) {
-	if termiiAPIKey == "" {
+func sendSMS(ctx context.Context, db *core.DB, phone, body string) (ok bool, providerID string) {
+	apiKey := resolveCredKey(ctx, db, "TERMII_API_KEY")
+	if apiKey == "" {
 		return false, "TERMII_API_KEY not configured"
 	}
 	payload, _ := json.Marshal(map[string]any{
-		"api_key": termiiAPIKey,
+		"api_key": apiKey,
 		"to":      phone,
 		"from":    termiiSenderID,
 		"sms":     body,
@@ -78,8 +82,9 @@ func sendSMS(phone, body string) (ok bool, providerID string) {
 	return false, str(d["message"])
 }
 
-func sendEmail(toEmail, toName, fromEmail, fromName, subject, htmlBody, textBody, contactRef string) (ok bool, providerID string) {
-	if sendgridAPIKey == "" {
+func sendEmail(ctx context.Context, db *core.DB, toEmail, toName, fromEmail, fromName, subject, htmlBody, textBody, contactRef string) (ok bool, providerID string) {
+	apiKey := resolveCredKey(ctx, db, "SENDGRID_API_KEY")
+	if apiKey == "" {
 		return false, "SENDGRID_API_KEY not configured"
 	}
 	if fromEmail == "" {
@@ -112,7 +117,7 @@ func sendEmail(toEmail, toName, fromEmail, fromName, subject, htmlBody, textBody
 		},
 	})
 	resp, err := httpPost("https://api.sendgrid.com/v3/mail/send", "application/json",
-		"Bearer "+sendgridAPIKey, payload, 20*time.Second)
+		"Bearer "+apiKey, payload, 20*time.Second)
 	if err != nil {
 		return false, err.Error()
 	}
@@ -187,7 +192,7 @@ func startDispatch(db *core.DB, campaignID int64) {
 
 			if isSMS && str(c["sms_status"]) == "pending" && str(c["phone"]) != "" {
 				body := renderTemplate(str(camp["sms_body"]), mergeData)
-				ok, pid := sendSMS(str(c["phone"]), body)
+				ok, pid := sendSMS(ctx, db, str(c["phone"]), body)
 				smsStatus := "sent"
 				smsCol := "sms_sent"
 				if !ok {
@@ -206,6 +211,7 @@ func startDispatch(db *core.DB, campaignID int64) {
 				htmlBody := renderTemplate(str(camp["email_body_html"]), mergeData)
 				textBody := renderTemplate(str(camp["email_body_text"]), mergeData)
 				ok, pid := sendEmail(
+					ctx, db,
 					str(c["email"]), name,
 					str(camp["from_email"]), str(camp["from_name"]),
 					subject, htmlBody, textBody, fmt.Sprintf("%d", cid),

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -208,11 +207,10 @@ func queryRows(ctx context.Context, db *sql.DB, query string, args []any) ([]Row
 func normalizeVal(v any) any {
 	switch t := v.(type) {
 	case []byte:
-		s := string(t)
-		if f, err := strconv.ParseFloat(s, 64); err == nil {
-			return f
-		}
-		return s
+		// Return as string only — do NOT try to parse as float.
+		// Byte slices can be UUIDs, JSON, or BYTEA; coercing to float64
+		// would silently truncate UUIDs that happen to look numeric.
+		return string(t)
 	case int32:
 		return int64(t)
 	default:

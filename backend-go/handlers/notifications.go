@@ -12,12 +12,39 @@ import (
 	"github.com/o3c/reports/core"
 )
 
+// RegisterNotifications mounts auth-protected notification endpoints.
+// The SSE endpoint is registered separately via RegisterNotificationsSSE
+// because EventSource cannot send Authorization headers.
 func RegisterNotifications(r chi.Router, db *core.DB) {
 	r.Get("/", notificationsListHandler(db))
 	r.Get("/count", notificationsCountHandler(db))
 	r.Put("/{id}/read", notificationsMarkRead(db))
 	r.Put("/read-all", notificationsReadAll(db))
+	r.Post("/sse-ticket", notificationsSSETicket())
+}
+
+// RegisterNotificationsSSE mounts the SSE stream outside the auth middleware.
+// The handler validates a short-lived ticket from the ?ticket= query param.
+func RegisterNotificationsSSE(r chi.Router, db *core.DB) {
 	r.Get("/sse", notificationsSSE(db))
+}
+
+// notificationsSSETicket returns a short-lived token for the SSE endpoint.
+func notificationsSSETicket() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "Unauthorized")
+			return
+		}
+		ticket, err := core.CreateSSEToken(user.ID)
+		if err != nil {
+			respondErr(w, 500, "Could not issue ticket")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"ticket": ticket}) //nolint:errcheck
+	}
 }
 
 func notificationsListHandler(db *core.DB) http.HandlerFunc {
@@ -99,14 +126,22 @@ func notificationsReadAll(db *core.DB) http.HandlerFunc {
 }
 
 // notificationsSSE streams real-time notifications via Server-Sent Events.
-// Polls the notifications table every 2 seconds for new rows (id > last seen).
+// Authenticated via a short-lived ?ticket= query param (EventSource cannot send headers).
 func notificationsSSE(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user := core.UserFromCtx(r.Context())
-		if user == nil {
-			respondErr(w, 401, "Unauthorized")
+		ticket := r.URL.Query().Get("ticket")
+		if ticket == "" {
+			respondErr(w, 401, "Missing SSE ticket")
 			return
 		}
+		claims, err := core.VerifySSEToken(ticket)
+		if err != nil {
+			respondErr(w, 401, "Invalid or expired SSE ticket")
+			return
+		}
+		// Build a minimal user struct from the ticket claims for the query below.
+		type sseUser struct{ ID int64 }
+		user := &sseUser{ID: claims.ID}
 
 		flusher, ok := w.(http.Flusher)
 		if !ok {

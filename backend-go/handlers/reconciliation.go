@@ -77,15 +77,30 @@ func paystackFetch(ctx context.Context, db *core.DB, path string, params url.Val
 //   INTERSWITCH_PASSPORT_URL   (default: https://passport.interswitch.com/passport/oauth/token)
 //   INTERSWITCH_BASE_URL       (base URL for transaction API calls)
 
-var (
-	iswClientID     = os.Getenv("INTERSWITCH_CLIENT_ID")
-	iswClientSecret = os.Getenv("INTERSWITCH_CLIENT_SECRET")
-	iswPassportURL  = coalesce(os.Getenv("INTERSWITCH_PASSPORT_URL"),
-		"https://passport.interswitch.com/passport/oauth/token")
-	iswBaseURL = os.Getenv("INTERSWITCH_BASE_URL")
-)
+var iswPassportURL = coalesce(os.Getenv("INTERSWITCH_PASSPORT_URL"),
+	"https://passport.interswitch.com/passport/oauth/token")
 
-func iswConfigured() bool { return iswClientID != "" && iswClientSecret != "" && iswBaseURL != "" }
+// resolveISWCreds returns (clientID, clientSecret, baseURL): env var first, then DB-stored credential.
+func resolveISWCreds(ctx context.Context, db *core.DB) (clientID, clientSecret, baseURL string) {
+	resolve := func(key string) string {
+		if v := os.Getenv(key); v != "" {
+			return v
+		}
+		rows, _ := db.PGQuery(ctx, `SELECT encrypted_value FROM api_credentials WHERE key_name=$1`, key)
+		if len(rows) == 0 {
+			return ""
+		}
+		enc, _ := rows[0]["encrypted_value"].(string)
+		plain, _ := decryptValue(enc)
+		return plain
+	}
+	return resolve("INTERSWITCH_CLIENT_ID"), resolve("INTERSWITCH_CLIENT_SECRET"), resolve("INTERSWITCH_BASE_URL")
+}
+
+func iswConfiguredWith(ctx context.Context, db *core.DB) bool {
+	id, secret, base := resolveISWCreds(ctx, db)
+	return id != "" && secret != "" && base != ""
+}
 
 var iswTok struct {
 	sync.Mutex
@@ -93,11 +108,16 @@ var iswTok struct {
 	expires time.Time
 }
 
-func iswAccessToken(ctx context.Context) (string, error) {
+func iswAccessToken(ctx context.Context, db *core.DB) (string, error) {
 	iswTok.Lock()
 	defer iswTok.Unlock()
 	if iswTok.access != "" && time.Now().Add(60*time.Second).Before(iswTok.expires) {
 		return iswTok.access, nil
+	}
+
+	clientID, clientSecret, _ := resolveISWCreds(ctx, db)
+	if clientID == "" || clientSecret == "" {
+		return "", fmt.Errorf("INTERSWITCH_CLIENT_ID / INTERSWITCH_CLIENT_SECRET not configured")
 	}
 
 	// Interswitch Passport: Basic auth with client credentials, client_credentials grant
@@ -108,7 +128,7 @@ func iswAccessToken(ctx context.Context) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.SetBasicAuth(iswClientID, iswClientSecret)
+	req.SetBasicAuth(clientID, clientSecret)
 
 	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
 	if err != nil {
@@ -139,12 +159,13 @@ func iswAccessToken(ctx context.Context) (string, error) {
 
 var iswHTTP = &http.Client{Timeout: 20 * time.Second}
 
-func iswFetch(ctx context.Context, path string, params url.Values) (map[string]any, error) {
-	token, err := iswAccessToken(ctx)
+func iswFetch(ctx context.Context, db *core.DB, path string, params url.Values) (map[string]any, error) {
+	token, err := iswAccessToken(ctx, db)
 	if err != nil {
 		return nil, err
 	}
-	reqURL := iswBaseURL + path
+	_, _, baseURL := resolveISWCreds(ctx, db)
+	reqURL := baseURL + path
 	if len(params) > 0 {
 		reqURL += "?" + params.Encode()
 	}
@@ -399,7 +420,7 @@ func RegisterPaystackRecon(r chi.Router, db *core.DB) {
 func RegisterInterspwitchRecon(r chi.Router, db *core.DB) {
 	access := core.RequirePages("reconciliation")
 	r.With(access).Get("/summary", iswReconSummary(db))
-	r.With(access).Get("/transactions", iswReconTransactions())
+	r.With(access).Get("/transactions", iswReconTransactions(db))
 }
 
 // ── Paystack: Summary ─────────────────────────────────────────────────────────
@@ -430,9 +451,17 @@ func psReconSummary(db *core.DB) http.HandlerFunc {
 		psFrom := dateFrom + "T00:00:00.000Z"
 		psTo   := dateTo + "T23:59:59.000Z"
 
+		// Fetch overall totals (meta.total = full count, meta.total_volume = full volume).
 		psResult, psErr := paystackFetch(ctx, db, "/transaction", url.Values{
 			"from": {psFrom}, "to": {psTo},
-			"perPage": {"100"}, "page": {"1"},
+			"perPage": {"1"}, "page": {"1"},
+		})
+		// Fetch per-status counts via perPage=1 — only meta.total is needed.
+		psSuccess, _ := paystackFetch(ctx, db, "/transaction", url.Values{
+			"from": {psFrom}, "to": {psTo}, "status": {"success"}, "perPage": {"1"}, "page": {"1"},
+		})
+		psFailed, _ := paystackFetch(ctx, db, "/transaction", url.Values{
+			"from": {psFrom}, "to": {psTo}, "status": {"failed"}, "perPage": {"1"}, "page": {"1"},
 		})
 
 		// EOD totals from our database
@@ -448,32 +477,33 @@ func psReconSummary(db *core.DB) http.HandlerFunc {
 			Error            string  `json:"error,omitempty"`
 		}
 
+		metaInt64 := func(result map[string]any, key string) int64 {
+			if result == nil {
+				return 0
+			}
+			if meta, ok := result["meta"].(map[string]any); ok {
+				return toInt64(meta[key])
+			}
+			return 0
+		}
+
 		ps := psSummary{Configured: true}
 		if psErr != nil {
 			ps.Error = psErr.Error()
 		} else if psResult != nil {
-			if meta, ok := psResult["meta"].(map[string]any); ok {
-				ps.TotalCount = toInt64(meta["total"])
-				// meta.total_volume is the true sum across ALL pages for this filter period
-				if tv := toFloat64(meta["total_volume"]); tv > 0 {
-					ps.TotalVolumeKobo = tv
-					ps.TotalVolumeNGN = math.Round(tv) / 100
+			ps.TotalCount = metaInt64(psResult, "total")
+			if tv := toFloat64(func() any {
+				if meta, ok := psResult["meta"].(map[string]any); ok {
+					return meta["total_volume"]
 				}
-			}
-			// Count status breakdown from first page (for success/failed KPIs)
-			if data, ok := psResult["data"].([]any); ok {
-				for _, item := range data {
-					if t, ok := item.(map[string]any); ok {
-						switch zohoStr(t["status"]) {
-						case "success":
-							ps.Success++
-						case "failed":
-							ps.Failed++
-						}
-					}
-				}
+				return nil
+			}()); tv > 0 {
+				ps.TotalVolumeKobo = tv
+				ps.TotalVolumeNGN = math.Round(tv) / 100
 			}
 		}
+		ps.Success = metaInt64(psSuccess, "total")
+		ps.Failed = metaInt64(psFailed, "total")
 
 		// Delta: EOD uses NGN amounts (not kobo), compare volumes
 		volDelta := ps.TotalVolumeNGN - eod.TotalVol
@@ -494,7 +524,6 @@ func psReconSummary(db *core.DB) http.HandlerFunc {
 			"delta": map[string]any{
 				"txn_count_diff":  cntDelta,
 				"volume_ngn_diff": math.Round(volDelta*100) / 100,
-				"note":            "Paystack volume note: summary based on first page only — full volume requires all pages",
 			},
 		})
 	}
@@ -587,7 +616,7 @@ func psReconSettlements(db *core.DB) http.HandlerFunc {
 func iswReconSummary(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if !iswConfigured() {
+		if !iswConfiguredWith(r.Context(), db) {
 			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 				"data_source": "interswitch", "configured": false,
 				"message": "Set INTERSWITCH_CLIENT_ID, INTERSWITCH_CLIENT_SECRET, INTERSWITCH_BASE_URL",
@@ -608,7 +637,7 @@ func iswReconSummary(db *core.DB) http.HandlerFunc {
 		// Interswitch transaction path is configurable; defaults use standard date params.
 		// Operators configure INTERSWITCH_BASE_URL + the path to match their API product.
 		txnPath := coalesce(os.Getenv("INTERSWITCH_TRANSACTION_PATH"), "/api/v3/transactions")
-		iswResult, iswErr := iswFetch(ctx, txnPath, url.Values{
+		iswResult, iswErr := iswFetch(ctx, db, txnPath, url.Values{
 			"from":    {dateFrom},
 			"to":      {dateTo},
 			"perPage": {"100"},
@@ -670,9 +699,9 @@ func iswReconSummary(db *core.DB) http.HandlerFunc {
 
 // ── Interswitch: Transactions ─────────────────────────────────────────────────
 
-func iswReconTransactions() http.HandlerFunc {
+func iswReconTransactions(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !iswConfigured() {
+		if !iswConfiguredWith(r.Context(), db) {
 			respondErr(w, 503, "Interswitch not configured")
 			return
 		}
@@ -695,7 +724,7 @@ func iswReconTransactions() http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
 
-		result, err := iswFetch(ctx, txnPath, params)
+		result, err := iswFetch(ctx, db, txnPath, params)
 		if err != nil {
 			respondErr(w, 502, "Interswitch API error: "+err.Error())
 			return

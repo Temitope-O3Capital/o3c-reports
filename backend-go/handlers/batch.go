@@ -22,16 +22,23 @@ func RegisterBatch(r chi.Router, db *core.DB) {
 }
 
 // RunBatchNightly starts a goroutine that fires the batch at midnight every day.
-// Call once from main.go after opening the DB.
-func RunBatchNightly(db *core.DB) {
+// Call once from main.go after opening the DB. Cancel the context to stop the loop on shutdown.
+func RunBatchNightly(ctx context.Context, db *core.DB) {
 	go func() {
 		for {
 			now := time.Now()
 			next := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 5, 0, 0, now.Location())
 			slog.Info("Batch: next run scheduled", "at", next.Format(time.RFC3339))
-			time.Sleep(time.Until(next))
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			if err := runBatch(ctx, db); err != nil {
+
+			select {
+			case <-ctx.Done():
+				slog.Info("Batch: shutdown signal received, stopping scheduler")
+				return
+			case <-time.After(time.Until(next)):
+			}
+
+			runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+			if err := runBatch(runCtx, db); err != nil {
 				slog.Error("Nightly batch failed", "err", err)
 			}
 			cancel()

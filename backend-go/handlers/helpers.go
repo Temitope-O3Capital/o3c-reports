@@ -153,8 +153,9 @@ func streamCSV(w http.ResponseWriter, filename string, rows []map[string]any) {
 		cols = append(cols, k)
 	}
 
+	safe := strings.NewReplacer(`"`, `_`, "\n", `_`, "\r", `_`).Replace(filename)
 	w.Header().Set("Content-Type", "text/csv")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+safe+`"`)
 
 	cw := csv.NewWriter(w)
 	cw.Write(cols) //nolint:errcheck

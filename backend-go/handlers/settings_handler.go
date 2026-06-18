@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -33,6 +34,20 @@ func RegisterSettings(r chi.Router, db *core.DB) {
 
 // ── Settings key-value ────────────────────────────────────────────────────────
 
+// sensitiveSettingKey returns true for keys that should be encrypted at rest.
+func sensitiveSettingKey(key string) bool {
+	for _, pat := range []string{"secret", "password", "token", "_key", "credential", "api_key"} {
+		if len(key) >= len(pat) {
+			// case-insensitive suffix/substring check
+			lk := strings.ToLower(key)
+			if strings.Contains(lk, pat) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func settingsList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.PGQuery(r.Context(),
@@ -43,6 +58,17 @@ func settingsList(db *core.DB) http.HandlerFunc {
 		}
 		if rows == nil {
 			rows = []core.Row{}
+		}
+		// Decrypt any sensitive values before returning.
+		for _, row := range rows {
+			k, _ := row["key"].(string)
+			if sensitiveSettingKey(k) {
+				if enc, _ := row["value"].(string); enc != "" {
+					if plain, err := decryptValue(enc); err == nil {
+						row["value"] = plain
+					}
+				}
+			}
 		}
 		respond(w, rows, "pg")
 	}
@@ -61,6 +87,14 @@ func settingsUpdate(db *core.DB) http.HandlerFunc {
 		}
 		user := core.UserFromCtx(r.Context())
 
+		storeVal := b.Value
+		if sensitiveSettingKey(key) {
+			enc, err := encryptValue(b.Value)
+			if err == nil {
+				storeVal = enc
+			}
+		}
+
 		_, err := db.PGExec(r.Context(), `
 			INSERT INTO settings (key, value, updated_by, updated_at)
 			VALUES ($1, $2, $3, NOW())
@@ -68,7 +102,7 @@ func settingsUpdate(db *core.DB) http.HandlerFunc {
 				SET value = EXCLUDED.value,
 				    updated_by = EXCLUDED.updated_by,
 				    updated_at = NOW()`,
-			key, b.Value, user.ID)
+			key, storeVal, user.ID)
 		if err != nil {
 			respondErr(w, 500, "Update failed")
 			return

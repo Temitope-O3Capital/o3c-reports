@@ -36,7 +36,16 @@ func main() {
 	}
 
 	core.InitAuth(cfg.SecretKey)
-	handlers.RunBatchNightly(db)
+
+	// Shutdown context — cancelled on SIGTERM/SIGINT so the batch loop exits cleanly.
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	go func() {
+		quit := make(chan os.Signal, 1)
+		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+		<-quit
+		shutdownCancel()
+	}()
+	handlers.RunBatchNightly(shutdownCtx, db)
 
 	r := chi.NewRouter()
 
@@ -68,6 +77,11 @@ func main() {
 	// Public campaign webhooks (Termii / SendGrid — no JWT)
 	r.Route("/api/campaign-webhooks", func(r chi.Router) {
 		handlers.RegisterCampaignWebhooks(r, db)
+	})
+
+	// SSE stream — no JWT header (EventSource can't set headers); uses short-lived ticket
+	r.Route("/api/notifications", func(r chi.Router) {
+		handlers.RegisterNotificationsSSE(r, db)
 	})
 
 	// ── Protected routes (all require valid JWT) ───────────────────────────────

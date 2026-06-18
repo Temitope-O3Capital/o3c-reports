@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"math"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -179,5 +180,5 @@ func toFloat(v any) float64 {
 }
 
 func round1(f float64) float64 {
-	return float64(int(f*10+0.5)) / 10
+	return math.Round(f*10) / 10
 }

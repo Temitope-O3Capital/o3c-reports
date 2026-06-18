@@ -6,6 +6,80 @@ import {
   NAVY, RED, GREEN, AMBER,
 } from '../../components/UI'
 
+/* ── API response types ───────────────────────────────────────────────────── */
+interface PsSummary {
+  configured: boolean
+  message?: string
+  total_count: number
+  success: number
+  failed: number
+  total_volume_kobo: number
+  total_volume_ngn: number
+  error?: string
+}
+
+interface EodSummary {
+  txn_count: number
+  total_dr_ngn: number
+  total_cr_ngn: number
+  total_vol_ngn: number
+}
+
+interface ReconSummaryResponse {
+  configured: boolean
+  message?: string
+  paystack?: PsSummary
+  eod?: EodSummary
+}
+
+interface PsTxn {
+  id: number
+  reference: string
+  amount: number
+  fees?: number
+  status: string
+  channel: string
+  currency: string
+  customer?: { email?: string; first_name?: string; last_name?: string }
+  authorization?: { last4?: string; card_type?: string; bank?: string }
+  created_at: string
+  paid_at?: string
+}
+
+interface PsSettlement {
+  id: number
+  settled_by?: string
+  settlement_date?: string
+  createdAt?: string
+  domain?: string
+  status: string
+  total_amount?: number
+  total_fees?: number
+  total_processed?: number
+  net_amount?: number
+  effective_amount?: number
+}
+
+interface LedgerEntry {
+  description: string
+  amount: number
+  difference?: number
+  closing_balance: number
+  created_at: string
+  model_responsible?: string
+  [key: string]: unknown
+}
+
+interface PsPagedResponse<T> {
+  data: T[]
+  meta: { total: number; page: number; perPage: number }
+}
+
+interface BalanceLedger {
+  data: LedgerEntry[]
+  meta?: { total: number; page: number; perPage: number }
+}
+
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 function fmtTs(s: string | null | undefined): string {
   if (!s) return '—'
@@ -64,7 +138,7 @@ function DeltaBadge({ apiVal, eodVal, isCount = false }: {
 }
 
 /* ── Reconciliation comparison table ─────────────────────────────────────── */
-function ComparePanel({ ps, eod }: { ps: any; eod: any }) {
+function ComparePanel({ ps, eod }: { ps: PsSummary | null; eod: EodSummary | null }) {
   return (
     <div className="card overflow-hidden mb-5">
       <div className="px-5 py-3.5" style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
@@ -254,21 +328,21 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   const refundURL  = sub === 'refunds'  ? `/api/reconciliation/paystack/refunds?page=${refundPage}&per_page=50`  : null
   const disputeURL = sub === 'disputes' ? `/api/reconciliation/paystack/disputes?page=${disputePage}&per_page=50`: null
 
-  const { data: summary, loading: loadingSum } = usePSFetch(summaryURL)
-  const { data: balance }                       = usePSFetch(balanceURL)
-  const { data: txnData, loading: loadingTxns } = usePSFetch(txnURL)
-  const { data: settleData, loading: loadingSett } = usePSFetch(settleURL)
-  const { data: xfrData, loading: loadingXfr }  = usePSFetch(xfrURL)
-  const { data: ledgerData, loading: loadingLedger } = usePSFetch(ledgerURL)
-  const { data: refundData, loading: loadingRef }    = usePSFetch(refundURL)
-  const { data: disputeData, loading: loadingDisp }  = usePSFetch(disputeURL)
+  const { data: summary, loading: loadingSum } = usePSFetch<ReconSummaryResponse>(summaryURL)
+  const { data: balance }                       = usePSFetch<BalanceLedger>(balanceURL)
+  const { data: txnData, loading: loadingTxns } = usePSFetch<PsPagedResponse<PsTxn>>(txnURL)
+  const { data: settleData, loading: loadingSett } = usePSFetch<PsPagedResponse<PsSettlement>>(settleURL)
+  const { data: xfrData, loading: loadingXfr }  = usePSFetch<PsPagedResponse<Record<string, any>>>(xfrURL)
+  const { data: ledgerData, loading: loadingLedger } = usePSFetch<BalanceLedger>(ledgerURL)
+  const { data: refundData, loading: loadingRef }    = usePSFetch<PsPagedResponse<Record<string, any>>>(refundURL)
+  const { data: disputeData, loading: loadingDisp }  = usePSFetch<PsPagedResponse<Record<string, any>>>(disputeURL)
 
-  const ps     = (summary as any)?.paystack || {}
-  const eod    = (summary as any)?.eod || {}
-  const balArr = ((balance as any)?.data || []) as any[]
+  const ps  = summary?.paystack ?? null
+  const eod = summary?.eod ?? null
+  const balArr = balance?.data ?? []
   const liveBalKobo = n(balArr[0]?.balance)
 
-  const allLedger: any[] = (ledgerData as any)?.data || []
+  const allLedger = ledgerData?.data ?? []
   const filteredLedger = allLedger.filter(r => {
     const d = n(r.difference)
     if (ledgerDir === 'credit') return d > 0
@@ -276,13 +350,13 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
     return true
   })
 
-  const configured = (summary as any)?.configured !== false
+  const configured = summary?.configured !== false
   if (summary && !configured) {
     return (
       <div className="card p-12 flex flex-col items-center text-slate-400 gap-3">
         <span className="material-symbols-rounded text-[48px] opacity-25">payments</span>
         <p className="font-semibold text-slate-600">Paystack not configured</p>
-        <p className="text-sm">{(summary as any).message || 'Set PAYSTACK_SECRET_KEY in backend environment'}</p>
+        <p className="text-sm">{summary.message || 'Set PAYSTACK_SECRET_KEY in backend environment'}</p>
       </div>
     )
   }
@@ -330,22 +404,22 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
             {/* KPI grid */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
               <KpiCard label="Total Transactions" icon="receipt_long" accent={NAVY}
-                value={fmtNum(n(ps.total_count))}
+                value={fmtNum(n(ps?.total_count))}
                 sub={`Incoming payments via Paystack`} />
               <KpiCard label="Successful" icon="check_circle" accent={GREEN}
-                value={fmtNum(n(ps.success))}
+                value={fmtNum(n(ps?.success))}
                 sub={`Fully settled`} />
               <KpiCard label="Abandoned / Failed" icon="cancel" accent={RED}
-                value={fmtNum(n(ps.total_count) - n(ps.success))}
+                value={fmtNum(n(ps?.total_count) - n(ps?.success))}
                 sub={`Not completed`} />
               <KpiCard label="Gross Volume" icon="payments" accent="#7C3AED"
-                value={fmtExact(n(ps.total_volume_ngn))}
+                value={fmtExact(n(ps?.total_volume_ngn))}
                 sub={`Total collected (incl. fees)`} />
             </div>
 
             <ComparePanel ps={ps} eod={eod} />
 
-            {ps.error && (
+            {ps?.error && (
               <div className="flex items-start gap-2 p-4 rounded-xl"
                 style={{ background: '#FEF2F2', border: '1px solid #FECACA' }}>
                 <span className="material-symbols-rounded text-[17px] mt-0.5 text-red-600 flex-shrink-0">error</span>
@@ -367,7 +441,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
               </p>
             </div>
             <FilterPills
-              value={txnStatus as any}
+              value={txnStatus}
               options={[
                 { label: 'All', value: '' },
                 { label: 'Successful', value: 'success' },
@@ -399,11 +473,11 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
               <THead cols={['Reference & Date', 'Customer', 'Gross', 'Paystack Cut', 'O3C Net', 'Channel', 'Status']} />
               <tbody>
                 {loadingTxns ? <Loading cols={7} />
-                  : !((txnData as any)?.data?.length)
+                  : !(txnData?.data?.length)
                   ? <Empty icon="receipt_long" msg="No transactions in this period" cols={7} />
-                  : ((txnData as any)?.data as any[]).map((t: any, i: number) => {
-                    const cust    = t.customer || {}
-                    const auth    = t.authorization || {}
+                  : txnData.data.map((t, i) => {
+                    const cust    = (t as Record<string, any>).customer || {}
+                    const auth    = (t as Record<string, any>).authorization || {}
                     const gross   = n(t.amount)
                     const fees    = n(t.fees)
                     const net     = gross - fees
@@ -447,7 +521,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
               </tbody>
             </table>
           </div>
-          <Pager page={txnPage} total={n((txnData as any)?.meta?.total)} perPage={PER_PAGE} onChange={setTxnPage} />
+          <Pager page={txnPage} total={n(txnData?.meta?.total)} perPage={PER_PAGE} onChange={setTxnPage} />
         </div>
       )}
 
@@ -465,9 +539,9 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
               <THead cols={['Settlement Date', 'Gross Collected', 'Paystack Fees', 'Net Settled to Bank', 'Status']} />
               <tbody>
                 {loadingSett ? <Loading cols={5} />
-                  : !((settleData as any)?.data?.length)
+                  : !(settleData?.data?.length)
                   ? <Empty icon="account_balance" msg="No settlements in this period" cols={5} />
-                  : ((settleData as any)?.data as any[]).map((s: any, i: number) => (
+                  : settleData.data.map((s, i) => (
                     <tr key={i} className="hover:bg-slate-50 transition-colors"
                       style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
                       <td className="px-4 py-3.5 text-[12px] text-slate-700 whitespace-nowrap font-medium">
@@ -485,7 +559,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
               </tbody>
             </table>
           </div>
-          <Pager page={settlePage} total={n((settleData as any)?.meta?.total)} perPage={PER_PAGE} onChange={setSettlePage} />
+          <Pager page={settlePage} total={n(settleData?.meta?.total)} perPage={PER_PAGE} onChange={setSettlePage} />
         </div>
       )}
 
@@ -501,7 +575,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
               </p>
             </div>
             <FilterPills
-              value={xfrStatus as any}
+              value={xfrStatus}
               options={[
                 { label: 'All', value: '' },
                 { label: 'Successful', value: 'success' },
@@ -517,9 +591,9 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
               <THead cols={['Reference & Date', 'Recipient', 'Bank / Account', 'Amount Sent', 'Paystack Fee *', 'Wallet Debited', 'Status', 'Reason']} />
               <tbody>
                 {loadingXfr ? <Loading cols={9} />
-                  : !((xfrData as any)?.data?.length)
+                  : !(xfrData?.data?.length)
                   ? <Empty icon="send" msg="No transfers in this period" cols={9} />
-                  : ((xfrData as any)?.data as any[]).map((t: any, i: number) => {
+                  : xfrData!.data.map((t, i) => {
                     const recip   = t.recipient || {}
                     const details = recip.details || {}
                     const amt     = n(t.amount)
@@ -571,7 +645,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
               </tbody>
             </table>
           </div>
-          <Pager page={xfrPage} total={n((xfrData as any)?.meta?.total)} perPage={PER_PAGE} onChange={setXfrPage} />
+          <Pager page={xfrPage} total={n(xfrData?.meta?.total)} perPage={PER_PAGE} onChange={setXfrPage} />
           <p className="text-[11px] text-slate-400 px-4 pb-3">
             * Paystack does not return per-transfer fees via API — fees marked <em>est.</em> are calculated from the standard schedule (₦10 / ₦25 / ₦50) and deducted from your Paystack balance, not from the transfer amount.
           </p>
@@ -670,7 +744,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                 </tbody>
               </table>
             </div>
-            <Pager page={ledgerPage} total={n((ledgerData as any)?.meta?.total)} perPage={PER_PAGE} onChange={setLedgerPage} />
+            <Pager page={ledgerPage} total={n(ledgerData?.meta?.total)} perPage={PER_PAGE} onChange={setLedgerPage} />
           </div>
         </div>
       )}
@@ -680,17 +754,17 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
         <div className="card overflow-hidden">
           <div className="px-5 py-3.5" style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
             <p className="text-[14px] font-semibold text-slate-800">Refunds</p>
-            <p className="text-[12px] text-slate-400 mt-0.5">Transactions reversed back to customers · {fmtNum(n((refundData as any)?.meta?.total))} total</p>
+            <p className="text-[12px] text-slate-400 mt-0.5">Transactions reversed back to customers · {fmtNum(n(refundData?.meta?.total))} total</p>
           </div>
 
           {loadingRef
             ? <div className="flex items-center justify-center gap-2 py-12 text-slate-400"><Spinner />Loading…</div>
-            : !((refundData as any)?.data?.length)
+            : !(refundData?.data?.length)
             ? <div className="py-14 text-center">
                 <span className="material-symbols-rounded text-[40px] text-slate-300 block mb-2">undo</span>
                 <p className="text-[13px] text-slate-400">No refunds found</p>
               </div>
-            : ((refundData as any)?.data as any[]).map((rf: any, i: number) => {
+            : refundData!.data.map((rf, i) => {
               const cust = rf.customer || {}
               const custName = [cust.first_name, cust.last_name].filter(Boolean).join(' ') || cust.email || '—'
               return (
@@ -745,7 +819,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
               )
             })
           }
-          <Pager page={refundPage} total={n((refundData as any)?.meta?.total)} perPage={PER_PAGE} onChange={setRefundPage} />
+          <Pager page={refundPage} total={n(refundData?.meta?.total)} perPage={PER_PAGE} onChange={setRefundPage} />
         </div>
       )}
 
@@ -761,9 +835,9 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
               <THead cols={['Txn Reference', 'Customer', 'Refund Amount', 'Category', 'Status', 'Resolution', 'Due Date', 'Resolved']} />
               <tbody>
                 {loadingDisp ? <Loading cols={8} />
-                  : !((disputeData as any)?.data?.length)
+                  : !(disputeData?.data?.length)
                   ? <Empty icon="gavel" msg="No disputes found" cols={8} />
-                  : ((disputeData as any)?.data as any[]).map((d: any, i: number) => {
+                  : disputeData!.data.map((d, i) => {
                     const cust = d.customer || {}
                     return (
                       <tr key={i} className="hover:bg-slate-50 transition-colors"
@@ -785,7 +859,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
               </tbody>
             </table>
           </div>
-          <Pager page={disputePage} total={n((disputeData as any)?.meta?.total)} perPage={PER_PAGE} onChange={setDisputePage} />
+          <Pager page={disputePage} total={n(disputeData?.meta?.total)} perPage={PER_PAGE} onChange={setDisputePage} />
         </div>
       )}
     </div>
