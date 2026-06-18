@@ -102,15 +102,10 @@ jobs:
           ALTER TABLE "Recovery Master Sheet" DISABLE ROW LEVEL SECURITY;
           ALTER TABLE o3c_users               DISABLE ROW LEVEL SECURITY;
 
-          INSERT INTO o3c_users (email, password_hash, full_name, role, department)
-          VALUES (
-            'admin@o3cards.com',
-            '$2b$12$GvzdUouzBgirlOTGF0J..OdSBCTJXB4gCtY6TNM3tWrjp/wVQpHuy',
-            'O3C Admin',
-            'admin',
-            'Technology'
-          )
-          ON CONFLICT (email) DO NOTHING;
+          -- Admin user seeding removed: do NOT insert hardcoded credentials here.
+          -- Use the /api/auth/bootstrap endpoint for first-admin creation —
+          -- it self-disables once any user exists, so it is safe to call once.
+          -- Bootstrap endpoint: POST /api/auth/bootstrap  { "secret": BOOTSTRAP_SECRET }
 
           SELECT 'Schema setup complete' AS result;
           EOSQL

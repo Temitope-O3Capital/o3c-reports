@@ -1,5 +1,17 @@
 name: Deploy
 
+# Required Railway env vars (set in Railway dashboard, not here):
+#   SECRET_KEY         - JWT signing secret (32+ chars, generate: openssl rand -hex 32)
+#   ENCRYPTION_KEY     - Must be exactly 32 bytes
+#   DATABASE_URL       - Supabase PostgreSQL connection string
+#   ALLOWED_ORIGINS    - Comma-separated list of allowed CORS origins
+#   RESET_ADMIN_SECRET - Separate secret for /api/auth/reset-admin (set only when resetting)
+#   ENABLE_RESET_ADMIN - Set to "true" only when actively resetting a password, then remove
+#
+# Required GitHub secrets (set in repo Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN  - Cloudflare API token with Pages:Edit permission
+#   CF_ACCOUNT_ID         - Cloudflare account ID (never hardcode this)
+
 on:
   push:
     branches: [main]
@@ -32,6 +44,6 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: efdbf79adf596d7e7b8f45734dbbd1db
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
           command: pages deploy dist --project-name o3c-reports
           workingDirectory: frontend

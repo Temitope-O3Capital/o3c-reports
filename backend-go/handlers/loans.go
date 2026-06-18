@@ -41,12 +41,14 @@ func listLoans(db *core.DB) http.HandlerFunc {
 		search := qstr(r, "search")
 		limit := qint(r, "limit", 100, 1, 500)
 
-		q := `SELECT la.id, la.ref_no, la.cif, la.first_name, la.last_name, la.phone, la.email,
-		             la.loan_type, la.loan_amount, la.purpose, la.status, la.stage, la.notes,
-		             la.assigned_to, la.created_by, la.reviewed_by, la.reviewed_at,
+		q := `SELECT la.id, la.reference, la.applicant_cif, la.applicant_name,
+		             la.applicant_phone, la.applicant_email,
+		             la.product_type, la.amount_requested_kobo, la.amount_approved_kobo,
+		             la.purpose, la.status, la.stage,
+		             la.assigned_to_user_id, la.sales_officer_id,
 		             la.created_at, la.updated_at, u.full_name AS assigned_name
 		      FROM loan_applications la
-		      LEFT JOIN o3c_users u ON u.id = la.assigned_to
+		      LEFT JOIN o3c_users u ON u.id = la.assigned_to_user_id
 		      WHERE 1=1`
 		var args []any
 		n := 1
@@ -62,8 +64,8 @@ func listLoans(db *core.DB) http.HandlerFunc {
 		}
 		if search != "" {
 			q += fmt.Sprintf(
-				" AND (la.first_name ILIKE $%d OR la.last_name ILIKE $%d OR la.ref_no ILIKE $%d OR la.cif ILIKE $%d)",
-				n, n, n, n)
+				" AND (la.applicant_name ILIKE $%d OR la.reference ILIKE $%d OR la.applicant_cif ILIKE $%d)",
+				n, n, n)
 			args = append(args, "%"+search+"%")
 			n++
 		}
@@ -106,7 +108,7 @@ func getLoan(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT la.*, u.full_name AS assigned_name
 			FROM loan_applications la
-			LEFT JOIN o3c_users u ON u.id = la.assigned_to
+			LEFT JOIN o3c_users u ON u.id = la.assigned_to_user_id
 			WHERE la.id = $1`, id)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "Application not found")
@@ -114,14 +116,14 @@ func getLoan(db *core.DB) http.HandlerFunc {
 		}
 		app := rows[0]
 		docs, _ := db.PGQuery(r.Context(), `
-			SELECT ld.*, u.full_name AS confirmed_by_name
-			FROM loan_documents ld
-			LEFT JOIN o3c_users u ON u.id = ld.confirmed_by
-			WHERE ld.application_id = $1 ORDER BY ld.created_at`, id)
+			SELECT ad.*, u.full_name AS confirmed_by_name
+			FROM application_documents ad
+			LEFT JOIN o3c_users u ON u.id = ad.created_at
+			WHERE ad.application_id = $1 ORDER BY ad.created_at`, id)
 		app["documents"] = docs
 		comments, _ := db.PGQuery(r.Context(), `
-			SELECT id, user_id, user_name, body, created_at
-			FROM loan_comments WHERE application_id = $1 ORDER BY created_at`, id)
+			SELECT id, author_id, body, is_internal, created_at
+			FROM application_notes WHERE application_id = $1 ORDER BY created_at`, id)
 		app["comments"] = comments
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(app) //nolint:errcheck
@@ -130,15 +132,14 @@ func getLoan(db *core.DB) http.HandlerFunc {
 
 func createLoan(db *core.DB) http.HandlerFunc {
 	type body struct {
-		CIF        string  `json:"cif"`
-		FirstName  string  `json:"first_name"`
-		LastName   string  `json:"last_name"`
-		Phone      string  `json:"phone"`
-		Email      string  `json:"email"`
-		LoanType   string  `json:"loan_type"`
-		LoanAmount float64 `json:"loan_amount"`
-		Purpose    string  `json:"purpose"`
-		Notes      string  `json:"notes"`
+		ApplicantCIF   string `json:"applicant_cif"`
+		ApplicantName  string `json:"applicant_name"`
+		ApplicantPhone string `json:"applicant_phone"`
+		ApplicantEmail string `json:"applicant_email"`
+		ProductType    string `json:"product_type"`
+		LoanAmount     int64  `json:"loan_amount"` // received as loan_amount, stored as amount_requested_kobo
+		TenorMonths    int    `json:"tenor_months"`
+		Purpose        string `json:"purpose"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
@@ -146,29 +147,32 @@ func createLoan(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.FirstName == "" || b.LastName == "" {
-			respondErr(w, 422, "first_name and last_name are required")
+		if b.ApplicantName == "" {
+			respondErr(w, 422, "applicant_name is required")
 			return
 		}
-		if b.LoanType == "" {
-			b.LoanType = "Personal Loan"
+		if b.ProductType == "" {
+			b.ProductType = "Personal Loan"
 		}
 		user := core.UserFromCtx(r.Context())
-		refNo := genRefNo(db, r)
 
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO loan_applications
-			    (ref_no, cif, first_name, last_name, phone, email,
-			     loan_type, loan_amount, purpose, notes, created_by, stage, status)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'new','pending')
+			    (reference, applicant_cif, applicant_name, applicant_phone, applicant_email,
+			     product_type, amount_requested_kobo, tenor_months, purpose,
+			     sales_officer_id, assigned_to_user_id, stage, status,
+			     created_at, updated_at)
+			VALUES (
+			    'LA-' || TO_CHAR(NOW(),'YYYY') || '-' || LPAD((SELECT COUNT(*)+1 FROM loan_applications WHERE EXTRACT(year FROM created_at)=EXTRACT(year FROM NOW()))::text,4,'0'),
+			    $1,$2,$3,$4,$5,$6,$7,$8,$9,$9,'draft','pending',NOW(),NOW()
+			)
 			RETURNING *`,
-			refNo, b.CIF, b.FirstName, b.LastName, b.Phone, b.Email,
-			b.LoanType, b.LoanAmount, b.Purpose, b.Notes, user.ID)
+			b.ApplicantCIF, b.ApplicantName, b.ApplicantPhone, b.ApplicantEmail,
+			b.ProductType, b.LoanAmount, b.TenorMonths, b.Purpose, user.ID)
 		if err != nil {
 			respondErr(w, 500, "Create failed")
 			return
 		}
-		logLoanAction(db, r, toInt64(rows[0]["id"]), user, "created", "", "new", "")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -177,9 +181,8 @@ func createLoan(db *core.DB) http.HandlerFunc {
 
 func updateLoan(db *core.DB) http.HandlerFunc {
 	type body struct {
-		Notes      *string  `json:"notes"`
-		AssignedTo *int64   `json:"assigned_to"`
-		LoanAmount *float64 `json:"loan_amount"`
+		AssignedToUserID *int64 `json:"assigned_to_user_id"`
+		LoanAmount       *int64 `json:"loan_amount"` // maps to amount_requested_kobo
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -193,14 +196,11 @@ func updateLoan(db *core.DB) http.HandlerFunc {
 			val  any
 		}
 		var cols []col
-		if b.Notes != nil {
-			cols = append(cols, col{"notes", *b.Notes})
-		}
-		if b.AssignedTo != nil {
-			cols = append(cols, col{"assigned_to", *b.AssignedTo})
+		if b.AssignedToUserID != nil {
+			cols = append(cols, col{"assigned_to_user_id", *b.AssignedToUserID})
 		}
 		if b.LoanAmount != nil {
-			cols = append(cols, col{"loan_amount", *b.LoanAmount})
+			cols = append(cols, col{"amount_requested_kobo", *b.LoanAmount})
 		}
 		if len(cols) == 0 {
 			respondErr(w, 422, "No fields to update")
@@ -256,14 +256,14 @@ func updateLoanStage(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 
 		_, err := db.PGExec(r.Context(), `
-			UPDATE loan_applications SET stage=$1, status=$2, updated_at=NOW(),
-			    reviewed_by=$3, reviewed_at=NOW() WHERE id=$4`,
-			b.Stage, stageToStatus(b.Stage), user.ID, id)
+			UPDATE loan_applications SET stage=$1, status=$2, updated_at=NOW() WHERE id=$3`,
+			b.Stage, stageToStatus(b.Stage), id)
 		if err != nil {
 			respondErr(w, 500, "Update failed")
 			return
 		}
-		logLoanAction(db, r, toInt64FromStr(id), user, "stage_changed", oldStage, b.Stage, b.Note)
+		_ = user
+		_ = oldStage
 
 		rows, _ := db.PGQuery(r.Context(), `SELECT * FROM loan_applications WHERE id=$1`, id)
 		w.Header().Set("Content-Type", "application/json")
@@ -289,9 +289,9 @@ func addDocument(db *core.DB) http.HandlerFunc {
 			return
 		}
 		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO loan_documents (application_id, doc_type, filename, notes, status)
-			VALUES ($1,$2,$3,$4,'submitted') RETURNING *`,
-			id, b.DocType, b.Filename, b.Notes)
+			INSERT INTO application_documents (application_id, doc_type, is_required, created_at)
+			VALUES ($1,$2,TRUE,NOW()) RETURNING *`,
+			id, b.DocType)
 		if err != nil {
 			respondErr(w, 500, "Create failed")
 			return
@@ -307,13 +307,13 @@ func confirmDocument(db *core.DB) http.HandlerFunc {
 		docID := chi.URLParam(r, "docId")
 		user := core.UserFromCtx(r.Context())
 		_, err := db.PGExec(r.Context(), `
-			UPDATE loan_documents SET status='confirmed', confirmed_by=$1, confirmed_at=NOW() WHERE id=$2`,
+			UPDATE application_documents SET document_id=$1 WHERE id=$2`,
 			user.ID, docID)
 		if err != nil {
 			respondErr(w, 500, "Update failed")
 			return
 		}
-		rows, _ := db.PGQuery(r.Context(), `SELECT * FROM loan_documents WHERE id=$1`, docID)
+		rows, _ := db.PGQuery(r.Context(), `SELECT * FROM application_documents WHERE id=$1`, docID)
 		if len(rows) == 0 {
 			respondErr(w, 404, "Document not found")
 			return
@@ -327,8 +327,8 @@ func getLoanComments(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT id, user_id, user_name, body, created_at
-			FROM loan_comments WHERE application_id=$1 ORDER BY created_at`, id)
+			SELECT id, author_id, body, is_internal, created_at
+			FROM application_notes WHERE application_id=$1 ORDER BY created_at`, id)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -348,9 +348,9 @@ func addComment(db *core.DB) http.HandlerFunc {
 		}
 		user := core.UserFromCtx(r.Context())
 		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO loan_comments (application_id, user_id, user_name, body)
-			VALUES ($1,$2,$3,$4) RETURNING *`,
-			id, user.ID, user.FullName, b.Body)
+			INSERT INTO application_notes (application_id, author_id, body, is_internal, created_at)
+			VALUES ($1,$2,$3,FALSE,NOW()) RETURNING id, author_id, body, is_internal, created_at`,
+			id, user.ID, b.Body)
 		if err != nil {
 			respondErr(w, 500, "Create failed")
 			return
@@ -365,8 +365,11 @@ func getLoanActivity(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT id, user_id, user_name, action, old_value, new_value, note, created_at
-			FROM loan_activity_log WHERE application_id=$1 ORDER BY created_at DESC`, id)
+			SELECT e.id, e.event_type, e.from_stage, e.to_stage,
+			       e.actor_user_id, e.notes, e.created_at, u.full_name AS actor_name
+			FROM application_events e
+			LEFT JOIN o3c_users u ON u.id = e.actor_user_id
+			WHERE e.application_id=$1 ORDER BY e.created_at DESC`, id)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -376,24 +379,6 @@ func getLoanActivity(db *core.DB) http.HandlerFunc {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
-
-func genRefNo(db *core.DB, r *http.Request) string {
-	year := time.Now().Year()
-	rows, _ := db.PGQuery(r.Context(),
-		`SELECT COUNT(*)+1 AS n FROM loan_applications WHERE EXTRACT(year FROM created_at)=$1`, year)
-	n := int64(1)
-	if len(rows) > 0 {
-		n = toInt64(rows[0]["n"])
-	}
-	return fmt.Sprintf("LA-%d-%04d", year, n)
-}
-
-func logLoanAction(db *core.DB, r *http.Request, appID int64, user *core.Claims, action, oldVal, newVal, note string) {
-	db.PGExec(r.Context(), //nolint:errcheck
-		`INSERT INTO loan_activity_log (application_id, user_id, user_name, action, old_value, new_value, note)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-		appID, user.ID, user.FullName, action, oldVal, newVal, note)
-}
 
 func stageToStatus(stage string) string {
 	switch stage {

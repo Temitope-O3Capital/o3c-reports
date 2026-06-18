@@ -22,12 +22,13 @@ export default function Overview() {
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
+      const qs = new URLSearchParams({ date_from: from, date_to: to }).toString()
       const [k, vol, acct, prod, typ] = await Promise.all([
-        apiFetch('/api/overview/kpis'),
-        apiFetch('/api/overview/monthly-volume'),
-        apiFetch('/api/overview/new-accounts-trend'),
-        apiFetch('/api/overview/cards-by-product'),
-        apiFetch('/api/overview/txn-by-type'),
+        apiFetch(`/api/overview/kpis?${qs}`),
+        apiFetch(`/api/overview/monthly-volume?${qs}`),
+        apiFetch(`/api/overview/new-accounts-trend?${qs}`),
+        apiFetch(`/api/overview/cards-by-product?${qs}`),
+        apiFetch(`/api/overview/txn-by-type?${qs}`),
       ])
       setKpis(k.data ?? k)
       setVolume(vol.data ?? vol)
@@ -36,7 +37,7 @@ export default function Overview() {
       setByType(typ.data ?? typ)
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [from, to])
 
   useEffect(() => { load() }, [load])
 

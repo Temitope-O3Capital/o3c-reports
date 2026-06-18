@@ -370,7 +370,7 @@ func complianceSARList(db *core.DB) http.HandlerFunc {
 		// omitted from the list view to prevent tipping off. Real decryption is TBD.
 		args := []any{}
 		if status != "" {
-			query += " AND status = $1"
+			query += fmt.Sprintf(" AND status = $%d", len(args)+1)
 			args = append(args, status)
 		}
 		query += " ORDER BY created_at DESC"

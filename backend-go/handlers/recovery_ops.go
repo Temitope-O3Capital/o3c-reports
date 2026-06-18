@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -189,10 +190,10 @@ func recoveryOpsAssign(db *core.DB) http.HandlerFunc {
 
 func recoveryOpsPayment(db *core.DB) http.HandlerFunc {
 	type body struct {
-		AmountKobo    int64  `json:"amount_kobo"`
-		PaymentDate   string `json:"payment_date"`
-		PaymentMethod string `json:"payment_method"`
-		ReceiptRef    string `json:"receipt_ref"`
+		AmountKobo  int64  `json:"amount_kobo"`
+		PaymentDate string `json:"payment_date"`
+		Channel     string `json:"channel"`
+		Reference   string `json:"reference"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -205,32 +206,58 @@ func recoveryOpsPayment(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.AmountKobo == 0 || b.PaymentDate == "" || b.PaymentMethod == "" {
-			respondErr(w, 422, "amount_kobo, payment_date and payment_method are required")
+		if b.AmountKobo == 0 || b.PaymentDate == "" || b.Channel == "" {
+			respondErr(w, 422, "amount_kobo, payment_date and channel are required")
 			return
 		}
 
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
 
-		rows, err := db.PGQuery(ctx, `
-			INSERT INTO recovery_payments (case_id, amount_kobo, payment_date, payment_method, receipt_ref, posted_by, created_at)
+		// Wrap INSERT + UPDATE in a transaction so neither can succeed without the other
+		tx, err := db.PG.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+		if err != nil {
+			respondErr(w, 500, "Transaction start failed")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		var payID int64
+		var payDate, payChannel, payRef, createdAt any
+		err = tx.QueryRowContext(ctx, `
+			INSERT INTO recovery_payments (case_id, amount_kobo, payment_date, channel, reference, posted_by, created_at)
 			VALUES ($1, $2, $3, $4, $5, $6, NOW())
-			RETURNING id, amount_kobo, payment_date, payment_method, receipt_ref, created_at`,
-			id, b.AmountKobo, b.PaymentDate, b.PaymentMethod, b.ReceiptRef, user.ID)
+			RETURNING id, amount_kobo, payment_date, channel, reference, created_at`,
+			id, b.AmountKobo, b.PaymentDate, b.Channel, b.Reference, user.ID,
+		).Scan(&payID, &b.AmountKobo, &payDate, &payChannel, &payRef, &createdAt)
 		if err != nil {
 			respondErr(w, 500, "Log payment failed")
 			return
 		}
 
-		// Update recovered_kobo total on the case
-		db.PGExec(ctx, `
+		_, err = tx.ExecContext(ctx, `
 			UPDATE recovery_cases
-			SET recovered_kobo = recovered_kobo + $1, updated_at = NOW()
+			SET total_recovered_kobo = total_recovered_kobo + $1, updated_at = NOW()
 			WHERE id = $2`,
-			b.AmountKobo, id) //nolint:errcheck
+			b.AmountKobo, id)
+		if err != nil {
+			respondErr(w, 500, "Update recovered total failed")
+			return
+		}
 
-		respond(w, rows[0], "pg")
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed")
+			return
+		}
+
+		respond(w, core.Row{
+			"id":          payID,
+			"amount_kobo": b.AmountKobo,
+			"payment_date": payDate,
+			"channel":     payChannel,
+			"reference":   payRef,
+			"created_at":  createdAt,
+		}, "pg")
 	}
 }
 

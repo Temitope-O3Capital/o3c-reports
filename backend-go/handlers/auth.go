@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -177,22 +178,11 @@ func changePasswordHandler(db *core.DB) http.HandlerFunc {
 // Once any user exists this endpoint returns 403 — it self-disables.
 func BootstrapHandler(db *core.DB) http.HandlerFunc {
 	type body struct {
-		Email     string `json:"email"`
-		Password  string `json:"password"`
-		FullName  string `json:"full_name"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		FullName string `json:"full_name"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Guard: refuse if any user already exists
-		rows, err := db.PGQuery(r.Context(), `SELECT 1 FROM o3c_users LIMIT 1`)
-		if err != nil {
-			respondErr(w, 503, "Database unavailable")
-			return
-		}
-		if len(rows) > 0 {
-			respondErr(w, 403, "Platform already has users — use the admin panel to add more")
-			return
-		}
-
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -216,13 +206,20 @@ func BootstrapHandler(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// Atomic: INSERT only when no users exist, RETURNING nothing if a race wins.
 		created, err := db.PGQuery(r.Context(),
 			`INSERT INTO o3c_users (email, password_hash, full_name, first_name, last_name, role, must_change_password)
-			 VALUES ($1, $2, $3, $3, '', 'admin', FALSE)
+			 SELECT $1, $2, $3, $3, '', 'admin', FALSE
+			 WHERE NOT EXISTS (SELECT 1 FROM o3c_users)
 			 RETURNING id, email, full_name, role`,
 			b.Email, hash, b.FullName)
 		if err != nil {
-			respondErr(w, 500, "Failed to create admin user: "+err.Error())
+			slog.Error("BootstrapHandler: failed to create admin user", "err", err)
+			respondErr(w, 500, "Failed to create admin user")
+			return
+		}
+		if len(created) == 0 {
+			respondErr(w, 403, "Platform already has users — use the admin panel to add more")
 			return
 		}
 
@@ -234,15 +231,26 @@ func BootstrapHandler(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// ResetAdminHandler resets a user's password. Requires X-Admin-Secret header matching SECRET_KEY.
-// Remove this endpoint after the password has been reset.
-func ResetAdminHandler(db *core.DB, secretKey string) http.HandlerFunc {
+// ResetAdminHandler resets a user's password. Requires X-Admin-Secret header matching
+// RESET_ADMIN_SECRET (a dedicated env var, separate from SECRET_KEY).
+// Only mounted when ENABLE_RESET_ADMIN=true. Remove that env var after use.
+func ResetAdminHandler(db *core.DB, resetSecret string) http.HandlerFunc {
 	type body struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Admin-Secret") != secretKey {
+		ip := ""
+		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+			parts := strings.Split(fwd, ",")
+			ip = strings.TrimSpace(parts[len(parts)-1])
+		}
+		if ip == "" {
+			ip = r.RemoteAddr
+		}
+
+		if r.Header.Get("X-Admin-Secret") != resetSecret {
+			slog.Warn("ResetAdminHandler: forbidden attempt", "ip", ip)
 			respondErr(w, 403, "Forbidden")
 			return
 		}
@@ -264,9 +272,11 @@ func ResetAdminHandler(db *core.DB, secretKey string) http.HandlerFunc {
 			`UPDATE o3c_users SET password_hash=$1, must_change_password=FALSE, is_active=TRUE, deleted_at=NULL
 			 WHERE email=$2 RETURNING id, email, role`, hash, b.Email)
 		if err != nil || len(res) == 0 {
-			respondErr(w, 404, "User not found: "+b.Email)
+			slog.Warn("ResetAdminHandler: user not found", "email", b.Email, "ip", ip)
+			respondErr(w, 404, "User not found")
 			return
 		}
+		slog.Warn("ResetAdminHandler: password reset performed", "email", b.Email, "ip", ip)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"message": "Password reset", "user": res[0]}) //nolint:errcheck
 	}

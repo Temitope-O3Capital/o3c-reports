@@ -259,7 +259,7 @@ func collectionsOpsTargets(db *core.DB) http.HandlerFunc {
 			SELECT ct.id, ct.agent_user_id, u.full_name AS agent_name,
 			       ct.target_date, ct.target_amount_kobo, ct.collected_amount_kobo,
 			       ct.contacts_made, ct.promises_obtained, ct.created_at, ct.updated_at
-			FROM collection_targets ct
+			FROM collections_daily_kpi
 			LEFT JOIN o3c_users u ON ct.agent_user_id = u.id
 			WHERE 1=1`
 		args := []any{}
@@ -356,9 +356,9 @@ func collectionsOpsDashboard(db *core.DB) http.HandlerFunc {
 				WHERE is_honoured = TRUE
 				  AND honoured_at::date = CURRENT_DATE`},
 			{"collected_today_kobo", `
-				SELECT COALESCE(SUM(ct.collected_amount_kobo), 0) AS val
-				FROM collection_targets ct
-				WHERE ct.target_date = CURRENT_DATE`},
+				SELECT COALESCE(SUM(amount_collected_kobo), 0) AS val
+				FROM collections_daily_kpi
+				WHERE kpi_date = CURRENT_DATE`},
 			{"contacts_today", `
 				SELECT COUNT(*) AS val FROM collection_contacts
 				WHERE contact_date::date = CURRENT_DATE`},

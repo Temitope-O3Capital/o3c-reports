@@ -1,5 +1,6 @@
 export function fmt(n: unknown): string {
-  const x = Number(n ?? 0)
+  if (n === null || n === undefined) return '—'
+  const x = Number(n)
   const abs = Math.abs(x)
   const s = x < 0 ? '-' : ''
   if (abs >= 1_000_000_000) return s + '₦' + (abs / 1_000_000_000).toFixed(2) + 'B'
@@ -9,11 +10,13 @@ export function fmt(n: unknown): string {
 }
 
 export function fmtExact(n: unknown): string {
-  return '₦' + Number(n ?? 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  if (n === null || n === undefined) return '—'
+  return '₦' + Number(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 export function fmtNum(n: unknown): string {
-  const x = Number(n ?? 0)
+  if (n === null || n === undefined) return '—'
+  const x = Number(n)
   if (x >= 1_000_000) return (x / 1_000_000).toFixed(1) + 'M'
   if (x >= 1_000)     return (x / 1_000).toFixed(1) + 'K'
   return x.toLocaleString()

@@ -45,9 +45,9 @@ export default function Recovery() {
     try {
       const qs = new URLSearchParams({ date_from: from, date_to: to }).toString()
       const [k, bm, tr, cs] = await Promise.all([
-        apiFetch('/api/recovery/kpis'),
-        apiFetch('/api/recovery/by-method'),
-        apiFetch('/api/recovery/monthly-trend'),
+        apiFetch(`/api/recovery/kpis?${qs}`),
+        apiFetch(`/api/recovery/by-method?${qs}`),
+        apiFetch(`/api/recovery/monthly-trend?${qs}`),
         apiFetch(`/api/recovery/cases?${qs}`),
       ])
       setKpis(k.data ?? k)

@@ -100,18 +100,18 @@ func cpCreateApplication(db *core.DB) http.HandlerFunc {
 			CustomerName    string   `json:"customer_name"`
 			Company         string   `json:"company"`
 			Type            string   `json:"type"`
-			RequestedAmount *float64 `json:"requested_amount"`
+			RequestedAmount *int64   `json:"requested_amount"`
 			Status          string   `json:"status"`
-			ApprovedAmount  *float64 `json:"approved_amount"`
+			ApprovedAmount  *int64   `json:"approved_amount"`
 			DeclinedReason  string   `json:"declined_reason"`
 			DateProcessed   string   `json:"date_processed"`
-			DisbursedAmount *float64 `json:"disbursed_amount"`
+			DisbursedAmount *int64   `json:"disbursed_amount"`
 			DisbursedDate   string   `json:"disbursed_date"`
 			Mandate         string   `json:"mandate"`
 			LoanID          string   `json:"loan_id"`
 			Tenor           *int     `json:"tenor"`
 			Rate            *float64 `json:"rate"`
-			RepaymentAmount *float64 `json:"repayment_amount"`
+			RepaymentAmount *int64   `json:"repayment_amount"`
 			MaturityDate    string   `json:"maturity_date"`
 			Location        string   `json:"location"`
 			AccountOfficer  string   `json:"account_officer"`
@@ -220,7 +220,15 @@ func cpUpdateApplication(db *core.DB) http.HandlerFunc {
 func cpDeleteApplication(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
-		db.PGExec(r.Context(), `DELETE FROM credit_applications WHERE id=$1`, id) //nolint:errcheck
+		res, err := db.PGQuery(r.Context(), `DELETE FROM credit_applications WHERE id=$1 RETURNING id`, id)
+		if err != nil {
+			respondErr(w, 500, "Delete failed")
+			return
+		}
+		if len(res) == 0 {
+			respondErr(w, 404, "Application not found")
+			return
+		}
 		w.WriteHeader(204)
 	}
 }
@@ -240,14 +248,14 @@ func cpAddRepayment(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		appID := chi.URLParam(r, "id")
 		var b struct {
-			PaymentMonth   string   `json:"payment_month"`
-			ExpectedAmount *float64 `json:"expected_amount"`
-			PaidAmount     *float64 `json:"paid_amount"`
-			PaymentDate    string   `json:"payment_date"`
-			DPD            *int     `json:"dpd"`
-			PaymentStatus  string   `json:"payment_status"`
-			Comment        string   `json:"comment"`
-			ActionTaken    string   `json:"action_taken"`
+			PaymentMonth   string `json:"payment_month"`
+			ExpectedAmount *int64 `json:"expected_amount"`
+			PaidAmount     *int64 `json:"paid_amount"`
+			PaymentDate    string `json:"payment_date"`
+			DPD            *int   `json:"dpd"`
+			PaymentStatus  string `json:"payment_status"`
+			Comment        string `json:"comment"`
+			ActionTaken    string `json:"action_taken"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON"); return
@@ -308,7 +316,15 @@ func cpUpdateRepayment(db *core.DB) http.HandlerFunc {
 func cpDeleteRepayment(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rid := chi.URLParam(r, "rid")
-		db.PGExec(r.Context(), `DELETE FROM loan_repayments WHERE id=$1`, rid) //nolint:errcheck
+		res, err := db.PGQuery(r.Context(), `DELETE FROM loan_repayments WHERE id=$1 RETURNING id`, rid)
+		if err != nil {
+			respondErr(w, 500, "Delete failed")
+			return
+		}
+		if len(res) == 0 {
+			respondErr(w, 404, "Repayment not found")
+			return
+		}
 		w.WriteHeader(204)
 	}
 }
@@ -389,7 +405,15 @@ func cpUpdateCollateral(db *core.DB) http.HandlerFunc {
 func cpDeleteCollateral(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cid := chi.URLParam(r, "cid")
-		db.PGExec(r.Context(), `DELETE FROM loan_collateral WHERE id=$1`, cid) //nolint:errcheck
+		res, err := db.PGQuery(r.Context(), `DELETE FROM loan_collateral WHERE id=$1 RETURNING id`, cid)
+		if err != nil {
+			respondErr(w, 500, "Delete failed")
+			return
+		}
+		if len(res) == 0 {
+			respondErr(w, 404, "Collateral record not found")
+			return
+		}
 		w.WriteHeader(204)
 	}
 }

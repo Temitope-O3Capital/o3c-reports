@@ -49,7 +49,10 @@ func CreateToken(c *Claims) (string, error) {
 
 func VerifyToken(raw string) (*Claims, error) {
 	c := &Claims{}
-	_, err := jwt.ParseWithClaims(raw, c, func(*jwt.Token) (any, error) {
+	_, err := jwt.ParseWithClaims(raw, c, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
 		return []byte(secretKey), nil
 	}, jwt.WithAudience(tokenAudience))
 	if err != nil {

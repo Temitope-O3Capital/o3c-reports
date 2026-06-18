@@ -7,6 +7,7 @@ import Login from './pages/Login'
 import Overview from './pages/Overview'
 import { AuthUser } from './hooks/useAuth'
 import { roleLabel } from './lib/roles'
+import { ROLE_PAGES } from './hooks/useAuth'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -315,8 +316,15 @@ function ApprovalsButton({ user }: { user: AuthUser }) {
 
 // ── Token helpers ─────────────────────────────────────────────────────────────
 
-function parseToken(token: string): { exp: number } | null {
-  try { return JSON.parse(atob(token.split('.')[1])) } catch { return null }
+function parseToken(token: string): { exp: number; [key: string]: any } | null {
+  try {
+    const b64 = token.split('.')[1]
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+    return JSON.parse(atob(b64))
+  } catch {
+    return null
+  }
 }
 
 // ── Force change password wall ────────────────────────────────────────────────
@@ -390,6 +398,19 @@ function ForceChangePassword({ onDone, onLogout }: { onDone: () => void; onLogou
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
+
+// ── Route-level role guard ────────────────────────────────────────────────────
+
+function RequireAccess({ page, user, children }: { page: string; user: AuthUser; children: React.ReactNode }) {
+  // Prefer pages from the JWT (user.pages), fall back to frontend ROLE_PAGES map
+  const pages: string[] = user.pages?.length
+    ? user.pages
+    : (ROLE_PAGES[user.role as string] ?? [])
+  if (pages.length > 0 && !pages.includes(page)) {
+    return <Navigate to="/" replace />
+  }
+  return <>{children}</>
+}
 
 const MGMT_ROLES = ['md', 'coo', 'cfo', 'cmo', 'executive', 'admin', 'management', 'head_ops', 'head_it']
 
@@ -497,11 +518,11 @@ export default function App() {
                 <Route path="/approvals" element={<Approvals />} />
 
                 {/* ── Finance ── */}
-                <Route path="/finance"              element={<FinanceOverview />} />
-                <Route path="/finance/transactions" element={<Transactions />} />
-                <Route path="/finance/income"       element={<Income />} />
-                <Route path="/finance/fixed-deposit"element={<FixedDeposit />} />
-                <Route path="/finance/eod"          element={<Eod />} />
+                <Route path="/finance"              element={<RequireAccess page="income" user={user}><FinanceOverview /></RequireAccess>} />
+                <Route path="/finance/transactions" element={<RequireAccess page="transactions" user={user}><Transactions /></RequireAccess>} />
+                <Route path="/finance/income"       element={<RequireAccess page="income" user={user}><Income /></RequireAccess>} />
+                <Route path="/finance/fixed-deposit"element={<RequireAccess page="fixed_deposit" user={user}><FixedDeposit /></RequireAccess>} />
+                <Route path="/finance/eod"          element={<RequireAccess page="eod" user={user}><Eod /></RequireAccess>} />
 
                 {/* ── Sales & CRM ── */}
                 <Route path="/sales"                    element={<SalesOverview />} />
@@ -513,9 +534,9 @@ export default function App() {
                 <Route path="/sales/applications/:id"   element={<LOSDetail />} />
 
                 {/* ── Risk & Credit ── */}
-                <Route path="/risk"              element={<RiskOverview />} />
-                <Route path="/risk/applications" element={<LOSAll />} />
-                <Route path="/risk/portfolio"    element={<RiskPortfolio />} />
+                <Route path="/risk"              element={<RequireAccess page="credit_portfolio" user={user}><RiskOverview /></RequireAccess>} />
+                <Route path="/risk/applications" element={<RequireAccess page="los_all" user={user}><LOSAll /></RequireAccess>} />
+                <Route path="/risk/portfolio"    element={<RequireAccess page="credit_portfolio" user={user}><RiskPortfolio /></RequireAccess>} />
 
                 {/* ── Settlements ── */}
                 <Route path="/settlements"      element={<SettlementsOverview />} />
@@ -549,21 +570,21 @@ export default function App() {
                 <Route path="/customer-service/calls" element={<CSCalls />} />
 
                 {/* ── HR ── */}
-                <Route path="/hr"              element={<Placeholder title="HR Overview" dept="HR" icon="groups" />} />
-                <Route path="/hr/employees"    element={<HREmployees />} />
-                <Route path="/hr/leave"        element={<HRLeave />} />
-                <Route path="/hr/performance"  element={<HRPerformance />} />
-                <Route path="/hr/disciplinary" element={<HRDisciplinary />} />
-                <Route path="/hr/training"     element={<HRTraining />} />
+                <Route path="/hr"              element={<RequireAccess page="hr_employees" user={user}><Placeholder title="HR Overview" dept="HR" icon="groups" /></RequireAccess>} />
+                <Route path="/hr/employees"    element={<RequireAccess page="hr_employees" user={user}><HREmployees /></RequireAccess>} />
+                <Route path="/hr/leave"        element={<RequireAccess page="hr_leave" user={user}><HRLeave /></RequireAccess>} />
+                <Route path="/hr/performance"  element={<RequireAccess page="hr_performance" user={user}><HRPerformance /></RequireAccess>} />
+                <Route path="/hr/disciplinary" element={<RequireAccess page="hr_disciplinary" user={user}><HRDisciplinary /></RequireAccess>} />
+                <Route path="/hr/training"     element={<RequireAccess page="hr_training" user={user}><HRTraining /></RequireAccess>} />
 
                 {/* ── Compliance ── */}
-                <Route path="/compliance"               element={<Placeholder title="Compliance Overview" dept="Compliance" icon="policy" />} />
-                <Route path="/compliance/watchlist"     element={<WatchList />} />
-                <Route path="/compliance/sars"          element={<Sars />} />
-                <Route path="/compliance/cbn-reports"   element={<CbnReports />} />
-                <Route path="/compliance/findings"      element={<Findings />} />
-                <Route path="/compliance/checklists"    element={<Checklists />} />
-                <Route path="/compliance/audit-trail"   element={<AuditTrail />} />
+                <Route path="/compliance"               element={<RequireAccess page="compliance_checklists" user={user}><Placeholder title="Compliance Overview" dept="Compliance" icon="policy" /></RequireAccess>} />
+                <Route path="/compliance/watchlist"     element={<RequireAccess page="watch_list" user={user}><WatchList /></RequireAccess>} />
+                <Route path="/compliance/sars"          element={<RequireAccess page="sars" user={user}><Sars /></RequireAccess>} />
+                <Route path="/compliance/cbn-reports"   element={<RequireAccess page="cbn_reports" user={user}><CbnReports /></RequireAccess>} />
+                <Route path="/compliance/findings"      element={<RequireAccess page="audit_findings" user={user}><Findings /></RequireAccess>} />
+                <Route path="/compliance/checklists"    element={<RequireAccess page="compliance_checklists" user={user}><Checklists /></RequireAccess>} />
+                <Route path="/compliance/audit-trail"   element={<RequireAccess page="audit_trail" user={user}><AuditTrail /></RequireAccess>} />
 
                 {/* ── Campaigns ── */}
                 <Route path="/campaigns"           element={<Campaigns />} />
@@ -574,11 +595,11 @@ export default function App() {
                 <Route path="/reports" element={<Reports />} />
 
                 {/* ── Admin ── */}
-                <Route path="/admin"          element={<Navigate to="/admin/users" replace />} />
-                <Route path="/admin/users"    element={<UserManagement />} />
-                <Route path="/admin/api-keys" element={<ApiKeys />} />
-                <Route path="/admin/settings" element={<PlatformSettings />} />
-                <Route path="/admin/sync"     element={<SyncStatus />} />
+                <Route path="/admin"          element={<RequireAccess page="admin_users" user={user}><Navigate to="/admin/users" replace /></RequireAccess>} />
+                <Route path="/admin/users"    element={<RequireAccess page="admin_users" user={user}><UserManagement /></RequireAccess>} />
+                <Route path="/admin/api-keys" element={<RequireAccess page="admin_api_keys" user={user}><ApiKeys /></RequireAccess>} />
+                <Route path="/admin/settings" element={<RequireAccess page="settings" user={user}><PlatformSettings /></RequireAccess>} />
+                <Route path="/admin/sync"     element={<RequireAccess page="sync_status" user={user}><SyncStatus /></RequireAccess>} />
 
                 {/* ── Watch ── */}
                 <Route path="/watch" element={<Watch />} />

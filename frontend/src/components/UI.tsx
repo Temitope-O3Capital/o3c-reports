@@ -1,5 +1,5 @@
 // Shared UI primitives used across all pages
-import { useState, useRef, useEffect, ReactNode } from 'react'
+import { useState, useRef, useEffect, useId, ReactNode } from 'react'
 import { STATUS_LABELS, snake } from '../lib/labels'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,

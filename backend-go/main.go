@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/httprate"
 	"github.com/o3c/reports/core"
 	"github.com/o3c/reports/handlers"
 )
@@ -45,15 +46,18 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware(cfg.AllowedOrigins))
 	r.Use(securityHeaders)
+	r.Use(httprate.LimitByIP(100, time.Minute))
 
 	// ── Public endpoints ───────────────────────────────────────────────────────
 	r.Get("/api/health", healthHandler(db))
 
 	// Mount auth routes (token is public, me/change-password require auth)
 	r.Route("/api/auth", func(r chi.Router) {
-		r.Post("/token", loginPublic(db))
+		r.With(httprate.LimitByIP(5, time.Minute)).Post("/token", loginPublic(db))
 		r.Post("/bootstrap", handlers.BootstrapHandler(db))
-		r.Post("/reset-admin", handlers.ResetAdminHandler(db, cfg.SecretKey))
+		if cfg.EnableResetAdmin {
+			r.Post("/reset-admin", handlers.ResetAdminHandler(db, cfg.ResetAdminSecret))
+		}
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
 			r.Get("/me", mePublic())
@@ -263,10 +267,14 @@ func activityLogger(db *core.DB) func(http.Handler) http.Handler {
 					break
 				}
 			}
-			go db.PGExec(r.Context(), //nolint:errcheck
-				`INSERT INTO o3c_activity_log (user_id, page, action, detail, ip, resource, method)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-				user.ID, page, action, "", ip, path, r.Method)
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				db.PGExec(ctx, //nolint:errcheck
+					`INSERT INTO o3c_activity_log (user_id, page, action, detail, ip, resource, method)
+					 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+					user.ID, page, action, "", ip, path, r.Method)
+			}()
 		})
 	}
 }
@@ -284,7 +292,7 @@ func corsMiddleware(allowed []string) func(http.Handler) http.Handler {
 			if set[origin] {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 				w.Header().Set("Vary", "Origin")
 			}

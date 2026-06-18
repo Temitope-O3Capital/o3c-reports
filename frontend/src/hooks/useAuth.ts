@@ -13,6 +13,7 @@ export interface AuthUser {
   name:                string
   email:               string
   role:                Role
+  pages?:              string[]
   must_change_password?: boolean
 }
 
@@ -41,8 +42,15 @@ export const ROLE_PAGES: Record<string, string[]> = {
   call_centre:      ['overview','transactions','call_center','crm_requests','crm_contacts','uploads'],
 }
 
-function parseToken(token: string): { exp: number } | null {
-  try { return JSON.parse(atob(token.split('.')[1])) } catch { return null }
+function parseToken(token: string): { exp: number; [key: string]: any } | null {
+  try {
+    const b64 = token.split('.')[1]
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+    return JSON.parse(atob(b64))
+  } catch {
+    return null
+  }
 }
 
 export function useAuth() {

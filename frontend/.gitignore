@@ -1,0 +1,11 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment files — never commit secrets
+# VITE_API_URL is injected by the CI build step (see .github/workflows/deploy.yml)
+.env.production
+.env.local
+.env.*.local

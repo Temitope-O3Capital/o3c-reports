@@ -11,7 +11,6 @@ import (
 // Returns pending items across LOS, write-offs, and leave requests
 // relevant to the authenticated user's role.
 func RegisterApprovals(r chi.Router, db *core.DB) {
-	r.Use(core.AuthMiddleware)
 	r.Get("/pending", approvalsPending(db))
 	r.Get("/summary", approvalsSummary(db))
 }

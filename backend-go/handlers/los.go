@@ -205,21 +205,15 @@ func losCreate(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
 
-		// Generate reference: LOS-YYYYMM-XXXX
+		// Generate reference: LOS-YYYYMM-XXXX using a sequence to avoid TOCTOU races
 		now := time.Now().UTC()
-		prefix := fmt.Sprintf("LOS-%s-", now.Format("200601"))
-		countRows, err := db.PGQuery(ctx,
-			`SELECT COUNT(*) AS c FROM loan_applications
-			 WHERE reference LIKE $1`, prefix+"%")
-		if err != nil {
+		seqRow, err := db.PGQuery(ctx, `SELECT nextval('los_ref_seq') AS seq`)
+		if err != nil || len(seqRow) == 0 {
 			respondErr(w, 500, "Reference generation failed")
 			return
 		}
-		seq := int64(1)
-		if len(countRows) > 0 {
-			seq = toInt64(countRows[0]["c"]) + 1
-		}
-		ref := fmt.Sprintf("%s%04d", prefix, seq)
+		seq := toInt64(seqRow[0]["seq"])
+		ref := fmt.Sprintf("LOS-%s-%04d", now.Format("200601"), seq)
 
 		rows, err := db.PGQuery(ctx, `
 			INSERT INTO loan_applications (
@@ -349,8 +343,8 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 		}
 
 		_, err = db.PGExec(ctx,
-			fmt.Sprintf(`UPDATE loan_applications SET stage = $1, status = $1%s, updated_at = NOW() WHERE id = $2`, extra),
-			b.ToStage, id)
+			fmt.Sprintf(`UPDATE loan_applications SET stage = $1, status = $2%s, updated_at = NOW() WHERE id = $3`, extra),
+			b.ToStage, losStageToStatus(b.ToStage), id)
 		if err != nil {
 			respondErr(w, 500, "Advance failed")
 			return
@@ -461,9 +455,9 @@ func losRequestInfo(db *core.DB) http.HandlerFunc {
 		}
 
 		_, err = db.PGExec(ctx,
-			`UPDATE loan_applications SET stage = $1, status = $1,
-			 request_info_count = request_info_count + 1, updated_at = NOW() WHERE id = $2`,
-			prevStage, id)
+			`UPDATE loan_applications SET stage = $1, status = $2,
+			 request_info_count = request_info_count + 1, updated_at = NOW() WHERE id = $3`,
+			prevStage, losStageToStatus(prevStage), id)
 		if err != nil {
 			respondErr(w, 500, "Request info failed")
 			return
@@ -596,5 +590,19 @@ func losGetEvents(db *core.DB) http.HandlerFunc {
 			rows = []core.Row{}
 		}
 		respond(w, rows, "pg")
+	}
+}
+
+// losStageToStatus maps a LOS workflow stage to its canonical status value.
+func losStageToStatus(stage string) string {
+	switch stage {
+	case "approved", "booking":
+		return "approved"
+	case "declined", "rejected":
+		return "declined"
+	case "active":
+		return "active"
+	default:
+		return "pending"
 	}
 }

@@ -1,4 +1,4 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:1.24-alpine AS builder
 WORKDIR /build
 RUN apk add --no-cache git
 
@@ -9,10 +9,13 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o server .
 
 # ── Runtime ────────────────────────────────────────────────────────────────────
-FROM alpine:3.19
-RUN apk add --no-cache ca-certificates tzdata
+FROM alpine:3.19 AS runtime
+RUN apk add --no-cache ca-certificates tzdata && \
+    addgroup -S app && adduser -S app -G app
 WORKDIR /app
 COPY --from=builder /build/server .
+RUN chown app:app /app/server
+USER app
 
 EXPOSE 8000
 ENV TZ=Africa/Lagos

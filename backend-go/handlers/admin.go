@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -12,6 +13,7 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -235,7 +237,7 @@ func deleteUser(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		caller := core.UserFromCtx(r.Context())
-		if caller != nil && itoa(int(caller.ID)) == id {
+		if caller != nil && strconv.FormatInt(caller.ID, 10) == id {
 			respondErr(w, 400, "Cannot delete your own account")
 			return
 		}
@@ -270,7 +272,7 @@ func deactivateUser(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		caller := core.UserFromCtx(r.Context())
-		if caller != nil && itoa(int(caller.ID)) == id {
+		if caller != nil && strconv.FormatInt(caller.ID, 10) == id {
 			respondErr(w, 400, "Cannot deactivate your own account")
 			return
 		}
@@ -283,7 +285,7 @@ func deactivateUser(db *core.DB) http.HandlerFunc {
 func reactivateUser(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
-		db.PGExec(r.Context(), `UPDATE o3c_users SET is_active=TRUE WHERE id=$1`, id) //nolint:errcheck
+		db.PGExec(r.Context(), `UPDATE o3c_users SET is_active=TRUE, deleted_at=NULL WHERE id=$1`, id) //nolint:errcheck
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"detail": "User reactivated"}) //nolint:errcheck
 	}
@@ -453,24 +455,28 @@ func itoa(n int) string {
 
 // ── API key encryption ────────────────────────────────────────────────────────
 
-// encryptionKey32 derives a 32-byte AES key from ENCRYPTION_KEY env var.
-// Returns nil (plaintext mode) if the env var is not set.
-func encryptionKey32() []byte {
+// encryptionKey32 returns the AES-256 key from ENCRYPTION_KEY env var.
+// Returns (nil, nil) when the env var is not set (plaintext-fallback mode).
+// Returns an error when the var is set but not exactly 32 bytes.
+func encryptionKey32() ([]byte, error) {
 	raw := os.Getenv("ENCRYPTION_KEY")
 	if raw == "" {
-		return nil
+		return nil, nil
 	}
 	key := []byte(raw)
-	// Pad or truncate to exactly 32 bytes.
-	out := make([]byte, 32)
-	copy(out, key)
-	return out
+	if len(key) != 32 {
+		return nil, fmt.Errorf("ENCRYPTION_KEY must be exactly 32 bytes, got %d", len(key))
+	}
+	return key, nil
 }
 
 // encryptValue encrypts plaintext using AES-GCM. Falls back to base64 plaintext
 // prefixed with "plain:" if ENCRYPTION_KEY is not set.
 func encryptValue(plaintext string) (string, error) {
-	key := encryptionKey32()
+	key, err := encryptionKey32()
+	if err != nil {
+		return "", err
+	}
 	if key == nil {
 		slog.Warn("ENCRYPTION_KEY not set — storing API key as base64 plaintext")
 		return "plain:" + base64.StdEncoding.EncodeToString([]byte(plaintext)), nil
@@ -500,7 +506,10 @@ func decryptValue(stored string) (string, error) {
 		}
 		return string(b), nil
 	}
-	key := encryptionKey32()
+	key, err := encryptionKey32()
+	if err != nil {
+		return "", err
+	}
 	if key == nil {
 		return "", fmt.Errorf("ENCRYPTION_KEY not set but value is encrypted")
 	}
@@ -645,8 +654,13 @@ func pingExternalAPI(keyName, category, value string) (status, detail string) {
 		return "failed", fmt.Sprintf("SendGrid responded %d", resp.StatusCode)
 
 	case strings.Contains(upper, "TERMII"):
-		req, _ := http.NewRequest("GET",
-			"https://api.ng.termii.com/api/get-balance?api_key="+value, nil)
+		body := strings.NewReader(`{"api_key":"` + value + `"}`)
+		req, err := http.NewRequestWithContext(context.Background(), "POST",
+			"https://api.ng.termii.com/api/get-balance", body)
+		if err != nil {
+			return "failed", "Request build error: " + err.Error()
+		}
+		req.Header.Set("Content-Type", "application/json")
 		resp, err := client.Do(req)
 		if err != nil {
 			return "failed", "Request error: " + err.Error()

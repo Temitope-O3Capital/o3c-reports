@@ -336,7 +336,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                 value={fmtNum(n(ps.success))}
                 sub={`Fully settled`} />
               <KpiCard label="Abandoned / Failed" icon="cancel" accent={RED}
-                value={fmtNum(n(ps.total_count) - n(ps.success) - n(ps.failed))}
+                value={fmtNum(n(ps.total_count) - n(ps.success))}
                 sub={`Not completed`} />
               <KpiCard label="Gross Volume" icon="payments" accent="#7C3AED"
                 value={fmtExact(n(ps.total_volume_ngn))}
