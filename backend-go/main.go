@@ -90,6 +90,11 @@ func main() {
 	// SSE stream — no JWT header (EventSource can't set headers); uses short-lived ticket
 	r.Route("/api/notifications", func(r chi.Router) {
 		handlers.RegisterNotificationsSSE(r, db)
+		r.Group(func(r chi.Router) {
+			r.Use(core.AuthMiddleware)
+			r.Use(activityLogger(db))
+			handlers.RegisterNotifications(r, db)
+		})
 	})
 
 	// ── Protected routes (all require valid JWT) ───────────────────────────────
@@ -190,9 +195,6 @@ func main() {
 		})
 		r.Route("/api/compliance", func(r chi.Router) {
 			handlers.RegisterCompliance(r, db)
-		})
-		r.Route("/api/notifications", func(r chi.Router) {
-			handlers.RegisterNotifications(r, db)
 		})
 		r.Route("/api/settings", func(r chi.Router) {
 			handlers.RegisterSettings(r, db)
