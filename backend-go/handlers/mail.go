@@ -280,7 +280,12 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 		return SendMailResult{Error: "recipient suppressed: " + reason}
 	}
 	if opt.SendViaUserMailbox && opt.ReplyToEmail != "" && graphConfigured(ctx, db) {
-		return sendMailViaGraph(ctx, db, opt)
+		res := sendMailViaGraph(ctx, db, opt)
+		if res.OK {
+			return res
+		}
+		slog.Warn("Microsoft Graph mail failed; falling back to SendGrid", "error", res.Error)
+		opt.SendViaUserMailbox = false
 	}
 	apiKey := resolveCredKey(ctx, db, "SENDGRID_API_KEY")
 	if apiKey == "" {
