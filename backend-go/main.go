@@ -80,6 +80,11 @@ func main() {
 	})
 	r.Route("/api/mail", func(r chi.Router) {
 		handlers.RegisterMailPublic(r, db)
+		r.Group(func(r chi.Router) {
+			r.Use(core.AuthMiddleware)
+			r.Use(activityLogger(db))
+			handlers.RegisterMail(r, db)
+		})
 	})
 
 	// SSE stream — no JWT header (EventSource can't set headers); uses short-lived ticket
@@ -139,9 +144,6 @@ func main() {
 		})
 		r.Route("/api/message-templates", func(r chi.Router) {
 			handlers.RegisterMessageTemplates(r, db)
-		})
-		r.Route("/api/mail", func(r chi.Router) {
-			handlers.RegisterMail(r, db)
 		})
 		r.Route("/api/reconciliation/paystack", func(r chi.Router) {
 			handlers.RegisterPaystackRecon(r, db)
