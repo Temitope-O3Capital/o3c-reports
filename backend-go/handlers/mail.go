@@ -18,6 +18,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -27,6 +28,14 @@ import (
 type MailAddress struct {
 	Email string
 	Name  string
+}
+
+type MailAttachment struct {
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Content     string `json:"content"`
+	Disposition string `json:"disposition"`
+	ContentID   string `json:"content_id"`
 }
 
 type SendMailOptions struct {
@@ -49,6 +58,7 @@ type SendMailOptions struct {
 	SenderCopyEmail    string
 	SenderCopyName     string
 	SendViaUserMailbox bool
+	Attachments        []MailAttachment
 	CustomArgs         map[string]string
 	TrackOpensAndLinks bool
 }
@@ -60,7 +70,10 @@ type SendMailResult struct {
 	Error      string
 }
 
+var ensureMailSchemaOnce sync.Once
+
 func RegisterMail(r chi.Router, db *core.DB) {
+	ensureMailSchema(context.Background(), db)
 	access := core.RequirePages("campaigns", "crm_contacts", "customer_service")
 	r.With(access).Post("/send", sendSingleMail(db))
 	r.With(access).Get("/messages", listMailMessages(db))
@@ -69,18 +82,20 @@ func RegisterMail(r chi.Router, db *core.DB) {
 }
 
 func RegisterMailPublic(r chi.Router, db *core.DB) {
+	ensureMailSchema(context.Background(), db)
 	r.Get("/unsubscribe", mailUnsubscribe(db))
 }
 
 func sendSingleMail(db *core.DB) http.HandlerFunc {
 	type body struct {
-		To               []MailAddress `json:"to"`
-		CC               []MailAddress `json:"cc"`
-		BCC              []MailAddress `json:"bcc"`
-		Subject          string        `json:"subject"`
-		HTMLBody         string        `json:"html_body"`
-		TextBody         string        `json:"text_body"`
-		SendCopyToSender *bool         `json:"send_copy_to_sender"`
+		To               []MailAddress    `json:"to"`
+		CC               []MailAddress    `json:"cc"`
+		BCC              []MailAddress    `json:"bcc"`
+		Subject          string           `json:"subject"`
+		HTMLBody         string           `json:"html_body"`
+		TextBody         string           `json:"text_body"`
+		Attachments      []MailAttachment `json:"attachments"`
+		SendCopyToSender *bool            `json:"send_copy_to_sender"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
@@ -94,6 +109,10 @@ func sendSingleMail(db *core.DB) http.HandlerFunc {
 		}
 		if strings.TrimSpace(b.HTMLBody) == "" && strings.TrimSpace(b.TextBody) == "" {
 			respondErr(w, 422, "html_body or text_body is required")
+			return
+		}
+		if err := validateMailAttachments(b.Attachments); err != nil {
+			respondErr(w, 422, err.Error())
 			return
 		}
 		user := core.UserFromCtx(r.Context())
@@ -117,6 +136,7 @@ func sendSingleMail(db *core.DB) http.HandlerFunc {
 			SenderCopyEmail:    user.Sub,
 			SenderCopyName:     user.FullName,
 			SendViaUserMailbox: true,
+			Attachments:        b.Attachments,
 		})
 		if !res.OK {
 			respondErr(w, 502, res.Error)
@@ -315,6 +335,9 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 			"open_tracking":  map[string]any{"enable": true},
 		}
 	}
+	if len(opt.Attachments) > 0 {
+		payload["attachments"] = sendgridAttachments(opt.Attachments)
+	}
 
 	body, _ := json.Marshal(payload)
 	resp, err := httpPost("https://api.sendgrid.com/v3/mail/send", "application/json",
@@ -392,6 +415,59 @@ func addSuppression(ctx context.Context, db *core.DB, email, reason, source stri
 			is_active=true,
 			updated_at=NOW()`,
 		email, reason, source)
+}
+
+func ensureMailSchema(ctx context.Context, db *core.DB) {
+	ensureMailSchemaOnce.Do(func() {
+		_, _ = db.PGExec(ctx, `
+			CREATE TABLE IF NOT EXISTS mail_messages (
+			  id                  BIGSERIAL PRIMARY KEY,
+			  kind                TEXT NOT NULL DEFAULT 'transactional',
+			  related_type        TEXT,
+			  related_id          BIGINT,
+			  subject             TEXT NOT NULL DEFAULT '',
+			  from_email          TEXT,
+			  from_name           TEXT,
+			  recipients          JSONB NOT NULL DEFAULT '{}',
+			  status              TEXT NOT NULL DEFAULT 'sending',
+			  provider_message_id TEXT,
+			  queued_at           TIMESTAMPTZ,
+			  delivered_at        TIMESTAMPTZ,
+			  opened_at           TIMESTAMPTZ,
+			  clicked_at          TIMESTAMPTZ,
+			  bounced_at          TIMESTAMPTZ,
+			  last_error          TEXT,
+			  created_by          BIGINT REFERENCES o3c_users(id),
+			  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			);
+			CREATE INDEX IF NOT EXISTS idx_mail_messages_provider ON mail_messages(provider_message_id) WHERE provider_message_id IS NOT NULL;
+			CREATE INDEX IF NOT EXISTS idx_mail_messages_created_by ON mail_messages(created_by, created_at DESC);
+			CREATE INDEX IF NOT EXISTS idx_mail_messages_status ON mail_messages(status, created_at DESC);
+
+			CREATE TABLE IF NOT EXISTS mail_events (
+			  id                BIGSERIAL PRIMARY KEY,
+			  mail_message_id   BIGINT NOT NULL REFERENCES mail_messages(id) ON DELETE CASCADE,
+			  provider_event_id TEXT UNIQUE,
+			  event_type        TEXT NOT NULL,
+			  event_data        JSONB NOT NULL DEFAULT '{}',
+			  occurred_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			);
+			CREATE INDEX IF NOT EXISTS idx_mail_events_message ON mail_events(mail_message_id, occurred_at DESC);
+			CREATE INDEX IF NOT EXISTS idx_mail_events_type ON mail_events(event_type, occurred_at DESC);
+
+			CREATE TABLE IF NOT EXISTS mail_suppressions (
+			  email      TEXT PRIMARY KEY,
+			  reason     TEXT NOT NULL DEFAULT 'suppressed',
+			  source     TEXT NOT NULL DEFAULT 'manual',
+			  is_active  BOOLEAN NOT NULL DEFAULT true,
+			  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			);
+			CREATE INDEX IF NOT EXISTS idx_mail_suppressions_active ON mail_suppressions(is_active, updated_at DESC);
+		`)
+	})
 }
 
 func appendUnsubscribeHTML(ctx context.Context, db *core.DB, html string, mailID int64) string {
@@ -518,17 +594,21 @@ func sendMailViaGraph(ctx context.Context, db *core.DB, opt SendMailOptions) Sen
 		opt.HTMLBody = "<p>" + escapeMailHTML(opt.TextBody) + "</p>"
 	}
 	mailID := createMailMessage(ctx, db, opt)
-	payload := map[string]any{
-		"message": map[string]any{
-			"subject": opt.Subject,
-			"body": map[string]string{
-				"contentType": "HTML",
-				"content":     opt.HTMLBody,
-			},
-			"toRecipients":  graphRecipients(opt.To),
-			"ccRecipients":  graphRecipients(opt.CC),
-			"bccRecipients": graphRecipients(opt.BCC),
+	message := map[string]any{
+		"subject": opt.Subject,
+		"body": map[string]string{
+			"contentType": "HTML",
+			"content":     opt.HTMLBody,
 		},
+		"toRecipients":  graphRecipients(opt.To),
+		"ccRecipients":  graphRecipients(opt.CC),
+		"bccRecipients": graphRecipients(opt.BCC),
+	}
+	if len(opt.Attachments) > 0 {
+		message["attachments"] = graphAttachments(opt.Attachments)
+	}
+	payload := map[string]any{
+		"message":         message,
 		"saveToSentItems": true,
 	}
 	body, _ := json.Marshal(payload)
@@ -565,6 +645,55 @@ func graphRecipients(addresses []MailAddress) []map[string]any {
 				"name":    a.Name,
 			},
 		})
+	}
+	return out
+}
+
+func sendgridAttachments(attachments []MailAttachment) []map[string]string {
+	out := make([]map[string]string, 0, len(attachments))
+	for _, a := range attachments {
+		filename := sanitizeAttachmentName(a.Filename)
+		if filename == "" || strings.TrimSpace(a.Content) == "" {
+			continue
+		}
+		disposition := strings.TrimSpace(a.Disposition)
+		if disposition == "" {
+			disposition = "attachment"
+		}
+		item := map[string]string{
+			"content":     strings.TrimSpace(a.Content),
+			"filename":    filename,
+			"type":        valueOr(strings.TrimSpace(a.ContentType), "application/octet-stream"),
+			"disposition": disposition,
+		}
+		if strings.TrimSpace(a.ContentID) != "" {
+			item["content_id"] = strings.TrimSpace(a.ContentID)
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func graphAttachments(attachments []MailAttachment) []map[string]any {
+	out := make([]map[string]any, 0, len(attachments))
+	for _, a := range attachments {
+		filename := sanitizeAttachmentName(a.Filename)
+		if filename == "" || strings.TrimSpace(a.Content) == "" {
+			continue
+		}
+		item := map[string]any{
+			"@odata.type":  "#microsoft.graph.fileAttachment",
+			"name":         filename,
+			"contentType":  valueOr(strings.TrimSpace(a.ContentType), "application/octet-stream"),
+			"contentBytes": strings.TrimSpace(a.Content),
+		}
+		if strings.EqualFold(a.Disposition, "inline") {
+			item["isInline"] = true
+			if strings.TrimSpace(a.ContentID) != "" {
+				item["contentId"] = strings.TrimSpace(a.ContentID)
+			}
+		}
+		out = append(out, item)
 	}
 	return out
 }
@@ -608,6 +737,49 @@ func mailAddresses(addresses []MailAddress) []map[string]string {
 		out = append(out, map[string]string{"email": a.Email, "name": a.Name})
 	}
 	return out
+}
+
+func validateMailAttachments(attachments []MailAttachment) error {
+	const maxAttachments = 10
+	const maxFileBytes = 10 * 1024 * 1024
+	const maxTotalBytes = 20 * 1024 * 1024
+	if len(attachments) > maxAttachments {
+		return fmt.Errorf("maximum %d attachments allowed", maxAttachments)
+	}
+	total := 0
+	for _, a := range attachments {
+		filename := sanitizeAttachmentName(a.Filename)
+		if filename == "" {
+			return fmt.Errorf("attachment filename is required")
+		}
+		content := strings.TrimSpace(a.Content)
+		if content == "" {
+			return fmt.Errorf("attachment %s is empty", filename)
+		}
+		decoded, err := base64.StdEncoding.DecodeString(content)
+		if err != nil {
+			return fmt.Errorf("attachment %s is not valid base64", filename)
+		}
+		if len(decoded) > maxFileBytes {
+			return fmt.Errorf("attachment %s is larger than 10 MB", filename)
+		}
+		total += len(decoded)
+		if total > maxTotalBytes {
+			return fmt.Errorf("attachments are larger than 20 MB total")
+		}
+	}
+	return nil
+}
+
+func sanitizeAttachmentName(name string) string {
+	name = strings.TrimSpace(name)
+	name = strings.ReplaceAll(name, "\\", "_")
+	name = strings.ReplaceAll(name, "/", "_")
+	name = strings.ReplaceAll(name, "\x00", "")
+	if len(name) > 180 {
+		name = name[:180]
+	}
+	return name
 }
 
 func createMailMessage(ctx context.Context, db *core.DB, opt SendMailOptions) int64 {

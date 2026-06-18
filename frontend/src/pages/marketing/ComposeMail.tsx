@@ -8,7 +8,40 @@ interface Recipient {
   name: string
 }
 
+interface MailAttachment {
+  filename: string
+  content_type: string
+  content: string
+  size: number
+}
+
 const emptyRecipient = (): Recipient => ({ email: '', name: '' })
+const MAX_FILE_BYTES = 10 * 1024 * 1024
+const MAX_TOTAL_BYTES = 20 * 1024 * 1024
+
+function formatBytes(bytes: number) {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  if (bytes >= 1024) return `${Math.ceil(bytes / 1024)} KB`
+  return `${bytes} B`
+}
+
+function readFileAsAttachment(file: File): Promise<MailAttachment> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}`))
+    reader.onload = () => {
+      const result = String(reader.result || '')
+      const [, content = ''] = result.split(',', 2)
+      resolve({
+        filename: file.name,
+        content_type: file.type || 'application/octet-stream',
+        content,
+        size: file.size,
+      })
+    }
+    reader.readAsDataURL(file)
+  })
+}
 
 function RecipientRows({
   label,
@@ -87,9 +120,36 @@ export default function ComposeMail() {
   const [bcc, setBcc] = useState<Recipient[]>([])
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
+  const [attachments, setAttachments] = useState<MailAttachment[]>([])
   const [copyMe, setCopyMe] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
+
+  async function addAttachments(files: FileList | null) {
+    setError('')
+    if (!files?.length) return
+    const incoming = Array.from(files)
+    if (attachments.length + incoming.length > 10) {
+      setError('You can attach up to 10 files.')
+      return
+    }
+    const tooLarge = incoming.find(file => file.size > MAX_FILE_BYTES)
+    if (tooLarge) {
+      setError(`${tooLarge.name} is larger than 10 MB.`)
+      return
+    }
+    const total = attachments.reduce((sum, file) => sum + file.size, 0) + incoming.reduce((sum, file) => sum + file.size, 0)
+    if (total > MAX_TOTAL_BYTES) {
+      setError('Attachments cannot exceed 20 MB total.')
+      return
+    }
+    try {
+      const encoded = await Promise.all(incoming.map(readFileAsAttachment))
+      setAttachments([...attachments, ...encoded])
+    } catch (e: any) {
+      setError(e.message)
+    }
+  }
 
   async function send(e: React.FormEvent) {
     e.preventDefault()
@@ -111,15 +171,16 @@ export default function ComposeMail() {
     try {
       await apiFetch('/api/mail/send', {
         method: 'POST',
-        body: JSON.stringify({
+          body: JSON.stringify({
           to: cleanTo,
           cc: compactRecipients(cc),
           bcc: compactRecipients(bcc),
           subject,
-          html_body: body.replace(/\n/g, '<br>'),
-          text_body: body,
-          send_copy_to_sender: copyMe,
-        }),
+            html_body: body.replace(/\n/g, '<br>'),
+            text_body: body,
+            attachments: attachments.map(({ filename, content_type, content }) => ({ filename, content_type, content })),
+            send_copy_to_sender: copyMe,
+          }),
       })
       toast.success('Email queued')
       setTo([emptyRecipient()])
@@ -127,6 +188,7 @@ export default function ComposeMail() {
       setBcc([])
       setSubject('')
       setBody('')
+      setAttachments([])
       setCopyMe(true)
     } catch (e: any) {
       setError(e.message)
@@ -168,6 +230,49 @@ export default function ComposeMail() {
                 className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none resize-y"
                 style={{ borderColor: 'rgba(15,23,42,0.15)', minHeight: 260 }}
               />
+            </div>
+
+            <div>
+              <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">Attachments</label>
+              <label
+                className="flex items-center justify-center gap-2 px-3 py-3 rounded-lg border border-dashed text-[13px] font-semibold cursor-pointer hover:bg-slate-50"
+                style={{ borderColor: 'rgba(15,23,42,0.2)', color: NAVY }}
+              >
+                <span className="material-symbols-rounded text-[18px]">attach_file</span>
+                Add images or files
+                <input
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={e => {
+                    addAttachments(e.target.files)
+                    e.currentTarget.value = ''
+                  }}
+                />
+              </label>
+              {attachments.length > 0 && (
+                <div className="mt-2 space-y-2">
+                  {attachments.map((file, index) => (
+                    <div key={`${file.filename}-${index}`} className="flex items-center gap-3 rounded-lg border px-3 py-2" style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
+                      <span className="material-symbols-rounded text-[17px] text-slate-500">
+                        {file.content_type.startsWith('image/') ? 'image' : 'description'}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-semibold text-slate-700">{file.filename}</div>
+                        <div className="text-[11px] text-slate-400">{formatBytes(file.size)}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAttachments(attachments.filter((_, i) => i !== index))}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-slate-100"
+                        title="Remove attachment"
+                      >
+                        <span className="material-symbols-rounded text-[16px] text-slate-500">close</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </SectionCard>
