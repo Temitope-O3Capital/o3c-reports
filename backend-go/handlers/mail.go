@@ -149,6 +149,7 @@ func sendSingleMail(db *core.DB) http.HandlerFunc {
 			Attachments:        b.Attachments,
 		})
 		if !res.OK {
+			slog.Warn("Single mail send failed", "user_id", user.ID, "error", res.Error)
 			respondErr(w, 502, res.Error)
 			return
 		}
@@ -386,6 +387,7 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 	if msg == "" {
 		msg = fmt.Sprintf("HTTP %d", resp.StatusCode)
 	}
+	slog.Warn("SendGrid mail send failed", "status", resp.StatusCode, "body", msg, "mail_id", mailID)
 	updateMailMessageStatus(ctx, db, mailID, "failed", providerID, msg)
 	return SendMailResult{MailID: mailID, ProviderID: providerID, Error: msg}
 }
@@ -667,6 +669,7 @@ func sendMailViaGraph(ctx context.Context, db *core.DB, opt SendMailOptions) Sen
 	if msg == "" {
 		msg = fmt.Sprintf("Microsoft Graph HTTP %d", resp.StatusCode)
 	}
+	slog.Warn("Microsoft Graph mail send failed", "status", resp.StatusCode, "body", msg, "mail_id", mailID)
 	updateMailMessageStatus(ctx, db, mailID, "failed", providerID, msg)
 	return SendMailResult{MailID: mailID, ProviderID: providerID, Error: msg}
 }
