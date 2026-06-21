@@ -109,9 +109,14 @@ func main() {
 	// Uploaded campaign images served as static files
 	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads/"))))
 
-	// Helpdesk inbound webhooks and CSAT (SendGrid Inbound Parse, Termii, customer links — no JWT)
+	// Helpdesk: public webhooks/CSAT on the same prefix as authenticated routes
 	r.Route("/api/helpdesk", func(r chi.Router) {
 		handlers.RegisterHelpdeskPublic(r, db)
+		r.Group(func(r chi.Router) {
+			r.Use(core.AuthMiddleware)
+			r.Use(activityLogger(db))
+			handlers.RegisterHelpdesk(r, db)
+		})
 	})
 
 	// WhatsApp inbound webhook (Meta Cloud API — no JWT)
@@ -272,11 +277,6 @@ func main() {
 		})
 		r.Route("/api/customer-service", func(r chi.Router) {
 			handlers.RegisterCustomerService(r, db)
-		})
-
-		// Helpdesk (customer service tickets, threading, canned responses, SLA)
-		r.Route("/api/helpdesk", func(r chi.Router) {
-			handlers.RegisterHelpdesk(r, db)
 		})
 
 	})
