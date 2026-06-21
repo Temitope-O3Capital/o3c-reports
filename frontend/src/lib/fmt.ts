@@ -14,6 +14,18 @@ export function fmtExact(n: unknown): string {
   return '₦' + Number(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+export function fmtKobo(n: unknown): string {
+  const raw = Number(n)
+  if (!isFinite(raw)) return '—'
+  return fmt(raw / 100)
+}
+
+export function fmtKoboExact(n: unknown): string {
+  const raw = Number(n)
+  if (!isFinite(raw)) return '—'
+  return fmtExact(raw / 100)
+}
+
 export function fmtNum(n: unknown): string {
   if (n === null || n === undefined) return '—'
   const x = Number(n)
@@ -27,6 +39,15 @@ export function fmtDate(s: string | null | undefined, opts?: Intl.DateTimeFormat
   try {
     const d = new Date(s.includes('T') ? s : s + 'T00:00:00')
     return d.toLocaleDateString('en-GB', opts ?? { day: '2-digit', month: 'short', year: 'numeric' })
+  } catch { return s }
+}
+
+export function fmtDatetime(s: string | null | undefined): string {
+  if (!s) return '—'
+  try {
+    return new Date(s).toLocaleString('en-GB', {
+      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+    })
   } catch { return s }
 }
 

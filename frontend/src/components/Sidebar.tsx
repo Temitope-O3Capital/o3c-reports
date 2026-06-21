@@ -109,10 +109,24 @@ const MODULES: Module[] = [
     ],
   },
   {
+    id: 'helpdesk', label: 'Helpdesk', icon: 'support_agent',
+    roles: [
+      'call_center_agent', 'call_center_head',
+      'collections_agent', 'collections_head',
+      'recovery_agent', 'recovery_head',
+      'cards_ops_officer', 'cards_ops_head',
+      'md', 'coo', 'management', 'admin',
+    ],
+    items: [
+      { label: 'Tickets',          to: '/helpdesk',          icon: 'confirmation_number' },
+      { label: 'Analytics',        to: '/helpdesk/stats',    icon: 'bar_chart' },
+      { label: 'Canned Responses', to: '/helpdesk/canned',   icon: 'quickreply' },
+    ],
+  },
+  {
     id: 'compliance', label: 'Compliance', icon: 'policy',
     roles: ['compliance_officer', 'compliance_head', 'internal_control_head'],
     items: [
-      { label: 'AML Watchlist',to: '/compliance/watchlist',     icon: 'security' },
       { label: 'AML Watchlist',to: '/compliance/watchlist',     icon: 'security' },
       { label: 'SAR Filing',   to: '/compliance/sars',          icon: 'report' },
       { label: 'CBN Reports',  to: '/compliance/cbn-reports',   icon: 'article' },
@@ -134,12 +148,13 @@ const MODULES: Module[] = [
   },
   {
     id: 'campaigns', label: 'Campaigns', icon: 'campaign',
-    roles: ['cmo'],
+    roles: ['cmo', 'md', 'coo', 'management', 'admin'],
     items: [
-      { label: 'Campaigns',     to: '/campaigns',           icon: 'send' },
-      { label: 'Compose Mail',  to: '/campaigns/compose',   icon: 'outgoing_mail' },
-      { label: 'Templates',     to: '/campaigns/templates', icon: 'article' },
-      { label: 'Contact Lists', to: '/campaigns/lists',     icon: 'list_alt' },
+      { label: 'Campaigns',     to: '/campaigns',              icon: 'send' },
+      { label: 'Analytics',     to: '/campaigns/analytics',    icon: 'insights' },
+      { label: 'Compose Mail',  to: '/campaigns/compose',      icon: 'outgoing_mail' },
+      { label: 'Templates',     to: '/campaigns/templates',    icon: 'article' },
+      { label: 'Contact Lists', to: '/campaigns/lists',        icon: 'list_alt' },
     ],
   },
   {
@@ -157,9 +172,11 @@ const MODULES: Module[] = [
     items: [
       { label: 'Users',      to: '/admin/users',    icon: 'manage_accounts' },
       { label: 'API Keys',   to: '/admin/api-keys', icon: 'key' },
-      { label: 'Mail Health',to: '/admin/mail',     icon: 'mark_email_read' },
-      { label: 'Settings',   to: '/admin/settings', icon: 'settings' },
-      { label: 'Sync Status',to: '/admin/sync',     icon: 'sync' },
+      { label: 'Mail Health',           to: '/admin/mail',                    icon: 'mark_email_read' },
+      { label: 'Settings',              to: '/admin/settings',                icon: 'settings' },
+      { label: 'Sync Status',           to: '/admin/sync',                    icon: 'sync' },
+      { label: 'Notification Settings', to: '/admin/notification-settings',   icon: 'notifications_active' },
+      { label: 'Email Senders',         to: '/admin/email-senders',           icon: 'alternate_email' },
     ],
   },
 ]
@@ -179,6 +196,7 @@ const MODULE_PRIMARY: Record<string, string> = {
   hr:               '/hr',
   settlements:      '/settlements',
   campaigns:        '/campaigns',
+  helpdesk:         '/helpdesk',
   los:              '/los',
   crm:              '/crm',
   admin:            '/admin/users',
@@ -267,7 +285,7 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
 
   return (
     <aside
-      className={`flex flex-col flex-shrink-0 h-screen transition-all duration-200 ${collapsed ? 'w-[64px]' : 'w-[220px]'}`}
+      className={`flex flex-col flex-shrink-0 h-screen transition-all duration-200 ${collapsed ? 'w-[64px]' : 'w-60'}`}
       style={{ background: NAVY, borderRight: '1px solid rgba(255,255,255,0.06)' }}>
 
       {/* ── Logo ── */}
@@ -397,6 +415,19 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
         </button>
       </div>
 
+      {/* ── Notification Preferences shortcut ── */}
+      {!collapsed && (
+        <div className="flex-shrink-0 px-2 pb-1">
+          <a
+            href="/settings/notifications"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] hover:bg-white/[0.07] transition-colors"
+            style={{ color: 'rgba(255,255,255,0.45)', textDecoration: 'none' }}
+          >
+            <span className="material-symbols-rounded text-[14px]">notifications</span>
+            Notification preferences
+          </a>
+        </div>
+      )}
       {/* ── User footer ── */}
       <div className="flex-shrink-0 px-2 py-2" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
         <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors group cursor-pointer hover:bg-white/[0.07] ${collapsed ? 'justify-center px-0' : ''}`}>

@@ -79,10 +79,14 @@ func RegisterMail(r chi.Router, db *core.DB) {
 		slog.Warn("Mail schema setup failed", "err", err)
 	}
 	access := core.RequirePages("campaigns", "crm_contacts", "customer_service")
+	admin  := core.RequirePages("admin_api_keys")
 	r.With(access).Post("/send", sendSingleMail(db))
 	r.With(access).Get("/messages", listMailMessages(db))
-	r.With(access).Get("/metrics", mailMetrics(db))
-	r.With(access).Get("/deliverability", mailDeliverability(db))
+	r.With(admin).Get("/metrics", mailMetrics(db))
+	r.With(admin).Get("/deliverability", mailDeliverability(db))
+	r.With(admin).Post("/test", mailSendTest(db))
+	r.With(admin).Get("/suppressions", mailListSuppressions(db))
+	r.With(admin).Delete("/suppressions/{email}", mailRemoveSuppression(db))
 }
 
 func RegisterMailPublic(r chi.Router, db *core.DB) {
@@ -188,18 +192,85 @@ func mailMetrics(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Mail storage setup failed: "+err.Error())
 			return
 		}
-		user := core.UserFromCtx(r.Context())
+		// Platform-wide totals (admin view)
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT status, kind, COUNT(*) AS count
 			FROM mail_messages
-			WHERE created_by=$1 OR recipients::text ILIKE $2
 			GROUP BY status, kind
-			ORDER BY kind, status`, user.ID, "%"+user.Sub+"%")
+			ORDER BY kind, status`)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
 		}
 		jsonRows(w, rows)
+	}
+}
+
+func mailSendTest(db *core.DB) http.HandlerFunc {
+	type body struct {
+		To string `json:"to"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || strings.TrimSpace(b.To) == "" {
+			respondErr(w, 400, "to (email) is required")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		res := SendMail(r.Context(), db, SendMailOptions{
+			To:      []MailAddress{{Email: b.To, Name: b.To}},
+			Subject: "O3C Mail Health — Test Email",
+			HTMLBody: `<p>This is a test email sent from the <strong>O3C Cards Mail Health</strong> dashboard.</p>
+<p>If you received this, your SendGrid integration is working correctly.</p>`,
+			TextBody:   "This is a test email from O3C Cards Mail Health. If you received this, your SendGrid integration is working.",
+			CreatedBy:  user.ID,
+			ReplyToEmail: user.Sub,
+		})
+		if res.Error != "" {
+			respondErr(w, 500, res.Error)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "provider_id": res.ProviderID, "mail_id": res.MailID}) //nolint:errcheck
+	}
+}
+
+func mailListSuppressions(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed: "+err.Error())
+			return
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT email, reason, source, is_active, updated_at
+			FROM mail_suppressions
+			ORDER BY updated_at DESC
+			LIMIT 500`)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		jsonRows(w, rows)
+	}
+}
+
+func mailRemoveSuppression(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed: "+err.Error())
+			return
+		}
+		email := chi.URLParam(r, "email")
+		if email == "" {
+			respondErr(w, 400, "email param required")
+			return
+		}
+		if _, err := db.PGExec(r.Context(),
+			`UPDATE mail_suppressions SET is_active=false, updated_at=NOW() WHERE email=$1`, email); err != nil {
+			respondErr(w, 500, "Update failed")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -293,13 +364,14 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 		return SendMailResult{Error: "SENDGRID_API_KEY not configured"}
 	}
 	if opt.FromEmail == "" {
-		opt.FromEmail = sendgridFromEmail
+		// DB credential takes priority; fall back to env var
+		opt.FromEmail = coalesce(resolveCredKey(ctx, db, "EMAIL_FROM_ADDRESS"), sendgridFromEmail)
 	}
 	if opt.FromName == "" {
-		opt.FromName = sendgridFromName
+		opt.FromName = coalesce(resolveCredKey(ctx, db, "EMAIL_FROM_NAME"), sendgridFromName)
 	}
 	if opt.FromEmail == "" {
-		return SendMailResult{Error: "SENDGRID_FROM_EMAIL not configured"}
+		return SendMailResult{Error: "EMAIL_FROM_ADDRESS not configured"}
 	}
 	if opt.ReplyToEmail == "" {
 		opt.ReplyToEmail = defaultReplyToEmail(ctx, db)
@@ -372,6 +444,15 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 		payload["tracking_settings"] = map[string]any{
 			"click_tracking": map[string]any{"enable": true, "enable_text": false},
 			"open_tracking":  map[string]any{"enable": true},
+		}
+	}
+	// Add List-Unsubscribe headers for notification mail (required by Gmail bulk sender policy)
+	if opt.Kind == "notification" {
+		appURL := coalesce(os.Getenv("APP_URL"), "https://reports.o3cards.com")
+		prefsURL := appURL + "/settings/notifications"
+		payload["headers"] = map[string]string{
+			"List-Unsubscribe":      "<" + prefsURL + ">",
+			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
 		}
 	}
 	if len(opt.Attachments) > 0 {

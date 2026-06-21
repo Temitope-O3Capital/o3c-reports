@@ -116,9 +116,8 @@ func getLoan(db *core.DB) http.HandlerFunc {
 		}
 		app := rows[0]
 		docs, _ := db.PGQuery(r.Context(), `
-			SELECT ad.*, u.full_name AS confirmed_by_name
+			SELECT ad.*
 			FROM application_documents ad
-			LEFT JOIN o3c_users u ON u.id = ad.created_at
 			WHERE ad.application_id = $1 ORDER BY ad.created_at`, id)
 		app["documents"] = docs
 		comments, _ := db.PGQuery(r.Context(), `
@@ -173,9 +172,18 @@ func createLoan(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Create failed")
 			return
 		}
+		created := rows[0]
+		go NotifyRoles(r.Context(), db, []string{"risk_officer", "risk_head"}, NotifPayload{
+			EventType: EvtLoanSubmitted,
+			Title:     "New loan application",
+			Body: fmt.Sprintf("Application %s submitted for %s (%s)",
+				str(created["reference"]), b.ApplicantName, b.ProductType),
+			ActionURL: fmt.Sprintf("/loans/%v", created["id"]),
+			EntityRef: fmt.Sprintf("loan:%v", created["id"]),
+		})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+		json.NewEncoder(w).Encode(created) //nolint:errcheck
 	}
 }
 
@@ -262,7 +270,49 @@ func updateLoanStage(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Update failed")
 			return
 		}
-		_ = user
+		// Fire notifications based on the new stage
+		appRows, _ := db.PGQuery(r.Context(),
+			`SELECT reference, applicant_name, assigned_to_user_id, sales_officer_id
+			 FROM loan_applications WHERE id=$1`, id)
+		if len(appRows) > 0 {
+			app    := appRows[0]
+			ref    := str(app["reference"])
+			name   := str(app["applicant_name"])
+			loanURL := fmt.Sprintf("/loans/%s", id)
+			eRef    := fmt.Sprintf("loan:%s", id)
+
+			// Always notify the assigned officer if set
+			if assignedID, _ := app["assigned_to_user_id"].(int64); assignedID != 0 && assignedID != user.ID {
+				go Notify(r.Context(), db, NotifPayload{
+					EventType: EvtLoanStageChanged,
+					UserID:    assignedID,
+					Title:     "Loan application stage updated",
+					Body:      fmt.Sprintf("%s (%s) moved to %s", ref, name, b.Stage),
+					ActionURL: loanURL, EntityRef: eRef,
+				})
+			}
+			// Approval/rejection also notifies the sales officer who submitted
+			if salesID, _ := app["sales_officer_id"].(int64); salesID != 0 && salesID != user.ID {
+				switch b.Stage {
+				case "approved":
+					go Notify(r.Context(), db, NotifPayload{
+						EventType: EvtLoanApproved,
+						UserID:    salesID,
+						Title:     "Loan application approved",
+						Body:      fmt.Sprintf("%s (%s) has been approved", ref, name),
+						ActionURL: loanURL, EntityRef: eRef,
+					})
+				case "rejected":
+					go Notify(r.Context(), db, NotifPayload{
+						EventType: EvtLoanRejected,
+						UserID:    salesID,
+						Title:     "Loan application rejected",
+						Body:      fmt.Sprintf("%s (%s) has been rejected", ref, name),
+						ActionURL: loanURL, EntityRef: eRef,
+					})
+				}
+			}
+		}
 		_ = oldStage
 
 		rows, _ := db.PGQuery(r.Context(), `SELECT * FROM loan_applications WHERE id=$1`, id)
@@ -305,12 +355,14 @@ func addDocument(db *core.DB) http.HandlerFunc {
 func confirmDocument(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		docID := chi.URLParam(r, "docId")
-		user := core.UserFromCtx(r.Context())
-		_, err := db.PGExec(r.Context(), `
-			UPDATE application_documents SET document_id=$1 WHERE id=$2`,
-			user.ID, docID)
-		if err != nil {
-			respondErr(w, 500, "Update failed")
+		user  := core.UserFromCtx(r.Context())
+		// migration 016 added confirmed_by / confirmed_at to application_documents
+		if _, err := db.PGExec(r.Context(),
+			`UPDATE application_documents
+			    SET confirmed_by=$1, confirmed_at=NOW()
+			  WHERE id=$2 AND confirmed_at IS NULL`,
+			user.ID, docID); err != nil {
+			respondErr(w, 500, "Confirm failed")
 			return
 		}
 		rows, _ := db.PGQuery(r.Context(), `SELECT * FROM application_documents WHERE id=$1`, docID)

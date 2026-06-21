@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -37,11 +39,17 @@ func RegisterCRM(r chi.Router, db *core.DB) {
 	r.With(crmAccess).Post("/activities", createActivity(db))
 	r.With(crmAccess).Delete("/activities/{id}", deleteActivity(db))
 
-	// Tasks
+	// Tasks — static sub-routes before param routes so chi resolves them correctly
 	r.With(crmAccess).Get("/tasks", listTasks(db))
 	r.With(crmAccess).Post("/tasks", createTask(db))
+	r.With(crmAccess).Post("/tasks/bulk-assign", bulkAssignTasks(db))
 	r.With(crmAccess).Put("/tasks/{id}", updateTask(db))
 	r.With(crmAccess).Delete("/tasks/{id}", deleteTask(db))
+	r.With(crmAccess).Get("/tasks/{id}/comments", listTaskComments(db))
+	r.With(crmAccess).Post("/tasks/{id}/comments", addTaskComment(db))
+
+	// Users list (for assignee pickers)
+	r.With(crmAccess).Get("/users", listCRMUsers(db))
 
 	// Requests — /requests/types must be registered before /requests/{id}
 	r.With(crmAccess).Get("/requests/types", getRequestTypes())
@@ -459,8 +467,26 @@ func updateDeal(db *core.DB) http.HandlerFunc {
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "Deal not found"); return
 		}
+		updated := rows[0]
+		// Notify the deal owner when stage changes
+		if _, stageChanged := body["stage"]; stageChanged {
+			if ownerID, _ := updated["assigned_to"].(int64); ownerID != 0 {
+				actor := core.UserFromCtx(r.Context())
+				if ownerID != actor.ID {
+					go Notify(context.Background(), db, NotifPayload{
+						EventType: EvtDealStageChanged,
+						UserID:    ownerID,
+						Title:     "Deal stage updated",
+						Body: fmt.Sprintf(`"%s" moved to %s`,
+							str(updated["title"]), str(updated["stage"])),
+						ActionURL: fmt.Sprintf("/crm/pipeline"),
+						EntityRef: fmt.Sprintf("deal:%v", updated["id"]),
+					})
+				}
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+		json.NewEncoder(w).Encode(updated) //nolint:errcheck
 	}
 }
 
@@ -624,9 +650,21 @@ func createTask(db *core.DB) http.HandlerFunc {
 		if err != nil {
 			respondErr(w, 500, "Create failed"); return
 		}
+		created := rows[0]
+		// Notify the assignee (if different from creator)
+		if b.AssignedTo != nil && *b.AssignedTo != user.ID {
+			go Notify(context.Background(), db, NotifPayload{
+				EventType: EvtTaskAssigned,
+				UserID:    *b.AssignedTo,
+				Title:     "Task assigned to you",
+				Body:      fmt.Sprintf(`"%s" has been assigned to you`, b.Title),
+				ActionURL: "/crm/tasks",
+				EntityRef: fmt.Sprintf("task:%v", created["id"]),
+			})
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+		json.NewEncoder(w).Encode(created) //nolint:errcheck
 	}
 }
 
@@ -649,8 +687,24 @@ func updateTask(db *core.DB) http.HandlerFunc {
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "Task not found"); return
 		}
+		updated := rows[0]
+		// Notify the new assignee if assigned_to was changed
+		if newAssignee, ok := body["assigned_to"]; ok && newAssignee != nil {
+			actor := core.UserFromCtx(r.Context())
+			if uid, ok2 := newAssignee.(float64); ok2 && int64(uid) != actor.ID {
+				titleVal, _ := updated["title"].(string)
+				go Notify(context.Background(), db, NotifPayload{
+					EventType: EvtTaskAssigned,
+					UserID:    int64(uid),
+					Title:     "Task assigned to you",
+					Body:      fmt.Sprintf(`"%s" has been assigned to you`, titleVal),
+					ActionURL: "/crm/tasks",
+					EntityRef: fmt.Sprintf("task:%v", updated["id"]),
+				})
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+		json.NewEncoder(w).Encode(updated) //nolint:errcheck
 	}
 }
 
@@ -658,6 +712,215 @@ func deleteTask(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		db.PGExec(r.Context(), "DELETE FROM crm_tasks WHERE id=$1", chi.URLParam(r, "id")) //nolint:errcheck
 		w.WriteHeader(204)
+	}
+}
+
+func listTaskComments(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT c.id, c.task_id, c.body, c.created_at,
+			       u.full_name AS author_name
+			FROM crm_task_comments c
+			LEFT JOIN o3c_users u ON u.id = c.author_id
+			WHERE c.task_id = $1
+			ORDER BY c.created_at`, id)
+		if err != nil {
+			respondErr(w, 500, "Query failed"); return
+		}
+		jsonRows(w, rows)
+	}
+}
+
+func addTaskComment(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var b struct{ Body string `json:"body"` }
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.Body == "" {
+			respondErr(w, 422, "body is required"); return
+		}
+		user := core.UserFromCtx(r.Context())
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO crm_task_comments (task_id, author_id, body)
+			VALUES ($1, $2, $3)
+			RETURNING id, task_id, body, created_at`,
+			id, user.ID, b.Body)
+		if err != nil {
+			respondErr(w, 500, "Create failed"); return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+func bulkAssignTasks(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			TaskIDs    []int64 `json:"task_ids"`
+			AssignedTo *int64  `json:"assigned_to"` // nil = unassign
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		if len(b.TaskIDs) == 0 {
+			respondErr(w, 422, "task_ids is required"); return
+		}
+		placeholders := make([]string, len(b.TaskIDs))
+		args := []any{b.AssignedTo}
+		for i, id := range b.TaskIDs {
+			placeholders[i] = fmt.Sprintf("$%d", i+2)
+			args = append(args, id)
+		}
+		_, err := db.PGExec(r.Context(),
+			fmt.Sprintf("UPDATE crm_tasks SET assigned_to=$1, updated_at=NOW() WHERE id IN (%s)",
+				strings.Join(placeholders, ",")), args...)
+		if err != nil {
+			respondErr(w, 500, "Update failed"); return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"updated": len(b.TaskIDs)}) //nolint:errcheck
+	}
+}
+
+func listCRMUsers(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(),
+			`SELECT id, full_name, role FROM o3c_users WHERE is_active=TRUE ORDER BY full_name`)
+		if err != nil {
+			respondErr(w, 500, "Query failed"); return
+		}
+		jsonRows(w, rows)
+	}
+}
+
+// ScheduleTaskNotifications runs hourly and pushes due-soon / overdue alerts
+// into the notifications table for assigned users.
+func ScheduleTaskNotifications(db *core.DB) {
+	for {
+		time.Sleep(1 * time.Hour)
+		sendTaskNotifications(db)
+	}
+}
+
+func sendTaskNotifications(db *core.DB) {
+	ctx := context.Background()
+
+	dueSoon, _ := db.PGQuery(ctx, `
+		SELECT t.id, t.title, t.assigned_to
+		FROM crm_tasks t
+		WHERE t.assigned_to IS NOT NULL
+		  AND t.status NOT IN ('done','cancelled')
+		  AND t.due_date::date = CURRENT_DATE + 1
+		  AND NOT EXISTS (
+		      SELECT 1 FROM notifications n
+		      WHERE n.entity_ref = 'task:' || t.id::text
+		        AND n.type = 'task_due_soon'
+		        AND n.created_at > NOW() - INTERVAL '20 hours'
+		  )`)
+	for _, row := range dueSoon {
+		if uid, _ := row["assigned_to"].(int64); uid != 0 {
+			Notify(ctx, db, NotifPayload{
+				EventType: EvtTaskDueSoon,
+				UserID:    uid,
+				Title:     "Task due tomorrow",
+				Body:      fmt.Sprintf(`"%s" is due tomorrow`, str(row["title"])),
+				ActionURL: "/crm/tasks",
+				EntityRef: "task:" + str(row["id"]),
+			})
+		}
+	}
+
+	overdue, _ := db.PGQuery(ctx, `
+		SELECT t.id, t.title, t.assigned_to
+		FROM crm_tasks t
+		WHERE t.assigned_to IS NOT NULL
+		  AND t.status NOT IN ('done','cancelled')
+		  AND t.due_date < NOW()
+		  AND NOT EXISTS (
+		      SELECT 1 FROM notifications n
+		      WHERE n.entity_ref = 'task:' || t.id::text
+		        AND n.type = 'task_overdue'
+		        AND n.created_at > NOW() - INTERVAL '20 hours'
+		  )`)
+	for _, row := range overdue {
+		if uid, _ := row["assigned_to"].(int64); uid != 0 {
+			Notify(ctx, db, NotifPayload{
+				EventType: EvtTaskOverdue,
+				UserID:    uid,
+				Title:     "Task overdue",
+				Body:      fmt.Sprintf(`"%s" is overdue`, str(row["title"])),
+				ActionURL: "/crm/tasks",
+				EntityRef: "task:" + str(row["id"]),
+			})
+		}
+	}
+}
+
+// ScheduleBirthdayWorker fires daily at 08:00 and notifies account managers
+// about contacts whose birthday is today or in exactly 3 days.
+func ScheduleBirthdayWorker(db *core.DB) {
+	for {
+		now  := time.Now()
+		next := time.Date(now.Year(), now.Month(), now.Day()+1, 8, 0, 0, 0, now.Location())
+		time.Sleep(time.Until(next))
+		runBirthdayNotifications(db)
+	}
+}
+
+func runBirthdayNotifications(db *core.DB) {
+	ctx := context.Background()
+
+	soon, _ := db.PGQuery(ctx, `
+		SELECT c.id, c.first_name, c.last_name, c.account_manager_id
+		FROM crm_contacts c
+		WHERE c.account_manager_id IS NOT NULL
+		  AND c.birthday IS NOT NULL
+		  AND TO_CHAR(c.birthday, 'MM-DD') = TO_CHAR(CURRENT_DATE + 3, 'MM-DD')
+		  AND NOT EXISTS (
+		      SELECT 1 FROM notifications n
+		      WHERE n.entity_ref = 'contact:' || c.id::text
+		        AND n.type = 'birthday_soon'
+		        AND n.created_at > NOW() - INTERVAL '20 hours'
+		  )`)
+	for _, row := range soon {
+		if uid, _ := row["account_manager_id"].(int64); uid != 0 {
+			name := str(row["first_name"]) + " " + str(row["last_name"])
+			Notify(ctx, db, NotifPayload{
+				EventType: EvtBirthdaySoon,
+				UserID:    uid,
+				Title:     "Birthday in 3 days",
+				Body:      name + "'s birthday is in 3 days. Consider reaching out!",
+				ActionURL: fmt.Sprintf("/crm/contacts/%v", row["id"]),
+				EntityRef: fmt.Sprintf("contact:%v", row["id"]),
+			})
+		}
+	}
+
+	today, _ := db.PGQuery(ctx, `
+		SELECT c.id, c.first_name, c.last_name, c.account_manager_id
+		FROM crm_contacts c
+		WHERE c.account_manager_id IS NOT NULL
+		  AND c.birthday IS NOT NULL
+		  AND TO_CHAR(c.birthday, 'MM-DD') = TO_CHAR(CURRENT_DATE, 'MM-DD')
+		  AND NOT EXISTS (
+		      SELECT 1 FROM notifications n
+		      WHERE n.entity_ref = 'contact:' || c.id::text
+		        AND n.type = 'birthday_today'
+		        AND n.created_at > NOW() - INTERVAL '20 hours'
+		  )`)
+	for _, row := range today {
+		if uid, _ := row["account_manager_id"].(int64); uid != 0 {
+			name := str(row["first_name"]) + " " + str(row["last_name"])
+			Notify(ctx, db, NotifPayload{
+				EventType: EvtBirthdayToday,
+				UserID:    uid,
+				Title:     "🎂 Birthday today!",
+				Body:      name + "'s birthday is today. Great time to reach out!",
+				ActionURL: fmt.Sprintf("/crm/contacts/%v", row["id"]),
+				EntityRef: fmt.Sprintf("contact:%v", row["id"]),
+			})
+		}
 	}
 }
 
@@ -794,9 +1057,20 @@ func createRequest(db *core.DB) http.HandlerFunc {
 		if err != nil {
 			respondErr(w, 500, "Create failed"); return
 		}
+		created := rows[0]
+		go NotifyRoles(context.Background(), db,
+			[]string{"call_center_agent", "call_center_head"},
+			NotifPayload{
+				EventType: EvtCRMRequestCreated,
+				Title:     "New customer request",
+				Body: fmt.Sprintf("%s: %s",
+					str(created["request_type"]), str(created["subject"])),
+				ActionURL: fmt.Sprintf("/crm/requests/%v", created["id"]),
+				EntityRef: fmt.Sprintf("request:%v", created["id"]),
+			})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+		json.NewEncoder(w).Encode(created) //nolint:errcheck
 	}
 }
 

@@ -19,7 +19,10 @@ func RegisterNotifications(r chi.Router, db *core.DB) {
 	r.Get("/", notificationsListHandler(db))
 	r.Get("/count", notificationsCountHandler(db))
 	r.Put("/{id}/read", notificationsMarkRead(db))
+	r.Patch("/{id}/read", notificationsMarkRead(db))
 	r.Put("/read-all", notificationsReadAll(db))
+	r.Post("/mark-all-read", notificationsReadAll(db))
+	r.Delete("/{id}", notificationsDelete(db))
 	r.Post("/sse-ticket", notificationsSSETicket())
 }
 
@@ -47,18 +50,61 @@ func notificationsSSETicket() http.HandlerFunc {
 	}
 }
 
+// notificationsListHandler lists the authenticated user's notifications.
+// Query params:
+//   - unread_only=true — filter to unread notifications only
+//   - page            — 1-based page number (default 1)
+//   - per_page        — items per page, max 50 (default 20)
+//   - limit/offset    — legacy pagination (lower precedence than page/per_page)
+//
+// Response: {"total": N, "unread_count": N, "notifications": [...]}
 func notificationsListHandler(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
-		limit := qint(r, "limit", 20, 1, 100)
-		offset := qint(r, "offset", 0, 0, 1<<30)
 
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT id, type, title, body, entity_type, entity_id, is_read, created_at
+		// Support both page/per_page and legacy limit/offset.
+		perPage := qint(r, "per_page", 0, 1, 50)
+		if perPage == 0 {
+			perPage = qint(r, "limit", 20, 1, 100)
+		}
+		page := qint(r, "page", 1, 1, 1<<30)
+		offset := (page - 1) * perPage
+		// Legacy offset overrides page-based offset only when page param absent and offset param present.
+		if r.URL.Query().Get("page") == "" && r.URL.Query().Get("offset") != "" {
+			offset = qint(r, "offset", 0, 0, 1<<30)
+		}
+
+		unreadOnly := qstr(r, "unread_only") == "true" || qstr(r, "unread_only") == "1"
+
+		whereClause := "user_id = $1"
+		args := []any{user.ID}
+		if unreadOnly {
+			whereClause += " AND is_read = FALSE"
+		}
+
+		// Total count matching the filter
+		total := int64(0)
+		if tr, _ := db.PGQuery(r.Context(),
+			"SELECT COUNT(*) AS n FROM notifications WHERE "+whereClause, args...); len(tr) > 0 {
+			total = toInt64(tr[0]["n"])
+		}
+
+		// Unread count (always — regardless of filter — so the badge stays accurate)
+		unreadCount := int64(0)
+		if ucRows, _ := db.PGQuery(r.Context(),
+			"SELECT COUNT(*) AS n FROM notifications WHERE user_id = $1 AND is_read = FALSE", user.ID); len(ucRows) > 0 {
+			unreadCount = toInt64(ucRows[0]["n"])
+		}
+
+		pageArgs := append(args, perPage, offset)
+		n := len(args) + 1
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT id, type, title, body, entity_type, entity_id, action_url,
+			       is_read, read_at, created_at
 			FROM notifications
-			WHERE user_id = $1
+			WHERE %s
 			ORDER BY created_at DESC
-			LIMIT $2 OFFSET $3`, user.ID, limit, offset)
+			LIMIT $%d OFFSET $%d`, whereClause, n, n+1), pageArgs...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -66,7 +112,13 @@ func notificationsListHandler(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		respond(w, rows, "pg")
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"total":         total,
+			"unread_count":  unreadCount,
+			"notifications": rows,
+		})
 	}
 }
 
@@ -100,13 +152,14 @@ func notificationsMarkRead(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 
 		_, err = db.PGExec(r.Context(), `
-			UPDATE notifications SET is_read = TRUE
+			UPDATE notifications SET is_read = TRUE, read_at = NOW()
 			WHERE id = $1 AND user_id = $2`, id, user.ID)
 		if err != nil {
 			respondErr(w, 500, "Update failed")
 			return
 		}
-		respondErr(w, 200, "Marked as read")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
 	}
 }
 
@@ -115,13 +168,41 @@ func notificationsReadAll(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 
 		_, err := db.PGExec(r.Context(), `
-			UPDATE notifications SET is_read = TRUE
+			UPDATE notifications SET is_read = TRUE, read_at = NOW()
 			WHERE user_id = $1 AND is_read = FALSE`, user.ID)
 		if err != nil {
 			respondErr(w, 500, "Update failed")
 			return
 		}
-		respondErr(w, 200, "All notifications marked as read")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
+	}
+}
+
+// notificationsDelete deletes a single notification for the authenticated user.
+// Only the notification's owner can delete it.
+func notificationsDelete(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Invalid notification ID")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+
+		res, err := db.PGExec(r.Context(),
+			`DELETE FROM notifications WHERE id = $1 AND user_id = $2`, id, user.ID)
+		if err != nil {
+			respondErr(w, 500, "Delete failed")
+			return
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			respondErr(w, 404, "Notification not found")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"}) //nolint:errcheck
 	}
 }
 
@@ -182,7 +263,8 @@ func notificationsSSE(db *core.DB) http.HandlerFunc {
 
 			case <-poll.C:
 				rows, err := db.PGQuery(ctx, `
-					SELECT id, type, title, body, entity_type, entity_id, is_read, created_at
+					SELECT id, type, title, body, entity_type, entity_id, action_url,
+					       is_read, read_at, created_at
 					FROM notifications
 					WHERE user_id = $1 AND id > $2
 					ORDER BY id ASC`, user.ID, lastID)
@@ -206,7 +288,7 @@ func notificationsSSE(db *core.DB) http.HandlerFunc {
 }
 
 // sendNotification inserts a notification row and fires NOTIFY on the per-user channel.
-// Used by other handlers (LOS assignment, etc.) to push real-time alerts.
+// Used by other handlers (LOS assignment, helpdesk, collections, recovery) to push real-time alerts.
 func sendNotification(ctx context.Context, db *core.DB, userID int64, notifType, title, body, entityType string, entityID int64) error {
 	rows, err := db.PGQuery(ctx, `
 		INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id, is_read, created_at)

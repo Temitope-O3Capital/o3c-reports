@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { fmtDate, fmtNum } from '../lib/fmt'
+import SenderPicker from '../components/SenderPicker'
 import {
   Page, SectionCard, DataTable, ColDef,
   KpiCard, ErrBanner, StatusBadge, NAVY, GREEN,
@@ -10,7 +12,7 @@ interface Campaign {
   id: number
   name: string
   type: 'sms' | 'email' | 'multi'
-  status: 'draft' | 'active' | 'paused' | 'completed' | 'cancelled'
+  status: 'draft' | 'scheduled' | 'active' | 'paused' | 'completed' | 'cancelled'
   channel: string
   total_contacts?: number
   recipient_count: number
@@ -49,6 +51,8 @@ interface WizardData {
   message: string
   subject: string
   template_id: number | null
+  from_address: string
+  from_name:    string
   // Step 4 — Schedule
   send_when: 'now' | 'later'
   scheduled_at: string
@@ -57,7 +61,7 @@ interface WizardData {
 const EMPTY: WizardData = {
   name: '', type: 'sms', goal: '',
   list_id: null,
-  message: '', subject: '', template_id: null,
+  message: '', subject: '', template_id: null, from_address: '', from_name: '',
   send_when: 'now', scheduled_at: '',
 }
 
@@ -157,7 +161,17 @@ function CampaignWizard({
   function canAdvance() {
     if (step === 0) return data.name.trim() !== ''
     if (step === 1) return data.list_id !== null
-    if (step === 2) return data.message.trim() !== ''
+    if (step === 2) {
+      if (data.message.trim() === '') return false
+      // Email campaigns require a subject line
+      if (data.type === 'email' && !data.subject.trim()) return false
+      return true
+    }
+    if (step === 3) {
+      // Scheduled sends require an actual future date
+      if (data.send_when === 'later' && !data.scheduled_at) return false
+      return true
+    }
     return true
   }
 
@@ -193,6 +207,8 @@ function CampaignWizard({
           email_subject: data.type === 'email' ? data.subject : undefined,
           email_body_html: data.type === 'email' ? data.message.replace(/\n/g, '<br>') : undefined,
           email_body_text: data.type === 'email' ? data.message : undefined,
+          from_email: data.from_address || undefined,
+          from_name:  data.from_name || undefined,
           template_id: data.template_id,
           scheduled_at: data.send_when === 'later' ? data.scheduled_at : null,
         }),
@@ -320,14 +336,22 @@ function CampaignWizard({
           {step === 2 && (
             <div className="space-y-4">
               {data.type === 'email' && (
-                <Field label="Subject Line">
-                  <input
-                    value={data.subject}
-                    onChange={e => set('subject', e.target.value)}
-                    placeholder="e.g. Your payment is due soon"
-                    className={INPUT} style={IBRD}
+                <>
+                  <SenderPicker
+                    purpose="promo"
+                    label="Send From"
+                    value={data.from_address ? { address: data.from_address, name: data.from_name } : null}
+                    onChange={v => { set('from_address', v.address); set('from_name', v.name) }}
                   />
-                </Field>
+                  <Field label="Subject Line">
+                    <input
+                      value={data.subject}
+                      onChange={e => set('subject', e.target.value)}
+                      placeholder="e.g. Your payment is due soon"
+                      className={INPUT} style={IBRD}
+                    />
+                  </Field>
+                </>
               )}
               <Field
                 label={data.type === 'sms' ? 'Message' : 'Email Body'}
@@ -469,14 +493,63 @@ function CampaignWizard({
   )
 }
 
+/* ── Launch Confirmation Modal ──────────────────────────────────────── */
+interface LaunchConfirm { id: number; name: string; type: string; recipient_count: number }
+
+function LaunchConfirmModal({
+  campaign,
+  onConfirm,
+  onCancel,
+}: { campaign: LaunchConfirm; onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={e => e.target === e.currentTarget && onCancel()}
+    >
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-6 pt-6 pb-2 text-center">
+          <span className="material-symbols-rounded text-[36px] block mb-2" style={{ color: '#D97706' }}>warning</span>
+          <h3 className="text-[15px] font-bold text-slate-800 mb-1">Launch Campaign?</h3>
+          <p className="text-[13px] text-slate-500 mb-4">
+            This will immediately dispatch <strong>{campaign.type.toUpperCase()}</strong> messages to{' '}
+            <strong>{fmtNum(campaign.recipient_count)}</strong> contacts.
+            <br />
+            <span className="text-[12px]">Campaign: <em>{campaign.name}</em></span>
+          </p>
+          <p className="text-[11px] text-red-600 font-semibold mb-4">This action cannot be undone.</p>
+        </div>
+        <div className="flex gap-2 px-6 pb-5">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2 rounded-lg text-[13px] font-medium border transition-colors hover:bg-slate-50"
+            style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#475569' }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 py-2 rounded-lg text-[13px] font-semibold text-white transition-all"
+            style={{ background: '#166534' }}
+          >
+            Yes, Launch
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ── Main page ─────────────────────────────────────────────────────── */
 export default function Campaigns() {
+  const nav = useNavigate()
   const [campaigns, setCampaigns]       = useState<Campaign[]>([])
   const [loading, setLoading]           = useState(true)
   const [error, setError]               = useState('')
   const [typeFilter, setTypeFilter]     = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [wizardOpen, setWizardOpen]     = useState(false)
+  const [confirmLaunch, setConfirmLaunch] = useState<LaunchConfirm | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -486,7 +559,10 @@ export default function Campaigns() {
       if (statusFilter !== 'all') params.status = statusFilter
       const qs = new URLSearchParams(params).toString()
       const res = await apiFetch(`/api/campaigns${qs ? '?' + qs : ''}`)
-      const rows = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : []
+      // Backend now returns { total, campaigns: [...] }; also handles legacy array shape.
+      const rows = Array.isArray(res?.campaigns) ? res.campaigns
+        : Array.isArray(res?.data) ? res.data
+        : Array.isArray(res) ? res : []
       setCampaigns(rows.map(normalizeCampaign))
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
@@ -494,7 +570,25 @@ export default function Campaigns() {
 
   useEffect(() => { load() }, [load])
 
-  async function handleAction(id: number, action: 'start' | 'pause' | 'cancel') {
+  function handleStartClick(campaign: Campaign) {
+    setConfirmLaunch({
+      id: campaign.id,
+      name: campaign.name,
+      type: campaign.type,
+      recipient_count: campaign.recipient_count,
+    })
+  }
+
+  async function confirmStart() {
+    if (!confirmLaunch) return
+    try {
+      await apiFetch(`/api/campaigns/${confirmLaunch.id}/start`, { method: 'POST' })
+      load()
+    } catch (e: any) { setError(e.message) }
+    finally { setConfirmLaunch(null) }
+  }
+
+  async function handleAction(id: number, action: 'pause' | 'cancel') {
     try {
       await apiFetch(`/api/campaigns/${id}/${action}`, { method: 'POST' })
       load()
@@ -523,8 +617,14 @@ export default function Campaigns() {
     { key: 'created_at',      label: 'Created',     render: r => fmtDate(r.created_at)                  },
     { key: '_actions', label: '', sortable: false, render: r => (
         <div className="flex gap-1">
-          {r.status === 'draft'  && <ActionBtn icon="play_arrow" label="Start"  onClick={() => handleAction(r.id, 'start')}  color={GREEN} />}
-          {r.status === 'active' && <ActionBtn icon="pause"      label="Pause"  onClick={() => handleAction(r.id, 'pause')}  color="#D97706" />}
+          {(r.status === 'active' || r.status === 'completed') &&
+            <ActionBtn icon="bar_chart" label="View Report" onClick={() => nav(`/campaigns/${r.id}/report`)} color="#2563EB" />}
+          {(r.status === 'draft' || r.status === 'scheduled') &&
+            <ActionBtn icon="play_arrow" label="Start"  onClick={() => handleStartClick(r)}       color={GREEN} />}
+          {r.status === 'active' &&
+            <ActionBtn icon="pause"      label="Pause"  onClick={() => handleAction(r.id, 'pause')}  color="#D97706" />}
+          {r.status === 'paused' &&
+            <ActionBtn icon="play_arrow" label="Resume" onClick={() => handleStartClick(r)}       color={GREEN} />}
           {r.status !== 'cancelled' && r.status !== 'completed' &&
             <ActionBtn icon="cancel" label="Cancel" onClick={() => handleAction(r.id, 'cancel')} color="#DC2626" />}
         </div>
@@ -550,6 +650,11 @@ export default function Campaigns() {
               <option key={s} value={s}>{s === 'all' ? 'All Status' : s.charAt(0).toUpperCase() + s.slice(1)}</option>
             ))}
           </select>
+          <button onClick={() => nav('/campaigns/analytics')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold"
+            style={{ background: '#EFF6FF', color: '#2563EB', border: '1px solid #BFDBFE' }}>
+            <span className="material-symbols-rounded text-[14px]">insights</span>Analytics
+          </button>
           <button onClick={() => setWizardOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white"
             style={{ background: NAVY }}>
@@ -576,6 +681,14 @@ export default function Campaigns() {
         <CampaignWizard
           onClose={() => setWizardOpen(false)}
           onDone={() => { setWizardOpen(false); load() }}
+        />
+      )}
+
+      {confirmLaunch && (
+        <LaunchConfirmModal
+          campaign={confirmLaunch}
+          onConfirm={confirmStart}
+          onCancel={() => setConfirmLaunch(null)}
         />
       )}
     </Page>

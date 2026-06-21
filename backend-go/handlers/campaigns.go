@@ -3,11 +3,13 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -17,6 +19,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
 )
+
+// hrefRE matches href="http(s)://..." in email HTML bodies for click-tracking rewrites.
+var hrefRE = regexp.MustCompile(`href="(https?://[^"]+)"`)
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -216,6 +221,30 @@ func startDispatch(db *core.DB, campaignID int64) {
 				subject := renderTemplate(str(camp["email_subject"]), mergeData)
 				htmlBody := renderTemplate(str(camp["email_body_html"]), mergeData)
 				textBody := renderTemplate(str(camp["email_body_text"]), mergeData)
+
+				// Inject click-tracking and open-pixel if APP_URL and tracking_id are set.
+				trackingID := str(c["tracking_id"])
+				appURL := os.Getenv("APP_URL")
+				if appURL != "" && trackingID != "" {
+					// Wrap all href="https?://..." links with the click-tracking redirect.
+					htmlBody = hrefRE.ReplaceAllStringFunc(htmlBody, func(match string) string {
+						sub := hrefRE.FindStringSubmatch(match)
+						if len(sub) < 2 {
+							return match
+						}
+						return fmt.Sprintf(`href="%s/t/c/%s?url=%s"`, appURL, trackingID, url.QueryEscape(sub[1]))
+					})
+					// Inject 1×1 open-tracking pixel before </body> (or append if absent).
+					pixel := fmt.Sprintf(
+						`<img src="%s/t/o/%s.gif" width="1" height="1" alt="" style="display:none;border:0;height:1px;width:1px;">`,
+						appURL, trackingID)
+					if strings.Contains(htmlBody, "</body>") {
+						htmlBody = strings.Replace(htmlBody, "</body>", pixel+"</body>", 1)
+					} else {
+						htmlBody += pixel
+					}
+				}
+
 				ok, pid := sendEmail(
 					ctx, db,
 					str(c["email"]), name,
@@ -233,6 +262,12 @@ func startDispatch(db *core.DB, campaignID int64) {
 					emailStatus, pid, cid)
 				db.PGExec(ctx, //nolint:errcheck
 					fmt.Sprintf("UPDATE campaigns SET %s=%s+1, updated_at=NOW() WHERE id=$1", emailCol, emailCol), campaignID)
+				// Record sent event for analytics timeline.
+				db.PGExec(ctx, //nolint:errcheck
+					`INSERT INTO campaign_events
+					     (campaign_id, contact_id, tracking_id, event_type, channel, provider_msg_id)
+					 VALUES ($1, $2, $3, 'sent', 'email', $4)`,
+					campaignID, cid, trackingID, pid)
 			}
 
 			time.Sleep(sendDelay) // rate-limit provider calls
@@ -243,6 +278,33 @@ func startDispatch(db *core.DB, campaignID int64) {
 			campaignID)
 		slog.Info("Campaign dispatch complete", "id", campaignID)
 	}()
+}
+
+// ResumeInterruptedCampaigns is called on startup to restart any campaigns that
+// were mid-dispatch when the pod last restarted.  It looks for campaigns that
+// are still 'active' but have at least one contact record with a NULL sent_at,
+// meaning dispatch was interrupted before they were reached.
+func ResumeInterruptedCampaigns(db *core.DB) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	rows, err := db.PGQuery(ctx, `
+		SELECT DISTINCT c.id
+		FROM campaigns c
+		WHERE c.status = 'active'
+		  AND EXISTS (
+		      SELECT 1 FROM campaign_contacts cc
+		      WHERE cc.campaign_id = c.id
+		        AND (cc.sms_status = 'pending' OR cc.email_status = 'pending')
+		  )`)
+	if err != nil {
+		slog.Error("ResumeInterruptedCampaigns: query failed", "err", err)
+		return
+	}
+	for _, row := range rows {
+		id := toInt64(row["id"])
+		slog.Info("Resuming interrupted campaign", "campaign_id", id)
+		startDispatch(db, id)
+	}
 }
 
 // ── Route registration ────────────────────────────────────────────────────────
@@ -278,7 +340,8 @@ func RegisterCampaignWebhooks(r chi.Router, db *core.DB) {
 
 func listCampaigns(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		limit := qint(r, "limit", 100, 1, 500)
+		limit  := qint(r, "limit", 100, 1, 500)
+		offset := qint(r, "offset", 0, 0, 1<<30)
 		where := "1=1"
 		var args []any
 		n := 1
@@ -292,18 +355,26 @@ func listCampaigns(db *core.DB) http.HandlerFunc {
 			args = append(args, v)
 			n++
 		}
-		args = append(args, limit)
+		filterArgs := append([]any(nil), args...)
+		args = append(args, limit, offset)
+
+		total := 0
+		if tr, _ := db.PGQuery(r.Context(),
+			fmt.Sprintf("SELECT COUNT(*) AS n FROM campaigns c WHERE %s", where), filterArgs...); len(tr) > 0 {
+			total = int(toInt64(tr[0]["n"]))
+		}
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT c.*, u.full_name AS created_by_name, cl.name AS list_name
 			FROM campaigns c
 			LEFT JOIN o3c_users u  ON c.created_by=u.id
 			LEFT JOIN contact_lists cl ON c.list_id=cl.id
-			WHERE %s ORDER BY c.created_at DESC LIMIT $%d`, where, n), args...)
+			WHERE %s ORDER BY c.created_at DESC LIMIT $%d OFFSET $%d`, where, n, n+1), args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
 		}
-		jsonRows(w, rows)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"total": total, "campaigns": rows}) //nolint:errcheck
 	}
 }
 
@@ -426,6 +497,13 @@ func updateCampaign(db *core.DB) http.HandlerFunc {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			respondErr(w, 400, "Invalid JSON")
 			return
+		}
+		// Reject an explicit empty name
+		if n, ok := body["name"]; ok {
+			if ns, _ := n.(string); strings.TrimSpace(ns) == "" {
+				respondErr(w, 422, "name cannot be empty")
+				return
+			}
 		}
 		parts, args := buildSet(body, campaignUpdateCols, 1)
 		if len(parts) == 0 {
@@ -593,21 +671,16 @@ func listCampaignContacts(db *core.DB) http.HandlerFunc {
 
 func checkWebhookToken(r *http.Request, expected string) bool {
 	if expected == "" {
-		slog.Warn("Webhook secret not configured — request accepted without verification")
-		return true
-	}
-	// constant-time compare (hmac.Equal expects []byte, so convert)
-	provided := r.URL.Query().Get("secret")
-	if len(provided) != len(expected) {
+		// Bug fix: previously returned true (accepted any request when secret unconfigured).
+		// Now rejects — an unconfigured secret means the webhook is effectively open to anyone,
+		// which is a security hole. Operators must set SMS_WEBHOOK_SECRET / EMAIL_WEBHOOK_SECRET.
+		slog.Warn("Webhook secret not configured — request rejected")
 		return false
 	}
-	match := true
-	for i := range provided {
-		if provided[i] != expected[i] {
-			match = false
-		}
-	}
-	return match
+	provided := r.URL.Query().Get("secret")
+	// hmac.Equal is constant-time; the previous hand-rolled loop still leaked info via
+	// the early length check and branch prediction.
+	return hmac.Equal([]byte(provided), []byte(expected))
 }
 
 func smsWebhook(db *core.DB) http.HandlerFunc {

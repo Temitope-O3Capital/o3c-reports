@@ -37,6 +37,12 @@ func main() {
 
 	core.InitAuth(cfg.SecretKey)
 
+	// Run any pending SQL migrations before serving traffic.
+	if err := runMigrations(db); err != nil {
+		slog.Error("Migration failed", "err", err)
+		os.Exit(1)
+	}
+
 	// Shutdown context — cancelled on SIGTERM/SIGINT so the batch loop exits cleanly.
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	go func() {
@@ -47,6 +53,18 @@ func main() {
 	}()
 	handlers.RunBatchNightly(shutdownCtx, db)
 
+	// Resume any campaigns that were mid-dispatch when the pod last restarted.
+	handlers.ResumeInterruptedCampaigns(db)
+
+	// Auto-launch any campaigns whose scheduled_at has passed.
+	go handlers.ScheduledCampaignTicker(db)
+
+	// Push due-soon / overdue task notifications hourly.
+	go handlers.ScheduleTaskNotifications(db)
+
+	// Birthday worker — fires daily at 08:00.
+	go handlers.ScheduleBirthdayWorker(db)
+
 	r := chi.NewRouter()
 
 	// ── Global middleware ──────────────────────────────────────────────────────
@@ -55,14 +73,19 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware(cfg.AllowedOrigins))
 	r.Use(securityHeaders)
-	r.Use(httprate.LimitByIP(100, time.Minute))
+	// Use rightmost X-Forwarded-For IP as the rate-limit key (Railway appends the real IP last).
+	r.Use(httprate.Limit(100, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
+		return rightmostIP(r), nil
+	})))
 
 	// ── Public endpoints ───────────────────────────────────────────────────────
 	r.Get("/api/health", healthHandler(db))
 
 	// Mount auth routes (token is public, me/change-password require auth)
 	r.Route("/api/auth", func(r chi.Router) {
-		r.With(httprate.LimitByIP(5, time.Minute)).Post("/token", loginPublic(db))
+		r.With(httprate.Limit(5, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
+			return rightmostIP(r), nil
+		}))).Post("/token", loginPublic(db))
 		r.Post("/bootstrap", handlers.BootstrapHandler(db))
 		if cfg.EnableResetAdmin {
 			r.Post("/reset-admin", handlers.ResetAdminHandler(db, cfg.ResetAdminSecret))
@@ -77,6 +100,23 @@ func main() {
 	// Public campaign webhooks (Termii / SendGrid — no JWT)
 	r.Route("/api/campaign-webhooks", func(r chi.Router) {
 		handlers.RegisterCampaignWebhooks(r, db)
+	})
+
+	// Email open-pixel and click-redirect tracking (embedded in campaign emails — no JWT)
+	r.Get("/t/o/{tracking_id}", handlers.TrackOpen(db))
+	r.Get("/t/c/{tracking_id}", handlers.TrackClick(db))
+
+	// Uploaded campaign images served as static files
+	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads/"))))
+
+	// Helpdesk inbound webhooks and CSAT (SendGrid Inbound Parse, Termii, customer links — no JWT)
+	r.Route("/api/helpdesk", func(r chi.Router) {
+		handlers.RegisterHelpdeskPublic(r, db)
+	})
+
+	// WhatsApp inbound webhook (Meta Cloud API — no JWT)
+	r.Route("/api/whatsapp", func(r chi.Router) {
+		handlers.RegisterWhatsAppPublic(r, db)
 	})
 	r.Route("/api/mail", func(r chi.Router) {
 		handlers.RegisterMailPublic(r, db)
@@ -128,6 +168,14 @@ func main() {
 		})
 		r.Route("/api/admin", func(r chi.Router) {
 			handlers.RegisterAdmin(r, db)
+			handlers.RegisterNotificationSettings(r, db)
+			handlers.RegisterEmailSenders(r, db)
+		})
+		r.Route("/api", func(r chi.Router) {
+			handlers.RegisterRecipientSuggest(r, db)
+		})
+		r.Route("/api/user", func(r chi.Router) {
+			handlers.RegisterNotificationPrefs(r, db)
 		})
 		r.Route("/api/crm", func(r chi.Router) {
 			handlers.RegisterCRM(r, db)
@@ -143,6 +191,8 @@ func main() {
 		})
 		r.Route("/api/campaigns", func(r chi.Router) {
 			handlers.RegisterCampaigns(r, db)
+			// Analytics, per-campaign reports, image upload — same /api/campaigns prefix
+			handlers.RegisterCampaignAnalytics(r, db)
 		})
 		r.Route("/api/contact-lists", func(r chi.Router) {
 			handlers.RegisterContactLists(r, db)
@@ -223,6 +273,12 @@ func main() {
 		r.Route("/api/customer-service", func(r chi.Router) {
 			handlers.RegisterCustomerService(r, db)
 		})
+
+		// Helpdesk (customer service tickets, threading, canned responses, SLA)
+		r.Route("/api/helpdesk", func(r chi.Router) {
+			handlers.RegisterHelpdesk(r, db)
+		})
+
 	})
 
 	// ── Server ─────────────────────────────────────────────────────────────────
@@ -316,7 +372,7 @@ func corsMiddleware(allowed []string) func(http.Handler) http.Handler {
 			if set[origin] {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 				w.Header().Set("Vary", "Origin")
 			}

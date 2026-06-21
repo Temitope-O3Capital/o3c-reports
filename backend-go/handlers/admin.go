@@ -44,6 +44,7 @@ func RegisterAdmin(r chi.Router, db *core.DB) {
 	r.With(adminOnly).Get("/api-keys", listApiKeys(db))
 	r.With(adminOnly).Put("/api-keys/{name}", updateApiKey(db))
 	r.With(adminOnly).Post("/api-keys/{name}/test", testApiKey(db))
+	r.With(adminOnly).Post("/upload-logo", uploadEmailLogo(db))
 }
 
 // RegisterActivityLog is mounted outside the admin guard (any authenticated user can log).
@@ -558,7 +559,7 @@ func decryptValue(stored string) (string, error) {
 func listApiKeys(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT key_name, description, category, is_active,
+			SELECT key_name, description, category, is_active, is_secret,
 			       (encrypted_value IS NOT NULL AND encrypted_value <> '') AS has_value,
 			       last_tested_at, test_status, updated_at, updated_by
 			FROM api_credentials
@@ -751,5 +752,58 @@ func getUserSessions(db *core.DB) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"data": rows}) //nolint:errcheck
+	}
+}
+
+// uploadEmailLogo accepts a multipart image upload (PNG/JPG/SVG ≤ 512 KB),
+// encodes it as a base64 data URL, and saves it to EMAIL_LOGO_URL in the
+// credential store — no external file hosting required.
+func uploadEmailLogo(db *core.DB) http.HandlerFunc {
+	const maxSize = 512 * 1024 // 512 KB
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(maxSize); err != nil {
+			respondErr(w, 400, "File too large (max 512 KB)"); return
+		}
+		file, header, err := r.FormFile("logo")
+		if err != nil {
+			respondErr(w, 400, "logo field required"); return
+		}
+		defer file.Close()
+
+		ext := strings.ToLower(header.Filename[strings.LastIndex(header.Filename, "."):])
+		if !strings.Contains(ext, ".") {
+			ext = ""
+		}
+		mimeType := map[string]string{
+			".png":  "image/png",
+			".jpg":  "image/jpeg",
+			".jpeg": "image/jpeg",
+			".svg":  "image/svg+xml",
+			".gif":  "image/gif",
+			".webp": "image/webp",
+		}[ext]
+		if mimeType == "" {
+			respondErr(w, 422, "Unsupported type. Use PNG, JPG, SVG, GIF, or WebP."); return
+		}
+
+		imgData, err := io.ReadAll(io.LimitReader(file, maxSize))
+		if err != nil {
+			respondErr(w, 500, "Read failed"); return
+		}
+		dataURL := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(imgData)
+
+		user := core.UserFromCtx(r.Context())
+		if _, err := db.PGExec(r.Context(), `
+			INSERT INTO api_credentials
+			    (key_name, description, category, is_secret, encrypted_value, is_active, updated_at, updated_by)
+			VALUES ('EMAIL_LOGO_URL','Logo image embedded in notification emails','messaging',FALSE,$1,TRUE,NOW(),$2)
+			ON CONFLICT (key_name) DO UPDATE
+			    SET encrypted_value=$1, is_active=TRUE, updated_at=NOW(), updated_by=$2`,
+			dataURL, user.ID); err != nil {
+			slog.Error("uploadEmailLogo: db error", "err", err)
+			respondErr(w, 500, "Save failed"); return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
 	}
 }

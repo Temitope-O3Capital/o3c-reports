@@ -102,6 +102,15 @@ const Checklists       = lazy(() => import('./pages/compliance/Checklists'))
 
 // Campaigns (was /marketing/*)
 const Campaigns        = lazy(() => import('./pages/Campaigns'))
+const CSATPage         = lazy(() => import('./pages/helpdesk/CSAT'))
+const CampaignReport   = lazy(() => import('./pages/campaigns/CampaignReport'))
+const AllCampaignAnalytics = lazy(() => import('./pages/campaigns/AllCampaignAnalytics'))
+
+// Helpdesk (Customer Service ticketing)
+const TicketList       = lazy(() => import('./pages/helpdesk/TicketList'))
+const TicketDetail     = lazy(() => import('./pages/helpdesk/TicketDetail'))
+const CannedResponses  = lazy(() => import('./pages/helpdesk/CannedResponses'))
+const HelpdeskStats    = lazy(() => import('./pages/helpdesk/HelpdeskStats'))
 const MessageTemplates = lazy(() => import('./pages/marketing/MessageTemplates'))
 const ContactLists     = lazy(() => import('./pages/marketing/ContactLists'))
 const ComposeMail      = lazy(() => import('./pages/marketing/ComposeMail'))
@@ -111,11 +120,14 @@ const CSOverview       = lazy(() => import('./pages/customer-service/Overview'))
 const CSCalls          = lazy(() => import('./pages/customer-service/Calls'))
 
 // Admin
-const UserManagement   = lazy(() => import('./pages/admin/UserManagement'))
-const PlatformSettings = lazy(() => import('./pages/admin/PlatformSettings'))
-const SyncStatus       = lazy(() => import('./pages/admin/SyncStatus'))
-const ApiKeys          = lazy(() => import('./pages/admin/ApiKeys'))
-const MailHealth       = lazy(() => import('./pages/admin/MailHealth'))
+const UserManagement          = lazy(() => import('./pages/admin/UserManagement'))
+const PlatformSettings        = lazy(() => import('./pages/admin/PlatformSettings'))
+const SyncStatus              = lazy(() => import('./pages/admin/SyncStatus'))
+const ApiKeys                 = lazy(() => import('./pages/admin/ApiKeys'))
+const MailHealth              = lazy(() => import('./pages/admin/MailHealth'))
+const NotificationSettings    = lazy(() => import('./pages/admin/NotificationSettings'))
+const NotificationPreferences = lazy(() => import('./pages/settings/NotificationPreferences'))
+const EmailSenders            = lazy(() => import('./pages/admin/EmailSenders'))
 
 // Reports & Approvals
 const Reports          = lazy(() => import('./pages/reports/Reports'))
@@ -414,6 +426,7 @@ function RequireAccess({ page, user, children }: { page: string; user: AuthUser;
   return <>{children}</>
 }
 
+// NOTE: 'cmo' is a legacy role not in the canonical 24 — kept intentionally for backwards compatibility
 const MGMT_ROLES = ['md', 'coo', 'cfo', 'cmo', 'executive', 'admin', 'management', 'head_ops', 'head_it']
 
 export default function App() {
@@ -466,6 +479,19 @@ export default function App() {
         style={{ borderColor: 'rgba(14,40,65,0.1)', borderTopColor: '#0E2841' }} />
     </div>
   )
+
+  // Public routes — served without auth so customers can fill CSAT surveys
+  if (window.location.pathname.startsWith('/csat/')) {
+    return (
+      <BrowserRouter>
+        <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
+          <Routes>
+            <Route path="/csat/:token" element={<CSATPage />} />
+          </Routes>
+        </Suspense>
+      </BrowserRouter>
+    )
+  }
 
   if (!user) return (
     <>
@@ -572,7 +598,7 @@ export default function App() {
                 <Route path="/customer-service/calls" element={<CSCalls />} />
 
                 {/* ── HR ── */}
-                <Route path="/hr"              element={<RequireAccess page="hr_employees" user={user}><Placeholder title="HR Overview" dept="HR" icon="groups" /></RequireAccess>} />
+                <Route path="/hr"              element={<Navigate to="/hr/employees" replace />} />
                 <Route path="/hr/employees"    element={<RequireAccess page="hr_employees" user={user}><HREmployees /></RequireAccess>} />
                 <Route path="/hr/leave"        element={<RequireAccess page="hr_leave" user={user}><HRLeave /></RequireAccess>} />
                 <Route path="/hr/performance"  element={<RequireAccess page="hr_performance" user={user}><HRPerformance /></RequireAccess>} />
@@ -580,7 +606,7 @@ export default function App() {
                 <Route path="/hr/training"     element={<RequireAccess page="hr_training" user={user}><HRTraining /></RequireAccess>} />
 
                 {/* ── Compliance ── */}
-                <Route path="/compliance"               element={<RequireAccess page="compliance_checklists" user={user}><Placeholder title="Compliance Overview" dept="Compliance" icon="policy" /></RequireAccess>} />
+                <Route path="/compliance"               element={<Navigate to="/compliance/checklists" replace />} />
                 <Route path="/compliance/watchlist"     element={<RequireAccess page="watch_list" user={user}><WatchList /></RequireAccess>} />
                 <Route path="/compliance/sars"          element={<RequireAccess page="sars" user={user}><Sars /></RequireAccess>} />
                 <Route path="/compliance/cbn-reports"   element={<RequireAccess page="cbn_reports" user={user}><CbnReports /></RequireAccess>} />
@@ -589,10 +615,18 @@ export default function App() {
                 <Route path="/compliance/audit-trail"   element={<RequireAccess page="audit_trail" user={user}><AuditTrail /></RequireAccess>} />
 
                 {/* ── Campaigns ── */}
-                <Route path="/campaigns"           element={<Campaigns />} />
-                <Route path="/campaigns/compose"   element={<ComposeMail />} />
-                <Route path="/campaigns/templates" element={<MessageTemplates />} />
-                <Route path="/campaigns/lists"     element={<ContactLists />} />
+                <Route path="/campaigns"                  element={<Campaigns />} />
+                <Route path="/campaigns/compose"          element={<ComposeMail />} />
+                <Route path="/campaigns/templates"        element={<MessageTemplates />} />
+                <Route path="/campaigns/lists"            element={<ContactLists />} />
+                <Route path="/campaigns/analytics"        element={<AllCampaignAnalytics />} />
+                <Route path="/campaigns/:id/report"       element={<CampaignReport />} />
+
+                {/* ── Helpdesk ── */}
+                <Route path="/helpdesk"            element={<TicketList />} />
+                <Route path="/helpdesk/stats"      element={<HelpdeskStats />} />
+                <Route path="/helpdesk/canned"     element={<CannedResponses />} />
+                <Route path="/helpdesk/:id"        element={<TicketDetail />} />
 
                 {/* ── Reports ── */}
                 <Route path="/reports" element={<Reports />} />
@@ -604,6 +638,9 @@ export default function App() {
                 <Route path="/admin/mail"     element={<RequireAccess page="admin_api_keys" user={user}><MailHealth /></RequireAccess>} />
                 <Route path="/admin/settings" element={<RequireAccess page="settings" user={user}><PlatformSettings /></RequireAccess>} />
                 <Route path="/admin/sync"     element={<RequireAccess page="sync_status" user={user}><SyncStatus /></RequireAccess>} />
+                <Route path="/admin/notification-settings" element={<RequireAccess page="settings" user={user}><NotificationSettings /></RequireAccess>} />
+                <Route path="/admin/email-senders"         element={<RequireAccess page="settings" user={user}><EmailSenders /></RequireAccess>} />
+                <Route path="/settings/notifications" element={<NotificationPreferences />} />
 
                 {/* ── Watch ── */}
                 <Route path="/watch" element={<Watch />} />
