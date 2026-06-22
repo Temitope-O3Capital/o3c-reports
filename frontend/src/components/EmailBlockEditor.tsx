@@ -333,12 +333,78 @@ function CanvasBlock({ block, selected, idx, total, onSelect, onUpdate, onMove, 
             {selected && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '4px 8px', background: '#1e293b', borderBottom: '1px solid #334155', flexWrap: 'wrap' }}>
                 {[
-                  { title: 'Bold',         icon: 'format_bold',        cmd: () => document.execCommand('bold') },
-                  { title: 'Italic',       icon: 'format_italic',      cmd: () => document.execCommand('italic') },
-                  { title: 'Underline',    icon: 'format_underlined',  cmd: () => document.execCommand('underline') },
-                  { title: 'Align Left',   icon: 'format_align_left',  cmd: () => document.execCommand('justifyLeft') },
-                  { title: 'Align Center', icon: 'format_align_center',cmd: () => document.execCommand('justifyCenter') },
-                  { title: 'Link', icon: 'link', cmd: () => { const u = prompt('URL:'); if (u) document.execCommand('createLink', false, u) } },
+                  {
+                    title: 'Bold', icon: 'format_bold',
+                    cmd: () => {
+                      const sel = window.getSelection()
+                      if (!sel || sel.rangeCount === 0) return
+                      const range = sel.getRangeAt(0)
+                      if (range.collapsed) return
+                      const el = document.createElement('strong')
+                      el.appendChild(range.extractContents())
+                      range.insertNode(el)
+                    },
+                  },
+                  {
+                    title: 'Italic', icon: 'format_italic',
+                    cmd: () => {
+                      const sel = window.getSelection()
+                      if (!sel || sel.rangeCount === 0) return
+                      const range = sel.getRangeAt(0)
+                      if (range.collapsed) return
+                      const el = document.createElement('em')
+                      el.appendChild(range.extractContents())
+                      range.insertNode(el)
+                    },
+                  },
+                  {
+                    title: 'Underline', icon: 'format_underlined',
+                    cmd: () => {
+                      const sel = window.getSelection()
+                      if (!sel || sel.rangeCount === 0) return
+                      const range = sel.getRangeAt(0)
+                      if (range.collapsed) return
+                      const el = document.createElement('u')
+                      el.appendChild(range.extractContents())
+                      range.insertNode(el)
+                    },
+                  },
+                  {
+                    title: 'Align Left', icon: 'format_align_left',
+                    cmd: () => {
+                      const sel = window.getSelection()
+                      if (!sel || sel.rangeCount === 0) return
+                      const node = sel.anchorNode?.parentElement
+                      const block = node?.closest('p,div,h1,h2,h3') as HTMLElement | null
+                      if (block) block.style.textAlign = 'left'
+                    },
+                  },
+                  {
+                    title: 'Align Center', icon: 'format_align_center',
+                    cmd: () => {
+                      const sel = window.getSelection()
+                      if (!sel || sel.rangeCount === 0) return
+                      const node = sel.anchorNode?.parentElement
+                      const block = node?.closest('p,div,h1,h2,h3') as HTMLElement | null
+                      if (block) block.style.textAlign = 'center'
+                    },
+                  },
+                  {
+                    title: 'Link', icon: 'link',
+                    cmd: () => {
+                      const sel = window.getSelection()
+                      if (!sel || sel.rangeCount === 0) return
+                      const url = prompt('URL:')
+                      if (!url) return
+                      const range = sel.getRangeAt(0)
+                      const a = document.createElement('a')
+                      a.href = url
+                      a.target = '_blank'
+                      a.style.color = '#0E2841'
+                      a.appendChild(range.extractContents())
+                      range.insertNode(a)
+                    },
+                  },
                 ].map(({ title, icon, cmd }) => (
                   <button key={title} type="button" title={title}
                     onMouseDown={e => { e.preventDefault(); cmd() }}
@@ -349,7 +415,14 @@ function CanvasBlock({ block, selected, idx, total, onSelect, onUpdate, onMove, 
                 <div style={{ width: 1, height: 16, background: '#334155', margin: '0 2px' }} />
                 {['{{first_name}}', '{{amount}}', '{{due_date}}', '{{cif}}'].map(t => (
                   <button key={t} type="button"
-                    onMouseDown={e => { e.preventDefault(); document.execCommand('insertText', false, t) }}
+                    onMouseDown={e => {
+                      e.preventDefault()
+                      const sel = window.getSelection()
+                      if (!sel || sel.rangeCount === 0) return
+                      const range = sel.getRangeAt(0)
+                      range.deleteContents()
+                      range.insertNode(document.createTextNode(t))
+                    }}
                     style={{ fontSize: 9, padding: '1px 5px', background: '#334155', border: 'none', color: '#94a3b8', borderRadius: 3, cursor: 'pointer', fontFamily: 'monospace' }}>
                     {t}
                   </button>
@@ -558,10 +631,21 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
             <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
               const file = e.target.files?.[0]; if (!file) return
               try {
-                const fd = new FormData(); fd.append('file', file)
-                const res = await apiFetch('/api/campaigns/upload-image', { method: 'POST', body: fd } as any)
-                onUpdate({ src: (res as any).url })
-              } catch { alert('Upload failed') }
+                // Bug fix: apiFetch sets Content-Type: application/json, breaking multipart uploads.
+                // Use raw fetch so the browser can set the correct multipart/form-data boundary.
+                const API   = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000'
+                const token = localStorage.getItem('o3c_token') || ''
+                const fd    = new FormData()
+                fd.append('image', file)
+                const res = await fetch(`${API}/api/campaigns/upload-image`, {
+                  method: 'POST',
+                  headers: token ? { Authorization: `Bearer ${token}` } : {},
+                  body: fd,
+                })
+                if (!res.ok) throw new Error(`Upload failed (${res.status})`)
+                const data = await res.json()
+                onUpdate({ src: data.url })
+              } catch (err: any) { alert(err?.message || 'Upload failed') }
             }} />
           </label>
         </F>
@@ -727,7 +811,7 @@ interface EmailBlockEditorProps {
 
 export default function EmailBlockEditor({ value, onChange }: EmailBlockEditorProps) {
   const [blocks, setBlocks]           = useState<EmailBlock[]>(() => (value?.blocks || []).map(b => ({ ...b, id: b.id || uid() })))
-  const [settings]                    = useState<EmailSettings>(value?.settings || { background: '#f4f4f4', contentWidth: 680 })
+  const [settings, setSettings]       = useState<EmailSettings>(value?.settings || { background: '#f4f4f4', contentWidth: 680 })
   const [selectedId, setSelectedId]   = useState<string | null>(null)
   const [showTemplates, setShowTemplates] = useState(!value?.blocks?.length)
   const [preview, setPreview]         = useState(false)
@@ -781,13 +865,42 @@ export default function EmailBlockEditor({ value, onChange }: EmailBlockEditorPr
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 560, border: `1px solid ${C.b12}`, borderRadius: 10, overflow: 'hidden' }}>
       {/* Toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: C.surf, borderBottom: `1px solid ${C.b08}`, flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: C.surf, borderBottom: `1px solid ${C.b08}`, flexShrink: 0, flexWrap: 'wrap' }}>
         <button type="button" style={btnGhost} onClick={() => setShowTemplates(true)}>
           <span className="material-symbols-rounded" style={{ fontSize: 15 }}>grid_view</span>
           Templates
         </button>
         <span style={{ fontSize: 11, color: C.fg4 }}>·</span>
         <span style={{ fontSize: 11, color: C.fg3 }}>{blocks.length} block{blocks.length !== 1 ? 's' : ''}</span>
+        {/* Canvas settings */}
+        <span style={{ fontSize: 11, color: C.fg4 }}>·</span>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.fg3, cursor: 'pointer' }}>
+          <span>BG</span>
+          <input
+            type="color"
+            value={settings.background || '#f4f4f4'}
+            onChange={e => {
+              const next = { ...settings, background: e.target.value }
+              setSettings(next)
+              onChange?.({ blocks, settings: next })
+            }}
+            style={{ width: 22, height: 22, border: `1px solid ${C.b15}`, borderRadius: 4, cursor: 'pointer' }}
+          />
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.fg3 }}>
+          <span>Width</span>
+          <select
+            value={settings.contentWidth || 680}
+            onChange={e => {
+              const next = { ...settings, contentWidth: Number(e.target.value) }
+              setSettings(next)
+              onChange?.({ blocks, settings: next })
+            }}
+            style={{ fontSize: 11, border: `1px solid ${C.b15}`, borderRadius: 4, padding: '1px 4px', background: '#fff', color: C.fg2 }}
+          >
+            {[560, 600, 640, 680, 720].map(w => <option key={w} value={w}>{w}px</option>)}
+          </select>
+        </label>
         <div style={{ marginLeft: 'auto' }}>
           <button type="button" style={btnGhost} onClick={openPreview}>
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>preview</span>

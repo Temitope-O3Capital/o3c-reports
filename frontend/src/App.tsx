@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useParams } from 'react-router-dom'
 import { Toaster, toast } from 'sonner'
 import Sidebar from './components/Sidebar'
 import NotificationBell from './components/NotificationBell'
@@ -23,7 +23,7 @@ function homeFor(role: string): string {
     cards_ops_officer: '/cards', cards_ops_head: '/cards',
     collections_agent: '/collections', collections_head: '/collections',
     recovery_agent: '/recovery',       recovery_head: '/recovery',
-    call_center_agent: '/customer-service', call_center_head: '/customer-service',
+    call_center_agent: '/helpdesk', call_center_head: '/helpdesk',
     hr_officer: '/hr',         hr_manager: '/hr',
     compliance_officer: '/compliance', compliance_head: '/compliance',
     internal_control_head: '/compliance',
@@ -129,6 +129,15 @@ const NotificationSettings    = lazy(() => import('./pages/admin/NotificationSet
 const NotificationPreferences = lazy(() => import('./pages/settings/NotificationPreferences'))
 const EmailSenders            = lazy(() => import('./pages/admin/EmailSenders'))
 
+// Mail environment
+const MailLayout  = lazy(() => import('./pages/mail/MailLayout'))
+const MailInbox   = lazy(() => import('./pages/mail/MailInbox'))
+const MailSent    = lazy(() => import('./pages/mail/MailSent'))
+const MailCompose = lazy(() => import('./pages/mail/MailCompose'))
+
+// Helpdesk additions
+const CallLog = lazy(() => import('./pages/helpdesk/CallLog'))
+
 // Reports & Approvals
 const Reports          = lazy(() => import('./pages/reports/Reports'))
 const Approvals        = lazy(() => import('./pages/Approvals'))
@@ -184,6 +193,15 @@ interface ApprovalItem {
 interface ApprovalSummary {
   total: number
   items: ApprovalItem[]
+}
+
+function ToolbarIconLink({ to, icon, title }: { to: string; icon: string; title: string }) {
+  return (
+    <Link to={to} title={title}
+      className="flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors">
+      <span className="material-symbols-rounded text-[20px]">{icon}</span>
+    </Link>
+  )
 }
 
 function ApprovalsButton({ user }: { user: AuthUser }) {
@@ -527,6 +545,10 @@ export default function App() {
           <header
             className="flex items-center justify-end gap-2 px-6 py-2.5 flex-shrink-0"
             style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
+            <ToolbarIconLink to="/customer360" icon="person_search" title="Customer 360" />
+            <ToolbarIconLink to="/tasks"       icon="task_alt"      title="Tasks" />
+            <ToolbarIconLink to="/mail/inbox"  icon="mail"          title="Mail" />
+            <div className="w-px h-4 bg-slate-200 mx-1" />
             <ApprovalsButton user={user} />
             <NotificationBell />
           </header>
@@ -557,6 +579,7 @@ export default function App() {
                 <Route path="/sales/customers"          element={<Customers />} />
                 <Route path="/sales/crm"                element={<CrmPipeline />} />
                 <Route path="/sales/tasks"              element={<CrmTasks />} />
+                <Route path="/tasks"                    element={<CrmTasks />} />
                 <Route path="/sales/applications"       element={<LOSQueue />} />
                 <Route path="/sales/applications/new"   element={<LOSNew />} />
                 <Route path="/sales/applications/:id"   element={<LOSDetail />} />
@@ -594,8 +617,8 @@ export default function App() {
                 <Route path="/customer360/:cif" element={<Customer360 />} />
 
                 {/* ── Customer Service ── */}
-                <Route path="/customer-service"       element={<CSOverview />} />
-                <Route path="/customer-service/calls" element={<CSCalls />} />
+                <Route path="/customer-service"       element={<Navigate to="/helpdesk" replace />} />
+                <Route path="/customer-service/calls" element={<Navigate to="/helpdesk/calls" replace />} />
 
                 {/* ── HR ── */}
                 <Route path="/hr"              element={<Navigate to="/hr/employees" replace />} />
@@ -626,6 +649,7 @@ export default function App() {
                 <Route path="/helpdesk"            element={<TicketList />} />
                 <Route path="/helpdesk/stats"      element={<HelpdeskStats />} />
                 <Route path="/helpdesk/canned"     element={<CannedResponses />} />
+                <Route path="/helpdesk/calls"      element={<CallLog />} />
                 <Route path="/helpdesk/:id"        element={<TicketDetail />} />
 
                 {/* ── Reports ── */}
@@ -641,6 +665,14 @@ export default function App() {
                 <Route path="/admin/notification-settings" element={<RequireAccess page="settings" user={user}><NotificationSettings /></RequireAccess>} />
                 <Route path="/admin/email-senders"         element={<RequireAccess page="settings" user={user}><EmailSenders /></RequireAccess>} />
                 <Route path="/settings/notifications" element={<NotificationPreferences />} />
+
+                {/* ── Mail environment ── */}
+                <Route path="/mail" element={<MailLayout />}>
+                  <Route index element={<Navigate to="/mail/inbox" replace />} />
+                  <Route path="inbox"   element={<MailInbox />} />
+                  <Route path="sent"    element={<MailSent />} />
+                  <Route path="compose" element={<MailCompose />} />
+                </Route>
 
                 {/* ── Watch ── */}
                 <Route path="/watch" element={<Watch />} />

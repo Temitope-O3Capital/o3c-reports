@@ -64,7 +64,7 @@ export default function NewApplication() {
                                  : undefined,
       }
       const res = await apiPost<{ data: { id: string } }>('/api/los', payload)
-      nav(`/los/${res.data.id}`)
+      nav(`/sales/applications/${res.data.id}`)
     } catch (e: any) {
       setError(e.message)
     } finally {

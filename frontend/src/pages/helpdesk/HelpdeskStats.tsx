@@ -62,6 +62,10 @@ export default function HelpdeskStats() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
+  const todayStr = today()
+  const isPeriodToday = dateFrom === todayStr && dateTo === todayStr
+  const resolvedLabel = isPeriodToday ? 'Resolved Today' : 'Resolved (Period)'
+
   useEffect(() => {
     setLoading(true); setErr('')
     const qs = new URLSearchParams({ date_from: dateFrom, date_to: dateTo })
@@ -87,7 +91,7 @@ export default function HelpdeskStats() {
     },
     {
       key: 'resolved_today',
-      label: 'Resolved Today',
+      label: resolvedLabel,
       right: true,
       render: row => (
         <span className="font-mono font-semibold text-slate-700">{row.resolved_today}</span>
@@ -109,9 +113,9 @@ export default function HelpdeskStats() {
     value: d.count,
   }))
 
-  // Prepare channel bar data with capitalised label
+  // Prepare channel bar data with capitalised label (null-safe)
   const channelData = (data?.by_channel ?? []).map(d => ({
-    channel: d.channel.charAt(0).toUpperCase() + d.channel.slice(1).replace(/_/g, ' '),
+    channel: (d.channel ?? 'unknown').charAt(0).toUpperCase() + (d.channel ?? 'unknown').slice(1).replace(/_/g, ' '),
     count: d.count,
   }))
 
@@ -138,7 +142,7 @@ export default function HelpdeskStats() {
               <OverviewStat label="Open"              value={data?.open ?? 0}                     color={NAVY} />
               <OverviewStat label="Pending"           value={data?.pending ?? 0}                  color={AMBER} />
               <OverviewStat label="In Progress"       value={data?.in_progress ?? 0}              color={BLUE} />
-              <OverviewStat label="Resolved Today"    value={data?.resolved_today ?? 0}           color={GREEN} />
+              <OverviewStat label={resolvedLabel}     value={data?.resolved_today ?? 0}           color={GREEN} />
               <OverviewStat label="SLA Breached"      value={data?.sla_breached ?? 0}             color={RED} />
               <div className="flex flex-col justify-center">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
@@ -188,7 +192,7 @@ export default function HelpdeskStats() {
                       dataKey="value"
                       paddingAngle={2}
                       startAngle={90}
-                      endAngle={-270}
+                      endAngle={450}
                     >
                       {statusData.map((_, i) => (
                         <Cell key={i} fill={STATUS_COLORS[i % STATUS_COLORS.length]} stroke="none" />

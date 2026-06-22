@@ -67,6 +67,9 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 	r.Delete("/canned-responses/{id}", hdDeleteCanned(db))
 	r.Get("/sla-policies", hdListSLA(db))
 	r.Put("/sla-policies/{id}", hdUpdateSLA(db))
+	r.Get("/calls",        hdListCalls(db))
+	r.Post("/calls",       hdLogCall(db))
+	r.Get("/calls/stats",  hdCallStats(db))
 }
 
 // ── Tickets ───────────────────────────────────────────────────────────────────
@@ -1484,4 +1487,158 @@ func ptrStr(s *string) string {
 
 func round2(f float64) float64 {
 	return float64(int(f*100+0.5)) / 100
+}
+
+// ── Call Log ──────────────────────────────────────────────────────────────────
+
+func ensureCallLogSchema(ctx context.Context, db *core.DB) error {
+	_, err := db.PGExec(ctx, `
+		CREATE TABLE IF NOT EXISTS helpdesk_calls (
+		  id             BIGSERIAL PRIMARY KEY,
+		  agent_id       BIGINT REFERENCES o3c_users(id),
+		  agent_name     TEXT NOT NULL DEFAULT '',
+		  customer_name  TEXT NOT NULL DEFAULT '',
+		  customer_phone TEXT NOT NULL DEFAULT '',
+		  direction      TEXT NOT NULL DEFAULT 'inbound',
+		  duration_sec   INT,
+		  outcome        TEXT NOT NULL DEFAULT 'resolved',
+		  notes          TEXT,
+		  ticket_id      BIGINT REFERENCES helpdesk_tickets(id) ON DELETE SET NULL,
+		  ticket_ref     TEXT,
+		  started_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`)
+	if err != nil {
+		return err
+	}
+	db.PGExec(ctx, `CREATE INDEX IF NOT EXISTS idx_helpdesk_calls_started ON helpdesk_calls(started_at DESC)`)
+	db.PGExec(ctx, `CREATE INDEX IF NOT EXISTS idx_helpdesk_calls_agent ON helpdesk_calls(agent_id, started_at DESC)`)
+	return nil
+}
+
+func hdLogCall(db *core.DB) http.HandlerFunc {
+	type body struct {
+		CustomerName  string  `json:"customer_name"`
+		CustomerPhone string  `json:"customer_phone"`
+		Direction     string  `json:"direction"`
+		DurationSec   *int    `json:"duration_sec"`
+		Outcome       string  `json:"outcome"`
+		Notes         *string `json:"notes"`
+		TicketRef     string  `json:"ticket_ref"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureCallLogSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Schema setup failed")
+			return
+		}
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if strings.TrimSpace(b.CustomerName) == "" {
+			respondErr(w, 422, "customer_name is required")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		agentName := ""
+		if user != nil {
+			agentName = user.FullName
+		}
+		direction := b.Direction
+		if direction != "inbound" && direction != "outbound" {
+			direction = "inbound"
+		}
+		outcome := b.Outcome
+		if outcome == "" {
+			outcome = "resolved"
+		}
+		// Look up ticket by ref if provided
+		var ticketID *int64
+		if strings.TrimSpace(b.TicketRef) != "" {
+			rows, _ := db.PGQuery(r.Context(), `SELECT id FROM helpdesk_tickets WHERE ref=$1 LIMIT 1`, b.TicketRef)
+			if len(rows) > 0 {
+				if v, ok := rows[0]["id"]; ok {
+					switch id := v.(type) {
+					case int64:  ticketID = &id
+					case float64: i := int64(id); ticketID = &i
+					}
+				}
+			}
+		}
+		var agentID *int64
+		if user != nil {
+			agentID = &user.ID
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO helpdesk_calls
+			  (agent_id, agent_name, customer_name, customer_phone, direction, duration_sec, outcome, notes, ticket_id, ticket_ref)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+			RETURNING id`,
+			agentID, agentName, b.CustomerName, b.CustomerPhone,
+			direction, b.DurationSec, outcome, b.Notes, ticketID, ptrOrNilStr(b.TicketRef))
+		if err != nil {
+			respondErr(w, 500, "Insert failed: "+err.Error())
+			return
+		}
+		jsonRows(w, rows)
+	}
+}
+
+func hdListCalls(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureCallLogSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Schema setup failed")
+			return
+		}
+		dateFrom := r.URL.Query().Get("date_from")
+		dateTo   := r.URL.Query().Get("date_to")
+		limit    := qint(r, "limit", 200, 1, 500)
+
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT id, agent_name, customer_name, customer_phone,
+			       direction, duration_sec, outcome, notes,
+			       ticket_id, ticket_ref, started_at
+			FROM helpdesk_calls
+			WHERE ($1 = '' OR started_at::date >= $1::date)
+			  AND ($2 = '' OR started_at::date <= $2::date)
+			ORDER BY started_at DESC
+			LIMIT $3`, dateFrom, dateTo, limit)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		jsonRows(w, rows)
+	}
+}
+
+func hdCallStats(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureCallLogSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Schema setup failed")
+			return
+		}
+		dateFrom := r.URL.Query().Get("date_from")
+		dateTo   := r.URL.Query().Get("date_to")
+
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+			  COUNT(*)                                           AS total,
+			  COUNT(*) FILTER (WHERE direction='inbound')       AS inbound,
+			  COUNT(*) FILTER (WHERE direction='outbound')      AS outbound,
+			  AVG(duration_sec)                                 AS avg_duration_sec
+			FROM helpdesk_calls
+			WHERE ($1 = '' OR started_at::date >= $1::date)
+			  AND ($2 = '' OR started_at::date <= $2::date)`,
+			dateFrom, dateTo)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if len(rows) > 0 {
+			respond(w, rows[0], "db")
+		} else {
+			respond(w, map[string]any{"total": 0, "inbound": 0, "outbound": 0, "avg_duration_sec": nil}, "db")
+		}
+	}
 }

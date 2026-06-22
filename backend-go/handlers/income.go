@@ -476,7 +476,7 @@ func incSummary(db *core.DB) http.HandlerFunc {
 		cycleID := int64(qint(r, "cycle_id", 0, 1, 1<<30))
 		if cycleID == 0 {
 			// No cycle selected — auto-pick the latest uploaded cycle
-			latestRows, err := db.PGQuery(r.Context(), `SELECT id FROM income_cycles ORDER BY report_date DESC, id DESC LIMIT 1`)
+			latestRows, err := db.PGQuery(r.Context(), `SELECT id FROM income_cycles ORDER BY cycle_date DESC, id DESC LIMIT 1`)
 			if err != nil || len(latestRows) == 0 {
 				// No cycles uploaded yet — return zeros
 				respond(w, map[string]any{

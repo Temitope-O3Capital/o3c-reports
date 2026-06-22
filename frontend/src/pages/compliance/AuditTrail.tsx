@@ -4,6 +4,7 @@ import { fmtDate, today, monthStart } from '../../lib/fmt'
 import {
   Page, SectionCard, DataTable, ErrBanner, ColDef, NAVY,
 } from '../../components/UI'
+import { toast } from 'sonner'
 
 interface AuditRow {
   id: string
@@ -49,14 +50,28 @@ export default function AuditTrail() {
 
   useEffect(() => { load(0) }, [entityType, action, dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  function doExport() {
+  async function doExport() {
     const p = new URLSearchParams()
     if (entityType) p.set('entity_type', entityType)
     if (action) p.set('action', action)
     if (dateFrom) p.set('date_from', dateFrom)
     if (dateTo) p.set('date_to', dateTo)
     const token = localStorage.getItem('o3c_token')
-    window.open(`${API}/api/compliance/audit-log/export?${p.toString()}${token ? '&token=' + token : ''}`, '_blank')
+    try {
+      const res = await fetch(`${API}/api/compliance/audit-log/export?${p.toString()}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!res.ok) throw new Error('Export failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `audit-trail-${dateFrom}-${dateTo}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      toast.error(e.message)
+    }
   }
 
   const cols: ColDef<AuditRow>[] = [

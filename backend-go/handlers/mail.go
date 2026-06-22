@@ -82,6 +82,7 @@ func RegisterMail(r chi.Router, db *core.DB) {
 	admin  := core.RequirePages("admin_api_keys")
 	r.With(access).Post("/send", sendSingleMail(db))
 	r.With(access).Get("/messages", listMailMessages(db))
+	r.With(access).Get("/inbox", listInboundMail(db))
 	r.With(admin).Get("/metrics", mailMetrics(db))
 	r.With(admin).Get("/deliverability", mailDeliverability(db))
 	r.With(admin).Post("/test", mailSendTest(db))
@@ -94,6 +95,61 @@ func RegisterMailPublic(r chi.Router, db *core.DB) {
 		slog.Warn("Mail schema setup failed", "err", err)
 	}
 	r.Get("/unsubscribe", mailUnsubscribe(db))
+	r.Post("/inbound", mailInboundParse(db))
+}
+
+// mailInboundParse handles SendGrid Inbound Parse webhook (multipart/form-data).
+// Configure SendGrid: Settings → Inbound Parse → add your domain's MX → webhook URL = /api/mail/inbound
+func mailInboundParse(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			w.WriteHeader(200) // always 200 to SendGrid or it retries
+			return
+		}
+		fromRaw := r.FormValue("from")
+		// Extract name and email from "Name <email>" format
+		fromName, fromEmail := "", fromRaw
+		if i := strings.Index(fromRaw, "<"); i >= 0 {
+			fromName = strings.TrimSpace(fromRaw[:i])
+			fromEmail = strings.Trim(fromRaw[i+1:], "> ")
+		}
+		subject  := r.FormValue("subject")
+		bodyText := r.FormValue("text")
+		bodyHTML := r.FormValue("html")
+		to       := r.FormValue("to")
+		if fromEmail == "" {
+			w.WriteHeader(200)
+			return
+		}
+		if err := ensureMailSchema(r.Context(), db); err == nil {
+			db.PGExec(r.Context(), `
+				INSERT INTO inbound_mail (from_email, from_name, to_email, subject, body_text, body_html)
+				VALUES ($1,$2,$3,$4,$5,$6)`,
+				fromEmail, fromName, to, subject, bodyText, bodyHTML)
+		}
+		w.WriteHeader(200)
+	}
+}
+
+func listInboundMail(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed")
+			return
+		}
+		limit := qint(r, "limit", 100, 1, 500)
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT id, from_email, from_name, to_email, subject,
+			       body_text, body_html, is_read, received_at
+			FROM inbound_mail
+			ORDER BY received_at DESC
+			LIMIT $1`, limit)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		jsonRows(w, rows)
+	}
 }
 
 func sendSingleMail(db *core.DB) http.HandlerFunc {
@@ -134,23 +190,25 @@ func sendSingleMail(db *core.DB) http.HandlerFunc {
 		if b.SendCopyToSender != nil {
 			copyToSender = *b.SendCopyToSender
 		}
+		// Use the sender's own address as FROM — avoids the "via sendgrid.net"
+		// mismatch that occurs when FROM ≠ Reply-To and confuses spam filters.
+		// Both addresses must be on an authenticated domain (e.g. @o3cards.com).
 		res := SendMail(r.Context(), db, SendMailOptions{
-			To:                 b.To,
-			CC:                 b.CC,
-			BCC:                b.BCC,
-			Subject:            b.Subject,
-			HTMLBody:           b.HTMLBody,
-			TextBody:           b.TextBody,
-			ReplyToEmail:       user.Sub,
-			ReplyToName:        user.FullName,
-			Category:           "single",
-			Kind:               "single",
-			CreatedBy:          user.ID,
-			SendCopyToSender:   copyToSender,
-			SenderCopyEmail:    user.Sub,
-			SenderCopyName:     user.FullName,
-			SendViaUserMailbox: true,
-			Attachments:        b.Attachments,
+			To:               b.To,
+			CC:               b.CC,
+			BCC:              b.BCC,
+			Subject:          b.Subject,
+			HTMLBody:         b.HTMLBody,
+			TextBody:         b.TextBody,
+			FromEmail:        user.Sub,
+			FromName:         user.FullName,
+			Category:         "single",
+			Kind:             "single",
+			CreatedBy:        user.ID,
+			SendCopyToSender: copyToSender,
+			SenderCopyEmail:  user.Sub,
+			SenderCopyName:   user.FullName,
+			Attachments:      b.Attachments,
 		})
 		if !res.OK {
 			slog.Warn("Single mail send failed", "user_id", user.ID, "error", res.Error)
@@ -589,6 +647,19 @@ func ensureMailSchema(ctx context.Context, db *core.DB) error {
 		  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_mail_suppressions_active ON mail_suppressions(is_active, updated_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS inbound_mail (
+		  id          BIGSERIAL PRIMARY KEY,
+		  from_email  TEXT NOT NULL,
+		  from_name   TEXT,
+		  to_email    TEXT,
+		  subject     TEXT NOT NULL DEFAULT '',
+		  body_text   TEXT,
+		  body_html   TEXT,
+		  raw_headers TEXT,
+		  is_read     BOOLEAN NOT NULL DEFAULT false,
+		  received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_inbound_mail_received ON inbound_mail(received_at DESC)`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.PGExec(ctx, stmt); err != nil {

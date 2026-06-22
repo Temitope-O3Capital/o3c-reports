@@ -365,6 +365,18 @@ func hrLeaveApprove(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Approve failed")
 			return
 		}
+
+		// Deduct from leave balance (best-effort — ignore error if balance row missing)
+		_, _ = db.PGExec(r.Context(), `
+			UPDATE leave_balances
+			SET days_used = days_used + (
+				SELECT days_requested FROM leave_applications WHERE id = $1
+			)
+			WHERE employee_id = (SELECT employee_id FROM leave_applications WHERE id = $1)
+			  AND leave_type_id = (SELECT leave_type_id FROM leave_applications WHERE id = $1)
+			  AND year = EXTRACT(year FROM CURRENT_DATE)
+		`, id)
+
 		respondErr(w, 200, "Leave approved")
 	}
 }

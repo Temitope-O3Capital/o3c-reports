@@ -88,8 +88,10 @@ function MembersDrawer({
   const loadMembers = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const res = await apiFetch(`/api/contact-lists/${list.id}/members`)
-      setMembers(res.data ?? res ?? [])
+      // GET /{id} returns { ...list, members: [...] } — there is no separate /members endpoint.
+      const res = await apiFetch(`/api/contact-lists/${list.id}`)
+      const data = res.data ?? res
+      setMembers(Array.isArray(data?.members) ? data.members : [])
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -147,7 +149,7 @@ function MembersDrawer({
         throw new Error((err as any).detail || `Upload failed (${res.status})`)
       }
       const data = await res.json()
-      toast.success(`Uploaded — ${data.imported ?? 'members'} added`)
+      toast.success(`Uploaded — ${data.inserted ?? data.imported ?? '?'} members added`)
       loadMembers()
     } catch (e: any) {
       toast.error(e.message)
@@ -162,7 +164,7 @@ function MembersDrawer({
     { key: 'name',       label: 'Name',    render: r => r.name  ?? '—' },
     { key: 'phone',      label: 'Phone',   render: r => r.phone ?? '—' },
     { key: 'email',      label: 'Email',   render: r => r.email ?? '—' },
-    { key: 'added_at',   label: 'Added',   render: r => fmtDate(r.added_at) },
+    { key: 'added_at',   label: 'Added',   render: r => fmtDate((r as any).created_at ?? r.added_at) },
     {
       key: '_remove',
       label: '',

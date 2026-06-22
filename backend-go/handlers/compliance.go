@@ -454,17 +454,13 @@ func complianceSARCreate(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
 
-		// Generate SAR ref: SAR-YYYYMM-XXXX
-		import_time_now := "NOW()"
-		_ = import_time_now
-		countRows, _ := db.PGQuery(ctx,
-			`SELECT COUNT(*) AS c FROM sars WHERE sar_ref LIKE $1`,
-			"SAR-%")
-		seq := int64(1)
-		if len(countRows) > 0 {
-			seq = toInt64(countRows[0]["c"]) + 1
+		// Generate SAR ref using the sequence created in migration 015 to avoid race conditions.
+		seqRows, err := db.PGQuery(ctx, `SELECT nextval('sar_ref_seq') AS seq`)
+		if err != nil || len(seqRows) == 0 {
+			respondErr(w, 500, "Could not generate SAR reference")
+			return
 		}
-
+		seq := toInt64(seqRows[0]["seq"])
 		sarRef := fmt.Sprintf("SAR-%04d", seq)
 
 		rows, err := db.PGQuery(ctx, `

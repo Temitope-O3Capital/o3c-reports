@@ -26,6 +26,7 @@ export default function WatchList() {
   const [error, setError] = useState('')
   const [showNew, setShowNew] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [confirmDeactivate, setConfirmDeactivate] = useState<string | null>(null)
   const [newForm, setNewForm] = useState({
     entity_type: 'individual', entity_name: '', id_type: 'BVN',
     id_value: '', reason: '', source: '',
@@ -57,10 +58,10 @@ export default function WatchList() {
   }
 
   async function deactivate(id: string) {
-    if (!confirm('Deactivate this watch list entry?')) return
     setSaving(true); setError('')
     try {
       await apiPut(`/api/compliance/watch-list/${id}/deactivate`, {})
+      setConfirmDeactivate(null)
       load()
     } catch (e: any) { setError(e.message) }
     finally { setSaving(false) }
@@ -96,11 +97,27 @@ export default function WatchList() {
     )},
     { key: 'actions', label: '', sortable: false, render: r => (
       r.is_active ? (
-        <button onClick={() => deactivate(r.id)} disabled={saving}
-          className="text-[11px] font-medium px-2 py-1 rounded"
-          style={{ background: 'rgba(192,0,0,0.07)', color: RED }}>
-          Deactivate
-        </button>
+        confirmDeactivate === r.id ? (
+          <span className="inline-flex items-center gap-1">
+            <span className="text-[11px] text-slate-500 mr-1">Sure?</span>
+            <button onClick={() => deactivate(r.id)} disabled={saving}
+              className="text-[11px] font-semibold px-2 py-1 rounded"
+              style={{ background: 'rgba(192,0,0,0.10)', color: RED }}>
+              Confirm
+            </button>
+            <button onClick={() => setConfirmDeactivate(null)}
+              className="text-[11px] font-medium px-2 py-1 rounded"
+              style={{ background: 'rgba(15,23,42,0.06)', color: '#64748B' }}>
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button onClick={() => setConfirmDeactivate(r.id)} disabled={saving}
+            className="text-[11px] font-medium px-2 py-1 rounded"
+            style={{ background: 'rgba(192,0,0,0.07)', color: RED }}>
+            Deactivate
+          </button>
+        )
       ) : null
     )},
   ]

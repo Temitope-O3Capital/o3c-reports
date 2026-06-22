@@ -5,6 +5,7 @@ import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmt, fmtDate, fmtExact } from '../../lib/fmt'
 import { Spinner, ErrBanner, Page, NAVY, RED, AMBER, GREEN } from '../../components/UI'
 import { useAuth } from '../../hooks/useAuth'
+import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────
 interface Application {
@@ -127,9 +128,14 @@ export default function ApplicationDetail() {
   useEffect(() => { load() }, [load])
 
   async function advance(to_stage: string, notes?: string) {
+    const terminalStages = ['booking', 'active']
+    if (terminalStages.includes(to_stage)) {
+      if (!window.confirm(`Confirm: Move to "${to_stage}"? This step cannot be undone.`)) return
+    }
     setWorking(true); setActionErr('')
     try {
       await apiPut(`/api/los/${id}/advance`, { to_stage, notes })
+      toast.success(`Application moved to ${to_stage}`)
       load()
     } catch (e: any) { setActionErr(e.message) }
     finally { setWorking(false) }
@@ -140,6 +146,7 @@ export default function ApplicationDetail() {
     setWorking(true); setActionErr('')
     try {
       await apiPut(`/api/los/${id}/decline`, { reason: declineReason })
+      toast.success('Application declined')
       setShowDecline(false); load()
     } catch (e: any) { setActionErr(e.message) }
     finally { setWorking(false) }
@@ -149,6 +156,7 @@ export default function ApplicationDetail() {
     setWorking(true); setActionErr('')
     try {
       await apiPut(`/api/los/${id}/request-info`, { notes: reqInfoNotes })
+      toast.success('Information requested from applicant')
       setShowReqInfo(false); load()
     } catch (e: any) { setActionErr(e.message) }
     finally { setWorking(false) }
@@ -159,6 +167,7 @@ export default function ApplicationDetail() {
     setAddingNote(true)
     try {
       await apiPost(`/api/los/${id}/notes`, { body: noteBody, is_internal: noteInternal })
+      toast.success('Note added')
       setNoteBody(''); load()
     } catch (e: any) { setActionErr(e.message) }
     finally { setAddingNote(false) }
@@ -184,7 +193,7 @@ export default function ApplicationDetail() {
       actions={
         <button
           className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]"
-          onClick={() => nav(-1)}
+          onClick={() => window.history.length > 1 ? nav(-1) : nav('/sales/applications')}
         >
           ← Back
         </button>

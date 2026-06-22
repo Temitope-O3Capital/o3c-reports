@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate, Link } from 'react-router-dom'
 import { AuthUser } from '../hooks/useAuth'
 import { roleLabel } from '../lib/roles'
 
@@ -36,14 +36,12 @@ const MODULES: Module[] = [
     items: [],
   },
   {
-    id: 'sales', label: 'Sales & CRM', icon: 'trending_up',
+    id: 'sales', label: 'Sales', icon: 'trending_up',
     roles: ['sales_officer', 'sales_head'],
     items: [
-      { label: 'Customers',     to: '/sales/customers',    icon: 'people' },
-      { label: 'CRM Pipeline',  to: '/sales/crm',          icon: 'account_tree' },
-      { label: 'Tasks',         to: '/sales/tasks',        icon: 'task_alt' },
-      { label: 'Applications',  to: '/sales/applications', icon: 'description' },
-      { label: 'Customer 360',  to: '/customer360',        icon: 'manage_search' },
+      { label: 'Customers',    to: '/sales/customers',    icon: 'people' },
+      { label: 'CRM Pipeline', to: '/sales/crm',          icon: 'account_tree' },
+      { label: 'Applications', to: '/sales/applications', icon: 'description' },
     ],
   },
   {
@@ -101,26 +99,25 @@ const MODULES: Module[] = [
     ],
   },
   {
-    id: 'customer-service', label: 'Customer Service', icon: 'headset_mic',
-    roles: ['call_center_agent', 'call_center_head'],
-    items: [
-      { label: 'Call Log',     to: '/customer-service/calls', icon: 'call' },
-      { label: 'Customer 360', to: '/customer360',            icon: 'manage_search' },
-    ],
-  },
-  {
     id: 'helpdesk', label: 'Helpdesk', icon: 'support_agent',
     roles: [
       'call_center_agent', 'call_center_head',
       'collections_agent', 'collections_head',
-      'recovery_agent', 'recovery_head',
+      'recovery_agent',    'recovery_head',
       'cards_ops_officer', 'cards_ops_head',
-      'md', 'coo', 'management', 'admin',
+      'sales_officer',     'sales_head',
+      'risk_officer',      'risk_head',
+      'finance_officer',   'finance_head',
+      'hr_officer',        'hr_manager',
+      'compliance_officer','compliance_head',
+      'it_admin',          'head_it',
+      'md', 'coo', 'cfo', 'cmo', 'management', 'admin',
     ],
     items: [
-      { label: 'Tickets',          to: '/helpdesk',          icon: 'confirmation_number' },
-      { label: 'Analytics',        to: '/helpdesk/stats',    icon: 'bar_chart' },
-      { label: 'Canned Responses', to: '/helpdesk/canned',   icon: 'quickreply' },
+      { label: 'Tickets',          to: '/helpdesk',            icon: 'confirmation_number' },
+      { label: 'Call Log',         to: '/helpdesk/calls',      icon: 'call' },
+      { label: 'Analytics',        to: '/helpdesk/stats',      icon: 'bar_chart' },
+      { label: 'Canned Responses', to: '/helpdesk/canned',     icon: 'quickreply' },
     ],
   },
   {
@@ -415,19 +412,6 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
         </button>
       </div>
 
-      {/* ── Notification Preferences shortcut ── */}
-      {!collapsed && (
-        <div className="flex-shrink-0 px-2 pb-1">
-          <a
-            href="/settings/notifications"
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] hover:bg-white/[0.07] transition-colors"
-            style={{ color: 'rgba(255,255,255,0.45)', textDecoration: 'none' }}
-          >
-            <span className="material-symbols-rounded text-[14px]">notifications</span>
-            Notification preferences
-          </a>
-        </div>
-      )}
       {/* ── User footer ── */}
       <div className="flex-shrink-0 px-2 py-2" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
         <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors group cursor-pointer hover:bg-white/[0.07] ${collapsed ? 'justify-center px-0' : ''}`}>
@@ -445,16 +429,27 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
             </div>
           )}
           {!collapsed && (
-            <button
-              onClick={onLogout}
-              title="Sign out"
-              aria-label="Sign out"
-              className="p-1 rounded transition-all opacity-0 group-hover:opacity-100"
-              style={{ color: 'rgba(255,255,255,0.45)' }}
-              onMouseEnter={e => (e.currentTarget.style.color = '#fff')}
-              onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.45)')}>
-              <span className="material-symbols-rounded text-[15px]">logout</span>
-            </button>
+            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+              <Link
+                to="/settings/notifications"
+                title="Notification preferences"
+                className="p-1 rounded"
+                style={{ color: 'rgba(255,255,255,0.45)' }}
+                onMouseEnter={e => (e.currentTarget.style.color = '#fff')}
+                onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.45)')}>
+                <span className="material-symbols-rounded text-[15px]">notifications</span>
+              </Link>
+              <button
+                onClick={onLogout}
+                title="Sign out"
+                aria-label="Sign out"
+                className="p-1 rounded"
+                style={{ color: 'rgba(255,255,255,0.45)' }}
+                onMouseEnter={e => (e.currentTarget.style.color = '#fff')}
+                onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.45)')}>
+                <span className="material-symbols-rounded text-[15px]">logout</span>
+              </button>
+            </div>
           )}
           {collapsed && (
             <button

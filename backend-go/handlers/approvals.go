@@ -58,7 +58,7 @@ func approvalsPending(db *core.DB) http.HandlerFunc {
 					SELECT
 						la.id,
 						la.reference,
-						COALESCE(la.borrower_name, 'Unknown') AS title,
+						COALESCE(la.applicant_name, 'Unknown') AS title,
 						la.stage,
 						la.amount_requested_kobo,
 						COALESCE(u.full_name, 'Unknown') AS requested_by,
@@ -67,7 +67,7 @@ func approvalsPending(db *core.DB) http.HandlerFunc {
 						     WHEN EXTRACT(DAY FROM NOW() - la.updated_at) > 1 THEN 'medium'
 						     ELSE 'normal' END AS priority
 					FROM loan_applications la
-					LEFT JOIN users u ON u.id = la.created_by
+					LEFT JOIN o3c_users u ON u.id = la.created_by
 					WHERE la.stage = $1
 					  AND la.status NOT IN ('declined','active','written_off')
 					ORDER BY la.updated_at ASC
@@ -107,16 +107,16 @@ func approvalsPending(db *core.DB) http.HandlerFunc {
 			rows, err := db.PGQuery(ctx, `
 				SELECT
 					wo.id,
-					la.reference,
-					la.borrower_name                            AS title,
+					rc.case_ref                                 AS reference,
+					rc.case_ref                                 AS title,
 					wo.amount_kobo,
 					COALESCE(u.full_name, 'Unknown')            AS requested_by,
-					EXTRACT(DAY FROM NOW() - wo.requested_at)::int AS waiting_days
-				FROM write_off_requests wo
-				JOIN loan_applications la ON la.id = wo.case_id
-				LEFT JOIN users u ON u.id = wo.requested_by
+					EXTRACT(DAY FROM NOW() - wo.created_at)::int AS waiting_days
+				FROM recovery_write_off_approvals wo
+				JOIN recovery_cases rc ON rc.id = wo.case_id
+				LEFT JOIN o3c_users u ON u.id = wo.requested_by
 				WHERE wo.status = $1
-				ORDER BY wo.requested_at ASC
+				ORDER BY wo.created_at ASC
 				LIMIT 50`, wofLevel)
 			if err == nil {
 				for _, row := range rows {
@@ -150,13 +150,14 @@ func approvalsPending(db *core.DB) http.HandlerFunc {
 				SELECT
 					lr.id,
 					lr.id::text                                  AS reference,
-					e.full_name                                  AS title,
-					lr.leave_type || ' — ' || lr.start_date::text || ' to ' || lr.end_date::text AS description,
-					EXTRACT(DAY FROM NOW() - lr.requested_at)::int AS waiting_days
-				FROM leave_requests lr
+					e.first_name || ' ' || e.last_name          AS title,
+					lt.name || ' — ' || lr.start_date::text || ' to ' || lr.end_date::text AS description,
+					EXTRACT(DAY FROM NOW() - lr.created_at)::int AS waiting_days
+				FROM leave_applications lr
 				JOIN employees e ON e.id = lr.employee_id
+				JOIN leave_types lt ON lt.id = lr.leave_type_id
 				WHERE lr.status = 'pending'
-				ORDER BY lr.requested_at ASC
+				ORDER BY lr.created_at ASC
 				LIMIT 50`)
 			if err == nil {
 				for _, row := range rows {
@@ -181,16 +182,15 @@ func approvalsPending(db *core.DB) http.HandlerFunc {
 			rows, err := db.PGQuery(ctx, `
 				SELECT
 					f.id,
-					f.reference,
-					f.title,
+					f.finding_ref                               AS reference,
+					f.description                               AS title,
 					f.severity,
-					EXTRACT(DAY FROM NOW() - f.raised_at)::int AS waiting_days
-				FROM compliance_findings f
+					EXTRACT(DAY FROM NOW() - f.created_at)::int AS waiting_days
+				FROM audit_findings f
 				WHERE f.status = 'open'
-				  AND f.acknowledged_at IS NULL
 				ORDER BY
 					CASE f.severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END,
-					f.raised_at ASC
+					f.created_at ASC
 				LIMIT 30`)
 			if err == nil {
 				for _, row := range rows {
@@ -270,21 +270,21 @@ func approvalsSummary(db *core.DB) http.HandlerFunc {
 			"md":            "pending_md",
 		}
 		if wofLevel, ok := wofMap[user.Role]; ok {
-			if rows, err := db.PGQuery(ctx, `SELECT COUNT(*) AS c FROM write_off_requests WHERE status=$1`, wofLevel); err == nil && len(rows) > 0 {
+			if rows, err := db.PGQuery(ctx, `SELECT COUNT(*) AS c FROM recovery_write_off_approvals WHERE status=$1`, wofLevel); err == nil && len(rows) > 0 {
 				summary["write_offs"] = toInt64(rows[0]["c"])
 			}
 		}
 
 		// Leave count
 		if user.Role == "hr_manager" || user.Role == "hr_officer" {
-			if rows, err := db.PGQuery(ctx, `SELECT COUNT(*) AS c FROM leave_requests WHERE status='pending'`); err == nil && len(rows) > 0 {
+			if rows, err := db.PGQuery(ctx, `SELECT COUNT(*) AS c FROM leave_applications WHERE status='pending'`); err == nil && len(rows) > 0 {
 				summary["leave"] = toInt64(rows[0]["c"])
 			}
 		}
 
 		// Compliance count
 		if user.Role == "internal_control_head" || user.Role == "compliance_head" {
-			if rows, err := db.PGQuery(ctx, `SELECT COUNT(*) AS c FROM compliance_findings WHERE status='open' AND acknowledged_at IS NULL`); err == nil && len(rows) > 0 {
+			if rows, err := db.PGQuery(ctx, `SELECT COUNT(*) AS c FROM audit_findings WHERE status='open'`); err == nil && len(rows) > 0 {
 				summary["compliance"] = toInt64(rows[0]["c"])
 			}
 		}

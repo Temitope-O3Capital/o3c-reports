@@ -154,11 +154,18 @@ func collectionsOpsContact(db *core.DB) http.HandlerFunc {
 
 		user := core.UserFromCtx(r.Context())
 
+		// Resolve cif_number from the assignment before logging the contact
+		assRows, aErr := db.PGQuery(r.Context(), `SELECT account_cif FROM collection_assignments WHERE id = $1`, id)
+		if aErr != nil || len(assRows) == 0 {
+			respondErr(w, 404, "Assignment not found")
+			return
+		}
+		cif := str(assRows[0]["account_cif"])
 		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO collection_contacts (assignment_id, contact_type, outcome, contact_date, notes, agent_user_id, created_at)
-			VALUES ($1, $2, $3, NOW(), $4, $5, NOW())
-			RETURNING id, contact_type, outcome, contact_date, notes, created_at`,
-			id, b.ContactType, b.Outcome, b.Notes, user.ID)
+			INSERT INTO collection_contacts (cif_number, agent_user_id, contact_type, outcome, notes, created_at)
+			VALUES ($1, $2, $3, $4, $5, NOW())
+			RETURNING id, contact_type, outcome, notes, created_at`,
+			cif, user.ID, b.ContactType, b.Outcome, b.Notes)
 		if err != nil {
 			respondErr(w, 500, "Log contact failed")
 			return
@@ -188,11 +195,19 @@ func collectionsOpsPromise(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// Resolve cif_number and agent from the assignment
+		passRows, pErr := db.PGQuery(r.Context(), `SELECT account_cif, agent_user_id FROM collection_assignments WHERE id = $1`, id)
+		if pErr != nil || len(passRows) == 0 {
+			respondErr(w, 404, "Assignment not found")
+			return
+		}
+		pCif := str(passRows[0]["account_cif"])
+		pAgent := toInt64(passRows[0]["agent_user_id"])
 		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO collection_promises (assignment_id, promise_date, amount_kobo, is_honoured, created_at, updated_at)
-			VALUES ($1, $2, $3, FALSE, NOW(), NOW())
-			RETURNING id, promise_date, amount_kobo, is_honoured, created_at`,
-			id, b.PromiseDate, b.AmountKobo)
+			INSERT INTO collection_promises (cif_number, agent_user_id, promised_amount_kobo, promised_date, created_at)
+			VALUES ($1, $2, $3, $4, NOW())
+			RETURNING id, promised_date, promised_amount_kobo, is_kept, created_at`,
+			pCif, pAgent, b.AmountKobo, b.PromiseDate)
 		if err != nil {
 			respondErr(w, 500, "Log promise failed")
 			return
@@ -211,7 +226,7 @@ func collectionsOpsHonourPromise(db *core.DB) http.HandlerFunc {
 
 		_, err = db.PGExec(r.Context(), `
 			UPDATE collection_promises
-			SET is_honoured = TRUE, honoured_at = NOW(), updated_at = NOW()
+			SET is_kept = TRUE, actual_date = CURRENT_DATE
 			WHERE id = $1`, pid)
 		if err != nil {
 			respondErr(w, 500, "Update failed")
@@ -231,7 +246,7 @@ func collectionsOpsBrokenPromise(db *core.DB) http.HandlerFunc {
 
 		_, err = db.PGExec(r.Context(), `
 			UPDATE collection_promises
-			SET is_honoured = FALSE, broken_at = NOW(), updated_at = NOW()
+			SET is_kept = FALSE
 			WHERE id = $1`, pid)
 		if err != nil {
 			respondErr(w, 500, "Update failed")
@@ -257,21 +272,21 @@ func collectionsOpsTargets(db *core.DB) http.HandlerFunc {
 
 		query := `
 			SELECT ct.id, ct.agent_user_id, u.full_name AS agent_name,
-			       ct.target_date, ct.target_amount_kobo, ct.collected_amount_kobo,
-			       ct.contacts_made, ct.promises_obtained, ct.created_at, ct.updated_at
-			FROM collections_daily_kpi
+			       ct.kpi_date AS target_date, ct.target_amount_kobo, ct.amount_collected_kobo,
+			       ct.contacts_made, ct.promises_obtained, ct.created_at
+			FROM collections_daily_kpi ct
 			LEFT JOIN o3c_users u ON ct.agent_user_id = u.id
 			WHERE 1=1`
 		args := []any{}
 		n := 1
 
 		if dateFrom != "" {
-			query += fmt.Sprintf(" AND ct.target_date >= $%d", n)
+			query += fmt.Sprintf(" AND ct.kpi_date >= $%d", n)
 			args = append(args, dateFrom)
 			n++
 		}
 		if dateTo != "" {
-			query += fmt.Sprintf(" AND ct.target_date <= $%d", n)
+			query += fmt.Sprintf(" AND ct.kpi_date <= $%d", n)
 			args = append(args, dateTo)
 			n++
 		}
@@ -281,7 +296,7 @@ func collectionsOpsTargets(db *core.DB) http.HandlerFunc {
 			n++
 		}
 
-		query += " ORDER BY ct.target_date DESC"
+		query += " ORDER BY ct.kpi_date DESC"
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
@@ -349,19 +364,19 @@ func collectionsOpsDashboard(db *core.DB) http.HandlerFunc {
 			{"total_assigned", `SELECT COUNT(*) AS val FROM collection_assignments`},
 			{"overdue_promises", `
 				SELECT COUNT(*) AS val FROM collection_promises
-				WHERE is_honoured = FALSE AND broken_at IS NULL
-				  AND promise_date < CURRENT_DATE`},
+				WHERE is_kept IS NULL
+				  AND promised_date < CURRENT_DATE`},
 			{"honoured_today", `
 				SELECT COUNT(*) AS val FROM collection_promises
-				WHERE is_honoured = TRUE
-				  AND honoured_at::date = CURRENT_DATE`},
+				WHERE is_kept = TRUE
+				  AND actual_date = CURRENT_DATE`},
 			{"collected_today_kobo", `
 				SELECT COALESCE(SUM(amount_collected_kobo), 0) AS val
 				FROM collections_daily_kpi
 				WHERE kpi_date = CURRENT_DATE`},
 			{"contacts_today", `
 				SELECT COUNT(*) AS val FROM collection_contacts
-				WHERE contact_date::date = CURRENT_DATE`},
+				WHERE created_at::date = CURRENT_DATE`},
 		}
 
 		result := map[string]any{}

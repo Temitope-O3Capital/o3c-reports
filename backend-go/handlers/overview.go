@@ -72,11 +72,17 @@ func overviewKPIs(db *core.DB) http.HandlerFunc {
 			sources = append(sources, src)
 		}
 
-		collected := toFloat(kpis["total_collected"])
+		// Recovery rate = recovered / NPL outstanding (not share of receipts).
+		// Pull latest NPL outstanding from the portfolio snapshot.
 		recovered := toFloat(kpis["total_recovered"])
-		total := collected + recovered
-		if total > 0 {
-			kpis["recovery_rate"] = round1(recovered / total * 100)
+		snapRows, _ := db.PGQuery(ctx,
+			`SELECT total_npls_kobo FROM portfolio_daily_snapshot ORDER BY snapshot_date DESC LIMIT 1`)
+		var nplKobo float64
+		if len(snapRows) > 0 {
+			nplKobo = toFloat(snapRows[0]["total_npls_kobo"])
+		}
+		if nplKobo > 0 {
+			kpis["recovery_rate"] = round1(recovered / nplKobo * 100)
 		} else {
 			kpis["recovery_rate"] = 0.0
 		}

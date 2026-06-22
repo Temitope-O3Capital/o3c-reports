@@ -45,6 +45,8 @@ export default function Customer360() {
   const [txPage, setTxPage]         = useState(0)
   const [transactions, setTx]       = useState<Transaction[]>([])
   const [txLoading, setTxLoading]   = useState(false)
+  const [collections, setCollections] = useState<Collection[]>([])
+  const [collectionsLoading, setCollectionsLoading] = useState(false)
   const limit = 50
 
   async function search() {
@@ -83,9 +85,23 @@ export default function Customer360() {
     finally { setTxLoading(false) }
   }
 
+  async function loadCollections(cif: string) {
+    setCollectionsLoading(true)
+    try {
+      const res = await apiFetch<{ data: Collection[] } | Collection[]>(
+        `/api/collections-ops/queue?account_cif=${cif}`
+      )
+      setCollections(Array.isArray(res) ? res : (res.data ?? []))
+    } catch { /* ignore */ }
+    finally { setCollectionsLoading(false) }
+  }
+
   useEffect(() => {
     if (activeTab === 'Transactions' && selected) {
       loadTransactions(selected, txPage)
+    }
+    if (activeTab === 'Collections' && selected) {
+      loadCollections(selected)
     }
   }, [activeTab, txPage, selected])
 
@@ -306,22 +322,34 @@ export default function Customer360() {
                 {/* Collections */}
                 {activeTab === 'Collections' && (
                   <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-[13px]">
-                        <thead>
-                          <tr style={{ background: 'rgba(14,40,65,0.04)', borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
-                            {['Date','Agent','Amount','Mode','Receipt'].map(h => (
-                              <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">{h}</th>
+                    {collectionsLoading ? (
+                      <div className="flex items-center justify-center py-16"><Spinner size={28} /></div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-[13px]">
+                          <thead>
+                            <tr style={{ background: 'rgba(14,40,65,0.04)', borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
+                              {['Date','Agent','Amount','Mode','Receipt'].map(h => (
+                                <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {collections.length === 0 ? (
+                              <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-400 text-[13px]">No collections history found</td></tr>
+                            ) : collections.map(c => (
+                              <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50/60">
+                                <td className="px-4 py-3 text-slate-500">{fmtDate(c.date)}</td>
+                                <td className="px-4 py-3 text-slate-700">{c.agent ?? '—'}</td>
+                                <td className="px-4 py-3 font-mono text-slate-700">{fmt(c.amount / 100)}</td>
+                                <td className="px-4 py-3 text-slate-500 capitalize">{c.mode_of_payment ?? '—'}</td>
+                                <td className="px-4 py-3 text-slate-500">{c.payment_receipt ?? '—'}</td>
+                              </tr>
                             ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(profile.recent_transactions ?? []).length === 0 ? (
-                            <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-400 text-[13px]">No collections recorded</td></tr>
-                          ) : []}
-                        </tbody>
-                      </table>
-                    </div>
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 )}
 

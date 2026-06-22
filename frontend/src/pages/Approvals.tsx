@@ -46,8 +46,8 @@ const PRIORITY_STYLES: Record<string, { bg: string; text: string; label: string 
 /* ── Review link map ────────────────────────────────────────────── */
 function reviewPath(item: ApprovalItem): string {
   switch (item.module) {
-    case 'LOS':        return `/los/${item.item_id}`
-    case 'Write-off':  return '/recovery-ops/cases'
+    case 'LOS':        return `/sales/applications/${item.item_id}`
+    case 'Write-off':  return '/recovery/cases'
     case 'Leave':      return '/hr/leave'
     case 'Compliance': return '/compliance/findings'
     default:           return '/'

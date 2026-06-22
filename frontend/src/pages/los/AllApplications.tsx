@@ -59,7 +59,15 @@ function StageBadge({ stage }: { stage: string }) {
 
 const PRODUCT_TYPES = ['prepaid_card', 'credit_card', 'usd_card', 'business_loan', 'personal_loan']
 const STAGE_OPTS = Object.keys(STAGE_COLORS)
-const TEAM_LEAD_ROLES = ['admin', 'head_ops', 'head_sales', 'head_collections', 'coo', 'md']
+const TEAM_LEAD_ROLES = [
+  'admin', 'management', 'md', 'coo',
+  'sales_head', 'risk_head', 'finance_head',
+  'cards_ops_head', 'collections_head', 'recovery_head',
+  'call_center_head', 'hr_manager', 'compliance_head',
+  'internal_control_head', 'it_admin',
+  // legacy:
+  'head_ops', 'head_sales', 'head_collections',
+]
 
 export default function AllApplications() {
   const nav = useNavigate()
@@ -138,7 +146,7 @@ export default function AllApplications() {
         <button
           className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white"
           style={{ background: RED }}
-          onClick={() => nav('/los/new')}
+          onClick={() => nav('/sales/applications/new')}
         >
           <span className="material-symbols-rounded text-[15px] align-middle mr-1">add</span>
           New Application
@@ -217,7 +225,7 @@ export default function AllApplications() {
                   <tr
                     key={a.id}
                     className="border-b border-slate-100 hover:bg-slate-50/60 cursor-pointer"
-                    onClick={() => nav(`/los/${a.id}`)}
+                    onClick={() => nav(`/sales/applications/${a.id}`)}
                   >
                     <td className="px-4 py-3 font-mono text-[12px] text-slate-600">{a.reference}</td>
                     <td className="px-4 py-3 font-semibold text-slate-800">{a.applicant_name}</td>
@@ -240,7 +248,7 @@ export default function AllApplications() {
                       <button
                         className="px-3 py-1 rounded-lg text-[12px] font-semibold text-white"
                         style={{ background: NAVY }}
-                        onClick={() => nav(`/los/${a.id}`)}
+                        onClick={() => nav(`/sales/applications/${a.id}`)}
                       >
                         Open
                       </button>

@@ -357,12 +357,29 @@ func reportSettlementRecon(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf(`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log" WHERE 1=1%s`, f.PG()),
 			f.Args()...)
 
+		// Open exposure: disbursed but not yet fully repaid
+		exposureRows, _ := db.PGQuery(ctx,
+			`SELECT la.reference, la.applicant_cif, la.product_type,
+			        la.amount_approved_kobo                              AS disbursed_kobo,
+			        COALESCE(SUM(rp.amount_kobo),0)                     AS repaid_kobo,
+			        la.amount_approved_kobo - COALESCE(SUM(rp.amount_kobo),0) AS open_exposure_kobo
+			 FROM loan_applications la
+			 LEFT JOIN loan_repayments rp ON rp.application_id = la.id
+			 WHERE la.booked_at::date BETWEEN $1 AND $2
+			   AND la.status NOT IN ('draft','pending','declined','cancelled')
+			 GROUP BY la.id
+			 HAVING la.amount_approved_kobo - COALESCE(SUM(rp.amount_kobo),0) > 0
+			 ORDER BY open_exposure_kobo DESC
+			 LIMIT 100`,
+			dateFrom, dateTo)
+
 		result := map[string]any{
 			"date_from":          dateFrom,
 			"date_to":            dateTo,
 			"disbursements":      disbRows,
 			"collections":        collRows,
 			"total_collections":  collTotal,
+			"open_exposure":      exposureRows,
 		}
 		if len(disbTotal) > 0 {
 			result["total_disbursed_kobo"] = disbTotal[0]["disbursed_kobo"]
@@ -397,17 +414,18 @@ func reportAgentPerformance(db *core.DB) http.HandlerFunc {
 		}
 
 		rows, err := db.PGQuery(r.Context(),
-			`SELECT u.full_name AS agent_name, kd.agent_user_id,
+			`SELECT u.full_name AS agent_name, u.id AS agent_user_id,
 			        COALESCE(SUM(kd.contacts_made),0)         AS contacts_total,
 			        COALESCE(SUM(kd.promises_obtained),0)     AS promises_total,
 			        COALESCE(SUM(kd.promises_broken),0)       AS promises_broken,
 			        COALESCE(SUM(kd.amount_collected_kobo),0) AS collected_kobo,
 			        COALESCE(SUM(kd.target_amount_kobo),0)    AS target_kobo,
 			        COUNT(DISTINCT kd.kpi_date)               AS active_days
-			 FROM collections_daily_kpi kd
-			 JOIN o3c_users u ON u.id=kd.agent_user_id
-			 WHERE kd.kpi_date BETWEEN $1 AND $2
-			 GROUP BY kd.agent_user_id, u.full_name
+			 FROM o3c_users u
+			 LEFT JOIN collections_daily_kpi kd ON kd.agent_user_id = u.id
+			     AND kd.kpi_date BETWEEN $1 AND $2
+			 WHERE u.role IN ('collections_agent','collections')
+			 GROUP BY u.id, u.full_name
 			 ORDER BY collected_kobo DESC`,
 			dateFrom, dateTo)
 		if err != nil {
@@ -515,18 +533,18 @@ func reportAuditTrailExport(db *core.DB) http.HandlerFunc {
 		args := []any{}
 
 		if dateFrom != "" {
-			where += fmt.Sprintf(" AND created_at::date >= $%d", n)
+			where += fmt.Sprintf(" AND ts::date >= $%d", n)
 			args = append(args, dateFrom)
 			n++
 		}
 		if dateTo != "" {
-			where += fmt.Sprintf(" AND created_at::date <= $%d", n)
+			where += fmt.Sprintf(" AND ts::date <= $%d", n)
 			args = append(args, dateTo)
 			n++
 		}
 
 		countRows, _ := db.PGQuery(ctx,
-			fmt.Sprintf("SELECT COUNT(*) AS n FROM admin_activity_log %s", where), args...)
+			fmt.Sprintf("SELECT COUNT(*) AS n FROM o3c_activity_log %s", where), args...)
 		total := int64(0)
 		if len(countRows) > 0 {
 			total = toInt64(countRows[0]["n"])
@@ -535,10 +553,10 @@ func reportAuditTrailExport(db *core.DB) http.HandlerFunc {
 		pageArgs := append(append([]any(nil), args...), limit, offset)
 		rows, err := db.PGQuery(ctx,
 			fmt.Sprintf(`SELECT al.id, al.user_id, u.full_name, u.role,
-			        al.action, al.entity_type, al.entity_id, al.details, al.created_at
-			 FROM admin_activity_log al
+			        al.action, al.resource AS entity_type, al.detail, al.ts AS created_at
+			 FROM o3c_activity_log al
 			 LEFT JOIN o3c_users u ON u.id=al.user_id
-			 %s ORDER BY al.created_at DESC
+			 %s ORDER BY al.ts DESC
 			 LIMIT $%d OFFSET $%d`, where, n, n+1),
 			pageArgs...)
 		if err != nil {
@@ -607,10 +625,29 @@ func reportNPLReturn(db *core.DB) http.HandlerFunc {
 			// npl_ratio as percentage
 			nplBps := toFloat(snapshot["npl_ratio_bps"])
 			snapshot["npl_ratio_pct"] = round1(nplBps / 100.0)
+		}
 
-			// Provision estimate (25% of NPL kobo — standard CBN general provision)
-			nplKobo := toFloat(snapshot["total_npls_kobo"])
-			snapshot["provision_estimate_kobo"] = int64(nplKobo * 0.25)
+		// Tiered CBN provision rates from DPD snapshot
+		bucketProvRows, _ := db.PGQuery(ctx, `
+			SELECT
+				SUM(CASE WHEN dpd_bucket='1-30'  THEN outstanding_kobo * 0.01 ELSE 0 END) AS prov_watch,
+				SUM(CASE WHEN dpd_bucket='31-60' THEN outstanding_kobo * 0.10 ELSE 0 END) AS prov_substandard,
+				SUM(CASE WHEN dpd_bucket='61-90' THEN outstanding_kobo * 0.50 ELSE 0 END) AS prov_doubtful,
+				SUM(CASE WHEN dpd_bucket='90+'   THEN outstanding_kobo * 1.00 ELSE 0 END) AS prov_lost
+			FROM loan_dpd_daily_snapshot
+			WHERE snapshot_date=(SELECT MAX(snapshot_date) FROM loan_dpd_daily_snapshot)
+		`)
+		if len(bucketProvRows) > 0 {
+			watchKobo  := toFloat(bucketProvRows[0]["prov_watch"])
+			subKobo    := toFloat(bucketProvRows[0]["prov_substandard"])
+			doubtKobo  := toFloat(bucketProvRows[0]["prov_doubtful"])
+			lostKobo   := toFloat(bucketProvRows[0]["prov_lost"])
+			totalProv  := watchKobo + subKobo + doubtKobo + lostKobo
+			snapshot["provision_watch_kobo"]       = int64(watchKobo)
+			snapshot["provision_substandard_kobo"] = int64(subKobo)
+			snapshot["provision_doubtful_kobo"]    = int64(doubtKobo)
+			snapshot["provision_lost_kobo"]        = int64(lostKobo)
+			snapshot["provision_total_kobo"]       = int64(totalProv)
 		}
 
 		result := map[string]any{

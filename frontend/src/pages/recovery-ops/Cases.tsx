@@ -1,6 +1,7 @@
 import { snake } from '../../lib/labels'
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
+import { toast } from 'sonner'
 import { fmt, fmtDate } from '../../lib/fmt'
 import {
   Spinner, ErrBanner, StatusBadge, KpiCard, Page, SectionCard, ColDef, DataTable,
@@ -128,6 +129,11 @@ export default function Cases() {
 
   async function expandCase(id: string) {
     if (expanded === id) { setExpanded(null); setDetail(null); return }
+    // Reset all form fields when switching to a different case
+    setPayAmt(''); setPayDate(''); setPayRef('')
+    setCourt(''); setCaseNum(''); setFilingDate(''); setHearingDate(''); setLegalNotes('')
+    setVisitDate(''); setVisitOutcome(''); setVisitNotes('')
+    setWoAmt(''); setWoReason(''); setWoApproveNotes('')
     setExpanded(id); setDetail(null); setDetailL(true)
     try {
       const res = await apiFetch<CaseDetail>(`/api/recovery-ops/cases/${id}`)
@@ -217,10 +223,17 @@ export default function Cases() {
     }
   }
 
-  async function actWriteOff(wid: string, action: 'approve' | 'reject') {
+  async function actWriteOff(wid: string, action: 'approve' | 'reject', amountKobo?: number) {
+    if (action === 'approve') {
+      const displayAmt = amountKobo != null ? `₦${(amountKobo / 100).toLocaleString()}` : 'this amount'
+      if (!window.confirm(`Approve write-off of ${displayAmt}? This cannot be undone.`)) return
+    } else {
+      if (!window.confirm('Reject this write-off request?')) return
+    }
     setWoActBusy(true); setWoActErr('')
     try {
       await apiPut(`/api/recovery-ops/write-off/${wid}/${action}`, { notes: woApproveNotes })
+      toast.success(action === 'approve' ? 'Write-off approved' : 'Write-off rejected')
       setWoApproveNotes('')
       if (expanded) expandCase(expanded)
     } catch (e: any) {
@@ -516,7 +529,7 @@ export default function Cases() {
                                 value={woApproveNotes} onChange={e => setWoApproveNotes(e.target.value)} />
                               <button
                                 disabled={woActBusy}
-                                onClick={() => actWriteOff(detail.write_off.id, 'approve')}
+                                onClick={() => actWriteOff(detail.write_off.id, 'approve', detail.write_off.amount_kobo)}
                                 className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white disabled:opacity-60"
                                 style={{ background: GREEN }}>
                                 {woActBusy ? '…' : 'Approve'}

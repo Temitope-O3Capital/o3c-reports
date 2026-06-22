@@ -114,6 +114,17 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, "portfolio_snapshot:ok")
 	}
 
+	// 1b. DPD daily snapshot
+	if err := batchDPDSnapshot(ctx, db); err != nil {
+		slog.Error("Batch: DPD snapshot failed", "err", err)
+		if batchErr == nil {
+			batchErr = err
+		}
+		steps = append(steps, "dpd_snapshot:FAILED")
+	} else {
+		steps = append(steps, "dpd_snapshot:ok")
+	}
+
 	// 2. Alert rule evaluation
 	if err := batchEvaluateAlerts(ctx, db); err != nil {
 		slog.Error("Batch: alert evaluation failed", "err", err)
@@ -167,10 +178,10 @@ func batchPortfolioSnapshot(ctx context.Context, db *core.DB) error {
 		SELECT
 			COUNT(*) FILTER (WHERE status = 'active')                                  AS total_loans,
 			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active'), 0)    AS total_outstanding_kobo,
-			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND dpd > 90), 0) AS total_npls_kobo,
-			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND dpd > 30), 0) AS par30_kobo,
-			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND dpd > 60), 0) AS par60_kobo,
-			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND dpd > 90), 0) AS par90_kobo,
+			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 90), 0) AS total_npls_kobo,
+			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 30), 0) AS par30_kobo,
+			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 60), 0) AS par60_kobo,
+			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 90), 0) AS par90_kobo,
 			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE booked_at::date = $1), 0) AS new_disbursements_kobo
 		FROM loan_applications`, today)
 	if err != nil || len(rows) == 0 {
@@ -316,6 +327,36 @@ func batchCleanupNotifications(ctx context.Context, db *core.DB) error {
 		}
 	}
 	return nil
+}
+
+// batchDPDSnapshot inserts today's DPD row for every active/repaying/overdue loan.
+// Uses a computed DPD (CURRENT_DATE - booked_at) since loan_applications has no dpd column.
+// The unique key on loan_dpd_daily_snapshot is (snapshot_date, cif_number); on conflict we
+// update so reruns are idempotent.
+func batchDPDSnapshot(ctx context.Context, db *core.DB) error {
+	_, err := db.PGExec(ctx, `
+		INSERT INTO loan_dpd_daily_snapshot (snapshot_date, cif_number, outstanding_kobo, dpd, dpd_bucket)
+		SELECT
+			CURRENT_DATE,
+			applicant_cif,
+			COALESCE(amount_approved_kobo, 0),
+			GREATEST(0, CURRENT_DATE - booked_at::date) AS dpd,
+			CASE
+				WHEN GREATEST(0, CURRENT_DATE - booked_at::date) = 0  THEN '0'
+				WHEN GREATEST(0, CURRENT_DATE - booked_at::date) <= 30 THEN '1-30'
+				WHEN GREATEST(0, CURRENT_DATE - booked_at::date) <= 60 THEN '31-60'
+				WHEN GREATEST(0, CURRENT_DATE - booked_at::date) <= 90 THEN '61-90'
+				ELSE '90+'
+			END
+		FROM loan_applications
+		WHERE status IN ('active','repaying','overdue')
+		  AND booked_at IS NOT NULL
+		ON CONFLICT (snapshot_date, cif_number) DO UPDATE
+			SET dpd             = EXCLUDED.dpd,
+			    dpd_bucket      = EXCLUDED.dpd_bucket,
+			    outstanding_kobo = EXCLUDED.outstanding_kobo
+	`)
+	return err
 }
 
 // batchLOSSLACheck flags loan applications that have breached their stage SLA.

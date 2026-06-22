@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../../lib/api'
 import { fmt, fmtNum, fmtPct, fmtDate, n, today, monthStart } from '../../lib/fmt'
 import {
-  Page, KpiCard, SectionCard, ErrBanner, StatusBadge,
+  Page, KpiCard, SectionCard, ErrBanner, StatusBadge, DateFilter,
   NAVY, RED, GREEN, AMBER, BLUE,
 } from '../../components/UI'
 
@@ -172,18 +172,21 @@ export default function RecoveryOverview() {
   const [cases,   setCases]   = useState<RecoveryCase[]>([])
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState('')
+  const [from,    setFrom]    = useState(monthStart())
+  const [to,      setTo]      = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
+    const qs = `date_from=${from}&date_to=${to}`
     try {
       // Load cases first — always available
-      const casesRes = await apiFetch('/api/recovery-ops/cases?limit=200')
+      const casesRes = await apiFetch(`/api/recovery-ops/cases?limit=200&${qs}`)
       const caseList: RecoveryCase[] = casesRes.data ?? casesRes ?? []
       setCases(caseList)
 
       // Try the dashboard endpoint; if absent, compute from cases
       try {
-        const kRes = await apiFetch('/api/recovery-ops/dashboard')
+        const kRes = await apiFetch(`/api/recovery-ops/dashboard?${qs}`)
         const dv = kRes.data ?? kRes
         // Map dashboard fields: total_open_cases, total_recovered_kobo, pending_write_offs, visits_this_month
         const activeCases   = n(dv.total_open_cases ?? 0)
@@ -225,7 +228,7 @@ export default function RecoveryOverview() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [from, to])
 
   useEffect(() => { load() }, [load])
 
@@ -236,7 +239,9 @@ export default function RecoveryOverview() {
     <Page
       dept="Recovery"
       title="Recovery Overview"
-      subtitle="Case management and recovery performance">
+      subtitle="Case management and recovery performance"
+      actions={<DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />}
+    >
       <ErrBanner msg={error} />
 
       {/* KPI row */}

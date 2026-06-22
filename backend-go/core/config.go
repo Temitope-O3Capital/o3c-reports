@@ -39,6 +39,9 @@ func LoadConfig() (*Config, error) {
 	if c.EncryptionKey == "" {
 		return nil, fmt.Errorf("ENCRYPTION_KEY is required but not set")
 	}
+	if len([]byte(c.EncryptionKey)) != 32 {
+		return nil, fmt.Errorf("ENCRYPTION_KEY must be exactly 32 bytes, got %d", len([]byte(c.EncryptionKey)))
+	}
 	if c.PGURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL (Supabase PostgreSQL URL) is required")
 	}

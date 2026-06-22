@@ -10,7 +10,7 @@ import { fmt, fmtNum, fmtDate, n, today, monthStart, yearStart } from '../lib/fm
 /* ── Design tokens ──────────────────────────────────────────────── */
 export const NAVY  = '#0E2841'
 export const RED   = '#C00000'
-export const GREEN = '#059669'
+export const GREEN = '#166534'   // green-700, passes WCAG AAA (7.6:1)
 export const AMBER = '#D97706'
 export const BLUE  = '#2563EB'
 
@@ -165,12 +165,12 @@ export function DataTable<T extends Record<string, any>>({
               <th key={c.key}
                 onClick={() => c.sortable !== false && toggleSort(c.key)}
                 className={`px-5 py-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] whitespace-nowrap select-none ${c.sortable !== false ? 'cursor-pointer' : ''} ${c.right ? 'text-right' : 'text-left'}`}
-                style={{ background: NAVY, color: sortKey === c.key ? '#fff' : 'rgba(255,255,255,0.6)' }}>
+                style={{ background: sortKey === c.key ? '#F1F5F9' : '#F8FAFC', color: sortKey === c.key ? '#0F172A' : '#64748B' }}>
                 <span className={`inline-flex items-center gap-1 ${c.right ? 'flex-row-reverse' : ''}`}>
                   {c.label}
                   {c.sortable !== false && (
                     <span className="material-symbols-rounded text-[13px]"
-                      style={{ color: sortKey === c.key ? '#fff' : 'rgba(255,255,255,0.3)' }}>
+                      style={{ color: sortKey === c.key ? '#0F172A' : '#94A3B8' }}>
                       {sortKey === c.key ? (sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
                     </span>
                   )}
@@ -192,6 +192,7 @@ export function DataTable<T extends Record<string, any>>({
                   <td colSpan={cols.length} className="px-5 py-14 text-center">
                     <span className="material-symbols-rounded text-[36px] text-slate-300 block mb-2">{emptyIcon}</span>
                     <p className="text-[13px] text-slate-400">{emptyMsg}</p>
+                    <p className="text-[12px] text-slate-400 mt-1">Try adjusting your filters</p>
                   </td>
                 </tr>
               )
@@ -508,7 +509,7 @@ export function DateFilter({
         <span className="material-symbols-rounded text-[15px] text-slate-400">{open ? 'expand_less' : 'expand_more'}</span>
       </button>
       {open && (
-        <div className="absolute top-full right-0 mt-1.5 z-50 card p-4 shadow-xl"
+        <div className="absolute top-full right-0 mt-1.5 z-[300] card p-4 shadow-xl"
           style={{ minWidth: 260 }}>
           <div className="space-y-1 mb-3">
             {PRESETS.map(p => {
