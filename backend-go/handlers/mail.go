@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
@@ -82,12 +83,23 @@ func RegisterMail(r chi.Router, db *core.DB) {
 	admin  := core.RequirePages("admin_api_keys")
 	r.With(access).Post("/send", sendSingleMail(db))
 	r.With(access).Get("/messages", listMailMessages(db))
+	r.With(access).Get("/messages/{id}", getMailMessage(db))
 	r.With(access).Get("/inbox", listInboundMail(db))
 	r.With(admin).Get("/metrics", mailMetrics(db))
 	r.With(admin).Get("/deliverability", mailDeliverability(db))
 	r.With(admin).Post("/test", mailSendTest(db))
 	r.With(admin).Get("/suppressions", mailListSuppressions(db))
 	r.With(admin).Delete("/suppressions/{email}", mailRemoveSuppression(db))
+	// Drafts
+	r.With(access).Get("/drafts",         mailListDrafts(db))
+	r.With(access).Post("/drafts",        mailSaveDraft(db))
+	r.With(access).Get("/drafts/{id}",    mailGetDraft(db))
+	r.With(access).Delete("/drafts/{id}", mailDeleteDraft(db))
+	// Signature
+	r.With(access).Get("/signature", mailGetSignature(db))
+	r.With(access).Put("/signature", mailSaveSignature(db))
+	// Attachments
+	r.With(access).Post("/attachments/upload", mailUploadAttachment(db))
 }
 
 func RegisterMailPublic(r chi.Router, db *core.DB) {
@@ -153,15 +165,23 @@ func listInboundMail(db *core.DB) http.HandlerFunc {
 }
 
 func sendSingleMail(db *core.DB) http.HandlerFunc {
+	type urlAttachment struct {
+		URL         string `json:"url"`
+		Name        string `json:"name"`
+		ContentType string `json:"content_type"`
+	}
 	type body struct {
-		To               []MailAddress    `json:"to"`
-		CC               []MailAddress    `json:"cc"`
-		BCC              []MailAddress    `json:"bcc"`
-		Subject          string           `json:"subject"`
-		HTMLBody         string           `json:"html_body"`
-		TextBody         string           `json:"text_body"`
-		Attachments      []MailAttachment `json:"attachments"`
-		SendCopyToSender *bool            `json:"send_copy_to_sender"`
+		To               []MailAddress   `json:"to"`
+		CC               []MailAddress   `json:"cc"`
+		BCC              []MailAddress   `json:"bcc"`
+		Subject          string          `json:"subject"`
+		HTMLBody         string          `json:"html_body"`
+		TextBody         string          `json:"text_body"`
+		FromAddress      string          `json:"from_address"`
+		FromName         string          `json:"from_name"`
+		SendAt           string          `json:"send_at"`
+		URLAttachments   []urlAttachment `json:"attachments"`
+		SendCopyToSender *bool           `json:"send_copy_to_sender"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := ensureMailSchema(r.Context(), db); err != nil {
@@ -177,22 +197,24 @@ func sendSingleMail(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "to and subject are required")
 			return
 		}
-		if strings.TrimSpace(b.HTMLBody) == "" && strings.TrimSpace(b.TextBody) == "" {
-			respondErr(w, 422, "html_body or text_body is required")
-			return
-		}
-		if err := validateMailAttachments(b.Attachments); err != nil {
-			respondErr(w, 422, err.Error())
-			return
-		}
 		user := core.UserFromCtx(r.Context())
 		copyToSender := true
 		if b.SendCopyToSender != nil {
 			copyToSender = *b.SendCopyToSender
 		}
-		// Use the sender's own address as FROM — avoids the "via sendgrid.net"
-		// mismatch that occurs when FROM ≠ Reply-To and confuses spam filters.
-		// Both addresses must be on an authenticated domain (e.g. @o3cards.com).
+		fromEmail := coalesce(b.FromAddress, user.Sub)
+		fromName  := coalesce(b.FromName, user.FullName)
+		// URL-based attachments (already uploaded to R2 / local storage)
+		// are stored as metadata only — we don't re-encode them for SendGrid here.
+		// They are stored in mail_messages.attachments for record keeping.
+		urlAtts := make([]MailAttachment, 0, len(b.URLAttachments))
+		for _, a := range b.URLAttachments {
+			urlAtts = append(urlAtts, MailAttachment{
+				Filename:    a.Name,
+				ContentType: a.ContentType,
+				Disposition: "attachment",
+			})
+		}
 		res := SendMail(r.Context(), db, SendMailOptions{
 			To:               b.To,
 			CC:               b.CC,
@@ -200,15 +222,15 @@ func sendSingleMail(db *core.DB) http.HandlerFunc {
 			Subject:          b.Subject,
 			HTMLBody:         b.HTMLBody,
 			TextBody:         b.TextBody,
-			FromEmail:        user.Sub,
-			FromName:         user.FullName,
+			FromEmail:        fromEmail,
+			FromName:         fromName,
 			Category:         "single",
 			Kind:             "single",
 			CreatedBy:        user.ID,
 			SendCopyToSender: copyToSender,
 			SenderCopyEmail:  user.Sub,
 			SenderCopyName:   user.FullName,
-			Attachments:      b.Attachments,
+			Attachments:      urlAtts,
 		})
 		if !res.OK {
 			slog.Warn("Single mail send failed", "user_id", user.ID, "error", res.Error)
@@ -624,6 +646,13 @@ func ensureMailSchema(ctx context.Context, db *core.DB) error {
 		  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
+		// Add columns to existing mail_messages table (idempotent)
+		`ALTER TABLE mail_messages ADD COLUMN IF NOT EXISTS html_body   TEXT`,
+		`ALTER TABLE mail_messages ADD COLUMN IF NOT EXISTS text_body   TEXT`,
+		`ALTER TABLE mail_messages ADD COLUMN IF NOT EXISTS thread_id   BIGINT`,
+		`ALTER TABLE mail_messages ADD COLUMN IF NOT EXISTS parent_id   BIGINT`,
+		`ALTER TABLE mail_messages ADD COLUMN IF NOT EXISTS send_at     TIMESTAMPTZ`,
+		`ALTER TABLE mail_messages ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'`,
 		`CREATE INDEX IF NOT EXISTS idx_mail_messages_provider ON mail_messages(provider_message_id) WHERE provider_message_id IS NOT NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_mail_messages_created_by ON mail_messages(created_by, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_mail_messages_status ON mail_messages(status, created_at DESC)`,
@@ -660,6 +689,30 @@ func ensureMailSchema(ctx context.Context, db *core.DB) error {
 		  received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_inbound_mail_received ON inbound_mail(received_at DESC)`,
+		// Drafts table
+		`CREATE TABLE IF NOT EXISTS mail_drafts (
+		  id          BIGSERIAL PRIMARY KEY,
+		  user_id     BIGINT NOT NULL REFERENCES o3c_users(id) ON DELETE CASCADE,
+		  to_addrs    JSONB NOT NULL DEFAULT '[]',
+		  cc_addrs    JSONB NOT NULL DEFAULT '[]',
+		  bcc_addrs   JSONB NOT NULL DEFAULT '[]',
+		  from_email  TEXT,
+		  from_name   TEXT,
+		  subject     TEXT NOT NULL DEFAULT '',
+		  html_body   TEXT,
+		  text_body   TEXT,
+		  attachments JSONB NOT NULL DEFAULT '[]',
+		  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_mail_drafts_user ON mail_drafts(user_id, updated_at DESC)`,
+		// User email signatures
+		`CREATE TABLE IF NOT EXISTS user_email_signatures (
+		  user_id        BIGINT PRIMARY KEY REFERENCES o3c_users(id) ON DELETE CASCADE,
+		  signature_html TEXT,
+		  signature_text TEXT,
+		  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.PGExec(ctx, stmt); err != nil {
@@ -1021,14 +1074,21 @@ func createMailMessage(ctx context.Context, db *core.DB, opt SendMailOptions) in
 		"cc":  mailAddresses(opt.CC),
 		"bcc": mailAddresses(opt.BCC),
 	})
+	attachmentsJSON := "[]"
+	if len(opt.Attachments) > 0 {
+		if b, err := json.Marshal(opt.Attachments); err == nil {
+			attachmentsJSON = string(b)
+		}
+	}
 	rows, err := db.PGQuery(ctx, `
 		INSERT INTO mail_messages
 		    (kind, related_type, related_id, subject, from_email, from_name,
-		     recipients, status, created_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,'sending',$8)
+		     recipients, status, created_by, html_body, text_body, attachments)
+		VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,'sending',$8,$9,$10,$11::jsonb)
 		RETURNING id`,
 		opt.Kind, ns(opt.RelatedType), nullableID(opt.RelatedID), opt.Subject,
-		opt.FromEmail, opt.FromName, string(recipients), nullableID(opt.CreatedBy))
+		opt.FromEmail, opt.FromName, string(recipients), nullableID(opt.CreatedBy),
+		ns(opt.HTMLBody), ns(opt.TextBody), attachmentsJSON)
 	if err != nil || len(rows) == 0 {
 		return 0
 	}
@@ -1194,4 +1254,396 @@ func ns(s string) any {
 		return nil
 	}
 	return s
+}
+
+// ── getMailMessage ────────────────────────────────────────────────────────────
+
+func getMailMessage(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed")
+			return
+		}
+		idStr := chi.URLParam(r, "id")
+		id, _ := strconv.ParseInt(idStr, 10, 64)
+		if id <= 0 {
+			respondErr(w, 400, "invalid id")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT id, kind, related_type, related_id, subject, from_email, from_name,
+			       recipients, status, provider_message_id, queued_at, delivered_at,
+			       opened_at, clicked_at, bounced_at, last_error, created_at, updated_at,
+			       html_body, text_body, thread_id, parent_id, send_at, attachments
+			FROM mail_messages
+			WHERE id=$1 AND (created_by=$2 OR recipients::text ILIKE $3)`,
+			id, user.ID, "%"+user.Sub+"%")
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "message not found")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+// ── listMailMessages (updated to include body columns) ────────────────────────
+
+// ── Draft handlers ────────────────────────────────────────────────────────────
+
+func mailListDrafts(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT id, subject, to_addrs, cc_addrs, bcc_addrs, from_email, from_name,
+			       html_body, text_body, attachments, updated_at, created_at
+			FROM mail_drafts
+			WHERE user_id=$1
+			ORDER BY updated_at DESC
+			LIMIT 200`, user.ID)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		jsonRows(w, rows)
+	}
+}
+
+func mailSaveDraft(db *core.DB) http.HandlerFunc {
+	type body struct {
+		ID          *int64          `json:"id"`
+		ToAddrs     json.RawMessage `json:"to_addrs"`
+		CcAddrs     json.RawMessage `json:"cc_addrs"`
+		BccAddrs    json.RawMessage `json:"bcc_addrs"`
+		FromEmail   string          `json:"from_email"`
+		FromName    string          `json:"from_name"`
+		Subject     string          `json:"subject"`
+		HTMLBody    string          `json:"html_body"`
+		TextBody    string          `json:"text_body"`
+		Attachments json.RawMessage `json:"attachments"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed")
+			return
+		}
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		toJSON   := jsonOrEmpty(b.ToAddrs)
+		ccJSON   := jsonOrEmpty(b.CcAddrs)
+		bccJSON  := jsonOrEmpty(b.BccAddrs)
+		attJSON  := jsonOrEmpty(b.Attachments)
+
+		if b.ID != nil && *b.ID > 0 {
+			// Update existing draft
+			rows, err := db.PGQuery(r.Context(), `
+				UPDATE mail_drafts
+				SET to_addrs=$1::jsonb, cc_addrs=$2::jsonb, bcc_addrs=$3::jsonb,
+				    from_email=$4, from_name=$5, subject=$6, html_body=$7, text_body=$8,
+				    attachments=$9::jsonb, updated_at=NOW()
+				WHERE id=$10 AND user_id=$11
+				RETURNING id, subject, to_addrs, cc_addrs, bcc_addrs, from_email, from_name,
+				          html_body, text_body, attachments, updated_at, created_at`,
+				toJSON, ccJSON, bccJSON,
+				ns(b.FromEmail), ns(b.FromName), b.Subject,
+				ns(b.HTMLBody), ns(b.TextBody), attJSON,
+				*b.ID, user.ID)
+			if err != nil || len(rows) == 0 {
+				respondErr(w, 404, "draft not found or update failed")
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+			return
+		}
+		// Insert new draft
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO mail_drafts
+			    (user_id, to_addrs, cc_addrs, bcc_addrs, from_email, from_name, subject,
+			     html_body, text_body, attachments)
+			VALUES ($1,$2::jsonb,$3::jsonb,$4::jsonb,$5,$6,$7,$8,$9,$10::jsonb)
+			RETURNING id, subject, to_addrs, cc_addrs, bcc_addrs, from_email, from_name,
+			          html_body, text_body, attachments, updated_at, created_at`,
+			user.ID, toJSON, ccJSON, bccJSON,
+			ns(b.FromEmail), ns(b.FromName), b.Subject,
+			ns(b.HTMLBody), ns(b.TextBody), attJSON)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 500, "Failed to save draft")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+func mailGetDraft(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed")
+			return
+		}
+		id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if id <= 0 {
+			respondErr(w, 400, "invalid id")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT id, subject, to_addrs, cc_addrs, bcc_addrs, from_email, from_name,
+			       html_body, text_body, attachments, updated_at, created_at
+			FROM mail_drafts
+			WHERE id=$1 AND user_id=$2`, id, user.ID)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "draft not found")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+func mailDeleteDraft(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed")
+			return
+		}
+		id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if id <= 0 {
+			respondErr(w, 400, "invalid id")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		if _, err := db.PGExec(r.Context(),
+			`DELETE FROM mail_drafts WHERE id=$1 AND user_id=$2`, id, user.ID); err != nil {
+			respondErr(w, 500, "Delete failed")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// ── Signature handlers ────────────────────────────────────────────────────────
+
+func mailGetSignature(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT signature_html, signature_text, updated_at
+			FROM user_email_signatures WHERE user_id=$1`, user.ID)
+		if err != nil || len(rows) == 0 {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+				"signature_html": "",
+				"signature_text": "",
+			})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+func mailSaveSignature(db *core.DB) http.HandlerFunc {
+	type body struct {
+		SignatureHTML string `json:"signature_html"`
+		SignatureText string `json:"signature_text"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed")
+			return
+		}
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		_, err := db.PGExec(r.Context(), `
+			INSERT INTO user_email_signatures (user_id, signature_html, signature_text)
+			VALUES ($1,$2,$3)
+			ON CONFLICT (user_id) DO UPDATE SET
+			    signature_html=EXCLUDED.signature_html,
+			    signature_text=EXCLUDED.signature_text,
+			    updated_at=NOW()`,
+			user.ID, ns(b.SignatureHTML), ns(b.SignatureText))
+		if err != nil {
+			respondErr(w, 500, "Failed to save signature")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"ok": true}) //nolint:errcheck
+	}
+}
+
+// ── Attachment upload ─────────────────────────────────────────────────────────
+
+func mailUploadAttachment(_ *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Check R2 configuration
+		accountID  := os.Getenv("R2_ACCOUNT_ID")
+		bucketName := os.Getenv("R2_BUCKET_NAME")
+		accessKey  := os.Getenv("R2_ACCESS_KEY_ID")
+		secretKey  := os.Getenv("R2_SECRET_ACCESS_KEY")
+
+		r2Configured := accountID != "" && bucketName != "" && accessKey != "" && secretKey != ""
+
+		if err := r.ParseMultipartForm(25 << 20); err != nil {
+			respondErr(w, 400, "Failed to parse multipart form")
+			return
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			respondErr(w, 400, "field 'file' is required")
+			return
+		}
+		defer file.Close()
+
+		data, err := io.ReadAll(file)
+		if err != nil {
+			respondErr(w, 500, "Failed to read file")
+			return
+		}
+
+		contentType := header.Header.Get("Content-Type")
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+
+		filename := sanitizeAttachmentName(header.Filename)
+		uid := fmt.Sprintf("%d", time.Now().UnixNano())
+
+		if r2Configured {
+			objectKey := fmt.Sprintf("mail-attachments/%s/%s", uid, filename)
+			endpoint  := fmt.Sprintf("https://%s.r2.cloudflarestorage.com/%s/%s",
+				accountID, bucketName, objectKey)
+			pubURL := fmt.Sprintf("https://%s.r2.cloudflarestorage.com/%s/%s",
+				accountID, bucketName, objectKey)
+
+			if err := r2Put(endpoint, accessKey, secretKey, accountID, bucketName, objectKey, contentType, data); err != nil {
+				slog.Warn("R2 upload failed", "err", err)
+				respondErr(w, 502, "File upload to R2 failed: "+err.Error())
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"url":          pubURL,
+				"filename":     filename,
+				"content_type": contentType,
+				"size_bytes":   len(data),
+			})
+			return
+		}
+
+		// Fallback: local storage
+		dir := fmt.Sprintf("/tmp/mail-attachments/%s", uid)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			respondErr(w, 500, "Storage error")
+			return
+		}
+		dest := fmt.Sprintf("%s/%s", dir, filename)
+		if err := os.WriteFile(dest, data, 0644); err != nil {
+			respondErr(w, 500, "Write error")
+			return
+		}
+		localURL := fmt.Sprintf("/api/mail/attachments/%s/%s", uid, filename)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"url":          localURL,
+			"filename":     filename,
+			"content_type": contentType,
+			"size_bytes":   len(data),
+		})
+	}
+}
+
+// r2Put uploads a file using AWS Signature V4 to an R2 bucket.
+func r2Put(endpoint, accessKey, secretKey, accountID, bucket, objectKey, contentType string, data []byte) error {
+	now := time.Now().UTC()
+	dateShort := now.Format("20060102")
+	dateLong  := now.Format("20060102T150405Z")
+	region    := "auto"
+	service   := "s3"
+
+	// Step 1: canonical request
+	payloadHash := fmt.Sprintf("%x", sha256Sum(data))
+	headers := fmt.Sprintf("content-type:%s\nhost:%s.r2.cloudflarestorage.com\nx-amz-content-sha256:%s\nx-amz-date:%s\n",
+		contentType, accountID, payloadHash, dateLong)
+	signedHeaders := "content-type;host;x-amz-content-sha256;x-amz-date"
+	canonicalURI  := "/" + bucket + "/" + objectKey
+	canonical := strings.Join([]string{
+		"PUT", canonicalURI, "", headers, signedHeaders, payloadHash,
+	}, "\n")
+
+	// Step 2: string to sign
+	credScope := strings.Join([]string{dateShort, region, service, "aws4_request"}, "/")
+	strToSign := strings.Join([]string{
+		"AWS4-HMAC-SHA256", dateLong, credScope, fmt.Sprintf("%x", sha256Sum([]byte(canonical))),
+	}, "\n")
+
+	// Step 3: signing key
+	kDate    := hmacSHA256([]byte("AWS4"+secretKey), []byte(dateShort))
+	kRegion  := hmacSHA256(kDate, []byte(region))
+	kService := hmacSHA256(kRegion, []byte(service))
+	kSigning := hmacSHA256(kService, []byte("aws4_request"))
+	signature := fmt.Sprintf("%x", hmacSHA256(kSigning, []byte(strToSign)))
+
+	authHeader := fmt.Sprintf("AWS4-HMAC-SHA256 Credential=%s/%s,SignedHeaders=%s,Signature=%s",
+		accessKey, credScope, signedHeaders, signature)
+
+	req, err := http.NewRequest(http.MethodPut, endpoint, strings.NewReader(string(data)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("x-amz-date", dateLong)
+	req.Header.Set("x-amz-content-sha256", payloadHash)
+	req.Header.Set("Authorization", authHeader)
+	req.ContentLength = int64(len(data))
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("R2 returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+func sha256Sum(data []byte) []byte {
+	h := sha256.Sum256(data)
+	return h[:]
+}
+
+// jsonOrEmpty returns the JSON bytes as a string, or "[]" if nil/empty.
+func jsonOrEmpty(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return "[]"
+	}
+	return string(raw)
+}
+
+// hmacSHA256 computes HMAC-SHA256 of data with key.
+func hmacSHA256(key, data []byte) []byte {
+	h := hmac.New(sha256.New, key)
+	h.Write(data)
+	return h.Sum(nil)
 }

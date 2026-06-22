@@ -9,9 +9,11 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate, fmtKobo } from '../../lib/fmt'
 import { Spinner, ErrBanner, NAVY, AMBER, RED, GREEN, BLUE } from '../../components/UI'
+
+// Wire Zoho: add <script src="https://voice.zoho.com/api/v1/sdk.js"></script> to index.html once VITE_ZOHO_ORG_ID is set
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Message {
@@ -615,6 +617,14 @@ export default function TicketDetail() {
               </div>
             )}
 
+            {/* Zoho Voice Dialer */}
+            <div className="mb-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                Phone
+              </p>
+              <ZohoDialer phoneNumber={ticket.customer_phone} ticketId={ticket.id} />
+            </div>
+
             <div style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }} className="pt-3 space-y-2.5">
               {ctx ? (
                 <>
@@ -643,6 +653,96 @@ export default function TicketDetail() {
       </div>
 
       {toast && <Toast msg={toast.msg} type={toast.type} />}
+    </div>
+  )
+}
+
+// ── Zoho Voice dialer shell ────────────────────────────────────────────────────
+function ZohoDialer({ phoneNumber, ticketId }: { phoneNumber: string | undefined; ticketId: number }) {
+  const [logOpen, setLogOpen] = useState(false)
+  const [logNote, setLogNote] = useState('')
+  const [logDur,  setLogDur]  = useState('')
+  const [logSaving, setLogSaving] = useState(false)
+  const canCall = typeof (window as any).ZohoVoice !== 'undefined'
+
+  async function submitLog(e: React.FormEvent) {
+    e.preventDefault()
+    if (!logNote.trim()) return
+    setLogSaving(true)
+    try {
+      await apiPost('/api/helpdesk/calls', {
+        ticket_id:     ticketId,
+        phone_number:  phoneNumber ?? '',
+        duration_secs: logDur ? Number(logDur) : null,
+        notes:         logNote,
+        direction:     'outbound',
+      })
+      setLogOpen(false); setLogNote(''); setLogDur('')
+    } catch { /* ignore */ }
+    finally { setLogSaving(false) }
+  }
+
+  return (
+    <div className="space-y-2">
+      <button
+        onClick={() =>
+          canCall
+            ? (window as any).ZohoVoice.dial(phoneNumber)
+            : window.open(`tel:${phoneNumber}`)
+        }
+        disabled={!phoneNumber}
+        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-[13px] font-semibold text-white disabled:opacity-50"
+        style={{ background: '#166534' }}>
+        <span className="material-symbols-rounded text-[16px]">call</span>
+        {canCall ? 'Call via Zoho' : 'Call'}
+      </button>
+
+      {!canCall && phoneNumber && (
+        <p className="text-[11px] text-slate-400 text-center">
+          Zoho Voice SDK not loaded — set VITE_ZOHO_ORG_ID &amp; VITE_ZOHO_CLIENT_ID
+        </p>
+      )}
+
+      <button
+        onClick={() => setLogOpen(o => !o)}
+        className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-[12px] font-semibold border transition-all"
+        style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY }}>
+        <span className="material-symbols-rounded text-[14px]">edit_note</span>
+        Log Call
+      </button>
+
+      {logOpen && (
+        <form onSubmit={submitLog} className="space-y-2 pt-1">
+          <input
+            type="number"
+            min="0"
+            value={logDur}
+            onChange={e => setLogDur(e.target.value)}
+            placeholder="Duration (secs)"
+            className="w-full px-2.5 py-1.5 rounded-lg border text-[12px] outline-none"
+            style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+          />
+          <textarea
+            rows={2}
+            value={logNote}
+            onChange={e => setLogNote(e.target.value)}
+            placeholder="Call notes…"
+            className="w-full px-2.5 py-1.5 rounded-lg border text-[12px] outline-none resize-none"
+            style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+          />
+          <div className="flex gap-2">
+            <button type="submit" disabled={logSaving || !logNote.trim()}
+              className="flex-1 py-1.5 rounded-lg text-[11px] font-semibold text-white disabled:opacity-50"
+              style={{ background: NAVY }}>
+              {logSaving ? 'Saving…' : 'Save Log'}
+            </button>
+            <button type="button" onClick={() => setLogOpen(false)}
+              className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 hover:bg-slate-100">
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   )
 }

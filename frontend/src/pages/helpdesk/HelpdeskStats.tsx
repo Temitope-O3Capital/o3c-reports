@@ -181,7 +181,8 @@ export default function HelpdeskStats() {
               <p className="text-center text-slate-400 text-[13px] py-8">No data</p>
             ) : (
               <>
-                <ResponsiveContainer width="100%" height={160}>
+                <div style={{ height: 160 }}>
+                <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
                       data={statusData}
@@ -212,6 +213,7 @@ export default function HelpdeskStats() {
                     />
                   </PieChart>
                 </ResponsiveContainer>
+                </div>
                 <div className="space-y-2 pt-2">
                   {statusData.map((d, i) => {
                     const total = statusData.reduce((s, r) => s + r.value, 0)
@@ -251,7 +253,8 @@ export default function HelpdeskStats() {
             ) : channelData.length === 0 ? (
               <p className="text-center text-slate-400 text-[13px] py-8">No data</p>
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
+              <div style={{ height: 220 }}>
+              <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={channelData} margin={{ top: 16, right: 12, left: 0, bottom: 4 }} barSize={28}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
                   <XAxis
@@ -286,6 +289,7 @@ export default function HelpdeskStats() {
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+              </div>
             )}
           </div>
         </SectionCard>

@@ -578,20 +578,38 @@ func deleteActivity(db *core.DB) http.HandlerFunc {
 
 var taskUpdateCols = []string{
 	"title", "description", "due_date", "priority", "status", "assigned_to",
+	"linked_type", "linked_id",
 }
 
 func listTasks(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Ensure linked_type / linked_id columns exist (idempotent)
+		_, _ = db.PGExec(context.Background(),
+			`ALTER TABLE crm_tasks ADD COLUMN IF NOT EXISTS linked_type TEXT;
+			 ALTER TABLE crm_tasks ADD COLUMN IF NOT EXISTS linked_id BIGINT;`)
+
 		limit := qint(r, "limit", 200, 1, 500)
 		user := core.UserFromCtx(r.Context())
 		where := "1=1"
 		var args []any
 		n := 1
 
-		if r.URL.Query().Get("mine") == "true" {
+		// view param: my | team | all (also legacy mine=true)
+		view := qstr(r, "view")
+		if view == "my" || r.URL.Query().Get("mine") == "true" {
 			where += fmt.Sprintf(" AND t.assigned_to=$%d", n)
 			args = append(args, user.ID); n++
+		} else if view == "team" {
+			// Same department as current user — join through o3c_users
+			where += fmt.Sprintf(` AND t.assigned_to IN (
+				SELECT id FROM o3c_users WHERE department=(
+					SELECT department FROM o3c_users WHERE id=$%d
+				) AND is_active=TRUE
+			)`, n)
+			args = append(args, user.ID); n++
 		}
+		// view == "all" or empty: no extra filter
+
 		if v := qstr(r, "status"); v != "" {
 			where += fmt.Sprintf(" AND t.status=$%d", n); args = append(args, v); n++
 		}
@@ -633,6 +651,8 @@ func createTask(db *core.DB) http.HandlerFunc {
 			DueDate     *string `json:"due_date"`
 			Priority    *string `json:"priority"`
 			AssignedTo  *int64  `json:"assigned_to"`
+			LinkedType  *string `json:"linked_type"`
+			LinkedID    *int64  `json:"linked_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON"); return
@@ -644,9 +664,9 @@ func createTask(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO crm_tasks
-			  (contact_id, deal_id, title, description, due_date, priority, assigned_to, created_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-			b.ContactID, b.DealID, b.Title, b.Description, b.DueDate, pri, b.AssignedTo, user.ID)
+			  (contact_id, deal_id, title, description, due_date, priority, assigned_to, created_by, linked_type, linked_id)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+			b.ContactID, b.DealID, b.Title, b.Description, b.DueDate, pri, b.AssignedTo, user.ID, b.LinkedType, b.LinkedID)
 		if err != nil {
 			respondErr(w, 500, "Create failed"); return
 		}

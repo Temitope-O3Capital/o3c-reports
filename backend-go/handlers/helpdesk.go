@@ -57,6 +57,10 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 	r.Post("/tickets", hdCreateTicket(db))
 	r.Get("/tickets", hdListTickets(db))
 	r.Get("/tickets/search", hdSearchTickets(db))
+	// Bulk actions — must be before /{id} so chi resolves them first
+	r.Post("/tickets/bulk-assign",   hdBulkAssignTickets(db))
+	r.Post("/tickets/bulk-close",    hdBulkCloseTickets(db))
+	r.Post("/tickets/bulk-priority", hdBulkPriorityTickets(db))
 	r.Get("/tickets/{id}", hdGetTicket(db))
 	r.Patch("/tickets/{id}", hdUpdateTicket(db))
 	r.Post("/tickets/{id}/messages", hdSendMessage(db))
@@ -236,7 +240,7 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 			SELECT
 				t.id, t.ticket_ref, t.channel, t.status, t.priority, t.subject,
 				t.customer_name, t.customer_cif, t.assigned_to, t.department,
-				t.sla_due_at, t.created_at,
+				t.sla_due_at, t.created_at, t.first_response_at,
 				u.full_name AS assigned_to_name,
 				(SELECT COUNT(*) FROM helpdesk_messages m WHERE m.ticket_id=t.id) AS message_count,
 				(SELECT MAX(m2.created_at) FROM helpdesk_messages m2 WHERE m2.ticket_id=t.id) AS last_message_at,
@@ -261,6 +265,91 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 			"per_page": perPage,
 			"tickets":  rows,
 		})
+	}
+}
+
+// ── Bulk ticket actions ───────────────────────────────────────────────────────
+
+func hdBulkAssignTickets(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			TicketIDs []int64 `json:"ticket_ids"`
+			AgentID   *int64  `json:"agent_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		if len(b.TicketIDs) == 0 {
+			respondErr(w, 422, "ticket_ids required"); return
+		}
+		placeholders := make([]string, len(b.TicketIDs))
+		args := []any{b.AgentID}
+		for i, id := range b.TicketIDs {
+			placeholders[i] = fmt.Sprintf("$%d", i+2)
+			args = append(args, id)
+		}
+		if _, err := db.PGExec(r.Context(),
+			fmt.Sprintf("UPDATE helpdesk_tickets SET assigned_to=$1, updated_at=NOW() WHERE id IN (%s)",
+				strings.Join(placeholders, ",")), args...); err != nil {
+			respondErr(w, 500, "Update failed"); return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"updated": len(b.TicketIDs)}) //nolint:errcheck
+	}
+}
+
+func hdBulkCloseTickets(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			TicketIDs []int64 `json:"ticket_ids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		if len(b.TicketIDs) == 0 {
+			respondErr(w, 422, "ticket_ids required"); return
+		}
+		placeholders := make([]string, len(b.TicketIDs))
+		args := []any{}
+		for i, id := range b.TicketIDs {
+			placeholders[i] = fmt.Sprintf("$%d", i+1)
+			args = append(args, id)
+		}
+		if _, err := db.PGExec(r.Context(),
+			fmt.Sprintf("UPDATE helpdesk_tickets SET status='closed', updated_at=NOW() WHERE id IN (%s)",
+				strings.Join(placeholders, ",")), args...); err != nil {
+			respondErr(w, 500, "Update failed"); return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"updated": len(b.TicketIDs)}) //nolint:errcheck
+	}
+}
+
+func hdBulkPriorityTickets(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			TicketIDs []int64 `json:"ticket_ids"`
+			Priority  string  `json:"priority"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		if len(b.TicketIDs) == 0 || b.Priority == "" {
+			respondErr(w, 422, "ticket_ids and priority required"); return
+		}
+		placeholders := make([]string, len(b.TicketIDs))
+		args := []any{b.Priority}
+		for i, id := range b.TicketIDs {
+			placeholders[i] = fmt.Sprintf("$%d", i+2)
+			args = append(args, id)
+		}
+		if _, err := db.PGExec(r.Context(),
+			fmt.Sprintf("UPDATE helpdesk_tickets SET priority=$1, updated_at=NOW() WHERE id IN (%s)",
+				strings.Join(placeholders, ",")), args...); err != nil {
+			respondErr(w, 500, "Update failed"); return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"updated": len(b.TicketIDs)}) //nolint:errcheck
 	}
 }
 

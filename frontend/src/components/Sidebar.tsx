@@ -14,9 +14,10 @@ function hasAccess(role: string, moduleRoles: string[]): boolean {
 // ── Nav data types ────────────────────────────────────────────────────────────
 
 interface SubItem {
-  label: string
-  to:    string
-  icon:  string
+  label:   string
+  to:      string
+  icon:    string
+  header?: boolean  // if true, renders as a section label, not a nav link
 }
 
 interface Module {
@@ -147,11 +148,12 @@ const MODULES: Module[] = [
     id: 'campaigns', label: 'Campaigns', icon: 'campaign',
     roles: ['cmo', 'md', 'coo', 'management', 'admin'],
     items: [
+      { label: 'Overview',      to: '/campaigns/overview',     icon: 'bar_chart' },
       { label: 'Campaigns',     to: '/campaigns',              icon: 'send' },
       { label: 'Analytics',     to: '/campaigns/analytics',    icon: 'insights' },
-      { label: 'Compose Mail',  to: '/campaigns/compose',      icon: 'outgoing_mail' },
       { label: 'Templates',     to: '/campaigns/templates',    icon: 'article' },
       { label: 'Contact Lists', to: '/campaigns/lists',        icon: 'list_alt' },
+      { label: 'Email Senders', to: '/admin/email-senders',    icon: 'alternate_email' },
     ],
   },
   {
@@ -167,13 +169,21 @@ const MODULES: Module[] = [
     id: 'admin', label: 'Admin', icon: 'admin_panel_settings',
     roles: ['it_admin', 'head_it'],
     items: [
-      { label: 'Users',      to: '/admin/users',    icon: 'manage_accounts' },
-      { label: 'API Keys',   to: '/admin/api-keys', icon: 'key' },
-      { label: 'Mail Health',           to: '/admin/mail',                    icon: 'mark_email_read' },
-      { label: 'Settings',              to: '/admin/settings',                icon: 'settings' },
-      { label: 'Sync Status',           to: '/admin/sync',                    icon: 'sync' },
-      { label: 'Notification Settings', to: '/admin/notification-settings',   icon: 'notifications_active' },
-      { label: 'Email Senders',         to: '/admin/email-senders',           icon: 'alternate_email' },
+      // Users & Access
+      { label: 'Overview',             to: '/admin/overview',              icon: 'dashboard' },
+      { label: 'Users',                to: '/admin/users',                 icon: 'manage_accounts' },
+      { label: 'Roles',                to: '/admin/roles',                 icon: 'lock_person' },
+      // Communications
+      { label: 'Email Senders',        to: '/admin/email-senders',         icon: 'alternate_email' },
+      { label: 'Mail Health',          to: '/admin/mail',                  icon: 'mark_email_read' },
+      { label: 'Notif. Settings',      to: '/admin/notification-settings', icon: 'notifications_active' },
+      // Integrations
+      { label: 'API Keys',             to: '/admin/api-keys',              icon: 'key' },
+      { label: 'Connected Services',   to: '/admin/integrations',          icon: 'hub' },
+      // Platform
+      { label: 'Settings',             to: '/admin/settings',              icon: 'settings' },
+      { label: 'Audit Log',            to: '/admin/audit',                 icon: 'history' },
+      { label: 'Sync Status',          to: '/admin/sync',                  icon: 'sync' },
     ],
   },
 ]
@@ -196,7 +206,7 @@ const MODULE_PRIMARY: Record<string, string> = {
   helpdesk:         '/helpdesk',
   los:              '/los',
   crm:              '/crm',
-  admin:            '/admin/users',
+  admin:            '/admin/overview',
 }
 
 function primaryRoute(mod: Module): string {
@@ -213,7 +223,19 @@ const ACTIVE_TEXT = '#ffffff'
 
 // ── Sub-item nav link ─────────────────────────────────────────────────────────
 
-function SubNavItem({ label, to, icon }: SubItem) {
+function SubNavItem({ label, to, icon, header }: SubItem) {
+  // Section header: render as small uppercase label, no link behaviour
+  if (header) {
+    return (
+      <div className="px-3 pt-3 pb-0.5">
+        <span className="text-[9.5px] font-semibold uppercase tracking-[0.1em]"
+          style={{ color: 'rgba(255,255,255,0.25)' }}>
+          {label.replace(/^— | —$/g, '')}
+        </span>
+      </div>
+    )
+  }
+
   return (
     <NavLink to={to} end>
       {({ isActive }) => (
@@ -385,7 +407,7 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
               {/* Sub-items accordion */}
               <div
                 className="overflow-hidden transition-all duration-200 ease-out"
-                style={{ maxHeight: isOpen ? `${mod.items.length * 36}px` : '0px' }}>
+                style={{ maxHeight: isOpen ? `${mod.items.length * 40 + 60}px` : '0px' }}>
                 <div className="ml-[30px] mt-0.5 mb-1"
                   style={{ borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
                   {mod.items.map(item => (
