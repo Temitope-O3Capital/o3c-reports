@@ -111,10 +111,12 @@ const AllCampaignAnalytics = lazy(() => import('./pages/campaigns/AllCampaignAna
 const C360Drawer = lazy(() => import('./components/C360Drawer'))
 
 // Helpdesk (Customer Service ticketing)
+const HelpdeskOverview = lazy(() => import('./pages/helpdesk/HelpdeskOverview'))
 const TicketList       = lazy(() => import('./pages/helpdesk/TicketList'))
 const TicketDetail     = lazy(() => import('./pages/helpdesk/TicketDetail'))
 const CannedResponses  = lazy(() => import('./pages/helpdesk/CannedResponses'))
 const HelpdeskStats    = lazy(() => import('./pages/helpdesk/HelpdeskStats'))
+const VoiceConnect     = lazy(() => import('./pages/settings/VoiceConnect'))
 const MessageTemplates = lazy(() => import('./pages/marketing/MessageTemplates'))
 const ContactLists     = lazy(() => import('./pages/marketing/ContactLists'))
 const ComposeMail      = lazy(() => import('./pages/marketing/ComposeMail'))
@@ -665,11 +667,15 @@ export default function App() {
                 <Route path="/campaigns/:id/report"       element={<CampaignReport />} />
 
                 {/* ── Helpdesk ── */}
-                <Route path="/helpdesk"            element={<TicketList />} />
+                <Route path="/helpdesk"            element={<HelpdeskOverview />} />
+                <Route path="/helpdesk/tickets"    element={<TicketList />} />
                 <Route path="/helpdesk/stats"      element={<HelpdeskStats />} />
                 <Route path="/helpdesk/canned"     element={<CannedResponses />} />
                 <Route path="/helpdesk/calls"      element={<CallLog />} />
                 <Route path="/helpdesk/:id"        element={<TicketDetail />} />
+
+                {/* ── Settings ── */}
+                <Route path="/settings/voice"      element={<VoiceConnect />} />
 
                 {/* ── Reports ── */}
                 <Route path="/reports" element={<Reports />} />

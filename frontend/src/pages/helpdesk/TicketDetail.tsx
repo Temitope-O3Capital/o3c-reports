@@ -356,23 +356,23 @@ export default function TicketDetail() {
   return (
     <div className="flex flex-col h-full" style={{ minHeight: '100vh', background: '#F4F6F8' }}>
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 py-3.5 bg-white"
+      <div className="flex items-center gap-3 px-6 py-3 bg-white"
         style={{ borderBottom: '1px solid rgba(15,23,42,0.09)' }}>
         <button
           onClick={() => navigate('/helpdesk')}
-          className="flex items-center gap-1 text-[12px] font-medium text-slate-500 hover:text-slate-800 transition-colors"
+          className="flex items-center gap-1 text-[12px] font-medium text-slate-400 hover:text-slate-700 transition-colors flex-shrink-0"
         >
           <span className="material-symbols-rounded text-[16px]">arrow_back</span>
-          Helpdesk
         </button>
-        <span className="text-slate-300">/</span>
-        <span className="font-mono text-[13px] text-slate-500">{ticket.ticket_ref}</span>
-        <span className="text-slate-300">·</span>
-        <span className="font-semibold text-slate-800 text-[14px] truncate max-w-[360px]">
+        <span className="font-mono text-[12px] px-2 py-0.5 rounded-md font-semibold flex-shrink-0"
+          style={{ background: 'rgba(14,40,65,0.07)', color: NAVY }}>
+          {ticket.ticket_ref}
+        </span>
+        <span className="font-semibold text-slate-800 text-[14px] truncate min-w-0">
           {ticket.subject}
         </span>
         <div className="flex items-center gap-2 ml-auto flex-shrink-0">
-          <span className="flex items-center gap-1 text-[12px] text-slate-500">
+          <span className="flex items-center gap-1 text-[12px] text-slate-400">
             <span className="material-symbols-rounded text-[14px]">
               {CHANNEL_ICON[ticket.channel?.toLowerCase()] ?? 'chat'}
             </span>
@@ -380,13 +380,19 @@ export default function TicketDetail() {
           </span>
           <PriorityPill priority={ticket.priority} />
           <StatusPill status={ticket.status} />
+          {ticket.sla_due_at && (
+            <div className="px-2 py-0.5 rounded-lg flex-shrink-0"
+              style={{ background: 'rgba(217,119,6,0.08)' }}>
+              <SLACountdown dueAt={ticket.sla_due_at} />
+            </div>
+          )}
         </div>
       </div>
 
       {/* Body: three columns */}
       <div className="flex flex-1 overflow-hidden">
         {/* LEFT SIDEBAR */}
-        <aside className="w-52 bg-white border-r flex-shrink-0 overflow-y-auto"
+        <aside className="w-64 bg-white border-r flex-shrink-0 overflow-y-auto"
           style={{ borderColor: 'rgba(15,23,42,0.09)' }}>
           <div className="p-4 space-y-4">
             {/* Status */}
@@ -510,25 +516,34 @@ export default function TicketDetail() {
 
         {/* MIDDLE: Messages + Reply */}
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5" style={{ background: '#F8FAFC' }}>
+            {messages.length === 0 && events.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                <span className="material-symbols-rounded text-[40px] mb-2 text-slate-300">chat</span>
+                <p className="text-[13px]">No messages yet</p>
+                <p className="text-[12px] mt-1">Send the first reply below</p>
+              </div>
+            )}
             {messages.map(msg => (
               <MessageBubble key={msg.id} msg={msg} />
             ))}
-
-            {/* Timeline */}
             {events.length > 0 && (
-              <div className="mt-6 space-y-1.5">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Timeline</p>
-                {events.map(e => (
-                  <div key={e.id} className="flex items-center gap-2 text-[12px] text-slate-400">
-                    <span className="material-symbols-rounded text-[14px]" style={{ color: '#CBD5E1' }}>circle</span>
-                    <span>
-                      {e.event_type === 'created'
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 py-2">
+                  <div className="flex-1 h-px" style={{ background: 'rgba(15,23,42,0.08)' }} />
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Activity</span>
+                  <div className="flex-1 h-px" style={{ background: 'rgba(15,23,42,0.08)' }} />
+                </div>
+                {events.map(ev => (
+                  <div key={ev.id} className="flex items-center gap-2 py-1">
+                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: '#CBD5E1' }} />
+                    <span className="text-[11px] text-slate-400 flex-1">
+                      {ev.event_type === 'created'
                         ? 'Ticket created'
-                        : `${e.event_type}: ${e.old_value ?? '—'} → ${e.new_value}`}
+                        : `${ev.event_type.replace(/_/g, ' ')}: ${ev.old_value ?? '—'} → ${ev.new_value ?? '—'}`}
                     </span>
-                    <span className="ml-auto whitespace-nowrap">
-                      {new Date(e.ts).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}
+                    <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                      {new Date(ev.ts).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
                 ))}
@@ -561,16 +576,21 @@ export default function TicketDetail() {
               <textarea
                 value={body}
                 onChange={e => setBody(e.target.value)}
-                placeholder={replyMode === 'note' ? 'Add an internal note (not visible to customer)…' : 'Type your reply…'}
+                placeholder={replyMode === 'note' ? 'Add an internal note — not visible to customer…' : 'Type your reply to the customer…'}
                 rows={4}
                 className="w-full px-3 py-2.5 rounded-xl border text-[13px] resize-none outline-none transition-colors"
                 style={{
-                  borderColor: 'rgba(15,23,42,0.15)',
+                  borderColor: replyMode === 'note' ? '#FDE68A' : 'rgba(15,23,42,0.15)',
                   background: replyMode === 'note' ? '#FFFBEB' : 'white',
                   color: '#334155',
                 }}
               />
-              {sendErr && <p className="text-[12px] text-red-600 mt-1">{sendErr}</p>}
+              <div className="flex items-center justify-between mt-1">
+                {sendErr
+                  ? <p className="text-[12px] text-red-600">{sendErr}</p>
+                  : <span />}
+                <span className="text-[11px] text-slate-400">{body.length} chars</span>
+              </div>
             </div>
 
             {/* Send buttons */}
@@ -691,13 +711,13 @@ function ZohoDialer({ ticket }: { ticket: Ticket }) {
   const [calling,    setCalling]    = useState(false)
   const [callStatus, setCallStatus] = useState<'idle' | 'calling' | 'done' | 'error'>('idle')
 
-  // Prefer Zoho PhoneBridge SDK if loaded; otherwise use our backend REST proxy
-  const hasSDK = typeof (window as any).ZOHOPHONEBRIDGE !== 'undefined'
+  // Use Zoho Voice WebSDK if loaded; otherwise fall back to backend REST proxy
+  const hasSDK = typeof (window as any).ZohoVoice !== 'undefined'
 
   async function initiateCall() {
     if (!phoneNumber) return
     if (hasSDK) {
-      ;(window as any).ZOHOPHONEBRIDGE.call(phoneNumber)
+      ;(window as any).ZohoVoice.makeCall({ phoneNumber })
       setCallStatus('calling')
       return
     }
@@ -749,7 +769,7 @@ function ZohoDialer({ ticket }: { ticket: Ticket }) {
         <span className="material-symbols-rounded text-[16px]">
           {calling ? 'progress_activity' : 'call'}
         </span>
-        {calling ? 'Calling…' : hasSDK ? 'Call via Zoho' : 'Call (Zoho)'}
+        {calling ? 'Calling…' : hasSDK ? 'Call via Browser' : 'Initiate Call'}
       </button>
 
       {callStatus === 'done' && (
@@ -863,54 +883,68 @@ function SendBtn({
   )
 }
 
+function MsgAvatar({ name, color }: { name: string; color: string }) {
+  const initials = (name ?? '?').split(' ').map(w => w[0] ?? '').slice(0, 2).join('').toUpperCase()
+  return (
+    <span className="flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full text-[11px] font-bold text-white"
+      style={{ background: color }}>
+      {initials}
+    </span>
+  )
+}
+
 function MessageBubble({ msg }: { msg: Message }) {
   const time = new Date(msg.created_at).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })
 
   if (msg.is_internal_note) {
     return (
-      <div className="rounded-xl border px-4 py-3" style={{ background: '#FFFBEB', borderColor: '#FDE68A' }}>
-        <div className="flex items-center gap-2 mb-1.5">
-          <span className="text-[12px]">🔒</span>
-          <span className="text-[12px] font-semibold text-amber-700">Internal note</span>
-          {msg.author_name && (
-            <span className="text-[11px] text-slate-400">· {msg.author_name}</span>
-          )}
-          <span className="text-[11px] text-slate-400 ml-auto">{time}</span>
+      <div className="mx-auto max-w-[88%]">
+        <div className="rounded-xl px-4 py-3 relative" style={{ background: '#FFFBEB', border: '1px solid #FDE68A' }}>
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="material-symbols-rounded text-[14px] text-amber-600">lock</span>
+            <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider">Internal Note</span>
+            {msg.author_name && <span className="text-[11px] text-amber-600">· {msg.author_name}</span>}
+            <span className="text-[10px] text-amber-400 ml-auto">{time}</span>
+          </div>
+          <p className="text-[13px] text-amber-900 whitespace-pre-wrap leading-relaxed">{msg.body_text}</p>
         </div>
-        <p className="text-[13px] text-slate-700 whitespace-pre-wrap">{msg.body_text}</p>
       </div>
     )
   }
 
   const isInbound = msg.direction === 'inbound'
+  const name = msg.author_name ?? (isInbound ? 'Customer' : 'Agent')
+
+  if (isInbound) {
+    return (
+      <div className="flex items-end gap-2.5 max-w-[85%]">
+        <MsgAvatar name={name} color="#475569" />
+        <div>
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-[11px] font-semibold text-slate-600">{name}</span>
+            <span className="text-[10px] text-slate-400">{time}</span>
+          </div>
+          <div className="rounded-2xl rounded-bl-md px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap"
+            style={{ background: 'white', border: '1px solid rgba(15,23,42,0.12)', color: '#334155' }}>
+            {msg.body_text || (msg.body_html ? <span dangerouslySetInnerHTML={{ __html: msg.body_html }} /> : '—')}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className={`${isInbound ? '' : 'flex flex-col items-end'}`}>
-      <div className="flex items-center gap-2 mb-1">
-        {isInbound ? (
-          <>
-            <span className="text-[11px] font-semibold text-slate-500">
-              {msg.author_name ?? 'Customer'}
-            </span>
-            <span className="text-[11px] text-slate-400">{time}</span>
-          </>
-        ) : (
-          <>
-            <span className="text-[11px] text-slate-400">{time}</span>
-            <span className="text-[11px] font-semibold text-slate-500">
-              {msg.author_name ?? 'Agent'}
-            </span>
-          </>
-        )}
-      </div>
-      <div
-        className={`rounded-xl border px-4 py-3 max-w-[85%] text-[13px] text-slate-700 whitespace-pre-wrap`}
-        style={{
-          background: isInbound ? 'white' : 'rgba(14,40,65,0.05)',
-          borderColor: isInbound ? 'rgba(15,23,42,0.1)' : 'rgba(14,40,65,0.1)',
-        }}
-      >
-        {msg.body_text || (msg.body_html ? <span dangerouslySetInnerHTML={{ __html: msg.body_html }} /> : '—')}
+    <div className="flex items-end gap-2.5 max-w-[85%] ml-auto flex-row-reverse">
+      <MsgAvatar name={name} color={NAVY} />
+      <div className="flex flex-col items-end">
+        <div className="flex items-center gap-1.5 mb-1">
+          <span className="text-[10px] text-slate-400">{time}</span>
+          <span className="text-[11px] font-semibold text-slate-600">{name}</span>
+        </div>
+        <div className="rounded-2xl rounded-br-md px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap text-white"
+          style={{ background: NAVY }}>
+          {msg.body_text || (msg.body_html ? <span dangerouslySetInnerHTML={{ __html: msg.body_html }} /> : '—')}
+        </div>
       </div>
     </div>
   )

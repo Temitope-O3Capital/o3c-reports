@@ -337,6 +337,17 @@ export default function TicketList() {
     }, 300)
   }, [])
 
+  // Sort state
+  const [sortBy,  setSortBy]  = useState<'created_at' | 'priority' | 'sla_due_at'>('created_at')
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
+  function toggleSort(col: typeof sortBy) {
+    setSortBy(prev => {
+      if (prev === col) { setSortDir(d => d === 'desc' ? 'asc' : 'desc'); return prev }
+      setSortDir('desc'); return col
+    })
+    setPage(1)
+  }
+
   // Reset page on filter change
   useEffect(() => { setPage(1) }, [status, priority, channel, department, assignedTo, myTickets])
 
@@ -462,47 +473,64 @@ export default function TicketList() {
       <SectionCard
         title="Tickets"
         badge={ticketPage?.total}
-        actions={
+      >
+        {/* Status chip quick-filters */}
+        <div className="flex items-center gap-1.5 px-5 pt-3 pb-0"
+          style={{ borderBottom: '1px solid rgba(15,23,42,0.06)' }}>
+          {[
+            { label: 'All',         val: 'All',         color: '#64748B' },
+            { label: 'Open',        val: 'Open',        color: NAVY },
+            { label: 'Pending',     val: 'Pending',     color: AMBER },
+            { label: 'In Progress', val: 'In Progress', color: BLUE },
+            { label: 'Resolved',    val: 'Resolved',    color: GREEN },
+            { label: 'SLA Risk',    val: 'All',         color: RED, slaOnly: true },
+          ].map(chip => {
+            const active = chip.slaOnly ? false : status === chip.val
+            return (
+              <button
+                key={chip.label}
+                onClick={() => { setStatus(chip.val); setPage(1) }}
+                className="flex items-center gap-1 px-3 py-1.5 mb-0 text-[12px] font-semibold border-b-2 transition-all whitespace-nowrap"
+                style={{
+                  borderColor: active ? chip.color : 'transparent',
+                  color: active ? chip.color : '#94A3B8',
+                  background: 'none',
+                }}
+              >{chip.label}</button>
+            )
+          })}
+          <div className="ml-auto flex items-center gap-2 mb-2">
+            <div className="relative">
+              <span className="material-symbols-rounded text-[15px] absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">search</span>
+              <input
+                value={search}
+                onChange={e => handleSearchChange(e.target.value)}
+                placeholder="Search…"
+                className="pl-8 pr-3 py-1.5 rounded-lg border text-[12px] bg-white outline-none"
+                style={{ borderColor: 'rgba(15,23,42,0.15)', width: 180 }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Advanced filters (collapsible row) */}
+        <div className="flex flex-wrap items-center gap-2 px-5 py-2"
+          style={{ borderBottom: '1px solid rgba(15,23,42,0.06)', background: '#FAFBFC' }}>
+          <FilterSelect value={priority}   options={PRIORITY_OPTIONS} onChange={setPriority}   label="Priority" />
+          <FilterSelect value={channel}    options={CHANNEL_OPTIONS}  onChange={setChannel}    label="Channel" />
+          <FilterSelect value={department} options={DEPT_OPTIONS}     onChange={setDepartment} label="Department" />
           <button
             onClick={() => setMyTickets(m => !m)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all"
             style={{
               borderColor: myTickets ? NAVY : 'rgba(15,23,42,0.15)',
               background:  myTickets ? `${NAVY}0f` : 'white',
               color:       myTickets ? NAVY : '#64748B',
             }}
           >
-            <span className="material-symbols-rounded text-[15px]">person</span>
-            My Tickets
+            <span className="material-symbols-rounded text-[14px]">person</span>
+            Mine
           </button>
-        }
-      >
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-2 px-5 py-3"
-          style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
-          <FilterSelect value={status}     options={STATUS_OPTIONS}   onChange={setStatus}     label="Status" />
-          <FilterSelect value={priority}   options={PRIORITY_OPTIONS} onChange={setPriority}   label="Priority" />
-          <FilterSelect value={channel}    options={CHANNEL_OPTIONS}  onChange={setChannel}    label="Channel" />
-          <FilterSelect value={department} options={DEPT_OPTIONS}     onChange={setDepartment} label="Department" />
-          <input
-            value={assignedTo}
-            onChange={e => setAssignedTo(e.target.value)}
-            placeholder="Assigned to…"
-            className="px-3 py-1.5 rounded-lg border text-[12px] font-medium bg-white outline-none"
-            style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155', minWidth: 130 }}
-          />
-          <div className="flex-1 relative" style={{ minWidth: 180 }}>
-            <span className="material-symbols-rounded text-[16px] absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-              search
-            </span>
-            <input
-              value={search}
-              onChange={e => handleSearchChange(e.target.value)}
-              placeholder="Search tickets…"
-              className="w-full pl-9 pr-3 py-1.5 rounded-lg border text-[12px] font-medium bg-white outline-none"
-              style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}
-            />
-          </div>
         </div>
 
         <ErrBanner msg={err} />
@@ -530,10 +558,28 @@ export default function TicketList() {
                       className="rounded cursor-pointer"
                     />
                   </th>
-                  {['REF', 'SUBJECT', 'CUSTOMER', 'CHANNEL', 'STATUS', 'PRIORITY', 'FRT', 'SLA'].map(h => (
-                    <th key={h}
-                      className="px-5 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.07em] text-slate-400 whitespace-nowrap">
-                      {h}
+                  {[
+                    { label: 'REF',      sortable: false },
+                    { label: 'SUBJECT',  sortable: false },
+                    { label: 'CUSTOMER', sortable: false },
+                    { label: 'CHANNEL',  sortable: false },
+                    { label: 'STATUS',   sortable: false },
+                    { label: 'PRIORITY', sortable: true,  col: 'priority' as const },
+                    { label: 'FRT',      sortable: false },
+                    { label: 'SLA',      sortable: true,  col: 'sla_due_at' as const },
+                    { label: 'CREATED',  sortable: true,  col: 'created_at' as const },
+                  ].map(h => (
+                    <th key={h.label}
+                      className={`px-5 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.07em] text-slate-400 whitespace-nowrap ${h.sortable ? 'cursor-pointer select-none hover:text-slate-600' : ''}`}
+                      onClick={h.sortable && h.col ? () => toggleSort(h.col!) : undefined}>
+                      <span className="flex items-center gap-1">
+                        {h.label}
+                        {h.sortable && h.col && sortBy === h.col && (
+                          <span className="material-symbols-rounded text-[12px]">
+                            {sortDir === 'desc' ? 'arrow_downward' : 'arrow_upward'}
+                          </span>
+                        )}
+                      </span>
                     </th>
                   ))}
                 </tr>

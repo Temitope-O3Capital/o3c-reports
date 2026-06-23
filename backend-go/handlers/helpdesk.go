@@ -83,6 +83,7 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 	r.Post("/tickets/bulk-assign", hdBulkAssignTickets(db))
 	r.Post("/tickets/bulk-close", hdBulkCloseTickets(db))
 	r.Post("/tickets/bulk-priority", hdBulkPriorityTickets(db))
+	r.Post("/tickets/{id}/claim", hdClaimTicket(db))
 	r.Get("/tickets/{id}", hdGetTicket(db))
 	r.Patch("/tickets/{id}", hdUpdateTicket(db))
 	r.Post("/tickets/{id}/messages", hdSendMessage(db))
@@ -235,9 +236,20 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		if v := qstr(r, "assigned_to"); v != "" {
-			where += fmt.Sprintf(" AND t.assigned_to=$%d", n)
-			args = append(args, v)
-			n++
+			switch v {
+			case "unassigned":
+				where += " AND t.assigned_to IS NULL"
+			case "me":
+				if u := core.UserFromCtx(r.Context()); u != nil {
+					where += fmt.Sprintf(" AND t.assigned_to=$%d", n)
+					args = append(args, u.ID)
+					n++
+				}
+			default:
+				where += fmt.Sprintf(" AND t.assigned_to=$%d", n)
+				args = append(args, v)
+				n++
+			}
 		}
 		if v := coalesce(qstr(r, "search"), qstr(r, "q")); v != "" {
 			where += fmt.Sprintf(` AND (t.subject ILIKE $%d OR t.customer_name ILIKE $%d OR t.customer_cif ILIKE $%d OR t.ticket_ref ILIKE $%d)`, n, n, n, n)
@@ -392,6 +404,31 @@ func hdBulkPriorityTickets(db *core.DB) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"updated": len(b.TicketIDs)}) //nolint:errcheck
+	}
+}
+
+func hdClaimTicket(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+		if user == nil {
+			respondErr(w, 401, "Unauthorized")
+			return
+		}
+		ticketID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Invalid ticket ID")
+			return
+		}
+		if _, err := db.PGExec(ctx,
+			`UPDATE helpdesk_tickets SET assigned_to=$1, assigned_at=NOW(), updated_at=NOW() WHERE id=$2`,
+			user.ID, ticketID); err != nil {
+			respondErr(w, 500, "Claim failed")
+			return
+		}
+		hdRecordEvent(ctx, db, ticketID, user.ID, "assigned", "", fmt.Sprintf("%d", user.ID))
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"claimed": true, "assigned_to": user.ID}) //nolint:errcheck
 	}
 }
 
@@ -1785,27 +1822,68 @@ func hdCallStats(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Schema setup failed")
 			return
 		}
+		ctx := r.Context()
 		dateFrom := r.URL.Query().Get("date_from")
 		dateTo := r.URL.Query().Get("date_to")
 
-		rows, err := db.PGQuery(r.Context(), `
+		summary, _ := db.PGQuery(ctx, `
 			SELECT
-			  COUNT(*)                                           AS total,
-			  COUNT(*) FILTER (WHERE direction='inbound')       AS inbound,
-			  COUNT(*) FILTER (WHERE direction='outbound')      AS outbound,
-			  AVG(duration_sec)                                 AS avg_duration_sec
+			  COUNT(*)                                                       AS total,
+			  COUNT(*) FILTER (WHERE direction='inbound')                   AS inbound,
+			  COUNT(*) FILTER (WHERE direction='outbound')                  AS outbound,
+			  COUNT(*) FILTER (WHERE outcome IN ('no_answer','voicemail'))  AS missed,
+			  COUNT(*) FILTER (WHERE outcome='resolved')                    AS resolved,
+			  ROUND(AVG(duration_sec))::int                                 AS avg_duration_sec,
+			  ROUND(AVG(duration_sec) FILTER (WHERE direction='inbound'))::int  AS avg_inbound_sec,
+			  ROUND(AVG(duration_sec) FILTER (WHERE direction='outbound'))::int AS avg_outbound_sec
 			FROM helpdesk_calls
 			WHERE ($1 = '' OR started_at::date >= $1::date)
 			  AND ($2 = '' OR started_at::date <= $2::date)`,
 			dateFrom, dateTo)
-		if err != nil {
-			respondErr(w, 500, "Query failed")
-			return
+
+		byOutcome, _ := db.PGQuery(ctx, `
+			SELECT outcome, COUNT(*) AS count
+			FROM helpdesk_calls
+			WHERE ($1 = '' OR started_at::date >= $1::date)
+			  AND ($2 = '' OR started_at::date <= $2::date)
+			GROUP BY outcome ORDER BY count DESC`,
+			dateFrom, dateTo)
+
+		byDay, _ := db.PGQuery(ctx, `
+			SELECT started_at::date AS day,
+			       COUNT(*) AS total,
+			       COUNT(*) FILTER (WHERE direction='inbound')  AS inbound,
+			       COUNT(*) FILTER (WHERE direction='outbound') AS outbound
+			FROM helpdesk_calls
+			WHERE ($1 = '' OR started_at::date >= $1::date)
+			  AND ($2 = '' OR started_at::date <= $2::date)
+			GROUP BY day ORDER BY day`,
+			dateFrom, dateTo)
+
+		byAgent, _ := db.PGQuery(ctx, `
+			SELECT agent_name,
+			       COUNT(*) AS total,
+			       COUNT(*) FILTER (WHERE direction='inbound')  AS inbound,
+			       COUNT(*) FILTER (WHERE direction='outbound') AS outbound,
+			       COUNT(*) FILTER (WHERE outcome='resolved')   AS resolved,
+			       ROUND(AVG(duration_sec))::int                AS avg_duration_sec
+			FROM helpdesk_calls
+			WHERE ($1 = '' OR started_at::date >= $1::date)
+			  AND ($2 = '' OR started_at::date <= $2::date)
+			GROUP BY agent_name ORDER BY total DESC`,
+			dateFrom, dateTo)
+
+		summaryRow := map[string]any{"total": 0, "inbound": 0, "outbound": 0, "missed": 0, "resolved": 0, "avg_duration_sec": nil, "avg_inbound_sec": nil, "avg_outbound_sec": nil}
+		if len(summary) > 0 {
+			summaryRow = summary[0]
 		}
-		if len(rows) > 0 {
-			respond(w, rows[0], "db")
-		} else {
-			respond(w, map[string]any{"total": 0, "inbound": 0, "outbound": 0, "avg_duration_sec": nil}, "db")
-		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"summary":    summaryRow,
+			"by_outcome": byOutcome,
+			"by_day":     byDay,
+			"by_agent":   byAgent,
+		})
 	}
 }

@@ -133,6 +133,15 @@ func main() {
 			handlers.RegisterZoho(r, db)
 		})
 	})
+
+	// Zoho Voice per-user OAuth
+	r.Get("/api/voice/callback", handlers.VoiceOAuthCallback(db))
+	r.Group(func(r chi.Router) {
+		r.Use(core.AuthMiddleware)
+		r.Get("/api/voice/status", handlers.VoiceStatus(db))
+		r.Get("/api/voice/connect", handlers.VoiceConnect(db))
+		r.Delete("/api/voice/disconnect", handlers.VoiceDisconnect(db))
+	})
 	r.Route("/api/mail", func(r chi.Router) {
 		handlers.RegisterMailPublic(r, db)
 		r.Group(func(r chi.Router) {

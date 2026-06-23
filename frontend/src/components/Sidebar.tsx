@@ -115,7 +115,8 @@ const MODULES: Module[] = [
       'md', 'coo', 'cfo', 'cmo', 'management', 'admin',
     ],
     items: [
-      { label: 'Tickets',          to: '/helpdesk',            icon: 'confirmation_number' },
+      { label: 'Overview',         to: '/helpdesk',            icon: 'dashboard' },
+      { label: 'All Tickets',      to: '/helpdesk/tickets',    icon: 'confirmation_number' },
       { label: 'Call Log',         to: '/helpdesk/calls',      icon: 'call' },
       { label: 'Analytics',        to: '/helpdesk/stats',      icon: 'bar_chart' },
       { label: 'Canned Responses', to: '/helpdesk/canned',     icon: 'quickreply' },
@@ -460,6 +461,15 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
                 onMouseEnter={e => (e.currentTarget.style.color = '#fff')}
                 onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.45)')}>
                 <span className="material-symbols-rounded text-[15px]">notifications</span>
+              </Link>
+              <Link
+                to="/settings/voice"
+                title="Connect Zoho Voice"
+                className="p-1 rounded"
+                style={{ color: 'rgba(255,255,255,0.45)' }}
+                onMouseEnter={e => (e.currentTarget.style.color = '#fff')}
+                onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.45)')}>
+                <span className="material-symbols-rounded text-[15px]">phone_in_talk</span>
               </Link>
               <button
                 onClick={onLogout}
