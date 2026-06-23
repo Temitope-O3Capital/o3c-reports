@@ -133,6 +133,7 @@ const MailHealth              = lazy(() => import('./pages/admin/MailHealth'))
 const NotificationSettings    = lazy(() => import('./pages/admin/NotificationSettings'))
 const NotificationPreferences = lazy(() => import('./pages/settings/NotificationPreferences'))
 const EmailSenders            = lazy(() => import('./pages/admin/EmailSenders'))
+const ZohoIntegration         = lazy(() => import('./pages/admin/ZohoIntegration'))
 
 // Mail environment
 const MailLayout  = lazy(() => import('./pages/mail/MailLayout'))
@@ -684,7 +685,7 @@ export default function App() {
                 <Route path="/admin/notification-settings" element={<RequireAccess page="settings" user={user}><NotificationSettings /></RequireAccess>} />
                 <Route path="/admin/email-senders"         element={<RequireAccess page="settings" user={user}><EmailSenders /></RequireAccess>} />
                 <Route path="/admin/roles"                 element={<RequireAccess page="admin_users" user={user}><Placeholder title="Roles" dept="Admin" icon="lock_person" /></RequireAccess>} />
-                <Route path="/admin/integrations"          element={<RequireAccess page="admin_api_keys" user={user}><Placeholder title="Connected Services" dept="Admin" icon="hub" /></RequireAccess>} />
+                <Route path="/admin/integrations"          element={<RequireAccess page="admin_api_keys" user={user}><ZohoIntegration /></RequireAccess>} />
                 <Route path="/admin/audit"                 element={<RequireAccess page="admin_users" user={user}><Placeholder title="Audit Log" dept="Admin" icon="history" /></RequireAccess>} />
                 <Route path="/settings/notifications" element={<NotificationPreferences />} />
 

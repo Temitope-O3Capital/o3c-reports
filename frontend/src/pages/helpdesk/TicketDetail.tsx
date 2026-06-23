@@ -659,11 +659,30 @@ export default function TicketDetail() {
 
 // ── Zoho Voice dialer shell ────────────────────────────────────────────────────
 function ZohoDialer({ phoneNumber, ticketId }: { phoneNumber: string | undefined; ticketId: number }) {
-  const [logOpen, setLogOpen] = useState(false)
-  const [logNote, setLogNote] = useState('')
-  const [logDur,  setLogDur]  = useState('')
-  const [logSaving, setLogSaving] = useState(false)
-  const canCall = typeof (window as any).ZohoVoice !== 'undefined'
+  const [logOpen,    setLogOpen]    = useState(false)
+  const [logNote,    setLogNote]    = useState('')
+  const [logDur,     setLogDur]     = useState('')
+  const [logSaving,  setLogSaving]  = useState(false)
+  const [calling,    setCalling]    = useState(false)
+  const [callStatus, setCallStatus] = useState<'idle' | 'calling' | 'done' | 'error'>('idle')
+
+  // Prefer Zoho PhoneBridge SDK if loaded; otherwise use our backend REST proxy
+  const hasSDK = typeof (window as any).ZOHOPHONEBRIDGE !== 'undefined'
+
+  async function initiateCall() {
+    if (!phoneNumber) return
+    if (hasSDK) {
+      ;(window as any).ZOHOPHONEBRIDGE.call(phoneNumber)
+      setCallStatus('calling')
+      return
+    }
+    setCalling(true); setCallStatus('calling')
+    try {
+      await apiPost('/api/zoho/voice/call', { phone_number: phoneNumber, ticket_id: ticketId })
+      setCallStatus('done')
+    } catch { setCallStatus('error') }
+    finally { setCalling(false) }
+  }
 
   async function submitLog(e: React.FormEvent) {
     e.preventDefault()
@@ -671,13 +690,14 @@ function ZohoDialer({ phoneNumber, ticketId }: { phoneNumber: string | undefined
     setLogSaving(true)
     try {
       await apiPost('/api/helpdesk/calls', {
-        ticket_id:     ticketId,
-        phone_number:  phoneNumber ?? '',
-        duration_secs: logDur ? Number(logDur) : null,
-        notes:         logNote,
-        direction:     'outbound',
+        customer_phone: phoneNumber ?? '',
+        duration_sec:   logDur ? Number(logDur) : null,
+        notes:          logNote,
+        direction:      'outbound',
+        outcome:        'resolved',
+        customer_name:  '',
       })
-      setLogOpen(false); setLogNote(''); setLogDur('')
+      setLogOpen(false); setLogNote(''); setLogDur(''); setCallStatus('idle')
     } catch { /* ignore */ }
     finally { setLogSaving(false) }
   }
@@ -685,21 +705,24 @@ function ZohoDialer({ phoneNumber, ticketId }: { phoneNumber: string | undefined
   return (
     <div className="space-y-2">
       <button
-        onClick={() =>
-          canCall
-            ? (window as any).ZohoVoice.dial(phoneNumber)
-            : window.open(`tel:${phoneNumber}`)
-        }
-        disabled={!phoneNumber}
+        onClick={initiateCall}
+        disabled={!phoneNumber || calling}
         className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-[13px] font-semibold text-white disabled:opacity-50"
-        style={{ background: '#166534' }}>
-        <span className="material-symbols-rounded text-[16px]">call</span>
-        {canCall ? 'Call via Zoho' : 'Call'}
+        style={{ background: GREEN }}>
+        <span className="material-symbols-rounded text-[16px]">
+          {calling ? 'progress_activity' : 'call'}
+        </span>
+        {calling ? 'Calling…' : hasSDK ? 'Call via Zoho' : 'Call (Zoho)'}
       </button>
 
-      {!canCall && phoneNumber && (
-        <p className="text-[11px] text-slate-400 text-center">
-          Zoho Voice SDK not loaded — set VITE_ZOHO_ORG_ID &amp; VITE_ZOHO_CLIENT_ID
+      {callStatus === 'done' && (
+        <p className="text-[11px] text-center font-medium" style={{ color: GREEN }}>
+          Call initiated — log it below when done
+        </p>
+      )}
+      {callStatus === 'error' && (
+        <p className="text-[11px] text-center text-red-500">
+          Call failed — check Admin → Integrations
         </p>
       )}
 
