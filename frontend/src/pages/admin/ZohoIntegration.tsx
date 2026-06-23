@@ -48,8 +48,10 @@ export default function ZohoIntegration() {
   const [connecting, setConnecting] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
   const [syncing, setSyncing]   = useState(false)
-  const [importing, setImporting] = useState(false)
+  const [importing, setImporting]   = useState(false)
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number; failed: number } | null>(null)
+  const [orgIdInput, setOrgIdInput] = useState('')
+  const [savingOrgId, setSavingOrgId] = useState(false)
   const [err, setErr] = useState('')
   const [params] = useSearchParams()
 
@@ -99,6 +101,18 @@ export default function ZohoIntegration() {
       toast.success(`Synced ${res.synced} tickets${res.failed > 0 ? ` (${res.failed} failed)` : ''}`)
     } catch (e: any) { toast.error(e.message) }
     finally { setSyncing(false) }
+  }
+
+  async function saveOrgId() {
+    if (!orgIdInput.trim()) return
+    setSavingOrgId(true)
+    try {
+      await apiFetch('/api/zoho/org-id', { method: 'POST', body: JSON.stringify({ org_id: orgIdInput.trim() }) })
+      toast.success('Org ID saved')
+      setOrgIdInput('')
+      load()
+    } catch (e: any) { toast.error(e.message) }
+    finally { setSavingOrgId(false) }
   }
 
   async function importFromZoho() {
@@ -203,11 +217,32 @@ export default function ZohoIntegration() {
                 )}
 
                 {/* Checklist */}
-                <div className="space-y-1">
+                <div className="space-y-2">
                   <StatusDot ok={status?.client_id_set} label="Client ID configured (ZOHO_CLIENT_ID)" />
                   <StatusDot ok={status?.client_secret_set} label="Client Secret configured (ZOHO_CLIENT_SECRET)" />
                   <StatusDot ok={status?.connected} label="OAuth refresh token stored" />
-                  <StatusDot ok={status?.org_id ? true : undefined} label={`Org ID set${status?.org_id ? ` (${status.org_id})` : ' — auto-fetched on connect'}`} />
+                  <StatusDot ok={status?.org_id ? true : undefined} label={`Org ID set${status?.org_id ? ` (${status.org_id})` : ''}`} />
+                  {!status?.org_id && (
+                    <div className="ml-6 flex gap-2 items-center pt-1">
+                      <input
+                        value={orgIdInput}
+                        onChange={e => setOrgIdInput(e.target.value)}
+                        placeholder="Paste your Zoho Org ID…"
+                        className="flex-1 px-3 py-1.5 rounded-lg border text-[12px] font-mono outline-none"
+                        style={{ borderColor: 'rgba(15,23,42,0.2)' }}
+                      />
+                      <button onClick={saveOrgId} disabled={savingOrgId || !orgIdInput.trim()}
+                        className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white disabled:opacity-50"
+                        style={{ background: NAVY }}>
+                        {savingOrgId ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  )}
+                  {!status?.org_id && (
+                    <p className="ml-6 text-[11px] text-slate-400">
+                      Find it in Zoho Desk → Settings → Company Settings → your Org ID, or in your Zoho Desk URL after <code className="font-mono">/support/</code>
+                    </p>
+                  )}
                   <StatusDot ok={status?.api_reachable} label="Zoho Desk API reachable" />
                 </div>
               </div>

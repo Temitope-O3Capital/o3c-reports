@@ -41,8 +41,9 @@ func RegisterZoho(r chi.Router, db *core.DB) {
 	r.Get("/status", zohoGetStatus(db))
 	r.Get("/oauth/connect", zohoOAuthConnect(db))
 	r.Delete("/oauth/disconnect", zohoOAuthDisconnect(db))
+	r.Post("/org-id", zohoSetOrgID(db))  // manually set org ID
 	r.Post("/desk/sync", zohoPushTickets(db))
-	r.Post("/desk/import", zohoImportTickets(db))  // pull existing Zoho tickets → our DB
+	r.Post("/desk/import", zohoImportTickets(db))
 	r.Post("/desk/tickets/{id}/push", zohoPushOneTicket(db))
 	r.Post("/voice/call", zohoInitiateCall(db))
 }
@@ -53,6 +54,64 @@ func ensureZohoSchema(ctx context.Context, db *core.DB) {
 	db.PGExec(ctx, `ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS zoho_ticket_id TEXT`)                                                                  //nolint:errcheck
 	db.PGExec(ctx, `ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS zoho_synced_at TIMESTAMPTZ`)                                                           //nolint:errcheck
 	db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_tickets_zoho_id ON helpdesk_tickets(zoho_ticket_id) WHERE zoho_ticket_id IS NOT NULL`)               //nolint:errcheck
+}
+
+// ── Org ID helpers ────────────────────────────────────────────────────────────
+
+// zohoFetchOrgID calls GET /organizations WITHOUT the orgId header (safe before org is known).
+func zohoFetchOrgID(ctx context.Context) string {
+	token, err := zohoAccessToken(ctx)
+	if err != nil {
+		return ""
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		"https://desk.zoho."+zohoDC+"/api/v1/organizations", nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Authorization", "Zoho-oauthtoken "+token)
+	resp, err := zohoHTTP.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		return ""
+	}
+	defer resp.Body.Close()
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return ""
+	}
+	for _, item := range zohoItems(body) {
+		if id, _ := item["id"].(string); id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+// zohoSetOrgID lets an admin paste the org ID when auto-fetch fails.
+func zohoSetOrgID(db *core.DB) http.HandlerFunc {
+	type req struct {
+		OrgID string `json:"org_id"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b req
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.OrgID == "" {
+			respondErr(w, 422, "org_id is required")
+			return
+		}
+		ctx := r.Context()
+		if err := saveZohoCred(ctx, db, "ZOHO_ORG_ID", "Zoho Desk Org ID", b.OrgID); err != nil {
+			respondErr(w, 500, "Failed to save org ID")
+			return
+		}
+		zohoOrgID = b.OrgID
+		// Invalidate token cache so next call uses new org ID
+		zohoTok.Lock()
+		zohoTok.access = ""
+		zohoTok.expires = time.Time{}
+		zohoTok.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "org_id": b.OrgID}) //nolint:errcheck
+	}
 }
 
 // ── Credential helpers ────────────────────────────────────────────────────────
@@ -255,15 +314,12 @@ func zohoOAuthCallback(db *core.DB) http.HandlerFunc {
 		zohoTok.expires = expiry
 		zohoTok.Unlock()
 
-		// Auto-fetch org ID if not configured
+		// Auto-fetch org ID — use a direct call without orgId header
+		// (zohoFetch always sets orgId which is empty at this point)
 		if zohoOrgID == "" {
-			if result, err := zohoFetch(ctx, "organizations", nil); err == nil {
-				if items := zohoItems(result); len(items) > 0 {
-					if id, _ := items[0]["id"].(string); id != "" {
-						zohoOrgID = id
-						saveZohoCred(ctx, db, "ZOHO_ORG_ID", "Zoho Desk Org ID (auto-fetched)", id) //nolint:errcheck
-					}
-				}
+			if id := zohoFetchOrgID(ctx); id != "" {
+				zohoOrgID = id
+				saveZohoCred(ctx, db, "ZOHO_ORG_ID", "Zoho Desk Org ID (auto-fetched)", id) //nolint:errcheck
 			}
 		}
 
@@ -523,11 +579,12 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 		}
 
 		slog.Info("zohoImportTickets done", "imported", imported, "skipped", skipped, "failed", failed)
-		respond(w, map[string]any{
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"imported": imported,
 			"skipped":  skipped,
 			"failed":   failed,
-		}, "pg")
+		})
 	}
 }
 
