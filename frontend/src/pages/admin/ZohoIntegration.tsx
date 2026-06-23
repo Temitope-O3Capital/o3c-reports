@@ -47,7 +47,9 @@ export default function ZohoIntegration() {
   const [loading, setLoading] = useState(true)
   const [connecting, setConnecting] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
-  const [syncing, setSyncing] = useState(false)
+  const [syncing, setSyncing]   = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<{ imported: number; skipped: number; failed: number } | null>(null)
   const [err, setErr] = useState('')
   const [params] = useSearchParams()
 
@@ -99,6 +101,17 @@ export default function ZohoIntegration() {
     finally { setSyncing(false) }
   }
 
+  async function importFromZoho() {
+    if (!confirm('Import all existing Zoho Desk tickets into O3C? This may take a minute for large volumes. Tickets already imported will be skipped.')) return
+    setImporting(true); setImportResult(null)
+    try {
+      const res = await apiFetch<{ imported: number; skipped: number; failed: number }>('/api/zoho/desk/import', { method: 'POST' })
+      setImportResult(res)
+      toast.success(`Imported ${res.imported} tickets from Zoho Desk`)
+    } catch (e: any) { toast.error(e.message) }
+    finally { setImporting(false) }
+  }
+
   const notConfigured = status && (!status.client_id_set || !status.client_secret_set)
 
   return (
@@ -139,11 +152,20 @@ export default function ZohoIntegration() {
                   </div>
                   <div className="ml-auto">
                     {status?.connected ? (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap justify-end">
+                        <button onClick={importFromZoho} disabled={importing}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-semibold border transition-colors hover:bg-white disabled:opacity-60"
+                          style={{ borderColor: 'rgba(15,23,42,0.15)', color: NAVY }}
+                          title="Pull all existing tickets from Zoho Desk into O3C">
+                          <span className={`material-symbols-rounded text-[14px] ${importing ? 'animate-spin' : ''}`}>
+                            {importing ? 'progress_activity' : 'download'}
+                          </span>
+                          {importing ? 'Importing…' : 'Import from Zoho'}
+                        </button>
                         <button onClick={syncNow} disabled={syncing}
                           className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-semibold border transition-colors hover:bg-white disabled:opacity-60"
                           style={{ borderColor: 'rgba(15,23,42,0.15)', color: NAVY }}>
-                          <span className="material-symbols-rounded text-[14px]">{syncing ? 'sync' : 'sync'}</span>
+                          <span className="material-symbols-rounded text-[14px]">sync</span>
                           {syncing ? 'Syncing…' : 'Sync Now'}
                         </button>
                         <button onClick={disconnect} disabled={disconnecting}
@@ -163,6 +185,22 @@ export default function ZohoIntegration() {
                     )}
                   </div>
                 </div>
+
+                {/* Import result */}
+                {importResult && (
+                  <div className="flex items-center gap-3 p-3 rounded-xl mb-4 bg-blue-50 text-[13px]">
+                    <span className="material-symbols-rounded text-[18px] text-blue-600">download_done</span>
+                    <span className="text-blue-800">
+                      Import complete — <strong>{importResult.imported}</strong> imported,{' '}
+                      <strong>{importResult.skipped}</strong> already existed,{' '}
+                      {importResult.failed > 0 && <><strong className="text-red-600">{importResult.failed}</strong> failed,{' '}</>}
+                      <a href="/helpdesk" className="underline font-semibold">view in Helpdesk</a>
+                    </span>
+                    <button onClick={() => setImportResult(null)} className="ml-auto text-blue-400 hover:text-blue-600">
+                      <span className="material-symbols-rounded text-[16px]">close</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Checklist */}
                 <div className="space-y-1">

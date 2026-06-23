@@ -42,6 +42,7 @@ func RegisterZoho(r chi.Router, db *core.DB) {
 	r.Get("/oauth/connect", zohoOAuthConnect(db))
 	r.Delete("/oauth/disconnect", zohoOAuthDisconnect(db))
 	r.Post("/desk/sync", zohoPushTickets(db))
+	r.Post("/desk/import", zohoImportTickets(db))  // pull existing Zoho tickets → our DB
 	r.Post("/desk/tickets/{id}/push", zohoPushOneTicket(db))
 	r.Post("/voice/call", zohoInitiateCall(db))
 }
@@ -403,6 +404,131 @@ func zohoSyncTicket(ctx context.Context, db *core.DB, t core.Row) (map[string]an
 		db.PGExec(ctx, `UPDATE helpdesk_tickets SET zoho_synced_at=NOW() WHERE id=$1`, t["id"]) //nolint:errcheck
 	}
 	return result, nil
+}
+
+// ── Import: Zoho Desk → our system (historical pull) ─────────────────────────
+
+// zohoImportTickets pages through all Zoho Desk tickets and upserts them into
+// helpdesk_tickets. Safe to call repeatedly — uses zoho_ticket_id as the
+// conflict key so duplicates are skipped.
+func zohoImportTickets(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		ensureZohoSchema(ctx, db)
+
+		var imported, skipped, failed int
+		from := 0
+		limit := 50
+
+		for {
+			result, err := zohoFetch(ctx, fmt.Sprintf("tickets?from=%d&limit=%d&sortBy=createdTime&sortOrder=desc", from, limit), nil)
+			if err != nil {
+				slog.Error("zohoImportTickets: fetch page", "from", from, "err", err)
+				break
+			}
+
+			items := zohoItems(result)
+			if len(items) == 0 {
+				break
+			}
+
+			for _, t := range items {
+				zohoID, _ := t["id"].(string)
+				if zohoID == "" {
+					skipped++
+					continue
+				}
+
+				// Don't re-import tickets we already have
+				existing, _ := db.PGQuery(ctx, `SELECT id FROM helpdesk_tickets WHERE zoho_ticket_id=$1`, zohoID)
+				if len(existing) > 0 {
+					skipped++
+					continue
+				}
+
+				subject, _ := t["subject"].(string)
+				statusRaw, _ := t["status"].(string)
+				priorityRaw, _ := t["priority"].(string)
+				channelRaw, _ := t["channel"].(string)
+				departmentRaw, _ := t["departmentId"].(string)
+
+				// Map Zoho status → our status
+				ourStatus := "open"
+				for k, v := range zohoStatusMap {
+					if strings.EqualFold(v, statusRaw) {
+						ourStatus = k
+						break
+					}
+				}
+
+				// Map Zoho priority → our priority
+				ourPriority := "normal"
+				for k, v := range zohoPriorityMap {
+					if strings.EqualFold(v, priorityRaw) {
+						ourPriority = k
+						break
+					}
+				}
+
+				// Channel
+				ourChannel := strings.ToLower(channelRaw)
+				if ourChannel == "" {
+					ourChannel = "email"
+				}
+
+				// Contact details nested under "contact"
+				contactName, contactEmail, contactPhone := "", "", ""
+				if contact, ok := t["contact"].(map[string]any); ok {
+					contactName, _ = contact["firstName"].(string)
+					if ln, _ := contact["lastName"].(string); ln != "" {
+						if contactName != "" {
+							contactName += " " + ln
+						} else {
+							contactName = ln
+						}
+					}
+					contactEmail, _ = contact["email"].(string)
+					contactPhone, _ = contact["phone"].(string)
+				}
+
+				// Created time
+				var createdAt *time.Time
+				if ct, _ := t["createdTime"].(string); ct != "" {
+					if ts, err := time.Parse(time.RFC3339, ct); err == nil {
+						createdAt = &ts
+					}
+				}
+
+				_, err := db.PGExec(ctx, `
+					INSERT INTO helpdesk_tickets
+					    (channel, status, priority, subject, customer_name, customer_email,
+					     customer_phone, department, zoho_ticket_id, zoho_synced_at, created_at)
+					VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),$10)
+					ON CONFLICT (zoho_ticket_id) DO NOTHING`,
+					ourChannel, ourStatus, ourPriority, subject,
+					contactName, contactEmail, contactPhone,
+					departmentRaw, zohoID, createdAt)
+				if err != nil {
+					slog.Warn("zohoImportTickets: insert failed", "zoho_id", zohoID, "err", err)
+					failed++
+				} else {
+					imported++
+				}
+			}
+
+			if len(items) < limit {
+				break // last page
+			}
+			from += limit
+		}
+
+		slog.Info("zohoImportTickets done", "imported", imported, "skipped", skipped, "failed", failed)
+		respond(w, map[string]any{
+			"imported": imported,
+			"skipped":  skipped,
+			"failed":   failed,
+		}, "pg")
+	}
 }
 
 // ── Webhook: Zoho Desk → our system ──────────────────────────────────────────
