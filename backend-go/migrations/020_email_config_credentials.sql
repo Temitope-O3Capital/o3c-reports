@@ -10,7 +10,7 @@ UPDATE api_credentials SET is_secret = TRUE;
 -- Add email configuration credentials (not secrets — visible in the UI)
 INSERT INTO api_credentials (key_name, description, category, is_secret) VALUES
 ('EMAIL_FROM_ADDRESS', 'Sender email address for all outgoing notifications and campaigns (e.g. care@o3cards.com)', 'messaging', FALSE),
-('EMAIL_FROM_NAME',    'Sender display name shown in email clients (e.g. O3 Capital)',                             'messaging', FALSE),
+('EMAIL_FROM_NAME',    'Sender display name shown in email clients (e.g. Care)',                                   'messaging', FALSE),
 ('EMAIL_LOGO_URL',     'Absolute URL of the logo image included in email headers (e.g. https://o3cards.com/logo.png)', 'messaging', FALSE)
 ON CONFLICT (key_name) DO UPDATE
     SET description = EXCLUDED.description,
@@ -22,5 +22,5 @@ SET encrypted_value = 'care@o3cards.com', is_active = TRUE, updated_at = NOW()
 WHERE key_name = 'EMAIL_FROM_ADDRESS' AND (encrypted_value IS NULL OR encrypted_value = '');
 
 UPDATE api_credentials
-SET encrypted_value = 'O3 Capital', is_active = TRUE, updated_at = NOW()
+SET encrypted_value = 'Care', is_active = TRUE, updated_at = NOW()
 WHERE key_name = 'EMAIL_FROM_NAME' AND (encrypted_value IS NULL OR encrypted_value = '');

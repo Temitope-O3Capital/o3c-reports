@@ -28,7 +28,7 @@ var hrefRE = regexp.MustCompile(`href="(https?://[^"]+)"`)
 var (
 	termiiSenderID           = coalesce(os.Getenv("TERMII_SENDER_ID"), "O3CCARDS")
 	sendgridFromEmail        = os.Getenv("SENDGRID_FROM_EMAIL")
-	sendgridFromName         = coalesce(os.Getenv("SENDGRID_FROM_NAME"), "O3C Cards")
+	sendgridFromName         = coalesce(os.Getenv("SENDGRID_FROM_NAME"), "Care")
 	smsWebhookSecret         = os.Getenv("SMS_WEBHOOK_SECRET")
 	emailWebhookSecret       = os.Getenv("EMAIL_WEBHOOK_SECRET")
 	sendgridWebhookPublicKey = os.Getenv("SENDGRID_WEBHOOK_PUBLIC_KEY")
