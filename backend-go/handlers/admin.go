@@ -702,6 +702,53 @@ func pingExternalAPI(keyName, category, value string) (status, detail string) {
 		}
 		return "failed", fmt.Sprintf("Paystack responded %d", resp.StatusCode)
 
+	case upper == "ZOHO_CLIENT_ID" || upper == "ZOHO_CLIENT_SECRET":
+		// OAuth app credentials cannot be tested independently — they only work
+		// together in the OAuth flow. Treat a non-empty stored value as OK.
+		if strings.TrimSpace(value) == "" {
+			return "failed", "Value is empty — paste your Zoho OAuth app credential and click Set Key"
+		}
+		return "ok", "Value stored — go to Admin → Connected Services to complete OAuth"
+
+	case upper == "ZOHO_REFRESH_TOKEN":
+		// Validate by attempting a real token refresh
+		form := strings.NewReader(
+			"grant_type=refresh_token" +
+				"&client_id=" + zohoClientID +
+				"&client_secret=" + zohoClientSecret +
+				"&refresh_token=" + value,
+		)
+		req, err := http.NewRequestWithContext(context.Background(), "POST",
+			"https://accounts.zoho."+zohoDC+"/oauth/v2/token", form)
+		if err != nil {
+			return "failed", "Request build error: " + err.Error()
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		resp, err := client.Do(req)
+		if err != nil {
+			return "failed", "Could not reach Zoho: " + err.Error()
+		}
+		defer resp.Body.Close()
+		var zohoTokResp struct {
+			AccessToken string `json:"access_token"`
+			Error       string `json:"error"`
+		}
+		json.NewDecoder(resp.Body).Decode(&zohoTokResp) //nolint:errcheck
+		if zohoTokResp.AccessToken != "" {
+			return "ok", "Refresh token valid — Zoho token exchange succeeded"
+		}
+		msg := zohoTokResp.Error
+		if msg == "" {
+			msg = fmt.Sprintf("HTTP %d", resp.StatusCode)
+		}
+		return "failed", "Token refresh failed: " + msg
+
+	case upper == "ZOHO_ORG_ID" || upper == "ZOHO_DC":
+		if strings.TrimSpace(value) == "" {
+			return "failed", "Value is empty"
+		}
+		return "ok", "Value stored"
+
 	default:
 		_ = category
 		return "test_not_implemented", "No test defined for " + keyName
