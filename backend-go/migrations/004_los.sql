@@ -31,6 +31,34 @@ CREATE TABLE IF NOT EXISTS loan_applications (
     created_at            TIMESTAMPTZ DEFAULT NOW(),
     updated_at            TIMESTAMPTZ DEFAULT NOW()
 );
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS reference             TEXT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS applicant_name        TEXT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS applicant_cif         TEXT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS applicant_email       TEXT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS applicant_phone       TEXT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS product_type          TEXT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS amount_requested_kobo BIGINT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS amount_approved_kobo  BIGINT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS tenor_months          INT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS interest_rate_bps     INT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS purpose               TEXT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS employer              TEXT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS monthly_income_kobo   BIGINT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS status                TEXT DEFAULT 'draft';
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS stage                 TEXT DEFAULT 'draft';
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS assigned_to_user_id   BIGINT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS sales_officer_id      BIGINT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS risk_officer_id       BIGINT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS finance_officer_id    BIGINT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS cards_ops_officer_id  BIGINT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS request_info_count    INT DEFAULT 0;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS decline_reason        TEXT;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS submitted_at          TIMESTAMPTZ;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS risk_reviewed_at      TIMESTAMPTZ;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS finance_approved_at   TIMESTAMPTZ;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS booked_at             TIMESTAMPTZ;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS created_at            TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS updated_at            TIMESTAMPTZ DEFAULT NOW();
 CREATE INDEX IF NOT EXISTS idx_loan_apps_status   ON loan_applications(status);
 CREATE INDEX IF NOT EXISTS idx_loan_apps_cif      ON loan_applications(applicant_cif);
 CREATE INDEX IF NOT EXISTS idx_loan_apps_assigned ON loan_applications(assigned_to_user_id);
