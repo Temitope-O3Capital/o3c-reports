@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -74,6 +75,7 @@ type SendMailResult struct {
 
 var mailSchemaMu sync.Mutex
 var mailSchemaReady bool
+var inboundReplyAddressRE = regexp.MustCompile(`(?i)\breply\+([0-9]+)@`)
 
 func RegisterMail(r chi.Router, db *core.DB) {
 	if err := ensureMailSchema(context.Background(), db); err != nil {
@@ -119,25 +121,25 @@ func mailInboundParse(db *core.DB) http.HandlerFunc {
 			return
 		}
 		fromRaw := r.FormValue("from")
-		// Extract name and email from "Name <email>" format
-		fromName, fromEmail := "", fromRaw
-		if i := strings.Index(fromRaw, "<"); i >= 0 {
-			fromName = strings.TrimSpace(fromRaw[:i])
-			fromEmail = strings.Trim(fromRaw[i+1:], "> ")
-		}
+		fromName, fromEmail := parseMailAddress(fromRaw)
 		subject := r.FormValue("subject")
 		bodyText := r.FormValue("text")
 		bodyHTML := r.FormValue("html")
 		to := r.FormValue("to")
+		headers := r.FormValue("headers")
+		messageID := firstNonEmpty(r.FormValue("Message-ID"), r.FormValue("message-id"))
+		inReplyTo := firstNonEmpty(r.FormValue("In-Reply-To"), r.FormValue("in-reply-to"))
+		relatedMailID := extractInboundReplyMailID(to)
 		if fromEmail == "" {
 			w.WriteHeader(200)
 			return
 		}
 		if err := ensureMailSchema(r.Context(), db); err == nil {
 			db.PGExec(r.Context(), `
-				INSERT INTO inbound_mail (from_email, from_name, to_email, subject, body_text, body_html)
-				VALUES ($1,$2,$3,$4,$5,$6)`,
-				fromEmail, fromName, to, subject, bodyText, bodyHTML)
+				INSERT INTO inbound_mail
+					(mail_message_id, from_email, from_name, to_email, subject, body_text, body_html, message_id, in_reply_to, raw_headers)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+				nullableID(relatedMailID), fromEmail, fromName, to, subject, bodyText, bodyHTML, ns(messageID), ns(inReplyTo), ns(headers))
 		}
 		w.WriteHeader(200)
 	}
@@ -149,13 +151,19 @@ func listInboundMail(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Mail storage setup failed")
 			return
 		}
+		user := core.UserFromCtx(r.Context())
 		limit := qint(r, "limit", 100, 1, 500)
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT id, from_email, from_name, to_email, subject,
-			       body_text, body_html, is_read, received_at
-			FROM inbound_mail
-			ORDER BY received_at DESC
-			LIMIT $1`, limit)
+			SELECT im.id, im.mail_message_id, im.from_email, im.from_name, im.to_email, im.subject,
+			       im.body_text, im.body_html, im.is_read, im.received_at,
+			       mm.subject AS original_subject, mm.from_email AS original_from_email
+			FROM inbound_mail im
+			LEFT JOIN mail_messages mm ON mm.id = im.mail_message_id
+			WHERE im.mail_message_id IS NULL
+			   OR mm.created_by=$1
+			   OR mm.recipients::text ILIKE $2
+			ORDER BY im.received_at DESC
+			LIMIT $3`, user.ID, "%"+user.Sub+"%", limit)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -472,6 +480,12 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 	}
 
 	mailID := createMailMessage(ctx, db, opt)
+	if replyAddress := inboundReplyAddress(ctx, db, mailID); replyAddress != "" {
+		opt.ReplyToEmail = replyAddress
+		if strings.TrimSpace(opt.ReplyToName) == "" {
+			opt.ReplyToName = opt.FromName
+		}
+	}
 	if opt.Kind == "campaign" {
 		opt.HTMLBody = appendUnsubscribeHTML(ctx, db, opt.HTMLBody, mailID)
 		opt.TextBody = appendUnsubscribeText(ctx, db, opt.TextBody, mailID)
@@ -677,17 +691,25 @@ func ensureMailSchema(ctx context.Context, db *core.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_mail_suppressions_active ON mail_suppressions(is_active, updated_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS inbound_mail (
 		  id          BIGSERIAL PRIMARY KEY,
+		  mail_message_id BIGINT REFERENCES mail_messages(id) ON DELETE SET NULL,
 		  from_email  TEXT NOT NULL,
 		  from_name   TEXT,
 		  to_email    TEXT,
 		  subject     TEXT NOT NULL DEFAULT '',
 		  body_text   TEXT,
 		  body_html   TEXT,
+		  message_id  TEXT,
+		  in_reply_to TEXT,
 		  raw_headers TEXT,
 		  is_read     BOOLEAN NOT NULL DEFAULT false,
 		  received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
+		`ALTER TABLE inbound_mail ADD COLUMN IF NOT EXISTS mail_message_id BIGINT REFERENCES mail_messages(id) ON DELETE SET NULL`,
+		`ALTER TABLE inbound_mail ADD COLUMN IF NOT EXISTS message_id TEXT`,
+		`ALTER TABLE inbound_mail ADD COLUMN IF NOT EXISTS in_reply_to TEXT`,
+		`ALTER TABLE inbound_mail ADD COLUMN IF NOT EXISTS raw_headers TEXT`,
 		`CREATE INDEX IF NOT EXISTS idx_inbound_mail_received ON inbound_mail(received_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_inbound_mail_message ON inbound_mail(mail_message_id, received_at DESC) WHERE mail_message_id IS NOT NULL`,
 		// Drafts table
 		`CREATE TABLE IF NOT EXISTS mail_drafts (
 		  id          BIGSERIAL PRIMARY KEY,
@@ -825,6 +847,54 @@ func defaultReplyToEmail(ctx context.Context, db *core.DB) string {
 		return strings.TrimSpace(str(rows[0]["value"]))
 	}
 	return sendgridFromEmail
+}
+
+func inboundReplyAddress(ctx context.Context, db *core.DB, mailID int64) string {
+	if mailID <= 0 {
+		return ""
+	}
+	domain := strings.TrimSpace(os.Getenv("MAIL_INBOUND_DOMAIN"))
+	if domain == "" {
+		if rows, _ := db.PGQuery(ctx, `SELECT value FROM settings WHERE key='mail_inbound_domain'`); len(rows) > 0 {
+			domain = strings.TrimSpace(str(rows[0]["value"]))
+		}
+	}
+	domain = strings.TrimPrefix(strings.TrimPrefix(domain, "@"), ".")
+	if domain == "" {
+		return ""
+	}
+	return fmt.Sprintf("reply+%d@%s", mailID, domain)
+}
+
+func parseMailAddress(raw string) (string, string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
+	}
+	if i := strings.Index(raw, "<"); i >= 0 {
+		name := strings.Trim(strings.TrimSpace(raw[:i]), `"`)
+		email := strings.Trim(strings.TrimSpace(raw[i+1:]), "> ")
+		return name, email
+	}
+	return "", strings.Trim(raw, `"`)
+}
+
+func extractInboundReplyMailID(raw string) int64 {
+	match := inboundReplyAddressRE.FindStringSubmatch(raw)
+	if len(match) != 2 {
+		return 0
+	}
+	id, _ := strconv.ParseInt(match[1], 10, 64)
+	return id
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func resolveSendGridWebhookPublicKey(ctx context.Context, db *core.DB) string {
