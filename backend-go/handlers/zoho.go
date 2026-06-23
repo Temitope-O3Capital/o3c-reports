@@ -217,10 +217,12 @@ func zohoGetStatus(db *core.DB) http.HandlerFunc {
 		}
 
 		if configured {
-			resp, err := zohoFetch(ctx, "myProfile", nil)
+			resp, err := zohoFetch(ctx, "tickets", url.Values{"limit": {"1"}})
 			result["api_reachable"] = err == nil && resp["errorCode"] == nil
 			if err != nil {
 				result["api_error"] = err.Error()
+			} else if resp["errorCode"] != nil {
+				result["api_error"] = fmt.Sprintf("%v", resp["message"])
 			}
 		}
 
@@ -484,7 +486,8 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 			})
 			if err != nil {
 				slog.Error("zohoImportTickets: fetch page", "from", from, "err", err)
-				break
+				respondErr(w, 502, "Zoho Desk import failed: "+err.Error())
+				return
 			}
 
 			items := zohoItems(result)

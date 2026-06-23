@@ -244,6 +244,11 @@ export default function ZohoIntegration() {
                     </p>
                   )}
                   <StatusDot ok={status?.api_reachable} label="Zoho Desk API reachable" />
+                  {status?.api_error && (
+                    <p className="ml-6 text-[11px] text-red-500 break-words">
+                      {status.api_error}
+                    </p>
+                  )}
                 </div>
               </div>
             </SectionCard>
