@@ -68,10 +68,11 @@ func sendSMS(ctx context.Context, db *core.DB, phone, body string) (ok bool, pro
 	if apiKey == "" {
 		return false, "TERMII_API_KEY not configured"
 	}
+	senderID := coalesce(resolveCredKey(ctx, db, "TERMII_SENDER_ID"), termiiSenderID)
 	payload, _ := json.Marshal(map[string]any{
 		"api_key": apiKey,
 		"to":      phone,
-		"from":    termiiSenderID,
+		"from":    senderID,
 		"sms":     body,
 		"type":    "plain",
 		"channel": "generic",
@@ -340,7 +341,7 @@ func RegisterCampaignWebhooks(r chi.Router, db *core.DB) {
 
 func listCampaigns(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		limit  := qint(r, "limit", 100, 1, 500)
+		limit := qint(r, "limit", 100, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 		where := "1=1"
 		var args []any
@@ -685,7 +686,8 @@ func checkWebhookToken(r *http.Request, expected string) bool {
 
 func smsWebhook(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !checkWebhookToken(r, smsWebhookSecret) {
+		secret := coalesce(resolveCredKey(r.Context(), db, "SMS_WEBHOOK_SECRET"), smsWebhookSecret)
+		if !checkWebhookToken(r, secret) {
 			w.WriteHeader(401)
 			return
 		}

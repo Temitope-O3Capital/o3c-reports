@@ -16,6 +16,7 @@ INSERT INTO api_credentials (key_name, description, category) VALUES
     ('SENDGRID_API_KEY',      'SendGrid email API key',                    'messaging'),
     ('TERMII_API_KEY',        'Termii SMS API key',                        'messaging'),
     ('TERMII_SENDER_ID',      'Termii SMS sender ID',                      'messaging'),
+    ('SMS_WEBHOOK_SECRET',    'SMS provider webhook verification secret',   'messaging'),
     ('PAYSTACK_SECRET_KEY',   'Paystack payment gateway secret key',       'payments'),
     ('PAYSTACK_PUBLIC_KEY',   'Paystack payment gateway public key',       'payments'),
     ('INTERSWITCH_CLIENT_ID', 'Interswitch client ID',                     'payments'),
