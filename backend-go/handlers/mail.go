@@ -466,6 +466,10 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 	if opt.SendCopyToSender && opt.SenderCopyEmail != "" {
 		opt.BCC = append(opt.BCC, MailAddress{Email: opt.SenderCopyEmail, Name: opt.SenderCopyName})
 	}
+	opt.To, opt.CC, opt.BCC = uniqueMailRecipients(opt.To, opt.CC, opt.BCC)
+	if len(opt.To) == 0 {
+		return SendMailResult{Error: "at least one recipient is required"}
+	}
 
 	mailID := createMailMessage(ctx, db, opt)
 	if opt.Kind == "campaign" {
@@ -1018,6 +1022,29 @@ func mailAddresses(addresses []MailAddress) []map[string]string {
 		out = append(out, map[string]string{"email": a.Email, "name": a.Name})
 	}
 	return out
+}
+
+func uniqueMailRecipients(to, cc, bcc []MailAddress) ([]MailAddress, []MailAddress, []MailAddress) {
+	seen := map[string]bool{}
+	filter := func(addresses []MailAddress) []MailAddress {
+		out := make([]MailAddress, 0, len(addresses))
+		for _, address := range addresses {
+			email := strings.TrimSpace(address.Email)
+			if email == "" {
+				continue
+			}
+			key := strings.ToLower(email)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			address.Email = email
+			address.Name = strings.TrimSpace(address.Name)
+			out = append(out, address)
+		}
+		return out
+	}
+	return filter(to), filter(cc), filter(bcc)
 }
 
 func validateMailAttachments(attachments []MailAttachment) error {
