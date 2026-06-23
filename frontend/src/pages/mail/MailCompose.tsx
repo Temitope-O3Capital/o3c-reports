@@ -12,7 +12,7 @@ interface Recipient { email: string; name?: string }
 interface AttachmentMeta {
   filename: string
   content_type: string
-  content: string
+  content?: string
   size?: number
 }
 
@@ -23,6 +23,39 @@ function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
+function asArray(value: unknown): any[] {
+  if (Array.isArray(value)) return value
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+function normalizeRecipients(value: unknown): Recipient[] {
+  return asArray(value)
+    .map(item => ({
+      email: String(item?.email ?? '').trim(),
+      name: item?.name ? String(item.name) : '',
+    }))
+    .filter(item => item.email)
+}
+
+function normalizeAttachments(value: unknown): AttachmentMeta[] {
+  return asArray(value)
+    .map(item => ({
+      filename: String(item?.filename ?? item?.name ?? '').trim(),
+      content_type: String(item?.content_type ?? item?.type ?? 'application/octet-stream'),
+      content: item?.content ? String(item.content) : undefined,
+      size: typeof item?.size === 'number' ? item.size : typeof item?.size_bytes === 'number' ? item.size_bytes : undefined,
+    }))
+    .filter(item => item.filename)
 }
 
 function RecipientTag({ email, onRemove }: { email: string; onRemove: () => void }) {
@@ -129,15 +162,18 @@ export default function MailCompose() {
     if (!id) return
     apiFetch(`/api/mail/drafts/${id}`)
       .then((d: any) => {
+        const draftTo = normalizeRecipients(d.to_addrs)
+        const draftCc = normalizeRecipients(d.cc_addrs)
+        const draftBcc = normalizeRecipients(d.bcc_addrs)
         setDraftId(d.id)
         setSubject(d.subject ?? '')
         setBody(d.html_body ?? '')
-        setTo((d.to_addrs ?? []) as Recipient[])
-        setCc((d.cc_addrs ?? []) as Recipient[])
-        setBcc((d.bcc_addrs ?? []) as Recipient[])
-        if (d.cc_addrs?.length) setShowCc(true)
-        if (d.bcc_addrs?.length) setShowBcc(true)
-        if (d.attachments?.length) setAttachments(d.attachments)
+        setTo(draftTo)
+        setCc(draftCc)
+        setBcc(draftBcc)
+        if (draftCc.length) setShowCc(true)
+        if (draftBcc.length) setShowBcc(true)
+        setAttachments(normalizeAttachments(d.attachments))
         if (d.from_email && d.from_name) setSender({ address: d.from_email, name: d.from_name })
       })
       .catch(() => {})
@@ -288,7 +324,9 @@ export default function MailCompose() {
           from_address: sender?.address,
           from_name: sender?.name,
           send_at: scheduledAt ?? null,
-          attachments: attachments.map(({ filename, content_type, content }) => ({ filename, content_type, content })),
+          attachments: attachments
+            .filter(att => att.content)
+            .map(({ filename, content_type, content }) => ({ filename, content_type, content })),
           send_copy_to_sender: true,
         }),
       })
