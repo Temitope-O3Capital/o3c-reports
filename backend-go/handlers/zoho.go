@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,7 +42,7 @@ func RegisterZoho(r chi.Router, db *core.DB) {
 	r.Get("/status", zohoGetStatus(db))
 	r.Get("/oauth/connect", zohoOAuthConnect(db))
 	r.Delete("/oauth/disconnect", zohoOAuthDisconnect(db))
-	r.Post("/org-id", zohoSetOrgID(db))  // manually set org ID
+	r.Post("/org-id", zohoSetOrgID(db)) // manually set org ID
 	r.Post("/desk/sync", zohoPushTickets(db))
 	r.Post("/desk/import", zohoImportTickets(db))
 	r.Post("/desk/tickets/{id}/push", zohoPushOneTicket(db))
@@ -51,9 +52,9 @@ func RegisterZoho(r chi.Router, db *core.DB) {
 // ── Schema ────────────────────────────────────────────────────────────────────
 
 func ensureZohoSchema(ctx context.Context, db *core.DB) {
-	db.PGExec(ctx, `ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS zoho_ticket_id TEXT`)                                                                  //nolint:errcheck
-	db.PGExec(ctx, `ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS zoho_synced_at TIMESTAMPTZ`)                                                           //nolint:errcheck
-	db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_tickets_zoho_id ON helpdesk_tickets(zoho_ticket_id) WHERE zoho_ticket_id IS NOT NULL`)               //nolint:errcheck
+	db.PGExec(ctx, `ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS zoho_ticket_id TEXT`)                                                     //nolint:errcheck
+	db.PGExec(ctx, `ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS zoho_synced_at TIMESTAMPTZ`)                                              //nolint:errcheck
+	db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_tickets_zoho_id ON helpdesk_tickets(zoho_ticket_id) WHERE zoho_ticket_id IS NOT NULL`) //nolint:errcheck
 }
 
 // ── Org ID helpers ────────────────────────────────────────────────────────────
@@ -170,6 +171,14 @@ func updateLiveVars(ctx context.Context, db *core.DB) {
 	zohoTok.Unlock()
 }
 
+func zohoEnsureConfigured(ctx context.Context, db *core.DB) bool {
+	if zohoConfigured() {
+		return true
+	}
+	updateLiveVars(ctx, db)
+	return zohoConfigured()
+}
+
 // ── zohoWrite — POST / PATCH / DELETE to Zoho Desk ───────────────────────────
 
 func zohoWrite(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
@@ -197,17 +206,7 @@ func zohoGetStatus(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		ensureZohoSchema(ctx, db)
 
-		configured := zohoConfigured()
-		// Also check DB-stored credentials
-		if !configured {
-			rt := zohoCred(ctx, db, "ZOHO_REFRESH_TOKEN")
-			cid := zohoCred(ctx, db, "ZOHO_CLIENT_ID")
-			cs := zohoCred(ctx, db, "ZOHO_CLIENT_SECRET")
-			if rt != "" && cid != "" && cs != "" {
-				configured = true
-				updateLiveVars(ctx, db)
-			}
-		}
+		configured := zohoEnsureConfigured(ctx, db)
 
 		result := map[string]any{
 			"connected":         configured,
@@ -303,7 +302,7 @@ func zohoOAuthCallback(db *core.DB) http.HandlerFunc {
 
 		// Persist to DB
 		saveZohoCred(ctx, db, "ZOHO_ACCESS_TOKEN", "Zoho access token", tok.AccessToken)    //nolint:errcheck
-		saveZohoCred(ctx, db, "ZOHO_REFRESH_TOKEN", "Zoho refresh token", tok.RefreshToken)  //nolint:errcheck
+		saveZohoCred(ctx, db, "ZOHO_REFRESH_TOKEN", "Zoho refresh token", tok.RefreshToken) //nolint:errcheck
 		expiry := time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
 		saveZohoCred(ctx, db, "ZOHO_TOKEN_EXPIRY", "Zoho token expiry", expiry.Format(time.RFC3339)) //nolint:errcheck
 
@@ -477,7 +476,12 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 		limit := 50
 
 		for {
-			result, err := zohoFetch(ctx, fmt.Sprintf("tickets?from=%d&limit=%d&sortBy=createdTime&sortOrder=desc", from, limit), nil)
+			result, err := zohoFetch(ctx, "tickets", url.Values{
+				"from":      {strconv.Itoa(from)},
+				"limit":     {strconv.Itoa(limit)},
+				"sortBy":    {"createdTime"},
+				"sortOrder": {"desc"},
+			})
 			if err != nil {
 				slog.Error("zohoImportTickets: fetch page", "from", from, "err", err)
 				break
@@ -592,6 +596,17 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 
 func zohoWebhookDesk(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if secret := zohoCred(r.Context(), db, "ZOHO_WEBHOOK_SECRET"); secret != "" {
+			got := r.Header.Get("X-O3C-Webhook-Secret")
+			if got == "" {
+				got = r.URL.Query().Get("secret")
+			}
+			if got != secret {
+				respondErr(w, 401, "Invalid webhook secret")
+				return
+			}
+		}
+
 		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		if err != nil {
 			respondErr(w, 400, "Read error")

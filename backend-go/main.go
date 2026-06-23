@@ -123,6 +123,16 @@ func main() {
 	r.Route("/api/whatsapp", func(r chi.Router) {
 		handlers.RegisterWhatsAppPublic(r, db)
 	})
+
+	// Zoho OAuth callback + webhooks (no JWT)
+	r.Route("/api/zoho", func(r chi.Router) {
+		handlers.RegisterZohoPublic(r, db)
+		r.Group(func(r chi.Router) {
+			r.Use(core.AuthMiddleware)
+			r.Use(activityLogger(db))
+			handlers.RegisterZoho(r, db)
+		})
+	})
 	r.Route("/api/mail", func(r chi.Router) {
 		handlers.RegisterMailPublic(r, db)
 		r.Group(func(r chi.Router) {
@@ -192,7 +202,7 @@ func main() {
 			handlers.RegisterExecutive(r, db)
 		})
 		r.Route("/api/call-center", func(r chi.Router) {
-			handlers.RegisterCallCenter(r)
+			handlers.RegisterCallCenter(r, db)
 		})
 		r.Route("/api/campaigns", func(r chi.Router) {
 			handlers.RegisterCampaigns(r, db)

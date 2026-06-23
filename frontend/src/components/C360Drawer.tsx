@@ -91,8 +91,9 @@ interface Call {
   direction?: string
   outcome?: string
   agent_name?: string
-  duration_seconds?: number
-  created_at: string
+  duration_sec?: number
+  started_at?: string
+  created_at?: string
   notes?: string
 }
 
@@ -375,10 +376,10 @@ export default function C360Drawer({ open, onClose, initialCif }: C360DrawerProp
   async function loadTickets(selectedCif: string) {
     setTicketsLoading(true)
     try {
-      const res = await apiFetch<{ data: Ticket[] } | Ticket[]>(
+      const res = await apiFetch<{ data?: Ticket[]; tickets?: Ticket[] } | Ticket[]>(
         `/api/helpdesk/tickets?customer_cif=${selectedCif}&per_page=25`
       )
-      setTickets(Array.isArray(res) ? res : (res.data ?? []))
+      setTickets(Array.isArray(res) ? res : (res.tickets ?? res.data ?? []))
     } catch {
       // non-fatal
     } finally {
@@ -411,6 +412,7 @@ export default function C360Drawer({ open, onClose, initialCif }: C360DrawerProp
           customer_name: displayName,
           subject: `Query for ${displayName}`,
           channel: 'in-app',
+          message_text: `Customer service ticket opened for ${displayName}.`,
         }),
       })
       setActiveTab('Tickets')
@@ -1042,11 +1044,11 @@ export default function C360Drawer({ open, onClose, initialCif }: C360DrawerProp
                                   <td className="px-4 py-3 text-slate-600 capitalize">{c.outcome ?? '—'}</td>
                                   <td className="px-4 py-3 text-slate-700">{c.agent_name ?? '—'}</td>
                                   <td className="px-4 py-3 text-slate-500">
-                                    {c.duration_seconds != null
-                                      ? `${Math.floor(c.duration_seconds / 60)}m ${c.duration_seconds % 60}s`
+                                    {c.duration_sec != null
+                                      ? `${Math.floor(c.duration_sec / 60)}m ${c.duration_sec % 60}s`
                                       : '—'}
                                   </td>
-                                  <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{fmtDate(c.created_at)}</td>
+                                  <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{fmtDate(c.started_at ?? c.created_at ?? '')}</td>
                                 </tr>
                               ))}
                             </tbody>

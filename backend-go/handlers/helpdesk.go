@@ -80,8 +80,8 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 	r.Get("/tickets", hdListTickets(db))
 	r.Get("/tickets/search", hdSearchTickets(db))
 	// Bulk actions — must be before /{id} so chi resolves them first
-	r.Post("/tickets/bulk-assign",   hdBulkAssignTickets(db))
-	r.Post("/tickets/bulk-close",    hdBulkCloseTickets(db))
+	r.Post("/tickets/bulk-assign", hdBulkAssignTickets(db))
+	r.Post("/tickets/bulk-close", hdBulkCloseTickets(db))
 	r.Post("/tickets/bulk-priority", hdBulkPriorityTickets(db))
 	r.Get("/tickets/{id}", hdGetTicket(db))
 	r.Patch("/tickets/{id}", hdUpdateTicket(db))
@@ -93,9 +93,9 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 	r.Delete("/canned-responses/{id}", hdDeleteCanned(db))
 	r.Get("/sla-policies", hdListSLA(db))
 	r.Put("/sla-policies/{id}", hdUpdateSLA(db))
-	r.Get("/calls",        hdListCalls(db))
-	r.Post("/calls",       hdLogCall(db))
-	r.Get("/calls/stats",  hdCallStats(db))
+	r.Get("/calls", hdListCalls(db))
+	r.Post("/calls", hdLogCall(db))
+	r.Get("/calls/stats", hdCallStats(db))
 }
 
 // ── Tickets ───────────────────────────────────────────────────────────────────
@@ -103,16 +103,16 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 func hdCreateTicket(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b struct {
-			Channel      string  `json:"channel"`
-			Subject      string  `json:"subject"`
-			CustomerCIF  *string `json:"customer_cif"`
-			CustomerName *string `json:"customer_name"`
+			Channel       string  `json:"channel"`
+			Subject       string  `json:"subject"`
+			CustomerCIF   *string `json:"customer_cif"`
+			CustomerName  *string `json:"customer_name"`
 			CustomerEmail *string `json:"customer_email"`
 			CustomerPhone *string `json:"customer_phone"`
-			Priority     *string `json:"priority"`
-			Department   *string `json:"department"`
-			MessageText  string  `json:"message_text"`
-			MessageHTML  *string `json:"message_html"`
+			Priority      *string `json:"priority"`
+			Department    *string `json:"department"`
+			MessageText   string  `json:"message_text"`
+			MessageHTML   *string `json:"message_html"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -178,7 +178,7 @@ func hdCreateTicket(db *core.DB) http.HandlerFunc {
 		// Send via channel
 		ctx := r.Context()
 		if b.CustomerEmail != nil && *b.CustomerEmail != "" {
-			go hdSendTicketEmail(context.Background(), db, ticket, b.MessageText, ptrStr(b.MessageHTML), "", "", "")
+			go hdSendTicketEmail(context.Background(), db, ticket, b.MessageText, ptrStr(b.MessageHTML), "", "", "", nil)
 		}
 		if b.CustomerPhone != nil && *b.CustomerPhone != "" && b.Channel == "sms" {
 			go sendSMS(context.Background(), db, *b.CustomerPhone, b.MessageText)
@@ -226,6 +226,11 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 		}
 		if v := qstr(r, "department"); v != "" {
 			where += fmt.Sprintf(" AND t.department=$%d", n)
+			args = append(args, v)
+			n++
+		}
+		if v := qstr(r, "customer_cif"); v != "" {
+			where += fmt.Sprintf(" AND t.customer_cif=$%d", n)
 			args = append(args, v)
 			n++
 		}
@@ -299,10 +304,12 @@ func hdBulkAssignTickets(db *core.DB) http.HandlerFunc {
 			AgentID   *int64  `json:"agent_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if len(b.TicketIDs) == 0 {
-			respondErr(w, 422, "ticket_ids required"); return
+			respondErr(w, 422, "ticket_ids required")
+			return
 		}
 		placeholders := make([]string, len(b.TicketIDs))
 		args := []any{b.AgentID}
@@ -313,7 +320,8 @@ func hdBulkAssignTickets(db *core.DB) http.HandlerFunc {
 		if _, err := db.PGExec(r.Context(),
 			fmt.Sprintf("UPDATE helpdesk_tickets SET assigned_to=$1, updated_at=NOW() WHERE id IN (%s)",
 				strings.Join(placeholders, ",")), args...); err != nil {
-			respondErr(w, 500, "Update failed"); return
+			respondErr(w, 500, "Update failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"updated": len(b.TicketIDs)}) //nolint:errcheck
@@ -326,10 +334,12 @@ func hdBulkCloseTickets(db *core.DB) http.HandlerFunc {
 			TicketIDs []int64 `json:"ticket_ids"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if len(b.TicketIDs) == 0 {
-			respondErr(w, 422, "ticket_ids required"); return
+			respondErr(w, 422, "ticket_ids required")
+			return
 		}
 		placeholders := make([]string, len(b.TicketIDs))
 		args := []any{}
@@ -340,7 +350,8 @@ func hdBulkCloseTickets(db *core.DB) http.HandlerFunc {
 		if _, err := db.PGExec(r.Context(),
 			fmt.Sprintf("UPDATE helpdesk_tickets SET status='closed', updated_at=NOW() WHERE id IN (%s)",
 				strings.Join(placeholders, ",")), args...); err != nil {
-			respondErr(w, 500, "Update failed"); return
+			respondErr(w, 500, "Update failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"updated": len(b.TicketIDs)}) //nolint:errcheck
@@ -354,10 +365,12 @@ func hdBulkPriorityTickets(db *core.DB) http.HandlerFunc {
 			Priority  string  `json:"priority"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if len(b.TicketIDs) == 0 || b.Priority == "" {
-			respondErr(w, 422, "ticket_ids and priority required"); return
+			respondErr(w, 422, "ticket_ids and priority required")
+			return
 		}
 		placeholders := make([]string, len(b.TicketIDs))
 		args := []any{b.Priority}
@@ -368,7 +381,8 @@ func hdBulkPriorityTickets(db *core.DB) http.HandlerFunc {
 		if _, err := db.PGExec(r.Context(),
 			fmt.Sprintf("UPDATE helpdesk_tickets SET priority=$1, updated_at=NOW() WHERE id IN (%s)",
 				strings.Join(placeholders, ",")), args...); err != nil {
-			respondErr(w, 500, "Update failed"); return
+			respondErr(w, 500, "Update failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"updated": len(b.TicketIDs)}) //nolint:errcheck
@@ -572,10 +586,10 @@ func hdSendMessage(db *core.DB) http.HandlerFunc {
 		ticketID := toInt64(ticket["id"])
 
 		var b struct {
-			BodyText       string          `json:"body_text"`
-			BodyHTML       *string         `json:"body_html"`
-			IsInternalNote bool            `json:"is_internal_note"`
-			Channel        *string         `json:"channel"`
+			BodyText       string           `json:"body_text"`
+			BodyHTML       *string          `json:"body_html"`
+			IsInternalNote bool             `json:"is_internal_note"`
+			Channel        *string          `json:"channel"`
 			Attachments    []MailAttachment `json:"attachments"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
@@ -584,6 +598,10 @@ func hdSendMessage(db *core.DB) http.HandlerFunc {
 		}
 		if strings.TrimSpace(b.BodyText) == "" {
 			respondErr(w, 422, "body_text is required")
+			return
+		}
+		if err := validateMailAttachments(b.Attachments); err != nil {
+			respondErr(w, 422, err.Error())
 			return
 		}
 
@@ -620,11 +638,11 @@ func hdSendMessage(db *core.DB) http.HandlerFunc {
 			INSERT INTO helpdesk_messages
 			    (ticket_id, direction, channel, author_user_id, author_name,
 			     body_text, body_html, attachments, email_message_id, in_reply_to, is_internal_note)
-			VALUES ($1,'outbound',$2,$3,$4,$5,$6,$7::jsonb,$8,NULLIF($9,''),false)
+			VALUES ($1,'outbound',$2,$3,$4,$5,$6,$7::jsonb,$8,NULLIF($9,''),$10)
 			RETURNING *`,
 			ticketID, channel, user.ID, user.FullName,
 			b.BodyText, ptrOrNil(b.BodyHTML), attachJSON,
-			emailMsgID, inReplyTo)
+			emailMsgID, inReplyTo, b.IsInternalNote)
 		if err != nil {
 			slog.Error("hdSendMessage: insert", "err", err)
 			respondErr(w, 500, "Could not insert message")
@@ -649,7 +667,7 @@ func hdSendMessage(db *core.DB) http.HandlerFunc {
 
 			if ticketChannel == "email" && customerEmail != "" {
 				agentName := user.FullName
-				go hdSendTicketEmail(context.Background(), db, ticket, b.BodyText, ptrStr(b.BodyHTML), emailMsgID, inReplyTo, agentName)
+				go hdSendTicketEmail(context.Background(), db, ticket, b.BodyText, ptrStr(b.BodyHTML), emailMsgID, inReplyTo, agentName, b.Attachments)
 			}
 			if ticketChannel == "sms" && customerPhone != "" {
 				go sendSMS(context.Background(), db, customerPhone, b.BodyText)
@@ -943,7 +961,7 @@ func hdStats(db *core.DB) http.HandlerFunc {
 
 		// Optional date range — defaults to last 30 days for time-bounded metrics
 		dateFrom := qstr(r, "date_from")
-		dateTo   := qstr(r, "date_to")
+		dateTo := qstr(r, "date_to")
 
 		// Predicate for date-range filtering; falls back to last 30 days when unset
 		var dateClause string
@@ -1414,12 +1432,12 @@ func hdCustomerContext(ctx context.Context, db *core.DB, cif string) map[string]
 	return result
 }
 
-func hdSendTicketEmail(ctx context.Context, db *core.DB, ticket map[string]any, bodyText, bodyHTML, msgID, inReplyTo, agentName string) {
+func hdSendTicketEmail(ctx context.Context, db *core.DB, ticket map[string]any, bodyText, bodyHTML, msgID, inReplyTo, agentName string, attachments []MailAttachment) {
 	toEmail := str(ticket["customer_email"])
 	if toEmail == "" {
 		return
 	}
-	toName  := str(ticket["customer_name"])
+	toName := str(ticket["customer_name"])
 	subject := fmt.Sprintf("Re: %s [%s]", str(ticket["subject"]), str(ticket["ticket_ref"]))
 
 	// Show the agent's name in the FROM display so the customer knows who replied.
@@ -1439,6 +1457,7 @@ func hdSendTicketEmail(ctx context.Context, db *core.DB, ticket map[string]any, 
 		Kind:        "helpdesk",
 		RelatedType: "helpdesk_tickets",
 		RelatedID:   toInt64(ticket["id"]),
+		Attachments: attachments,
 		CustomArgs: map[string]string{
 			"ticket_ref": str(ticket["ticket_ref"]),
 			"msg_id":     msgID,
@@ -1618,6 +1637,8 @@ func ensureCallLogSchema(ctx context.Context, db *core.DB) error {
 		  agent_id       BIGINT REFERENCES o3c_users(id),
 		  agent_name     TEXT NOT NULL DEFAULT '',
 		  customer_name  TEXT NOT NULL DEFAULT '',
+		  customer_cif   TEXT NOT NULL DEFAULT '',
+		  customer_email TEXT NOT NULL DEFAULT '',
 		  customer_phone TEXT NOT NULL DEFAULT '',
 		  direction      TEXT NOT NULL DEFAULT 'inbound',
 		  duration_sec   INT,
@@ -1633,12 +1654,17 @@ func ensureCallLogSchema(ctx context.Context, db *core.DB) error {
 	}
 	db.PGExec(ctx, `CREATE INDEX IF NOT EXISTS idx_helpdesk_calls_started ON helpdesk_calls(started_at DESC)`)
 	db.PGExec(ctx, `CREATE INDEX IF NOT EXISTS idx_helpdesk_calls_agent ON helpdesk_calls(agent_id, started_at DESC)`)
+	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS customer_cif TEXT NOT NULL DEFAULT ''`)
+	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS customer_email TEXT NOT NULL DEFAULT ''`)
+	db.PGExec(ctx, `CREATE INDEX IF NOT EXISTS idx_helpdesk_calls_cif ON helpdesk_calls(customer_cif, started_at DESC)`)
 	return nil
 }
 
 func hdLogCall(db *core.DB) http.HandlerFunc {
 	type body struct {
 		CustomerName  string  `json:"customer_name"`
+		CustomerCIF   string  `json:"customer_cif"`
+		CustomerEmail string  `json:"customer_email"`
 		CustomerPhone string  `json:"customer_phone"`
 		Direction     string  `json:"direction"`
 		DurationSec   *int    `json:"duration_sec"`
@@ -1654,10 +1680,6 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
-			return
-		}
-		if strings.TrimSpace(b.CustomerName) == "" {
-			respondErr(w, 422, "customer_name is required")
 			return
 		}
 		user := core.UserFromCtx(r.Context())
@@ -1676,13 +1698,30 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		// Look up ticket by ref if provided
 		var ticketID *int64
 		if strings.TrimSpace(b.TicketRef) != "" {
-			rows, _ := db.PGQuery(r.Context(), `SELECT id FROM helpdesk_tickets WHERE ref=$1 LIMIT 1`, b.TicketRef)
+			rows, _ := db.PGQuery(r.Context(), `SELECT id FROM helpdesk_tickets WHERE ticket_ref=$1 LIMIT 1`, b.TicketRef)
 			if len(rows) > 0 {
 				if v, ok := rows[0]["id"]; ok {
 					switch id := v.(type) {
-					case int64:  ticketID = &id
-					case float64: i := int64(id); ticketID = &i
+					case int64:
+						ticketID = &id
+					case float64:
+						i := int64(id)
+						ticketID = &i
 					}
+				}
+			}
+		}
+		if strings.TrimSpace(b.CustomerName) == "" && strings.TrimSpace(b.CustomerCIF) != "" {
+			if rows, _ := db.PGQuery(r.Context(), `
+				SELECT "First Name", "Last Name", Phone, Email
+				FROM "Accounts"
+				WHERE "CIF Number"=$1 LIMIT 1`, b.CustomerCIF); len(rows) > 0 {
+				b.CustomerName = strings.TrimSpace(str(rows[0]["First Name"]) + " " + str(rows[0]["Last Name"]))
+				if b.CustomerPhone == "" {
+					b.CustomerPhone = str(rows[0]["Phone"])
+				}
+				if b.CustomerEmail == "" {
+					b.CustomerEmail = str(rows[0]["Email"])
 				}
 			}
 		}
@@ -1692,10 +1731,10 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO helpdesk_calls
-			  (agent_id, agent_name, customer_name, customer_phone, direction, duration_sec, outcome, notes, ticket_id, ticket_ref)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+			  (agent_id, agent_name, customer_name, customer_cif, customer_email, customer_phone, direction, duration_sec, outcome, notes, ticket_id, ticket_ref)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 			RETURNING id`,
-			agentID, agentName, b.CustomerName, b.CustomerPhone,
+			agentID, agentName, b.CustomerName, b.CustomerCIF, b.CustomerEmail, b.CustomerPhone,
 			direction, b.DurationSec, outcome, b.Notes, ticketID, ptrOrNilStr(b.TicketRef))
 		if err != nil {
 			respondErr(w, 500, "Insert failed: "+err.Error())
@@ -1712,18 +1751,20 @@ func hdListCalls(db *core.DB) http.HandlerFunc {
 			return
 		}
 		dateFrom := r.URL.Query().Get("date_from")
-		dateTo   := r.URL.Query().Get("date_to")
-		limit    := qint(r, "limit", 200, 1, 500)
+		dateTo := r.URL.Query().Get("date_to")
+		customerCIF := r.URL.Query().Get("customer_cif")
+		limit := qint(r, "limit", 200, 1, 500)
 
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT id, agent_name, customer_name, customer_phone,
-			       direction, duration_sec, outcome, notes,
+			       customer_cif, customer_email, direction, duration_sec, outcome, notes,
 			       ticket_id, ticket_ref, started_at
 			FROM helpdesk_calls
 			WHERE ($1 = '' OR started_at::date >= $1::date)
 			  AND ($2 = '' OR started_at::date <= $2::date)
+			  AND ($3 = '' OR customer_cif = $3)
 			ORDER BY started_at DESC
-			LIMIT $3`, dateFrom, dateTo, limit)
+			LIMIT $4`, dateFrom, dateTo, customerCIF, limit)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -1739,7 +1780,7 @@ func hdCallStats(db *core.DB) http.HandlerFunc {
 			return
 		}
 		dateFrom := r.URL.Query().Get("date_from")
-		dateTo   := r.URL.Query().Get("date_to")
+		dateTo := r.URL.Query().Get("date_to")
 
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT

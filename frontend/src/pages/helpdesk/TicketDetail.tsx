@@ -622,7 +622,7 @@ export default function TicketDetail() {
               <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
                 Phone
               </p>
-              <ZohoDialer phoneNumber={ticket.customer_phone} ticketId={ticket.id} />
+              <ZohoDialer ticket={ticket} />
             </div>
 
             <div style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }} className="pt-3 space-y-2.5">
@@ -658,7 +658,8 @@ export default function TicketDetail() {
 }
 
 // ── Zoho Voice dialer shell ────────────────────────────────────────────────────
-function ZohoDialer({ phoneNumber, ticketId }: { phoneNumber: string | undefined; ticketId: number }) {
+function ZohoDialer({ ticket }: { ticket: Ticket }) {
+  const phoneNumber = ticket.customer_phone
   const [logOpen,    setLogOpen]    = useState(false)
   const [logNote,    setLogNote]    = useState('')
   const [logDur,     setLogDur]     = useState('')
@@ -678,7 +679,7 @@ function ZohoDialer({ phoneNumber, ticketId }: { phoneNumber: string | undefined
     }
     setCalling(true); setCallStatus('calling')
     try {
-      await apiPost('/api/zoho/voice/call', { phone_number: phoneNumber, ticket_id: ticketId })
+      await apiPost('/api/zoho/voice/call', { phone_number: phoneNumber, ticket_id: ticket.id })
       setCallStatus('done')
     } catch { setCallStatus('error') }
     finally { setCalling(false) }
@@ -695,7 +696,10 @@ function ZohoDialer({ phoneNumber, ticketId }: { phoneNumber: string | undefined
         notes:          logNote,
         direction:      'outbound',
         outcome:        'resolved',
-        customer_name:  '',
+        customer_name:  ticket.customer_name ?? '',
+        customer_cif:   ticket.customer_cif ?? '',
+        customer_email: ticket.customer_email ?? '',
+        ticket_ref:     ticket.ticket_ref ?? '',
       })
       setLogOpen(false); setLogNote(''); setLogDur(''); setCallStatus('idle')
     } catch { /* ignore */ }

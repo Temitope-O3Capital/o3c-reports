@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,6 +42,9 @@ var zohoTok struct {
 }
 
 func zohoAccessToken(ctx context.Context) (string, error) {
+	if !zohoConfigured() {
+		return "", fmt.Errorf("zoho credentials are not fully configured")
+	}
 	zohoTok.Lock()
 	defer zohoTok.Unlock()
 	if zohoTok.access != "" && time.Now().Add(60*time.Second).Before(zohoTok.expires) {
@@ -109,6 +113,10 @@ func zohoFetch(ctx context.Context, path string, params url.Values) (map[string]
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("zoho api %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+	}
 	var result map[string]any
 	json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck
 	return result, nil
@@ -182,20 +190,20 @@ func zohoStr(v any) string { s, _ := v.(string); return s }
 
 // ── Register ──────────────────────────────────────────────────────────────────
 
-func RegisterCallCenter(r chi.Router) {
+func RegisterCallCenter(r chi.Router, db *core.DB) {
 	access := core.RequirePages("call_center")
-	r.With(access).Get("/summary", ccSummary())
-	r.With(access).Get("/tickets", ccTickets())
-	r.With(access).Get("/agents", ccAgents())
-	r.With(access).Get("/by-channel", ccByChannel())
+	r.With(access).Get("/summary", ccSummary(db))
+	r.With(access).Get("/tickets", ccTickets(db))
+	r.With(access).Get("/agents", ccAgents(db))
+	r.With(access).Get("/by-channel", ccByChannel(db))
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 
-func ccSummary() http.HandlerFunc {
+func ccSummary(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if !zohoConfigured() {
+		if !zohoEnsureConfigured(r.Context(), db) {
 			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 				"data_source": "zoho_desk", "configured": false,
 				"message": "Set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN, ZOHO_ORG_ID",
@@ -203,7 +211,7 @@ func ccSummary() http.HandlerFunc {
 			return
 		}
 
-		dateTo   := time.Now().UTC().Truncate(24 * time.Hour).Add(24*time.Hour - time.Second)
+		dateTo := time.Now().UTC().Truncate(24 * time.Hour).Add(24*time.Hour - time.Second)
 		dateFrom := dateTo.AddDate(0, 0, -29).Truncate(24 * time.Hour)
 		if v := qstr(r, "date_from"); v != "" {
 			if t, err := time.Parse("2006-01-02", v); err == nil {
@@ -253,10 +261,10 @@ func ccSummary() http.HandlerFunc {
 			}
 		}
 
-		byStatus  := map[string]int{}
+		byStatus := map[string]int{}
 		byChannel := map[string]int{}
-		byAgent   := map[string]int{}
-		overdue   := 0
+		byAgent := map[string]int{}
+		overdue := 0
 		var sumFirstResp float64
 		nFirstResp := 0
 		var sumResolution float64
@@ -287,7 +295,7 @@ func ccSummary() http.HandlerFunc {
 			// Resolution time from created → closed
 			if status == "Closed" || status == "Resolved" {
 				created := zohoParseTime(t["createdTime"])
-				closed  := zohoParseTime(t["closedTime"])
+				closed := zohoParseTime(t["closedTime"])
 				if !created.IsZero() && !closed.IsZero() && closed.After(created) {
 					sumResolution += closed.Sub(created).Hours()
 					nResolution++
@@ -357,9 +365,9 @@ func ccSummary() http.HandlerFunc {
 
 // ── Tickets list ──────────────────────────────────────────────────────────────
 
-func ccTickets() http.HandlerFunc {
+func ccTickets(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !zohoConfigured() {
+		if !zohoEnsureConfigured(r.Context(), db) {
 			respondErr(w, 503, "Zoho Desk not configured")
 			return
 		}
@@ -395,9 +403,9 @@ func ccTickets() http.HandlerFunc {
 
 // ── Agents ────────────────────────────────────────────────────────────────────
 
-func ccAgents() http.HandlerFunc {
+func ccAgents(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !zohoConfigured() {
+		if !zohoEnsureConfigured(r.Context(), db) {
 			respondErr(w, 503, "Zoho Desk not configured")
 			return
 		}
@@ -452,7 +460,7 @@ func ccAgents() http.HandlerFunc {
 		agents := zohoItems(ar.data)
 		for i, a := range agents {
 			id := zohoStr(a["id"])
-			agents[i]["open_tickets"]   = openByAgent[id]
+			agents[i]["open_tickets"] = openByAgent[id]
 			agents[i]["resolved_today"] = resolvedTodayByAgent[id]
 		}
 
@@ -466,14 +474,14 @@ func ccAgents() http.HandlerFunc {
 
 // ── Channel breakdown ─────────────────────────────────────────────────────────
 
-func ccByChannel() http.HandlerFunc {
+func ccByChannel(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !zohoConfigured() {
+		if !zohoEnsureConfigured(r.Context(), db) {
 			respondErr(w, 503, "Zoho Desk not configured")
 			return
 		}
 
-		dateTo   := time.Now().UTC().Truncate(24 * time.Hour).Add(24*time.Hour - time.Second)
+		dateTo := time.Now().UTC().Truncate(24 * time.Hour).Add(24*time.Hour - time.Second)
 		dateFrom := dateTo.AddDate(0, 0, -29).Truncate(24 * time.Hour)
 		if v := qstr(r, "date_from"); v != "" {
 			if t, err := time.Parse("2006-01-02", v); err == nil {
