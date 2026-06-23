@@ -20,7 +20,7 @@ import { useNavigate } from 'react-router-dom'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
 import { Page, KpiCard, SectionCard, Spinner, ErrBanner, DateFilter, NAVY, RED, AMBER, GREEN, BLUE } from '../../components/UI'
-import { today, monthStart } from '../../lib/fmt'
+import { today, yearStart } from '../../lib/fmt'
 import ComposeTicket from './ComposeTicket'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -323,7 +323,7 @@ export default function TicketList() {
   const [searchQ,    setSearchQ]    = useState('')  // debounced
   const [myTickets,  setMyTickets]  = useState(false)
   const [compose,    setCompose]    = useState(false)
-  const [dateFrom,   setDateFrom]   = useState(monthStart())
+  const [dateFrom,   setDateFrom]   = useState(yearStart())
   const [dateTo,     setDateTo]     = useState(today())
 
   // Debounce search

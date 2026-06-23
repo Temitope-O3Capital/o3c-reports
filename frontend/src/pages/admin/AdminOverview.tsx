@@ -13,8 +13,33 @@ interface MailMetrics {
   deliverability: number | null
 }
 
+interface MailMetricRow {
+  status: string
+  kind: string
+  count: number
+}
+
 interface HelpdeskStats {
   open: number
+}
+
+function deriveDeliverability(payload: any): number | null {
+  if (payload?.deliverability != null) return Number(payload.deliverability)
+  if (payload?.delivery_rate != null) return Number(payload.delivery_rate)
+
+  const rows = ((payload?.data ?? payload ?? []) as MailMetricRow[])
+  if (!Array.isArray(rows) || rows.length === 0) return null
+
+  let total = 0
+  let delivered = 0
+  for (const row of rows) {
+    const count = Number(row.count || 0)
+    total += count
+    if (['delivered', 'opened', 'clicked'].includes(String(row.status))) {
+      delivered += count
+    }
+  }
+  return total > 0 ? delivered / total : null
 }
 
 // ── KPI card ──────────────────────────────────────────────────────────────────
@@ -106,7 +131,7 @@ export default function AdminOverview() {
         setUsers({ total, active })
       }),
       apiFetch<any>('/api/mail/metrics').then(r => {
-        setMail({ deliverability: r?.deliverability ?? r?.delivery_rate ?? null })
+        setMail({ deliverability: deriveDeliverability(r) })
       }),
       apiFetch<any>('/api/helpdesk/stats').then(r => {
         setHelpdesk({ open: r?.open ?? 0 })

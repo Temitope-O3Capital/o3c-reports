@@ -209,22 +209,22 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 
-		if v := qstr(r, "status"); v != "" {
+		if v := normalizeHelpdeskFilter(qstr(r, "status")); v != "" {
 			where += fmt.Sprintf(" AND t.status=$%d", n)
 			args = append(args, v)
 			n++
 		}
-		if v := qstr(r, "priority"); v != "" {
+		if v := normalizeHelpdeskFilter(qstr(r, "priority")); v != "" {
 			where += fmt.Sprintf(" AND t.priority=$%d", n)
 			args = append(args, v)
 			n++
 		}
-		if v := qstr(r, "channel"); v != "" {
+		if v := normalizeHelpdeskFilter(qstr(r, "channel")); v != "" {
 			where += fmt.Sprintf(" AND t.channel=$%d", n)
 			args = append(args, v)
 			n++
 		}
-		if v := qstr(r, "department"); v != "" {
+		if v := normalizeHelpdeskFilter(qstr(r, "department")); v != "" {
 			where += fmt.Sprintf(" AND t.department=$%d", n)
 			args = append(args, v)
 			n++
@@ -295,6 +295,10 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 			"tickets":  rows,
 		})
 	}
+}
+
+func normalizeHelpdeskFilter(v string) string {
+	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(v), "-", "_"))
 }
 
 // ── Bulk ticket actions ───────────────────────────────────────────────────────

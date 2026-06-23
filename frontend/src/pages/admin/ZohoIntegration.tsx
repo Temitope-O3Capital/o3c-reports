@@ -143,7 +143,8 @@ export default function ZohoIntegration() {
         setImportResult({ ...totals })
         if (!res.done && res.next_from === undefined) break
       }
-      toast.success(`Imported ${totals.imported} tickets from Zoho Desk`)
+      const failedText = totals.failed > 0 ? `, ${totals.failed} failed` : ''
+      toast.success(`Zoho import finished: ${totals.imported} imported, ${totals.skipped} skipped${failedText}`)
     } catch (e: any) { toast.error(e.message) }
     finally { setImporting(false) }
   }
@@ -227,7 +228,7 @@ export default function ZohoIntegration() {
                   <div className="flex items-center gap-3 p-3 rounded-xl mb-4 bg-blue-50 text-[13px]">
                     <span className="material-symbols-rounded text-[18px] text-blue-600">download_done</span>
                     <span className="text-blue-800">
-                      Import complete — <strong>{importResult.imported}</strong> imported,{' '}
+                      Import {importResult.done ? 'complete' : 'in progress'} — <strong>{importResult.imported}</strong> imported,{' '}
                       <strong>{importResult.skipped}</strong> already existed,{' '}
                       {importResult.failed > 0 && <><strong className="text-red-600">{importResult.failed}</strong> failed,{' '}</>}
                       <a href="/helpdesk" className="underline font-semibold">view in Helpdesk</a>

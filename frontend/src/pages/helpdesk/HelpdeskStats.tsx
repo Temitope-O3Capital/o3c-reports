@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import { apiFetch } from '../../lib/api'
 import { Page, SectionCard, DataTable, KpiCard, Spinner, ErrBanner, DateFilter, NAVY, RED, GREEN, AMBER, BLUE, ColDef } from '../../components/UI'
-import { today, monthStart } from '../../lib/fmt'
+import { today, yearStart } from '../../lib/fmt'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface AgentRow {
@@ -59,7 +59,7 @@ export default function HelpdeskStats() {
   const [data, setData]       = useState<HelpdeskStatsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr]         = useState('')
-  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateFrom, setDateFrom] = useState(yearStart())
   const [dateTo,   setDateTo]   = useState(today())
 
   const todayStr = today()
