@@ -52,7 +52,29 @@ func RegisterHelpdeskPublic(r chi.Router, db *core.DB) {
 
 // RegisterHelpdesk mounts auth-protected helpdesk endpoints.
 // Call this INSIDE the JWT auth middleware group in main.go.
+func ensureHelpdeskColumns(ctx context.Context, db *core.DB) {
+	alters := []string{
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS first_response_at TIMESTAMPTZ`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS sla_due_at TIMESTAMPTZ`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS csat_score INT`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS csat_token TEXT`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS department TEXT`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS customer_email TEXT`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS customer_phone TEXT`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS customer_cif TEXT`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS customer_name TEXT`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS ticket_ref TEXT`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_tickets_ref ON helpdesk_tickets(ticket_ref) WHERE ticket_ref IS NOT NULL`,
+	}
+	for _, sql := range alters {
+		db.PGExec(ctx, sql) //nolint:errcheck
+	}
+}
+
 func RegisterHelpdesk(r chi.Router, db *core.DB) {
+	go ensureHelpdeskColumns(context.Background(), db)
 	r.Get("/stats", hdStats(db))
 	r.Post("/tickets", hdCreateTicket(db))
 	r.Get("/tickets", hdListTickets(db))
@@ -990,25 +1012,34 @@ func hdStats(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		byChannel := map[string]int64{}
+		// by_channel — return as array so frontend can .map() it
+		var byChannel []map[string]any
 		if rows, _ := db.PGQuery(ctx,
 			`SELECT channel, COUNT(*) AS n FROM helpdesk_tickets
-			 WHERE TRUE `+dateClause+` GROUP BY channel`, dateArgs...); rows != nil {
+			 WHERE TRUE `+dateClause+` GROUP BY channel ORDER BY n DESC`, dateArgs...); rows != nil {
 			for _, row := range rows {
-				byChannel[str(row["channel"])] = toInt64(row["n"])
+				byChannel = append(byChannel, map[string]any{
+					"channel": str(row["channel"]),
+					"count":   toInt64(row["n"]),
+				})
 			}
 		}
-
-		byDept := map[string]int64{}
-		if rows, _ := db.PGQuery(ctx,
-			`SELECT COALESCE(department,'general') AS department, COUNT(*) AS n
-			 FROM helpdesk_tickets WHERE TRUE `+dateClause+` GROUP BY department`, dateArgs...); rows != nil {
-			for _, row := range rows {
-				byDept[str(row["department"])] = toInt64(row["n"])
-			}
+		if byChannel == nil {
+			byChannel = []map[string]any{}
 		}
 
-		byAgent, _ := db.PGQuery(ctx,
+		// by_status — as array
+		var byStatus []map[string]any
+		for _, s := range []string{"open", "pending", "in_progress", "resolved", "closed"} {
+			if n := counts[s]; n > 0 {
+				byStatus = append(byStatus, map[string]any{"status": s, "count": n})
+			}
+		}
+		if byStatus == nil {
+			byStatus = []map[string]any{}
+		}
+
+		agents, _ := db.PGQuery(ctx,
 			`SELECT u.full_name AS agent_name,
 			        COUNT(*) FILTER (WHERE t.status NOT IN ('resolved','closed')) AS open_tickets,
 			        COUNT(*) FILTER (WHERE t.status='resolved' AND t.resolved_at::date=CURRENT_DATE) AS resolved_today,
@@ -1018,23 +1049,23 @@ func hdStats(db *core.DB) http.HandlerFunc {
 			 WHERE t.assigned_to IS NOT NULL `+dateClause+`
 			 GROUP BY u.full_name
 			 ORDER BY u.full_name`, dateArgs...)
-		if byAgent == nil {
-			byAgent = []core.Row{}
+		if agents == nil {
+			agents = []core.Row{}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"open":                    counts["open"],
-			"pending":                 counts["pending"],
-			"in_progress":             counts["in_progress"],
-			"resolved_today":          resolvedToday,
-			"sla_breached":            slaBreached,
+			"open":                     counts["open"],
+			"pending":                  counts["pending"],
+			"in_progress":              counts["in_progress"],
+			"resolved_today":           resolvedToday,
+			"sla_breached":             slaBreached,
 			"avg_first_response_hours": round2(avgFirstResp),
-			"avg_resolution_hours":    round2(avgResolution),
-			"avg_csat_score":          round2(avgCSAT),
-			"by_channel":              byChannel,
-			"by_department":           byDept,
-			"by_agent":                byAgent,
+			"avg_resolution_hours":     round2(avgResolution),
+			"avg_csat":                 round2(avgCSAT),
+			"by_channel":               byChannel,
+			"by_status":                byStatus,
+			"agents":                   agents,
 		})
 	}
 }
