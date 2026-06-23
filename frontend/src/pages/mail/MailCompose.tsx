@@ -47,6 +47,20 @@ function normalizeRecipients(value: unknown): Recipient[] {
     .filter(item => item.email)
 }
 
+function recipientsWithInput(recipients: Recipient[], input: string): Recipient[] {
+  const next = [...recipients]
+  input
+    .split(/[,\s;]+/)
+    .map(email => email.trim())
+    .filter(email => email.includes('@'))
+    .forEach(email => {
+      if (!next.some(item => item.email.toLowerCase() === email.toLowerCase())) {
+        next.push({ email, name: '' })
+      }
+    })
+  return next
+}
+
 function normalizeAttachments(value: unknown): AttachmentMeta[] {
   return asArray(value)
     .map(item => ({
@@ -204,13 +218,16 @@ export default function MailCompose() {
     if (!subject.trim() && !body.trim()) return
     setDraftStatus('saving')
     try {
+      const draftTo = recipientsWithInput(to, toInput)
+      const draftCc = recipientsWithInput(cc, ccInput)
+      const draftBcc = recipientsWithInput(bcc, bccInput)
       const payload = {
         subject,
         html_body: body,
         text_body: body.replace(/<[^>]+>/g, ''),
-        to_addrs: to,
-        cc_addrs: cc,
-        bcc_addrs: bcc,
+        to_addrs: draftTo,
+        cc_addrs: draftCc,
+        bcc_addrs: draftBcc,
         from_email: sender?.address ?? '',
         from_name: sender?.name ?? '',
         attachments,
@@ -223,7 +240,7 @@ export default function MailCompose() {
     } catch {
       setDraftStatus('idle')
     }
-  }, [subject, body, to, cc, bcc, sender, attachments, draftId])
+  }, [subject, body, to, toInput, cc, ccInput, bcc, bccInput, sender, attachments, draftId])
 
   useEffect(() => {
     autoSaveTimer.current = setInterval(() => saveDraft(), 30_000)
@@ -255,11 +272,12 @@ export default function MailCompose() {
     }
   }
 
-  function handleFieldKeyDown(field: 'to' | 'cc' | 'bcc', e: React.KeyboardEvent, inputVal: string) {
-    if ((e.key === 'Enter' || e.key === ',') && inputVal.trim()) {
-      e.preventDefault()
-      addRecipient(field, inputVal.trim())
-    }
+  function commitRecipientInput(field: 'to' | 'cc' | 'bcc', inputVal: string) {
+    inputVal
+      .split(/[,\s;]+/)
+      .map(email => email.trim())
+      .filter(email => email.includes('@'))
+      .forEach(email => addRecipient(field, email))
   }
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -307,7 +325,10 @@ export default function MailCompose() {
   }
 
   async function send() {
-    if (to.length === 0) { toast.error('Add at least one recipient'); return }
+    const sendTo = recipientsWithInput(to, toInput)
+    const sendCc = recipientsWithInput(cc, ccInput)
+    const sendBcc = recipientsWithInput(bcc, bccInput)
+    if (sendTo.length === 0) { toast.error('Add at least one recipient'); return }
     if (!subject.trim()) { toast.error('Subject is required'); return }
     setSending(true)
     try {
@@ -315,9 +336,9 @@ export default function MailCompose() {
       await apiFetch('/api/mail/send', {
         method: 'POST',
         body: JSON.stringify({
-          to: to.map(r => ({ email: r.email, name: r.name ?? '' })),
-          cc: cc.map(r => ({ email: r.email, name: r.name ?? '' })),
-          bcc: bcc.map(r => ({ email: r.email, name: r.name ?? '' })),
+          to: sendTo.map(r => ({ email: r.email, name: r.name ?? '' })),
+          cc: sendCc.map(r => ({ email: r.email, name: r.name ?? '' })),
+          bcc: sendBcc.map(r => ({ email: r.email, name: r.name ?? '' })),
           subject,
           html_body: fullBody,
           text_body: fullBody.replace(/<[^>]+>/g, ''),
@@ -396,6 +417,7 @@ export default function MailCompose() {
                 value={toInput}
                 onChange={setToInput}
                 onSelect={s => addRecipient('to', s.email, s.name)}
+                onCommit={email => commitRecipientInput('to', email)}
                 placeholder="recipient@example.com"
               />
             </div>
@@ -431,6 +453,7 @@ export default function MailCompose() {
                   value={ccInput}
                   onChange={setCcInput}
                   onSelect={s => addRecipient('cc', s.email, s.name)}
+                  onCommit={email => commitRecipientInput('cc', email)}
                   placeholder="cc@example.com"
                 />
               </div>
@@ -453,6 +476,7 @@ export default function MailCompose() {
                   value={bccInput}
                   onChange={setBccInput}
                   onSelect={s => addRecipient('bcc', s.email, s.name)}
+                  onCommit={email => commitRecipientInput('bcc', email)}
                   placeholder="bcc@example.com"
                 />
               </div>

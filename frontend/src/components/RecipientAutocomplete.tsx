@@ -19,13 +19,14 @@ interface Props {
   value:       string
   onChange:    (email: string) => void
   onSelect?:   (s: Suggestion) => void
+  onCommit?:   (email: string) => void
   placeholder?: string
   label?:       string
   required?:    boolean
 }
 
 export default function RecipientAutocomplete({
-  value, onChange, onSelect, placeholder = 'Email address', label, required,
+  value, onChange, onSelect, onCommit, placeholder = 'Email address', label, required,
 }: Props) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [open,        setOpen]        = useState(false)
@@ -67,7 +68,13 @@ export default function RecipientAutocomplete({
   }
 
   function handleKey(e: React.KeyboardEvent) {
-    if (!open) return
+    if (!open) {
+      if ((e.key === 'Enter' || e.key === ',') && value.trim()) {
+        e.preventDefault()
+        onCommit?.(value.trim())
+      }
+      return
+    }
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       setFocused(f => Math.min(f + 1, suggestions.length - 1))
@@ -77,6 +84,10 @@ export default function RecipientAutocomplete({
     } else if (e.key === 'Enter' && focused >= 0) {
       e.preventDefault()
       pick(suggestions[focused])
+    } else if ((e.key === 'Enter' || e.key === ',') && value.trim()) {
+      e.preventDefault()
+      onCommit?.(value.trim())
+      setOpen(false)
     } else if (e.key === 'Escape') {
       setOpen(false)
     }
