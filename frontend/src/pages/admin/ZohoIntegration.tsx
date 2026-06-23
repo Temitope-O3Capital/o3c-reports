@@ -16,6 +16,14 @@ interface ZohoStatus {
   api_error?: string
 }
 
+interface ZohoImportResult {
+  imported: number
+  skipped: number
+  failed: number
+  next_from?: number
+  done?: boolean
+}
+
 function StatusDot({ ok, label }: { ok: boolean | undefined; label: string }) {
   const color = ok === undefined ? AMBER : ok ? GREEN : RED
   const icon = ok === undefined ? 'pending' : ok ? 'check_circle' : 'cancel'
@@ -49,7 +57,7 @@ export default function ZohoIntegration() {
   const [disconnecting, setDisconnecting] = useState(false)
   const [syncing, setSyncing]   = useState(false)
   const [importing, setImporting]   = useState(false)
-  const [importResult, setImportResult] = useState<{ imported: number; skipped: number; failed: number } | null>(null)
+  const [importResult, setImportResult] = useState<ZohoImportResult | null>(null)
   const [orgIdInput, setOrgIdInput] = useState('')
   const [savingOrgId, setSavingOrgId] = useState(false)
   const [err, setErr] = useState('')
@@ -119,9 +127,23 @@ export default function ZohoIntegration() {
     if (!confirm('Import all existing Zoho Desk tickets into O3C? This may take a minute for large volumes. Tickets already imported will be skipped.')) return
     setImporting(true); setImportResult(null)
     try {
-      const res = await apiFetch<{ imported: number; skipped: number; failed: number }>('/api/zoho/desk/import', { method: 'POST' })
-      setImportResult(res)
-      toast.success(`Imported ${res.imported} tickets from Zoho Desk`)
+      let from = 0
+      const totals: ZohoImportResult = { imported: 0, skipped: 0, failed: 0, done: false, next_from: 0 }
+      for (let i = 0; i < 100 && !totals.done; i++) {
+        const res = await apiFetch<ZohoImportResult>('/api/zoho/desk/import', {
+          method: 'POST',
+          body: JSON.stringify({ from, max_pages: 5 }),
+        })
+        totals.imported += res.imported ?? 0
+        totals.skipped += res.skipped ?? 0
+        totals.failed += res.failed ?? 0
+        totals.done = !!res.done
+        totals.next_from = res.next_from ?? from
+        from = totals.next_from
+        setImportResult({ ...totals })
+        if (!res.done && res.next_from === undefined) break
+      }
+      toast.success(`Imported ${totals.imported} tickets from Zoho Desk`)
     } catch (e: any) { toast.error(e.message) }
     finally { setImporting(false) }
   }

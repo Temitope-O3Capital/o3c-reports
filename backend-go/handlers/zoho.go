@@ -470,15 +470,30 @@ func zohoSyncTicket(ctx context.Context, db *core.DB, t core.Row) (map[string]an
 // helpdesk_tickets. Safe to call repeatedly — uses zoho_ticket_id as the
 // conflict key so duplicates are skipped.
 func zohoImportTickets(db *core.DB) http.HandlerFunc {
+	type reqBody struct {
+		From     int `json:"from"`
+		MaxPages int `json:"max_pages"`
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		ensureZohoSchema(ctx, db)
 
+		var body reqBody
+		_ = json.NewDecoder(r.Body).Decode(&body)
 		var imported, skipped, failed int
-		from := 0
+		from := body.From
+		if from < 0 {
+			from = 0
+		}
 		limit := 50
+		maxPages := body.MaxPages
+		if maxPages <= 0 || maxPages > 10 {
+			maxPages = 5
+		}
+		pagesFetched := 0
+		done := false
 
-		for {
+		for pagesFetched < maxPages {
 			result, err := zohoFetch(ctx, "tickets", url.Values{
 				"from":   {strconv.Itoa(from)},
 				"limit":  {strconv.Itoa(limit)},
@@ -492,8 +507,10 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 
 			items := zohoItems(result)
 			if len(items) == 0 {
+				done = true
 				break
 			}
+			pagesFetched++
 
 			for _, t := range items {
 				zohoID, _ := t["id"].(string)
@@ -533,11 +550,7 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 					}
 				}
 
-				// Channel
-				ourChannel := strings.ToLower(channelRaw)
-				if ourChannel == "" {
-					ourChannel = "email"
-				}
+				ourChannel := zohoMapChannel(channelRaw)
 
 				// Contact details nested under "contact"
 				contactName, contactEmail, contactPhone := "", "", ""
@@ -580,18 +593,38 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 			}
 
 			if len(items) < limit {
+				done = true
 				break // last page
 			}
 			from += limit
 		}
 
-		slog.Info("zohoImportTickets done", "imported", imported, "skipped", skipped, "failed", failed)
+		slog.Info("zohoImportTickets batch done", "imported", imported, "skipped", skipped, "failed", failed, "next_from", from, "done", done)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"imported": imported,
-			"skipped":  skipped,
-			"failed":   failed,
+			"imported":  imported,
+			"skipped":   skipped,
+			"failed":    failed,
+			"next_from": from,
+			"done":      done,
 		})
+	}
+}
+
+func zohoMapChannel(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "email", "mail":
+		return "email"
+	case "sms":
+		return "sms"
+	case "whatsapp", "whats_app":
+		return "whatsapp"
+	case "phone", "telephone", "call":
+		return "phone"
+	case "web", "portal", "chat", "live chat", "social", "twitter", "facebook", "forum":
+		return "in_app"
+	default:
+		return "in_app"
 	}
 }
 

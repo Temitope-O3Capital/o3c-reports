@@ -239,7 +239,7 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 			args = append(args, v)
 			n++
 		}
-		if v := qstr(r, "search"); v != "" {
+		if v := coalesce(qstr(r, "search"), qstr(r, "q")); v != "" {
 			where += fmt.Sprintf(` AND (t.subject ILIKE $%d OR t.customer_name ILIKE $%d OR t.customer_cif ILIKE $%d OR t.ticket_ref ILIKE $%d)`, n, n, n, n)
 			args = append(args, "%"+v+"%")
 			n++
@@ -290,6 +290,8 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 			"total":    total,
 			"page":     page,
 			"per_page": perPage,
+			"pages":    int((total + perPage - 1) / perPage),
+			"data":     rows,
 			"tickets":  rows,
 		})
 	}
@@ -1061,7 +1063,7 @@ func hdStats(db *core.DB) http.HandlerFunc {
 			`SELECT u.full_name AS agent_name,
 			        COUNT(*) FILTER (WHERE t.status NOT IN ('resolved','closed')) AS open_tickets,
 			        COUNT(*) FILTER (WHERE t.status='resolved' AND t.resolved_at::date=CURRENT_DATE) AS resolved_today,
-			        ROUND(AVG(t.csat_score::float) FILTER (WHERE t.csat_score IS NOT NULL), 1) AS avg_csat
+			        ROUND((AVG(t.csat_score::numeric) FILTER (WHERE t.csat_score IS NOT NULL)), 1) AS avg_csat
 			 FROM helpdesk_tickets t
 			 JOIN o3c_users u ON t.assigned_to=u.id
 			 WHERE t.assigned_to IS NOT NULL `+dateClause+`
