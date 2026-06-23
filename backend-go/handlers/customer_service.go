@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -18,58 +17,62 @@ func RegisterCustomerService(r chi.Router, db *core.DB) {
 
 func csOverview(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.PGQuery(r.Context(), `
+		if err := ensureCallLogSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Call log setup failed")
+			return
+		}
+		callRows, err := db.PGQuery(r.Context(), `
 			SELECT
-				COUNT(*) FILTER (WHERE created_at::date = CURRENT_DATE) AS calls_today,
-				COUNT(*) FILTER (WHERE status = 'open') AS open_tickets,
-				COUNT(*) FILTER (WHERE status = 'resolved' AND created_at > NOW() - INTERVAL '30 days') AS resolved_mtd,
-				ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/60)
-					FILTER (WHERE resolved_at IS NOT NULL)::numeric, 1) AS avg_handle_minutes
-			FROM cs_interactions`)
+				COUNT(*) FILTER (WHERE started_at::date = CURRENT_DATE) AS calls_today,
+				COUNT(*) FILTER (WHERE outcome = 'resolved' AND started_at > NOW() - INTERVAL '30 days') AS resolved_mtd,
+				ROUND((AVG(duration_sec) FILTER (WHERE duration_sec IS NOT NULL) / 60.0)::numeric, 1) AS avg_handle_minutes
+			FROM helpdesk_calls`)
 		if err != nil {
-			// Table may not exist — return zeroed KPIs gracefully
-			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
-				respond(w, map[string]any{
-					"calls_today":        0,
-					"open_tickets":       0,
-					"resolved_mtd":       0,
-					"avg_handle_minutes": 0,
-				}, "pg")
-				return
-			}
 			respondErr(w, 500, "Query failed")
 			return
 		}
-		if len(rows) == 0 {
-			respond(w, map[string]any{
-				"calls_today":        0,
-				"open_tickets":       0,
-				"resolved_mtd":       0,
-				"avg_handle_minutes": 0,
-			}, "pg")
-			return
+		openTickets := int64(0)
+		if rows, _ := db.PGQuery(r.Context(), `
+			SELECT COUNT(*) AS n FROM helpdesk_tickets
+			WHERE status NOT IN ('resolved','closed')`); len(rows) > 0 {
+			openTickets = toInt64(rows[0]["n"])
 		}
-		respond(w, rows[0], "pg")
+		data := map[string]any{
+			"calls_today":        0,
+			"open_tickets":       openTickets,
+			"resolved_mtd":       0,
+			"avg_handle_minutes": 0,
+		}
+		if len(callRows) > 0 {
+			data["calls_today"] = toInt64(callRows[0]["calls_today"])
+			data["resolved_mtd"] = toInt64(callRows[0]["resolved_mtd"])
+			data["avg_handle_minutes"] = callRows[0]["avg_handle_minutes"]
+		}
+		respond(w, data, "pg")
 	}
 }
 
 func csCalls(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureCallLogSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Call log setup failed")
+			return
+		}
 		cif := qstr(r, "cif")
-		q := `SELECT * FROM cs_interactions`
+		q := `
+			SELECT id, customer_cif AS cif_number, agent_id,
+			       direction AS call_type, duration_sec AS duration_seconds,
+			       outcome, notes, outcome AS status, started_at AS created_at
+			FROM helpdesk_calls`
 		var args []any
 		if cif != "" {
-			q += ` WHERE cif_number = $1`
+			q += ` WHERE customer_cif = $1`
 			args = append(args, cif)
 		}
-		q += ` ORDER BY created_at DESC LIMIT 100`
+		q += ` ORDER BY started_at DESC LIMIT 100`
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
-			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
-				jsonRows(w, []core.Row{})
-				return
-			}
 			respondErr(w, 500, "Query failed")
 			return
 		}
@@ -102,13 +105,23 @@ func csLogCall(db *core.DB) http.HandlerFunc {
 		}
 
 		user := core.UserFromCtx(r.Context())
+		var agentID *int64
+		agentName := b.AgentName
+		if user != nil {
+			agentID = &user.ID
+			agentName = user.FullName
+		}
 
+		if err := ensureCallLogSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Call log setup failed")
+			return
+		}
 		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO cs_interactions
-				(cif_number, agent_id, call_type, duration_seconds, outcome, notes, status, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, 'open', NOW())
+			INSERT INTO helpdesk_calls
+				(customer_cif, agent_id, agent_name, direction, duration_sec, outcome, notes)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			RETURNING id`,
-			b.CIFNumber, user.ID, b.CallType, b.Duration, b.Outcome, b.Notes)
+			b.CIFNumber, agentID, agentName, b.CallType, b.Duration, b.Outcome, b.Notes)
 		if err != nil {
 			respondErr(w, 500, "Insert failed: "+err.Error())
 			return

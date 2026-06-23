@@ -683,6 +683,7 @@ export default function TicketDetail() {
 // ── Zoho Voice dialer shell ────────────────────────────────────────────────────
 function ZohoDialer({ ticket }: { ticket: Ticket }) {
   const phoneNumber = ticket.customer_phone
+  const telHref = phoneNumber ? `tel:${phoneNumber.replace(/[^\d+]/g, '')}` : undefined
   const [logOpen,    setLogOpen]    = useState(false)
   const [logNote,    setLogNote]    = useState('')
   const [logDur,     setLogDur]     = useState('')
@@ -731,11 +732,20 @@ function ZohoDialer({ ticket }: { ticket: Ticket }) {
 
   return (
     <div className="space-y-2">
+      {telHref && (
+        <a
+          href={telHref}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-[13px] font-semibold text-white"
+          style={{ background: GREEN }}>
+          <span className="material-symbols-rounded text-[16px]">phone_in_talk</span>
+          Call Phone
+        </a>
+      )}
       <button
         onClick={initiateCall}
         disabled={!phoneNumber || calling}
-        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-[13px] font-semibold text-white disabled:opacity-50"
-        style={{ background: GREEN }}>
+        className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-[12px] font-semibold border disabled:opacity-50"
+        style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY }}>
         <span className="material-symbols-rounded text-[16px]">
           {calling ? 'progress_activity' : 'call'}
         </span>

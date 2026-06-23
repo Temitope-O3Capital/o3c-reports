@@ -726,6 +726,10 @@ func zohoInitiateCall(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "phone_number is required")
 			return
 		}
+		if err := ensureCallLogSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Call log setup failed")
+			return
+		}
 
 		ctx := r.Context()
 		payload := map[string]any{
@@ -740,6 +744,15 @@ func zohoInitiateCall(db *core.DB) http.HandlerFunc {
 			return
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			msg := strings.TrimSpace(string(body))
+			if msg == "" {
+				msg = fmt.Sprintf("Zoho returned HTTP %d", resp.StatusCode)
+			}
+			respondErr(w, 502, msg)
+			return
+		}
 
 		var result map[string]any
 		json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck

@@ -182,7 +182,7 @@ export default function CallLog() {
         apiFetch(`/api/helpdesk/calls/stats?${qs}`),
       ])
       setCalls((c as any) ?? [])
-      setStats((s as any) ?? null)
+      setStats(((s as any)?.data ?? s ?? null) as CallStats | null)
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
   }
