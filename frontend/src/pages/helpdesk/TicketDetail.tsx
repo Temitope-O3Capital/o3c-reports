@@ -90,6 +90,25 @@ interface Agent {
   name: string
 }
 
+function normalizeTags(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw.map(String).map(s => s.trim()).filter(Boolean)
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    if (!trimmed) return []
+    if (trimmed.startsWith('[')) {
+      try {
+        return normalizeTags(JSON.parse(trimmed))
+      } catch {
+        // Fall through to CSV parsing.
+      }
+    }
+    return trimmed.split(',').map(s => s.trim()).filter(Boolean)
+  }
+  return []
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 const STATUS_OPTIONS = [
   { value: 'open',        label: 'Open' },
@@ -251,7 +270,10 @@ export default function TicketDetail() {
   // Load canned responses & agents
   useEffect(() => {
     apiFetch<CannedResponse[]>('/api/helpdesk/canned-responses').then(setCanned).catch(() => {})
-    apiFetch<Agent[]>('/api/admin/users').catch(() => apiFetch<Agent[]>('/api/users')).then(setAgents).catch(() => {})
+    apiFetch<any[]>('/api/admin/users')
+      .catch(() => apiFetch<any[]>('/api/users'))
+      .then(rows => setAgents((rows ?? []).map(u => ({ id: u.id, name: u.name ?? u.full_name ?? u.email ?? `User ${u.id}` }))))
+      .catch(() => {})
   }, [])
 
   // Patch ticket field immediately on change
@@ -302,7 +324,7 @@ export default function TicketDetail() {
   // Add tag
   async function addTag() {
     if (!id || !tagInput.trim()) return
-    const current = data?.ticket.tags ?? []
+    const current = normalizeTags(data?.ticket.tags)
     if (current.includes(tagInput.trim())) { setTagInput(''); setShowTagInput(false); return }
     const next = [...current, tagInput.trim()]
     setTagInput(''); setShowTagInput(false)
@@ -313,7 +335,7 @@ export default function TicketDetail() {
   // Remove tag
   async function removeTag(tag: string) {
     if (!id) return
-    const next = (data?.ticket.tags ?? []).filter(t => t !== tag)
+    const next = normalizeTags(data?.ticket.tags).filter(t => t !== tag)
     await patchTicket('tags', next.join(','))
     load()
   }
@@ -329,6 +351,7 @@ export default function TicketDetail() {
   )
 
   const { ticket, messages, events, customer_context: ctx } = data
+  const tags = normalizeTags(ticket.tags)
 
   return (
     <div className="flex flex-col h-full" style={{ minHeight: '100vh', background: '#F4F6F8' }}>
@@ -415,7 +438,7 @@ export default function TicketDetail() {
             {/* Tags */}
             <SideField label="Tags">
               <div className="flex flex-wrap gap-1">
-                {(ticket.tags ?? []).map(tag => (
+                {tags.map(tag => (
                   <span key={tag}
                     className="inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded-full font-medium"
                     style={{ background: 'rgba(14,40,65,0.08)', color: NAVY }}>
@@ -453,8 +476,8 @@ export default function TicketDetail() {
             <SideField label="Assigned To">
               {agents.length > 0 ? (
                 <select
-                  value={ticket.assigned_to_id ?? ''}
-                  onChange={e => patchTicket('assigned_to_id', e.target.value)}
+                  value={ticket.assigned_to_id ?? (ticket as any).assigned_to ?? ''}
+                  onChange={e => patchTicket('assigned_to', e.target.value)}
                   className="w-full px-2 py-1.5 rounded-lg border text-[12px] font-medium bg-white outline-none appearance-none"
                   style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}
                 >
