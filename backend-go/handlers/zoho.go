@@ -479,10 +479,9 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 
 		for {
 			result, err := zohoFetch(ctx, "tickets", url.Values{
-				"from":      {strconv.Itoa(from)},
-				"limit":     {strconv.Itoa(limit)},
-				"sortBy":    {"createdTime"},
-				"sortOrder": {"desc"},
+				"from":   {strconv.Itoa(from)},
+				"limit":  {strconv.Itoa(limit)},
+				"sortBy": {"createdTime"},
 			})
 			if err != nil {
 				slog.Error("zohoImportTickets: fetch page", "from", from, "err", err)

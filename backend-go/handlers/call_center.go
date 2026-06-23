@@ -141,10 +141,9 @@ func zohoFetchTickets(ctx context.Context, dateFrom, dateTo time.Time, extra url
 	offset := 0
 	for {
 		params := url.Values{
-			"from":      {strconv.Itoa(offset)},
-			"limit":     {"100"},
-			"sortBy":    {"createdTime"},
-			"sortOrder": {"desc"},
+			"from":   {strconv.Itoa(offset)},
+			"limit":  {"100"},
+			"sortBy": {"createdTime"},
 		}
 		for k, vs := range extra {
 			params[k] = vs
@@ -373,10 +372,9 @@ func ccTickets(db *core.DB) http.HandlerFunc {
 		}
 
 		params := url.Values{
-			"from":      {coalesce(qstr(r, "page_from"), "0")},
-			"limit":     {coalesce(qstr(r, "limit"), "50")},
-			"sortBy":    {"createdTime"},
-			"sortOrder": {"desc"},
+			"from":   {coalesce(qstr(r, "page_from"), "0")},
+			"limit":  {coalesce(qstr(r, "limit"), "50")},
+			"sortBy": {"createdTime"},
 		}
 		for _, k := range []string{"status", "channel", "assigneeId", "priority"} {
 			if v := qstr(r, k); v != "" {
