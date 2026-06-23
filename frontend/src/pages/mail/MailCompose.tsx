@@ -9,7 +9,15 @@ import RichTextEditor from '../../components/RichTextEditor'
 const NAVY = '#0E2841'
 
 interface Recipient { email: string; name?: string }
-interface AttachmentMeta { url: string; name: string; content_type: string; size?: number }
+interface AttachmentMeta {
+  filename: string
+  content_type: string
+  content: string
+  size?: number
+}
+
+const MAX_FILE_BYTES = 10 * 1024 * 1024
+const MAX_TOTAL_BYTES = 20 * 1024 * 1024
 
 function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -28,11 +36,29 @@ function RecipientTag({ email, onRemove }: { email: string; onRemove: () => void
   )
 }
 
+function readFileAsAttachment(file: File): Promise<AttachmentMeta> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}`))
+    reader.onload = () => {
+      const result = String(reader.result || '')
+      const [, content = ''] = result.split(',', 2)
+      resolve({
+        filename: file.name,
+        content_type: file.type || 'application/octet-stream',
+        content,
+        size: file.size,
+      })
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
 function AttachmentChip({ att, onRemove }: { att: AttachmentMeta; onRemove: () => void }) {
   return (
     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
       <span className="material-symbols-rounded text-[14px] text-slate-500">attach_file</span>
-      <span className="truncate max-w-[140px]">{att.name}</span>
+      <span className="truncate max-w-[140px]">{att.filename}</span>
       {att.size !== undefined && (
         <span className="text-slate-400">({fmtBytes(att.size)})</span>
       )}
@@ -204,34 +230,30 @@ export default function MailCompose() {
     const files = Array.from(e.target.files ?? [])
     if (!files.length) return
     setUploading(true)
-    for (const file of files) {
-      try {
-        const form = new FormData()
-        form.append('file', file)
-        const token = localStorage.getItem('o3c_token')
-        const res = await fetch('/api/mail/attachments/upload', {
-          method: 'POST',
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          body: form,
-        })
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}))
-          toast.error(`Upload failed: ${err.detail ?? res.statusText}`)
-          continue
-        }
-        const d = await res.json()
-        setAttachments(prev => [...prev, {
-          url: d.url,
-          name: d.filename ?? file.name,
-          content_type: d.content_type ?? file.type,
-          size: d.size_bytes ?? file.size,
-        }])
-      } catch {
-        toast.error(`Failed to upload ${file.name}`)
+    try {
+      if (attachments.length + files.length > 10) {
+        toast.error('You can attach up to 10 files')
+        return
       }
+      const tooLarge = files.find(file => file.size > MAX_FILE_BYTES)
+      if (tooLarge) {
+        toast.error(`${tooLarge.name} is larger than 10 MB`)
+        return
+      }
+      const existingTotal = attachments.reduce((sum, file) => sum + (file.size ?? 0), 0)
+      const incomingTotal = files.reduce((sum, file) => sum + file.size, 0)
+      if (existingTotal + incomingTotal > MAX_TOTAL_BYTES) {
+        toast.error('Attachments cannot exceed 20 MB total')
+        return
+      }
+      const encoded = await Promise.all(files.map(readFileAsAttachment))
+      setAttachments(prev => [...prev, ...encoded])
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to attach file')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
-    setUploading(false)
-    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   async function saveSignature() {
@@ -266,7 +288,7 @@ export default function MailCompose() {
           from_address: sender?.address,
           from_name: sender?.name,
           send_at: scheduledAt ?? null,
-          attachments: attachments.map(a => ({ url: a.url, name: a.name, content_type: a.content_type })),
+          attachments: attachments.map(({ filename, content_type, content }) => ({ filename, content_type, content })),
           send_copy_to_sender: true,
         }),
       })
@@ -466,7 +488,7 @@ export default function MailCompose() {
           <div className="px-5 py-2.5 border-t flex flex-wrap gap-2 items-center"
             style={{ borderColor: 'rgba(15,23,42,0.06)', background: '#FAFAFA' }}>
             {attachments.map((att, i) => (
-              <AttachmentChip key={att.url + i} att={att}
+              <AttachmentChip key={`${att.filename}-${i}`} att={att}
                 onRemove={() => setAttachments(prev => prev.filter((_, idx) => idx !== i))} />
             ))}
             {uploading && (

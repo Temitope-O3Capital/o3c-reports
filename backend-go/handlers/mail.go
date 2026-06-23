@@ -80,7 +80,7 @@ func RegisterMail(r chi.Router, db *core.DB) {
 		slog.Warn("Mail schema setup failed", "err", err)
 	}
 	access := core.RequirePages("campaigns", "crm_contacts", "customer_service")
-	admin  := core.RequirePages("admin_api_keys")
+	admin := core.RequirePages("admin_api_keys")
 	r.With(access).Post("/send", sendSingleMail(db))
 	r.With(access).Get("/messages", listMailMessages(db))
 	r.With(access).Get("/messages/{id}", getMailMessage(db))
@@ -91,9 +91,9 @@ func RegisterMail(r chi.Router, db *core.DB) {
 	r.With(admin).Get("/suppressions", mailListSuppressions(db))
 	r.With(admin).Delete("/suppressions/{email}", mailRemoveSuppression(db))
 	// Drafts
-	r.With(access).Get("/drafts",         mailListDrafts(db))
-	r.With(access).Post("/drafts",        mailSaveDraft(db))
-	r.With(access).Get("/drafts/{id}",    mailGetDraft(db))
+	r.With(access).Get("/drafts", mailListDrafts(db))
+	r.With(access).Post("/drafts", mailSaveDraft(db))
+	r.With(access).Get("/drafts/{id}", mailGetDraft(db))
 	r.With(access).Delete("/drafts/{id}", mailDeleteDraft(db))
 	// Signature
 	r.With(access).Get("/signature", mailGetSignature(db))
@@ -125,10 +125,10 @@ func mailInboundParse(db *core.DB) http.HandlerFunc {
 			fromName = strings.TrimSpace(fromRaw[:i])
 			fromEmail = strings.Trim(fromRaw[i+1:], "> ")
 		}
-		subject  := r.FormValue("subject")
+		subject := r.FormValue("subject")
 		bodyText := r.FormValue("text")
 		bodyHTML := r.FormValue("html")
-		to       := r.FormValue("to")
+		to := r.FormValue("to")
 		if fromEmail == "" {
 			w.WriteHeader(200)
 			return
@@ -165,23 +165,18 @@ func listInboundMail(db *core.DB) http.HandlerFunc {
 }
 
 func sendSingleMail(db *core.DB) http.HandlerFunc {
-	type urlAttachment struct {
-		URL         string `json:"url"`
-		Name        string `json:"name"`
-		ContentType string `json:"content_type"`
-	}
 	type body struct {
-		To               []MailAddress   `json:"to"`
-		CC               []MailAddress   `json:"cc"`
-		BCC              []MailAddress   `json:"bcc"`
-		Subject          string          `json:"subject"`
-		HTMLBody         string          `json:"html_body"`
-		TextBody         string          `json:"text_body"`
-		FromAddress      string          `json:"from_address"`
-		FromName         string          `json:"from_name"`
-		SendAt           string          `json:"send_at"`
-		URLAttachments   []urlAttachment `json:"attachments"`
-		SendCopyToSender *bool           `json:"send_copy_to_sender"`
+		To               []MailAddress    `json:"to"`
+		CC               []MailAddress    `json:"cc"`
+		BCC              []MailAddress    `json:"bcc"`
+		Subject          string           `json:"subject"`
+		HTMLBody         string           `json:"html_body"`
+		TextBody         string           `json:"text_body"`
+		FromAddress      string           `json:"from_address"`
+		FromName         string           `json:"from_name"`
+		SendAt           string           `json:"send_at"`
+		Attachments      []MailAttachment `json:"attachments"`
+		SendCopyToSender *bool            `json:"send_copy_to_sender"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := ensureMailSchema(r.Context(), db); err != nil {
@@ -197,40 +192,40 @@ func sendSingleMail(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "to and subject are required")
 			return
 		}
+		if strings.TrimSpace(b.HTMLBody) == "" && strings.TrimSpace(b.TextBody) == "" {
+			respondErr(w, 422, "html_body or text_body is required")
+			return
+		}
+		if err := validateMailAttachments(b.Attachments); err != nil {
+			respondErr(w, 422, err.Error())
+			return
+		}
 		user := core.UserFromCtx(r.Context())
 		copyToSender := true
 		if b.SendCopyToSender != nil {
 			copyToSender = *b.SendCopyToSender
 		}
-		fromEmail := coalesce(b.FromAddress, user.Sub)
-		fromName  := coalesce(b.FromName, user.FullName)
-		// URL-based attachments (already uploaded to R2 / local storage)
-		// are stored as metadata only — we don't re-encode them for SendGrid here.
-		// They are stored in mail_messages.attachments for record keeping.
-		urlAtts := make([]MailAttachment, 0, len(b.URLAttachments))
-		for _, a := range b.URLAttachments {
-			urlAtts = append(urlAtts, MailAttachment{
-				Filename:    a.Name,
-				ContentType: a.ContentType,
-				Disposition: "attachment",
-			})
-		}
+		fromEmail := strings.TrimSpace(b.FromAddress)
+		fromName := strings.TrimSpace(b.FromName)
 		res := SendMail(r.Context(), db, SendMailOptions{
-			To:               b.To,
-			CC:               b.CC,
-			BCC:              b.BCC,
-			Subject:          b.Subject,
-			HTMLBody:         b.HTMLBody,
-			TextBody:         b.TextBody,
-			FromEmail:        fromEmail,
-			FromName:         fromName,
-			Category:         "single",
-			Kind:             "single",
-			CreatedBy:        user.ID,
-			SendCopyToSender: copyToSender,
-			SenderCopyEmail:  user.Sub,
-			SenderCopyName:   user.FullName,
-			Attachments:      urlAtts,
+			To:                 b.To,
+			CC:                 b.CC,
+			BCC:                b.BCC,
+			Subject:            b.Subject,
+			HTMLBody:           b.HTMLBody,
+			TextBody:           b.TextBody,
+			FromEmail:          fromEmail,
+			FromName:           fromName,
+			ReplyToEmail:       user.Sub,
+			ReplyToName:        user.FullName,
+			Category:           "single",
+			Kind:               "single",
+			CreatedBy:          user.ID,
+			SendCopyToSender:   copyToSender,
+			SenderCopyEmail:    user.Sub,
+			SenderCopyName:     user.FullName,
+			SendViaUserMailbox: true,
+			Attachments:        b.Attachments,
 		})
 		if !res.OK {
 			slog.Warn("Single mail send failed", "user_id", user.ID, "error", res.Error)
@@ -302,8 +297,8 @@ func mailSendTest(db *core.DB) http.HandlerFunc {
 			Subject: "O3C Mail Health — Test Email",
 			HTMLBody: `<p>This is a test email sent from the <strong>O3C Cards Mail Health</strong> dashboard.</p>
 <p>If you received this, your SendGrid integration is working correctly.</p>`,
-			TextBody:   "This is a test email from O3C Cards Mail Health. If you received this, your SendGrid integration is working.",
-			CreatedBy:  user.ID,
+			TextBody:     "This is a test email from O3C Cards Mail Health. If you received this, your SendGrid integration is working.",
+			CreatedBy:    user.ID,
 			ReplyToEmail: user.Sub,
 		})
 		if res.Error != "" {
@@ -1338,10 +1333,10 @@ func mailSaveDraft(db *core.DB) http.HandlerFunc {
 			return
 		}
 		user := core.UserFromCtx(r.Context())
-		toJSON   := jsonOrEmpty(b.ToAddrs)
-		ccJSON   := jsonOrEmpty(b.CcAddrs)
-		bccJSON  := jsonOrEmpty(b.BccAddrs)
-		attJSON  := jsonOrEmpty(b.Attachments)
+		toJSON := jsonOrEmpty(b.ToAddrs)
+		ccJSON := jsonOrEmpty(b.CcAddrs)
+		bccJSON := jsonOrEmpty(b.BccAddrs)
+		attJSON := jsonOrEmpty(b.Attachments)
 
 		if b.ID != nil && *b.ID > 0 {
 			// Update existing draft
@@ -1495,10 +1490,10 @@ func mailSaveSignature(db *core.DB) http.HandlerFunc {
 func mailUploadAttachment(_ *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Check R2 configuration
-		accountID  := os.Getenv("R2_ACCOUNT_ID")
+		accountID := os.Getenv("R2_ACCOUNT_ID")
 		bucketName := os.Getenv("R2_BUCKET_NAME")
-		accessKey  := os.Getenv("R2_ACCESS_KEY_ID")
-		secretKey  := os.Getenv("R2_SECRET_ACCESS_KEY")
+		accessKey := os.Getenv("R2_ACCESS_KEY_ID")
+		secretKey := os.Getenv("R2_SECRET_ACCESS_KEY")
 
 		r2Configured := accountID != "" && bucketName != "" && accessKey != "" && secretKey != ""
 
@@ -1529,7 +1524,7 @@ func mailUploadAttachment(_ *core.DB) http.HandlerFunc {
 
 		if r2Configured {
 			objectKey := fmt.Sprintf("mail-attachments/%s/%s", uid, filename)
-			endpoint  := fmt.Sprintf("https://%s.r2.cloudflarestorage.com/%s/%s",
+			endpoint := fmt.Sprintf("https://%s.r2.cloudflarestorage.com/%s/%s",
 				accountID, bucketName, objectKey)
 			pubURL := fmt.Sprintf("https://%s.r2.cloudflarestorage.com/%s/%s",
 				accountID, bucketName, objectKey)
@@ -1575,16 +1570,16 @@ func mailUploadAttachment(_ *core.DB) http.HandlerFunc {
 func r2Put(endpoint, accessKey, secretKey, accountID, bucket, objectKey, contentType string, data []byte) error {
 	now := time.Now().UTC()
 	dateShort := now.Format("20060102")
-	dateLong  := now.Format("20060102T150405Z")
-	region    := "auto"
-	service   := "s3"
+	dateLong := now.Format("20060102T150405Z")
+	region := "auto"
+	service := "s3"
 
 	// Step 1: canonical request
 	payloadHash := fmt.Sprintf("%x", sha256Sum(data))
 	headers := fmt.Sprintf("content-type:%s\nhost:%s.r2.cloudflarestorage.com\nx-amz-content-sha256:%s\nx-amz-date:%s\n",
 		contentType, accountID, payloadHash, dateLong)
 	signedHeaders := "content-type;host;x-amz-content-sha256;x-amz-date"
-	canonicalURI  := "/" + bucket + "/" + objectKey
+	canonicalURI := "/" + bucket + "/" + objectKey
 	canonical := strings.Join([]string{
 		"PUT", canonicalURI, "", headers, signedHeaders, payloadHash,
 	}, "\n")
@@ -1596,8 +1591,8 @@ func r2Put(endpoint, accessKey, secretKey, accountID, bucket, objectKey, content
 	}, "\n")
 
 	// Step 3: signing key
-	kDate    := hmacSHA256([]byte("AWS4"+secretKey), []byte(dateShort))
-	kRegion  := hmacSHA256(kDate, []byte(region))
+	kDate := hmacSHA256([]byte("AWS4"+secretKey), []byte(dateShort))
+	kRegion := hmacSHA256(kDate, []byte(region))
 	kService := hmacSHA256(kRegion, []byte(service))
 	kSigning := hmacSHA256(kService, []byte("aws4_request"))
 	signature := fmt.Sprintf("%x", hmacSHA256(kSigning, []byte(strToSign)))
