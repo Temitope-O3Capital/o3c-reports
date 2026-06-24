@@ -560,7 +560,8 @@ func zohoFetchDeptNames(ctx context.Context) map[string]string {
 // zohoFetchAndStoreThreads fetches threads for one Zoho ticket and upserts them
 // into helpdesk_messages. Safe to call concurrently (uses ON CONFLICT DO NOTHING).
 func zohoFetchAndStoreThreads(ctx context.Context, db *core.DB, ticketID int64, zohoTicketID string) {
-	db.PGExec(ctx, `ALTER TABLE helpdesk_messages ADD COLUMN IF NOT EXISTS zoho_thread_id TEXT`)                                                          //nolint:errcheck
+	db.PGExec(ctx, `ALTER TABLE helpdesk_messages ADD COLUMN IF NOT EXISTS zoho_thread_id TEXT`) //nolint:errcheck
+	// Use non-partial unique index so ON CONFLICT DO NOTHING works without specifying WHERE
 	db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_messages_zoho_thread ON helpdesk_messages(zoho_thread_id) WHERE zoho_thread_id IS NOT NULL`) //nolint:errcheck
 
 	result, err := zohoFetch(ctx, "tickets/"+zohoTicketID+"/threads", url.Values{
@@ -577,22 +578,29 @@ func zohoFetchAndStoreThreads(ctx context.Context, db *core.DB, ticketID int64, 
 			continue
 		}
 
+		// Zoho thread shape: direction="in"/"out", visibility="public"/"private"
+		// author.name / author.email hold the sender; no top-level fromDisplayName
 		dirRaw, _ := th["direction"].(string)
-		threadType, _ := th["type"].(string)
 		direction := "outbound"
-		if strings.EqualFold(dirRaw, "in") || strings.EqualFold(dirRaw, "inbound") {
+		if strings.EqualFold(dirRaw, "in") {
 			direction = "inbound"
 		}
-		isNote := strings.EqualFold(threadType, "note") || strings.EqualFold(threadType, "comment")
+		visibility, _ := th["visibility"].(string)
+		isNote := !strings.EqualFold(visibility, "public") // private = internal note
 
-		bodyText, _ := th["body"].(string)
-		if bodyText == "" {
-			bodyText, _ = th["summary"].(string)
-		}
+		// summary is the plain-text body in list view (full HTML only in single-thread fetch)
+		bodyText, _ := th["summary"].(string)
 		bodyText = strings.TrimSpace(bodyText)
 
-		authorName, _ := th["fromDisplayName"].(string)
-		fromEmail, _ := th["fromEmailAddress"].(string)
+		// author info lives in nested author object
+		var authorName, authorEmail string
+		if author, ok := th["author"].(map[string]any); ok {
+			authorName, _ = author["name"].(string)
+			authorEmail, _ = author["email"].(string)
+		}
+		if authorName == "" {
+			authorName = authorEmail
+		}
 
 		var createdAt *time.Time
 		if ct, _ := th["createdTime"].(string); ct != "" {
@@ -605,21 +613,30 @@ func zohoFetchAndStoreThreads(ctx context.Context, db *core.DB, ticketID int64, 
 			createdAt = &now
 		}
 
-		channel := "email"
-		if isNote {
-			channel = "note"
+		channel, _ := th["channel"].(string)
+		if channel == "" {
+			channel = "email"
+		}
+		channel = strings.ToLower(channel)
+
+		// Skip if already stored
+		var exists bool
+		db.PG.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM helpdesk_messages WHERE zoho_thread_id=$1)`, zohoThreadID).Scan(&exists) //nolint:errcheck
+		if exists {
+			continue
 		}
 
-		db.PGExec(ctx, `
+		if _, err := db.PGExec(ctx, `
 			INSERT INTO helpdesk_messages
 			    (ticket_id, direction, channel, author_name, body_text, body_html,
 			     is_internal_note, zoho_thread_id, created_at)
-			VALUES ($1,$2,$3,$4,$5,$5,$6,$7,$8)
-			ON CONFLICT (zoho_thread_id) DO NOTHING`,
+			VALUES ($1,$2,$3,$4,$5,$5,$6,$7,$8)`,
 			ticketID, direction, channel,
-			ptrOrNilStr(coalesce(authorName, fromEmail)),
+			ptrOrNilStr(authorName),
 			ptrOrNilStr(bodyText),
-			isNote, zohoThreadID, createdAt) //nolint:errcheck
+			isNote, zohoThreadID, createdAt); err != nil {
+			slog.Warn("zohoFetchAndStoreThreads: insert", "thread_id", zohoThreadID, "err", err)
+		}
 	}
 }
 
@@ -656,13 +673,12 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 		pagesFetched := 0
 		done := false
 
-		deptNames := zohoFetchDeptNames(ctx)
-
 		for pagesFetched < maxPages {
 			result, err := zohoFetch(ctx, "tickets", url.Values{
-				"from":   {strconv.Itoa(from)},
-				"limit":  {strconv.Itoa(limit)},
-				"sortBy": {"createdTime"},
+				"from":    {strconv.Itoa(from)},
+				"limit":   {strconv.Itoa(limit)},
+				"sortBy":  {"createdTime"},
+				"include": {"contacts,assignee"},
 			})
 			if err != nil {
 				slog.Error("zohoImportTickets: fetch page", "from", from, "err", err)
@@ -695,8 +711,10 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 				statusRaw, _ := t["status"].(string)
 				priorityRaw, _ := t["priority"].(string)
 				channelRaw, _ := t["channel"].(string)
-				departmentRaw, _ := t["departmentId"].(string)
-				deptName := deptNames[departmentRaw]
+				var deptName string
+				if dept, ok := t["department"].(map[string]any); ok {
+					deptName, _ = dept["name"].(string)
+				}
 
 				ourStatus := "open"
 				for k, v := range zohoStatusMap {
@@ -735,7 +753,7 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 					ON CONFLICT (zoho_ticket_id) DO NOTHING`,
 					ourChannel, ourStatus, ourPriority, subject,
 					contactName, contactEmail, contactPhone,
-					departmentRaw, ptrOrNilStr(deptName), ptrOrNilStr(description),
+					ptrOrNilStr(deptName), ptrOrNilStr(deptName), ptrOrNilStr(description),
 					slaDueAt, csatScore, ptrOrNilStr(csatComment), threadCount,
 					zohoID, createdAt)
 				if err != nil {
@@ -780,14 +798,12 @@ func zohoResyncTickets(db *core.DB) http.HandlerFunc {
 		from := 0
 		limit := 50
 
-		deptNames := zohoFetchDeptNames(ctx)
-
 		for {
 			result, err := zohoFetch(ctx, "tickets", url.Values{
-				"from":      {strconv.Itoa(from)},
-				"limit":     {strconv.Itoa(limit)},
-				"sortBy":    {"modifiedTime"},
-				"sortOrder": {"desc"},
+				"from":    {strconv.Itoa(from)},
+				"limit":   {strconv.Itoa(limit)},
+				"sortBy":  {"modifiedTime"},
+				"include": {"contacts,assignee"},
 			})
 			if err != nil {
 				respondErr(w, 502, "Zoho fetch failed: "+err.Error())
@@ -807,8 +823,10 @@ func zohoResyncTickets(db *core.DB) http.HandlerFunc {
 				priorityRaw, _ := t["priority"].(string)
 				channelRaw, _ := t["channel"].(string)
 				subject, _ := t["subject"].(string)
-				departmentRaw, _ := t["departmentId"].(string)
-				deptName := deptNames[departmentRaw]
+				var deptName string
+				if dept, ok := t["department"].(map[string]any); ok {
+					deptName, _ = dept["name"].(string)
+				}
 
 				ourStatus := "open"
 				for k, v := range zohoStatusMap {
@@ -855,7 +873,7 @@ func zohoResyncTickets(db *core.DB) http.HandlerFunc {
 					      zoho_synced_at=NOW()`,
 					ourChannel, ourStatus, ourPriority, subject,
 					contactName, contactEmail, contactPhone,
-					departmentRaw, ptrOrNilStr(deptName), ptrOrNilStr(description),
+					ptrOrNilStr(deptName), ptrOrNilStr(deptName), ptrOrNilStr(description),
 					slaDueAt, csatScore, ptrOrNilStr(csatComment), threadCount,
 					zohoID, createdAt)
 				if err != nil {
@@ -1084,25 +1102,29 @@ func zohoImportThreads(db *core.DB) http.HandlerFunc {
 					continue
 				}
 
-				// Map direction
+				// Actual Zoho thread shape (confirmed via API test):
+				// direction = "in" | "out"   (not "inbound"/"outbound")
+				// visibility = "public" | "private"  (private = internal note)
+				// author = {name, email, ...}   (no top-level fromDisplayName)
+				// summary = plain-text body in list view (content only in single-thread fetch)
 				dirRaw, _ := th["direction"].(string)
-				threadType, _ := th["type"].(string)
 				direction := "outbound"
-				if strings.EqualFold(dirRaw, "in") || strings.EqualFold(dirRaw, "inbound") {
+				if strings.EqualFold(dirRaw, "in") {
 					direction = "inbound"
 				}
-				isNote := strings.EqualFold(threadType, "note") || strings.EqualFold(threadType, "comment")
+				visibility, _ := th["visibility"].(string)
+				isNote := !strings.EqualFold(visibility, "public")
 
-				// Body — prefer full body over summary
-				bodyText, _ := th["body"].(string)
-				if bodyText == "" {
-					bodyText, _ = th["summary"].(string)
-				}
-				// Strip basic HTML tags for body_text storage
+				bodyText, _ := th["summary"].(string)
 				bodyText = strings.TrimSpace(bodyText)
 
-				authorName, _ := th["fromDisplayName"].(string)
-				fromEmail, _ := th["fromEmailAddress"].(string)
+				var authorName string
+				if author, ok := th["author"].(map[string]any); ok {
+					authorName, _ = author["name"].(string)
+					if authorName == "" {
+						authorName, _ = author["email"].(string)
+					}
+				}
 
 				var createdAt *time.Time
 				if ct, _ := th["createdTime"].(string); ct != "" {
@@ -1115,22 +1137,31 @@ func zohoImportThreads(db *core.DB) http.HandlerFunc {
 					createdAt = &now
 				}
 
-				channel := "email"
-				if isNote {
-					channel = "note"
+				channel, _ := th["channel"].(string)
+				if channel == "" {
+					channel = "EMAIL"
+				}
+				channel = strings.ToLower(channel)
+
+				// Use EXISTS check instead of ON CONFLICT on partial index
+				var exists bool
+				db.PG.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM helpdesk_messages WHERE zoho_thread_id=$1)`, zohoThreadID).Scan(&exists) //nolint:errcheck
+				if exists {
+					skipped++
+					continue
 				}
 
 				_, err := db.PGExec(ctx, `
 					INSERT INTO helpdesk_messages
 					    (ticket_id, direction, channel, author_name, body_text, body_html,
 					     is_internal_note, zoho_thread_id, created_at)
-					VALUES ($1,$2,$3,$4,$5,$5,$6,$7,$8)
-					ON CONFLICT (zoho_thread_id) DO NOTHING`,
+					VALUES ($1,$2,$3,$4,$5,$5,$6,$7,$8)`,
 					ticketID, direction, channel,
-					ptrOrNilStr(coalesce(authorName, fromEmail)),
+					ptrOrNilStr(authorName),
 					ptrOrNilStr(bodyText),
 					isNote, zohoThreadID, createdAt)
 				if err != nil {
+					slog.Warn("zohoImportThreads: insert", "thread_id", zohoThreadID, "ticket_id", ticketID, "err", err)
 					failed++
 				} else {
 					imported++
