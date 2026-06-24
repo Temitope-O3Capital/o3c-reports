@@ -16,6 +16,7 @@
 //   'md', 'coo', 'management', 'admin'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { toast } from 'sonner'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
@@ -340,6 +341,8 @@ export default function TicketList() {
   // Sort state
   const [sortBy,  setSortBy]  = useState<'created_at' | 'priority' | 'sla_due_at'>('created_at')
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
+  const [syncing,    setSyncing]    = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
   function toggleSort(col: typeof sortBy) {
     setSortBy(prev => {
       if (prev === col) { setSortDir(d => d === 'desc' ? 'asc' : 'desc'); return prev }
@@ -359,7 +362,7 @@ export default function TicketList() {
       .then(setStats)
       .catch(() => {})
       .finally(() => setStatsL(false))
-  }, [dateFrom, dateTo])
+  }, [dateFrom, dateTo, refreshKey])
 
   // Load agents for bulk assign
   useEffect(() => {
@@ -388,7 +391,7 @@ export default function TicketList() {
       .then(setTicketPage)
       .catch((e: Error) => setErr(e.message))
       .finally(() => setLoading(false))
-  }, [status, priority, channel, department, assignedTo, searchQ, myTickets, page, dateFrom, dateTo])
+  }, [status, priority, channel, department, assignedTo, searchQ, myTickets, page, dateFrom, dateTo, refreshKey])
 
   const tickets = ticketPage?.data ?? []
   const totalPages = ticketPage?.pages ?? 1
@@ -434,6 +437,19 @@ export default function TicketList() {
     setSelectedIds(new Set())
   }
 
+  async function syncFromZoho() {
+    setSyncing(true)
+    try {
+      const res = await apiPost<{ synced: number; failed: number }>('/api/zoho/desk/resync', {})
+      toast.success(`Synced ${res.synced} tickets from Zoho${res.failed ? ` (${res.failed} failed)` : ''}`)
+      setRefreshKey(k => k + 1)
+    } catch (e: any) {
+      toast.error(e.message || 'Sync failed')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <Page
       dept="Customer Service"
@@ -442,6 +458,19 @@ export default function TicketList() {
       actions={
         <div className="flex items-center gap-2">
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); setPage(1) }} />
+          <button
+            onClick={syncFromZoho}
+            disabled={syncing}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-semibold border transition-all disabled:opacity-50"
+            style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY }}
+            title="Re-sync tickets from Zoho Desk"
+          >
+            {syncing
+              ? <Spinner size={14} />
+              : <span className="material-symbols-rounded text-[16px]">sync</span>
+            }
+            Sync
+          </button>
           <button
             onClick={() => setCompose(true)}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold text-white"
@@ -453,10 +482,7 @@ export default function TicketList() {
         </div>
       }
     >
-      {/* Quick stats bar */}
-      <QuickStats stats={stats} tickets={tickets} statsLoading={statsLoading} />
-
-      {/* Full KPI strip */}
+      {/* KPI strip */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
         <KpiCard label="Open"           value={statsLoading ? '—' : String(stats?.open ?? 0)}          icon="inbox"       accent={NAVY}  loading={statsLoading} />
         <KpiCard label="Pending"        value={statsLoading ? '—' : String(stats?.pending ?? 0)}       icon="schedule"    accent={AMBER} loading={statsLoading} />

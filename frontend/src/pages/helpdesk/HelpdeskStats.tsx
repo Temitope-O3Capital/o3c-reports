@@ -268,7 +268,9 @@ export default function HelpdeskStats() {
                     axisLine={false}
                     tickLine={false}
                     allowDecimals={false}
-                    width={36}
+                    width={52}
+                    domain={[0, 'auto']}
+                    tickFormatter={(v: number) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : String(v)}
                   />
                   <Tooltip
                     content={({ active, payload, label }) => {

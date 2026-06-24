@@ -42,10 +42,12 @@ func RegisterZoho(r chi.Router, db *core.DB) {
 	r.Get("/status", zohoGetStatus(db))
 	r.Get("/oauth/connect", zohoOAuthConnect(db))
 	r.Delete("/oauth/disconnect", zohoOAuthDisconnect(db))
-	r.Post("/org-id", zohoSetOrgID(db)) // manually set org ID
+	r.Post("/org-id", zohoSetOrgID(db))
 	r.Post("/desk/sync", zohoPushTickets(db))
 	r.Post("/desk/import", zohoImportTickets(db))
+	r.Post("/desk/resync", zohoResyncTickets(db))
 	r.Post("/desk/tickets/{id}/push", zohoPushOneTicket(db))
+	r.Post("/calls/import", zohoImportCalls(db))
 	r.Post("/voice/call", zohoInitiateCall(db))
 }
 
@@ -608,6 +610,248 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 			"next_from": from,
 			"done":      done,
 		})
+	}
+}
+
+// zohoResyncTickets fetches all Zoho tickets and updates status/last-activity for
+// ones we already have, and imports ones we don't.
+func zohoResyncTickets(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		ensureZohoSchema(ctx, db)
+
+		var updated, failed int
+		from := 0
+		limit := 50
+
+		for {
+			result, err := zohoFetch(ctx, "tickets", url.Values{
+				"from":    {strconv.Itoa(from)},
+				"limit":   {strconv.Itoa(limit)},
+				"sortBy":  {"modifiedTime"},
+				"sortOrder": {"desc"},
+			})
+			if err != nil {
+				respondErr(w, 502, "Zoho fetch failed: "+err.Error())
+				return
+			}
+			items := zohoItems(result)
+			if len(items) == 0 {
+				break
+			}
+
+			for _, t := range items {
+				zohoID, _ := t["id"].(string)
+				if zohoID == "" {
+					continue
+				}
+				statusRaw, _ := t["status"].(string)
+				priorityRaw, _ := t["priority"].(string)
+				channelRaw, _ := t["channel"].(string)
+				subject, _ := t["subject"].(string)
+				departmentRaw, _ := t["departmentId"].(string)
+
+				ourStatus := "open"
+				for k, v := range zohoStatusMap {
+					if strings.EqualFold(v, statusRaw) {
+						ourStatus = k
+						break
+					}
+				}
+				ourPriority := "normal"
+				for k, v := range zohoPriorityMap {
+					if strings.EqualFold(v, priorityRaw) {
+						ourPriority = k
+						break
+					}
+				}
+				ourChannel := zohoMapChannel(channelRaw)
+
+				contactName, contactEmail, contactPhone := "", "", ""
+				if contact, ok := t["contact"].(map[string]any); ok {
+					contactName, _ = contact["firstName"].(string)
+					if ln, _ := contact["lastName"].(string); ln != "" {
+						if contactName != "" {
+							contactName += " " + ln
+						} else {
+							contactName = ln
+						}
+					}
+					contactEmail, _ = contact["email"].(string)
+					contactPhone, _ = contact["phone"].(string)
+				}
+
+				var createdAt *time.Time
+				if ct, _ := t["createdTime"].(string); ct != "" {
+					if ts, err2 := time.Parse(time.RFC3339, ct); err2 == nil {
+						createdAt = &ts
+					}
+				}
+
+				// Upsert: insert new, update status/priority of existing
+				_, err := db.PGExec(ctx, `
+					INSERT INTO helpdesk_tickets
+					    (channel, status, priority, subject, customer_name, customer_email,
+					     customer_phone, department, zoho_ticket_id, zoho_synced_at, created_at)
+					VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),$10)
+					ON CONFLICT (zoho_ticket_id) DO UPDATE
+					  SET status=$2, priority=$3, subject=$4, customer_name=$5,
+					      customer_email=$6, customer_phone=$7, department=$8,
+					      zoho_synced_at=NOW()`,
+					ourChannel, ourStatus, ourPriority, subject,
+					contactName, contactEmail, contactPhone,
+					departmentRaw, zohoID, createdAt)
+				if err != nil {
+					failed++
+				} else {
+					updated++
+				}
+			}
+
+			if len(items) < limit {
+				break
+			}
+			from += limit
+			if from > 2000 {
+				break // safety cap
+			}
+		}
+
+		slog.Info("zohoResyncTickets done", "updated", updated, "failed", failed)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"synced": updated, "failed": failed}) //nolint:errcheck
+	}
+}
+
+// zohoImportCalls pulls calls from Zoho Desk and inserts them into helpdesk_calls.
+// Requires zoho_call_id column for dedup (added lazily).
+func zohoImportCalls(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		// Ensure dedup column exists
+		db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS zoho_call_id TEXT`) //nolint:errcheck
+		db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_calls_zoho_id ON helpdesk_calls(zoho_call_id) WHERE zoho_call_id IS NOT NULL`) //nolint:errcheck
+		if err := ensureCallLogSchema(ctx, db); err != nil {
+			respondErr(w, 500, "Call log schema setup failed")
+			return
+		}
+
+		var imported, skipped, failed int
+		from := 0
+		limit := 50
+		maxPages := 10
+
+		for page := 0; page < maxPages; page++ {
+			result, err := zohoFetch(ctx, "calls", url.Values{
+				"from":      {strconv.Itoa(from)},
+				"limit":     {strconv.Itoa(limit)},
+				"sortBy":    {"startTime"},
+				"sortOrder": {"desc"},
+			})
+			if err != nil {
+				slog.Error("zohoImportCalls: fetch page", "from", from, "err", err)
+				break
+			}
+			items := zohoItems(result)
+			if len(items) == 0 {
+				break
+			}
+
+			for _, c := range items {
+				zohoCallID, _ := c["id"].(string)
+				if zohoCallID == "" {
+					skipped++
+					continue
+				}
+
+				// Direction
+				callType, _ := c["type"].(string)
+				direction := "inbound"
+				if strings.EqualFold(callType, "OUTBOUND") {
+					direction = "outbound"
+				}
+
+				// Outcome
+				status, _ := c["status"].(string)
+				outcome := "missed"
+				switch strings.ToUpper(status) {
+				case "ANSWERED", "COMPLETED":
+					outcome = "resolved"
+				case "TRANSFERRED":
+					outcome = "transferred"
+				}
+
+				// Duration
+				var durSec *int
+				if d, ok := c["duration"]; ok {
+					switch v := d.(type) {
+					case float64:
+						i := int(v)
+						durSec = &i
+					case string:
+						if i, err2 := strconv.Atoi(v); err2 == nil {
+							durSec = &i
+						}
+					}
+				}
+
+				// Agent
+				agentName := ""
+				if agent, ok := c["agent"].(map[string]any); ok {
+					agentName, _ = agent["name"].(string)
+					if agentName == "" {
+						agentName, _ = agent["firstName"].(string)
+					}
+				}
+
+				// Contact
+				customerName, customerPhone, customerEmail := "", "", ""
+				if contact, ok := c["contact"].(map[string]any); ok {
+					fn, _ := contact["firstName"].(string)
+					ln, _ := contact["lastName"].(string)
+					if fn != "" || ln != "" {
+						customerName = strings.TrimSpace(fn + " " + ln)
+					}
+					customerPhone, _ = contact["phone"].(string)
+					customerEmail, _ = contact["email"].(string)
+				}
+				if customerPhone == "" {
+					customerPhone, _ = c["callFrom"].(string)
+				}
+
+				// Start time
+				startedAt := time.Now()
+				if st, _ := c["startTime"].(string); st != "" {
+					if ts, err2 := time.Parse(time.RFC3339, st); err2 == nil {
+						startedAt = ts
+					}
+				}
+
+				_, err := db.PGExec(ctx, `
+					INSERT INTO helpdesk_calls
+					    (agent_name, customer_name, customer_phone, customer_email,
+					     direction, duration_sec, outcome, started_at, zoho_call_id)
+					VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+					ON CONFLICT (zoho_call_id) DO NOTHING`,
+					agentName, customerName, customerPhone, customerEmail,
+					direction, durSec, outcome, startedAt, zohoCallID)
+				if err != nil {
+					slog.Warn("zohoImportCalls: insert failed", "zoho_call_id", zohoCallID, "err", err)
+					failed++
+				} else {
+					imported++
+				}
+			}
+
+			if len(items) < limit {
+				break
+			}
+			from += limit
+		}
+
+		slog.Info("zohoImportCalls done", "imported", imported, "skipped", skipped, "failed", failed)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"imported": imported, "skipped": skipped, "failed": failed}) //nolint:errcheck
 	}
 }
 
