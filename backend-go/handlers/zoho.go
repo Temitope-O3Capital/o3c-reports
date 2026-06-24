@@ -291,7 +291,7 @@ func zohoOAuthConnect(db *core.DB) http.HandlerFunc {
 			"%s/oauth/v2/auth?response_type=code&client_id=%s&scope=%s&redirect_uri=%s&access_type=offline&prompt=consent",
 			zohoAccountsBase(ctx, db),
 			url.QueryEscape(clientID),
-			url.QueryEscape("Desk.tickets.ALL,Desk.contacts.READ,Desk.agents.READ,Desk.events.ALL"),
+			url.QueryEscape("Desk.tickets.ALL,Desk.contacts.READ,Desk.agents.READ,Desk.events.ALL,Desk.calls.READ"),
 			url.QueryEscape(redirectURI),
 		)
 		w.Header().Set("Content-Type", "application/json")
@@ -1204,21 +1204,21 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Date range: default last 30 days
-		fromDate := time.Now().AddDate(0, 0, -30).Format("2006-01-02")
-		toDate := time.Now().Format("2006-01-02")
+		// Date range: default last 30 days; Zoho Voice expects DD-MM-YYYY
+		fromDate := time.Now().AddDate(0, 0, -30).Format("02-01-2006")
+		toDate := time.Now().Format("02-01-2006")
 		if v := r.URL.Query().Get("from_date"); v != "" { fromDate = v }
 		if v := r.URL.Query().Get("to_date"); v != "" { toDate = v }
 
 		dc := zohoDC
 		if dc == "" { dc = "com" }
-		voiceBase := "https://voice.zoho." + dc + "/api/v1"
+		voiceBase := "https://voice.zoho." + dc + "/rest/json/zv"
 		var imported, skipped, failed int
 		pageFrom := 0
 		pageSize := 100
 
 		for {
-			reqURL := fmt.Sprintf("%s/calllogs?from=%s&to=%s&offset=%d&limit=%d",
+			reqURL := fmt.Sprintf("%s/calllog?from_date=%s&to_date=%s&from=%d&limit=%d",
 				voiceBase, fromDate, toDate, pageFrom, pageSize)
 			req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 			if err != nil {
