@@ -43,6 +43,7 @@ func RegisterZoho(r chi.Router, db *core.DB) {
 	r.Get("/oauth/connect", zohoOAuthConnect(db))
 	r.Delete("/oauth/disconnect", zohoOAuthDisconnect(db))
 	r.Post("/org-id", zohoSetOrgID(db))
+	r.Get("/webhooks/desk/recent", zohoWebhookDeskRecent(db))
 	r.Post("/desk/sync", zohoPushTickets(db))
 	r.Post("/desk/import", zohoImportTickets(db))
 	r.Post("/desk/resync", zohoResyncTickets(db))
@@ -61,6 +62,22 @@ func ensureZohoSchema(ctx context.Context, db *core.DB) {
 	db.PGExec(ctx, `ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS zoho_synced_at TIMESTAMPTZ`)                                              //nolint:errcheck
 	db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_tickets_zoho_id ON helpdesk_tickets(zoho_ticket_id) WHERE zoho_ticket_id IS NOT NULL`) //nolint:errcheck
 	db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_tickets_zoho_id_full ON helpdesk_tickets(zoho_ticket_id)`)                             //nolint:errcheck
+}
+
+func ensureZohoWebhookSchema(ctx context.Context, db *core.DB) {
+	db.PGExec(ctx, `
+		CREATE TABLE IF NOT EXISTS zoho_webhook_events (
+		  id BIGSERIAL PRIMARY KEY,
+		  event_type TEXT NOT NULL DEFAULT '',
+		  zoho_ticket_id TEXT NOT NULL DEFAULT '',
+		  action TEXT NOT NULL DEFAULT '',
+		  status TEXT NOT NULL DEFAULT 'received',
+		  detail TEXT NOT NULL DEFAULT '',
+		  payload JSONB,
+		  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`) //nolint:errcheck
+	db.PGExec(ctx, `CREATE INDEX IF NOT EXISTS idx_zoho_webhook_events_created ON zoho_webhook_events(created_at DESC)`)                //nolint:errcheck
+	db.PGExec(ctx, `CREATE INDEX IF NOT EXISTS idx_zoho_webhook_events_ticket ON zoho_webhook_events(zoho_ticket_id, created_at DESC)`) //nolint:errcheck
 }
 
 // ── Org ID helpers ────────────────────────────────────────────────────────────
@@ -1641,6 +1658,39 @@ func zohoUpsertWebhookTicket(ctx context.Context, db *core.DB, raw, payload map[
 	return ticketID
 }
 
+func zohoLogWebhookEvent(ctx context.Context, db *core.DB, eventType, zohoTicketID, action, status, detail string, raw map[string]any) {
+	ensureZohoWebhookSchema(ctx, db)
+	payload := []byte("{}")
+	if raw != nil {
+		if b, err := json.Marshal(raw); err == nil {
+			payload = b
+		}
+	}
+	db.PGExec(ctx, `
+		INSERT INTO zoho_webhook_events
+		    (event_type, zoho_ticket_id, action, status, detail, payload)
+		VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
+		eventType, zohoTicketID, action, status, detail, string(payload)) //nolint:errcheck
+}
+
+func zohoWebhookDeskRecent(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		ensureZohoWebhookSchema(ctx, db)
+		limit := qint(r, "limit", 25, 1, 100)
+		rows, err := db.PGQuery(ctx, `
+			SELECT id, event_type, zoho_ticket_id, action, status, detail, created_at
+			FROM zoho_webhook_events
+			ORDER BY created_at DESC
+			LIMIT $1`, limit)
+		if err != nil {
+			respondErr(w, 500, "Webhook event query failed")
+			return
+		}
+		jsonRows(w, rows)
+	}
+}
+
 func zohoWebhookDesk(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if secret := zohoCred(r.Context(), db, "ZOHO_WEBHOOK_SECRET"); secret != "" {
@@ -1673,23 +1723,46 @@ func zohoWebhookDesk(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		ensureZohoSchema(ctx, db)
 		zohoTicketID := zohoWebhookTicketID(raw, payload)
+		action := "ignored"
+		status := "ignored"
+		detail := "Event type did not match a supported ticket, message, or call event"
+		defer func() {
+			zohoLogWebhookEvent(context.Background(), db, eventType, zohoTicketID, action, status, detail, raw)
+		}()
 
 		switch {
 		case strings.Contains(eventType, "ticket") && (strings.Contains(eventType, "create") || strings.Contains(eventType, "add")):
 			if zohoTicketID == "" {
+				detail = "Missing Zoho ticket ID"
 				break
 			}
-			zohoUpsertWebhookTicket(ctx, db, raw, payload)
+			if ticketID := zohoUpsertWebhookTicket(ctx, db, raw, payload); ticketID > 0 {
+				action = "ticket_upserted"
+				status = "ok"
+				detail = fmt.Sprintf("O3 ticket %d upserted from Zoho ticket create", ticketID)
+			} else {
+				status = "failed"
+				detail = "Ticket create event received but O3 upsert failed"
+			}
 
 		case strings.Contains(eventType, "ticket") && (strings.Contains(eventType, "update") || strings.Contains(eventType, "status") || strings.Contains(eventType, "edit")):
 			if zohoTicketID == "" {
+				detail = "Missing Zoho ticket ID"
 				break
 			}
-			zohoUpsertWebhookTicket(ctx, db, raw, payload)
+			if ticketID := zohoUpsertWebhookTicket(ctx, db, raw, payload); ticketID > 0 {
+				action = "ticket_upserted"
+				status = "ok"
+				detail = fmt.Sprintf("O3 ticket %d upserted from Zoho ticket update", ticketID)
+			} else {
+				status = "failed"
+				detail = "Ticket update event received but O3 upsert failed"
+			}
 
 		case strings.Contains(eventType, "comment") || strings.Contains(eventType, "thread") || strings.Contains(eventType, "reply"):
 			// A new message/reply was posted on a ticket — insert into helpdesk_messages
 			if zohoTicketID == "" {
+				detail = "Missing Zoho ticket ID"
 				break
 			}
 			ticketID := zohoUpsertWebhookTicket(ctx, db, raw, payload)
@@ -1698,6 +1771,8 @@ func zohoWebhookDesk(db *core.DB) http.HandlerFunc {
 				ticketID = toInt64(ticketRows[0]["id"])
 			}
 			if ticketID == 0 {
+				status = "failed"
+				detail = "Message event received but O3 ticket could not be found or created"
 				break
 			}
 
@@ -1738,12 +1813,24 @@ func zohoWebhookDesk(db *core.DB) http.HandlerFunc {
 				msgCreatedAt = &now
 			}
 
-			db.PGExec(ctx, `
+			res, err := db.PGExec(ctx, `
 				INSERT INTO helpdesk_messages
 				    (ticket_id, direction, channel, author_name, body_text, is_internal_note, zoho_thread_id, created_at)
 				VALUES ($1,$2,'email',$3,$4,$5,$6,$7)
 				ON CONFLICT DO NOTHING`,
-				ticketID, direction, ptrOrNilStr(authorName), ptrOrNilStr(bodyText), isNote, zohoMsgID, msgCreatedAt) //nolint:errcheck
+				ticketID, direction, ptrOrNilStr(authorName), ptrOrNilStr(bodyText), isNote, zohoMsgID, msgCreatedAt)
+			if err != nil {
+				status = "failed"
+				detail = "Message insert failed: " + err.Error()
+			} else if n, _ := res.RowsAffected(); n > 0 {
+				action = "message_inserted"
+				status = "ok"
+				detail = fmt.Sprintf("Message inserted on O3 ticket %d", ticketID)
+			} else {
+				action = "message_duplicate"
+				status = "ok"
+				detail = fmt.Sprintf("Duplicate message ignored on O3 ticket %d", ticketID)
+			}
 
 		case strings.Contains(eventType, "call"):
 			// A call was logged in Zoho Desk — insert into helpdesk_calls
@@ -1753,10 +1840,13 @@ func zohoWebhookDesk(db *core.DB) http.HandlerFunc {
 			}
 			zohoCallID := zohoFirstNonEmpty(str(call["id"]), str(call["callId"]), str(call["call_id"]))
 			if zohoCallID == "" {
+				detail = "Missing Zoho call ID"
 				break
 			}
 			if err := ensureCallLogSchema(ctx, db); err != nil {
 				slog.Warn("zoho webhook: call schema failed", "err", err)
+				status = "failed"
+				detail = "Call schema setup failed: " + err.Error()
 				break
 			}
 
@@ -1793,12 +1883,24 @@ func zohoWebhookDesk(db *core.DB) http.HandlerFunc {
 				}
 			}
 
-			db.PGExec(ctx, `
+			res, err := db.PGExec(ctx, `
 				INSERT INTO helpdesk_calls
 				    (agent_name, customer_phone, direction, duration_sec, outcome, started_at, zoho_call_id, ticket_id)
 				VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 				ON CONFLICT DO NOTHING`,
-				ptrOrNilStr(agentName), ptrOrNilStr(customerPhone), direction, durSec, outcome, startedAt, zohoCallID, ticketID) //nolint:errcheck
+				ptrOrNilStr(agentName), ptrOrNilStr(customerPhone), direction, durSec, outcome, startedAt, zohoCallID, ticketID)
+			if err != nil {
+				status = "failed"
+				detail = "Call insert failed: " + err.Error()
+			} else if n, _ := res.RowsAffected(); n > 0 {
+				action = "call_inserted"
+				status = "ok"
+				detail = "Call inserted into O3 call log"
+			} else {
+				action = "call_duplicate"
+				status = "ok"
+				detail = "Duplicate call ignored"
+			}
 		}
 
 		w.WriteHeader(200)

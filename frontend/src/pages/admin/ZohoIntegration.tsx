@@ -24,6 +24,16 @@ interface ZohoImportResult {
   done?: boolean
 }
 
+interface ZohoWebhookEvent {
+  id: number
+  event_type: string
+  zoho_ticket_id: string
+  action: string
+  status: string
+  detail: string
+  created_at: string
+}
+
 function StatusDot({ ok, label }: { ok: boolean | undefined; label: string }) {
   const color = ok === undefined ? AMBER : ok ? GREEN : RED
   const icon = ok === undefined ? 'pending' : ok ? 'check_circle' : 'cancel'
@@ -58,6 +68,8 @@ export default function ZohoIntegration() {
   const [syncing, setSyncing]   = useState(false)
   const [importing, setImporting]   = useState(false)
   const [importResult, setImportResult] = useState<ZohoImportResult | null>(null)
+  const [webhookEvents, setWebhookEvents] = useState<ZohoWebhookEvent[]>([])
+  const [loadingWebhooks, setLoadingWebhooks] = useState(false)
   const [orgIdInput, setOrgIdInput] = useState('')
   const [savingOrgId, setSavingOrgId] = useState(false)
   const [err, setErr] = useState('')
@@ -75,8 +87,21 @@ export default function ZohoIntegration() {
     try {
       const s = await apiFetch<ZohoStatus>('/api/zoho/status')
       setStatus(s)
+      loadWebhookEvents()
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
+  }
+
+  async function loadWebhookEvents() {
+    setLoadingWebhooks(true)
+    try {
+      const rows = await apiFetch<ZohoWebhookEvent[]>('/api/zoho/webhooks/desk/recent?limit=10')
+      setWebhookEvents(Array.isArray(rows) ? rows : [])
+    } catch {
+      setWebhookEvents([])
+    } finally {
+      setLoadingWebhooks(false)
+    }
   }
 
   async function connect() {
@@ -295,9 +320,68 @@ export default function ZohoIntegration() {
                       style={{ border: '1px solid rgba(15,23,42,0.08)' }}>
                       {API}/api/zoho/webhooks/desk
                     </code>
-                    <p className="mt-1 text-[11px] text-slate-400">Trigger events: Ticket Created, Ticket Status Changed, Ticket Updated</p>
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      Add header <code className="font-mono">X-O3C-Webhook-Secret</code> with your <code className="font-mono">ZOHO_WEBHOOK_SECRET</code>. If Zoho only allows URL parameters, append <code className="font-mono">?secret=YOUR_SECRET</code>.
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-400">Trigger events: Ticket Created, Ticket Updated, Ticket Status Changed, Ticket Comment/Reply Added, Call Added.</p>
                   </div>
                 </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Recent Webhook Events"
+              subtitle={webhookEvents.length ? `${webhookEvents.length} latest deliveries` : 'Waiting for Zoho'}>
+              <div className="px-5 py-4">
+                <div className="flex justify-end mb-3">
+                  <button onClick={loadWebhookEvents} disabled={loadingWebhooks}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold border disabled:opacity-50"
+                    style={{ borderColor: 'rgba(15,23,42,0.12)', color: NAVY }}>
+                    <span className={`material-symbols-rounded text-[14px] ${loadingWebhooks ? 'animate-spin' : ''}`}>
+                      {loadingWebhooks ? 'progress_activity' : 'refresh'}
+                    </span>
+                    Refresh
+                  </button>
+                </div>
+                {webhookEvents.length === 0 ? (
+                  <div className="py-8 text-center text-[13px] text-slate-400">
+                    No Zoho webhook deliveries recorded yet.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[12px]">
+                      <thead>
+                        <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400 border-b">
+                          <th className="py-2 pr-3">Time</th>
+                          <th className="py-2 pr-3">Event</th>
+                          <th className="py-2 pr-3">Action</th>
+                          <th className="py-2 pr-3">Status</th>
+                          <th className="py-2 pr-3">Detail</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {webhookEvents.map(ev => (
+                          <tr key={ev.id} className="border-b last:border-0">
+                            <td className="py-2 pr-3 whitespace-nowrap text-slate-500">
+                              {new Date(ev.created_at).toLocaleString('en-NG', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                            <td className="py-2 pr-3 font-mono text-slate-700">{ev.event_type || 'unknown'}</td>
+                            <td className="py-2 pr-3 text-slate-700">{ev.action || 'ignored'}</td>
+                            <td className="py-2 pr-3">
+                              <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                                ev.status === 'ok' ? 'bg-green-50 text-green-700' :
+                                ev.status === 'failed' ? 'bg-red-50 text-red-600' :
+                                'bg-slate-100 text-slate-500'
+                              }`}>
+                                {ev.status}
+                              </span>
+                            </td>
+                            <td className="py-2 pr-3 text-slate-500 max-w-[320px] truncate" title={ev.detail}>{ev.detail}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </SectionCard>
 
@@ -348,9 +432,9 @@ export default function ZohoIntegration() {
                 <SetupStep n={4} done={!!(status?.org_id)}
                   title="Org ID auto-detected"
                   detail="After connecting, your Zoho Desk org ID is automatically fetched and stored." />
-                <SetupStep n={5} done={false}
+                <SetupStep n={5} done={webhookEvents.length > 0}
                   title="Register webhook"
-                  detail="Copy the webhook URL from the Sync Behaviour section and register it in Zoho Desk → Settings → Automations → Notifications." />
+                  detail="Copy the webhook URL and secret instructions from the Sync Behaviour section and register it in Zoho Desk → Settings → Automations → Notifications." />
               </div>
             </SectionCard>
 
