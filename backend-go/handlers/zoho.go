@@ -909,6 +909,7 @@ func zohoImportCalls(db *core.DB) http.HandlerFunc {
 		}
 
 		var imported, skipped, failed int
+		var minStartedAt, maxStartedAt time.Time
 		from := 0
 		limit := 50
 		maxPages := 10
@@ -992,11 +993,14 @@ func zohoImportCalls(db *core.DB) http.HandlerFunc {
 
 				// Start time
 				startedAt := time.Now()
-				if st, _ := c["startTime"].(string); st != "" {
+				if ts := zohoParseMillisTime(c["startTime"]); !ts.IsZero() {
+					startedAt = ts
+				} else if st, _ := c["startTime"].(string); st != "" {
 					if ts, err2 := time.Parse(time.RFC3339, st); err2 == nil {
 						startedAt = ts
 					}
 				}
+				zohoTrackDateRange(startedAt, &minStartedAt, &maxStartedAt)
 
 				res, err := db.PGExec(ctx, `
 					INSERT INTO helpdesk_calls
@@ -1026,7 +1030,12 @@ func zohoImportCalls(db *core.DB) http.HandlerFunc {
 
 		slog.Info("zohoImportCalls done", "imported", imported, "skipped", skipped, "failed", failed)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"imported": imported, "skipped": skipped, "failed": failed}) //nolint:errcheck
+		out := map[string]any{"imported": imported, "skipped": skipped, "failed": failed}
+		if !minStartedAt.IsZero() {
+			out["date_from"] = minStartedAt.Format("2006-01-02")
+			out["date_to"] = maxStartedAt.Format("2006-01-02")
+		}
+		json.NewEncoder(w).Encode(out) //nolint:errcheck
 	}
 }
 
@@ -1211,11 +1220,12 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 
 		voiceBase := "https://voice.zoho.com/rest/json/zv"
 		var imported, skipped, failed int
+		var minStartedAt, maxStartedAt time.Time
 		pageFrom := 0
 		pageSize := 100
 
 		for {
-			reqURL := fmt.Sprintf("%s/logs?from=%d&size=%d&fromDate=%s&toDate=%s&isAllCountry=true&isVoiceMail=false&isRecording=false",
+			reqURL := fmt.Sprintf("%s/logs?from=%d&size=%d&fromDate=%s&toDate=%s",
 				voiceBase, pageFrom, pageSize, url.QueryEscape(fromDate), url.QueryEscape(toDate))
 			req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 			if err != nil {
@@ -1316,6 +1326,7 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 						startedAt = ts
 					}
 				}
+				zohoTrackDateRange(startedAt, &minStartedAt, &maxStartedAt)
 
 				res, err := db.PGExec(ctx, `
 					INSERT INTO helpdesk_calls
@@ -1348,7 +1359,12 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 
 		slog.Info("zohoImportVoiceLogs done", "imported", imported, "skipped", skipped, "failed", failed)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"imported": imported, "skipped": skipped, "failed": failed}) //nolint:errcheck
+		out := map[string]any{"imported": imported, "skipped": skipped, "failed": failed}
+		if !minStartedAt.IsZero() {
+			out["date_from"] = minStartedAt.Format("2006-01-02")
+			out["date_to"] = maxStartedAt.Format("2006-01-02")
+		}
+		json.NewEncoder(w).Encode(out) //nolint:errcheck
 	}
 }
 

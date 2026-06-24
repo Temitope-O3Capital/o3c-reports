@@ -47,6 +47,14 @@ interface CallStatsData {
   by_agent:   AgentRow[]
 }
 
+interface CallImportResult {
+  imported: number
+  skipped: number
+  failed: number
+  date_from?: string
+  date_to?: string
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtDur(sec: number | null): string {
   if (sec == null || sec === 0) return '—'
@@ -267,12 +275,23 @@ export default function CallLog() {
 
   useEffect(() => { load() }, [dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  function applyImportRange(res: CallImportResult): boolean {
+    if (!res.date_from || !res.date_to) return false
+    const changed = res.date_from !== dateFrom || res.date_to !== dateTo
+    if (changed) {
+      setDateFrom(res.date_from)
+      setDateTo(res.date_to)
+      toast.info(`Showing imported call range: ${fmtDate(res.date_from)} to ${fmtDate(res.date_to)}`)
+    }
+    return changed
+  }
+
   async function importZohoVoice() {
     setImportingVoice(true)
     try {
-      const res = await apiPost<{ imported: number; skipped: number; failed: number }>('/api/zoho/voice/import-logs', {})
+      const res = await apiPost<CallImportResult>('/api/zoho/voice/import-logs', {})
       toast.success(`Imported ${res.imported} voice call records${res.skipped ? ` (${res.skipped} already existed)` : ''}`)
-      load()
+      if (!applyImportRange(res)) load()
     } catch (e: any) {
       toast.error(e.message || 'Failed to import from Zoho Voice')
     } finally {
@@ -283,9 +302,9 @@ export default function CallLog() {
   async function importZohoCalls() {
     setImporting(true)
     try {
-      const res = await apiPost<{ imported: number; skipped: number; failed: number }>('/api/zoho/calls/import', {})
+      const res = await apiPost<CallImportResult>('/api/zoho/calls/import', {})
       toast.success(`Imported ${res.imported} calls from Zoho${res.skipped ? ` (${res.skipped} already existed)` : ''}`)
-      load()
+      if (!applyImportRange(res)) load()
     } catch (e: any) {
       toast.error(e.message || 'Failed to import calls from Zoho')
     } finally {

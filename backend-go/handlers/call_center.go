@@ -230,6 +230,18 @@ func zohoParseDurationSec(v any) *int {
 	}
 }
 
+func zohoTrackDateRange(t time.Time, minAt, maxAt *time.Time) {
+	if t.IsZero() {
+		return
+	}
+	if minAt.IsZero() || t.Before(*minAt) {
+		*minAt = t
+	}
+	if maxAt.IsZero() || t.After(*maxAt) {
+		*maxAt = t
+	}
+}
+
 // ── Register ──────────────────────────────────────────────────────────────────
 
 func RegisterCallCenter(r chi.Router, db *core.DB) {
