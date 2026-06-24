@@ -529,9 +529,7 @@ func zohoFetchAndStoreThreads(ctx context.Context, db *core.DB, ticketID int64, 
 	db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_messages_zoho_thread ON helpdesk_messages(zoho_thread_id) WHERE zoho_thread_id IS NOT NULL`) //nolint:errcheck
 
 	result, err := zohoFetch(ctx, "tickets/"+zohoTicketID+"/threads", url.Values{
-		"limit":     {"50"},
-		"sortBy":    {"createdTime"},
-		"sortOrder": {"asc"},
+		"limit": {"50"},
 	})
 	if err != nil {
 		slog.Warn("zohoFetchAndStoreThreads: fetch", "zoho_id", zohoTicketID, "err", err)
@@ -871,10 +869,9 @@ func zohoImportCalls(db *core.DB) http.HandlerFunc {
 
 		for page := 0; page < maxPages; page++ {
 			result, err := zohoFetch(ctx, "calls", url.Values{
-				"from":      {strconv.Itoa(from)},
-				"limit":     {strconv.Itoa(limit)},
-				"sortBy":    {"startTime"},
-				"sortOrder": {"desc"},
+				"from":   {strconv.Itoa(from)},
+				"limit":  {strconv.Itoa(limit)},
+				"sortBy": {"startTime"},
 			})
 			if err != nil {
 				slog.Error("zohoImportCalls: fetch page", "from", from, "err", err)
@@ -1036,9 +1033,7 @@ func zohoImportThreads(db *core.DB) http.HandlerFunc {
 
 			// Fetch threads for this ticket
 			result, err := zohoFetch(ctx, "tickets/"+zohoID+"/threads", url.Values{
-				"limit":     {"50"},
-				"sortBy":    {"createdTime"},
-				"sortOrder": {"asc"},
+				"limit": {"50"},
 			})
 			if err != nil {
 				slog.Warn("zohoImportThreads: fetch threads", "zoho_id", zohoID, "err", err)
@@ -1144,24 +1139,27 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 		}
 
 		// Date range: default last 30 days
-		fromDate := time.Now().AddDate(0, 0, -30).Format("20060102")
-		toDate := time.Now().Format("20060102")
+		fromDate := time.Now().AddDate(0, 0, -30).Format("2006-01-02")
+		toDate := time.Now().Format("2006-01-02")
 		if v := r.URL.Query().Get("from_date"); v != "" { fromDate = v }
 		if v := r.URL.Query().Get("to_date"); v != "" { toDate = v }
 
-		voiceBase := "https://voice.zoho." + zohoDC + "/rest/json/zv"
+		dc := zohoDC
+		if dc == "" { dc = "com" }
+		voiceBase := "https://voice.zoho." + dc + "/api/v1"
 		var imported, skipped, failed int
 		pageFrom := 0
 		pageSize := 100
 
 		for {
-			reqURL := fmt.Sprintf("%s/logs?fromDate=%s&toDate=%s&from=%d&size=%d",
+			reqURL := fmt.Sprintf("%s/calllogs?from=%s&to=%s&offset=%d&limit=%d",
 				voiceBase, fromDate, toDate, pageFrom, pageSize)
 			req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 			if err != nil {
 				break
 			}
 			req.Header.Set("Authorization", "Zoho-oauthtoken "+token)
+			req.Header.Set("orgId", zohoOrgID)
 
 			resp, err := zohoHTTP.Do(req)
 			if err != nil {
@@ -1169,14 +1167,15 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 				break
 			}
 
-			var result map[string]any
-			json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck
+			bodyBytes, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
+			var result map[string]any
+			json.Unmarshal(bodyBytes, &result) //nolint:errcheck
 
 			// Voice API wraps in "response" → "result" → array, or directly "data"
 			var logs []map[string]any
 			if resp.StatusCode != 200 {
-				slog.Warn("zohoImportVoiceLogs: non-200", "status", resp.StatusCode)
+				slog.Warn("zohoImportVoiceLogs: non-200", "status", resp.StatusCode, "body", string(bodyBytes[:min(len(bodyBytes), 400)]))
 				break
 			}
 			if arr, ok := result["data"].([]any); ok {
