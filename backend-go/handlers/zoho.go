@@ -52,40 +52,6 @@ func RegisterZoho(r chi.Router, db *core.DB) {
 	r.Post("/voice/import-logs", zohoImportVoiceLogs(db))
 	r.Post("/voice/call", zohoInitiateCall(db))
 	// Temporary debug proxy — admin only, returns raw Zoho API response
-	r.Get("/debug/raw", zohoDebugRaw(db))
-}
-
-// zohoDebugRaw proxies a GET request to the Zoho Desk API and returns the raw
-// JSON response. Use ?path=tickets/ID/threads&limit=5 etc.
-// Temporary — remove once data shapes are confirmed.
-func zohoDebugRaw(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		if !zohoEnsureConfigured(ctx, db) {
-			respondErr(w, 503, "Zoho not configured")
-			return
-		}
-		path := r.URL.Query().Get("path")
-		if path == "" {
-			respondErr(w, 400, "?path= required (e.g. path=tickets/ID/threads)")
-			return
-		}
-		// Forward all other query params to Zoho
-		params := url.Values{}
-		for k, vs := range r.URL.Query() {
-			if k == "path" {
-				continue
-			}
-			params[k] = vs
-		}
-		result, err := zohoFetch(ctx, path, params)
-		if err != nil {
-			respondErr(w, 502, err.Error())
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(result) //nolint:errcheck
-	}
 }
 
 // ── Schema ────────────────────────────────────────────────────────────────────

@@ -74,7 +74,7 @@ func main() {
 	r.Use(corsMiddleware(cfg.AllowedOrigins))
 	r.Use(securityHeaders)
 	// Use rightmost X-Forwarded-For IP as the rate-limit key (Railway appends the real IP last).
-	r.Use(httprate.Limit(100, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
+	r.Use(httprate.Limit(300, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
 		return rightmostIP(r), nil
 	})))
 
