@@ -187,6 +187,49 @@ func zohoParseTime(v any) time.Time {
 
 func zohoStr(v any) string { s, _ := v.(string); return s }
 
+func zohoParseMillisTime(v any) time.Time {
+	s := zohoStr(v)
+	if s == "" {
+		return time.Time{}
+	}
+	ms, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || ms <= 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(ms)
+}
+
+func zohoParseDurationSec(v any) *int {
+	switch d := v.(type) {
+	case float64:
+		i := int(d)
+		return &i
+	case int:
+		i := d
+		return &i
+	case string:
+		d = strings.TrimSpace(d)
+		if d == "" {
+			return nil
+		}
+		if i, err := strconv.Atoi(d); err == nil {
+			return &i
+		}
+		parts := strings.Split(d, ":")
+		total := 0
+		for _, part := range parts {
+			n, err := strconv.Atoi(strings.TrimSpace(part))
+			if err != nil {
+				return nil
+			}
+			total = total*60 + n
+		}
+		return &total
+	default:
+		return nil
+	}
+}
+
 // ── Register ──────────────────────────────────────────────────────────────────
 
 func RegisterCallCenter(r chi.Router, db *core.DB) {

@@ -684,11 +684,17 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 
 				ourStatus := "open"
 				for k, v := range zohoStatusMap {
-					if strings.EqualFold(v, statusRaw) { ourStatus = k; break }
+					if strings.EqualFold(v, statusRaw) {
+						ourStatus = k
+						break
+					}
 				}
 				ourPriority := "normal"
 				for k, v := range zohoPriorityMap {
-					if strings.EqualFold(v, priorityRaw) { ourPriority = k; break }
+					if strings.EqualFold(v, priorityRaw) {
+						ourPriority = k
+						break
+					}
 				}
 				ourChannel := zohoMapChannel(channelRaw)
 
@@ -696,7 +702,11 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 				if contact, ok := t["contact"].(map[string]any); ok {
 					contactName, _ = contact["firstName"].(string)
 					if ln, _ := contact["lastName"].(string); ln != "" {
-						if contactName != "" { contactName += " " + ln } else { contactName = ln }
+						if contactName != "" {
+							contactName += " " + ln
+						} else {
+							contactName = ln
+						}
 					}
 					contactEmail, _ = contact["email"].(string)
 					contactPhone, _ = contact["phone"].(string)
@@ -704,7 +714,9 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 
 				var createdAt *time.Time
 				if ct, _ := t["createdTime"].(string); ct != "" {
-					if ts, err := time.Parse(time.RFC3339, ct); err == nil { createdAt = &ts }
+					if ts, err := time.Parse(time.RFC3339, ct); err == nil {
+						createdAt = &ts
+					}
 				}
 
 				description, slaDueAt, csatScore, csatComment, threadCount := zohoTicketExtras(t)
@@ -802,11 +814,17 @@ func zohoResyncTickets(db *core.DB) http.HandlerFunc {
 
 				ourStatus := "open"
 				for k, v := range zohoStatusMap {
-					if strings.EqualFold(v, statusRaw) { ourStatus = k; break }
+					if strings.EqualFold(v, statusRaw) {
+						ourStatus = k
+						break
+					}
 				}
 				ourPriority := "normal"
 				for k, v := range zohoPriorityMap {
-					if strings.EqualFold(v, priorityRaw) { ourPriority = k; break }
+					if strings.EqualFold(v, priorityRaw) {
+						ourPriority = k
+						break
+					}
 				}
 				ourChannel := zohoMapChannel(channelRaw)
 
@@ -814,7 +832,11 @@ func zohoResyncTickets(db *core.DB) http.HandlerFunc {
 				if contact, ok := t["contact"].(map[string]any); ok {
 					contactName, _ = contact["firstName"].(string)
 					if ln, _ := contact["lastName"].(string); ln != "" {
-						if contactName != "" { contactName += " " + ln } else { contactName = ln }
+						if contactName != "" {
+							contactName += " " + ln
+						} else {
+							contactName = ln
+						}
 					}
 					contactEmail, _ = contact["email"].(string)
 					contactPhone, _ = contact["phone"].(string)
@@ -822,7 +844,9 @@ func zohoResyncTickets(db *core.DB) http.HandlerFunc {
 
 				var createdAt *time.Time
 				if ct, _ := t["createdTime"].(string); ct != "" {
-					if ts, err2 := time.Parse(time.RFC3339, ct); err2 == nil { createdAt = &ts }
+					if ts, err2 := time.Parse(time.RFC3339, ct); err2 == nil {
+						createdAt = &ts
+					}
 				}
 
 				description, slaDueAt, csatScore, csatComment, threadCount := zohoTicketExtras(t)
@@ -879,9 +903,6 @@ func zohoImportCalls(db *core.DB) http.HandlerFunc {
 			respondErr(w, 503, "Zoho credentials are not configured — set them in Admin → API Keys")
 			return
 		}
-		// Ensure dedup column exists
-		db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS zoho_call_id TEXT`) //nolint:errcheck
-		db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_calls_zoho_id ON helpdesk_calls(zoho_call_id) WHERE zoho_call_id IS NOT NULL`) //nolint:errcheck
 		if err := ensureCallLogSchema(ctx, db); err != nil {
 			respondErr(w, 500, "Call log schema setup failed")
 			return
@@ -977,19 +998,23 @@ func zohoImportCalls(db *core.DB) http.HandlerFunc {
 					}
 				}
 
-				_, err := db.PGExec(ctx, `
+				res, err := db.PGExec(ctx, `
 					INSERT INTO helpdesk_calls
 					    (agent_name, customer_name, customer_phone, customer_email,
 					     direction, duration_sec, outcome, started_at, zoho_call_id)
 					VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-					ON CONFLICT (zoho_call_id) DO NOTHING`,
+					ON CONFLICT DO NOTHING`,
 					agentName, customerName, customerPhone, customerEmail,
 					direction, durSec, outcome, startedAt, zohoCallID)
 				if err != nil {
 					slog.Warn("zohoImportCalls: insert failed", "zoho_call_id", zohoCallID, "err", err)
 					failed++
 				} else {
-					imported++
+					if n, _ := res.RowsAffected(); n > 0 {
+						imported++
+					} else {
+						skipped++
+					}
 				}
 			}
 
@@ -1016,8 +1041,8 @@ func zohoImportThreads(db *core.DB) http.HandlerFunc {
 			return
 		}
 		// Ensure dedup index exists
-		db.PGExec(ctx, `ALTER TABLE helpdesk_messages ADD COLUMN IF NOT EXISTS zoho_thread_id TEXT`)                                                             //nolint:errcheck
-		db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_messages_zoho_thread ON helpdesk_messages(zoho_thread_id) WHERE zoho_thread_id IS NOT NULL`)    //nolint:errcheck
+		db.PGExec(ctx, `ALTER TABLE helpdesk_messages ADD COLUMN IF NOT EXISTS zoho_thread_id TEXT`)                                                          //nolint:errcheck
+		db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_messages_zoho_thread ON helpdesk_messages(zoho_thread_id) WHERE zoho_thread_id IS NOT NULL`) //nolint:errcheck
 
 		// Optional: process only a specific ticket
 		onlyZohoID := r.URL.Query().Get("zoho_id")
@@ -1166,9 +1191,6 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Call log schema error")
 			return
 		}
-		db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS zoho_voice_id TEXT`)                                                          //nolint:errcheck
-		db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_calls_zoho_voice ON helpdesk_calls(zoho_voice_id) WHERE zoho_voice_id IS NOT NULL`)      //nolint:errcheck
-		db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS recording_url TEXT`)                                                           //nolint:errcheck
 
 		token, err := zohoAccessToken(ctx)
 		if err != nil {
@@ -1176,28 +1198,31 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Date range: default last 30 days; Zoho Voice expects DD-MM-YYYY
-		fromDate := time.Now().AddDate(0, 0, -30).Format("02-01-2006")
-		toDate := time.Now().Format("02-01-2006")
-		if v := r.URL.Query().Get("from_date"); v != "" { fromDate = v }
-		if v := r.URL.Query().Get("to_date"); v != "" { toDate = v }
+		// Date range: default last 30 days. Zoho Voice documents fromDate/toDate
+		// on /logs; the frontend sends ISO yyyy-mm-dd values.
+		fromDate := time.Now().AddDate(0, 0, -30).Format("2006-01-02")
+		toDate := time.Now().Format("2006-01-02")
+		if v := r.URL.Query().Get("from_date"); v != "" {
+			fromDate = v
+		}
+		if v := r.URL.Query().Get("to_date"); v != "" {
+			toDate = v
+		}
 
-		dc := zohoDC
-		if dc == "" { dc = "com" }
-		voiceBase := "https://voice.zoho." + dc + "/rest/json/zv"
+		voiceBase := "https://voice.zoho.com/rest/json/zv"
 		var imported, skipped, failed int
 		pageFrom := 0
 		pageSize := 100
 
 		for {
-			reqURL := fmt.Sprintf("%s/calllog?from_date=%s&to_date=%s&from=%d&limit=%d",
-				voiceBase, fromDate, toDate, pageFrom, pageSize)
+			reqURL := fmt.Sprintf("%s/logs?from=%d&size=%d&fromDate=%s&toDate=%s&isAllCountry=true&isVoiceMail=false&isRecording=false",
+				voiceBase, pageFrom, pageSize, url.QueryEscape(fromDate), url.QueryEscape(toDate))
 			req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 			if err != nil {
 				break
 			}
 			req.Header.Set("Authorization", "Zoho-oauthtoken "+token)
-			req.Header.Set("orgId", zohoOrgID)
+			req.Header.Set("Accept", "application/json")
 
 			resp, err := zohoHTTP.Do(req)
 			if err != nil {
@@ -1210,13 +1235,20 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 			var result map[string]any
 			json.Unmarshal(bodyBytes, &result) //nolint:errcheck
 
-			// Voice API wraps in "response" → "result" → array, or directly "data"
+			// Voice API returns "logs"; keep fallback shapes for older responses.
 			var logs []map[string]any
 			if resp.StatusCode != 200 {
 				slog.Warn("zohoImportVoiceLogs: non-200", "status", resp.StatusCode, "body", string(bodyBytes[:min(len(bodyBytes), 400)]))
-				break
+				respondErr(w, resp.StatusCode, "Zoho Voice API error: "+strings.TrimSpace(string(bodyBytes[:min(len(bodyBytes), 800)])))
+				return
 			}
-			if arr, ok := result["data"].([]any); ok {
+			if arr, ok := result["logs"].([]any); ok {
+				for _, item := range arr {
+					if m, ok := item.(map[string]any); ok {
+						logs = append(logs, m)
+					}
+				}
+			} else if arr, ok := result["data"].([]any); ok {
 				for _, item := range arr {
 					if m, ok := item.(map[string]any); ok {
 						logs = append(logs, m)
@@ -1236,9 +1268,12 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 			}
 
 			for _, c := range logs {
-				voiceID := zohoStr(c["id"])
+				voiceID := zohoStr(c["logid"])
 				if voiceID == "" {
-					voiceID = zohoStr(c["call_id"])
+					voiceID = zohoStr(c["id"])
+					if voiceID == "" {
+						voiceID = zohoStr(c["call_id"])
+					}
 				}
 				if voiceID == "" {
 					skipped++
@@ -1259,18 +1294,12 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 					outcome = "resolved"
 				}
 
-				// Duration in seconds
-				var durSec *int
-				if d := c["duration"]; d != nil {
-					switch v := d.(type) {
-					case float64:
-						i := int(v); durSec = &i
-					case string:
-						if i, err2 := strconv.Atoi(v); err2 == nil { durSec = &i }
-					}
-				}
+				durSec := zohoParseDurationSec(c["duration"])
 
 				agentName := zohoStr(c["destination_name"])
+				if agentName == "" {
+					agentName = zohoStr(c["agent_number"])
+				}
 				customerPhone := zohoStr(c["caller_id_number"])
 				callTo := zohoStr(c["destination_number"])
 				if callTo == "" {
@@ -1278,8 +1307,9 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 				}
 
 				startedAt := time.Now()
-				if st := zohoStr(c["start_time"]); st != "" {
-					// Voice API uses "YYYY-MM-DD HH:MM:SS" format
+				if ts := zohoParseMillisTime(c["start_time"]); !ts.IsZero() {
+					startedAt = ts
+				} else if st := zohoStr(c["start_time"]); st != "" {
 					if ts, err2 := time.Parse("2006-01-02 15:04:05", st); err2 == nil {
 						startedAt = ts
 					} else if ts, err2 := time.Parse(time.RFC3339, st); err2 == nil {
@@ -1287,19 +1317,23 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 					}
 				}
 
-				_, err := db.PGExec(ctx, `
+				res, err := db.PGExec(ctx, `
 					INSERT INTO helpdesk_calls
 					    (agent_name, customer_phone, call_to, direction, duration_sec,
 					     outcome, started_at, zoho_voice_id)
 					VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-					ON CONFLICT (zoho_voice_id) DO NOTHING`,
+					ON CONFLICT DO NOTHING`,
 					ptrOrNilStr(agentName), ptrOrNilStr(customerPhone),
 					ptrOrNilStr(callTo), direction, durSec, outcome, startedAt, voiceID)
 				if err != nil {
 					slog.Warn("zohoImportVoiceLogs: insert", "voice_id", voiceID, "err", err)
 					failed++
 				} else {
-					imported++
+					if n, _ := res.RowsAffected(); n > 0 {
+						imported++
+					} else {
+						skipped++
+					}
 				}
 			}
 
@@ -1383,7 +1417,10 @@ func zohoWebhookDesk(db *core.DB) http.HandlerFunc {
 				subject, _ := payload["subject"].(string)
 				ourStatus := "open"
 				for k, v := range zohoStatusMap {
-					if v == statusRaw { ourStatus = k; break }
+					if v == statusRaw {
+						ourStatus = k
+						break
+					}
 				}
 				contact, _ := payload["contact"].(map[string]any)
 				email, _ := contact["email"].(string)
@@ -1403,7 +1440,10 @@ func zohoWebhookDesk(db *core.DB) http.HandlerFunc {
 			statusRaw, _ := payload["status"].(string)
 			ourStatus := "open"
 			for k, v := range zohoStatusMap {
-				if v == statusRaw { ourStatus = k; break }
+				if v == statusRaw {
+					ourStatus = k
+					break
+				}
 			}
 			db.PGExec(ctx, `UPDATE helpdesk_tickets SET status=$1, zoho_synced_at=NOW() WHERE zoho_ticket_id=$2`, //nolint:errcheck
 				ourStatus, zohoTicketID)
@@ -1452,7 +1492,9 @@ func zohoWebhookDesk(db *core.DB) http.HandlerFunc {
 
 			var msgCreatedAt *time.Time
 			if ct, _ := comment["createdTime"].(string); ct != "" {
-				if ts, err2 := time.Parse(time.RFC3339, ct); err2 == nil { msgCreatedAt = &ts }
+				if ts, err2 := time.Parse(time.RFC3339, ct); err2 == nil {
+					msgCreatedAt = &ts
+				}
 			}
 			if msgCreatedAt == nil {
 				now := time.Now()
@@ -1480,7 +1522,9 @@ func zohoWebhookDesk(db *core.DB) http.HandlerFunc {
 
 			callType, _ := call["type"].(string)
 			direction := "inbound"
-			if strings.EqualFold(callType, "OUTBOUND") { direction = "outbound" }
+			if strings.EqualFold(callType, "OUTBOUND") {
+				direction = "outbound"
+			}
 
 			statusStr, _ := call["status"].(string)
 			outcome := "missed"
@@ -1492,9 +1536,12 @@ func zohoWebhookDesk(db *core.DB) http.HandlerFunc {
 			if d, ok := call["duration"]; ok {
 				switch v := d.(type) {
 				case float64:
-					i := int(v); durSec = &i
+					i := int(v)
+					durSec = &i
 				case string:
-					if i, err2 := strconv.Atoi(v); err2 == nil { durSec = &i }
+					if i, err2 := strconv.Atoi(v); err2 == nil {
+						durSec = &i
+					}
 				}
 			}
 			agentName, _ := call["agentName"].(string)
@@ -1502,7 +1549,9 @@ func zohoWebhookDesk(db *core.DB) http.HandlerFunc {
 
 			startedAt := time.Now()
 			if st, _ := call["startTime"].(string); st != "" {
-				if ts, err2 := time.Parse(time.RFC3339, st); err2 == nil { startedAt = ts }
+				if ts, err2 := time.Parse(time.RFC3339, st); err2 == nil {
+					startedAt = ts
+				}
 			}
 
 			db.PGExec(ctx, `

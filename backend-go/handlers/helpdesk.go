@@ -1708,7 +1708,14 @@ func ensureCallLogSchema(ctx context.Context, db *core.DB) error {
 	db.PGExec(ctx, `CREATE INDEX IF NOT EXISTS idx_helpdesk_calls_agent ON helpdesk_calls(agent_id, started_at DESC)`)
 	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS customer_cif TEXT NOT NULL DEFAULT ''`)
 	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS customer_email TEXT NOT NULL DEFAULT ''`)
+	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS call_to TEXT`)
+	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS recording_url TEXT`)
+	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS transcript TEXT`)
+	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS zoho_call_id TEXT`)
+	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS zoho_voice_id TEXT`)
 	db.PGExec(ctx, `CREATE INDEX IF NOT EXISTS idx_helpdesk_calls_cif ON helpdesk_calls(customer_cif, started_at DESC)`)
+	db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_calls_zoho_id ON helpdesk_calls(zoho_call_id) WHERE zoho_call_id IS NOT NULL`)
+	db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_calls_zoho_voice ON helpdesk_calls(zoho_voice_id) WHERE zoho_voice_id IS NOT NULL`)
 	return nil
 }
 
