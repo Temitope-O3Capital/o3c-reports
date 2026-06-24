@@ -458,26 +458,31 @@ func batchLOSSLACheck(ctx context.Context, db *core.DB) error {
 }
 
 // batchZohoResync pulls the most recently modified Zoho Desk tickets and
-// upserts them into helpdesk_tickets. Runs inside the nightly batch so
-// the helpdesk always has data from the previous 24 hours at minimum.
+// upserts them. Zoho's list endpoint sorts by modifiedTime ascending by
+// default (sortOrder is rejected by the API), so the most recently modified
+// tickets are at the end of the result set. We binary-search to find that
+// tail, then fetch the last 500 tickets from there.
 func batchZohoResync(ctx context.Context, db *core.DB) error {
 	ensureZohoSchema(ctx, db)
 
-	from := 0
-	limit := 50
-	maxPages := 4 // 200 tickets most recently modified
+	tailOffset := zohoFindTailOffset(ctx)
+	startFrom := tailOffset - 500
+	if startFrom < 0 {
+		startFrom = 0
+	}
+
+	limit := 100
 	updated := 0
 
-	for page := 0; page < maxPages; page++ {
+	for from := startFrom; ; from += limit {
 		result, err := zohoFetch(ctx, "tickets", map[string][]string{
-			"from":      {fmt.Sprintf("%d", from)},
-			"limit":     {fmt.Sprintf("%d", limit)},
-			"sortBy":    {"modifiedTime"},
-			"sortOrder": {"desc"},
-			"include":   {"contacts,assignee"},
+			"from":    {fmt.Sprintf("%d", from)},
+			"limit":   {fmt.Sprintf("%d", limit)},
+			"sortBy":  {"modifiedTime"},
+			"include": {"contacts,assignee"},
 		})
 		if err != nil {
-			return fmt.Errorf("zohoFetch page %d: %w", page, err)
+			return fmt.Errorf("zohoFetch at %d: %w", from, err)
 		}
 		items := zohoItems(result)
 		if len(items) == 0 {
@@ -501,11 +506,17 @@ func batchZohoResync(ctx context.Context, db *core.DB) error {
 
 			ourStatus := "open"
 			for k, v := range zohoStatusMap {
-				if strings.EqualFold(v, statusRaw) { ourStatus = k; break }
+				if strings.EqualFold(v, statusRaw) {
+					ourStatus = k
+					break
+				}
 			}
 			ourPriority := "normal"
 			for k, v := range zohoPriorityMap {
-				if strings.EqualFold(v, priorityRaw) { ourPriority = k; break }
+				if strings.EqualFold(v, priorityRaw) {
+					ourPriority = k
+					break
+				}
 			}
 			ourChannel := zohoMapChannel(channelRaw)
 
@@ -513,7 +524,11 @@ func batchZohoResync(ctx context.Context, db *core.DB) error {
 			if contact, ok := t["contact"].(map[string]any); ok {
 				contactName, _ = contact["firstName"].(string)
 				if ln, _ := contact["lastName"].(string); ln != "" {
-					if contactName != "" { contactName += " " + ln } else { contactName = ln }
+					if contactName != "" {
+						contactName += " " + ln
+					} else {
+						contactName = ln
+					}
 				}
 				contactEmail, _ = contact["email"].(string)
 				contactPhone, _ = contact["phone"].(string)
@@ -521,7 +536,9 @@ func batchZohoResync(ctx context.Context, db *core.DB) error {
 
 			var createdAt *time.Time
 			if ct, _ := t["createdTime"].(string); ct != "" {
-				if ts, err2 := time.Parse(time.RFC3339, ct); err2 == nil { createdAt = &ts }
+				if ts, err2 := time.Parse(time.RFC3339, ct); err2 == nil {
+					createdAt = &ts
+				}
 			}
 
 			description, slaDueAt, csatScore, csatComment, threadCount := zohoTicketExtras(t)
@@ -550,10 +567,31 @@ func batchZohoResync(ctx context.Context, db *core.DB) error {
 				zohoID, createdAt) //nolint:errcheck
 			updated++
 		}
-		from += limit
 	}
 
-	slog.Info("Batch: Zoho resync done", "upserted", updated)
+	slog.Info("Batch: Zoho resync done", "tail_offset", tailOffset, "upserted", updated)
 	return nil
+}
+
+// zohoFindTailOffset binary-searches for the last valid from-offset in the
+// Zoho tickets list (sorted by modifiedTime ascending). The tail is where the
+// most recently modified tickets live, since Zoho won't accept sortOrder=desc.
+// Uses ~10 API calls; result grows by ~33 per day at O3C's current volume.
+func zohoFindTailOffset(ctx context.Context) int {
+	lo, hi := 0, 50000
+	for hi-lo > 200 {
+		mid := (lo + hi) / 2
+		result, err := zohoFetch(ctx, "tickets", map[string][]string{
+			"from":   {fmt.Sprintf("%d", mid)},
+			"limit":  {"1"},
+			"sortBy": {"modifiedTime"},
+		})
+		if err != nil || len(zohoItems(result)) == 0 {
+			hi = mid
+		} else {
+			lo = mid
+		}
+	}
+	return lo
 }
 

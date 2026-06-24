@@ -675,11 +675,10 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 
 		for pagesFetched < maxPages {
 			result, err := zohoFetch(ctx, "tickets", url.Values{
-				"from":      {strconv.Itoa(from)},
-				"limit":     {strconv.Itoa(limit)},
-				"sortBy":    {"createdTime"},
-				"sortOrder": {"desc"},
-				"include":   {"contacts,assignee"},
+				"from":    {strconv.Itoa(from)},
+				"limit":   {strconv.Itoa(limit)},
+				"sortBy":  {"createdTime"},
+				"include": {"contacts,assignee"},
 			})
 			if err != nil {
 				slog.Error("zohoImportTickets: fetch page", "from", from, "err", err)
@@ -796,16 +795,21 @@ func zohoResyncTickets(db *core.DB) http.HandlerFunc {
 		}
 
 		var updated, failed int
-		from := 0
+		// Start from tail - 500 so we get the most recently modified tickets.
+		// Zoho rejects sortOrder=desc, so the tail = most recently modified.
+		tail := zohoFindTailOffset(ctx)
+		from := tail - 500
+		if from < 0 {
+			from = 0
+		}
 		limit := 50
 
 		for {
 			result, err := zohoFetch(ctx, "tickets", url.Values{
-				"from":      {strconv.Itoa(from)},
-				"limit":     {strconv.Itoa(limit)},
-				"sortBy":    {"modifiedTime"},
-				"sortOrder": {"desc"},
-				"include":   {"contacts,assignee"},
+				"from":    {strconv.Itoa(from)},
+				"limit":   {strconv.Itoa(limit)},
+				"sortBy":  {"modifiedTime"},
+				"include": {"contacts,assignee"},
 			})
 			if err != nil {
 				respondErr(w, 502, "Zoho fetch failed: "+err.Error())
