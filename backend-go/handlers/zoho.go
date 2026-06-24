@@ -479,6 +479,10 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		ensureZohoSchema(ctx, db)
+		if !zohoEnsureConfigured(ctx, db) {
+			respondErr(w, 503, "Zoho credentials are not configured — set them in Admin → API Keys")
+			return
+		}
 
 		var body reqBody
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -619,6 +623,10 @@ func zohoResyncTickets(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		ensureZohoSchema(ctx, db)
+		if !zohoEnsureConfigured(ctx, db) {
+			respondErr(w, 503, "Zoho credentials are not configured — set them in Admin → API Keys")
+			return
+		}
 
 		var updated, failed int
 		from := 0
@@ -728,6 +736,10 @@ func zohoResyncTickets(db *core.DB) http.HandlerFunc {
 func zohoImportCalls(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		if !zohoEnsureConfigured(ctx, db) {
+			respondErr(w, 503, "Zoho credentials are not configured — set them in Admin → API Keys")
+			return
+		}
 		// Ensure dedup column exists
 		db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS zoho_call_id TEXT`) //nolint:errcheck
 		db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_calls_zoho_id ON helpdesk_calls(zoho_call_id) WHERE zoho_call_id IS NOT NULL`) //nolint:errcheck
