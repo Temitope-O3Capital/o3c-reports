@@ -454,6 +454,15 @@ func hdGetTicket(db *core.DB) http.HandlerFunc {
 			WHERE m.ticket_id=$1
 			ORDER BY m.created_at ASC`, id)
 
+		// If ticket came from Zoho and has no messages yet, fetch threads inline
+		if len(msgs) == 0 {
+			if zohoID, _ := ticket["zoho_ticket_id"].(string); zohoID != "" {
+				if zohoEnsureConfigured(r.Context(), db) {
+					go zohoFetchAndStoreThreads(context.Background(), db, toInt64(ticket["id"]), zohoID)
+				}
+			}
+		}
+
 		events, _ := db.PGQuery(r.Context(), `
 			SELECT e.*, u.full_name AS user_name
 			FROM helpdesk_events e

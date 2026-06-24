@@ -245,10 +245,11 @@ export default function CallLog() {
   const [err,        setErr]     = useState('')
   const [dateFrom,   setDateFrom] = useState(monthStart())
   const [dateTo,     setDateTo]   = useState(today())
-  const [modal,      setModal]     = useState(false)
-  const [tab,        setTab]       = useState<Tab>('all')
-  const [search,     setSearch]    = useState('')
-  const [importing,  setImporting] = useState(false)
+  const [modal,           setModal]          = useState(false)
+  const [tab,             setTab]            = useState<Tab>('all')
+  const [search,          setSearch]         = useState('')
+  const [importing,       setImporting]      = useState(false)
+  const [importingVoice,  setImportingVoice] = useState(false)
 
   async function load() {
     setLoading(true); setErr('')
@@ -265,6 +266,19 @@ export default function CallLog() {
   }
 
   useEffect(() => { load() }, [dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function importZohoVoice() {
+    setImportingVoice(true)
+    try {
+      const res = await apiPost<{ imported: number; skipped: number; failed: number }>('/api/zoho/voice/import-logs', {})
+      toast.success(`Imported ${res.imported} voice call records${res.skipped ? ` (${res.skipped} already existed)` : ''}`)
+      load()
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to import from Zoho Voice')
+    } finally {
+      setImportingVoice(false)
+    }
+  }
 
   async function importZohoCalls() {
     setImporting(true)
@@ -321,17 +335,24 @@ export default function CallLog() {
         <div className="flex items-center gap-2">
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
           <button
+            onClick={importZohoVoice}
+            disabled={importingVoice}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-semibold border transition-all disabled:opacity-50"
+            style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY }}
+            title="Pull telephony logs from Zoho Voice"
+          >
+            {importingVoice ? <Spinner size={14} /> : <span className="material-symbols-rounded text-[16px]">phone_in_talk</span>}
+            Zoho Voice
+          </button>
+          <button
             onClick={importZohoCalls}
             disabled={importing}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-semibold border transition-all disabled:opacity-50"
             style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY }}
             title="Pull call history from Zoho Desk"
           >
-            {importing
-              ? <Spinner size={14} />
-              : <span className="material-symbols-rounded text-[16px]">sync</span>
-            }
-            Import from Zoho
+            {importing ? <Spinner size={14} /> : <span className="material-symbols-rounded text-[16px]">sync</span>}
+            Zoho Desk Calls
           </button>
           <button onClick={() => setModal(true)}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold text-white"

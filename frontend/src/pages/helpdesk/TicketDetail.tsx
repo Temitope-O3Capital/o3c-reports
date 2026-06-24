@@ -67,6 +67,8 @@ interface Ticket {
   priority: string
   channel: string
   department: string
+  zoho_department_name?: string
+  description?: string
   customer_name: string
   customer_cif: string
   customer_email?: string
@@ -75,6 +77,9 @@ interface Ticket {
   assigned_to_id?: number | null
   tags?: string[]
   sla_due_at?: string | null
+  csat_score?: number | null
+  zoho_ticket_id?: string
+  zoho_thread_count?: number
   created_at: string
 }
 
@@ -233,6 +238,8 @@ export default function TicketDetail() {
 
   const [canned, setCanned]       = useState<CannedResponse[]>([])
   const [agents, setAgents]       = useState<Agent[]>([])
+
+  const [fetchingThreads, setFetchingThreads] = useState(false)
 
   // Reply box
   const [replyMode, setReplyMode] = useState<'reply' | 'note'>('reply')
@@ -431,14 +438,21 @@ export default function TicketDetail() {
 
             {/* Department */}
             <SideField label="Department">
-              <select
-                value={ticket.department?.toLowerCase().replace(/\s+/g, '_') ?? 'general'}
-                onChange={e => patchTicket('department', e.target.value)}
-                className="w-full px-2 py-1.5 rounded-lg border text-[12px] font-medium bg-white outline-none appearance-none"
-                style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}
-              >
-                {DEPT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
+              {ticket.zoho_department_name && !DEPT_OPTIONS.find(o => o.value === ticket.department?.toLowerCase().replace(/\s+/g, '_')) ? (
+                <p className="text-[12px] font-medium px-2 py-1.5 rounded-lg border bg-white"
+                  style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}>
+                  {ticket.zoho_department_name}
+                </p>
+              ) : (
+                <select
+                  value={ticket.department?.toLowerCase().replace(/\s+/g, '_') ?? 'general'}
+                  onChange={e => patchTicket('department', e.target.value)}
+                  className="w-full px-2 py-1.5 rounded-lg border text-[12px] font-medium bg-white outline-none appearance-none"
+                  style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}
+                >
+                  {DEPT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              )}
             </SideField>
 
             {/* Tags */}
@@ -507,6 +521,28 @@ export default function TicketDetail() {
               {!ticket.sla_due_at && <span className="text-[12px] text-slate-400">No SLA set</span>}
             </SideField>
 
+            {/* CSAT — shown when Zoho has a rating */}
+            {ticket.csat_score != null && (
+              <SideField label="CSAT Rating">
+                <div className="flex items-center gap-1">
+                  {[1,2,3,4,5].map(n => (
+                    <span key={n} className="text-[16px]"
+                      style={{ color: n <= (ticket.csat_score ?? 0) ? '#F59E0B' : '#CBD5E1' }}>
+                      ★
+                    </span>
+                  ))}
+                  <span className="text-[12px] text-slate-500 ml-1">{ticket.csat_score}/5</span>
+                </div>
+              </SideField>
+            )}
+
+            {/* Thread count from Zoho */}
+            {ticket.zoho_thread_count != null && (
+              <SideField label="Zoho Threads">
+                <span className="text-[12px] text-slate-600">{ticket.zoho_thread_count} message{ticket.zoho_thread_count !== 1 ? 's' : ''} in Zoho</span>
+              </SideField>
+            )}
+
             <div className="pt-1" style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }}>
               <p className="text-[11px] text-slate-400 mb-0.5">Created</p>
               <p className="text-[12px] text-slate-600">{fmtDate(ticket.created_at)}</p>
@@ -517,13 +553,54 @@ export default function TicketDetail() {
         {/* MIDDLE: Messages + Reply */}
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5" style={{ background: '#F8FAFC' }}>
-            {messages.length === 0 && events.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-                <span className="material-symbols-rounded text-[40px] mb-2 text-slate-300">chat</span>
-                <p className="text-[13px]">No messages yet</p>
-                <p className="text-[12px] mt-1">Send the first reply below</p>
+
+            {/* Description bubble — shown when ticket has a description but no thread messages yet */}
+            {ticket.description && messages.length === 0 && (
+              <div className="flex items-end gap-2.5">
+                <MsgAvatar name={ticket.customer_name || 'Customer'} color="#64748B" />
+                <div className="max-w-[78%]">
+                  <p className="text-[10px] font-semibold text-slate-400 mb-1 ml-1">
+                    {ticket.customer_name || 'Customer'} · {fmtDate(ticket.created_at)} · Original message
+                  </p>
+                  <div className="bg-white rounded-2xl rounded-bl-md px-4 py-3 shadow-sm border"
+                    style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+                    <p className="text-[13px] text-slate-700 leading-relaxed whitespace-pre-wrap">{ticket.description}</p>
+                  </div>
+                </div>
               </div>
             )}
+
+            {messages.length === 0 && events.length === 0 && !ticket.description && (
+              <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                <span className="material-symbols-rounded text-[40px] mb-2 text-slate-300">chat</span>
+                <p className="text-[13px]">No messages yet</p>
+                {ticket.zoho_ticket_id ? (
+                  <button
+                    onClick={async () => {
+                      setFetchingThreads(true)
+                      try {
+                        await apiPost(`/api/zoho/desk/import-threads?zoho_id=${ticket.zoho_ticket_id}`, {})
+                        showToast('Fetching messages from Zoho — reload in a moment')
+                        setTimeout(() => load(), 2500)
+                      } catch {
+                        showToast('Could not fetch from Zoho', 'error')
+                      } finally {
+                        setFetchingThreads(false)
+                      }
+                    }}
+                    disabled={fetchingThreads}
+                    className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition-all disabled:opacity-50"
+                    style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY }}
+                  >
+                    {fetchingThreads ? <Spinner size={12} /> : <span className="material-symbols-rounded text-[14px]">sync</span>}
+                    Fetch from Zoho
+                  </button>
+                ) : (
+                  <p className="text-[12px] mt-1">Send the first reply below</p>
+                )}
+              </div>
+            )}
+
             {messages.map(msg => (
               <MessageBubble key={msg.id} msg={msg} />
             ))}
