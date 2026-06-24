@@ -675,10 +675,11 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 
 		for pagesFetched < maxPages {
 			result, err := zohoFetch(ctx, "tickets", url.Values{
-				"from":    {strconv.Itoa(from)},
-				"limit":   {strconv.Itoa(limit)},
-				"sortBy":  {"createdTime"},
-				"include": {"contacts,assignee"},
+				"from":      {strconv.Itoa(from)},
+				"limit":     {strconv.Itoa(limit)},
+				"sortBy":    {"createdTime"},
+				"sortOrder": {"desc"},
+				"include":   {"contacts,assignee"},
 			})
 			if err != nil {
 				slog.Error("zohoImportTickets: fetch page", "from", from, "err", err)
@@ -800,10 +801,11 @@ func zohoResyncTickets(db *core.DB) http.HandlerFunc {
 
 		for {
 			result, err := zohoFetch(ctx, "tickets", url.Values{
-				"from":    {strconv.Itoa(from)},
-				"limit":   {strconv.Itoa(limit)},
-				"sortBy":  {"modifiedTime"},
-				"include": {"contacts,assignee"},
+				"from":      {strconv.Itoa(from)},
+				"limit":     {strconv.Itoa(limit)},
+				"sortBy":    {"modifiedTime"},
+				"sortOrder": {"desc"},
+				"include":   {"contacts,assignee"},
 			})
 			if err != nil {
 				respondErr(w, 502, "Zoho fetch failed: "+err.Error())

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,9 +22,12 @@ func RegisterBatch(r chi.Router, db *core.DB) {
 	r.With(auth).Get("/last", batchLastHandler(db))
 }
 
-// RunBatchNightly starts a goroutine that fires the batch at midnight every day.
-// Call once from main.go after opening the DB. Cancel the context to stop the loop on shutdown.
+// RunBatchNightly starts two goroutines:
+// 1. Full nightly batch at midnight (heavy work: snapshots, alerts, etc.)
+// 2. Hourly Zoho resync so helpdesk data stays within ~1 hour of live
+// Call once from main.go after opening the DB. Cancel the context to stop.
 func RunBatchNightly(ctx context.Context, db *core.DB) {
+	// Full nightly batch
 	go func() {
 		for {
 			now := time.Now()
@@ -42,6 +46,27 @@ func RunBatchNightly(ctx context.Context, db *core.DB) {
 				slog.Error("Nightly batch failed", "err", err)
 			}
 			cancel()
+		}
+	}()
+
+	// Hourly Zoho resync — keep helpdesk tickets fresh through the day
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !zohoEnsureConfigured(ctx, db) {
+					continue
+				}
+				runCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+				if err := batchZohoResync(runCtx, db); err != nil {
+					slog.Error("Hourly Zoho resync failed", "err", err)
+				}
+				cancel()
+			}
 		}
 	}()
 }
@@ -148,6 +173,16 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, "los_sla:FAILED")
 	} else {
 		steps = append(steps, "los_sla:ok")
+	}
+
+	// 5. Zoho Desk resync — pull tickets modified in the last 24 hours
+	if zohoEnsureConfigured(ctx, db) {
+		if err := batchZohoResync(ctx, db); err != nil {
+			slog.Error("Batch: Zoho resync failed", "err", err)
+			steps = append(steps, "zoho_resync:FAILED")
+		} else {
+			steps = append(steps, "zoho_resync:ok")
+		}
 	}
 
 	status := "success"
@@ -419,6 +454,106 @@ func batchLOSSLACheck(ctx context.Context, db *core.DB) error {
 			slog.Warn("Batch: LOS SLA breach", "stage", stage, "count", len(overdueApps))
 		}
 	}
+	return nil
+}
+
+// batchZohoResync pulls the most recently modified Zoho Desk tickets and
+// upserts them into helpdesk_tickets. Runs inside the nightly batch so
+// the helpdesk always has data from the previous 24 hours at minimum.
+func batchZohoResync(ctx context.Context, db *core.DB) error {
+	ensureZohoSchema(ctx, db)
+
+	from := 0
+	limit := 50
+	maxPages := 4 // 200 tickets most recently modified
+	updated := 0
+
+	for page := 0; page < maxPages; page++ {
+		result, err := zohoFetch(ctx, "tickets", map[string][]string{
+			"from":      {fmt.Sprintf("%d", from)},
+			"limit":     {fmt.Sprintf("%d", limit)},
+			"sortBy":    {"modifiedTime"},
+			"sortOrder": {"desc"},
+			"include":   {"contacts,assignee"},
+		})
+		if err != nil {
+			return fmt.Errorf("zohoFetch page %d: %w", page, err)
+		}
+		items := zohoItems(result)
+		if len(items) == 0 {
+			break
+		}
+
+		for _, t := range items {
+			zohoID, _ := t["id"].(string)
+			if zohoID == "" {
+				continue
+			}
+			statusRaw, _ := t["status"].(string)
+			priorityRaw, _ := t["priority"].(string)
+			channelRaw, _ := t["channel"].(string)
+			subject, _ := t["subject"].(string)
+
+			var deptName string
+			if dept, ok := t["department"].(map[string]any); ok {
+				deptName, _ = dept["name"].(string)
+			}
+
+			ourStatus := "open"
+			for k, v := range zohoStatusMap {
+				if strings.EqualFold(v, statusRaw) { ourStatus = k; break }
+			}
+			ourPriority := "normal"
+			for k, v := range zohoPriorityMap {
+				if strings.EqualFold(v, priorityRaw) { ourPriority = k; break }
+			}
+			ourChannel := zohoMapChannel(channelRaw)
+
+			contactName, contactEmail, contactPhone := "", "", ""
+			if contact, ok := t["contact"].(map[string]any); ok {
+				contactName, _ = contact["firstName"].(string)
+				if ln, _ := contact["lastName"].(string); ln != "" {
+					if contactName != "" { contactName += " " + ln } else { contactName = ln }
+				}
+				contactEmail, _ = contact["email"].(string)
+				contactPhone, _ = contact["phone"].(string)
+			}
+
+			var createdAt *time.Time
+			if ct, _ := t["createdTime"].(string); ct != "" {
+				if ts, err2 := time.Parse(time.RFC3339, ct); err2 == nil { createdAt = &ts }
+			}
+
+			description, slaDueAt, csatScore, csatComment, threadCount := zohoTicketExtras(t)
+
+			db.PGExec(ctx, `
+				INSERT INTO helpdesk_tickets
+				    (channel, status, priority, subject, customer_name, customer_email,
+				     customer_phone, department, zoho_department_name, description,
+				     sla_due_at, csat_score, csat_comment, zoho_thread_count,
+				     zoho_ticket_id, zoho_synced_at, created_at)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW(),$16)
+				ON CONFLICT (zoho_ticket_id) DO UPDATE
+				  SET status=$2, priority=$3, subject=$4, customer_name=$5,
+				      customer_email=$6, customer_phone=$7, department=$8,
+				      zoho_department_name=$9,
+				      description=COALESCE(EXCLUDED.description, helpdesk_tickets.description),
+				      sla_due_at=COALESCE(EXCLUDED.sla_due_at, helpdesk_tickets.sla_due_at),
+				      csat_score=COALESCE(EXCLUDED.csat_score, helpdesk_tickets.csat_score),
+				      csat_comment=COALESCE(EXCLUDED.csat_comment, helpdesk_tickets.csat_comment),
+				      zoho_thread_count=EXCLUDED.zoho_thread_count,
+				      zoho_synced_at=NOW()`,
+				ourChannel, ourStatus, ourPriority, subject,
+				contactName, contactEmail, contactPhone,
+				ptrOrNilStr(deptName), ptrOrNilStr(deptName), ptrOrNilStr(description),
+				slaDueAt, csatScore, ptrOrNilStr(csatComment), threadCount,
+				zohoID, createdAt) //nolint:errcheck
+			updated++
+		}
+		from += limit
+	}
+
+	slog.Info("Batch: Zoho resync done", "upserted", updated)
 	return nil
 }
 
