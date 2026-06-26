@@ -55,9 +55,11 @@ func main() {
 
 	// Resume any campaigns that were mid-dispatch when the pod last restarted.
 	handlers.ResumeInterruptedCampaigns(db)
+	handlers.ResumeStatementRuns(db)
 
 	// Auto-launch any campaigns whose scheduled_at has passed.
 	go handlers.ScheduledCampaignTicker(db)
+	go handlers.ScheduleCampaignAutoResume(db)
 
 	// Push due-soon / overdue task notifications hourly.
 	go handlers.ScheduleTaskNotifications(db)
@@ -278,6 +280,9 @@ func main() {
 		})
 		r.Route("/api/reports", func(r chi.Router) {
 			handlers.RegisterReports(r, db)
+		})
+		r.Route("/api/statements", func(r chi.Router) {
+			handlers.RegisterStatements(r, db)
 		})
 		r.Route("/api/batch", func(r chi.Router) {
 			handlers.RegisterBatch(r, db)

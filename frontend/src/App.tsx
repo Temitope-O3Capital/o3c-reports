@@ -150,6 +150,7 @@ const CallLog = lazy(() => import('./pages/helpdesk/CallLog'))
 
 // Reports & Approvals
 const Reports          = lazy(() => import('./pages/reports/Reports'))
+const Statements       = lazy(() => import('./pages/statements/Statements'))
 const Approvals        = lazy(() => import('./pages/Approvals'))
 
 // Other platform pages
@@ -680,6 +681,7 @@ export default function App() {
 
                 {/* ── Reports ── */}
                 <Route path="/reports" element={<Reports />} />
+                <Route path="/statements" element={<RequireAccess page="statements" user={user}><Statements /></RequireAccess>} />
 
                 {/* ── Admin ── */}
                 <Route path="/admin"                       element={<RequireAccess page="admin_users" user={user}><Navigate to="/admin/overview" replace /></RequireAccess>} />

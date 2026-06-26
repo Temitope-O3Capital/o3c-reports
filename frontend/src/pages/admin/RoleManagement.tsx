@@ -13,7 +13,7 @@ interface RoleRow {
 
 const PAGE_LABELS: Record<string, string> = {
   overview: 'Overview', executive: 'Executive Dashboard', transactions: 'Transactions', income: 'Income', eod: 'EOD/EOB', uploads: 'Uploads', reconciliation: 'Reconciliation', fixed_deposit: 'Fixed Deposits', settlement: 'Settlement',
-  sales: 'Sales', crm_pipeline: 'CRM Pipeline', crm_contacts: 'CRM Contacts', crm_tasks: 'CRM Tasks', crm_reports: 'CRM Reports', campaigns: 'Campaigns', contact_lists: 'Contact Lists', message_templates: 'Message Templates',
+  sales: 'Sales', crm_pipeline: 'CRM Pipeline', crm_contacts: 'CRM Contacts', crm_tasks: 'CRM Tasks', crm_reports: 'CRM Reports', campaigns: 'Campaigns', contact_lists: 'Contact Lists', message_templates: 'Message Templates', statements: 'Statements',
   loans: 'Loans', los: 'LOS Queue', los_all: 'All Applications', los_assign: 'Assign Applications', los_finance: 'LOS Finance', los_finance_approve: 'Finance Approval', los_risk_review: 'Risk Review', los_risk_head: 'Risk Head Review', los_booking: 'Booking', customer360: 'Customer 360', credit_portfolio: 'Credit Portfolio',
   collections: 'Collections', collections_assign: 'Collections Assignment', collections_payment: 'Collections Payment', collections_payment_approve: 'Approve Collections Payment', recovery: 'Recovery', recovery_assign: 'Recovery Assignment', recovery_write_off: 'Write Off',
   cards: 'Cards', card_trends: 'Card Trends', mobile_app: 'Mobile App', blink_card: 'Blink Card', call_center: 'Call Center', customer_service: 'Customer Service',

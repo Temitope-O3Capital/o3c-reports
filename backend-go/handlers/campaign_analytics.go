@@ -78,8 +78,9 @@ func ScheduledCampaignTicker(db *core.DB) {
 				continue
 			}
 			ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+			prepareCampaignRecipients(ctx2, db, id)
 			_, err := db.PGExec(ctx2,
-				`UPDATE campaigns SET status='active', started_at=NOW(), updated_at=NOW() WHERE id=$1`, id)
+				`UPDATE campaigns SET status='active', pause_reason=NULL, paused_until=NULL, started_at=NOW(), updated_at=NOW() WHERE id=$1`, id)
 			cancel2()
 			if err != nil {
 				slog.Error("ScheduledCampaignTicker: activate failed", "id", id, "err", err)

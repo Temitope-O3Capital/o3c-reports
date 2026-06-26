@@ -28,6 +28,11 @@ interface Campaign {
   failed_count: number
   emails_opened?: number
   open_count: number
+  pending_count?: number
+  sending_count?: number
+  skipped_count?: number
+  contact_failed_count?: number
+  completed_contact_count?: number
   scheduled_at: string | null
   started_at: string | null
   created_at: string
@@ -51,6 +56,28 @@ interface MessageTemplate {
   email_body_text?: string
   email_blocks?: EmailBlock[] | string
   merge_tags?: string[] | string
+}
+
+interface CampaignPreflight {
+  total_active: number
+  with_email: number
+  with_phone: number
+  missing_email: number
+  missing_phone: number
+  suppressed_email: number
+  duplicate_email_rows: number
+  duplicate_email_groups: number
+  invalid_email: number
+  role_email: number
+  disposable_email: number
+  usable_email_recipients: number
+  usable_sms_recipients: number
+  estimated_messages: number
+  send_delay_ms: number
+  daily_email_limit: number
+  estimated_seconds: number
+  warnings: string[]
+  sample: Array<{ first_name?: string; last_name?: string; email?: string; phone?: string; cif_number?: string }>
 }
 
 interface WizardData {
@@ -152,6 +179,11 @@ function normalizeCampaign(row: any): Campaign {
     delivered_count: delivered > 0 ? delivered : row.delivered_count ?? 0,
     failed_count: failed > 0 ? failed : row.failed_count ?? 0,
     open_count: row.emails_opened ?? row.open_count ?? 0,
+    pending_count: row.pending_count ?? 0,
+    sending_count: row.sending_count ?? 0,
+    skipped_count: row.skipped_count ?? 0,
+    contact_failed_count: row.contact_failed_count ?? 0,
+    completed_contact_count: row.completed_contact_count ?? 0,
     created_by: row.created_by_name ?? row.created_by ?? '',
   }
 }
@@ -189,6 +221,8 @@ function CampaignWizard({
   const [err, setErr]     = useState('')
   const [lists, setLists] = useState<ContactList[]>([])
   const [templates, setTemplates] = useState<MessageTemplate[]>([])
+  const [preflight, setPreflight] = useState<CampaignPreflight | null>(null)
+  const [preflightLoading, setPreflightLoading] = useState(false)
   const [editorRevision, setEditorRevision] = useState(0)
   const [listsLoading, setListsLoading] = useState(true)
 
@@ -241,6 +275,17 @@ function CampaignWizard({
     loadAudienceData()
     return () => { alive = false }
   }, [])
+
+  useEffect(() => {
+    if (!data.list_id) { setPreflight(null); return }
+    let alive = true
+    setPreflightLoading(true)
+    apiFetch(`/api/campaigns/preflight?list_id=${data.list_id}&type=${data.type}`)
+      .then((res: any) => { if (alive) setPreflight(res.data ?? res) })
+      .catch((e: any) => { if (alive) setErr(e.message) })
+      .finally(() => { if (alive) setPreflightLoading(false) })
+    return () => { alive = false }
+  }, [data.list_id, data.type])
 
   function applyTemplate(templateID: number | null) {
     set('template_id', templateID)
@@ -413,6 +458,7 @@ function CampaignWizard({
                   </button>
                 )
               })}
+              {data.list_id && <PreflightCard preflight={preflight} loading={preflightLoading} channel={data.type} compact />}
             </div>
           )}
 
@@ -548,6 +594,7 @@ function CampaignWizard({
           {step === 4 && (
             <div className="space-y-3">
               <p className="text-[12px] text-slate-500">Review your campaign before launching.</p>
+              <PreflightCard preflight={preflight} loading={preflightLoading} channel={data.type} />
               <div className="rounded-xl border divide-y" style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
                 {[
                   { label: 'Name',     value: data.name },
@@ -589,7 +636,7 @@ function CampaignWizard({
           ) : (
             <button
               type="button"
-              disabled={saving || data.message.trim() === ''}
+          disabled={saving || data.message.trim() === '' || (preflight ? preflight.estimated_messages <= 0 : false)}
               onClick={submit}
               className="flex items-center gap-2 px-5 py-2 rounded-lg text-[13px] font-semibold text-white transition-all disabled:opacity-40"
               style={{ background: '#166534' }}
@@ -725,6 +772,7 @@ export default function Campaigns() {
     { key: 'sent_count',      label: 'Sent',        right: true, render: r => fmtNum(r.sent_count)      },
     { key: 'delivered_count', label: 'Delivered',   right: true, render: r => fmtNum(r.delivered_count) },
     { key: 'open_count',      label: 'Opened',      right: true, render: r => fmtNum(r.open_count)      },
+    { key: 'progress',        label: 'Progress',    sortable: false, render: r => <CampaignProgress campaign={r} /> },
     { key: 'created_at',      label: 'Created',     render: r => fmtDate(r.created_at)                  },
     { key: '_actions', label: '', sortable: false, render: r => (
         <div className="flex gap-1">
@@ -806,11 +854,95 @@ export default function Campaigns() {
   )
 }
 
+function PreflightCard({ preflight, loading, channel, compact = false }: { preflight: CampaignPreflight | null; loading: boolean; channel: 'sms' | 'email'; compact?: boolean }) {
+  if (loading) {
+    return <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] text-slate-500">Checking audience...</div>
+  }
+  if (!preflight) return null
+  const usable = channel === 'email' ? preflight.usable_email_recipients : preflight.usable_sms_recipients
+  const missing = channel === 'email' ? preflight.missing_email : preflight.missing_phone
+  const estimated = formatDuration(preflight.estimated_seconds)
+  return (
+    <div className="rounded-xl border bg-white overflow-hidden" style={{ borderColor: 'rgba(15,23,42,0.12)' }}>
+      <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0 divide-slate-100">
+        <Metric label="Active" value={fmtNum(preflight.total_active)} />
+        <Metric label="Usable" value={fmtNum(usable)} strong />
+        <Metric label="Missing" value={fmtNum(missing)} />
+        <Metric label="Est. Time" value={estimated} />
+      </div>
+      {channel === 'email' && (
+        <div className="grid grid-cols-2 md:grid-cols-3 border-t border-slate-100 divide-x divide-slate-100">
+          <Metric label="Suppressed" value={fmtNum(preflight.suppressed_email)} />
+          <Metric label="Duplicate Rows" value={fmtNum(preflight.duplicate_email_rows)} />
+          <Metric label="Invalid" value={fmtNum(preflight.invalid_email ?? 0)} />
+          <Metric label="Role Emails" value={fmtNum(preflight.role_email ?? 0)} />
+          <Metric label="Disposable" value={fmtNum(preflight.disposable_email ?? 0)} />
+          <Metric label="Daily Limit" value={preflight.daily_email_limit > 0 ? fmtNum(preflight.daily_email_limit) : 'None'} />
+        </div>
+      )}
+      {preflight.warnings?.length > 0 && (
+        <div className="border-t border-amber-100 bg-amber-50 px-4 py-3 space-y-1">
+          {preflight.warnings.map((w, i) => <p key={i} className="text-[11px] font-medium text-amber-800">{w}</p>)}
+        </div>
+      )}
+      {!compact && preflight.sample?.length > 0 && (
+        <div className="border-t border-slate-100 px-4 py-3">
+          <p className="text-[11px] font-bold uppercase text-slate-400 mb-2">Sample recipients</p>
+          <div className="max-h-36 overflow-y-auto divide-y divide-slate-100">
+            {preflight.sample.slice(0, 8).map((r, i) => (
+              <div key={i} className="flex items-center justify-between gap-3 py-1.5 text-[12px]">
+                <span className="font-medium text-slate-700 truncate">{[r.first_name, r.last_name].filter(Boolean).join(' ') || 'Contact'}</span>
+                <span className="text-slate-400 truncate">{channel === 'email' ? r.email : r.phone}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Metric({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="px-4 py-3">
+      <p className="text-[10px] font-bold uppercase text-slate-400 mb-0.5">{label}</p>
+      <p className={`text-[15px] ${strong ? 'font-bold text-slate-900' : 'font-semibold text-slate-700'}`}>{value}</p>
+    </div>
+  )
+}
+
+function formatDuration(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '—'
+  if (seconds < 60) return `${seconds}s`
+  const mins = Math.ceil(seconds / 60)
+  if (mins < 60) return `${mins}m`
+  const hours = Math.floor(mins / 60)
+  const rem = mins % 60
+  return rem ? `${hours}h ${rem}m` : `${hours}h`
+}
+
 function ActionBtn({ icon, label, onClick, color }: { icon: string; label: string; onClick: () => void; color: string }) {
   return (
     <button onClick={onClick} title={label}
       className="p-1 rounded transition-colors hover:bg-slate-100" style={{ color }}>
       <span className="material-symbols-rounded text-[15px]">{icon}</span>
     </button>
+  )
+}
+
+function CampaignProgress({ campaign }: { campaign: Campaign }) {
+  const total = Number(campaign.recipient_count || 0)
+  const pending = Number(campaign.pending_count || 0)
+  const sending = Number(campaign.sending_count || 0)
+  const skipped = Number(campaign.skipped_count || 0)
+  const failed = Number(campaign.contact_failed_count || campaign.failed_count || 0)
+  const done = Math.max(0, total - pending)
+  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0
+  return (
+    <div className="min-w-[170px]">
+      <div className="flex justify-between text-[11px] text-slate-500 mb-1"><span>{fmtNum(done)}/{fmtNum(total)}</span><span>{pct}%</span></div>
+      <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} /></div>
+      <p className="mt-1 text-[10px] text-slate-400">Pending {fmtNum(pending)} · Sending {fmtNum(sending)} · Skipped {fmtNum(skipped)} · Failed {fmtNum(failed)}</p>
+    </div>
   )
 }

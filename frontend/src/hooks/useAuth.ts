@@ -25,7 +25,7 @@ export interface AuthUser {
 
 const CRM        = ['crm_pipeline','crm_contacts','crm_tasks','crm_requests']
 const CRM_REPORT = ['crm_reports']
-const CAMPAIGNS  = ['campaigns','campaign_analytics','contact_lists','message_templates']
+const CAMPAIGNS  = ['campaigns','campaign_analytics','contact_lists','message_templates','statements']
 const HELPDESK   = ['helpdesk','helpdesk_stats','helpdesk_canned']
 const OPERATIONS = ['credit_portfolio','fixed_deposit','settlement','mobile_app','blink_card']
 
@@ -40,7 +40,7 @@ export const ROLE_PAGES: Record<string, string[]> = {
   // ── Legacy roles (backwards compatibility) ────────────────────────────────
   md:               ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS, ...HELPDESK],
   coo:              ['overview','transactions','collections','recovery','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center','loans',          ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS, ...HELPDESK],
-  cfo:              ['overview','income','collections','recovery','executive','transactions','eod','uploads','reconciliation','loans','credit_portfolio','fixed_deposit','settlement', ...FINANCE_PAGES],
+  cfo:              ['overview','income','collections','recovery','executive','transactions','eod','uploads','reconciliation','loans','credit_portfolio','fixed_deposit','settlement','statements', ...FINANCE_PAGES],
   head_it:          ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','admin','executive','income','eod','uploads','reconciliation','call_center','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS, 'mobile_app','blink_card', ...ADMIN_PAGES, ...HELPDESK],
   head_hr:          ['overview','sales','uploads', ...HR_PAGES],
   cmo:              ['overview','sales','cohort','executive','uploads', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
@@ -61,33 +61,33 @@ export const ROLE_PAGES: Record<string, string[]> = {
   executive:             ['overview','income','transactions','credit_portfolio','fixed_deposit','eod', ...FINANCE_PAGES],
   // Sales
   sales_officer:         ['sales','overview','loans','credit_portfolio', ...CRM, ...CRM_REPORT],
-  sales_head:            ['sales','overview','loans','credit_portfolio','reports', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
+  sales_head:            ['sales','overview','loans','credit_portfolio','reports','statements', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
   // Risk & Credit
   risk_officer:          ['credit_portfolio','los_all','income'],
-  risk_head:             ['credit_portfolio','los_all','income','reports'],
+  risk_head:             ['credit_portfolio','los_all','income','reports','statements'],
   // Finance
   finance_officer:       [...FINANCE_PAGES, 'overview'],
-  finance_head:          [...FINANCE_PAGES, 'overview','reports','settlement','reconciliation','credit_portfolio','fixed_deposit'],
+  finance_head:          [...FINANCE_PAGES, 'overview','reports','statements','settlement','reconciliation','credit_portfolio','fixed_deposit'],
   // Cards & Channels
   cards_ops_officer:     ['cards','card_trends','transactions','overview','eod','blink_card','mobile_app', ...HELPDESK],
-  cards_ops_head:        ['cards','card_trends','transactions','overview','eod','blink_card','mobile_app','reports', ...HELPDESK],
+  cards_ops_head:        ['cards','card_trends','transactions','overview','eod','blink_card','mobile_app','reports','statements', ...HELPDESK],
   // Collections
   collections_agent:     [...COLLECTIONS_PAGES, 'eod','uploads', ...HELPDESK],
-  collections_head:      [...COLLECTIONS_PAGES, 'eod','uploads','reports','reconciliation', ...HELPDESK],
+  collections_head:      [...COLLECTIONS_PAGES, 'eod','uploads','reports','statements','reconciliation', ...HELPDESK],
   // Recovery
   recovery_agent:        [...RECOVERY_PAGES, 'eod','uploads', ...HELPDESK],
-  recovery_head:         [...RECOVERY_PAGES, 'eod','uploads','reports', ...HELPDESK],
+  recovery_head:         [...RECOVERY_PAGES, 'eod','uploads','reports','statements', ...HELPDESK],
   // Customer Service
   call_center_agent:     ['call_center','overview','transactions','crm_requests','crm_contacts', ...HELPDESK],
-  call_center_head:      ['call_center','overview','transactions','crm_requests','crm_contacts','reports', ...HELPDESK],
+  call_center_head:      ['call_center','overview','transactions','crm_requests','crm_contacts','reports','statements', ...HELPDESK],
   // HR
   hr_officer:            [...HR_PAGES],
-  hr_manager:            [...HR_PAGES, 'reports'],
+  hr_manager:            [...HR_PAGES, 'reports','statements'],
   // Compliance
   compliance_officer:    [...COMPLIANCE_PAGES],
-  compliance_head:       [...COMPLIANCE_PAGES, 'reports'],
+  compliance_head:       [...COMPLIANCE_PAGES, 'reports','statements'],
   // Internal Control
-  internal_control_head: [...COMPLIANCE_PAGES, 'reports','audit_trail'],
+  internal_control_head: [...COMPLIANCE_PAGES, 'reports','statements','audit_trail'],
   // IT Admin
   it_admin:              [...ADMIN_PAGES, 'overview', ...HELPDESK],
 }

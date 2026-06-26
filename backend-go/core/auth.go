@@ -235,21 +235,21 @@ var RolePages = map[string][]string{
 		"reconciliation", "collections", "recovery", "sales", "cards", "card_trends",
 		"cohort", "call_center", "loans", "credit_portfolio", "fixed_deposit", "settlement", "mobile_app", "blink_card",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"campaigns", "contact_lists", "message_templates",
+		"campaigns", "contact_lists", "message_templates", "statements",
 		"los", "los_all", "los_assign", "customer360",
 		"hr_employees", "hr_leave", "hr_performance", "hr_disciplinary", "hr_payroll", "hr_training",
 		"compliance_all", "compliance_checklists", "cbn_reports", "audit_trail", "audit_export",
 		"sars", "watch_list", "audit_findings",
-		"kpi_dashboard", "reports", "admin_users", "settings", "sync_status",
+		"kpi_dashboard", "reports", "statements", "admin_users", "settings", "sync_status",
 	},
 	"coo": {
 		"overview", "executive", "transactions", "income", "eod", "uploads",
 		"reconciliation", "collections", "recovery", "sales", "cards", "card_trends",
 		"cohort", "call_center", "loans", "credit_portfolio", "fixed_deposit", "settlement", "mobile_app", "blink_card",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"campaigns", "contact_lists", "message_templates",
+		"campaigns", "contact_lists", "message_templates", "statements",
 		"los", "los_all", "customer360",
-		"kpi_dashboard", "reports",
+		"kpi_dashboard", "reports", "statements",
 	},
 	"cfo": {
 		"overview", "executive", "income", "eod", "uploads", "reconciliation",
@@ -257,10 +257,10 @@ var RolePages = map[string][]string{
 		"fixed_deposit", "settlement",
 		"los_finance", "customer360",
 		"cbn_reports", "audit_trail", "audit_export",
-		"kpi_dashboard", "reports",
+		"kpi_dashboard", "reports", "statements",
 	},
 	"executive": {
-		"overview", "executive", "kpi_dashboard", "reports",
+		"overview", "executive", "kpi_dashboard", "reports", "statements",
 	},
 
 	// ── Sales ──────────────────────────────────────────────────────────────────
@@ -268,13 +268,13 @@ var RolePages = map[string][]string{
 		"overview", "sales", "uploads", "loans", "credit_portfolio",
 		"los", "customer360",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"campaigns", "contact_lists", "message_templates",
+		"campaigns", "contact_lists", "message_templates", "statements",
 	},
 	"sales_head": {
 		"overview", "sales", "executive", "uploads", "loans", "credit_portfolio",
 		"los", "los_all", "los_assign", "customer360",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"campaigns", "contact_lists", "message_templates",
+		"campaigns", "contact_lists", "message_templates", "statements",
 		"kpi_dashboard",
 	},
 
@@ -286,7 +286,7 @@ var RolePages = map[string][]string{
 	"risk_head": {
 		"overview", "customer360", "executive",
 		"los_risk_review", "los_risk_head", "los_assign",
-		"credit_portfolio", "loans", "kpi_dashboard",
+		"credit_portfolio", "loans", "kpi_dashboard", "statements",
 	},
 
 	// ── Finance ────────────────────────────────────────────────────────────────
@@ -300,7 +300,7 @@ var RolePages = map[string][]string{
 		"collections_payment", "collections_payment_approve",
 		"credit_portfolio", "fixed_deposit", "settlement",
 		"los_finance", "los_finance_approve", "customer360",
-		"kpi_dashboard", "reports",
+		"kpi_dashboard", "reports", "statements",
 	},
 
 	// ── Cards Ops ──────────────────────────────────────────────────────────────
@@ -311,7 +311,7 @@ var RolePages = map[string][]string{
 	"cards_ops_head": {
 		"overview", "cards", "card_trends", "eod", "uploads",
 		"los_booking", "los_assign", "customer360",
-		"kpi_dashboard",
+		"kpi_dashboard", "statements",
 	},
 
 	// ── Collections ────────────────────────────────────────────────────────────
@@ -322,7 +322,7 @@ var RolePages = map[string][]string{
 	"collections_head": {
 		"overview", "collections", "collections_assign", "customer360",
 		"eod", "uploads", "reconciliation", "loans", "credit_portfolio",
-		"crm_contacts", "kpi_dashboard",
+		"crm_contacts", "kpi_dashboard", "statements",
 	},
 
 	// ── Recovery ───────────────────────────────────────────────────────────────
@@ -332,7 +332,7 @@ var RolePages = map[string][]string{
 	"recovery_head": {
 		"overview", "recovery", "recovery_assign", "recovery_write_off",
 		"customer360", "eod", "uploads", "loans", "credit_portfolio",
-		"kpi_dashboard",
+		"kpi_dashboard", "statements",
 	},
 
 	// ── Call Center ────────────────────────────────────────────────────────────
@@ -342,7 +342,7 @@ var RolePages = map[string][]string{
 	},
 	"call_center_head": {
 		"overview", "call_center", "customer360", "transactions",
-		"crm_contacts", "uploads", "kpi_dashboard",
+		"crm_contacts", "uploads", "kpi_dashboard", "statements",
 	},
 
 	// ── HR ─────────────────────────────────────────────────────────────────────
@@ -352,7 +352,7 @@ var RolePages = map[string][]string{
 	"hr_manager": {
 		"overview", "hr_employees", "hr_leave", "hr_performance",
 		"hr_training", "hr_disciplinary", "hr_payroll", "uploads",
-		"kpi_dashboard",
+		"kpi_dashboard", "statements",
 	},
 
 	// ── Compliance ─────────────────────────────────────────────────────────────
@@ -368,7 +368,7 @@ var RolePages = map[string][]string{
 	// ── Internal Control ───────────────────────────────────────────────────────
 	"internal_control_head": {
 		"overview", "audit_trail", "audit_export", "audit_findings",
-		"cbn_reports", "kpi_dashboard", "reports",
+		"cbn_reports", "kpi_dashboard", "reports", "statements",
 	},
 
 	// ── IT Admin ───────────────────────────────────────────────────────────────
@@ -378,10 +378,10 @@ var RolePages = map[string][]string{
 		"uploads", "reconciliation", "call_center", "loans", "credit_portfolio",
 		"fixed_deposit", "settlement", "los", "los_all", "customer360",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"campaigns", "contact_lists", "message_templates",
+		"campaigns", "contact_lists", "message_templates", "statements",
 		"hr_employees", "hr_leave", "hr_performance", "hr_disciplinary",
 		"compliance_checklists", "audit_trail", "watch_list",
-		"kpi_dashboard", "reports", "settings", "sync_status",
+		"kpi_dashboard", "reports", "statements", "settings", "sync_status",
 	},
 
 	// ── Legacy roles (keep for backwards compatibility) ──────────────────────
@@ -392,14 +392,14 @@ var RolePages = map[string][]string{
 		"fixed_deposit", "settlement", "mobile_app", "blink_card",
 		"risk_all", "risk_officer", "risk_head",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"campaigns", "contact_lists", "message_templates",
+		"campaigns", "contact_lists", "message_templates", "statements",
 		"los", "los_all", "los_assign", "customer360",
 		"hr_employees", "hr_leave", "hr_performance", "hr_disciplinary", "hr_payroll", "hr_training",
 		"compliance_all", "compliance_checklists", "cbn_reports", "audit_trail", "audit_export",
 		"sars", "watch_list", "audit_findings",
 		"collections_assign", "collections_payment", "collections_payment_approve",
 		"recovery_assign", "recovery_write_off",
-		"kpi_dashboard", "reports", "admin_users", "admin_api_keys", "settings", "sync_status",
+		"kpi_dashboard", "reports", "statements", "admin_users", "admin_api_keys", "settings", "sync_status",
 	},
 	"management": {
 		"overview", "executive", "transactions", "income", "eod", "uploads",
@@ -408,9 +408,9 @@ var RolePages = map[string][]string{
 		"fixed_deposit", "settlement", "mobile_app", "blink_card",
 		"risk_all", "risk_officer", "risk_head",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"campaigns", "contact_lists", "message_templates",
+		"campaigns", "contact_lists", "message_templates", "statements",
 		"collections_assign", "recovery_assign", "recovery_write_off",
-		"kpi_dashboard", "reports",
+		"kpi_dashboard", "reports", "statements",
 	},
 	"head_ops": {
 		"overview", "executive", "transactions", "income", "eod", "uploads",
@@ -420,7 +420,7 @@ var RolePages = map[string][]string{
 		"risk_all", "risk_officer", "risk_head",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
 		"collections_assign", "recovery_assign", "recovery_write_off",
-		"kpi_dashboard", "reports",
+		"kpi_dashboard", "reports", "statements",
 	},
 	"head_it": {
 		"overview", "transactions", "collections", "recovery", "sales", "cards", "card_trends",
@@ -428,25 +428,25 @@ var RolePages = map[string][]string{
 		"reconciliation", "call_center", "customer_service", "loans", "credit_portfolio",
 		"fixed_deposit", "settlement", "risk_all",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"campaigns", "contact_lists", "message_templates",
+		"campaigns", "contact_lists", "message_templates", "statements",
 		"hr_employees", "hr_leave", "compliance_checklists", "audit_trail", "watch_list",
-		"kpi_dashboard", "reports", "settings", "sync_status", "los", "los_all", "customer360",
+		"kpi_dashboard", "reports", "statements", "settings", "sync_status", "los", "los_all", "customer360",
 	},
 	"head_of_reconciliation": {
 		"overview", "income", "eod", "transactions", "uploads", "reconciliation",
 		"collections_payment", "collections_payment_approve",
 		"credit_portfolio", "fixed_deposit", "settlement",
 		"los_finance", "los_finance_approve", "customer360",
-		"kpi_dashboard", "reports",
+		"kpi_dashboard", "reports", "statements",
 	},
-	"sales":            {"sales", "overview", "uploads", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates"},
+	"sales":            {"sales", "overview", "uploads", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates", "statements"},
 	"collections":      {"collections", "recovery", "eod", "uploads", "reconciliation", "crm_pipeline", "crm_contacts", "crm_tasks"},
 	"recovery":         {"recovery", "collections", "eod", "uploads", "loans", "crm_pipeline", "crm_contacts", "crm_tasks"},
 	"cards_ops":        {"cards", "card_trends", "transactions", "overview", "eod", "uploads"},
 	"call_centre":      {"overview", "transactions", "call_center", "customer_service", "crm_contacts", "uploads"},
 	"head_hr":          {"overview", "hr_employees", "hr_leave", "hr_performance", "hr_disciplinary", "hr_payroll", "hr_training", "uploads", "kpi_dashboard"},
-	"cmo":              {"overview", "sales", "cohort", "executive", "uploads", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates"},
-	"head_sales":       {"sales", "overview", "uploads", "executive", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates"},
+	"cmo":              {"overview", "sales", "cohort", "executive", "uploads", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates", "statements"},
+	"head_sales":       {"sales", "overview", "uploads", "executive", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates", "statements"},
 	"head_collections": {"collections", "recovery", "overview", "eod", "uploads", "executive", "reconciliation", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks"},
 	"head_recovery":    {"recovery", "collections", "overview", "eod", "uploads", "executive", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks"},
 }

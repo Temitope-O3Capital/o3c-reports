@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/base64"
+	"encoding/csv"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -88,9 +89,13 @@ func RegisterMail(r chi.Router, db *core.DB) {
 	r.With(access).Get("/messages/{id}", getMailMessage(db))
 	r.With(access).Get("/inbox", listInboundMail(db))
 	r.With(admin).Get("/metrics", mailMetrics(db))
+	r.With(admin).Get("/campaign-health", mailCampaignHealth(db))
+	r.With(admin).Put("/campaign-settings", mailCampaignSettingsUpdate(db))
 	r.With(admin).Get("/deliverability", mailDeliverability(db))
 	r.With(admin).Post("/test", mailSendTest(db))
 	r.With(admin).Get("/suppressions", mailListSuppressions(db))
+	r.With(admin).Post("/suppressions/import", mailImportSuppressions(db))
+	r.With(admin).Get("/suppressions/export", mailExportSuppressions(db))
 	r.With(admin).Delete("/suppressions/{email}", mailRemoveSuppression(db))
 	// Drafts
 	r.With(access).Get("/drafts", mailListDrafts(db))
@@ -109,6 +114,7 @@ func RegisterMailPublic(r chi.Router, db *core.DB) {
 		slog.Warn("Mail schema setup failed", "err", err)
 	}
 	r.Get("/unsubscribe", mailUnsubscribe(db))
+	r.Post("/unsubscribe", mailUnsubscribe(db))
 	r.Post("/inbound", mailInboundParse(db))
 }
 
@@ -289,6 +295,159 @@ func mailMetrics(db *core.DB) http.HandlerFunc {
 	}
 }
 
+func mailCampaignHealth(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed: "+err.Error())
+			return
+		}
+		settings := map[string]int{
+			"campaign_send_delay_ms":                  intSetting(r.Context(), db, "campaign_send_delay_ms", 250),
+			"campaign_daily_email_limit":              intSetting(r.Context(), db, "campaign_daily_email_limit", 5000),
+			"campaign_per_campaign_daily_email_limit": intSetting(r.Context(), db, "campaign_per_campaign_daily_email_limit", 5000),
+			"campaign_warmup_daily_email_limit":       intSetting(r.Context(), db, "campaign_warmup_daily_email_limit", 1000),
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+			  COUNT(*) FILTER (WHERE kind='campaign') AS total,
+			  COUNT(*) FILTER (WHERE kind='campaign' AND status IN ('queued','processed','sending','sent','delivered','opened','clicked')) AS attempted,
+			  COUNT(*) FILTER (WHERE kind='campaign' AND delivered_at IS NOT NULL) AS delivered,
+			  COUNT(*) FILTER (WHERE kind='campaign' AND opened_at IS NOT NULL) AS opened,
+			  COUNT(*) FILTER (WHERE kind='campaign' AND clicked_at IS NOT NULL) AS clicked,
+			  COUNT(*) FILTER (WHERE kind='campaign' AND status IN ('bounced','dropped','failed')) AS bounced,
+			  COUNT(*) FILTER (WHERE kind='campaign' AND status='spam_report') AS spam_reports,
+			  COUNT(*) FILTER (WHERE kind='campaign' AND status='unsubscribed') AS unsubscribed
+			FROM mail_messages
+			WHERE created_at >= NOW() - INTERVAL '30 days'`)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		s := rows[0]
+		total := toInt64(s["total"])
+		delivered := toInt64(s["delivered"])
+		bounced := toInt64(s["bounced"])
+		spam := toInt64(s["spam_reports"])
+		unsub := toInt64(s["unsubscribed"])
+		activeSuppressions := int64(0)
+		if sr, _ := db.PGQuery(r.Context(), `SELECT COUNT(*) AS n FROM mail_suppressions WHERE is_active=true`); len(sr) > 0 {
+			activeSuppressions = toInt64(sr[0]["n"])
+		}
+		lastWebhookAt := ""
+		lastWebhookEvent := ""
+		if wr, _ := db.PGQuery(r.Context(), `SELECT event_type, occurred_at FROM mail_events ORDER BY occurred_at DESC LIMIT 1`); len(wr) > 0 {
+			lastWebhookEvent = str(wr[0]["event_type"])
+			lastWebhookAt = timeString(wr[0]["occurred_at"])
+		}
+		respond(w, map[string]any{
+			"window_days":           30,
+			"settings":              settings,
+			"total":                 total,
+			"attempted":             toInt64(s["attempted"]),
+			"delivered":             delivered,
+			"opened":                toInt64(s["opened"]),
+			"clicked":               toInt64(s["clicked"]),
+			"bounced":               bounced,
+			"spam_reports":          spam,
+			"unsubscribed":          unsub,
+			"active_suppressions":   activeSuppressions,
+			"last_webhook_at":       lastWebhookAt,
+			"last_webhook_event":    lastWebhookEvent,
+			"webhook_signed":        resolveSendGridWebhookPublicKey(r.Context(), db) != "",
+			"warmup_enabled":        boolSetting(r.Context(), db, "campaign_warmup_mode_enabled", true),
+			"effective_daily_limit": effectiveCampaignDailyLimit(r.Context(), db),
+			"delivery_rate":         rate(delivered, total),
+			"open_rate":             rate(toInt64(s["opened"]), delivered),
+			"click_rate":            rate(toInt64(s["clicked"]), delivered),
+			"bounce_rate":           rate(bounced, total),
+			"spam_rate":             rate(spam, total),
+			"unsubscribe_rate":      rate(unsub, total),
+		}, "postgres")
+	}
+}
+
+func mailCampaignSettingsUpdate(db *core.DB) http.HandlerFunc {
+	type body struct {
+		DailyEmailLimit            int  `json:"campaign_daily_email_limit"`
+		PerCampaignDailyEmailLimit int  `json:"campaign_per_campaign_daily_email_limit"`
+		WarmupDailyEmailLimit      int  `json:"campaign_warmup_daily_email_limit"`
+		WarmupModeEnabled          bool `json:"campaign_warmup_mode_enabled"`
+		SendDelayMS                int  `json:"campaign_send_delay_ms"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.DailyEmailLimit < 0 || b.DailyEmailLimit > 100000 {
+			respondErr(w, 422, "campaign_daily_email_limit must be between 0 and 100000")
+			return
+		}
+		if b.SendDelayMS < 50 || b.SendDelayMS > 60000 {
+			respondErr(w, 422, "campaign_send_delay_ms must be between 50 and 60000")
+			return
+		}
+		if b.PerCampaignDailyEmailLimit < 0 || b.PerCampaignDailyEmailLimit > 100000 {
+			respondErr(w, 422, "campaign_per_campaign_daily_email_limit must be between 0 and 100000")
+			return
+		}
+		if b.WarmupDailyEmailLimit < 0 || b.WarmupDailyEmailLimit > 100000 {
+			respondErr(w, 422, "campaign_warmup_daily_email_limit must be between 0 and 100000")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		userID := int64(0)
+		if user != nil {
+			userID = user.ID
+		}
+		for key, val := range map[string]string{
+			"campaign_daily_email_limit":              strconv.Itoa(b.DailyEmailLimit),
+			"campaign_per_campaign_daily_email_limit": strconv.Itoa(b.PerCampaignDailyEmailLimit),
+			"campaign_warmup_daily_email_limit":       strconv.Itoa(b.WarmupDailyEmailLimit),
+			"campaign_warmup_mode_enabled":            strconv.FormatBool(b.WarmupModeEnabled),
+			"campaign_send_delay_ms":                  strconv.Itoa(b.SendDelayMS),
+		} {
+			if _, err := db.PGExec(r.Context(), `
+				INSERT INTO settings (key, value, updated_by, updated_at)
+				VALUES ($1,$2,$3,NOW())
+				ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_by=EXCLUDED.updated_by, updated_at=NOW()`,
+				key, val, nullableID(userID)); err != nil {
+				respondErr(w, 500, "Update failed")
+				return
+			}
+		}
+		respond(w, map[string]any{"ok": true}, "postgres")
+	}
+}
+
+func rate(part, total int64) float64 {
+	if total <= 0 {
+		return 0
+	}
+	return float64(part) * 100 / float64(total)
+}
+
+func looksLikeEmail(email string) bool {
+	email = strings.TrimSpace(email)
+	if email == "" || strings.ContainsAny(email, " \t\n\r") {
+		return false
+	}
+	parts := strings.Split(email, "@")
+	return len(parts) == 2 && parts[0] != "" && strings.Contains(parts[1], ".")
+}
+
+func timeString(v any) string {
+	switch t := v.(type) {
+	case time.Time:
+		return t.Format(time.RFC3339)
+	case string:
+		return t
+	default:
+		return ""
+	}
+}
+
 func mailSendTest(db *core.DB) http.HandlerFunc {
 	type body struct {
 		To string `json:"to"`
@@ -334,6 +493,77 @@ func mailListSuppressions(db *core.DB) http.HandlerFunc {
 			return
 		}
 		jsonRows(w, rows)
+	}
+}
+
+func mailImportSuppressions(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed: "+err.Error())
+			return
+		}
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			respondErr(w, 400, "Cannot parse upload")
+			return
+		}
+		file, _, err := r.FormFile("file")
+		if err != nil {
+			respondErr(w, 400, "file field required")
+			return
+		}
+		defer file.Close()
+		reader := csv.NewReader(file)
+		reader.FieldsPerRecord = -1
+		records, err := reader.ReadAll()
+		if err != nil {
+			respondErr(w, 422, "Invalid CSV")
+			return
+		}
+		inserted := 0
+		for i, rec := range records {
+			if len(rec) == 0 {
+				continue
+			}
+			email := strings.TrimSpace(rec[0])
+			if i == 0 && strings.Contains(strings.ToLower(email), "email") {
+				continue
+			}
+			if !looksLikeEmail(email) {
+				continue
+			}
+			reason := "manual_import"
+			if len(rec) > 1 && strings.TrimSpace(rec[1]) != "" {
+				reason = strings.TrimSpace(rec[1])
+			}
+			addSuppression(r.Context(), db, email, reason, "import")
+			inserted++
+		}
+		respond(w, map[string]any{"inserted": inserted}, "postgres")
+	}
+}
+
+func mailExportSuppressions(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed: "+err.Error())
+			return
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT email, reason, source, is_active, updated_at
+			FROM mail_suppressions
+			ORDER BY updated_at DESC`)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="mail-suppressions.csv"`)
+		cw := csv.NewWriter(w)
+		_ = cw.Write([]string{"email", "reason", "source", "is_active", "updated_at"})
+		for _, row := range rows {
+			_ = cw.Write([]string{str(row["email"]), str(row["reason"]), str(row["source"]), fmt.Sprintf("%v", row["is_active"]), timeString(row["updated_at"])})
+		}
+		cw.Flush()
 	}
 }
 
@@ -407,7 +637,7 @@ func mailUnsubscribe(db *core.DB) http.HandlerFunc {
 			http.Error(w, "Invalid unsubscribe link", http.StatusBadRequest)
 			return
 		}
-		rows, _ := db.PGQuery(r.Context(), `SELECT recipients FROM mail_messages WHERE id=$1`, mailID)
+		rows, _ := db.PGQuery(r.Context(), `SELECT id, kind, recipients, provider_message_id FROM mail_messages WHERE id=$1`, mailID)
 		if len(rows) == 0 {
 			http.Error(w, "Message not found", http.StatusNotFound)
 			return
@@ -418,9 +648,45 @@ func mailUnsubscribe(db *core.DB) http.HandlerFunc {
 			return
 		}
 		addSuppression(r.Context(), db, email, "unsubscribed", "unsubscribe_link")
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = db.PGExec(r.Context(), `
+			UPDATE mail_messages
+			SET status='unsubscribed', bounced_at=COALESCE(bounced_at,NOW()), updated_at=NOW()
+			WHERE id=$1 AND kind='campaign'`, mailID)
+		if str(rows[0]["kind"]) == "campaign" {
+			recordCampaignUnsubscribeFromMail(r.Context(), db, rows[0], email)
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("You have been unsubscribed from future campaign emails.")) //nolint:errcheck
+		w.Write([]byte(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unsubscribed</title></head><body style="font-family:Arial,sans-serif;background:#f8fafc;color:#0f172a;margin:0;padding:32px;"><main style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:28px;"><h1 style="font-size:22px;margin:0 0 10px;">You have been unsubscribed</h1><p style="font-size:14px;line-height:1.5;color:#475569;margin:0;">` + escapeMailHTML(email) + ` will no longer receive promotional campaign emails from O3 Cards.</p></main></body></html>`)) //nolint:errcheck
+	}
+}
+
+func recordCampaignUnsubscribeFromMail(ctx context.Context, db *core.DB, mail core.Row, email string) {
+	pid := str(mail["provider_message_id"])
+	where := "LOWER(TRIM(email))=LOWER(TRIM($1))"
+	args := []any{email}
+	if pid != "" {
+		where = "(email_provider_id=$1 OR LOWER(TRIM(email))=LOWER(TRIM($2)))"
+		args = []any{pid, email}
+	}
+	rows, _ := db.PGQuery(ctx, fmt.Sprintf(`
+		UPDATE campaign_contacts
+		SET email_status='unsubscribed', updated_at=NOW()
+		WHERE %s
+		  AND email_status NOT IN ('unsubscribed','bounced','spam','failed')
+		RETURNING id, campaign_id, tracking_id`, where), args...)
+	if len(rows) == 0 {
+		return
+	}
+	contact := rows[0]
+	if !campaignContactHasEvent(ctx, db, contact["id"], "unsubscribed") {
+		payload, _ := json.Marshal(map[string]any{"email": email, "source": "unsubscribe_link", "mail_id": mail["id"]})
+		_, _ = db.PGExec(ctx, `
+			INSERT INTO campaign_events
+			  (campaign_id, contact_id, tracking_id, event_type, channel, provider_msg_id, raw_payload)
+			VALUES ($1,$2,$3,'unsubscribed','email',$4,$5::jsonb)`,
+			contact["campaign_id"], contact["id"], str(contact["tracking_id"]), pid, string(payload))
+		_, _ = db.PGExec(ctx, "UPDATE campaigns SET unsubscribe_count=unsubscribe_count+1, updated_at=NOW() WHERE id=$1", contact["campaign_id"])
 	}
 }
 
@@ -539,7 +805,14 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 			"open_tracking":  map[string]any{"enable": true},
 		}
 	}
-	// Add List-Unsubscribe headers for notification mail (required by Gmail bulk sender policy)
+	if opt.Kind == "campaign" {
+		unsubURL := unsubscribeURL(ctx, db, mailID)
+		payload["headers"] = map[string]string{
+			"List-Unsubscribe":      "<" + unsubURL + ">",
+			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+		}
+	}
+	// Add List-Unsubscribe headers for notification mail preferences.
 	if opt.Kind == "notification" {
 		appURL := coalesce(os.Getenv("APP_URL"), "https://reports.o3cards.com")
 		prefsURL := appURL + "/settings/notifications"

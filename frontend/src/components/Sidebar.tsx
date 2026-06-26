@@ -24,6 +24,7 @@ const MODULE_PAGE_KEYS: Record<string, string[]> = {
   compliance: ['compliance_all', 'compliance_checklists', 'watch_list', 'sars', 'cbn_reports', 'audit_findings', 'audit_trail', 'audit_export'],
   hr: ['hr_employees', 'hr_leave', 'hr_performance', 'hr_disciplinary', 'hr_payroll', 'hr_training'],
   campaigns: ['campaigns', 'contact_lists', 'message_templates'],
+  statements: ['statements'],
   reports: ['reports', 'kpi_dashboard'],
   admin: ['admin_users', 'admin_api_keys', 'settings', 'sync_status'],
 }
@@ -180,6 +181,11 @@ const MODULES: Module[] = [
     ],
   },
   {
+    id: 'statements', label: 'Statements', icon: 'receipt_long',
+    roles: ['cmo', 'md', 'coo', 'cfo', 'finance_head', 'sales_head', 'call_center_head', 'management', 'admin'],
+    items: [],
+  },
+  {
     id: 'reports', label: 'Reports', icon: 'bar_chart',
     roles: [
       'sales_head', 'risk_head', 'finance_head', 'collections_head',
@@ -226,6 +232,7 @@ const MODULE_PRIMARY: Record<string, string> = {
   hr:               '/hr',
   settlements:      '/settlements',
   campaigns:        '/campaigns',
+  statements:       '/statements',
   helpdesk:         '/helpdesk',
   los:              '/los',
   crm:              '/crm',

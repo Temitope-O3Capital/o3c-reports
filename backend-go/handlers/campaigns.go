@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -32,6 +33,7 @@ var (
 	smsWebhookSecret         = os.Getenv("SMS_WEBHOOK_SECRET")
 	emailWebhookSecret       = os.Getenv("EMAIL_WEBHOOK_SECRET")
 	sendgridWebhookPublicKey = os.Getenv("SENDGRID_WEBHOOK_PUBLIC_KEY")
+	campaignDispatchWorkers  sync.Map
 )
 
 // resolveCredKey returns the credential value: env var first, then DB-stored (encrypted).
@@ -175,6 +177,18 @@ func intSetting(ctx context.Context, db *core.DB, key string, fallback int) int 
 	return v
 }
 
+func boolSetting(ctx context.Context, db *core.DB, key string, fallback bool) bool {
+	rows, err := db.PGQuery(ctx, `SELECT value FROM settings WHERE key=$1`, key)
+	if err != nil || len(rows) == 0 {
+		return fallback
+	}
+	s := strings.ToLower(strings.TrimSpace(str(rows[0]["value"])))
+	if s == "" {
+		return fallback
+	}
+	return s == "true" || s == "1" || s == "yes" || s == "on"
+}
+
 func campaignMailSentToday(ctx context.Context, db *core.DB) int {
 	rows, err := db.PGQuery(ctx, `
 		SELECT COUNT(*) AS n
@@ -187,12 +201,63 @@ func campaignMailSentToday(ctx context.Context, db *core.DB) int {
 	return int(toInt64(rows[0]["n"]))
 }
 
+func campaignEmailSentToday(ctx context.Context, db *core.DB, campaignID int64) int {
+	rows, err := db.PGQuery(ctx, `
+		SELECT COUNT(*) AS n
+		FROM campaign_contacts
+		WHERE campaign_id=$1
+		  AND email_sent_at::date=CURRENT_DATE
+		  AND email_status NOT IN ('failed','skipped')`, campaignID)
+	if err != nil || len(rows) == 0 {
+		return 0
+	}
+	return int(toInt64(rows[0]["n"]))
+}
+
+func effectiveCampaignDailyLimit(ctx context.Context, db *core.DB) int {
+	limit := intSetting(ctx, db, "campaign_daily_email_limit", 5000)
+	if boolSetting(ctx, db, "campaign_warmup_mode_enabled", true) {
+		warmup := intSetting(ctx, db, "campaign_warmup_daily_email_limit", 1000)
+		if warmup > 0 && (limit == 0 || warmup < limit) {
+			return warmup
+		}
+	}
+	return limit
+}
+
+func acquireCampaignDispatchLock(ctx context.Context, db *core.DB, campaignID int64) bool {
+	rows, err := db.PGQuery(ctx, `
+		UPDATE campaigns
+		SET dispatch_lock_until=NOW() + INTERVAL '15 minutes', updated_at=NOW()
+		WHERE id=$1 AND (dispatch_lock_until IS NULL OR dispatch_lock_until < NOW())
+		RETURNING id`, campaignID)
+	return err == nil && len(rows) > 0
+}
+
+func refreshCampaignDispatchLock(ctx context.Context, db *core.DB, campaignID int64) {
+	_, _ = db.PGExec(ctx, `UPDATE campaigns SET dispatch_lock_until=NOW() + INTERVAL '15 minutes' WHERE id=$1`, campaignID)
+}
+
+func releaseCampaignDispatchLock(ctx context.Context, db *core.DB, campaignID int64) {
+	_, _ = db.PGExec(ctx, `UPDATE campaigns SET dispatch_lock_until=NULL WHERE id=$1`, campaignID)
+}
+
 // ── Background dispatch ───────────────────────────────────────────────────────
 
 func startDispatch(db *core.DB, campaignID int64) {
+	if _, loaded := campaignDispatchWorkers.LoadOrStore(campaignID, true); loaded {
+		slog.Info("Campaign dispatch already running", "id", campaignID)
+		return
+	}
 	go func() {
+		defer campaignDispatchWorkers.Delete(campaignID)
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 		defer cancel()
+		if !acquireCampaignDispatchLock(ctx, db, campaignID) {
+			slog.Info("Campaign dispatch lock is already held", "id", campaignID)
+			return
+		}
+		defer releaseCampaignDispatchLock(context.Background(), db, campaignID)
 
 		campRows, err := db.PGQuery(ctx, "SELECT * FROM campaigns WHERE id=$1", campaignID)
 		if err != nil || len(campRows) == 0 {
@@ -204,8 +269,9 @@ func startDispatch(db *core.DB, campaignID int64) {
 		}
 		isSMS := str(camp["type"]) == "sms" || str(camp["type"]) == "multi"
 		isEmail := str(camp["type"]) == "email" || str(camp["type"]) == "multi"
-		sendDelay := time.Duration(intSetting(ctx, db, "campaign_send_delay_ms", 100)) * time.Millisecond
-		dailyLimit := intSetting(ctx, db, "campaign_daily_email_limit", 0)
+		sendDelay := time.Duration(intSetting(ctx, db, "campaign_send_delay_ms", 250)) * time.Millisecond
+		dailyLimit := effectiveCampaignDailyLimit(ctx, db)
+		perCampaignDailyLimit := intSetting(ctx, db, "campaign_per_campaign_daily_email_limit", 5000)
 
 		contactRows, err := db.PGQuery(ctx, `
 			SELECT * FROM campaign_contacts
@@ -218,10 +284,11 @@ func startDispatch(db *core.DB, campaignID int64) {
 		}
 
 		for _, c := range contactRows {
+			refreshCampaignDispatchLock(ctx, db, campaignID)
 			// Check if paused
 			stRow, _ := db.PGQuery(ctx, "SELECT status FROM campaigns WHERE id=$1", campaignID)
-			if len(stRow) > 0 && str(stRow[0]["status"]) == "paused" {
-				slog.Info("Campaign paused, stopping dispatch", "id", campaignID)
+			if len(stRow) > 0 && str(stRow[0]["status"]) != "active" {
+				slog.Info("Campaign dispatch stopped", "id", campaignID, "status", str(stRow[0]["status"]))
 				return
 			}
 
@@ -235,26 +302,46 @@ func startDispatch(db *core.DB, campaignID int64) {
 			cid := toInt64(c["id"])
 
 			if isSMS && str(c["sms_status"]) == "pending" && str(c["phone"]) != "" {
-				body := renderTemplate(str(camp["sms_body"]), mergeData)
-				ok, pid := sendSMS(ctx, db, str(c["phone"]), body)
-				smsStatus := "sent"
-				smsCol := "sms_sent"
-				if !ok {
-					smsStatus = "failed"
-					smsCol = "sms_failed"
+				claimed, _ := db.PGQuery(ctx, `
+					UPDATE campaign_contacts
+					SET sms_status='sending', updated_at=NOW()
+					WHERE id=$1 AND sms_status='pending'
+					RETURNING id`, cid)
+				if len(claimed) > 0 {
+					body := renderTemplate(str(camp["sms_body"]), mergeData)
+					ok, pid := sendSMS(ctx, db, str(c["phone"]), body)
+					smsStatus := "sent"
+					smsCol := "sms_sent"
+					if !ok {
+						smsStatus = "failed"
+						smsCol = "sms_failed"
+					}
+					db.PGExec(ctx, //nolint:errcheck
+						`UPDATE campaign_contacts SET sms_status=$1, sms_provider_id=$2, sms_sent_at=NOW(), updated_at=NOW() WHERE id=$3`,
+						smsStatus, pid, cid)
+					db.PGExec(ctx, //nolint:errcheck
+						fmt.Sprintf("UPDATE campaigns SET %s=%s+1, updated_at=NOW() WHERE id=$1", smsCol, smsCol), campaignID)
 				}
-				db.PGExec(ctx, //nolint:errcheck
-					`UPDATE campaign_contacts SET sms_status=$1, sms_provider_id=$2, sms_sent_at=NOW(), updated_at=NOW() WHERE id=$3`,
-					smsStatus, pid, cid)
-				db.PGExec(ctx, //nolint:errcheck
-					fmt.Sprintf("UPDATE campaigns SET %s=%s+1, updated_at=NOW() WHERE id=$1", smsCol, smsCol), campaignID)
 			}
 
 			if isEmail && str(c["email_status"]) == "pending" && str(c["email"]) != "" {
 				if dailyLimit > 0 && campaignMailSentToday(ctx, db) >= dailyLimit {
-					db.PGExec(ctx, "UPDATE campaigns SET status='paused', updated_at=NOW() WHERE id=$1", campaignID) //nolint:errcheck
+					db.PGExec(ctx, "UPDATE campaigns SET status='paused', pause_reason='daily_limit', paused_until=date_trunc('day', NOW()) + INTERVAL '1 day', updated_at=NOW() WHERE id=$1", campaignID) //nolint:errcheck
 					slog.Info("Campaign paused because daily email limit was reached", "id", campaignID, "limit", dailyLimit)
 					return
+				}
+				if perCampaignDailyLimit > 0 && campaignEmailSentToday(ctx, db, campaignID) >= perCampaignDailyLimit {
+					db.PGExec(ctx, "UPDATE campaigns SET status='paused', pause_reason='daily_limit', paused_until=date_trunc('day', NOW()) + INTERVAL '1 day', updated_at=NOW() WHERE id=$1", campaignID) //nolint:errcheck
+					slog.Info("Campaign paused because per-campaign daily email limit was reached", "id", campaignID, "limit", perCampaignDailyLimit)
+					return
+				}
+				claimed, _ := db.PGQuery(ctx, `
+					UPDATE campaign_contacts
+					SET email_status='sending', updated_at=NOW()
+					WHERE id=$1 AND email_status='pending'
+					RETURNING id`, cid)
+				if len(claimed) == 0 {
+					continue
 				}
 				subject := renderTemplate(str(camp["email_subject"]), mergeData)
 				htmlBody := renderTemplate(str(camp["email_body_html"]), mergeData)
@@ -312,7 +399,7 @@ func startDispatch(db *core.DB, campaignID int64) {
 		}
 
 		db.PGExec(ctx, //nolint:errcheck
-			"UPDATE campaigns SET status='completed', completed_at=NOW(), updated_at=NOW() WHERE id=$1 AND status='active'",
+			"UPDATE campaigns SET status='completed', pause_reason=NULL, paused_until=NULL, completed_at=NOW(), updated_at=NOW() WHERE id=$1 AND status='active'",
 			campaignID)
 		slog.Info("Campaign dispatch complete", "id", campaignID)
 	}()
@@ -325,6 +412,16 @@ func startDispatch(db *core.DB, campaignID int64) {
 func ResumeInterruptedCampaigns(db *core.DB) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	db.PGExec(ctx, `
+		UPDATE campaign_contacts cc
+		SET sms_status='pending', updated_at=NOW()
+		FROM campaigns c
+		WHERE c.id=cc.campaign_id AND c.status='active' AND cc.sms_status='sending'`) //nolint:errcheck
+	db.PGExec(ctx, `
+		UPDATE campaign_contacts cc
+		SET email_status='pending', updated_at=NOW()
+		FROM campaigns c
+		WHERE c.id=cc.campaign_id AND c.status='active' AND cc.email_status='sending'`) //nolint:errcheck
 	rows, err := db.PGQuery(ctx, `
 		SELECT DISTINCT c.id
 		FROM campaigns c
@@ -345,6 +442,42 @@ func ResumeInterruptedCampaigns(db *core.DB) {
 	}
 }
 
+func ScheduleCampaignAutoResume(db *core.DB) {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+	resumeDailyLimitCampaigns(db)
+	for range ticker.C {
+		resumeDailyLimitCampaigns(db)
+	}
+}
+
+func resumeDailyLimitCampaigns(db *core.DB) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if effectiveCampaignDailyLimit(ctx, db) > 0 && campaignMailSentToday(ctx, db) >= effectiveCampaignDailyLimit(ctx, db) {
+		return
+	}
+	rows, err := db.PGQuery(ctx, `
+		UPDATE campaigns
+		SET status='active', pause_reason=NULL, paused_until=NULL, updated_at=NOW()
+		WHERE status='paused'
+		  AND pause_reason='daily_limit'
+		  AND (paused_until IS NULL OR paused_until <= NOW())
+		RETURNING id`)
+	if err != nil {
+		slog.Error("Campaign auto-resume: query failed", "err", err)
+		return
+	}
+	for _, row := range rows {
+		id := toInt64(row["id"])
+		if id <= 0 {
+			continue
+		}
+		slog.Info("Auto-resuming campaign paused by daily limit", "campaign_id", id)
+		startDispatch(db, id)
+	}
+}
+
 // ── Route registration ────────────────────────────────────────────────────────
 
 var campaignUpdateCols = []string{
@@ -359,6 +492,7 @@ func RegisterCampaigns(r chi.Router, db *core.DB) {
 	access := core.RequirePages("campaigns")
 
 	r.With(access).Get("/", listCampaigns(db))
+	r.With(access).Get("/preflight", campaignPreflight(db))
 	r.With(access).Post("/", createCampaign(db))
 	r.With(access).Get("/{id}", getCampaign(db))
 	r.With(access).Patch("/{id}", updateCampaign(db))
@@ -372,6 +506,166 @@ func RegisterCampaigns(r chi.Router, db *core.DB) {
 func RegisterCampaignWebhooks(r chi.Router, db *core.DB) {
 	r.Post("/sms-webhook", smsWebhook(db))
 	r.Post("/email-webhook", emailWebhook(db))
+}
+
+func campaignPreflight(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		listID := qstr(r, "list_id")
+		channel := qstr(r, "type")
+		if channel == "" {
+			channel = "email"
+		}
+		if listID == "" {
+			respondErr(w, 422, "list_id is required")
+			return
+		}
+		if channel != "email" && channel != "sms" && channel != "multi" {
+			respondErr(w, 422, "type must be email, sms, or multi")
+			return
+		}
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed")
+			return
+		}
+
+		listRows, err := db.PGQuery(r.Context(), "SELECT id, name FROM contact_lists WHERE id=$1", listID)
+		if err != nil || len(listRows) == 0 {
+			respondErr(w, 404, "Contact list not found")
+			return
+		}
+		row1 := func(query string, args ...any) core.Row {
+			rows, _ := db.PGQuery(r.Context(), query, args...)
+			if len(rows) == 0 {
+				return core.Row{}
+			}
+			return rows[0]
+		}
+		total := toInt64(row1(`SELECT COUNT(*) AS n FROM contact_list_members WHERE list_id=$1 AND status='active'`, listID)["n"])
+		withEmail := toInt64(row1(`SELECT COUNT(*) AS n FROM contact_list_members WHERE list_id=$1 AND status='active' AND NULLIF(TRIM(email),'') IS NOT NULL`, listID)["n"])
+		withPhone := toInt64(row1(`SELECT COUNT(*) AS n FROM contact_list_members WHERE list_id=$1 AND status='active' AND NULLIF(TRIM(phone),'') IS NOT NULL`, listID)["n"])
+		invalidEmail := toInt64(row1(`
+			SELECT COUNT(*) AS n FROM contact_list_members
+			WHERE list_id=$1 AND status='active' AND NULLIF(TRIM(email),'') IS NOT NULL
+			  AND TRIM(email) !~* '^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$'`, listID)["n"])
+		roleEmail := toInt64(row1(`
+			SELECT COUNT(*) AS n FROM contact_list_members
+			WHERE list_id=$1 AND status='active' AND NULLIF(TRIM(email),'') IS NOT NULL
+			  AND LOWER(SPLIT_PART(TRIM(email),'@',1)) IN ('admin','support','info','sales','contact','hello','noreply','no-reply','postmaster','abuse')`, listID)["n"])
+		disposableEmail := toInt64(row1(`
+			SELECT COUNT(*) AS n FROM contact_list_members
+			WHERE list_id=$1 AND status='active' AND NULLIF(TRIM(email),'') IS NOT NULL
+			  AND LOWER(SPLIT_PART(TRIM(email),'@',2)) IN ('mailinator.com','tempmail.com','10minutemail.com','guerrillamail.com','yopmail.com')`, listID)["n"])
+		suppressed := toInt64(row1(`
+			SELECT COUNT(*) AS n
+			FROM contact_list_members m
+			JOIN mail_suppressions s ON LOWER(TRIM(s.email))=LOWER(TRIM(m.email)) AND s.is_active=true
+			WHERE m.list_id=$1 AND m.status='active' AND NULLIF(TRIM(m.email),'') IS NOT NULL`, listID)["n"])
+		dupeRows, _ := db.PGQuery(r.Context(), `
+			SELECT COALESCE(SUM(n - 1),0) AS duplicate_rows, COUNT(*) AS duplicate_groups
+			FROM (
+			  SELECT LOWER(TRIM(email)) AS email, COUNT(*) AS n
+			  FROM contact_list_members
+			  WHERE list_id=$1 AND status='active' AND NULLIF(TRIM(email),'') IS NOT NULL
+			  GROUP BY LOWER(TRIM(email)) HAVING COUNT(*) > 1
+			) d`, listID)
+		duplicateRows := int64(0)
+		duplicateGroups := int64(0)
+		if len(dupeRows) > 0 {
+			duplicateRows = toInt64(dupeRows[0]["duplicate_rows"])
+			duplicateGroups = toInt64(dupeRows[0]["duplicate_groups"])
+		}
+		usableEmail := withEmail - suppressed - duplicateRows - invalidEmail
+		if usableEmail < 0 {
+			usableEmail = 0
+		}
+		usableSMS := withPhone
+		usable := usableEmail
+		if channel == "sms" {
+			usable = usableSMS
+		} else if channel == "multi" {
+			usable = usableEmail + usableSMS
+		}
+
+		sendDelayMs := intSetting(r.Context(), db, "campaign_send_delay_ms", 100)
+		dailyEmailLimit := effectiveCampaignDailyLimit(r.Context(), db)
+		estimatedSeconds := int64(0)
+		if channel == "email" {
+			estimatedSeconds = (usableEmail * int64(sendDelayMs)) / 1000
+		} else if channel == "sms" {
+			estimatedSeconds = (usableSMS * int64(sendDelayMs)) / 1000
+		} else {
+			estimatedSeconds = ((usableEmail + usableSMS) * int64(sendDelayMs)) / 1000
+		}
+		if estimatedSeconds == 0 && usable > 0 {
+			estimatedSeconds = 1
+		}
+
+		sample, _ := db.PGQuery(r.Context(), `
+			SELECT first_name, last_name, email, phone, cif_number
+			FROM contact_list_members
+			WHERE list_id=$1 AND status='active'
+			ORDER BY id ASC
+			LIMIT 25`, listID)
+		warnings := []string{}
+		if channel == "email" || channel == "multi" {
+			if total-withEmail > 0 {
+				warnings = append(warnings, fmt.Sprintf("%d active contact(s) have no email address", total-withEmail))
+			}
+			if suppressed > 0 {
+				warnings = append(warnings, fmt.Sprintf("%d email recipient(s) are suppressed and will be skipped by the sender", suppressed))
+			}
+			if duplicateRows > 0 {
+				warnings = append(warnings, fmt.Sprintf("%d duplicate email row(s) found across %d duplicate address(es)", duplicateRows, duplicateGroups))
+			}
+			if invalidEmail > 0 {
+				warnings = append(warnings, fmt.Sprintf("%d email address(es) have invalid format and will be skipped", invalidEmail))
+			}
+			if roleEmail > 0 {
+				warnings = append(warnings, fmt.Sprintf("%d role-based email address(es) found; consider removing from promotional campaigns", roleEmail))
+			}
+			if disposableEmail > 0 {
+				warnings = append(warnings, fmt.Sprintf("%d disposable-looking email address(es) found; consider removing before sending", disposableEmail))
+			}
+			if dailyEmailLimit > 0 && usableEmail > int64(dailyEmailLimit) {
+				warnings = append(warnings, fmt.Sprintf("Daily campaign email limit is %d; this run will pause and resume in batches", dailyEmailLimit))
+			}
+			if boolSetting(r.Context(), db, "campaign_warmup_mode_enabled", true) {
+				warnings = append(warnings, fmt.Sprintf("Warmup mode is enabled; effective daily limit is %d", dailyEmailLimit))
+			}
+			if usableEmail >= 30000 && dailyEmailLimit == 0 {
+				warnings = append(warnings, "30,000+ email run with no daily email limit configured")
+			}
+		}
+		if channel == "sms" || channel == "multi" {
+			if total-withPhone > 0 {
+				warnings = append(warnings, fmt.Sprintf("%d active contact(s) have no phone number", total-withPhone))
+			}
+		}
+
+		respond(w, map[string]any{
+			"list":                    map[string]any{"id": listRows[0]["id"], "name": listRows[0]["name"]},
+			"channel":                 channel,
+			"total_active":            total,
+			"with_email":              withEmail,
+			"with_phone":              withPhone,
+			"missing_email":           total - withEmail,
+			"missing_phone":           total - withPhone,
+			"suppressed_email":        suppressed,
+			"duplicate_email_rows":    duplicateRows,
+			"duplicate_email_groups":  duplicateGroups,
+			"invalid_email":           invalidEmail,
+			"role_email":              roleEmail,
+			"disposable_email":        disposableEmail,
+			"usable_email_recipients": usableEmail,
+			"usable_sms_recipients":   usableSMS,
+			"estimated_messages":      usable,
+			"send_delay_ms":           sendDelayMs,
+			"daily_email_limit":       dailyEmailLimit,
+			"estimated_seconds":       estimatedSeconds,
+			"sample":                  sample,
+			"warnings":                warnings,
+		}, "postgres")
+	}
 }
 
 // ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -402,10 +696,24 @@ func listCampaigns(db *core.DB) http.HandlerFunc {
 			total = int(toInt64(tr[0]["n"]))
 		}
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
-			SELECT c.*, u.full_name AS created_by_name, cl.name AS list_name
+			SELECT c.*, u.full_name AS created_by_name, cl.name AS list_name,
+			       COALESCE(cp.pending_count,0) AS pending_count,
+			       COALESCE(cp.sending_count,0) AS sending_count,
+			       COALESCE(cp.skipped_count,0) AS skipped_count,
+			       COALESCE(cp.failed_count,0) AS contact_failed_count,
+			       COALESCE(cp.completed_count,0) AS completed_contact_count
 			FROM campaigns c
 			LEFT JOIN o3c_users u  ON c.created_by=u.id
 			LEFT JOIN contact_lists cl ON c.list_id=cl.id
+			LEFT JOIN LATERAL (
+			  SELECT
+			    COUNT(*) FILTER (WHERE sms_status='pending' OR email_status='pending') AS pending_count,
+			    COUNT(*) FILTER (WHERE sms_status='sending' OR email_status='sending') AS sending_count,
+			    COUNT(*) FILTER (WHERE sms_status='skipped' OR email_status='skipped') AS skipped_count,
+			    COUNT(*) FILTER (WHERE sms_status='failed' OR email_status IN ('failed','bounced','spam')) AS failed_count,
+			    COUNT(*) FILTER (WHERE sms_status IN ('sent','delivered','failed','skipped') OR email_status IN ('queued','processed','delivered','opened','clicked','failed','bounced','spam','unsubscribed','skipped')) AS completed_count
+			  FROM campaign_contacts cc WHERE cc.campaign_id=c.id
+			) cp ON true
 			WHERE %s ORDER BY c.created_at DESC LIMIT $%d OFFSET $%d`, where, n, n+1), args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
@@ -617,13 +925,65 @@ func startCampaign(db *core.DB) http.HandlerFunc {
 					toInt64(tr[0]["n"]), campID)
 			}
 		}
+		prepareCampaignRecipients(r.Context(), db, campID)
 
 		db.PGExec(r.Context(), //nolint:errcheck
-			"UPDATE campaigns SET status='active', started_at=NOW(), updated_at=NOW() WHERE id=$1", campID)
+			"UPDATE campaigns SET status='active', pause_reason=NULL, paused_until=NULL, started_at=NOW(), updated_at=NOW() WHERE id=$1", campID)
 
 		startDispatch(db, campID)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"status": "active", "campaign_id": campID}) //nolint:errcheck
+	}
+}
+
+func prepareCampaignRecipients(ctx context.Context, db *core.DB, campaignID int64) {
+	rows, err := db.PGQuery(ctx, "SELECT type FROM campaigns WHERE id=$1", campaignID)
+	if err != nil || len(rows) == 0 {
+		return
+	}
+	typ := str(rows[0]["type"])
+	isSMS := typ == "sms" || typ == "multi"
+	isEmail := typ == "email" || typ == "multi"
+	if isSMS {
+		_, _ = db.PGExec(ctx, `
+			UPDATE campaign_contacts
+			SET sms_status='skipped', updated_at=NOW()
+			WHERE campaign_id=$1 AND sms_status='pending' AND NULLIF(TRIM(phone),'') IS NULL`, campaignID)
+	}
+	if isEmail {
+		if err := ensureMailSchema(ctx, db); err == nil {
+			_, _ = db.PGExec(ctx, `
+				UPDATE campaign_contacts cc
+				SET email_status='skipped', updated_at=NOW()
+				FROM mail_suppressions s
+				WHERE cc.campaign_id=$1
+				  AND cc.email_status='pending'
+				  AND s.is_active=true
+				  AND LOWER(TRIM(s.email))=LOWER(TRIM(cc.email))`, campaignID)
+		}
+		_, _ = db.PGExec(ctx, `
+			UPDATE campaign_contacts
+			SET email_status='skipped', updated_at=NOW()
+			WHERE campaign_id=$1 AND email_status='pending' AND NULLIF(TRIM(email),'') IS NULL`, campaignID)
+		_, _ = db.PGExec(ctx, `
+			UPDATE campaign_contacts
+			SET email_status='skipped', updated_at=NOW()
+			WHERE campaign_id=$1 AND email_status='pending'
+			  AND NULLIF(TRIM(email),'') IS NOT NULL
+			  AND TRIM(email) !~* '^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$'`, campaignID)
+		_, _ = db.PGExec(ctx, `
+			WITH ranked AS (
+			  SELECT id, ROW_NUMBER() OVER (PARTITION BY LOWER(TRIM(email)) ORDER BY id ASC) AS rn
+			  FROM campaign_contacts
+			  WHERE campaign_id=$1 AND email_status='pending' AND NULLIF(TRIM(email),'') IS NOT NULL
+			)
+			UPDATE campaign_contacts cc
+			SET email_status='skipped', updated_at=NOW()
+			FROM ranked r
+			WHERE cc.id=r.id AND r.rn > 1`, campaignID)
+	}
+	if tr, _ := db.PGQuery(ctx, "SELECT COUNT(*) AS n FROM campaign_contacts WHERE campaign_id=$1", campaignID); len(tr) > 0 {
+		_, _ = db.PGExec(ctx, "UPDATE campaigns SET total_contacts=$1, updated_at=NOW() WHERE id=$2", toInt64(tr[0]["n"]), campaignID)
 	}
 }
 
@@ -639,7 +999,7 @@ func pauseCampaign(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Only active campaigns can be paused")
 			return
 		}
-		db.PGExec(r.Context(), "UPDATE campaigns SET status='paused', updated_at=NOW() WHERE id=$1", id) //nolint:errcheck
+		db.PGExec(r.Context(), "UPDATE campaigns SET status='paused', pause_reason='manual', paused_until=NULL, updated_at=NOW() WHERE id=$1", id) //nolint:errcheck
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "paused"}) //nolint:errcheck
 	}
@@ -658,7 +1018,7 @@ func cancelCampaign(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, fmt.Sprintf("Campaign is already %s", st))
 			return
 		}
-		db.PGExec(r.Context(), "UPDATE campaigns SET status='cancelled', updated_at=NOW() WHERE id=$1", id) //nolint:errcheck
+		db.PGExec(r.Context(), "UPDATE campaigns SET status='cancelled', pause_reason=NULL, paused_until=NULL, dispatch_lock_until=NULL, updated_at=NOW() WHERE id=$1", id) //nolint:errcheck
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"}) //nolint:errcheck
 	}
