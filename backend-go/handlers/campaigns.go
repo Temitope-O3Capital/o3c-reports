@@ -138,6 +138,18 @@ func sendEmail(ctx context.Context, db *core.DB, toEmail, toName, fromEmail, fro
 	return true, res.ProviderID
 }
 
+func publicAppURL() string {
+	base := strings.TrimRight(strings.TrimSpace(firstNonEmpty(
+		os.Getenv("APP_URL"),
+		os.Getenv("APP_BASE_URL"),
+		os.Getenv("RAILWAY_PUBLIC_DOMAIN"),
+	)), "/")
+	if base != "" && !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+		base = "https://" + base
+	}
+	return base
+}
+
 func httpPost(url, contentType, auth string, body []byte, timeout time.Duration) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(
 		context.Background(), http.MethodPost, url, bytes.NewReader(body))
@@ -248,9 +260,9 @@ func startDispatch(db *core.DB, campaignID int64) {
 				htmlBody := renderTemplate(str(camp["email_body_html"]), mergeData)
 				textBody := renderTemplate(str(camp["email_body_text"]), mergeData)
 
-				// Inject click-tracking and open-pixel if APP_URL and tracking_id are set.
+				// Inject click-tracking and open-pixel if the public app URL and tracking_id are set.
 				trackingID := str(c["tracking_id"])
-				appURL := os.Getenv("APP_URL")
+				appURL := publicAppURL()
 				if appURL != "" && trackingID != "" {
 					// Wrap all href="https?://..." links with the click-tracking redirect.
 					htmlBody = hrefRE.ReplaceAllStringFunc(htmlBody, func(match string) string {
@@ -762,6 +774,18 @@ func insertCampaignEmailEvent(ctx context.Context, db *core.DB, contact map[stri
 		contact["campaign_id"], contact["id"], str(contact["tracking_id"]), eventType, str(ev["url"]), providerID, string(payload))
 }
 
+func campaignContactHasEvent(ctx context.Context, db *core.DB, contactID any, eventType string) bool {
+	if toInt64(contactID) <= 0 || eventType == "" {
+		return false
+	}
+	rows, _ := db.PGQuery(ctx, `
+		SELECT 1
+		FROM campaign_events
+		WHERE contact_id=$1 AND event_type=$2
+		LIMIT 1`, contactID, eventType)
+	return len(rows) > 0
+}
+
 func emailWebhook(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -808,14 +832,21 @@ func emailWebhook(db *core.DB) http.HandlerFunc {
 					"UPDATE campaign_contacts SET email_status='processed', updated_at=NOW() WHERE email_provider_id=$1 AND email_status NOT IN ('delivered','opened','clicked')", pid)
 			case "delivered":
 				rows, _ := db.PGQuery(ctx, `
-					UPDATE campaign_contacts
-					SET email_status='delivered', updated_at=NOW()
+					SELECT id, campaign_id, tracking_id, email_status
+					FROM campaign_contacts
 					WHERE email_provider_id=$1
-					  AND email_status NOT IN ('delivered','opened','clicked','bounced','spam','unsubscribed','failed')
-					RETURNING id, campaign_id, tracking_id`, pid)
+					LIMIT 1`, pid)
 				if len(rows) > 0 {
-					db.PGExec(ctx, "UPDATE campaigns SET emails_delivered=emails_delivered+1, updated_at=NOW() WHERE id=$1", rows[0]["campaign_id"]) //nolint:errcheck
-					insertCampaignEmailEvent(ctx, db, rows[0], "delivered", pid, ev)
+					alreadyDelivered := campaignContactHasEvent(ctx, db, rows[0]["id"], "delivered")
+					if !alreadyDelivered {
+						db.PGExec(ctx, "UPDATE campaigns SET emails_delivered=emails_delivered+1, updated_at=NOW() WHERE id=$1", rows[0]["campaign_id"]) //nolint:errcheck
+						insertCampaignEmailEvent(ctx, db, rows[0], "delivered", pid, ev)
+					}
+					db.PGExec(ctx, `
+						UPDATE campaign_contacts
+						SET email_status='delivered', updated_at=NOW()
+						WHERE id=$1
+						  AND email_status NOT IN ('opened','clicked','bounced','spam','unsubscribed','failed')`, rows[0]["id"]) //nolint:errcheck
 				}
 			case "open":
 				rows, _ := db.PGQuery(ctx, `

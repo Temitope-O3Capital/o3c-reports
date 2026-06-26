@@ -29,6 +29,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -237,12 +238,67 @@ func campaignsAllAnalytics(db *core.DB) http.HandlerFunc {
 			byMonth = append(byMonth, entry)
 		}
 
+		monthlyVolumeRows, _ := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT
+			    to_char(date_trunc('month', created_at), 'YYYY-MM') AS month,
+			    type,
+			    COALESCE(SUM(emails_sent + sms_sent),0) AS sent
+			FROM campaigns
+			WHERE %s
+			GROUP BY date_trunc('month', created_at), type
+			ORDER BY date_trunc('month', created_at) ASC`, where), args...)
+		monthlyMap := map[string]map[string]any{}
+		for _, row := range monthlyVolumeRows {
+			month := str(row["month"])
+			if month == "" {
+				continue
+			}
+			entry := monthlyMap[month]
+			if entry == nil {
+				entry = map[string]any{"month": month, "email": int64(0), "sms": int64(0), "whatsapp": int64(0)}
+				monthlyMap[month] = entry
+			}
+			entry[str(row["type"])] = toInt64(row["sent"])
+		}
+		monthlyVolume := make([]map[string]any, 0, len(monthlyMap))
+		for _, entry := range monthlyMap {
+			monthlyVolume = append(monthlyVolume, entry)
+		}
+		sort.Slice(monthlyVolume, func(i, j int) bool {
+			return str(monthlyVolume[i]["month"]) < str(monthlyVolume[j]["month"])
+		})
+
+		channelSplitRows, _ := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT type AS channel, COUNT(*) AS count
+			FROM campaigns
+			WHERE %s
+			GROUP BY type
+			ORDER BY type`, where), args...)
+		channelSplit := make([]map[string]any, 0, len(channelSplitRows))
+		for _, row := range channelSplitRows {
+			channelSplit = append(channelSplit, map[string]any{
+				"channel": str(row["channel"]),
+				"count":   toInt64(row["count"]),
+			})
+		}
+
 		// Top campaigns by open rate (email campaigns with >0 sent)
 		topRows, _ := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT id, name, type,
 			       COALESCE(emails_sent + sms_sent,0) AS sent,
-			       COALESCE(emails_opened,0)    AS opened,
-			       COALESCE(emails_clicked,0)   AS clicked
+			       GREATEST(COALESCE(emails_delivered + sms_delivered,0), (
+			           SELECT COUNT(*) FROM campaign_contacts cc
+			           WHERE cc.campaign_id=campaigns.id
+			             AND (cc.email_status IN ('delivered','opened','clicked') OR cc.sms_status='delivered')
+			       )) AS delivered,
+			       GREATEST(COALESCE(emails_opened,0), (
+			           SELECT COUNT(*) FROM campaign_contacts cc
+			           WHERE cc.campaign_id=campaigns.id AND cc.email_status IN ('opened','clicked')
+			       )) AS opened,
+			       GREATEST(COALESCE(emails_clicked,0), (
+			           SELECT COUNT(*) FROM campaign_contacts cc
+			           WHERE cc.campaign_id=campaigns.id AND cc.email_status='clicked'
+			       )) AS clicked
 			FROM campaigns
 			WHERE %s AND (emails_sent + sms_sent) > 0
 			ORDER BY
@@ -255,17 +311,21 @@ func campaignsAllAnalytics(db *core.DB) http.HandlerFunc {
 		topCampaigns := make([]map[string]any, 0, len(topRows))
 		for _, row := range topRows {
 			sent := toInt64(row["sent"])
+			delivered := toInt64(row["delivered"])
 			opened := toInt64(row["opened"])
 			clicked := toInt64(row["clicked"])
 			entry := map[string]any{
-				"id":         toInt64(row["id"]),
-				"name":       str(row["name"]),
-				"channel":    str(row["type"]),
-				"sent":       sent,
-				"open_rate":  float64(0),
-				"click_rate": float64(0),
+				"id":            toInt64(row["id"]),
+				"name":          str(row["name"]),
+				"channel":       str(row["type"]),
+				"sent":          sent,
+				"delivered":     delivered,
+				"delivered_pct": float64(0),
+				"open_rate":     float64(0),
+				"click_rate":    float64(0),
 			}
 			if sent > 0 {
+				entry["delivered_pct"] = roundPct(float64(delivered) / float64(sent) * 100)
 				entry["open_rate"] = roundPct(float64(opened) / float64(sent) * 100)
 				entry["click_rate"] = roundPct(float64(clicked) / float64(sent) * 100)
 			}
@@ -274,10 +334,13 @@ func campaignsAllAnalytics(db *core.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"summary":       summary,
-			"by_channel":    byChannel,
-			"by_month":      byMonth,
-			"top_campaigns": topCampaigns,
+			"summary":        summary,
+			"metrics":        summary,
+			"by_channel":     byChannel,
+			"by_month":       byMonth,
+			"channel_split":  channelSplit,
+			"monthly_volume": monthlyVolume,
+			"top_campaigns":  topCampaigns,
 		})
 	}
 }
@@ -304,24 +367,40 @@ func campaignAnalyticsDetail(db *core.DB) http.HandlerFunc {
 		channel := str(camp["type"])
 		totalContacts := toInt64(camp["total_contacts"])
 		var sent, delivered, opened, clicked, bounced, failed int64
+		contactRollupRows, _ := db.PGQuery(r.Context(), `
+			SELECT
+			    COUNT(*) FILTER (WHERE email_status IN ('queued','processed','delivered','opened','clicked')) AS email_sent,
+			    COUNT(*) FILTER (WHERE email_status IN ('delivered','opened','clicked')) AS email_delivered,
+			    COUNT(*) FILTER (WHERE email_status IN ('opened','clicked')) AS email_opened,
+			    COUNT(*) FILTER (WHERE email_status='clicked') AS email_clicked,
+			    COUNT(*) FILTER (WHERE email_status IN ('bounced','spam','unsubscribed','failed')) AS email_bounced,
+			    COUNT(*) FILTER (WHERE sms_status='sent') AS sms_sent,
+			    COUNT(*) FILTER (WHERE sms_status='delivered') AS sms_delivered,
+			    COUNT(*) FILTER (WHERE sms_status='failed') AS sms_failed
+			FROM campaign_contacts
+			WHERE campaign_id=$1`, id)
+		contactRollup := map[string]any{}
+		if len(contactRollupRows) > 0 {
+			contactRollup = contactRollupRows[0]
+		}
 		switch channel {
 		case "sms":
-			sent = toInt64(camp["sms_sent"])
-			delivered = toInt64(camp["sms_delivered"])
-			failed = toInt64(camp["sms_failed"])
+			sent = maxInt64(toInt64(camp["sms_sent"]), toInt64(contactRollup["sms_sent"]))
+			delivered = maxInt64(toInt64(camp["sms_delivered"]), toInt64(contactRollup["sms_delivered"]))
+			failed = maxInt64(toInt64(camp["sms_failed"]), toInt64(contactRollup["sms_failed"]))
 		case "email":
-			sent = toInt64(camp["emails_sent"])
-			delivered = toInt64(camp["emails_delivered"])
-			opened = toInt64(camp["emails_opened"])
-			clicked = toInt64(camp["emails_clicked"])
-			bounced = toInt64(camp["emails_bounced"])
+			sent = maxInt64(toInt64(camp["emails_sent"]), toInt64(contactRollup["email_sent"]))
+			delivered = maxInt64(toInt64(camp["emails_delivered"]), toInt64(contactRollup["email_delivered"]))
+			opened = maxInt64(toInt64(camp["emails_opened"]), toInt64(contactRollup["email_opened"]))
+			clicked = maxInt64(toInt64(camp["emails_clicked"]), toInt64(contactRollup["email_clicked"]))
+			bounced = maxInt64(toInt64(camp["emails_bounced"]), toInt64(contactRollup["email_bounced"]))
 		case "multi":
-			sent = toInt64(camp["emails_sent"]) + toInt64(camp["sms_sent"])
-			delivered = toInt64(camp["emails_delivered"]) + toInt64(camp["sms_delivered"])
-			opened = toInt64(camp["emails_opened"])
-			clicked = toInt64(camp["emails_clicked"])
-			bounced = toInt64(camp["emails_bounced"])
-			failed = toInt64(camp["sms_failed"])
+			sent = maxInt64(toInt64(camp["emails_sent"]), toInt64(contactRollup["email_sent"])) + maxInt64(toInt64(camp["sms_sent"]), toInt64(contactRollup["sms_sent"]))
+			delivered = maxInt64(toInt64(camp["emails_delivered"]), toInt64(contactRollup["email_delivered"])) + maxInt64(toInt64(camp["sms_delivered"]), toInt64(contactRollup["sms_delivered"]))
+			opened = maxInt64(toInt64(camp["emails_opened"]), toInt64(contactRollup["email_opened"]))
+			clicked = maxInt64(toInt64(camp["emails_clicked"]), toInt64(contactRollup["email_clicked"]))
+			bounced = maxInt64(toInt64(camp["emails_bounced"]), toInt64(contactRollup["email_bounced"]))
+			failed = maxInt64(toInt64(camp["sms_failed"]), toInt64(contactRollup["sms_failed"]))
 		}
 
 		metrics := map[string]any{
@@ -386,8 +465,8 @@ func campaignAnalyticsDetail(db *core.DB) http.HandlerFunc {
 		contactStatsRows, _ := db.PGQuery(r.Context(), `
 			SELECT
 			    COUNT(*) FILTER (WHERE email_status='pending' OR sms_status='pending')  AS pending,
-			    COUNT(*) FILTER (WHERE email_status='queued'  OR sms_status='sent')     AS sent,
-			    COUNT(*) FILTER (WHERE email_status='delivered' OR sms_status='delivered') AS delivered,
+			    COUNT(*) FILTER (WHERE email_status IN ('queued','processed','delivered','opened','clicked') OR sms_status='sent') AS sent,
+			    COUNT(*) FILTER (WHERE email_status IN ('delivered','opened','clicked') OR sms_status='delivered') AS delivered,
 			    COUNT(*) FILTER (WHERE email_status='opened')                            AS opened,
 			    COUNT(*) FILTER (WHERE email_status='clicked')                           AS clicked,
 			    COUNT(*) FILTER (WHERE email_status='bounced' OR sms_status='failed')   AS bounced,
@@ -674,6 +753,14 @@ func campaignUploadImage(db *core.DB) http.HandlerFunc {
 		}
 
 		storedName := newUUID() + ext
+		if r2URL, ok := uploadCampaignImageToR2(storedName, mime, file); ok {
+			recordCampaignUpload(r.Context(), db, header.Filename, storedName, mime, 0, r2URL)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]string{"url": r2URL}) //nolint:errcheck
+			return
+		}
+
 		destPath := filepath.Join(destDir, storedName)
 		out, err := os.Create(destPath)
 		if err != nil {
@@ -692,21 +779,58 @@ func campaignUploadImage(db *core.DB) http.HandlerFunc {
 
 		publicURL := absoluteRequestURL(r, "/uploads/campaigns/"+storedName)
 
-		// Record in DB (best-effort — don't fail the upload if insert fails)
-		user := core.UserFromCtx(r.Context())
-		var uploaderID any
-		if user != nil {
-			uploaderID = user.ID
-		}
-		db.PGExec(r.Context(), //nolint:errcheck
-			`INSERT INTO campaign_uploads (original_name, stored_name, mime_type, size_bytes, url, uploaded_by)
-			 VALUES ($1, $2, $3, $4, $5, $6)`,
-			header.Filename, storedName, mime, written, publicURL, uploaderID)
+		recordCampaignUpload(r.Context(), db, header.Filename, storedName, mime, written, publicURL)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(map[string]string{"url": publicURL}) //nolint:errcheck
 	}
+}
+
+func uploadCampaignImageToR2(storedName, contentType string, file multipartFile) (string, bool) {
+	accountID := strings.TrimSpace(os.Getenv("R2_ACCOUNT_ID"))
+	bucketName := strings.TrimSpace(os.Getenv("R2_BUCKET_NAME"))
+	accessKey := strings.TrimSpace(os.Getenv("R2_ACCESS_KEY_ID"))
+	secretKey := strings.TrimSpace(os.Getenv("R2_SECRET_ACCESS_KEY"))
+	publicBase := strings.TrimSpace(firstNonEmpty(
+		os.Getenv("R2_PUBLIC_BASE_URL"),
+		os.Getenv("R2_PUBLIC_URL"),
+		os.Getenv("CAMPAIGN_ASSET_BASE_URL"),
+	))
+	if accountID == "" || bucketName == "" || accessKey == "" || secretKey == "" || publicBase == "" {
+		return "", false
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		slog.Warn("campaignUploadImage: R2 read failed", "err", err)
+		file.Seek(0, io.SeekStart) //nolint:errcheck
+		return "", false
+	}
+	objectKey := "campaign-images/" + storedName
+	endpoint := fmt.Sprintf("https://%s.r2.cloudflarestorage.com/%s/%s", accountID, bucketName, objectKey)
+	if err := r2Put(endpoint, accessKey, secretKey, accountID, bucketName, objectKey, contentType, data); err != nil {
+		slog.Warn("campaignUploadImage: R2 upload failed", "err", err)
+		file.Seek(0, io.SeekStart) //nolint:errcheck
+		return "", false
+	}
+	return strings.TrimRight(publicBase, "/") + "/" + objectKey, true
+}
+
+type multipartFile interface {
+	io.Reader
+	io.Seeker
+}
+
+func recordCampaignUpload(ctx context.Context, db *core.DB, originalName, storedName, mime string, size int64, publicURL string) {
+	user := core.UserFromCtx(ctx)
+	var uploaderID any
+	if user != nil {
+		uploaderID = user.ID
+	}
+	db.PGExec(ctx, //nolint:errcheck
+		`INSERT INTO campaign_uploads (original_name, stored_name, mime_type, size_bytes, url, uploaded_by)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		originalName, storedName, mime, size, publicURL, uploaderID)
 }
 
 func absoluteRequestURL(r *http.Request, path string) string {
@@ -870,6 +994,13 @@ func pctOf(num, den int64) float64 {
 		return 0
 	}
 	return roundPct(float64(num) / float64(den) * 100)
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func roundPct(v float64) float64 {
