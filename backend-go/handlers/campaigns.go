@@ -73,6 +73,9 @@ func campaignContactMergeData(c map[string]any) map[string]any {
 			mergeData[k] = v
 		}
 	}
+	if mergeData == nil {
+		mergeData = map[string]any{}
+	}
 	firstName := str(c["first_name"])
 	lastName := str(c["last_name"])
 	name := strings.TrimSpace(firstName + " " + lastName)
