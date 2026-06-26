@@ -128,6 +128,7 @@ const CSCalls          = lazy(() => import('./pages/customer-service/Calls'))
 // Admin
 const AdminOverview           = lazy(() => import('./pages/admin/AdminOverview'))
 const UserManagement          = lazy(() => import('./pages/admin/UserManagement'))
+const RoleManagement          = lazy(() => import('./pages/admin/RoleManagement'))
 const PlatformSettings        = lazy(() => import('./pages/admin/PlatformSettings'))
 const SyncStatus              = lazy(() => import('./pages/admin/SyncStatus'))
 const ApiKeys                 = lazy(() => import('./pages/admin/ApiKeys'))
@@ -690,7 +691,7 @@ export default function App() {
                 <Route path="/admin/sync"                  element={<RequireAccess page="sync_status" user={user}><SyncStatus /></RequireAccess>} />
                 <Route path="/admin/notification-settings" element={<RequireAccess page="settings" user={user}><NotificationSettings /></RequireAccess>} />
                 <Route path="/admin/email-senders"         element={<RequireAccess page="settings" user={user}><EmailSenders /></RequireAccess>} />
-                <Route path="/admin/roles"                 element={<RequireAccess page="admin_users" user={user}><Placeholder title="Roles" dept="Admin" icon="lock_person" /></RequireAccess>} />
+                <Route path="/admin/roles"                 element={<RequireAccess page="admin_users" user={user}><RoleManagement /></RequireAccess>} />
                 <Route path="/admin/integrations"          element={<RequireAccess page="admin_api_keys" user={user}><ZohoIntegration /></RequireAccess>} />
                 <Route path="/admin/audit"                 element={<RequireAccess page="admin_users" user={user}><Placeholder title="Audit Log" dept="Admin" icon="history" /></RequireAccess>} />
                 <Route path="/settings/notifications" element={<NotificationPreferences />} />

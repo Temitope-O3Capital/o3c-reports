@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -144,6 +145,79 @@ func RequirePages(pages ...string) func(http.Handler) http.Handler {
 			authErr(w, 403, fmt.Sprintf("Role '%s' cannot access this resource", user.Role))
 		})
 	}
+}
+
+// ParsePages normalizes role page payloads returned from Postgres JSON/JSONB,
+// array columns, or decoded request bodies into a clean string slice.
+func ParsePages(raw any) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	add := func(v string) {
+		v = strings.TrimSpace(v)
+		if v == "" || seen[v] {
+			return
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+
+	switch v := raw.(type) {
+	case nil:
+	case []string:
+		for _, item := range v {
+			add(item)
+		}
+	case []any:
+		for _, item := range v {
+			add(fmt.Sprint(item))
+		}
+	case []byte:
+		var arr []string
+		if err := json.Unmarshal(v, &arr); err == nil {
+			for _, item := range arr {
+				add(item)
+			}
+			break
+		}
+		var anyArr []any
+		if err := json.Unmarshal(v, &anyArr); err == nil {
+			for _, item := range anyArr {
+				add(fmt.Sprint(item))
+			}
+		}
+	case string:
+		s := strings.TrimSpace(v)
+		if s == "" {
+			break
+		}
+		var arr []string
+		if err := json.Unmarshal([]byte(s), &arr); err == nil {
+			for _, item := range arr {
+				add(item)
+			}
+			break
+		}
+		var anyArr []any
+		if err := json.Unmarshal([]byte(s), &anyArr); err == nil {
+			for _, item := range anyArr {
+				add(fmt.Sprint(item))
+			}
+			break
+		}
+		add(s)
+	default:
+		add(fmt.Sprint(v))
+	}
+	return out
+}
+
+func BuiltinRoleNames() []string {
+	names := make([]string, 0, len(RolePages))
+	for name := range RolePages {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func authErr(w http.ResponseWriter, code int, msg string) {

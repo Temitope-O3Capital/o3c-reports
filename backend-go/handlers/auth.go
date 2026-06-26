@@ -82,11 +82,7 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			// Custom role — look up from DB
 			rows2, _ := db.PGQuery(r.Context(), `SELECT pages FROM o3c_custom_roles WHERE name = $1`, role)
 			if len(rows2) > 0 {
-				if p, ok := rows2[0]["pages"].([]any); ok {
-					for _, v := range p {
-						pages = append(pages, str(v))
-					}
-				}
+				pages = core.ParsePages(rows2[0]["pages"])
 			}
 		}
 

@@ -36,6 +36,7 @@ func RegisterAdmin(r chi.Router, db *core.DB) {
 	r.Patch("/users/{id}/reactivate", reactivateUser(db))
 	r.Get("/roles", listRoles(db))
 	r.Post("/roles", createRole(db))
+	r.Put("/roles/{name}", updateRole(db))
 	r.Delete("/roles/{name}", deleteRole(db))
 	r.Get("/activity", getActivity(db))
 	r.Get("/users/{id}/activity", getUserActivity(db))
@@ -54,15 +55,8 @@ func RegisterActivityLog(r chi.Router, db *core.DB) {
 
 // ── User CRUD ─────────────────────────────────────────────────────────────────
 
-var staticRoles = map[string]bool{
-	"md": true, "coo": true, "cfo": true, "head_it": true, "head_hr": true,
-	"cmo": true, "head_ops": true, "head_sales": true, "head_collections": true,
-	"head_recovery": true, "admin": true, "management": true, "sales": true,
-	"collections": true, "recovery": true, "cards_ops": true, "call_centre": true,
-}
-
 func validRole(db *core.DB, r *http.Request, role string) bool {
-	if staticRoles[role] {
+	if _, ok := core.RolePages[role]; ok {
 		return true
 	}
 	rows, _ := db.PGQuery(r.Context(), `SELECT 1 FROM o3c_custom_roles WHERE name=$1`, role)
@@ -311,37 +305,86 @@ func reactivateUser(db *core.DB) http.HandlerFunc {
 
 // ── Custom roles ──────────────────────────────────────────────────────────────
 
+type rolePayload struct {
+	Name  string   `json:"name"`
+	Label string   `json:"label"`
+	Pages []string `json:"pages"`
+}
+
+func roleSlug(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	name = strings.ReplaceAll(name, " ", "_")
+	name = strings.ReplaceAll(name, "-", "_")
+	return name
+}
+
+func roleDisplayName(name string) string {
+	parts := strings.Fields(strings.ReplaceAll(name, "_", " "))
+	for i := range parts {
+		if len(parts[i]) > 0 {
+			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func roleResponse(name, label string, pages []string, builtIn bool, extra map[string]any) map[string]any {
+	if label == "" {
+		label = roleDisplayName(name)
+	}
+	res := map[string]any{
+		"name":     name,
+		"label":    label,
+		"pages":    pages,
+		"builtin":  builtIn,
+		"built_in": builtIn,
+	}
+	for k, v := range extra {
+		res[k] = v
+	}
+	return res
+}
+
 func listRoles(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		roles := make([]map[string]any, 0, len(core.RolePages))
+		for _, name := range core.BuiltinRoleNames() {
+			roles = append(roles, roleResponse(name, "", core.ParsePages(core.RolePages[name]), true, nil))
+		}
+
 		rows, err := db.PGQuery(r.Context(),
 			`SELECT id, name, label, pages, created_at FROM o3c_custom_roles ORDER BY created_at DESC`)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
 		}
+		for _, row := range rows {
+			roles = append(roles, roleResponse(
+				str(row["name"]),
+				str(row["label"]),
+				core.ParsePages(row["pages"]),
+				false,
+				map[string]any{"id": row["id"], "created_at": row["created_at"]},
+			))
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(rows) //nolint:errcheck
+		json.NewEncoder(w).Encode(roles) //nolint:errcheck
 	}
 }
 
 func createRole(db *core.DB) http.HandlerFunc {
-	type body struct {
-		Name  string   `json:"name"`
-		Label string   `json:"label"`
-		Pages []string `json:"pages"`
-	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		var b body
+		var b rolePayload
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		slug := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(b.Name), " ", "_"))
+		slug := roleSlug(b.Name)
 		if slug == "" {
 			respondErr(w, 422, "Role name is required")
 			return
 		}
-		if staticRoles[slug] {
+		if _, ok := core.RolePages[slug]; ok {
 			respondErr(w, 409, "'"+slug+"' is a built-in role name")
 			return
 		}
@@ -350,24 +393,71 @@ func createRole(db *core.DB) http.HandlerFunc {
 			respondErr(w, 409, "Role '"+slug+"' already exists")
 			return
 		}
-		pages := b.Pages
-		if pages == nil {
-			pages = []string{}
-		}
+		pages := core.ParsePages(b.Pages)
 		pagesJSON, _ := json.Marshal(pages)
-		db.PGExec(r.Context(), //nolint:errcheck
-			`INSERT INTO o3c_custom_roles (name, label, pages) VALUES ($1,$2,$3)`,
-			slug, strings.TrimSpace(b.Label), string(pagesJSON))
+		if _, err := db.PGExec(r.Context(),
+			`INSERT INTO o3c_custom_roles (name, label, pages) VALUES ($1,$2,$3::jsonb)`,
+			slug, strings.TrimSpace(b.Label), string(pagesJSON)); err != nil {
+			respondErr(w, 500, "Create failed")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"name": slug, "label": b.Label, "pages": pages}) //nolint:errcheck
+		json.NewEncoder(w).Encode(roleResponse(slug, b.Label, pages, false, nil)) //nolint:errcheck
+	}
+}
+
+func updateRole(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := roleSlug(chi.URLParam(r, "name"))
+		if _, ok := core.RolePages[name]; ok {
+			respondErr(w, 409, "Built-in roles cannot be edited")
+			return
+		}
+		var b rolePayload
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		pages := core.ParsePages(b.Pages)
+		pagesJSON, _ := json.Marshal(pages)
+		res, err := db.PGExec(r.Context(),
+			`UPDATE o3c_custom_roles SET label=$1, pages=$2::jsonb WHERE name=$3`,
+			strings.TrimSpace(b.Label), string(pagesJSON), name)
+		if err != nil {
+			respondErr(w, 500, "Update failed")
+			return
+		}
+		if affected, _ := res.RowsAffected(); affected == 0 {
+			respondErr(w, 404, "Role not found")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(roleResponse(name, b.Label, pages, false, nil)) //nolint:errcheck
 	}
 }
 
 func deleteRole(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		name := chi.URLParam(r, "name")
-		db.PGExec(r.Context(), `DELETE FROM o3c_custom_roles WHERE name=$1`, name) //nolint:errcheck
+		name := roleSlug(chi.URLParam(r, "name"))
+		if _, ok := core.RolePages[name]; ok {
+			respondErr(w, 409, "Built-in roles cannot be deleted")
+			return
+		}
+		assigned, _ := db.PGQuery(r.Context(), `SELECT COUNT(*) AS count FROM o3c_users WHERE role=$1 AND deleted_at IS NULL`, name)
+		if len(assigned) > 0 && toInt64(assigned[0]["count"]) > 0 {
+			respondErr(w, 409, "Role is assigned to active users")
+			return
+		}
+		res, err := db.PGExec(r.Context(), `DELETE FROM o3c_custom_roles WHERE name=$1`, name)
+		if err != nil {
+			respondErr(w, 500, "Delete failed")
+			return
+		}
+		if affected, _ := res.RowsAffected(); affected == 0 {
+			respondErr(w, 404, "Role not found")
+			return
+		}
 		w.WriteHeader(204)
 	}
 }
@@ -809,11 +899,13 @@ func uploadEmailLogo(db *core.DB) http.HandlerFunc {
 	const maxSize = 512 * 1024 // 512 KB
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseMultipartForm(maxSize); err != nil {
-			respondErr(w, 400, "File too large (max 512 KB)"); return
+			respondErr(w, 400, "File too large (max 512 KB)")
+			return
 		}
 		file, header, err := r.FormFile("logo")
 		if err != nil {
-			respondErr(w, 400, "logo field required"); return
+			respondErr(w, 400, "logo field required")
+			return
 		}
 		defer file.Close()
 
@@ -830,12 +922,14 @@ func uploadEmailLogo(db *core.DB) http.HandlerFunc {
 			".webp": "image/webp",
 		}[ext]
 		if mimeType == "" {
-			respondErr(w, 422, "Unsupported type. Use PNG, JPG, SVG, GIF, or WebP."); return
+			respondErr(w, 422, "Unsupported type. Use PNG, JPG, SVG, GIF, or WebP.")
+			return
 		}
 
 		imgData, err := io.ReadAll(io.LimitReader(file, maxSize))
 		if err != nil {
-			respondErr(w, 500, "Read failed"); return
+			respondErr(w, 500, "Read failed")
+			return
 		}
 		dataURL := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(imgData)
 
@@ -848,7 +942,8 @@ func uploadEmailLogo(db *core.DB) http.HandlerFunc {
 			    SET encrypted_value=$1, is_active=TRUE, updated_at=NOW(), updated_by=$2`,
 			dataURL, user.ID); err != nil {
 			slog.Error("uploadEmailLogo: db error", "err", err)
-			respondErr(w, 500, "Save failed"); return
+			respondErr(w, 500, "Save failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck

@@ -42,6 +42,13 @@ interface Session {
   id: string; ip_address: string; user_agent: string
   logged_in_at: string; last_active_at: string
 }
+interface RoleOption {
+  name: string
+  label?: string
+  pages?: string[]
+  builtin?: boolean
+  built_in?: boolean
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -58,6 +65,27 @@ const ROLES = [
   'compliance_officer','compliance_head','internal_control_head',
   'it_admin',
 ]
+
+const FALLBACK_ROLE_OPTIONS: RoleOption[] = ROLES.map(name => ({ name, label: roleLabel(name), builtin: true }))
+
+function normalizeRoleOptions(raw: any): RoleOption[] {
+  const rows = Array.isArray(raw) ? raw : (raw?.data ?? [])
+  const opts = rows
+    .map((r: any) => ({
+      name: String(r.name ?? '').trim(),
+      label: String(r.label ?? roleLabel(String(r.name ?? ''))),
+      pages: Array.isArray(r.pages) ? r.pages : [],
+      builtin: Boolean(r.builtin ?? r.built_in),
+      built_in: Boolean(r.builtin ?? r.built_in),
+    }))
+    .filter((r: RoleOption) => r.name)
+  return opts.length ? opts : FALLBACK_ROLE_OPTIONS
+}
+
+function roleChoices(options: RoleOption[], selected?: string): RoleOption[] {
+  if (!selected || options.some(r => r.name === selected)) return options
+  return [{ name: selected, label: roleLabel(selected) }, ...options]
+}
 
 const EMPTY_CREATE: CreateForm = {
   first_name: '', last_name: '', email: '', role: 'sales_officer', department: '',
@@ -114,9 +142,9 @@ function SelectField({
 // ── User Drawer (profile + activity + sessions) ───────────────────────────────
 
 function UserDrawer({
-  user, onClose, onSaved,
+  user, roles, onClose, onSaved,
 }: {
-  user: User; onClose: () => void; onSaved: () => void
+  user: User; roles: RoleOption[]; onClose: () => void; onSaved: () => void
 }) {
   const [tab, setTab] = useState<'profile' | 'sessions' | 'activity'>('profile')
   const [form, setForm] = useState<EditForm>({
@@ -280,7 +308,7 @@ function UserDrawer({
               </div>
               <Field label="Email Address" type="email" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} required />
               <SelectField label="Role" value={form.role} onChange={v => setForm(f => ({ ...f, role: v }))}>
-                {ROLES.map(r => <option key={r} value={r}>{roleLabel(r)}</option>)}
+                {roleChoices(roles, form.role).map(r => <option key={r.name} value={r.name}>{r.label || roleLabel(r.name)}</option>)}
               </SelectField>
               <Field label="Department" value={form.department} onChange={v => setForm(f => ({ ...f, department: v }))} />
 
@@ -433,9 +461,9 @@ function UserDrawer({
 // ── Create User Modal ─────────────────────────────────────────────────────────
 
 function CreateModal({
-  onClose, onCreated,
+  roles, onClose, onCreated,
 }: {
-  onClose: () => void; onCreated: (pw: string, name: string) => void
+  roles: RoleOption[]; onClose: () => void; onCreated: (pw: string, name: string) => void
 }) {
   const [form, setForm] = useState<CreateForm>(EMPTY_CREATE)
   const [creating, setCreating] = useState(false)
@@ -468,7 +496,7 @@ function CreateModal({
           </div>
           <Field label="Email Address" type="email" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} required />
           <SelectField label="Role" value={form.role} onChange={v => setForm(f => ({ ...f, role: v }))}>
-            {ROLES.map(r => <option key={r} value={r}>{roleLabel(r)}</option>)}
+            {roleChoices(roles, form.role).map(r => <option key={r.name} value={r.name}>{r.label || roleLabel(r.name)}</option>)}
           </SelectField>
           <Field label="Department" value={form.department} onChange={v => setForm(f => ({ ...f, department: v }))} />
           {err && <p className="text-[12px] text-red-600 bg-red-50 px-3 py-2 rounded-lg">{err}</p>}
@@ -494,6 +522,7 @@ function CreateModal({
 
 export default function UserManagement() {
   const [users, setUsers]     = useState<User[]>([])
+  const [roles, setRoles]     = useState<RoleOption[]>(FALLBACK_ROLE_OPTIONS)
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState('')
   const [search, setSearch]   = useState('')
@@ -509,8 +538,12 @@ export default function UserManagement() {
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const res = await apiFetch('/api/admin/users')
-      setUsers(Array.isArray(res) ? res : (res.data ?? []))
+      const [userRes, roleRes] = await Promise.all([
+        apiFetch('/api/admin/users'),
+        apiFetch('/api/admin/roles').catch(() => FALLBACK_ROLE_OPTIONS),
+      ])
+      setUsers(Array.isArray(userRes) ? userRes : (userRes.data ?? []))
+      setRoles(normalizeRoleOptions(roleRes))
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -682,6 +715,7 @@ export default function UserManagement() {
       {/* Modals */}
       {showCreate && (
         <CreateModal
+          roles={roles}
           onClose={() => setShowCreate(false)}
           onCreated={(pw, name) => { setNewPwResult({ pw, name }); load() }}
         />
@@ -690,6 +724,7 @@ export default function UserManagement() {
       {drawerUser && (
         <UserDrawer
           user={drawerUser}
+          roles={roles}
           onClose={() => setDrawerUser(null)}
           onSaved={load}
         />

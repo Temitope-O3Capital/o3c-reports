@@ -20,6 +20,7 @@ export async function apiFetch<T = any>(path: string, init?: RequestInit): Promi
     const err = await res.json().catch(() => ({}))
     throw new Error((err as any).detail || `Request failed (${res.status})`)
   }
+  if (res.status === 204) return undefined as T
   return res.json()
 }
 

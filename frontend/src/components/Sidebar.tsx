@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink, useLocation, useNavigate, Link } from 'react-router-dom'
-import { AuthUser } from '../hooks/useAuth'
+import { AuthUser, ROLE_PAGES } from '../hooks/useAuth'
 import { roleLabel } from '../lib/roles'
 
 // ── Role helpers ──────────────────────────────────────────────────────────────
@@ -9,6 +9,28 @@ const MGMT = ['md', 'coo', 'cfo', 'cmo', 'executive', 'admin', 'management', 'he
 
 function hasAccess(role: string, moduleRoles: string[]): boolean {
   return MGMT.includes(role) || moduleRoles.includes(role)
+}
+
+const MODULE_PAGE_KEYS: Record<string, string[]> = {
+  overview: ['overview'],
+  sales: ['sales', 'crm_pipeline', 'crm_contacts', 'crm_tasks', 'crm_reports', 'los'],
+  risk: ['credit_portfolio', 'los_all', 'los_risk_review', 'risk_all'],
+  finance: ['income', 'transactions', 'fixed_deposit', 'eod', 'reconciliation', 'los_finance'],
+  collections: ['collections', 'collections_assign', 'collections_payment', 'collections_payment_approve'],
+  recovery: ['recovery', 'recovery_assign', 'recovery_write_off'],
+  settlements: ['settlement', 'reconciliation'],
+  cards: ['cards', 'card_trends', 'mobile_app', 'blink_card'],
+  helpdesk: ['customer_service', 'call_center'],
+  compliance: ['compliance_all', 'compliance_checklists', 'watch_list', 'sars', 'cbn_reports', 'audit_findings', 'audit_trail', 'audit_export'],
+  hr: ['hr_employees', 'hr_leave', 'hr_performance', 'hr_disciplinary', 'hr_payroll', 'hr_training'],
+  campaigns: ['campaigns', 'contact_lists', 'message_templates'],
+  reports: ['reports', 'kpi_dashboard'],
+  admin: ['admin_users', 'admin_api_keys', 'settings', 'sync_status'],
+}
+
+function hasPageAccess(pages: Set<string>, moduleId: string): boolean {
+  const keys = MODULE_PAGE_KEYS[moduleId] ?? [moduleId]
+  return keys.some(key => pages.has(key))
 }
 
 // ── Nav data types ────────────────────────────────────────────────────────────
@@ -266,6 +288,8 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
   const location = useLocation()
   const navigate  = useNavigate()
   const role = user.role as string
+  const pageList = user.pages?.length ? user.pages : (ROLE_PAGES[role] ?? [])
+  const pageSet = new Set(pageList)
 
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem('o3c_sidebar_collapsed') === '1' } catch { return false }
@@ -279,6 +303,7 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
 
   // Visible modules for this user's role
   const visibleModules = MODULES.filter(m => {
+    if (pageSet.size > 0) return hasPageAccess(pageSet, m.id)
     // 'overview' module is management-only; hasAccess with empty roles means only MGMT can see it
     if (m.id === 'overview') return MGMT.includes(role)
     return hasAccess(role, m.roles)
