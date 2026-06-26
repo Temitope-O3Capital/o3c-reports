@@ -106,8 +106,8 @@ func main() {
 	r.Get("/t/o/{tracking_id}", handlers.TrackOpen(db))
 	r.Get("/t/c/{tracking_id}", handlers.TrackClick(db))
 
-	// Uploaded campaign images served as static files
-	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads/"))))
+	// Uploaded campaign images served as static files.
+	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir(handlers.UploadRoot()))))
 
 	// Helpdesk: public webhooks/CSAT on the same prefix as authenticated routes
 	r.Route("/api/helpdesk", func(r chi.Router) {

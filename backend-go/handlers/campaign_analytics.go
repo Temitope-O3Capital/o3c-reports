@@ -604,8 +604,14 @@ func campaignContactsReport(db *core.DB) http.HandlerFunc {
 
 const (
 	maxImageSize = 5 << 20 // 5 MB
-	uploadDir    = "uploads/campaigns"
 )
+
+func UploadRoot() string {
+	if root := strings.TrimSpace(os.Getenv("UPLOAD_ROOT")); root != "" {
+		return root
+	}
+	return "/tmp/o3c-uploads"
+}
 
 func campaignUploadImage(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -658,16 +664,20 @@ func campaignUploadImage(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		// Create upload directory if needed
-		if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		// Create upload directory if needed. Railway runs as a non-root user, so
+		// default to a writable temp path instead of the app working directory.
+		destDir := filepath.Join(UploadRoot(), "campaigns")
+		if err := os.MkdirAll(destDir, 0755); err != nil {
+			slog.Error("campaignUploadImage: cannot create upload directory", "dir", destDir, "err", err)
 			respondErr(w, 500, "Cannot create upload directory")
 			return
 		}
 
 		storedName := newUUID() + ext
-		destPath := filepath.Join(uploadDir, storedName)
+		destPath := filepath.Join(destDir, storedName)
 		out, err := os.Create(destPath)
 		if err != nil {
+			slog.Error("campaignUploadImage: cannot create file", "path", destPath, "err", err)
 			respondErr(w, 500, "Cannot create file")
 			return
 		}
@@ -675,11 +685,12 @@ func campaignUploadImage(db *core.DB) http.HandlerFunc {
 
 		written, err := io.Copy(out, file)
 		if err != nil {
+			slog.Error("campaignUploadImage: upload write failed", "path", destPath, "err", err)
 			respondErr(w, 500, "Upload write failed")
 			return
 		}
 
-		publicURL := "/uploads/campaigns/" + storedName
+		publicURL := absoluteRequestURL(r, "/uploads/campaigns/"+storedName)
 
 		// Record in DB (best-effort — don't fail the upload if insert fails)
 		user := core.UserFromCtx(r.Context())
@@ -696,6 +707,35 @@ func campaignUploadImage(db *core.DB) http.HandlerFunc {
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(map[string]string{"url": publicURL}) //nolint:errcheck
 	}
+}
+
+func absoluteRequestURL(r *http.Request, path string) string {
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return path
+	}
+	host := firstForwardedValue(r.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = r.Host
+	}
+	if host == "" {
+		return path
+	}
+	proto := firstForwardedValue(r.Header.Get("X-Forwarded-Proto"))
+	if proto == "" {
+		if r.TLS != nil {
+			proto = "https"
+		} else {
+			proto = "http"
+		}
+	}
+	return proto + "://" + host + path
+}
+
+func firstForwardedValue(v string) string {
+	if i := strings.Index(v, ","); i >= 0 {
+		v = v[:i]
+	}
+	return strings.TrimSpace(v)
 }
 
 // ── Open tracking pixel ───────────────────────────────────────────────────────
