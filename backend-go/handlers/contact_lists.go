@@ -42,7 +42,8 @@ func listContactLists(db *core.DB) http.HandlerFunc {
 			LEFT JOIN o3c_users u ON cl.created_by=u.id
 			ORDER BY cl.created_at DESC LIMIT $1`, limit)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		jsonRows(w, rows)
 	}
@@ -55,17 +56,20 @@ func createContactList(db *core.DB) http.HandlerFunc {
 			Description *string `json:"description"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if b.Name == "" {
-			respondErr(w, 422, "name is required"); return
+			respondErr(w, 422, "name is required")
+			return
 		}
 		user := core.UserFromCtx(r.Context())
 		rows, err := db.PGQuery(r.Context(),
 			"INSERT INTO contact_lists (name, description, created_by) VALUES ($1,$2,$3) RETURNING *",
 			b.Name, b.Description, user.ID)
 		if err != nil {
-			respondErr(w, 500, "Create failed"); return
+			respondErr(w, 500, "Create failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -81,7 +85,8 @@ func getContactList(db *core.DB) http.HandlerFunc {
 
 		listRows, err := db.PGQuery(r.Context(), "SELECT * FROM contact_lists WHERE id=$1", id)
 		if err != nil || len(listRows) == 0 {
-			respondErr(w, 404, "List not found"); return
+			respondErr(w, 404, "List not found")
+			return
 		}
 		lst := listRows[0]
 
@@ -90,9 +95,10 @@ func getContactList(db *core.DB) http.HandlerFunc {
 		n := 2
 		if s := qstr(r, "search"); s != "" {
 			where += fmt.Sprintf(
-				" AND (first_name ILIKE $%d OR last_name ILIKE $%d OR phone ILIKE $%d OR email ILIKE $%d)",
-				n, n, n, n)
-			args = append(args, "%"+s+"%"); n++
+				" AND (first_name ILIKE $%d OR last_name ILIKE $%d OR phone ILIKE $%d OR email ILIKE $%d OR cif_number ILIKE $%d)",
+				n, n, n, n, n)
+			args = append(args, "%"+s+"%")
+			n++
 		}
 		filterArgs := append([]any(nil), args...)
 		args = append(args, limit, offset)
@@ -120,13 +126,15 @@ func updateContactList(db *core.DB) http.HandlerFunc {
 			Description *string `json:"description"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		rows, err := db.PGQuery(r.Context(),
 			"UPDATE contact_lists SET name=$1, description=$2, updated_at=NOW() WHERE id=$3 RETURNING *",
 			b.Name, b.Description, id)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "List not found"); return
+			respondErr(w, 404, "List not found")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -146,18 +154,25 @@ func addListMember(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		var b struct {
-			FirstName  *string        `json:"first_name"`
-			LastName   *string        `json:"last_name"`
-			Phone      *string        `json:"phone"`
-			Email      *string        `json:"email"`
-			CIFNumber  *string        `json:"cif_number"`
-			MergeData  map[string]any `json:"merge_data"`
+			FirstName *string        `json:"first_name"`
+			LastName  *string        `json:"last_name"`
+			Phone     *string        `json:"phone"`
+			Email     *string        `json:"email"`
+			CIFNumber *string        `json:"cif_number"`
+			MergeData map[string]any `json:"merge_data"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
+		b.FirstName = cleanStringPtr(b.FirstName)
+		b.LastName = cleanStringPtr(b.LastName)
+		b.Phone = cleanStringPtr(b.Phone)
+		b.Email = cleanStringPtr(b.Email)
+		b.CIFNumber = cleanStringPtr(b.CIFNumber)
 		if b.Phone == nil && b.Email == nil {
-			respondErr(w, 422, "phone or email is required"); return
+			respondErr(w, 422, "phone or email is required")
+			return
 		}
 		mergeJSON, _ := json.Marshal(b.MergeData)
 		rows, err := db.PGQuery(r.Context(), `
@@ -166,7 +181,8 @@ func addListMember(db *core.DB) http.HandlerFunc {
 			VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb) RETURNING *`,
 			id, b.FirstName, b.LastName, b.Phone, b.Email, b.CIFNumber, string(mergeJSON))
 		if err != nil {
-			respondErr(w, 500, "Create failed"); return
+			respondErr(w, 500, "Create failed")
+			return
 		}
 		syncListCount(db, r, id)
 		w.Header().Set("Content-Type", "application/json")
@@ -180,15 +196,18 @@ func uploadListCSV(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 
 		if err := r.ParseMultipartForm(10 << 20); err != nil {
-			respondErr(w, 400, "Cannot parse multipart form"); return
+			respondErr(w, 400, "Cannot parse multipart form")
+			return
 		}
 		file, header, err := r.FormFile("file")
 		if err != nil {
-			respondErr(w, 400, "file field required"); return
+			respondErr(w, 400, "file field required")
+			return
 		}
 		defer file.Close()
 		if !strings.HasSuffix(strings.ToLower(header.Filename), ".csv") {
-			respondErr(w, 400, "File must be a CSV"); return
+			respondErr(w, 400, "File must be a CSV")
+			return
 		}
 
 		known := map[string]bool{
@@ -198,7 +217,8 @@ func uploadListCSV(db *core.DB) http.HandlerFunc {
 		reader := csv.NewReader(file)
 		records, err := reader.ReadAll()
 		if err != nil || len(records) < 2 {
-			respondErr(w, 422, "Invalid CSV or empty file"); return
+			respondErr(w, 422, "Invalid CSV or empty file")
+			return
 		}
 
 		// Normalise headers
@@ -263,7 +283,8 @@ func removeListMember(db *core.DB) http.HandlerFunc {
 		rows, _ := db.PGQuery(r.Context(),
 			"SELECT 1 FROM contact_list_members WHERE id=$1 AND list_id=$2", mid, id)
 		if len(rows) == 0 {
-			respondErr(w, 404, "Member not found"); return
+			respondErr(w, 404, "Member not found")
+			return
 		}
 		db.PGExec(r.Context(), "DELETE FROM contact_list_members WHERE id=$1", mid) //nolint:errcheck
 		syncListCount(db, r, id)
@@ -290,4 +311,15 @@ func emptyToNil(s string) interface{} {
 		return nil
 	}
 	return s
+}
+
+func cleanStringPtr(v *string) *string {
+	if v == nil {
+		return nil
+	}
+	s := strings.TrimSpace(*v)
+	if s == "" {
+		return nil
+	}
+	return &s
 }

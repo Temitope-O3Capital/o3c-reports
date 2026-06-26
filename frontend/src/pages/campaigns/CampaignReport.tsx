@@ -31,6 +31,7 @@ interface Metrics {
 
 interface TimelinePoint {
   ts: string
+  hour?: string
   delivered: number
   opened: number
   clicked: number
@@ -50,10 +51,14 @@ interface Analytics {
 interface ContactRow {
   name: string
   cif_number: string
+  email: string
+  phone: string
   email_status: string
   sms_status: string
+  sent_at: string | null
   opened_at: string | null
   clicked_at: string | null
+  bounced_at: string | null
   clicked_urls: string[]
 }
 
@@ -250,7 +255,7 @@ export default function CampaignReport() {
 
   // Timeline data formatted for recharts
   const timelineData = (analytics?.timeline ?? []).map(pt => ({
-    time: new Date(pt.ts).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
+    time: new Date(pt.ts || pt.hour || '').toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
     delivered: pt.delivered,
     opened:    pt.opened,
     clicked:   pt.clicked,
@@ -264,10 +269,14 @@ export default function CampaignReport() {
         <span className="font-mono text-[12px] text-slate-500">{r.cif_number || '—'}</span>
       ),
     },
+    { key: 'email',        label: 'Email',         render: r => r.email || '—' },
+    { key: 'phone',        label: 'Phone',         render: r => r.phone || '—' },
     { key: 'email_status', label: 'Email Status', render: r => <EventBadge status={r.email_status} /> },
     { key: 'sms_status',   label: 'SMS Status',   render: r => <EventBadge status={r.sms_status} /> },
+    { key: 'sent_at',      label: 'Sent At',      render: r => r.sent_at ? fmtDate(r.sent_at) : '—' },
     { key: 'opened_at',    label: 'Opened At',    render: r => r.opened_at ? fmtDate(r.opened_at) : '—' },
     { key: 'clicked_at',   label: 'Clicked At',   render: r => r.clicked_at ? fmtDate(r.clicked_at) : '—' },
+    { key: 'bounced_at',   label: 'Bounced At',   render: r => r.bounced_at ? fmtDate(r.bounced_at) : '—' },
     { key: 'clicked_urls', label: 'Links', render: r => r.clicked_urls?.length
         ? (
           <span

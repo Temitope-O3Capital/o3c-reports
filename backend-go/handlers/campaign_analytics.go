@@ -122,13 +122,13 @@ func campaignsAllAnalytics(db *core.DB) http.HandlerFunc {
 		summaryRows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
 			    COUNT(*)                                            AS total_campaigns,
-			    COALESCE(SUM(total_contacts),0)                    AS total_sent,
+			    COALESCE(SUM(emails_sent + sms_sent),0)             AS total_sent,
 			    COALESCE(SUM(emails_delivered + sms_delivered),0)  AS total_delivered,
 			    COALESCE(SUM(emails_opened),0)                     AS total_opened,
 			    COALESCE(SUM(emails_clicked),0)                    AS total_clicked,
 			    COALESCE(SUM(emails_bounced),0)                    AS total_bounced,
-			    0                                                   AS total_spam,
-			    0                                                   AS total_unsubscribed
+			    COALESCE(SUM(bounce_count),0)                      AS total_spam,
+			    COALESCE(SUM(unsubscribe_count),0)                 AS total_unsubscribed
 			FROM campaigns
 			WHERE %s`, where), args...)
 		if err != nil {
@@ -137,18 +137,18 @@ func campaignsAllAnalytics(db *core.DB) http.HandlerFunc {
 		}
 
 		summary := map[string]any{
-			"total_campaigns":  int64(0),
-			"total_sent":       int64(0),
-			"total_delivered":  int64(0),
-			"total_opened":     int64(0),
-			"total_clicked":    int64(0),
-			"total_bounced":    int64(0),
-			"total_spam":       int64(0),
+			"total_campaigns":    int64(0),
+			"total_sent":         int64(0),
+			"total_delivered":    int64(0),
+			"total_opened":       int64(0),
+			"total_clicked":      int64(0),
+			"total_bounced":      int64(0),
+			"total_spam":         int64(0),
 			"total_unsubscribed": int64(0),
-			"avg_open_rate":    float64(0),
-			"avg_click_rate":   float64(0),
-			"avg_bounce_rate":  float64(0),
-			"avg_delivery_rate": float64(0),
+			"avg_open_rate":      float64(0),
+			"avg_click_rate":     float64(0),
+			"avg_bounce_rate":    float64(0),
+			"avg_delivery_rate":  float64(0),
 		}
 		if len(summaryRows) > 0 {
 			s := summaryRows[0]
@@ -177,7 +177,7 @@ func campaignsAllAnalytics(db *core.DB) http.HandlerFunc {
 		byChannelRows, _ := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
 			    type                                                    AS channel,
-			    COALESCE(SUM(total_contacts),0)                        AS sent,
+			    COALESCE(SUM(emails_sent + sms_sent),0)                 AS sent,
 			    COALESCE(SUM(emails_delivered + sms_delivered),0)      AS delivered,
 			    COALESCE(SUM(emails_opened),0)                         AS opened,
 			    COALESCE(SUM(emails_clicked),0)                        AS clicked
@@ -213,7 +213,7 @@ func campaignsAllAnalytics(db *core.DB) http.HandlerFunc {
 			SELECT
 			    to_char(date_trunc('month', created_at), 'YYYY-MM') AS month,
 			    COUNT(*)                                             AS campaigns,
-			    COALESCE(SUM(total_contacts),0)                     AS sent,
+			    COALESCE(SUM(emails_sent + sms_sent),0)              AS sent,
 			    COALESCE(SUM(emails_opened),0)                      AS opened
 			FROM campaigns
 			WHERE %s
@@ -240,14 +240,14 @@ func campaignsAllAnalytics(db *core.DB) http.HandlerFunc {
 		// Top campaigns by open rate (email campaigns with >0 sent)
 		topRows, _ := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT id, name, type,
-			       COALESCE(total_contacts,0)   AS sent,
+			       COALESCE(emails_sent + sms_sent,0) AS sent,
 			       COALESCE(emails_opened,0)    AS opened,
 			       COALESCE(emails_clicked,0)   AS clicked
 			FROM campaigns
-			WHERE %s AND total_contacts > 0
+			WHERE %s AND (emails_sent + sms_sent) > 0
 			ORDER BY
-			    CASE WHEN total_contacts > 0
-			         THEN (emails_opened::float / total_contacts)
+			    CASE WHEN (emails_sent + sms_sent) > 0
+			         THEN (emails_opened::float / (emails_sent + sms_sent))
 			         ELSE 0
 			    END DESC
 			LIMIT 10`, where), args...)
@@ -292,6 +292,7 @@ func campaignAnalyticsDetail(db *core.DB) http.HandlerFunc {
 			SELECT id, name, type, status, total_contacts,
 			       emails_sent, emails_delivered, emails_opened, emails_clicked,
 			       emails_bounced, sms_sent, sms_delivered, sms_failed,
+			       bounce_count, unsubscribe_count,
 			       started_at, completed_at, scheduled_at, created_at
 			FROM campaigns WHERE id=$1`, id)
 		if err != nil || len(campRows) == 0 {
@@ -335,10 +336,10 @@ func campaignAnalyticsDetail(db *core.DB) http.HandlerFunc {
 			"click_rate":     pctOf(clicked, sent),
 			"bounced":        bounced,
 			"bounce_rate":    pctOf(bounced, sent),
-			"spam":           int64(0),
-			"spam_rate":      float64(0),
-			"unsubscribed":   int64(0),
-			"unsub_rate":     float64(0),
+			"spam":           toInt64(camp["bounce_count"]),
+			"spam_rate":      pctOf(toInt64(camp["bounce_count"]), sent),
+			"unsubscribed":   toInt64(camp["unsubscribe_count"]),
+			"unsub_rate":     pctOf(toInt64(camp["unsubscribe_count"]), sent),
 			"failed":         failed,
 		}
 
@@ -563,6 +564,27 @@ func campaignContactsReport(db *core.DB) http.HandlerFunc {
 			})
 		}
 
+		if strings.EqualFold(qstr(r, "format"), "csv") {
+			csvRows := make([]map[string]any, 0, len(contacts))
+			for _, c := range contacts {
+				csvRows = append(csvRows, map[string]any{
+					"name":         c.Name,
+					"cif_number":   c.CIFNumber,
+					"email":        c.Email,
+					"phone":        c.Phone,
+					"sms_status":   c.SMSStatus,
+					"email_status": c.EmailStatus,
+					"sent_at":      c.SentAt,
+					"opened_at":    c.OpenedAt,
+					"clicked_at":   c.ClickedAt,
+					"bounced_at":   c.BouncedAt,
+					"clicked_urls": strings.Join(c.ClickedURLs, " | "),
+				})
+			}
+			streamCSV(w, fmt.Sprintf("campaign-%s-contacts.csv", id), csvRows)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"total":    total,
@@ -576,8 +598,8 @@ func campaignContactsReport(db *core.DB) http.HandlerFunc {
 // ── Image upload ─────────────────────────────────────────────────────────────
 
 const (
-	maxImageSize    = 5 << 20 // 5 MB
-	uploadDir       = "uploads/campaigns"
+	maxImageSize = 5 << 20 // 5 MB
+	uploadDir    = "uploads/campaigns"
 )
 
 func campaignUploadImage(db *core.DB) http.HandlerFunc {
@@ -702,11 +724,17 @@ func trackOpen(db *core.DB) http.HandlerFunc {
 					 VALUES ($1, $2, $3, 'opened', 'email', $4, $5)`,
 					campaignID, contactID, trackingID, r.RemoteAddr, r.UserAgent())
 				// Update contact status to opened (only advance, never downgrade)
-				db.PGExec(ctx, //nolint:errcheck
+				openedRows, _ := db.PGQuery(ctx,
 					`UPDATE campaign_contacts
 					 SET email_status='opened', email_opened_at=COALESCE(email_opened_at, NOW()), updated_at=NOW()
-					 WHERE id=$1 AND email_status NOT IN ('clicked')`,
+					 WHERE id=$1
+					   AND email_opened_at IS NULL
+					   AND email_status NOT IN ('clicked','bounced','spam','unsubscribed','failed')
+					 RETURNING campaign_id`,
 					contactID)
+				if len(openedRows) > 0 {
+					db.PGExec(ctx, "UPDATE campaigns SET emails_opened=emails_opened+1, updated_at=NOW() WHERE id=$1", openedRows[0]["campaign_id"]) //nolint:errcheck
+				}
 			}()
 		}
 
@@ -757,9 +785,15 @@ func trackClick(db *core.DB) http.HandlerFunc {
 					 VALUES ($1, $2, $3, 'clicked', 'email', $4, $5, $6)`,
 					campaignID, contactID, trackingID, destURL, ip, ua)
 				// Advance contact status to clicked
-				db.PGExec(ctx, //nolint:errcheck
-					`UPDATE campaign_contacts SET email_status='clicked', updated_at=NOW() WHERE id=$1`,
+				clickedRows, _ := db.PGQuery(ctx,
+					`UPDATE campaign_contacts
+					 SET email_status='clicked', updated_at=NOW()
+					 WHERE id=$1 AND email_status NOT IN ('clicked','bounced','spam','unsubscribed','failed')
+					 RETURNING campaign_id`,
 					contactID)
+				if len(clickedRows) > 0 {
+					db.PGExec(ctx, "UPDATE campaigns SET emails_clicked=emails_clicked+1, updated_at=NOW() WHERE id=$1", clickedRows[0]["campaign_id"]) //nolint:errcheck
+				}
 			}()
 		}
 

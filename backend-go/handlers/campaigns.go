@@ -422,6 +422,10 @@ func createCampaign(db *core.DB) http.HandlerFunc {
 				}
 			}
 		}
+		status := "draft"
+		if b.ScheduledAt != nil && strings.TrimSpace(*b.ScheduledAt) != "" {
+			status = "scheduled"
+		}
 
 		var total int64
 		if b.ListID != nil {
@@ -433,11 +437,11 @@ func createCampaign(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO campaigns
-			    (name, description, type, list_id, email_subject, email_body_html,
+			    (name, description, status, type, list_id, email_subject, email_body_html,
 			     email_body_text, from_name, from_email, sms_body,
 			     scheduled_at, total_contacts, created_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
-			b.Name, b.Description, b.Type, b.ListID,
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+			b.Name, b.Description, status, b.Type, b.ListID,
 			b.EmailSubject, b.EmailBodyHTML, b.EmailBodyText, b.FromName, b.FromEmail,
 			b.SMSBody, b.ScheduledAt, total, user.ID)
 		if err != nil {
@@ -721,6 +725,18 @@ func smsWebhook(db *core.DB) http.HandlerFunc {
 	}
 }
 
+func insertCampaignEmailEvent(ctx context.Context, db *core.DB, contact map[string]any, eventType, providerID string, ev map[string]any) {
+	if len(contact) == 0 || eventType == "" {
+		return
+	}
+	payload, _ := json.Marshal(ev)
+	db.PGExec(ctx, //nolint:errcheck
+		`INSERT INTO campaign_events
+		     (campaign_id, contact_id, tracking_id, event_type, channel, url, provider_msg_id, raw_payload)
+		 VALUES ($1, $2, $3, $4, 'email', NULLIF($5,''), $6, $7::jsonb)`,
+		contact["campaign_id"], contact["id"], str(contact["tracking_id"]), eventType, str(ev["url"]), providerID, string(payload))
+}
+
 func emailWebhook(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -739,7 +755,7 @@ func emailWebhook(db *core.DB) http.HandlerFunc {
 				w.WriteHeader(401)
 				return
 			}
-		} else if !checkWebhookToken(r, emailWebhookSecret) {
+		} else if !checkWebhookToken(r, coalesce(resolveCredKey(r.Context(), db, "EMAIL_WEBHOOK_SECRET"), emailWebhookSecret)) {
 			w.WriteHeader(401)
 			return
 		}
@@ -766,28 +782,61 @@ func emailWebhook(db *core.DB) http.HandlerFunc {
 				db.PGExec(ctx, //nolint:errcheck
 					"UPDATE campaign_contacts SET email_status='processed', updated_at=NOW() WHERE email_provider_id=$1 AND email_status NOT IN ('delivered','opened','clicked')", pid)
 			case "delivered":
-				db.PGExec(ctx, //nolint:errcheck
-					"UPDATE campaign_contacts SET email_status='delivered', updated_at=NOW() WHERE email_provider_id=$1", pid)
-				if sub, _ := db.PGQuery(ctx, "SELECT campaign_id FROM campaign_contacts WHERE email_provider_id=$1 LIMIT 1", pid); len(sub) > 0 {
-					db.PGExec(ctx, "UPDATE campaigns SET emails_delivered=emails_delivered+1, updated_at=NOW() WHERE id=$1", sub[0]["campaign_id"]) //nolint:errcheck
+				rows, _ := db.PGQuery(ctx, `
+					UPDATE campaign_contacts
+					SET email_status='delivered', updated_at=NOW()
+					WHERE email_provider_id=$1
+					  AND email_status NOT IN ('delivered','opened','clicked','bounced','spam','unsubscribed','failed')
+					RETURNING id, campaign_id, tracking_id`, pid)
+				if len(rows) > 0 {
+					db.PGExec(ctx, "UPDATE campaigns SET emails_delivered=emails_delivered+1, updated_at=NOW() WHERE id=$1", rows[0]["campaign_id"]) //nolint:errcheck
+					insertCampaignEmailEvent(ctx, db, rows[0], "delivered", pid, ev)
 				}
 			case "open":
-				db.PGExec(ctx, //nolint:errcheck
-					"UPDATE campaign_contacts SET email_status='opened', email_opened_at=NOW(), updated_at=NOW() WHERE email_provider_id=$1 AND email_status NOT IN ('clicked')", pid)
-				if sub, _ := db.PGQuery(ctx, "SELECT campaign_id FROM campaign_contacts WHERE email_provider_id=$1 LIMIT 1", pid); len(sub) > 0 {
-					db.PGExec(ctx, "UPDATE campaigns SET emails_opened=emails_opened+1, updated_at=NOW() WHERE id=$1", sub[0]["campaign_id"]) //nolint:errcheck
+				rows, _ := db.PGQuery(ctx, `
+					UPDATE campaign_contacts
+					SET email_status='opened', email_opened_at=COALESCE(email_opened_at, NOW()), updated_at=NOW()
+					WHERE email_provider_id=$1
+					  AND email_opened_at IS NULL
+					  AND email_status NOT IN ('clicked','bounced','spam','unsubscribed','failed')
+					RETURNING id, campaign_id, tracking_id`, pid)
+				if len(rows) > 0 {
+					db.PGExec(ctx, "UPDATE campaigns SET emails_opened=emails_opened+1, updated_at=NOW() WHERE id=$1", rows[0]["campaign_id"]) //nolint:errcheck
+					insertCampaignEmailEvent(ctx, db, rows[0], "opened", pid, ev)
 				}
 			case "click":
-				db.PGExec(ctx, //nolint:errcheck
-					"UPDATE campaign_contacts SET email_status='clicked', updated_at=NOW() WHERE email_provider_id=$1", pid)
-				if sub, _ := db.PGQuery(ctx, "SELECT campaign_id FROM campaign_contacts WHERE email_provider_id=$1 LIMIT 1", pid); len(sub) > 0 {
-					db.PGExec(ctx, "UPDATE campaigns SET emails_clicked=emails_clicked+1, updated_at=NOW() WHERE id=$1", sub[0]["campaign_id"]) //nolint:errcheck
+				rows, _ := db.PGQuery(ctx, `
+					UPDATE campaign_contacts
+					SET email_status='clicked', updated_at=NOW()
+					WHERE email_provider_id=$1
+					  AND email_status NOT IN ('clicked','bounced','spam','unsubscribed','failed')
+					RETURNING id, campaign_id, tracking_id`, pid)
+				if len(rows) > 0 {
+					db.PGExec(ctx, "UPDATE campaigns SET emails_clicked=emails_clicked+1, updated_at=NOW() WHERE id=$1", rows[0]["campaign_id"]) //nolint:errcheck
+					insertCampaignEmailEvent(ctx, db, rows[0], "clicked", pid, ev)
 				}
 			case "bounce", "dropped", "spamreport", "unsubscribe", "group_unsubscribe":
-				db.PGExec(ctx, //nolint:errcheck
-					"UPDATE campaign_contacts SET email_status='bounced', updated_at=NOW() WHERE email_provider_id=$1", pid)
-				if sub, _ := db.PGQuery(ctx, "SELECT campaign_id FROM campaign_contacts WHERE email_provider_id=$1 LIMIT 1", pid); len(sub) > 0 {
-					db.PGExec(ctx, "UPDATE campaigns SET emails_bounced=emails_bounced+1, updated_at=NOW() WHERE id=$1", sub[0]["campaign_id"]) //nolint:errcheck
+				status := "bounced"
+				eventType := "bounced"
+				campaignUpdate := "emails_bounced=emails_bounced+1"
+				if event == "spamreport" {
+					status = "spam"
+					eventType = "spam"
+					campaignUpdate = "bounce_count=bounce_count+1"
+				} else if event == "unsubscribe" || event == "group_unsubscribe" {
+					status = "unsubscribed"
+					eventType = "unsubscribed"
+					campaignUpdate = "unsubscribe_count=unsubscribe_count+1"
+				}
+				rows, _ := db.PGQuery(ctx, `
+					UPDATE campaign_contacts
+					SET email_status=$2, updated_at=NOW()
+					WHERE email_provider_id=$1
+					  AND email_status NOT IN ('bounced','spam','unsubscribed','failed')
+					RETURNING id, campaign_id, tracking_id`, pid, status)
+				if len(rows) > 0 {
+					db.PGExec(ctx, fmt.Sprintf("UPDATE campaigns SET %s, updated_at=NOW() WHERE id=$1", campaignUpdate), rows[0]["campaign_id"]) //nolint:errcheck
+					insertCampaignEmailEvent(ctx, db, rows[0], eventType, pid, ev)
 				}
 			case "deferred":
 				db.PGExec(ctx, //nolint:errcheck

@@ -19,9 +19,13 @@ interface ListMember {
   id: number
   list_id: number
   cif_number: string
+  first_name?: string
+  last_name?: string
   name?: string
   phone?: string
   email?: string
+  merge_data?: Record<string, any>
+  created_at?: string
   added_at: string
 }
 
@@ -30,7 +34,20 @@ interface ListForm {
   description: string
 }
 
+interface MemberForm {
+  first_name: string
+  last_name: string
+  email: string
+  phone: string
+  cif_number: string
+}
+
 const EMPTY_FORM: ListForm = { name: '', description: '' }
+const EMPTY_MEMBER: MemberForm = { first_name: '', last_name: '', email: '', phone: '', cif_number: '' }
+
+function memberName(member: ListMember) {
+  return member.name || [member.first_name, member.last_name].filter(Boolean).join(' ').trim()
+}
 
 /* ── Shared modal ──────────────────────────────────────────────────── */
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -80,7 +97,7 @@ function MembersDrawer({
   const [members, setMembers]       = useState<ListMember[]>([])
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState('')
-  const [cifInput, setCifInput]     = useState('')
+  const [memberForm, setMemberForm] = useState<MemberForm>(EMPTY_MEMBER)
   const [adding, setAdding]         = useState(false)
   const [uploading, setUploading]   = useState(false)
   const fileRef                     = useRef<HTMLInputElement>(null)
@@ -103,15 +120,24 @@ function MembersDrawer({
 
   async function handleAddMember(e: React.FormEvent) {
     e.preventDefault()
-    if (!cifInput.trim()) return
+    if (!memberForm.email.trim() && !memberForm.phone.trim()) {
+      toast.error('Add at least an email or phone number')
+      return
+    }
     setAdding(true)
     try {
       await apiFetch(`/api/contact-lists/${list.id}/members`, {
         method: 'POST',
-        body: JSON.stringify({ cif_number: cifInput.trim() }),
+        body: JSON.stringify({
+          first_name: memberForm.first_name.trim() || undefined,
+          last_name: memberForm.last_name.trim() || undefined,
+          email: memberForm.email.trim() || undefined,
+          phone: memberForm.phone.trim() || undefined,
+          cif_number: memberForm.cif_number.trim() || undefined,
+        }),
       })
       toast.success('Member added')
-      setCifInput('')
+      setMemberForm(EMPTY_MEMBER)
       loadMembers()
     } catch (e: any) {
       toast.error(e.message)
@@ -160,10 +186,10 @@ function MembersDrawer({
   }
 
   const cols: ColDef<ListMember>[] = [
-    { key: 'cif_number', label: 'CIF Number' },
-    { key: 'name',       label: 'Name',    render: r => r.name  ?? '—' },
-    { key: 'phone',      label: 'Phone',   render: r => r.phone ?? '—' },
+    { key: 'name',       label: 'Name',    render: r => memberName(r) || '—' },
     { key: 'email',      label: 'Email',   render: r => r.email ?? '—' },
+    { key: 'phone',      label: 'Phone',   render: r => r.phone ?? '—' },
+    { key: 'cif_number', label: 'CIF',     render: r => r.cif_number || '—' },
     { key: 'added_at',   label: 'Added',   render: r => fmtDate((r as any).created_at ?? r.added_at) },
     {
       key: '_remove',
@@ -186,7 +212,7 @@ function MembersDrawer({
     <div className="fixed inset-0 z-40" onClick={onClose} style={{ background: 'rgba(0,0,0,0.3)' }}>
       <div
         className="absolute right-0 top-0 h-full bg-white shadow-2xl overflow-y-auto flex flex-col"
-        style={{ width: 640 }}
+        style={{ width: 'min(920px, 100vw)' }}
         onClick={e => e.stopPropagation()}
       >
         {/* Drawer header */}
@@ -207,45 +233,63 @@ function MembersDrawer({
 
         {/* Toolbar */}
         <div
-          className="px-6 py-3 border-b flex items-center gap-2 flex-shrink-0"
+          className="px-6 py-4 border-b flex-shrink-0"
           style={{ borderColor: 'rgba(15,23,42,0.07)' }}
         >
-          <form onSubmit={handleAddMember} className="flex items-center gap-2 flex-1">
-            <input
-              value={cifInput}
-              onChange={e => setCifInput(e.target.value)}
-              placeholder="CIF Number"
-              className="flex-1 px-3 py-1.5 rounded-lg border text-[13px] outline-none"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }}
-            />
-            <button
-              type="submit"
-              disabled={adding || !cifInput.trim()}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white disabled:opacity-60"
-              style={{ background: NAVY }}
-            >
-              <span className="material-symbols-rounded text-[14px]">person_add</span>
-              {adding ? 'Adding…' : 'Add Member'}
-            </button>
-          </form>
+          <form onSubmit={handleAddMember} className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+              {([
+                ['first_name', 'First name'],
+                ['last_name', 'Last name'],
+                ['email', 'Email'],
+                ['phone', 'Phone'],
+                ['cif_number', 'CIF optional'],
+              ] as const).map(([key, placeholder]) => (
+                <input
+                  key={key}
+                  value={memberForm[key]}
+                  onChange={e => setMemberForm(f => ({ ...f, [key]: e.target.value }))}
+                  placeholder={placeholder}
+                  type={key === 'email' ? 'email' : 'text'}
+                  className="px-3 py-1.5 rounded-lg border text-[13px] outline-none"
+                  style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                />
+              ))}
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <p className="text-[11px] text-slate-400">Email or phone is required. CIF is optional for prospects.</p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={adding || (!memberForm.email.trim() && !memberForm.phone.trim())}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white disabled:opacity-60"
+                  style={{ background: NAVY }}
+                >
+                  <span className="material-symbols-rounded text-[14px]">person_add</span>
+                  {adding ? 'Adding…' : 'Add Contact'}
+                </button>
 
-          {/* Hidden file input */}
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".csv"
-            className="hidden"
-            onChange={handleUpload}
-          />
-          <button
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-colors hover:bg-slate-50 disabled:opacity-60"
-            style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}
-          >
-            <span className="material-symbols-rounded text-[14px]">upload_file</span>
-            {uploading ? 'Uploading…' : 'Upload CSV'}
-          </button>
+                {/* Hidden file input */}
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={handleUpload}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={uploading}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-colors hover:bg-slate-50 disabled:opacity-60"
+                  style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}
+                >
+                  <span className="material-symbols-rounded text-[14px]">upload_file</span>
+                  {uploading ? 'Uploading…' : 'Upload CSV'}
+                </button>
+              </div>
+            </div>
+          </form>
         </div>
 
         {/* Error */}

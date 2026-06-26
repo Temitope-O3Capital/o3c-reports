@@ -863,7 +863,7 @@ export default function EmailBlockEditor({ value, onChange }: EmailBlockEditorPr
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 560, border: `1px solid ${C.b12}`, borderRadius: 10, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, border: `1px solid ${C.b12}`, borderRadius: 10, overflow: 'hidden' }}>
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: C.surf, borderBottom: `1px solid ${C.b08}`, flexShrink: 0, flexWrap: 'wrap' }}>
         <button type="button" style={btnGhost} onClick={() => setShowTemplates(true)}>

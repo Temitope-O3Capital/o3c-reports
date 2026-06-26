@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { fmtDate, fmtNum } from '../lib/fmt'
 import SenderPicker from '../components/SenderPicker'
+import EmailBlockEditor, { exportToHtml, EmailBlock } from '../components/EmailBlockEditor'
 import {
   Page, SectionCard, DataTable, ColDef,
   KpiCard, ErrBanner, StatusBadge, NAVY, GREEN,
@@ -40,6 +41,18 @@ interface ContactList {
   total_members?: number
 }
 
+interface MessageTemplate {
+  id: number
+  name: string
+  channel: string
+  sms_body?: string
+  email_subject?: string
+  email_body_html?: string
+  email_body_text?: string
+  email_blocks?: EmailBlock[] | string
+  merge_tags?: string[] | string
+}
+
 interface WizardData {
   // Step 1 — Details
   name: string
@@ -51,6 +64,7 @@ interface WizardData {
   message: string
   subject: string
   template_id: number | null
+  email_blocks: EmailBlock[]
   from_address: string
   from_name:    string
   // Step 4 — Schedule
@@ -61,7 +75,7 @@ interface WizardData {
 const EMPTY: WizardData = {
   name: '', type: 'sms', goal: '',
   list_id: null,
-  message: '', subject: '', template_id: null, from_address: '', from_name: '',
+  message: '', subject: '', template_id: null, email_blocks: [], from_address: '', from_name: '',
   send_when: 'now', scheduled_at: '',
 }
 
@@ -134,12 +148,34 @@ function normalizeCampaign(row: any): Campaign {
   return {
     ...row,
     recipient_count: row.recipient_count ?? row.total_contacts ?? 0,
-    sent_count: row.sent_count ?? sent,
-    delivered_count: row.delivered_count ?? delivered,
-    failed_count: row.failed_count ?? failed,
-    open_count: row.open_count ?? row.emails_opened ?? 0,
+    sent_count: sent > 0 ? sent : row.sent_count ?? 0,
+    delivered_count: delivered > 0 ? delivered : row.delivered_count ?? 0,
+    failed_count: failed > 0 ? failed : row.failed_count ?? 0,
+    open_count: row.emails_opened ?? row.open_count ?? 0,
     created_by: row.created_by_name ?? row.created_by ?? '',
   }
+}
+
+function asArray<T = any>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[]
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+function stripHtml(html: string) {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 /* ── Wizard modal ─────────────────────────────────────────────────── */
@@ -152,6 +188,8 @@ function CampaignWizard({
   const [saving, setSaving] = useState(false)
   const [err, setErr]     = useState('')
   const [lists, setLists] = useState<ContactList[]>([])
+  const [templates, setTemplates] = useState<MessageTemplate[]>([])
+  const [editorRevision, setEditorRevision] = useState(0)
   const [listsLoading, setListsLoading] = useState(true)
 
   function set<K extends keyof WizardData>(k: K, v: WizardData[K]) {
@@ -162,14 +200,18 @@ function CampaignWizard({
     if (step === 0) return data.name.trim() !== ''
     if (step === 1) return data.list_id !== null
     if (step === 2) {
-      if (data.message.trim() === '') return false
       // Email campaigns require a subject line
-      if (data.type === 'email' && !data.subject.trim()) return false
+      if (data.type === 'email') return Boolean(data.subject.trim() && (data.email_blocks.length > 0 || data.message.trim()))
+      if (data.message.trim() === '') return false
       return true
     }
     if (step === 3) {
       // Scheduled sends require an actual future date
-      if (data.send_when === 'later' && !data.scheduled_at) return false
+      if (data.send_when === 'later') {
+        if (!data.scheduled_at) return false
+        const scheduled = new Date(data.scheduled_at)
+        if (Number.isNaN(scheduled.getTime()) || scheduled.getTime() <= Date.now()) return false
+      }
       return true
     }
     return true
@@ -177,26 +219,60 @@ function CampaignWizard({
 
   useEffect(() => {
     let alive = true
-    async function loadLists() {
+    async function loadAudienceData() {
       setListsLoading(true)
       try {
-        const res = await apiFetch('/api/contact-lists')
-        const rows = res.data ?? res ?? []
-        if (alive) setLists(Array.isArray(rows) ? rows : [])
+        const [listRes, templateRes] = await Promise.all([
+          apiFetch('/api/contact-lists'),
+          apiFetch('/api/message-templates'),
+        ])
+        const listRows = listRes.data ?? listRes ?? []
+        const templateRows = templateRes.data ?? templateRes ?? []
+        if (alive) {
+          setLists(Array.isArray(listRows) ? listRows : [])
+          setTemplates(Array.isArray(templateRows) ? templateRows : [])
+        }
       } catch (e: any) {
         if (alive) setErr(e.message)
       } finally {
         if (alive) setListsLoading(false)
       }
     }
-    loadLists()
+    loadAudienceData()
     return () => { alive = false }
   }, [])
+
+  function applyTemplate(templateID: number | null) {
+    set('template_id', templateID)
+    const template = templates.find(t => t.id === templateID)
+    if (!template) return
+    if (data.type === 'email') {
+      const blocks = asArray<EmailBlock>(template.email_blocks)
+      setData(d => ({
+        ...d,
+        template_id: template.id,
+        subject: template.email_subject || d.subject,
+        message: template.email_body_text || stripHtml(template.email_body_html || '') || d.message,
+        email_blocks: blocks,
+      }))
+      setEditorRevision(v => v + 1)
+    } else {
+      setData(d => ({
+        ...d,
+        template_id: template.id,
+        message: template.sms_body || d.message,
+      }))
+    }
+  }
 
   async function submit() {
     setSaving(true); setErr('')
     try {
-      await apiFetch('/api/campaigns', {
+      const scheduledAt = data.send_when === 'later' ? new Date(data.scheduled_at).toISOString() : null
+      const emailHtml = data.type === 'email'
+        ? (data.email_blocks.length ? exportToHtml(data.email_blocks) : data.message.replace(/\n/g, '<br>'))
+        : undefined
+      const created = await apiFetch('/api/campaigns', {
         method: 'POST',
         body: JSON.stringify({
           name: data.name,
@@ -205,14 +281,17 @@ function CampaignWizard({
           list_id: data.list_id,
           sms_body: data.type === 'sms' ? data.message : undefined,
           email_subject: data.type === 'email' ? data.subject : undefined,
-          email_body_html: data.type === 'email' ? data.message.replace(/\n/g, '<br>') : undefined,
-          email_body_text: data.type === 'email' ? data.message : undefined,
+          email_body_html: emailHtml,
+          email_body_text: data.type === 'email' ? stripHtml(emailHtml || data.message) : undefined,
           from_email: data.from_address || undefined,
           from_name:  data.from_name || undefined,
           template_id: data.template_id,
-          scheduled_at: data.send_when === 'later' ? data.scheduled_at : null,
+          scheduled_at: scheduledAt,
         }),
       })
+      if (data.send_when === 'now' && created?.id) {
+        await apiFetch(`/api/campaigns/${created.id}/start`, { method: 'POST' })
+      }
       onDone()
     } catch (e: any) { setErr(e.message) }
     finally { setSaving(false) }
@@ -227,7 +306,8 @@ function CampaignWizard({
       onClick={e => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden"
+        className="bg-white rounded-2xl shadow-2xl w-full overflow-hidden"
+        style={{ maxWidth: data.type === 'email' && step === 2 ? 1040 : 576 }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -261,7 +341,7 @@ function CampaignWizard({
                     <button
                       key={t}
                       type="button"
-                      onClick={() => set('type', t)}
+                      onClick={() => setData(d => ({ ...d, type: t, template_id: null, email_blocks: t === 'email' ? d.email_blocks : [] }))}
                       className="flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left"
                       style={{
                         borderColor: data.type === t ? NAVY : 'rgba(15,23,42,0.12)',
@@ -353,22 +433,41 @@ function CampaignWizard({
                   </Field>
                 </>
               )}
+              <Field label="Template">
+                <select
+                  value={data.template_id ?? ''}
+                  onChange={e => applyTemplate(e.target.value ? Number(e.target.value) : null)}
+                  className={INPUT}
+                  style={IBRD}
+                >
+                  <option value="">Start without a saved template</option>
+                  {templates
+                    .filter(t => t.channel === data.type)
+                    .map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </Field>
               <Field
                 label={data.type === 'sms' ? 'Message' : 'Email Body'}
                 hint={data.type === 'sms' ? `${data.message.length}/160 chars — keep concise` : 'Use {{first_name}} for personalisation'}
               >
-                <textarea
-                  value={data.message}
-                  onChange={e => set('message', e.target.value)}
-                  rows={6}
-                  placeholder={
-                    data.type === 'sms'
-                      ? 'Dear {{first_name}}, your repayment of ₦{{amount}} is due on {{date}}. Pay now to avoid charges. Reply STOP to opt out.'
-                      : 'Dear {{first_name}},\n\nWe wanted to remind you that your repayment is due.\n\nThank you,\nO3C Cards Team'
-                  }
-                  className={`${INPUT} resize-none`}
-                  style={IBRD}
-                />
+                {data.type === 'email' ? (
+                  <div style={{ height: 'min(620px, calc(100vh - 320px))', minHeight: 420 }}>
+                    <EmailBlockEditor
+                      key={editorRevision}
+                      value={{ blocks: data.email_blocks }}
+                      onChange={({ blocks }) => setData(d => ({ ...d, email_blocks: blocks, message: stripHtml(exportToHtml(blocks)) }))}
+                    />
+                  </div>
+                ) : (
+                  <textarea
+                    value={data.message}
+                    onChange={e => set('message', e.target.value)}
+                    rows={6}
+                    placeholder="Dear {{first_name}}, your repayment of ₦{{amount}} is due on {{date}}. Pay now to avoid charges. Reply STOP to opt out."
+                    className={`${INPUT} resize-none`}
+                    style={IBRD}
+                  />
+                )}
               </Field>
               <div className="p-3 rounded-xl" style={{ background: 'rgba(14,40,65,0.04)' }}>
                 <p className="text-[11px] font-semibold text-slate-600 mb-1.5">Available variables</p>
@@ -428,6 +527,9 @@ function CampaignWizard({
                     min={new Date().toISOString().slice(0, 16)}
                     className={INPUT} style={IBRD}
                   />
+                  {data.scheduled_at && new Date(data.scheduled_at).getTime() <= Date.now() && (
+                    <p className="text-[11px] text-red-600 mt-1">Choose a future date and time.</p>
+                  )}
                 </Field>
               )}
             </div>
@@ -484,7 +586,7 @@ function CampaignWizard({
               style={{ background: '#166534' }}
             >
               <span className="material-symbols-rounded text-[15px]">rocket_launch</span>
-              {saving ? 'Launching…' : 'Launch Campaign'}
+              {saving ? 'Saving…' : data.send_when === 'later' ? 'Schedule Campaign' : 'Launch Campaign'}
             </button>
           )}
         </div>
@@ -646,7 +748,7 @@ export default function Campaigns() {
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
             className="px-2.5 py-1.5 rounded-lg border text-[12px] outline-none"
             style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
-            {['all','draft','active','paused','completed','cancelled'].map(s => (
+            {['all','draft','scheduled','active','paused','completed','cancelled'].map(s => (
               <option key={s} value={s}>{s === 'all' ? 'All Status' : s.charAt(0).toUpperCase() + s.slice(1)}</option>
             ))}
           </select>
