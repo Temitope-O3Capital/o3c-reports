@@ -480,7 +480,7 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 	}
 
 	mailID := createMailMessage(ctx, db, opt)
-	if replyAddress := inboundReplyAddress(ctx, db, mailID); replyAddress != "" {
+	if replyAddress := inboundReplyAddress(ctx, db, mailID, opt.Kind); replyAddress != "" {
 		opt.ReplyToEmail = replyAddress
 		if strings.TrimSpace(opt.ReplyToName) == "" {
 			opt.ReplyToName = opt.FromName
@@ -849,8 +849,11 @@ func defaultReplyToEmail(ctx context.Context, db *core.DB) string {
 	return sendgridFromEmail
 }
 
-func inboundReplyAddress(ctx context.Context, db *core.DB, mailID int64) string {
+func inboundReplyAddress(ctx context.Context, db *core.DB, mailID int64, kind string) string {
 	if mailID <= 0 {
+		return ""
+	}
+	if !usesInboundReplyAddress(kind) {
 		return ""
 	}
 	domain := strings.TrimSpace(os.Getenv("MAIL_INBOUND_DOMAIN"))
@@ -864,6 +867,15 @@ func inboundReplyAddress(ctx context.Context, db *core.DB, mailID int64) string 
 		return ""
 	}
 	return fmt.Sprintf("reply+%d@%s", mailID, domain)
+}
+
+func usesInboundReplyAddress(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "helpdesk":
+		return true
+	default:
+		return false
+	}
 }
 
 func parseMailAddress(raw string) (string, string) {
