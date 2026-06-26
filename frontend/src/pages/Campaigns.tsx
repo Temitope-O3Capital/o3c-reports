@@ -298,16 +298,20 @@ function CampaignWizard({
   }
 
   const selectedList = lists.find(l => l.id === data.list_id)
+  const isEmailBuilderStep = data.type === 'email' && step === 2
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-10 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3"
       style={{ background: 'rgba(0,0,0,0.4)' }}
       onClick={e => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full overflow-hidden"
-        style={{ maxWidth: data.type === 'email' && step === 2 ? 1040 : 576 }}
+        className="bg-white rounded-2xl shadow-2xl w-full overflow-hidden flex flex-col"
+        style={{
+          maxWidth: isEmailBuilderStep ? 'min(1240px, calc(100vw - 24px))' : 576,
+          maxHeight: 'calc(100vh - 24px)',
+        }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -318,7 +322,7 @@ function CampaignWizard({
           </button>
         </div>
 
-        <div className="px-6 pt-6 pb-4">
+        <div className="px-6 pt-5 pb-4 overflow-y-auto flex-1 min-h-0">
           <Stepper step={step} />
 
           {err && <div className="mb-4 px-3 py-2 rounded-lg bg-red-50 text-red-700 text-[12px]">{err}</div>}
@@ -451,7 +455,7 @@ function CampaignWizard({
                 hint={data.type === 'sms' ? `${data.message.length}/160 chars — keep concise` : 'Use {{first_name}} for personalisation'}
               >
                 {data.type === 'email' ? (
-                  <div style={{ height: 'min(620px, calc(100vh - 320px))', minHeight: 420 }}>
+                  <div style={{ height: 'clamp(320px, 52vh, 600px)' }}>
                     <EmailBlockEditor
                       key={editorRevision}
                       value={{ blocks: data.email_blocks }}
@@ -472,13 +476,18 @@ function CampaignWizard({
               <div className="p-3 rounded-xl" style={{ background: 'rgba(14,40,65,0.04)' }}>
                 <p className="text-[11px] font-semibold text-slate-600 mb-1.5">Available variables</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {['first_name', 'last_name', 'amount', 'date', 'account_no'].map(v => (
+                  {['first_name', 'last_name', 'name', 'email', 'phone', 'amount', 'date', 'account_no'].map(v => (
                     <button
                       key={v}
                       type="button"
-                      onClick={() => set('message', data.message + `{{${v}}}`)}
+                      onClick={() => {
+                        const tag = `{{${v}}}`
+                        if (data.type === 'email') navigator.clipboard?.writeText(tag).catch(() => {})
+                        else set('message', data.message + tag)
+                      }}
                       className="text-[11px] font-mono px-2 py-0.5 rounded border transition-colors hover:bg-white"
                       style={{ borderColor: 'rgba(14,40,65,0.2)', color: '#334155' }}
+                      title={data.type === 'email' ? 'Copy tag' : 'Insert tag'}
                     >
                       {`{{${v}}}`}
                     </button>
@@ -559,7 +568,7 @@ function CampaignWizard({
         </div>
 
         {/* Footer nav */}
-        <div className="flex items-center justify-between px-6 py-4 border-t" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-t shrink-0" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
           <button
             type="button"
             onClick={() => step === 0 ? onClose() : setStep(s => s - 1)}

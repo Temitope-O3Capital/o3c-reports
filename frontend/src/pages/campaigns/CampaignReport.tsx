@@ -18,15 +18,22 @@ const RED   = '#DC2626'
 /* ── Types ──────────────────────────────────────────────────────── */
 
 interface Metrics {
-  name: string
-  channel: string
-  status: string
   sent: number
   delivered: number
   opened: number
   clicked: number
   bounced: number
   spam: number
+}
+
+interface CampaignSummary {
+  id: number
+  name: string
+  channel: string
+  status: string
+  contact_count: number
+  sent_at?: string | null
+  completed_at?: string | null
 }
 
 interface TimelinePoint {
@@ -43,6 +50,7 @@ interface TopLink {
 }
 
 interface Analytics {
+  campaign: CampaignSummary
   metrics: Metrics
   timeline: TimelinePoint[]
   top_links: TopLink[]
@@ -143,8 +151,8 @@ function EventBadge({ status }: { status: string | null | undefined }) {
 
 /* ── Channel badge ──────────────────────────────────────────────── */
 
-function CampaignChannelBadge({ channel }: { channel: string }) {
-  const ch = channel.toLowerCase()
+function CampaignChannelBadge({ channel }: { channel?: string | null }) {
+  const ch = (channel || '').toLowerCase()
   const isSms = ch === 'sms'
   return (
     <span
@@ -155,7 +163,7 @@ function CampaignChannelBadge({ channel }: { channel: string }) {
       }}
     >
       <span className="material-symbols-rounded text-[11px]">{isSms ? 'sms' : 'mail'}</span>
-      {channel.toUpperCase()}
+      {(channel || 'email').toUpperCase()}
     </span>
   )
 }
@@ -232,6 +240,7 @@ export default function CampaignReport() {
   }
 
   const m = analytics?.metrics
+  const campaign = analytics?.campaign
   const sent       = m?.sent ?? 0
   const delivered  = m?.delivered ?? 0
   const opened     = m?.opened ?? 0
@@ -294,7 +303,7 @@ export default function CampaignReport() {
   return (
     <Page
       dept="Campaigns"
-      title={loading ? 'Loading…' : `Campaign: ${m?.name ?? ''}`}
+      title={loading ? 'Loading…' : `Campaign: ${campaign?.name ?? ''}`}
       subtitle="Detailed delivery and engagement analytics"
       actions={
         <div className="flex items-center gap-2">
@@ -306,8 +315,8 @@ export default function CampaignReport() {
             <span className="material-symbols-rounded text-[14px]">arrow_back</span>
             Back
           </button>
-          {m && <CampaignChannelBadge channel={m.channel} />}
-          {m && <StatusBadge status={m.status} />}
+          {campaign && <CampaignChannelBadge channel={campaign.channel} />}
+          {campaign && <StatusBadge status={campaign.status} />}
           <ExportBtn onClick={handleExport} loading={exporting} />
         </div>
       }

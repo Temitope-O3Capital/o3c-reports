@@ -443,6 +443,11 @@ func campaignContactsReport(db *core.DB) http.HandlerFunc {
 		perPage := qint(r, "per_page", 50, 1, 500)
 		statusFilter := qstr(r, "status")
 		search := qstr(r, "search")
+		exportCSV := strings.EqualFold(qstr(r, "format"), "csv")
+		if exportCSV {
+			page = 1
+			perPage = 100000
+		}
 		offset := (page - 1) * perPage
 
 		// Verify campaign exists
@@ -564,7 +569,7 @@ func campaignContactsReport(db *core.DB) http.HandlerFunc {
 			})
 		}
 
-		if strings.EqualFold(qstr(r, "format"), "csv") {
+		if exportCSV {
 			csvRows := make([]map[string]any, 0, len(contacts))
 			for _, c := range contacts {
 				csvRows = append(csvRows, map[string]any{

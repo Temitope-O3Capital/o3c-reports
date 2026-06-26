@@ -61,6 +61,31 @@ func renderTemplate(tmpl string, data map[string]any) string {
 	return mergePlaceholderRE.ReplaceAllString(tmpl, "")
 }
 
+func campaignContactMergeData(c map[string]any) map[string]any {
+	mergeData := map[string]any{}
+	switch raw := c["merge_data"].(type) {
+	case []byte:
+		json.Unmarshal(raw, &mergeData) //nolint:errcheck
+	case string:
+		json.Unmarshal([]byte(raw), &mergeData) //nolint:errcheck
+	case map[string]any:
+		for k, v := range raw {
+			mergeData[k] = v
+		}
+	}
+	firstName := str(c["first_name"])
+	lastName := str(c["last_name"])
+	name := strings.TrimSpace(firstName + " " + lastName)
+	mergeData["first_name"] = firstName
+	mergeData["last_name"] = lastName
+	mergeData["name"] = name
+	mergeData["full_name"] = name
+	mergeData["phone"] = str(c["phone"])
+	mergeData["email"] = str(c["email"])
+	mergeData["cif_number"] = str(c["cif_number"])
+	return mergeData
+}
+
 // ── Provider functions ────────────────────────────────────────────────────────
 
 func sendSMS(ctx context.Context, db *core.DB, phone, body string) (ok bool, providerID string) {
@@ -185,10 +210,7 @@ func startDispatch(db *core.DB, campaignID int64) {
 				return
 			}
 
-			var mergeData map[string]any
-			if raw, ok := c["merge_data"].([]byte); ok {
-				json.Unmarshal(raw, &mergeData) //nolint:errcheck
-			}
+			mergeData := campaignContactMergeData(c)
 			firstName := str(c["first_name"])
 			lastName := str(c["last_name"])
 			name := strings.TrimSpace(firstName + " " + lastName)
