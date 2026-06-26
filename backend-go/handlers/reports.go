@@ -20,6 +20,8 @@ func RegisterReports(r chi.Router, db *core.DB) {
 	r.With(read).Get("/settlement-recon", reportSettlementRecon(db))
 	r.With(read).Get("/agent-performance", reportAgentPerformance(db))
 	r.With(read).Get("/customer-statement", reportCustomerStatement(db))
+	r.With(read).Post("/customer-statement/send", sendCustomerStatementEmail(db))
+	r.With(read).Get("/customer-statement/emails", listStatementEmails(db))
 	r.With(read).Get("/npl-return", reportNPLReturn(db))
 	r.With(audit).Get("/audit-trail-export", reportAuditTrailExport(db))
 }
@@ -70,7 +72,7 @@ func reportMonthlyBusiness(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf(`SELECT Product_Name AS product_type, COUNT(DISTINCT CIF_Number) AS new_accounts
 			 FROM dbo.Account
 			 WHERE CAST(Account_Created AS DATE) BETWEEN @p1 AND @p2
-			 GROUP BY Product_Name ORDER BY new_accounts DESC`, ),
+			 GROUP BY Product_Name ORDER BY new_accounts DESC`),
 			fmt.Sprintf(`SELECT "Product Name" AS product_type, COUNT(DISTINCT "CIF Number") AS new_accounts
 			 FROM "Products"
 			 WHERE "Account Created Date"::date BETWEEN $1 AND $2
@@ -119,12 +121,12 @@ func reportMonthlyBusiness(db *core.DB) http.HandlerFunc {
 			 FROM portfolio_daily_snapshot ORDER BY snapshot_date DESC LIMIT 1`)
 
 		result := map[string]any{
-			"date_from":           dateFrom,
-			"date_to":             dateTo,
-			"new_accounts":        newAccounts,
-			"disbursements":       disbRows,
-			"total_collections":   collTotal,
-			"total_recoveries":    recovTotal,
+			"date_from":         dateFrom,
+			"date_to":           dateTo,
+			"new_accounts":      newAccounts,
+			"disbursements":     disbRows,
+			"total_collections": collTotal,
+			"total_recoveries":  recovTotal,
 		}
 		if len(disbKPI) > 0 {
 			result["disbursements_total"] = disbKPI[0]
@@ -199,8 +201,8 @@ func reportLoanPortfolio(db *core.DB) http.HandlerFunc {
 			 ORDER BY outstanding_kobo DESC LIMIT 10`)
 
 		result := map[string]any{
-			"status_breakdown": statusRows,
-			"by_product_type":  productRows,
+			"status_breakdown":  statusRows,
+			"by_product_type":   productRows,
 			"top10_outstanding": top10Rows,
 		}
 
@@ -270,7 +272,7 @@ func reportCollectionsPerformance(db *core.DB) http.HandlerFunc {
 			promises := toFloat(row["promises_total"])
 			broken := toFloat(row["promises_broken"])
 			if promises > 0 {
-				row["ptp_kept_rate"] = round1((promises-broken)/promises*100)
+				row["ptp_kept_rate"] = round1((promises - broken) / promises * 100)
 			} else {
 				row["ptp_kept_rate"] = 0.0
 			}
@@ -287,9 +289,9 @@ func reportCollectionsPerformance(db *core.DB) http.HandlerFunc {
 			return
 		}
 		respond(w, map[string]any{
-			"date_from":    dateFrom,
-			"date_to":      dateTo,
-			"by_agent":     agentRows,
+			"date_from":     dateFrom,
+			"date_to":       dateTo,
+			"by_agent":      agentRows,
 			"by_dpd_bucket": bucketRows,
 		}, "pg")
 	}
@@ -374,12 +376,12 @@ func reportSettlementRecon(db *core.DB) http.HandlerFunc {
 			dateFrom, dateTo)
 
 		result := map[string]any{
-			"date_from":          dateFrom,
-			"date_to":            dateTo,
-			"disbursements":      disbRows,
-			"collections":        collRows,
-			"total_collections":  collTotal,
-			"open_exposure":      exposureRows,
+			"date_from":         dateFrom,
+			"date_to":           dateTo,
+			"disbursements":     disbRows,
+			"collections":       collRows,
+			"total_collections": collTotal,
+			"open_exposure":     exposureRows,
 		}
 		if len(disbTotal) > 0 {
 			result["total_disbursed_kobo"] = disbTotal[0]["disbursed_kobo"]
@@ -458,56 +460,28 @@ func reportCustomerStatement(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "cif query parameter is required")
 			return
 		}
-
-		ctx := r.Context()
-
-		// Account info (DualQuery)
-		acctRows, acctSrc, err := db.DualQuery(ctx,
-			`SELECT TOP 1 CIF_Number, First_Name, Last_Name, Email, Phone, Job_Title, State, City
-			 FROM dbo.Contact WHERE CIF_Number=@p1`,
-			`SELECT "CIF Number", "First Name", "Last Name", "Email", "Phone",
-			        "Job Title", "State", "City"
-			 FROM "Accounts" WHERE "CIF Number"=$1`,
-			cif)
+		dateFrom, dateTo, err := normalizeStatementDates(qstr(r, "date_from"), qstr(r, "date_to"))
 		if err != nil {
-			respondErr(w, 500, "Account lookup failed")
+			respondErr(w, 422, err.Error())
+			return
+		}
+		statement, err := loadCustomerStatement(r.Context(), db, cif, dateFrom, dateTo)
+		if err != nil {
+			respondErr(w, 500, err.Error())
 			return
 		}
 
-		acct := map[string]any{}
-		if len(acctRows) > 0 {
-			acct = acctRows[0]
-		}
-
-		// Products/cards
-		prodRows, _, _ := db.DualQuery(ctx,
-			`SELECT Product_Name, Account_Status, Name_On_Card, Account_Manager
-			 FROM dbo.Account WHERE CIF_Number=@p1`,
-			`SELECT "Product Name", "Account Status", "Name On Card", "Account Manager"
-			 FROM "Products" WHERE "CIF Number"=$1`,
-			cif)
-
-		// Transactions — last 90 days
-		txnRows, txnSrc, _ := db.DualQuery(ctx,
-			`SELECT TOP 200 Transaction_Date, Amount, Description, Merchant_Name
-			 FROM dbo.Transaction_Listing
-			 WHERE CIF_Number=@p1 AND CAST(Transaction_Date AS DATE) >= DATEADD(day,-90,CAST(GETDATE() AS DATE))
-			 ORDER BY Transaction_Date DESC`,
-			`SELECT "Transaction Date", "Amount", "Description", "Merchant_Name"
-			 FROM "Transactions"
-			 WHERE "CIF Number"=$1 AND "Transaction Date"::date >= CURRENT_DATE - INTERVAL '90 days'
-			 ORDER BY "Transaction Date" DESC LIMIT 200`,
-			cif)
-
 		if qstr(r, "format") == "csv" {
-			streamCSV(w, fmt.Sprintf("statement_%s.csv", cif), txnRows)
+			streamCSV(w, fmt.Sprintf("statement_%s_%s_%s.csv", cif, dateFrom, dateTo), statement.Transactions)
 			return
 		}
 		respond(w, map[string]any{
-			"account":      acct,
-			"products":     prodRows,
-			"transactions": txnRows,
-		}, pickSource([]string{acctSrc, txnSrc}))
+			"account":      statement.Account,
+			"products":     statement.Products,
+			"transactions": statement.Transactions,
+			"date_from":    dateFrom,
+			"date_to":      dateTo,
+		}, statement.Source)
 	}
 }
 
@@ -638,22 +612,22 @@ func reportNPLReturn(db *core.DB) http.HandlerFunc {
 			WHERE snapshot_date=(SELECT MAX(snapshot_date) FROM loan_dpd_daily_snapshot)
 		`)
 		if len(bucketProvRows) > 0 {
-			watchKobo  := toFloat(bucketProvRows[0]["prov_watch"])
-			subKobo    := toFloat(bucketProvRows[0]["prov_substandard"])
-			doubtKobo  := toFloat(bucketProvRows[0]["prov_doubtful"])
-			lostKobo   := toFloat(bucketProvRows[0]["prov_lost"])
-			totalProv  := watchKobo + subKobo + doubtKobo + lostKobo
-			snapshot["provision_watch_kobo"]       = int64(watchKobo)
+			watchKobo := toFloat(bucketProvRows[0]["prov_watch"])
+			subKobo := toFloat(bucketProvRows[0]["prov_substandard"])
+			doubtKobo := toFloat(bucketProvRows[0]["prov_doubtful"])
+			lostKobo := toFloat(bucketProvRows[0]["prov_lost"])
+			totalProv := watchKobo + subKobo + doubtKobo + lostKobo
+			snapshot["provision_watch_kobo"] = int64(watchKobo)
 			snapshot["provision_substandard_kobo"] = int64(subKobo)
-			snapshot["provision_doubtful_kobo"]    = int64(doubtKobo)
-			snapshot["provision_lost_kobo"]        = int64(lostKobo)
-			snapshot["provision_total_kobo"]       = int64(totalProv)
+			snapshot["provision_doubtful_kobo"] = int64(doubtKobo)
+			snapshot["provision_lost_kobo"] = int64(lostKobo)
+			snapshot["provision_total_kobo"] = int64(totalProv)
 		}
 
 		result := map[string]any{
-			"report_date":    dateTo,
-			"snapshot":       snapshot,
-			"dpd_buckets":    bucketRows,
+			"report_date": dateTo,
+			"snapshot":    snapshot,
+			"dpd_buckets": bucketRows,
 		}
 		if len(writeOffRows) > 0 {
 			result["write_offs_in_period"] = writeOffRows[0]

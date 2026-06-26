@@ -1,8 +1,8 @@
 import { snake } from '../../lib/labels'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { apiFetch, apiExport } from '../../lib/api'
-import { today, monthStart } from '../../lib/fmt'
+import { apiFetch, apiExport, apiPost } from '../../lib/api'
+import { today, monthStart, fmtDate } from '../../lib/fmt'
 import { Page, SectionCard, DataTable, DateFilter, ColDef, ErrBanner, NAVY } from '../../components/UI'
 
 /* ── Report catalogue ───────────────────────────────────────────── */
@@ -15,6 +15,22 @@ interface ReportDef {
   endpoint: string
   hasCif?:  boolean
   csvOnly?: boolean
+}
+
+interface StatementEmailLog {
+  id: string
+  cif_number: string
+  customer_name?: string
+  recipient_email: string
+  date_from: string
+  date_to: string
+  subject: string
+  status: string
+  delivered_at?: string | null
+  opened_at?: string | null
+  bounced_at?: string | null
+  last_error?: string | null
+  created_at: string
 }
 
 const GROUPS: { label: string; icon: string; accent: string; reports: ReportDef[] }[] = [
@@ -118,8 +134,23 @@ function GenerateModal({ report, onClose }: { report: ReportDef; onClose: () => 
   const [cif,         setCif]         = useState('')
   const [format,      setFormat]      = useState<'json' | 'csv'>(report.csvOnly ? 'csv' : 'json')
   const [loading,     setLoading]     = useState(false)
+  const [sending,     setSending]     = useState(false)
   const [previewRows, setPreviewRows] = useState<any[] | null>(null)
+  const [recipient,   setRecipient]   = useState('')
+  const [subject,     setSubject]     = useState('')
+  const [message,     setMessage]     = useState('Please find your account statement attached to this email.')
+  const [passwordHint,setPasswordHint]= useState('')
+  const [logs,        setLogs]        = useState<StatementEmailLog[]>([])
   const [error,       setError]       = useState('')
+
+  const isStatement = report.id === 'customer-statement'
+
+  useEffect(() => {
+    if (!isStatement) return
+    apiFetch('/api/reports/customer-statement/emails?limit=10')
+      .then((res: any) => setLogs(Array.isArray(res) ? res : (res.data ?? [])))
+      .catch(() => {})
+  }, [isStatement])
 
   async function generate() {
     setLoading(true); setError(''); setPreviewRows(null)
@@ -136,6 +167,7 @@ function GenerateModal({ report, onClose }: { report: ReportDef; onClose: () => 
         const data = res.data ?? res
         const rows: any[] = Array.isArray(data) ? data : [data]
         setPreviewRows(rows)
+        if (isStatement && data?.account?.Email && !recipient) setRecipient(data.account.Email)
         toast.success(`${rows.length} row(s) returned.`)
       }
     } catch (e: any) {
@@ -146,11 +178,36 @@ function GenerateModal({ report, onClose }: { report: ReportDef; onClose: () => 
     }
   }
 
+  async function sendStatement() {
+    if (!cif.trim()) { toast.error('Enter a CIF number first.'); return }
+    if (!recipient.trim()) { toast.error('Enter recipient email.'); return }
+    setSending(true); setError('')
+    try {
+      await apiPost('/api/reports/customer-statement/send', {
+        cif: cif.trim(),
+        date_from: from,
+        date_to: to,
+        recipient_email: recipient.trim(),
+        subject: subject.trim() || undefined,
+        message: message.trim() || undefined,
+        password_hint: passwordHint.trim() || undefined,
+      })
+      toast.success('Statement email queued.')
+      const res: any = await apiFetch(`/api/reports/customer-statement/emails?limit=10&cif=${encodeURIComponent(cif.trim())}`)
+      setLogs(Array.isArray(res) ? res : (res.data ?? []))
+    } catch (e: any) {
+      setError(e.message)
+      toast.error(e.message)
+    } finally {
+      setSending(false)
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-12 px-4"
       style={{ background: 'rgba(0,0,0,0.35)' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] overflow-y-auto"
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[88vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
@@ -222,10 +279,72 @@ function GenerateModal({ report, onClose }: { report: ReportDef; onClose: () => 
             }
           </button>
 
+          {isStatement && (
+            <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'rgba(15,23,42,0.1)', background: 'rgba(15,23,42,0.02)' }}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[13px] font-semibold text-slate-800">Email PDF Statement</p>
+                  <p className="text-[12px] text-slate-400">Sends a transactional PDF attachment and records delivery/open/bounce status.</p>
+                </div>
+                <button
+                  onClick={sendStatement}
+                  disabled={sending || !cif.trim() || !recipient.trim()}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-[12px] font-semibold text-white disabled:opacity-60"
+                  style={{ background: '#059669' }}>
+                  {sending ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <span className="material-symbols-rounded text-[15px]">outgoing_mail</span>}
+                  Send PDF
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="block text-[11px] font-bold uppercase text-slate-500 mb-1">Recipient Email</span>
+                  <input value={recipient} onChange={e => setRecipient(e.target.value)} type="email" placeholder="customer@email.com"
+                    className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+                </label>
+                <label className="block">
+                  <span className="block text-[11px] font-bold uppercase text-slate-500 mb-1">Subject</span>
+                  <input value={subject} onChange={e => setSubject(e.target.value)} placeholder={`Your O3 Cards statement: ${from} to ${to}`}
+                    className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+                </label>
+              </div>
+              <label className="block">
+                <span className="block text-[11px] font-bold uppercase text-slate-500 mb-1">Message</span>
+                <textarea value={message} onChange={e => setMessage(e.target.value)} rows={3}
+                  className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none resize-y" style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-bold uppercase text-slate-500 mb-1">Password Hint</span>
+                <input value={passwordHint} onChange={e => setPasswordHint(e.target.value)} placeholder="Optional. Do not put the actual password here."
+                  className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+              </label>
+            </div>
+          )}
+
           {previewRows !== null && (
             <div>
               <p className="text-[12px] font-semibold text-slate-500 mb-1">{previewRows.length} row(s) returned</p>
               <PreviewTable rows={previewRows} />
+            </div>
+          )}
+
+          {isStatement && logs.length > 0 && (
+            <div>
+              <p className="text-[12px] font-semibold text-slate-500 mb-2">Recent statement emails</p>
+              <div className="rounded-xl border divide-y divide-slate-100 overflow-hidden" style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
+                {logs.map(log => (
+                  <div key={log.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[12px] font-semibold text-slate-800 truncate">{log.recipient_email}</p>
+                      <p className="text-[11px] text-slate-400 truncate">{log.cif_number} · {log.date_from} to {log.date_to} · {fmtDate(log.created_at)}</p>
+                      {log.last_error && <p className="text-[11px] text-red-600 truncate">{log.last_error}</p>}
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${log.status === 'delivered' || log.status === 'opened' ? 'bg-green-50 text-green-700' : log.status === 'failed' || log.status === 'bounced' ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-500'}`}>{log.status}</span>
+                      <p className="text-[10px] text-slate-400 mt-1">{log.opened_at ? 'Opened' : log.delivered_at ? 'Delivered' : log.bounced_at ? 'Bounced' : 'Tracking pending'}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
