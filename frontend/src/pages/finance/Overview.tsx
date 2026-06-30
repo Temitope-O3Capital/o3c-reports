@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { apiFetch, apiExport } from '../../lib/api'
 import { fmt, fmtNum, fmtPct, n, today, monthStart } from '../../lib/fmt'
 import {
@@ -19,27 +19,34 @@ export default function Overview() {
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState(false)
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    let active = true
     setLoading(true); setError('')
-    try {
-      const qs = new URLSearchParams({ date_from: from, date_to: to }).toString()
-      const [k, vol, acct, prod, typ] = await Promise.all([
-        apiFetch(`/api/overview/kpis?${qs}`),
-        apiFetch(`/api/overview/monthly-volume?${qs}`),
-        apiFetch(`/api/overview/new-accounts-trend?${qs}`),
-        apiFetch(`/api/overview/cards-by-product?${qs}`),
-        apiFetch(`/api/overview/txn-by-type?${qs}`),
-      ])
-      setKpis(k.data ?? k)
-      setVolume(vol.data ?? vol)
-      setAccounts(acct.data ?? acct)
-      setByProduct(prod.data ?? prod)
-      setByType(typ.data ?? typ)
-    } catch (e: any) { setError(e.message) }
-    finally { setLoading(false) }
+    async function load() {
+      try {
+        const qs = new URLSearchParams({ date_from: from, date_to: to }).toString()
+        const [rK, rVol, rAcct, rProd, rTyp] = await Promise.allSettled([
+          apiFetch(`/api/overview/kpis?${qs}`),
+          apiFetch(`/api/overview/monthly-volume?${qs}`),
+          apiFetch(`/api/overview/new-accounts-trend?${qs}`),
+          apiFetch(`/api/overview/cards-by-product?${qs}`),
+          apiFetch(`/api/overview/txn-by-type?${qs}`),
+        ])
+        if (!active) return
+        if (rK.status === 'fulfilled') setKpis(rK.value.data ?? rK.value)
+        if (rVol.status === 'fulfilled') setVolume(rVol.value.data ?? rVol.value)
+        if (rAcct.status === 'fulfilled') setAccounts(rAcct.value.data ?? rAcct.value)
+        if (rProd.status === 'fulfilled') setByProduct(rProd.value.data ?? rProd.value)
+        if (rTyp.status === 'fulfilled') setByType(rTyp.value.data ?? rTyp.value)
+        if ([rK, rVol, rAcct, rProd, rTyp].every(r => r.status === 'rejected')) {
+          setError((rK as PromiseRejectedResult).reason?.message ?? 'Failed to load')
+        }
+      } catch (e: any) { if (active) setError(e.message) }
+      finally { if (active) setLoading(false) }
+    }
+    load()
+    return () => { active = false }
   }, [from, to])
-
-  useEffect(() => { load() }, [load])
 
   const d = kpis || {}
 

@@ -1,5 +1,5 @@
 import { snake } from '../../lib/labels'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmt, fmtDate } from '../../lib/fmt'
@@ -51,32 +51,37 @@ export default function Employees() {
   })
   const [adding, setAdding]           = useState(false)
   const [addErr, setAddErr]           = useState('')
+  const [reloadKey, setReloadKey]     = useState(0)
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    let active = true
     setLoading(true); setError('')
-    try {
-      const params = new URLSearchParams({
-        status: statusF,
-        limit: String(limit),
-        offset: String(page * limit),
-        ...(search ? { q: search } : {}),
-      })
-      const [empRes, deptRes, dash] = await Promise.all([
-        apiFetch<{ data: Employee[] }>(`/api/hr/employees?${params}`),
-        apiFetch<Department[]>('/api/hr/departments'),
-        apiFetch<DashStats>('/api/hr/dashboard'),
-      ])
-      setEmployees(empRes.data ?? [])
-      setDepartments(Array.isArray(deptRes) ? deptRes : [])
-      setStats(dash)
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
+    async function load() {
+      try {
+        const params = new URLSearchParams({
+          status: statusF,
+          limit: String(limit),
+          offset: String(page * limit),
+          ...(search ? { q: search } : {}),
+        })
+        const [rEmp, rDept, rDash] = await Promise.allSettled([
+          apiFetch<{ data: Employee[] }>(`/api/hr/employees?${params}`),
+          apiFetch<Department[]>('/api/hr/departments'),
+          apiFetch<DashStats>('/api/hr/dashboard'),
+        ])
+        if (!active) return
+        if (rEmp.status === 'fulfilled') setEmployees(rEmp.value.data ?? [])
+        if (rDept.status === 'fulfilled') setDepartments(Array.isArray(rDept.value) ? rDept.value : [])
+        if (rDash.status === 'fulfilled') setStats(rDash.value)
+        if ([rEmp, rDept, rDash].every(r => r.status === 'rejected')) {
+          setError((rEmp as PromiseRejectedResult).reason?.message ?? 'Failed to load')
+        }
+      } catch (e: any) { if (active) setError(e.message) }
+      finally { if (active) setLoading(false) }
     }
-  }, [statusF, page, search])
-
-  useEffect(() => { load() }, [load])
+    load()
+    return () => { active = false }
+  }, [statusF, page, search, reloadKey])
 
   async function selectEmployee(emp: Employee) {
     setSelected(emp)
@@ -103,7 +108,7 @@ export default function Employees() {
       setShowAdd(false)
       setAddForm({ staff_id: '', first_name: '', last_name: '', email: '', phone: '', department_id: '', job_title: '', employment_type: 'full_time', employment_date: '', salary_kobo: '' })
       toast.success('Employee added successfully')
-      load()
+      setReloadKey(k => k + 1)
     } catch (e: any) {
       setAddErr(e.message)
     } finally {
@@ -118,8 +123,8 @@ export default function Employees() {
       dept="HR"
       title="Employee Directory"
       actions={
-        <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white" style={{ background: RED }} onClick={() => setShowAdd(true)}>
-          <span className="material-symbols-rounded text-[15px] align-middle mr-1">person_add</span>
+        <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white" style={{ background: NAVY }} onClick={() => setShowAdd(true)}>
+          <span className="material-symbols-rounded text-[15px] align-middle mr-1" aria-hidden="true">person_add</span>
           Add Employee
         </button>
       }
@@ -251,12 +256,13 @@ export default function Employees() {
 
       {/* Add Employee modal */}
       {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={e => { if (e.target === e.currentTarget) setShowAdd(false) }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="add-emp-title"
+            className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-[16px] font-bold text-slate-800">Add Employee</h2>
-              <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-slate-700">
-                <span className="material-symbols-rounded text-[20px]">close</span>
+              <h2 id="add-emp-title" className="text-[16px] font-bold text-slate-800">Add Employee</h2>
+              <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-slate-700" aria-label="Close">
+                <span className="material-symbols-rounded text-[20px]" aria-hidden="true">close</span>
               </button>
             </div>
             <ErrBanner msg={addErr} />
@@ -272,23 +278,23 @@ export default function Employees() {
                 ['Monthly Salary (₦)', 'salary_kobo', 'number', ''],
               ].map(([label, key, type, placeholder]) => (
                 <div key={key}>
-                  <label className="block text-[12px] font-semibold text-slate-500 mb-1">{label}</label>
-                  <input type={type as string} placeholder={placeholder as string}
+                  <label htmlFor={`emp-${key}`} className="block text-[12px] font-semibold text-slate-500 mb-1">{label}</label>
+                  <input id={`emp-${key}`} type={type as string} placeholder={placeholder as string}
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                     value={(addForm as any)[key]} onChange={e => setAdd(key as keyof AddForm, e.target.value)} />
                 </div>
               ))}
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Department</label>
-                <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                <label htmlFor="emp-department_id" className="block text-[12px] font-semibold text-slate-500 mb-1">Department</label>
+                <select id="emp-department_id" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                   value={addForm.department_id} onChange={e => setAdd('department_id', e.target.value)}>
                   <option value="">Select…</option>
                   {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Employment Type</label>
-                <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                <label htmlFor="emp-employment_type" className="block text-[12px] font-semibold text-slate-500 mb-1">Employment Type</label>
+                <select id="emp-employment_type" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                   value={addForm.employment_type} onChange={e => setAdd('employment_type', e.target.value)}>
                   {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{snake(t)}</option>)}
                 </select>
@@ -296,7 +302,7 @@ export default function Employees() {
             </div>
             <div className="flex justify-end gap-2 mt-6">
               <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setShowAdd(false)}>Cancel</button>
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60" style={{ background: RED }} disabled={adding || !addForm.staff_id || !addForm.first_name || !addForm.last_name} onClick={submitAdd}>
+              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60" style={{ background: NAVY }} disabled={adding || !addForm.staff_id || !addForm.first_name || !addForm.last_name} onClick={submitAdd}>
                 {adding ? 'Adding…' : 'Add Employee'}
               </button>
             </div>

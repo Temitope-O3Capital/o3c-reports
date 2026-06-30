@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { apiFetch } from '../../lib/api'
 import { fmt, fmtNum, fmtPct, n, today, monthStart } from '../../lib/fmt'
 import {
@@ -133,25 +133,32 @@ export default function CardsOverview() {
   const [error,     setError]     = useState('')
   const [exporting, setExporting] = useState(false)
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    let active = true
     setLoading(true); setError('')
-    try {
-      const qs = `?date_from=${from}&date_to=${to}`
-      const [k, bs, bp, vt] = await Promise.all([
-        apiFetch(`/api/cards/kpis${qs}`),
-        apiFetch('/api/cards/by-status'),
-        apiFetch('/api/cards/by-product'),
-        apiFetch(`/api/cards/volume-by-type${qs}`),
-      ])
-      setKpis(k.data || {})
-      setByStatus(bs.data || [])
-      setByProd(bp.data || [])
-      setVolByType(vt.data || [])
-    } catch (e: any) { setError(e.message) }
-    finally { setLoading(false) }
+    async function load() {
+      try {
+        const qs = `?date_from=${from}&date_to=${to}`
+        const [rK, rBs, rBp, rVt] = await Promise.allSettled([
+          apiFetch(`/api/cards/kpis${qs}`),
+          apiFetch('/api/cards/by-status'),
+          apiFetch('/api/cards/by-product'),
+          apiFetch(`/api/cards/volume-by-type${qs}`),
+        ])
+        if (!active) return
+        if (rK.status === 'fulfilled') setKpis(rK.value.data || {})
+        if (rBs.status === 'fulfilled') setByStatus(rBs.value.data || [])
+        if (rBp.status === 'fulfilled') setByProd(rBp.value.data || [])
+        if (rVt.status === 'fulfilled') setVolByType(rVt.value.data || [])
+        if ([rK, rBs, rBp, rVt].every(r => r.status === 'rejected')) {
+          setError((rK as PromiseRejectedResult).reason?.message ?? 'Failed to load')
+        }
+      } catch (e: any) { if (active) setError(e.message) }
+      finally { if (active) setLoading(false) }
+    }
+    load()
+    return () => { active = false }
   }, [from, to])
-
-  useEffect(() => { load() }, [load])
 
   const d = kpis || {}
 

@@ -50,7 +50,7 @@ export default function Overview() {
     async function load() {
       setLoading(true); setErr('')
       try {
-        const [k, v, na, bp, bt] = await Promise.all([
+        const [rKpis, rVol, rNa, rBp, rBt] = await Promise.allSettled([
           apiFetch('/api/overview/kpis'),
           apiFetch('/api/overview/monthly-volume'),
           apiFetch('/api/overview/new-accounts-trend'),
@@ -58,19 +58,28 @@ export default function Overview() {
           apiFetch('/api/overview/txn-by-type'),
         ])
         if (cancelled) return
-        setKpis(k.data)
-        setSource(k.data_source ?? 'supabase_snapshot')
-        setVolume(Array.isArray(v.data) ? v.data : [])
-        setNewAccounts(Array.isArray(na.data) ? na.data : [])
-        setByProduct((Array.isArray(bp.data) ? bp.data : []).map((r: any) => ({
-          name:  rk(r, 'Product_Name', 'Product Name') ?? 'Unknown',
-          count: n(rk(r, 'count')),
-        })))
-        setByType((Array.isArray(bt.data) ? bt.data : []).map((r: any) => ({
-          label:  rk(r, 'Description', 'description') ?? 'Other',
-          count:  n(rk(r, 'count')),
-          volume: n(rk(r, 'volume')),
-        })))
+        if (rKpis.status === 'fulfilled') {
+          setKpis(rKpis.value.data)
+          setSource(rKpis.value.data_source ?? 'supabase_snapshot')
+        }
+        if (rVol.status === 'fulfilled') setVolume(Array.isArray(rVol.value.data) ? rVol.value.data : [])
+        if (rNa.status === 'fulfilled') setNewAccounts(Array.isArray(rNa.value.data) ? rNa.value.data : [])
+        if (rBp.status === 'fulfilled') {
+          setByProduct((Array.isArray(rBp.value.data) ? rBp.value.data : []).map((r: any) => ({
+            name:  rk(r, 'Product_Name', 'Product Name') ?? 'Unknown',
+            count: n(rk(r, 'count')),
+          })))
+        }
+        if (rBt.status === 'fulfilled') {
+          setByType((Array.isArray(rBt.value.data) ? rBt.value.data : []).map((r: any) => ({
+            label:  rk(r, 'Description', 'description') ?? 'Other',
+            count:  n(rk(r, 'count')),
+            volume: n(rk(r, 'volume')),
+          })))
+        }
+        if ([rKpis, rVol, rNa, rBp, rBt].every(r => r.status === 'rejected')) {
+          if (!cancelled) setErr((rKpis as PromiseRejectedResult).reason?.message ?? 'Failed to load data')
+        }
       } catch (e: any) {
         if (!cancelled) setErr(e.message)
       } finally {

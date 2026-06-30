@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { apiFetch } from '../../lib/api'
 import { fmt, fmtNum, fmtDate, fmtPct, n, today, monthStart } from '../../lib/fmt'
 import {
@@ -202,28 +202,35 @@ export default function SalesOverview() {
   const [error,     setError]     = useState('')
   const [exporting, setExporting] = useState(false)
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    let active = true
     setLoading(true); setError('')
-    try {
-      const [k, fn, tr, mg, st, pr] = await Promise.all([
-        apiFetch('/api/sales/kpis'),
-        apiFetch('/api/sales/funnel'),
-        apiFetch('/api/sales/accounts-trend'),
-        apiFetch('/api/sales/manager-performance'),
-        apiFetch('/api/sales/by-state'),
-        apiFetch('/api/sales/product-mix'),
-      ])
-      setKpis(k.data || {})
-      setFunnel(fn.data || null)
-      setTrend(tr.data || [])
-      setManagers(mg.data || [])
-      setStates(st.data || [])
-      setProducts(pr.data || [])
-    } catch (e: any) { setError(e.message) }
-    finally { setLoading(false) }
+    async function load() {
+      try {
+        const [rK, rFn, rTr, rMg, rSt, rPr] = await Promise.allSettled([
+          apiFetch('/api/sales/kpis'),
+          apiFetch('/api/sales/funnel'),
+          apiFetch('/api/sales/accounts-trend'),
+          apiFetch('/api/sales/manager-performance'),
+          apiFetch('/api/sales/by-state'),
+          apiFetch('/api/sales/product-mix'),
+        ])
+        if (!active) return
+        if (rK.status === 'fulfilled') setKpis(rK.value.data || {})
+        if (rFn.status === 'fulfilled') setFunnel(rFn.value.data || null)
+        if (rTr.status === 'fulfilled') setTrend(rTr.value.data || [])
+        if (rMg.status === 'fulfilled') setManagers(rMg.value.data || [])
+        if (rSt.status === 'fulfilled') setStates(rSt.value.data || [])
+        if (rPr.status === 'fulfilled') setProducts(rPr.value.data || [])
+        if ([rK, rFn, rTr, rMg, rSt, rPr].every(r => r.status === 'rejected')) {
+          setError((rK as PromiseRejectedResult).reason?.message ?? 'Failed to load')
+        }
+      } catch (e: any) { if (active) setError(e.message) }
+      finally { if (active) setLoading(false) }
+    }
+    load()
+    return () => { active = false }
   }, [])
-
-  useEffect(() => { load() }, [load])
 
   const d = kpis || {}
 

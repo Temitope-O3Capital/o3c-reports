@@ -51,18 +51,23 @@ export default function RiskOverview() {
   const [err, setErr] = useState('')
 
   useEffect(() => {
-    setLoading(true)
-    setErr('')
-    Promise.all([
-      apiFetch<{ data: RiskOverview }>('/api/risk/overview'),
-      apiFetch<{ data: PortfolioQuality }>('/api/risk/portfolio-quality'),
-    ])
-      .then(([ov, pq]) => {
-        setKpis(ov.data ?? (ov as any))
-        setQuality(pq.data ?? (pq as any))
-      })
-      .catch((e: any) => setErr(e.message))
-      .finally(() => setLoading(false))
+    let active = true
+    setLoading(true); setErr('')
+    async function load() {
+      const [rOv, rPq] = await Promise.allSettled([
+        apiFetch<{ data: RiskOverview }>('/api/risk/overview'),
+        apiFetch<{ data: PortfolioQuality }>('/api/risk/portfolio-quality'),
+      ])
+      if (!active) return
+      if (rOv.status === 'fulfilled') setKpis(rOv.value.data ?? (rOv.value as any))
+      if (rPq.status === 'fulfilled') setQuality(rPq.value.data ?? (rPq.value as any))
+      if (rOv.status === 'rejected' && rPq.status === 'rejected') {
+        setErr((rOv as PromiseRejectedResult).reason?.message ?? 'Failed to load')
+      }
+      if (active) setLoading(false)
+    }
+    load()
+    return () => { active = false }
   }, [])
 
   const k = kpis

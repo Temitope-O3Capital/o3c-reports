@@ -8,7 +8,7 @@ import Login from './pages/Login'
 import Overview from './pages/Overview'
 import { AuthUser, parseToken, ROLE_PAGES } from './hooks/useAuth'
 import { roleLabel } from './lib/roles'
-import { API } from './lib/api'
+import { API, apiFetch } from './lib/api'
 
 // ── Role → home route ─────────────────────────────────────────────────────────
 
@@ -230,22 +230,15 @@ function ApprovalsButton({ user }: { user: AuthUser }) {
   const navigate                   = useNavigate()
   const intervalRef                = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  async function fetchSummary() {
+  const fetchSummary = useCallback(async () => {
     try {
-      const token = localStorage.getItem('o3c_token')
-      const res = await fetch(`${API}/api/approvals/summary`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
-      if (res.ok) {
-        setSummary(await res.json())
-        setFetchError(false)
-      } else {
-        setFetchError(true)
-      }
+      const data = await apiFetch<ApprovalSummary>('/api/approvals/summary')
+      setSummary(data)
+      setFetchError(false)
     } catch {
       setFetchError(true)
     }
-  }
+  }, [])
 
   useEffect(() => {
     fetchSummary()
@@ -496,9 +489,10 @@ function RequireAccess({ page, user, children }: { page: string; user: AuthUser;
 const MGMT_ROLES = ['md', 'coo', 'cfo', 'cmo', 'executive', 'admin', 'management', 'head_ops', 'head_it']
 
 export default function App() {
-  const [user,      setUser]      = useState<AuthUser | null>(null)
-  const [loading,   setLoading]   = useState(true)
-  const [c360Open,  setC360Open]  = useState(false)
+  const [user,        setUser]        = useState<AuthUser | null>(null)
+  const [loading,     setLoading]     = useState(true)
+  const [c360Open,    setC360Open]    = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const openC360 = useCallback(() => setC360Open(true), [])
 
   useEffect(() => {
@@ -601,12 +595,28 @@ export default function App() {
       </a>
       <div className="flex h-screen overflow-hidden bg-[#F6F5F2]">
         <Toaster richColors position="top-right" />
-        <Sidebar user={user} onLogout={handleLogout} />
 
-        <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Mobile backdrop */}
+        {sidebarOpen && (
+          <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
+        )}
+
+        {/* Sidebar — fixed overlay on mobile, inline on desktop */}
+        <div className={`fixed inset-y-0 left-0 z-50 md:relative md:inset-auto md:z-auto transition-transform duration-200 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+          <Sidebar user={user} onLogout={handleLogout} onMobileClose={() => setSidebarOpen(false)} />
+        </div>
+
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           <header
-            className="flex items-center justify-end gap-2 px-6 py-2.5 flex-shrink-0"
+            className="flex items-center gap-2 px-4 py-2.5 flex-shrink-0"
             style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
+            <button
+              className="md:hidden p-1.5 rounded-lg hover:bg-black/[0.06] transition-colors"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open navigation">
+              <span className="material-symbols-rounded text-[22px] text-slate-600" aria-hidden="true">menu</span>
+            </button>
+            <div className="flex-1" />
             <ToolbarIconButton onClick={openC360} icon="person_search" title="Customer 360" />
             <ToolbarIconLink to="/tasks"       icon="task_alt"      title="Tasks" />
             <ToolbarIconLink to="/mail/inbox"  icon="mail"          title="Mail" />

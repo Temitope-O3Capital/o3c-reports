@@ -262,7 +262,7 @@ function initials(name: string): string {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
+export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthUser; onLogout: () => void; onMobileClose?: () => void }) {
   const location = useLocation()
   const navigate  = useNavigate()
   const role    = user.role as string
@@ -310,6 +310,7 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
   function handleModuleClick(mod: NavModule) {
     if (mod.items.length === 0) {
       navigate(mod.primary)
+      onMobileClose?.()
     } else {
       setOpenId(openId === mod.id ? null : mod.id)
       navigate(mod.primary)
@@ -505,6 +506,7 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
                               key={item.to}
                               to={item.to}
                               end
+                              onClick={onMobileClose}
                               style={({ isActive }) => ({
                                 display: 'flex',
                                 alignItems: 'center',
