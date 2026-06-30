@@ -33,6 +33,7 @@ func RegisterRecoveryOps(r chi.Router, db *core.DB) {
 
 func recoveryOpsCases(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
 		status := qstr(r, "status")
 		legalStage := qstr(r, "legal_stage")
 		agentID := qstr(r, "agent_id")
@@ -50,6 +51,13 @@ func recoveryOpsCases(db *core.DB) http.HandlerFunc {
 			WHERE 1=1`
 		args := []any{}
 		n := 1
+
+		// Individual agents see only their own cases; heads/managers see all.
+		if !user.HasPage("recovery_assign") {
+			query += fmt.Sprintf(" AND rc.assigned_agent_id = $%d", n)
+			args = append(args, user.ID)
+			n++
+		}
 
 		if status != "" {
 			query += fmt.Sprintf(" AND rc.status = $%d", n)

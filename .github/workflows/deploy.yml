@@ -18,9 +18,65 @@ on:
     branches: [main]
 
 jobs:
+  # ── Quality gate — must pass before any deploy ───────────────────────────────
+  test:
+    name: Test & Type-check
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: o3c_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Go backend ──────────────────────────────────────────────────────────
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: backend-go/go.sum
+
+      - name: Go tests
+        run: go test ./... -v -race -timeout 120s
+        working-directory: backend-go
+        env:
+          DATABASE_URL: postgres://postgres:testpass@localhost:5432/o3c_test
+          SECRET_KEY: ci-test-secret-key-32-chars-long!!
+          ENCRYPTION_KEY: ci-test-encr-key-32-chars-long!!
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+        working-directory: backend-go
+
+      # ── Frontend ────────────────────────────────────────────────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: TypeScript type-check
+        run: npx tsc --noEmit
+        working-directory: frontend
+
   # ── Frontend → Cloudflare Pages ─────────────────────────────────────────────
   deploy-frontend:
     name: Frontend (Cloudflare Pages)
+    needs: [test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -19,9 +19,15 @@ import (
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})))
+	// Use structured JSON logging in production (Railway sets RAILWAY_ENVIRONMENT).
+	// JSON is parseable by log aggregators; text is friendlier for local dev.
+	var logHandler slog.Handler
+	if os.Getenv("RAILWAY_ENVIRONMENT") != "" {
+		logHandler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
+	} else {
+		logHandler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
+	}
+	slog.SetDefault(slog.New(logHandler))
 
 	cfg, err := core.LoadConfig()
 	if err != nil {

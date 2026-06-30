@@ -744,47 +744,17 @@ func campaignUploadImage(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		// Create upload directory if needed. Railway runs as a non-root user, so
-		// default to a writable temp path instead of the app working directory.
-		destDir := filepath.Join(UploadRoot(), "campaigns")
-		if err := os.MkdirAll(destDir, 0755); err != nil {
-			slog.Error("campaignUploadImage: cannot create upload directory", "dir", destDir, "err", err)
-			respondErr(w, 500, "Cannot create upload directory")
-			return
-		}
-
 		storedName := newUUID() + ext
-		if r2URL, ok := uploadCampaignImageToR2(storedName, mime, file); ok {
-			recordCampaignUpload(r.Context(), db, header.Filename, storedName, mime, 0, r2URL)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusCreated)
-			json.NewEncoder(w).Encode(map[string]string{"url": r2URL}) //nolint:errcheck
+		r2URL, ok := uploadCampaignImageToR2(storedName, mime, file)
+		if !ok {
+			respondErr(w, 503, "Image storage is not configured. Set R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_PUBLIC_BASE_URL environment variables.")
 			return
 		}
 
-		destPath := filepath.Join(destDir, storedName)
-		out, err := os.Create(destPath)
-		if err != nil {
-			slog.Error("campaignUploadImage: cannot create file", "path", destPath, "err", err)
-			respondErr(w, 500, "Cannot create file")
-			return
-		}
-		defer out.Close()
-
-		written, err := io.Copy(out, file)
-		if err != nil {
-			slog.Error("campaignUploadImage: upload write failed", "path", destPath, "err", err)
-			respondErr(w, 500, "Upload write failed")
-			return
-		}
-
-		publicURL := absoluteRequestURL(r, "/uploads/campaigns/"+storedName)
-
-		recordCampaignUpload(r.Context(), db, header.Filename, storedName, mime, written, publicURL)
-
+		recordCampaignUpload(r.Context(), db, header.Filename, storedName, mime, 0, r2URL)
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]string{"url": publicURL}) //nolint:errcheck
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"url": r2URL}) //nolint:errcheck
 	}
 }
 

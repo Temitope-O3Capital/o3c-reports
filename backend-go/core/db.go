@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/microsoft/go-mssqldb"
 )
@@ -70,10 +71,18 @@ func (cb *circuitBreaker) recordFailure() {
 
 // DB holds both database connections and the MSSQL circuit breaker.
 type DB struct {
-	MS  *sql.DB // nil if MSSQL not configured
-	PG  *sql.DB
-	cb  circuitBreaker
-	log *slog.Logger
+	MS    *sql.DB // nil if MSSQL not configured
+	PG    *sql.DB
+	PGURL string // stored for dedicated LISTEN connections
+	cb    circuitBreaker
+	log   *slog.Logger
+}
+
+// ListenConn opens a fresh, dedicated pgx connection for LISTEN/NOTIFY.
+// Callers must close the returned connection when done (e.g. defer conn.Close(ctx)).
+// Never use this connection for regular queries — it is reserved for listening.
+func (d *DB) ListenConn(ctx context.Context) (*pgx.Conn, error) {
+	return pgx.Connect(ctx, d.PGURL)
 }
 
 // Open connects to PG (required) and optionally MSSQL.
@@ -93,7 +102,7 @@ func Open(cfg *Config) (*DB, error) {
 	}
 	slog.Info("PostgreSQL connected")
 
-	d := &DB{PG: pg, log: slog.Default()}
+	d := &DB{PG: pg, PGURL: cfg.PGURL, log: slog.Default()}
 
 	if cfg.MSSQLConnStr != "" {
 		ms, err := sql.Open("sqlserver", cfg.MSSQLConnStr)

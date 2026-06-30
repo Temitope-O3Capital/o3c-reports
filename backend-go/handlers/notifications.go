@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -237,52 +238,71 @@ func notificationsSSE(db *core.DB) http.HandlerFunc {
 
 		ctx := r.Context()
 
-		// Seed lastID with the current max so we only push new notifications.
+		// Seed lastID with the current max so we only push new notifications on connect.
 		var lastID int64
 		seedRows, err := db.PGQuery(ctx, `SELECT COALESCE(MAX(id), 0) AS max_id FROM notifications WHERE user_id = $1`, user.ID)
 		if err == nil && len(seedRows) > 0 {
 			lastID = toInt64(seedRows[0]["max_id"])
 		}
 
+		// Open a dedicated connection for LISTEN — never borrowed from the pool.
+		lconn, err := db.ListenConn(ctx)
+		if err != nil {
+			slog.Error("SSE: could not open listen connection", "user", user.ID, "err", err)
+			respondErr(w, 500, "Real-time connection failed")
+			return
+		}
+		defer lconn.Close(context.Background()) //nolint:errcheck
+
+		channel := fmt.Sprintf("notifications_%d", user.ID)
+		if _, err := lconn.Exec(ctx, "LISTEN "+channel); err != nil {
+			slog.Error("SSE: LISTEN failed", "channel", channel, "err", err)
+			respondErr(w, 500, "Real-time connection failed")
+			return
+		}
+
 		fmt.Fprintf(w, ":keepalive\n\n")
 		flusher.Flush()
 
-		poll := time.NewTicker(2 * time.Second)
-		keepalive := time.NewTicker(30 * time.Second)
-		defer poll.Stop()
-		defer keepalive.Stop()
-
+		// Block on pg_notify instead of polling. Each WaitForNotification call times
+		// out after 30 s — we use that timeout to send an SSE keepalive comment so
+		// the browser doesn't close the connection. When the parent context is done
+		// (client disconnected), ctx.Err() is set and we exit the loop.
 		for {
-			select {
-			case <-ctx.Done():
-				return
+			waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			notif, err := lconn.WaitForNotification(waitCtx)
+			cancel()
 
-			case <-keepalive.C:
+			if ctx.Err() != nil {
+				return // client disconnected
+			}
+			if err != nil {
+				// Timeout — send keepalive and wait again.
 				fmt.Fprintf(w, ":keepalive\n\n")
 				flusher.Flush()
-
-			case <-poll.C:
-				rows, err := db.PGQuery(ctx, `
-					SELECT id, type, title, body, entity_type, entity_id, action_url,
-					       is_read, read_at, created_at
-					FROM notifications
-					WHERE user_id = $1 AND id > $2
-					ORDER BY id ASC`, user.ID, lastID)
-				if err != nil {
-					continue
-				}
-				for _, row := range rows {
-					payload, err := json.Marshal(row)
-					if err != nil {
-						continue
-					}
-					fmt.Fprintf(w, "data: %s\n\n", payload)
-					flusher.Flush()
-					if id := toInt64(row["id"]); id > lastID {
-						lastID = id
-					}
-				}
+				continue
 			}
+
+			// Payload is the notification ID; fetch the full row from the pool.
+			notifID, _ := strconv.ParseInt(notif.Payload, 10, 64)
+			if notifID <= lastID {
+				continue
+			}
+			rows, err := db.PGQuery(ctx, `
+				SELECT id, type, title, body, entity_type, entity_id, action_url,
+				       is_read, read_at, created_at
+				FROM notifications
+				WHERE id = $1 AND user_id = $2`, notifID, user.ID)
+			if err != nil || len(rows) == 0 {
+				continue
+			}
+			payload, err := json.Marshal(rows[0])
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(w, "data: %s\n\n", payload)
+			flusher.Flush()
+			lastID = notifID
 		}
 	}
 }

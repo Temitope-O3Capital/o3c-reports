@@ -27,6 +27,7 @@ func RegisterCollectionsOps(r chi.Router, db *core.DB) {
 
 func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
 		bucket := qstr(r, "dpd_bucket")
 		agentID := qstr(r, "agent_id")
 		stage := qstr(r, "stage")
@@ -44,6 +45,13 @@ func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
 			WHERE 1=1`
 		args := []any{}
 		n := 1
+
+		// Individual contributors see only their own cases; heads/managers see all.
+		if !user.HasPage("collections_assign") {
+			query += fmt.Sprintf(" AND ca.agent_user_id = $%d", n)
+			args = append(args, user.ID)
+			n++
+		}
 
 		if accountCIF != "" {
 			query += fmt.Sprintf(" AND ca.account_cif = $%d", n)
