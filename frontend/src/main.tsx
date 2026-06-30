@@ -9,17 +9,26 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   render() {
     if (this.state.error) {
       const e = this.state.error as Error
+      const isDev = import.meta.env.DEV
       return (
-        <div style={{ fontFamily: 'monospace', padding: 32, background: '#fff', minHeight: '100vh' }}>
-          <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: 20, maxWidth: 800 }}>
+        <div style={{ fontFamily: 'system-ui, sans-serif', padding: 32, background: '#fff', minHeight: '100vh' }}>
+          <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: 20, maxWidth: 600 }}>
             <p style={{ color: '#b91c1c', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>
-              Render error — {e.name}
+              Something went wrong
             </p>
-            <pre style={{ color: '#7f1d1d', fontSize: 13, whiteSpace: 'pre-wrap', margin: 0 }}>{e.message}</pre>
-            {e.stack && (
-              <pre style={{ color: '#991b1b', fontSize: 11, marginTop: 12, whiteSpace: 'pre-wrap', opacity: 0.7 }}>
-                {e.stack}
-              </pre>
+            <p style={{ color: '#7f1d1d', fontSize: 14, marginBottom: 12 }}>
+              Please reload the page. If this keeps happening, contact IT support.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              style={{ background: '#0E2841', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}>
+              Reload page
+            </button>
+            {isDev && (
+              <details style={{ marginTop: 16 }}>
+                <summary style={{ color: '#991b1b', fontSize: 12, cursor: 'pointer' }}>{e.name}: {e.message}</summary>
+                <pre style={{ color: '#991b1b', fontSize: 11, marginTop: 8, whiteSpace: 'pre-wrap', opacity: 0.8 }}>{e.stack}</pre>
+              </details>
             )}
           </div>
         </div>

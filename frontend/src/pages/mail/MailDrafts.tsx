@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../../lib/api'
 import { toast } from 'sonner'
+import { sanitizeHtml } from '../../lib/sanitize'
 import { Spinner, ErrBanner } from '../../components/UI'
 
 interface Draft {
@@ -155,7 +156,7 @@ export default function MailDrafts() {
             {selected.html_body ? (
               <div className="rounded-xl border px-6 py-5"
                 style={{ borderColor: 'rgba(15,23,42,0.08)', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.75 }}
-                dangerouslySetInnerHTML={{ __html: selected.html_body }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(selected.html_body) }}
               />
             ) : selected.text_body ? (
               <div className="rounded-xl border px-6 py-5 text-[14px] text-slate-700 whitespace-pre-wrap leading-relaxed"

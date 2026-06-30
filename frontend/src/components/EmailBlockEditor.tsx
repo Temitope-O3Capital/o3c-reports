@@ -10,6 +10,7 @@
  */
 import { useState, useRef, useEffect, useCallback, CSSProperties } from 'react'
 import { apiFetch } from '../lib/api'
+import { sanitizeHtml } from '../lib/sanitize'
 
 // ── Colours (design system tokens) ──────────────────────────────────
 const C = {
@@ -435,7 +436,7 @@ function CanvasBlock({ block, selected, idx, total, onSelect, onUpdate, onMove, 
               suppressContentEditableWarning
               onBlur={saveText}
               style={{ padding: '20px 40px', fontSize: 14, lineHeight: 1.75, color: '#1a1a1a', outline: 'none', minHeight: 60 }}
-              {...(!selected ? { dangerouslySetInnerHTML: { __html: block.html || '' } } : {})}
+              {...(!selected ? { dangerouslySetInnerHTML: { __html: sanitizeHtml(block.html || '') } } : {})}
             />
           </>
         )
@@ -490,9 +491,9 @@ function CanvasBlock({ block, selected, idx, total, onSelect, onUpdate, onMove, 
         const [l, r] = (block.split || '50/50').split('/').map(Number)
         return (
           <div style={{ display: 'flex', padding: '16px 40px', gap: 16 }}>
-            <div style={{ flex: l, fontSize: 13, lineHeight: 1.7, color: '#444' }} dangerouslySetInnerHTML={{ __html: block.leftHtml || '<p>Left column content</p>' }} />
+            <div style={{ flex: l, fontSize: 13, lineHeight: 1.7, color: '#444' }} dangerouslySetInnerHTML={{ __html: sanitizeHtml(block.leftHtml || '<p>Left column content</p>') }} />
             <div style={{ width: 1, background: '#f0f0f0', flexShrink: 0 }} />
-            <div style={{ flex: r, fontSize: 13, lineHeight: 1.7, color: '#444' }} dangerouslySetInnerHTML={{ __html: block.rightHtml || '<p>Right column content</p>' }} />
+            <div style={{ flex: r, fontSize: 13, lineHeight: 1.7, color: '#444' }} dangerouslySetInnerHTML={{ __html: sanitizeHtml(block.rightHtml || '<p>Right column content</p>') }} />
           </div>
         )
       }
@@ -633,7 +634,7 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
               try {
                 // Bug fix: apiFetch sets Content-Type: application/json, breaking multipart uploads.
                 // Use raw fetch so the browser can set the correct multipart/form-data boundary.
-                const API   = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000'
+                const API   = import.meta.env.VITE_API_URL || 'http://localhost:8000'
                 const token = localStorage.getItem('o3c_token') || ''
                 const fd    = new FormData()
                 fd.append('image', file)

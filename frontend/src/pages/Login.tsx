@@ -1,7 +1,7 @@
 import { useState, FormEvent } from 'react'
 import { AuthUser } from '../hooks/useAuth'
+import { API } from '../lib/api'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 export default function Login({ onLogin }: { onLogin: (u: AuthUser) => void }) {
   const [email,    setEmail]    = useState('')

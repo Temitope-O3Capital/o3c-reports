@@ -1,4 +1,10 @@
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+export const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+function signOut() {
+  localStorage.removeItem('o3c_token')
+  localStorage.removeItem('o3c_user')
+  window.dispatchEvent(new CustomEvent('auth:expired'))
+}
 
 export async function apiFetch<T = any>(path: string, init?: RequestInit): Promise<T> {
   const token = localStorage.getItem('o3c_token')
@@ -11,9 +17,7 @@ export async function apiFetch<T = any>(path: string, init?: RequestInit): Promi
     },
   })
   if (res.status === 401) {
-    localStorage.removeItem('o3c_token')
-    localStorage.removeItem('o3c_user')
-    window.location.href = '/login'
+    signOut()
     throw new Error('Session expired')
   }
   if (!res.ok) {
@@ -42,8 +46,7 @@ export async function apiExport(path: string, filename: string): Promise<void> {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
   if (res.status === 401) {
-    localStorage.removeItem('o3c_token')
-    window.location.href = '/login'
+    signOut()
     return
   }
   if (!res.ok) {
@@ -60,5 +63,3 @@ export async function apiExport(path: string, filename: string): Promise<void> {
   a.remove()
   URL.revokeObjectURL(url)
 }
-
-export { API }

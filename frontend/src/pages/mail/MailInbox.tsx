@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../lib/api'
+import { sanitizeHtml } from '../../lib/sanitize'
 import { Spinner, ErrBanner, NAVY } from '../../components/UI'
 
 const NAVY_STR = '#0E2841'
@@ -121,7 +122,7 @@ export default function MailInbox() {
             {selected.body_html ? (
               <div
                 className="prose prose-sm max-w-none text-slate-700"
-                dangerouslySetInnerHTML={{ __html: selected.body_html }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(selected.body_html) }}
               />
             ) : (
               <pre className="text-[13px] text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">

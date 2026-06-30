@@ -1,5 +1,6 @@
 // Shared UI primitives used across all pages
 import { useState, useRef, useEffect, useId, ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { STATUS_LABELS, snake } from '../lib/labels'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -74,7 +75,7 @@ export function KpiCard({ label, value, sub, change, icon, accent = NAVY, loadin
   return (
     <div className="card p-5">
       <div className="flex items-start justify-between mb-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-slate-400">{label}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-slate-500">{label}</p>
         <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
           style={{ background: `${accent}12` }}>
           <span className="material-symbols-rounded text-[16px]" style={{ color: accent }}>{icon}</span>
@@ -197,7 +198,7 @@ export function DataTable<T extends Record<string, any>>({
                 </tr>
               )
             : data.map((row, i) => (
-                <tr key={i} className="transition-colors hover:bg-slate-50"
+                <tr key={row.id ?? i} className="transition-colors hover:bg-slate-50"
                   style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
                   {cols.map(c => (
                     <td key={c.key} className={`px-5 py-3 ${c.right ? 'text-right' : ''}`}>
@@ -550,17 +551,22 @@ export function DateFilter({
 
 /* ── Page wrapper ───────────────────────────────────────────────── */
 export function Page({
-  dept, title, subtitle, actions, children,
+  dept, deptPath, title, subtitle, actions, children,
 }: {
-  dept?: string; title: string; subtitle?: string; actions?: ReactNode; children: ReactNode
+  dept?: string; deptPath?: string; title: string; subtitle?: string; actions?: ReactNode; children: ReactNode
 }) {
+  useEffect(() => {
+    document.title = `${title} — O3 Capital Workspace`
+    return () => { document.title = 'O3 Capital Workspace' }
+  }, [title])
+
   return (
     <div className="px-8 py-7 max-w-[1440px] mx-auto">
       <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
         <div>
-          {dept && (
+          {dept && deptPath && (
             <p className="text-[13px] text-slate-400 mb-1">
-              <span className="text-slate-600 font-medium">{dept}</span>
+              <Link to={deptPath} className="text-slate-600 font-medium hover:text-slate-900 hover:underline">{dept}</Link>
               <span className="mx-1.5 text-slate-300">›</span>
               <span className="text-slate-500">{title}</span>
             </p>

@@ -363,7 +363,7 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
       </div>
 
       {/* ── Nav ── */}
-      <nav style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: collapsed ? '4px 8px' : '4px 10px' }}>
+      <nav aria-label="Main navigation" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: collapsed ? '4px 8px' : '4px 10px' }}>
         {SECTIONS.map((section, si) => {
           const visibleMods = section.modules.filter(isModuleVisible)
           if (visibleMods.length === 0) return null
@@ -396,6 +396,7 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
                       key={mod.id}
                       onClick={() => handleModuleClick(mod)}
                       title={mod.label}
+                      aria-label={mod.label}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -414,6 +415,7 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
                       onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
                     >
                       <span
+                        aria-hidden="true"
                         className="material-symbols-rounded"
                         style={{ fontSize: 18, color: active ? '#fff' : 'rgba(255,255,255,0.38)' }}
                       >
@@ -428,6 +430,8 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
                   <div key={mod.id}>
                     <button
                       onClick={() => handleModuleClick(mod)}
+                      aria-expanded={hasSubs ? isOpen : undefined}
+                      aria-controls={hasSubs ? `submenu-${mod.id}` : undefined}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -447,6 +451,7 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
                       onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
                     >
                       <span
+                        aria-hidden="true"
                         className="material-symbols-rounded"
                         style={{ fontSize: 17, flexShrink: 0, color: active ? '#fff' : 'rgba(255,255,255,0.38)' }}
                       >
@@ -467,6 +472,7 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
                       </span>
                       {hasSubs && (
                         <span
+                          aria-hidden="true"
                           className="material-symbols-rounded"
                           style={{
                             fontSize: 14,
@@ -482,7 +488,7 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
 
                     {/* Sub-items */}
                     {hasSubs && (
-                      <div style={{
+                      <div id={`submenu-${mod.id}`} style={{
                         overflow: 'hidden',
                         maxHeight: isOpen ? `${mod.items.length * 30 + 8}px` : '0px',
                         transition: 'max-height 200ms ease',

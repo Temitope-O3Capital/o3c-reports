@@ -1,5 +1,6 @@
 import { snake } from '../../lib/labels'
 import { useState, useEffect, useCallback } from 'react'
+import { toast } from 'sonner'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmt, fmtDate } from '../../lib/fmt'
 import { Spinner, ErrBanner, StatusBadge, KpiCard, Page, NAVY, RED, GREEN } from '../../components/UI'
@@ -101,6 +102,7 @@ export default function Employees() {
       })
       setShowAdd(false)
       setAddForm({ staff_id: '', first_name: '', last_name: '', email: '', phone: '', department_id: '', job_title: '', employment_type: 'full_time', employment_date: '', salary_kobo: '' })
+      toast.success('Employee added successfully')
       load()
     } catch (e: any) {
       setAddErr(e.message)

@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+import { API } from '../lib/api'
 
 export type Role =
   | 'md' | 'coo' | 'cfo' | 'head_it' | 'head_hr' | 'cmo'
@@ -92,7 +91,7 @@ export const ROLE_PAGES: Record<string, string[]> = {
   it_admin:              [...ADMIN_PAGES, 'overview', ...HELPDESK],
 }
 
-function parseToken(token: string): { exp: number; [key: string]: any } | null {
+export function parseToken(token: string): { exp: number; [key: string]: any } | null {
   try {
     const b64 = token.split('.')[1]
       .replace(/-/g, '+')
@@ -118,7 +117,9 @@ export function useAuth() {
       return
     }
     const stored = localStorage.getItem('o3c_user')
-    if (stored) setUser(JSON.parse(stored))
+    if (stored) {
+      try { setUser(JSON.parse(stored)) } catch { localStorage.removeItem('o3c_user') }
+    }
     setLoading(false)
   }, [])
 

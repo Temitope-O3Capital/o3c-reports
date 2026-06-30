@@ -11,6 +11,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate, fmtKobo } from '../../lib/fmt'
+import { sanitizeHtml } from '../../lib/sanitize'
 import { Spinner, ErrBanner, NAVY, AMBER, RED, GREEN, BLUE } from '../../components/UI'
 
 // Wire Zoho: add <script src="https://voice.zoho.com/api/v1/sdk.js"></script> to index.html once VITE_ZOHO_ORG_ID is set
@@ -1003,7 +1004,7 @@ function MessageBubble({ msg }: { msg: Message }) {
           </div>
           <div className="rounded-2xl rounded-bl-md px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap"
             style={{ background: 'white', border: '1px solid rgba(15,23,42,0.12)', color: '#334155' }}>
-            {msg.body_text || (msg.body_html ? <span dangerouslySetInnerHTML={{ __html: msg.body_html }} /> : '—')}
+            {msg.body_text || (msg.body_html ? <span dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.body_html) }} /> : '—')}
           </div>
         </div>
       </div>
@@ -1020,7 +1021,7 @@ function MessageBubble({ msg }: { msg: Message }) {
         </div>
         <div className="rounded-2xl rounded-br-md px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap text-white"
           style={{ background: NAVY }}>
-          {msg.body_text || (msg.body_html ? <span dangerouslySetInnerHTML={{ __html: msg.body_html }} /> : '—')}
+          {msg.body_text || (msg.body_html ? <span dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.body_html) }} /> : '—')}
         </div>
       </div>
     </div>

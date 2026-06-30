@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, API } from '../../lib/api'
 import { Page, SectionCard, Spinner, ErrBanner, NAVY, GREEN, RED, AMBER } from '../../components/UI'
 import { toast } from 'sonner'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 interface ZohoStatus {
   connected: boolean

@@ -1,15 +1,14 @@
-import { lazy, Suspense, useEffect, useRef, useState, useCallback } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, useCallback, Component } from 'react'
+import type { ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useParams } from 'react-router-dom'
 import { Toaster, toast } from 'sonner'
 import Sidebar from './components/Sidebar'
 import NotificationBell from './components/NotificationBell'
 import Login from './pages/Login'
 import Overview from './pages/Overview'
-import { AuthUser } from './hooks/useAuth'
+import { AuthUser, parseToken, ROLE_PAGES } from './hooks/useAuth'
 import { roleLabel } from './lib/roles'
-import { ROLE_PAGES } from './hooks/useAuth'
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+import { API } from './lib/api'
 
 // ── Role → home route ─────────────────────────────────────────────────────────
 
@@ -208,18 +207,18 @@ interface ApprovalSummary {
 
 function ToolbarIconLink({ to, icon, title }: { to: string; icon: string; title: string }) {
   return (
-    <Link to={to} title={title}
+    <Link to={to} title={title} aria-label={title}
       className="flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors">
-      <span className="material-symbols-rounded text-[20px]">{icon}</span>
+      <span className="material-symbols-rounded text-[20px]" aria-hidden="true">{icon}</span>
     </Link>
   )
 }
 
 function ToolbarIconButton({ onClick, icon, title }: { onClick: () => void; icon: string; title: string }) {
   return (
-    <button onClick={onClick} title={title}
+    <button onClick={onClick} title={title} aria-label={title}
       className="flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors">
-      <span className="material-symbols-rounded text-[20px]">{icon}</span>
+      <span className="material-symbols-rounded text-[20px]" aria-hidden="true">{icon}</span>
     </button>
   )
 }
@@ -384,16 +383,27 @@ function ApprovalsButton({ user }: { user: AuthUser }) {
   )
 }
 
-// ── Token helpers ─────────────────────────────────────────────────────────────
+// ── Per-route error boundary ──────────────────────────────────────────────────
 
-function parseToken(token: string): { exp: number; [key: string]: any } | null {
-  try {
-    const b64 = token.split('.')[1]
-      .replace(/-/g, '+')
-      .replace(/_/g, '/')
-    return JSON.parse(atob(b64))
-  } catch {
-    return null
+class PageErrorBoundary extends Component<{ children: ReactNode }, { error: boolean }> {
+  state = { error: false }
+  static getDerivedStateFromError() { return { error: true } }
+  render() {
+    if (this.state.error) return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-8">
+        <span className="material-symbols-rounded text-[40px]" style={{ color: '#C00000', opacity: 0.5 }}>error_outline</span>
+        <div>
+          <p className="text-[15px] font-semibold text-slate-700 mb-1">This page failed to load</p>
+          <p className="text-[13px] text-slate-400">Try refreshing, or navigate to another page.</p>
+        </div>
+        <button onClick={() => this.setState({ error: false })}
+          className="text-[13px] font-medium px-4 py-2 rounded-lg transition-colors"
+          style={{ background: 'rgba(14,40,65,0.07)', color: '#0E2841' }}>
+          Retry
+        </button>
+      </div>
+    )
+    return this.props.children
   }
 }
 
@@ -515,6 +525,13 @@ export default function App() {
       localStorage.removeItem('o3c_user')
     }
     setLoading(false)
+
+    function onAuthExpired() {
+      setUser(null)
+      toast.error('Session expired — please sign in again')
+    }
+    window.addEventListener('auth:expired', onAuthExpired)
+    return () => window.removeEventListener('auth:expired', onAuthExpired)
   }, [])
 
   function handleLogin(u: AuthUser) {
@@ -577,6 +594,11 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <a href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[9999] focus:px-4 focus:py-2 focus:rounded-lg focus:text-[13px] focus:font-semibold focus:text-white"
+        style={{ background: '#0E2841' }}>
+        Skip to main content
+      </a>
       <div className="flex h-screen overflow-hidden bg-[#F6F5F2]">
         <Toaster richColors position="top-right" />
         <Sidebar user={user} onLogout={handleLogout} />
@@ -593,7 +615,7 @@ export default function App() {
             <NotificationBell />
           </header>
 
-          <main className="flex-1 overflow-y-auto">
+          <main id="main-content" className="flex-1 overflow-y-auto">
             <Suspense fallback={<PageLoader />}>
               <Routes>
                 {/* Root — redirect non-management users to their home module */}
@@ -608,21 +630,21 @@ export default function App() {
                 <Route path="/approvals" element={<Approvals />} />
 
                 {/* ── Finance ── */}
-                <Route path="/finance"              element={<RequireAccess page="income" user={user}><FinanceOverview /></RequireAccess>} />
-                <Route path="/finance/transactions" element={<RequireAccess page="transactions" user={user}><Transactions /></RequireAccess>} />
-                <Route path="/finance/income"       element={<RequireAccess page="income" user={user}><Income /></RequireAccess>} />
-                <Route path="/finance/fixed-deposit"element={<RequireAccess page="fixed_deposit" user={user}><FixedDeposit /></RequireAccess>} />
-                <Route path="/finance/eod"          element={<RequireAccess page="eod" user={user}><Eod /></RequireAccess>} />
+                <Route path="/finance"              element={<PageErrorBoundary><RequireAccess page="income" user={user}><FinanceOverview /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/finance/transactions" element={<PageErrorBoundary><RequireAccess page="transactions" user={user}><Transactions /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/finance/income"       element={<PageErrorBoundary><RequireAccess page="income" user={user}><Income /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/finance/fixed-deposit"element={<PageErrorBoundary><RequireAccess page="fixed_deposit" user={user}><FixedDeposit /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/finance/eod"          element={<PageErrorBoundary><RequireAccess page="eod" user={user}><Eod /></RequireAccess></PageErrorBoundary>} />
 
                 {/* ── Sales & CRM ── */}
-                <Route path="/sales"                    element={<SalesOverview />} />
-                <Route path="/sales/customers"          element={<Customers />} />
-                <Route path="/sales/crm"                element={<CrmPipeline />} />
-                <Route path="/sales/tasks"              element={<CrmTasks />} />
-                <Route path="/tasks"                    element={<CrmTasks />} />
-                <Route path="/sales/applications"       element={<LOSQueue />} />
-                <Route path="/sales/applications/new"   element={<LOSNew />} />
-                <Route path="/sales/applications/:id"   element={<LOSDetail />} />
+                <Route path="/sales"                    element={<PageErrorBoundary><RequireAccess page="sales" user={user}><SalesOverview /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/sales/customers"          element={<PageErrorBoundary><RequireAccess page="sales" user={user}><Customers /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/sales/crm"                element={<PageErrorBoundary><RequireAccess page="crm_pipeline" user={user}><CrmPipeline /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/sales/tasks"              element={<PageErrorBoundary><RequireAccess page="crm_tasks" user={user}><CrmTasks /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/tasks"                    element={<PageErrorBoundary><RequireAccess page="crm_tasks" user={user}><CrmTasks /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/sales/applications"       element={<PageErrorBoundary><RequireAccess page="sales" user={user}><LOSQueue /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/sales/applications/new"   element={<PageErrorBoundary><RequireAccess page="sales" user={user}><LOSNew /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/sales/applications/:id"   element={<PageErrorBoundary><RequireAccess page="sales" user={user}><LOSDetail /></RequireAccess></PageErrorBoundary>} />
 
                 {/* ── Risk & Credit ── */}
                 <Route path="/risk"              element={<RequireAccess page="credit_portfolio" user={user}><RiskOverview /></RequireAccess>} />
@@ -630,31 +652,31 @@ export default function App() {
                 <Route path="/risk/portfolio"    element={<RequireAccess page="credit_portfolio" user={user}><RiskPortfolio /></RequireAccess>} />
 
                 {/* ── Settlements ── */}
-                <Route path="/settlements"      element={<SettlementsOverview />} />
-                <Route path="/settlements/recon"element={<Reconciliation />} />
+                <Route path="/settlements"      element={<PageErrorBoundary><RequireAccess page="settlement" user={user}><SettlementsOverview /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/settlements/recon"element={<PageErrorBoundary><RequireAccess page="reconciliation" user={user}><Reconciliation /></RequireAccess></PageErrorBoundary>} />
 
                 {/* ── Cards & Channels ── */}
-                <Route path="/cards"           element={<CardsOverview />} />
-                <Route path="/cards/trends"    element={<CardTrends />} />
-                <Route path="/cards/management"element={<CardManagement />} />
-                <Route path="/cards/blink"     element={<BlinkCard />} />
-                <Route path="/cards/mobile-app"element={<MobileApp />} />
+                <Route path="/cards"           element={<PageErrorBoundary><RequireAccess page="cards" user={user}><CardsOverview /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/cards/trends"    element={<PageErrorBoundary><RequireAccess page="card_trends" user={user}><CardTrends /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/cards/management"element={<PageErrorBoundary><RequireAccess page="cards" user={user}><CardManagement /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/cards/blink"     element={<PageErrorBoundary><RequireAccess page="blink_card" user={user}><BlinkCard /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/cards/mobile-app"element={<PageErrorBoundary><RequireAccess page="mobile_app" user={user}><MobileApp /></RequireAccess></PageErrorBoundary>} />
 
                 {/* ── Collections ── */}
-                <Route path="/collections"         element={<CollectionsOverview />} />
-                <Route path="/collections/queue"   element={<CollectionsQueue />} />
-                <Route path="/collections/targets" element={<CollectionsTargets />} />
-                <Route path="/collections/promises"element={<CollectionsPromises />} />
+                <Route path="/collections"         element={<PageErrorBoundary><RequireAccess page="collections" user={user}><CollectionsOverview /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/collections/queue"   element={<PageErrorBoundary><RequireAccess page="collections" user={user}><CollectionsQueue /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/collections/targets" element={<PageErrorBoundary><RequireAccess page="collections" user={user}><CollectionsTargets /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/collections/promises"element={<PageErrorBoundary><RequireAccess page="collections" user={user}><CollectionsPromises /></RequireAccess></PageErrorBoundary>} />
 
                 {/* ── Recovery ── */}
-                <Route path="/recovery"        element={<RecoveryOverview />} />
-                <Route path="/recovery/cases"  element={<RecoveryCases />} />
-                <Route path="/recovery/legal"  element={<RecoveryLegal />} />
-                <Route path="/recovery/visits" element={<RecoveryVisits />} />
+                <Route path="/recovery"        element={<PageErrorBoundary><RequireAccess page="recovery" user={user}><RecoveryOverview /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/recovery/cases"  element={<PageErrorBoundary><RequireAccess page="recovery" user={user}><RecoveryCases /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/recovery/legal"  element={<PageErrorBoundary><RequireAccess page="recovery" user={user}><RecoveryLegal /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/recovery/visits" element={<PageErrorBoundary><RequireAccess page="recovery" user={user}><RecoveryVisits /></RequireAccess></PageErrorBoundary>} />
 
                 {/* ── Customer 360 ── */}
-                <Route path="/customer360"      element={<Customer360 />} />
-                <Route path="/customer360/:cif" element={<Customer360 />} />
+                <Route path="/customer360"      element={<PageErrorBoundary><RequireAccess page="crm_contacts" user={user}><Customer360 /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/customer360/:cif" element={<PageErrorBoundary><RequireAccess page="crm_contacts" user={user}><Customer360 /></RequireAccess></PageErrorBoundary>} />
 
                 {/* ── Customer Service ── */}
                 <Route path="/customer-service"       element={<Navigate to="/helpdesk" replace />} />
@@ -678,21 +700,21 @@ export default function App() {
                 <Route path="/compliance/audit-trail"   element={<RequireAccess page="audit_trail" user={user}><AuditTrail /></RequireAccess>} />
 
                 {/* ── Campaigns ── */}
-                <Route path="/campaigns/overview"         element={<CampaignsOverview />} />
-                <Route path="/campaigns"                  element={<Campaigns />} />
-                <Route path="/campaigns/compose"          element={<ComposeMail />} />
-                <Route path="/campaigns/templates"        element={<MessageTemplates />} />
-                <Route path="/campaigns/lists"            element={<ContactLists />} />
-                <Route path="/campaigns/analytics"        element={<AllCampaignAnalytics />} />
-                <Route path="/campaigns/:id/report"       element={<CampaignReport />} />
+                <Route path="/campaigns/overview"         element={<PageErrorBoundary><RequireAccess page="campaigns" user={user}><CampaignsOverview /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/campaigns"                  element={<PageErrorBoundary><RequireAccess page="campaigns" user={user}><Campaigns /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/campaigns/compose"          element={<PageErrorBoundary><RequireAccess page="campaigns" user={user}><ComposeMail /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/campaigns/templates"        element={<PageErrorBoundary><RequireAccess page="message_templates" user={user}><MessageTemplates /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/campaigns/lists"            element={<PageErrorBoundary><RequireAccess page="contact_lists" user={user}><ContactLists /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/campaigns/analytics"        element={<PageErrorBoundary><RequireAccess page="campaign_analytics" user={user}><AllCampaignAnalytics /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/campaigns/:id/report"       element={<PageErrorBoundary><RequireAccess page="campaign_analytics" user={user}><CampaignReport /></RequireAccess></PageErrorBoundary>} />
 
                 {/* ── Helpdesk ── */}
-                <Route path="/helpdesk"            element={<HelpdeskOverview />} />
-                <Route path="/helpdesk/tickets"    element={<TicketList />} />
-                <Route path="/helpdesk/stats"      element={<HelpdeskStats />} />
-                <Route path="/helpdesk/canned"     element={<CannedResponses />} />
-                <Route path="/helpdesk/calls"      element={<CallLog />} />
-                <Route path="/helpdesk/:id"        element={<TicketDetail />} />
+                <Route path="/helpdesk"            element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><HelpdeskOverview /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/helpdesk/tickets"    element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><TicketList /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/helpdesk/stats"      element={<PageErrorBoundary><RequireAccess page="helpdesk_stats" user={user}><HelpdeskStats /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/helpdesk/canned"     element={<PageErrorBoundary><RequireAccess page="helpdesk_canned" user={user}><CannedResponses /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/helpdesk/calls"      element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><CallLog /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/helpdesk/:id"        element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><TicketDetail /></RequireAccess></PageErrorBoundary>} />
 
                 {/* ── Settings ── */}
                 <Route path="/settings/voice"      element={<VoiceConnect />} />

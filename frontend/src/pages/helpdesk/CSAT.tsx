@@ -3,8 +3,7 @@
 
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+import { API } from '../../lib/api'
 const NAVY = '#0E2841'
 const RED  = '#C00000'
 

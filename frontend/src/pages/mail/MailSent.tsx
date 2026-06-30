@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../../lib/api'
+import { sanitizeHtml } from '../../lib/sanitize'
 import { Spinner, ErrBanner } from '../../components/UI'
 
 const NAVY  = '#0E2841'
@@ -232,7 +233,7 @@ export default function MailSent() {
                 <div
                   className="px-6 py-5 prose prose-sm max-w-none text-slate-800"
                   style={{ fontFamily: 'inherit', fontSize: 14, lineHeight: 1.75 }}
-                  dangerouslySetInnerHTML={{ __html: selected.html_body }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(selected.html_body) }}
                 />
               </div>
             ) : selected.text_body ? (
