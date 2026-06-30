@@ -41,14 +41,17 @@ export default function PortfolioMetrics() {
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const [p, t] = await Promise.all([
+      const [rP, rT] = await Promise.allSettled([
         apiFetch('/api/kpi/portfolio'),
         apiFetch('/api/kpi/portfolio/trend'),
       ])
-      const pData = p.data ?? p
-      setSnapshot(pData.latest_snapshot ?? null)
-      setBuckets(pData.dpd_buckets ?? [])
-      setTrend(t.data ?? t ?? [])
+      if (rP.status === 'fulfilled') {
+        const pData = rP.value.data ?? rP.value
+        setSnapshot(pData.latest_snapshot ?? null)
+        setBuckets(pData.dpd_buckets ?? [])
+      }
+      if (rT.status === 'fulfilled') setTrend(rT.value.data ?? rT.value ?? [])
+      if (rP.status === 'rejected' && rT.status === 'rejected') setError((rP as PromiseRejectedResult).reason?.message ?? 'Failed to load')
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])

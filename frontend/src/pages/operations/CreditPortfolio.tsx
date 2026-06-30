@@ -539,14 +539,15 @@ function DashboardTab({ dateFrom, dateTo }: { dateFrom: string; dateTo: string }
     setLoading(true); setErr('')
     try {
       const p = `date_from=${dateFrom}&date_to=${dateTo}`
-      const [sum, pipe, ofc] = await Promise.all([
+      const [rSum, rPipe, rOfc] = await Promise.allSettled([
         apiFetch<Summary>(`/api/credit-portfolio/summary?${p}`),
         apiFetch<PipelineRow[]>(`/api/credit-portfolio/pipeline?${p}`),
         apiFetch<OfficerRow[]>(`/api/credit-portfolio/by-officer?${p}`),
       ])
-      setSummary(sum)
-      setPipeline(Array.isArray(pipe) ? pipe : [])
-      setByOfficer(Array.isArray(ofc) ? ofc : [])
+      if (rSum.status === 'fulfilled') setSummary(rSum.value)
+      if (rPipe.status === 'fulfilled') setPipeline(Array.isArray(rPipe.value) ? rPipe.value : [])
+      if (rOfc.status === 'fulfilled') setByOfficer(Array.isArray(rOfc.value) ? rOfc.value : [])
+      if ([rSum, rPipe, rOfc].every(r => r.status === 'rejected')) setErr('Failed to load')
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Load failed')
     } finally { setLoading(false) }

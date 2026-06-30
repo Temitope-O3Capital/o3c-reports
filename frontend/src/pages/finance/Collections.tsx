@@ -25,18 +25,19 @@ export default function Collections() {
     try {
       const agentParam = agent ? `&agent=${encodeURIComponent(agent)}` : ''
       const qs = `date_from=${from}&date_to=${to}${agentParam}`
-      const [k, ag, mo, tr, lg] = await Promise.all([
+      const [rK, rAg, rMo, rTr, rLg] = await Promise.allSettled([
         apiFetch(`/api/collections/kpis?${qs}`),
         apiFetch(`/api/collections/by-agent?date_from=${from}&date_to=${to}`),
         apiFetch('/api/collections/by-mode'),
         apiFetch('/api/collections/monthly-trend'),
         apiFetch(`/api/collections/log?${qs}`),
       ])
-      setKpis(k.data ?? k)
-      setAgents(ag.data ?? ag)
-      setModes(mo.data ?? mo)
-      setTrend(tr.data ?? tr)
-      setLog(lg.data ?? lg)
+      if (rK.status === 'fulfilled') setKpis(rK.value.data ?? rK.value)
+      if (rAg.status === 'fulfilled') setAgents(rAg.value.data ?? rAg.value)
+      if (rMo.status === 'fulfilled') setModes(rMo.value.data ?? rMo.value)
+      if (rTr.status === 'fulfilled') setTrend(rTr.value.data ?? rTr.value)
+      if (rLg.status === 'fulfilled') setLog(rLg.value.data ?? rLg.value)
+      if ([rK, rAg, rMo, rTr, rLg].every(r => r.status === 'rejected')) setError((rK as PromiseRejectedResult).reason?.message ?? 'Failed to load')
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [from, to, agent])

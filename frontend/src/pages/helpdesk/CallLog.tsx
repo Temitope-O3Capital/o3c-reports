@@ -263,12 +263,13 @@ export default function CallLog() {
     setLoading(true); setErr('')
     const qs = new URLSearchParams({ date_from: dateFrom, date_to: dateTo })
     try {
-      const [c, s] = await Promise.all([
+      const [rCalls, rStats] = await Promise.allSettled([
         apiFetch<CallRecord[]>(`/api/helpdesk/calls?${qs}`),
         apiFetch<CallStatsData>(`/api/helpdesk/calls/stats?${qs}`),
       ])
-      setCalls(Array.isArray(c) ? c : [])
-      setStats(s ?? null)
+      if (rCalls.status === 'fulfilled') setCalls(Array.isArray(rCalls.value) ? rCalls.value : [])
+      if (rStats.status === 'fulfilled') setStats(rStats.value ?? null)
+      if (rCalls.status === 'rejected' && rStats.status === 'rejected') setErr((rCalls as PromiseRejectedResult).reason?.message ?? 'Failed to load')
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
   }

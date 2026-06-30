@@ -81,16 +81,17 @@ export default function CardsIssuance() {
       const qs = `?${p}`
       const dqs = `?date_from=${from}&date_to=${to}`
 
-      const [k, bs, bp, vt] = await Promise.all([
+      const [rK, rBs, rBp, rVt] = await Promise.allSettled([
         apiFetch(`/api/cards/kpis${qs}`),
         apiFetch('/api/cards/by-status'),
         apiFetch('/api/cards/by-product'),
         apiFetch(`/api/cards/volume-by-type${qs}`),
       ])
-      setKpis(k.data || {})
-      setByStatus(bs.data || [])
-      setByProd(bp.data || [])
-      setVolByType(vt.data || [])
+      if (rK.status === 'fulfilled') setKpis(rK.value.data || {})
+      if (rBs.status === 'fulfilled') setByStatus(rBs.value.data || [])
+      if (rBp.status === 'fulfilled') setByProd(rBp.value.data || [])
+      if (rVt.status === 'fulfilled') setVolByType(rVt.value.data || [])
+      if ([rK, rBs, rBp, rVt].every(r => r.status === 'rejected')) setError((rK as PromiseRejectedResult).reason?.message ?? 'Failed to load')
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [from, to, cardType])

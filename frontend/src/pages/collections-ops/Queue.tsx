@@ -97,12 +97,13 @@ export default function CollectionsQueue() {
         ...(stageF ? { stage: stageF }       : {}),
         ...(search ? { q: search }           : {}),
       })
-      const [qRes, dRes] = await Promise.all([
+      const [rQ, rDash] = await Promise.allSettled([
         apiFetch<{ data: QueueItem[] }>(`/api/collections-ops/queue?${params}`),
         apiFetch<Dashboard>('/api/collections-ops/dashboard'),
       ])
-      setQueue(Array.isArray(qRes) ? qRes : (qRes.data ?? []))
-      setDash(dRes)
+      if (rQ.status === 'fulfilled') setQueue(Array.isArray(rQ.value) ? rQ.value : (rQ.value.data ?? []))
+      if (rDash.status === 'fulfilled') setDash(rDash.value)
+      if (rQ.status === 'rejected' && rDash.status === 'rejected') setError((rQ as PromiseRejectedResult).reason?.message ?? 'Failed to load')
     } catch (e: any) {
       setError(e.message)
     } finally {

@@ -76,17 +76,18 @@ export default function KpiDashboard() {
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const [d, t, c, a] = await Promise.all([
+      const [rD, rT, rC, rA] = await Promise.allSettled([
         apiFetch('/api/kpi/dashboard'),
         apiFetch('/api/kpi/portfolio/trend'),
         apiFetch('/api/kpi/collections'),
         apiFetch('/api/kpi/alerts'),
       ])
-      setDash(d.data ?? d)
-      setTrend(t.data ?? t ?? [])
-      setColData(c.data ?? c)
-      setAlerts((a.data ?? a ?? []).filter((x: any) => !x.is_resolved))
+      if (rD.status === 'fulfilled') setDash(rD.value.data ?? rD.value)
+      if (rT.status === 'fulfilled') setTrend(rT.value.data ?? rT.value ?? [])
+      if (rC.status === 'fulfilled') setColData(rC.value.data ?? rC.value)
+      if (rA.status === 'fulfilled') setAlerts((rA.value.data ?? rA.value ?? []).filter((x: any) => !x.is_resolved))
       setLastUpdated(new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }))
+      if ([rD, rT, rC, rA].every(r => r.status === 'rejected')) setError((rD as PromiseRejectedResult).reason?.message ?? 'Failed to load')
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])

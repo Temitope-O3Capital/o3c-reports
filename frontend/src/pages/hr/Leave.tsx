@@ -45,14 +45,14 @@ export default function Leave() {
     setLoading(true); setError('')
     try {
       const params = new URLSearchParams({ limit: '100', ...(statusF ? { status: statusF } : {}) })
-      const [leavesRes, typesRes] = await Promise.all([
+      const [rLeaves, rTypes] = await Promise.allSettled([
         apiFetch<{ data: LeaveRow[] }>(`/api/hr/leave?${params}`),
         apiFetch<LeaveType[]>('/api/hr/leave-types'),
       ])
-      setRows(leavesRes.data ?? [])
-      setLeaveTypes(Array.isArray(typesRes) ? typesRes : [])
-    } catch (e: any) {
-      setError(e.message)
+      if (rLeaves.status === 'fulfilled') setRows(rLeaves.value.data ?? [])
+      if (rTypes.status === 'fulfilled') setLeaveTypes(Array.isArray(rTypes.value) ? rTypes.value : [])
+      if (rLeaves.status === 'rejected' && rTypes.status === 'rejected')
+        setError((rLeaves as PromiseRejectedResult).reason?.message ?? 'Failed to load')
     } finally {
       setLoading(false)
     }

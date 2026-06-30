@@ -44,16 +44,17 @@ export default function Recovery() {
     setLoading(true); setError('')
     try {
       const qs = new URLSearchParams({ date_from: from, date_to: to }).toString()
-      const [k, bm, tr, cs] = await Promise.all([
+      const [rK, rBm, rTr, rCs] = await Promise.allSettled([
         apiFetch(`/api/recovery/kpis?${qs}`),
         apiFetch(`/api/recovery/by-method?${qs}`),
         apiFetch(`/api/recovery/monthly-trend?${qs}`),
         apiFetch(`/api/recovery/cases?${qs}`),
       ])
-      setKpis(k.data ?? k)
-      setByMethod(bm.data ?? bm)
-      setTrend(tr.data ?? tr)
-      setCases(cs.data ?? cs)
+      if (rK.status === 'fulfilled') setKpis(rK.value.data ?? rK.value)
+      if (rBm.status === 'fulfilled') setByMethod(rBm.value.data ?? rBm.value)
+      if (rTr.status === 'fulfilled') setTrend(rTr.value.data ?? rTr.value)
+      if (rCs.status === 'fulfilled') setCases(rCs.value.data ?? rCs.value)
+      if ([rK, rBm, rTr, rCs].every(r => r.status === 'rejected')) setError((rK as PromiseRejectedResult).reason?.message ?? 'Failed to load')
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [from, to])

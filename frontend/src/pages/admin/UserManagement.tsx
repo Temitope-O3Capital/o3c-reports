@@ -538,12 +538,13 @@ export default function UserManagement() {
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const [userRes, roleRes] = await Promise.all([
+      const [rUsers, rRoles] = await Promise.allSettled([
         apiFetch('/api/admin/users'),
         apiFetch('/api/admin/roles').catch(() => FALLBACK_ROLE_OPTIONS),
       ])
-      setUsers(Array.isArray(userRes) ? userRes : (userRes.data ?? []))
-      setRoles(normalizeRoleOptions(roleRes))
+      if (rUsers.status === 'fulfilled') setUsers(Array.isArray(rUsers.value) ? rUsers.value : (rUsers.value.data ?? []))
+      if (rRoles.status === 'fulfilled') setRoles(normalizeRoleOptions(rRoles.value))
+      if (rUsers.status === 'rejected') setError((rUsers as PromiseRejectedResult).reason?.message ?? 'Failed to load')
     } catch (e: any) {
       setError(e.message)
     } finally {

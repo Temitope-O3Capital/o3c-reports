@@ -118,14 +118,19 @@ export default function Eod() {
       if (product) p.set('product', product)
       if (txnType) p.set('txn_type', txnType)
       if (sign) p.set('sign', sign)
-      const [sum, prod, typ, br, tr] = await Promise.all([
+      const [rSum, rProd, rTyp, rBr, rTr] = await Promise.allSettled([
         apiFetch(`/api/eod/summary?${p}`),
         apiFetch(`/api/eod/by-product?date_from=${from}&date_to=${to}${branch ? `&branch=${branch}` : ''}${txnType ? `&txn_type=${txnType}` : ''}${sign ? `&sign=${sign}` : ''}`),
         apiFetch(`/api/eod/by-type?date_from=${from}&date_to=${to}${branch ? `&branch=${branch}` : ''}${product ? `&product=${product}` : ''}${sign ? `&sign=${sign}` : ''}`),
         apiFetch(`/api/eod/by-branch?date_from=${from}&date_to=${to}`),
         apiFetch(`/api/eod/trend?date_from=${from}&date_to=${to}`),
       ])
-      setSummary(sum); setByProduct(prod); setByType(typ); setByBranch(br); setTrend(tr)
+      if (rSum.status === 'fulfilled') setSummary(rSum.value)
+      if (rProd.status === 'fulfilled') setByProduct(rProd.value)
+      if (rTyp.status === 'fulfilled') setByType(rTyp.value)
+      if (rBr.status === 'fulfilled') setByBranch(rBr.value)
+      if (rTr.status === 'fulfilled') setTrend(rTr.value)
+      if ([rSum, rProd, rTyp, rBr, rTr].every(r => r.status === 'rejected')) setError('Failed to load')
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [from, to, branch, product, txnType, sign])

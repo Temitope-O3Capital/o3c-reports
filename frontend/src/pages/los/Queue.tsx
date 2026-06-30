@@ -68,14 +68,13 @@ export default function Queue() {
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const [q, s] = await Promise.all([
+      const [rQ, rS] = await Promise.allSettled([
         apiFetch<{ data: Application[] }>('/api/los/queue'),
         apiFetch<QueueStats>('/api/los/stats'),
       ])
-      setApps(q.data ?? [])
-      setStats(s)
-    } catch (e: any) {
-      setError(e.message)
+      if (rQ.status === 'fulfilled') setApps(rQ.value.data ?? [])
+      if (rS.status === 'fulfilled') setStats(rS.value)
+      if (rQ.status === 'rejected') setError((rQ as PromiseRejectedResult).reason?.message ?? 'Failed to load')
     } finally {
       setLoading(false)
     }

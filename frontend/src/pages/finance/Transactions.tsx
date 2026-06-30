@@ -22,17 +22,18 @@ export default function Transactions() {
     setLoading(true); setError('')
     try {
       const qs = new URLSearchParams({ date_from: from, date_to: to }).toString()
-      const [k, tr, me, bt] = await Promise.all([
+      const [rK, rTr, rMe, rBt] = await Promise.allSettled([
         apiFetch(`/api/transactions/kpis?${qs}`),
         apiFetch('/api/transactions/monthly-trend'),
         apiFetch(`/api/transactions/top-merchants?${qs}`),
         apiFetch(`/api/transactions/by-type?${qs}`),
       ])
       const asArr = (v: any): any[] => Array.isArray(v) ? v : Array.isArray(v?.data) ? v.data : []
-      setKpis(k.data ?? k)
-      setTrend(asArr(tr))
-      setMerchants(asArr(me))
-      setByType(asArr(bt))
+      if (rK.status === 'fulfilled') setKpis(rK.value.data ?? rK.value)
+      if (rTr.status === 'fulfilled') setTrend(asArr(rTr.value))
+      if (rMe.status === 'fulfilled') setMerchants(asArr(rMe.value))
+      if (rBt.status === 'fulfilled') setByType(asArr(rBt.value))
+      if ([rK, rTr, rMe, rBt].every(r => r.status === 'rejected')) setError((rK as PromiseRejectedResult).reason?.message ?? 'Failed to load')
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [from, to])

@@ -99,14 +99,13 @@ export default function AllApplications() {
         offset: String(page * limit),
         ...(stageF ? { status: stageF } : {}),
       })
-      const [res, s] = await Promise.all([
+      const [rApps, rStats] = await Promise.allSettled([
         apiFetch<{ data: Application[] }>(`/api/los/all?${params}`),
         apiFetch<LosStats>('/api/los/stats'),
       ])
-      setApps(res.data ?? [])
-      setStats(s)
-    } catch (e: any) {
-      setError(e.message)
+      if (rApps.status === 'fulfilled') setApps(rApps.value.data ?? [])
+      if (rStats.status === 'fulfilled') setStats(rStats.value)
+      if (rApps.status === 'rejected') setError((rApps as PromiseRejectedResult).reason?.message ?? 'Failed to load')
     } finally {
       setLoading(false)
     }

@@ -112,12 +112,13 @@ export default function Cases() {
         ...(legalF  ? { legal_stage: legalF }   : {}),
         ...(search  ? { q: search }             : {}),
       })
-      const [cRes, dRes] = await Promise.all([
+      const [rCases, rDash] = await Promise.allSettled([
         apiFetch<{ data: RecoveryCase[] } | RecoveryCase[]>(`/api/recovery-ops/cases?${params}`),
         apiFetch<Dashboard>('/api/recovery-ops/dashboard'),
       ])
-      setCases(Array.isArray(cRes) ? cRes : (cRes.data ?? []))
-      setDash(dRes)
+      if (rCases.status === 'fulfilled') setCases(Array.isArray(rCases.value) ? rCases.value : (rCases.value.data ?? []))
+      if (rDash.status === 'fulfilled') setDash(rDash.value)
+      if (rCases.status === 'rejected' && rDash.status === 'rejected') setError((rCases as PromiseRejectedResult).reason?.message ?? 'Failed to load')
     } catch (e: any) {
       setError(e.message)
     } finally {

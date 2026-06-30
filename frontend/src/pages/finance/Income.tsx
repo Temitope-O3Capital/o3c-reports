@@ -46,16 +46,17 @@ export default function Income() {
     setLoading(true); setError('')
     try {
       const qs = new URLSearchParams({ date_from: from, date_to: to }).toString()
-      const [s, bp, tr, cy] = await Promise.all([
+      const [rS, rBp, rTr, rCy] = await Promise.allSettled([
         apiFetch(`/api/income/summary?${qs}`),
         apiFetch(`/api/income/by-product?${qs}`),
         apiFetch('/api/income/trend'),
         apiFetch('/api/income/cycles'),
       ])
-      setSummary(s.data ?? s)
-      setByProduct(bp.data ?? bp ?? [])
-      setTrend(tr.data ?? tr ?? [])
-      setCycles(cy.data ?? cy ?? [])
+      if (rS.status === 'fulfilled') setSummary(rS.value.data ?? rS.value)
+      if (rBp.status === 'fulfilled') setByProduct(rBp.value.data ?? rBp.value ?? [])
+      if (rTr.status === 'fulfilled') setTrend(rTr.value.data ?? rTr.value ?? [])
+      if (rCy.status === 'fulfilled') setCycles(rCy.value.data ?? rCy.value ?? [])
+      if ([rS, rBp, rTr, rCy].every(r => r.status === 'rejected')) setError((rS as PromiseRejectedResult).reason?.message ?? 'Failed to load')
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [from, to])

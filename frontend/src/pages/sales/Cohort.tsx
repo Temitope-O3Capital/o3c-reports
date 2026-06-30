@@ -188,14 +188,15 @@ export default function Cohort() {
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const [k, hm, ac] = await Promise.all([
+      const [rK, rH, rA] = await Promise.allSettled([
         apiFetch('/api/cohort/kpis'),
         apiFetch('/api/cohort/heatmap'),
         apiFetch('/api/cohort/monthly-activity'),
       ])
-      setKpis(k.data || {})
-      setHeatmap(hm.data || null)
-      setActivity(ac.data || [])
+      if (rK.status === 'fulfilled') setKpis(rK.value.data || {})
+      if (rH.status === 'fulfilled') setHeatmap(rH.value.data || null)
+      if (rA.status === 'fulfilled') setActivity(rA.value.data || [])
+      if ([rK, rH, rA].every(r => r.status === 'rejected')) setError((rK as PromiseRejectedResult).reason?.message ?? 'Failed to load')
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])

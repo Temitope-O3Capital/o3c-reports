@@ -204,24 +204,27 @@ export default function MailHealth() {
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const [d, m, msgs, sups, ch] = await Promise.all([
+      const [rD, rM, rMsgs, rSups, rCh] = await Promise.allSettled([
         apiFetch('/api/mail/deliverability'),
         apiFetch('/api/mail/metrics'),
         apiFetch('/api/mail/messages'),
         apiFetch('/api/mail/suppressions'),
         apiFetch('/api/mail/campaign-health'),
       ])
-      setDeliverability(d as Deliverability)
-      setMetrics(((m as any).data ?? m ?? []) as MetricRow[])
-      setMessages(((msgs as any).data ?? msgs ?? []) as MailMessage[])
-      setSuppressions(((sups as any).data ?? sups ?? []) as Suppression[])
-      const health = ((ch as any).data ?? ch) as CampaignHealth
-      setCampaignHealth(health)
-      setDailyLimit(String(health.settings?.campaign_daily_email_limit ?? 5000))
-      setPerCampaignLimit(String(health.settings?.campaign_per_campaign_daily_email_limit ?? 5000))
-      setWarmupLimit(String(health.settings?.campaign_warmup_daily_email_limit ?? 1000))
-      setWarmupEnabled(Boolean(health.warmup_enabled ?? true))
-      setSendDelay(String(health.settings?.campaign_send_delay_ms ?? 250))
+      if (rD.status === 'fulfilled') setDeliverability(rD.value as Deliverability)
+      if (rM.status === 'fulfilled') setMetrics(((rM.value as any).data ?? rM.value ?? []) as MetricRow[])
+      if (rMsgs.status === 'fulfilled') setMessages(((rMsgs.value as any).data ?? rMsgs.value ?? []) as MailMessage[])
+      if (rSups.status === 'fulfilled') setSuppressions(((rSups.value as any).data ?? rSups.value ?? []) as Suppression[])
+      if (rCh.status === 'fulfilled') {
+        const health = ((rCh.value as any).data ?? rCh.value) as CampaignHealth
+        setCampaignHealth(health)
+        setDailyLimit(String(health.settings?.campaign_daily_email_limit ?? 5000))
+        setPerCampaignLimit(String(health.settings?.campaign_per_campaign_daily_email_limit ?? 5000))
+        setWarmupLimit(String(health.settings?.campaign_warmup_daily_email_limit ?? 1000))
+        setWarmupEnabled(Boolean(health.warmup_enabled ?? true))
+        setSendDelay(String(health.settings?.campaign_send_delay_ms ?? 250))
+      }
+      if ([rD, rM, rMsgs, rSups, rCh].every(r => r.status === 'rejected')) setError((rD as PromiseRejectedResult).reason?.message ?? 'Failed to load')
     } catch (e: any) {
       setError(e.message)
     } finally {

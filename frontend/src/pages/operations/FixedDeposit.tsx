@@ -275,14 +275,15 @@ function DashboardTab({ dateFrom, dateTo }: { dateFrom: string; dateTo: string }
     setLoading(true); setErr('')
     try {
       const p = `date_from=${dateFrom}&date_to=${dateTo}`
-      const [sum, tr, loc] = await Promise.all([
+      const [rSum, rTr, rLoc] = await Promise.allSettled([
         apiFetch<FDSummary>(`/api/fixed-deposit/summary?${p}`),
         apiFetch<TrendRow[]>(`/api/fixed-deposit/trend?${p}`),
         apiFetch<LocationRow[]>(`/api/fixed-deposit/by-location?${p}`),
       ])
-      setSummary(sum)
-      setTrend(Array.isArray(tr) ? tr : [])
-      setByLoc(Array.isArray(loc) ? loc : [])
+      if (rSum.status === 'fulfilled') setSummary(rSum.value)
+      if (rTr.status === 'fulfilled') setTrend(Array.isArray(rTr.value) ? rTr.value : [])
+      if (rLoc.status === 'fulfilled') setByLoc(Array.isArray(rLoc.value) ? rLoc.value : [])
+      if ([rSum, rTr, rLoc].every(r => r.status === 'rejected')) setErr('Failed to load')
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Load failed')
     } finally { setLoading(false) }
