@@ -91,10 +91,11 @@ export default function CrmReports() {
   const [err,      setErr]      = useState('')
 
   useEffect(() => {
+    let active = true
+    setLoading(true); setErr('')
     async function load() {
-      setLoading(true); setErr('')
       try {
-        const [ov, pip, ag, src, sl, tr, at] = await Promise.all([
+        const [ov, pip, ag, src, sl, tr, at] = await Promise.allSettled([
           apiFetch<Overview>('/api/crm/reports/overview'),
           apiFetch<PipelineStage[]>('/api/crm/reports/pipeline'),
           apiFetch<AgentRow[]>('/api/crm/reports/agent-performance'),
@@ -103,26 +104,30 @@ export default function CrmReports() {
           apiFetch<TrendPoint[]>('/api/crm/reports/new-contacts-trend'),
           apiFetch<ActivityDay[]>('/api/crm/reports/activity-trend'),
         ])
-        setOverview(ov)
-        setPipeline(pip ?? [])
-        setAgents(ag ?? [])
-        setSources(src ?? [])
-        setSLA(sl ?? [])
-        setTrend(tr ?? [])
-
-        // Collapse activity trend to daily totals
-        const dayMap: Record<string, number> = {}
-        for (const r of at ?? []) {
-          dayMap[r.day] = (dayMap[r.day] ?? 0) + n(r.count)
+        if (ov.status === 'fulfilled' && active) setOverview(ov.value)
+        if (pip.status === 'fulfilled' && active) setPipeline(pip.value ?? [])
+        if (ag.status === 'fulfilled' && active) setAgents(ag.value ?? [])
+        if (src.status === 'fulfilled' && active) setSources(src.value ?? [])
+        if (sl.status === 'fulfilled' && active) setSLA(sl.value ?? [])
+        if (tr.status === 'fulfilled' && active) setTrend(tr.value ?? [])
+        if (at.status === 'fulfilled' && active) {
+          const dayMap: Record<string, number> = {}
+          for (const r of at.value ?? []) {
+            dayMap[r.day] = (dayMap[r.day] ?? 0) + n(r.count)
+          }
+          setActTrend(Object.entries(dayMap).map(([day, count]) => ({ day: fmtDate(day, { day: '2-digit', month: 'short' }), count })))
         }
-        setActTrend(Object.entries(dayMap).map(([day, count]) => ({ day: fmtDate(day, { day: '2-digit', month: 'short' }), count })))
+        if ([ov, pip, ag, src, sl, tr, at].every(r => r.status === 'rejected')) {
+          if (active) setErr((ov as PromiseRejectedResult).reason?.message ?? 'Failed to load')
+        }
       } catch (ex: any) {
-        setErr(ex.message)
+        if (active) setErr(ex.message)
       } finally {
-        setLoading(false)
+        if (active) setLoading(false)
       }
     }
     load()
+    return () => { active = false }
   }, [])
 
   const ov = overview

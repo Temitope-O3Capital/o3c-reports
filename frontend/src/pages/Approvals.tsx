@@ -163,15 +163,29 @@ export default function Approvals() {
   const [filter, setFilter]   = useState<ModuleTab>('All')
 
   useEffect(() => {
-    Promise.all([
-      apiFetch('/api/approvals/pending'),
-      apiFetch('/api/approvals/summary'),
-    ]).then(([p, s]) => {
-      const raw = p.data ?? p
-      setItems(Array.isArray(raw) ? raw : [])
-      setSummary(s.data ?? s)
-    }).catch((e: any) => setError(e.message))
-      .finally(() => setLoading(false))
+    let active = true
+    setLoading(true); setError('')
+    async function load() {
+      try {
+        const [p, s] = await Promise.allSettled([
+          apiFetch('/api/approvals/pending'),
+          apiFetch('/api/approvals/summary'),
+        ])
+        if (p.status === 'fulfilled') {
+          const raw = p.value.data ?? p.value
+          if (active) setItems(Array.isArray(raw) ? raw : [])
+        }
+        if (s.status === 'fulfilled') {
+          if (active) setSummary(s.value.data ?? s.value)
+        }
+        if ([p, s].every(r => r.status === 'rejected')) {
+          if (active) setError((p as PromiseRejectedResult).reason?.message ?? 'Failed to load')
+        }
+      } catch (e: any) { if (active) setError(e.message) }
+      finally { if (active) setLoading(false) }
+    }
+    load()
+    return () => { active = false }
   }, [])
 
   const filtered = filter === 'All'

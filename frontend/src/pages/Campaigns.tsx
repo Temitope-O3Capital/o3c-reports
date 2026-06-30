@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { fmtDate, fmtNum } from '../lib/fmt'
@@ -256,15 +256,20 @@ function CampaignWizard({
     async function loadAudienceData() {
       setListsLoading(true)
       try {
-        const [listRes, templateRes] = await Promise.all([
+        const [listRes, templateRes] = await Promise.allSettled([
           apiFetch('/api/contact-lists'),
           apiFetch('/api/message-templates'),
         ])
-        const listRows = listRes.data ?? listRes ?? []
-        const templateRows = templateRes.data ?? templateRes ?? []
-        if (alive) {
-          setLists(Array.isArray(listRows) ? listRows : [])
-          setTemplates(Array.isArray(templateRows) ? templateRows : [])
+        if (listRes.status === 'fulfilled') {
+          const listRows = listRes.value.data ?? listRes.value ?? []
+          if (alive) setLists(Array.isArray(listRows) ? listRows : [])
+        }
+        if (templateRes.status === 'fulfilled') {
+          const templateRows = templateRes.value.data ?? templateRes.value ?? []
+          if (alive) setTemplates(Array.isArray(templateRows) ? templateRows : [])
+        }
+        if ([listRes, templateRes].every(r => r.status === 'rejected')) {
+          if (alive) setErr((listRes as PromiseRejectedResult).reason?.message ?? 'Failed to load')
         }
       } catch (e: any) {
         if (alive) setErr(e.message)
@@ -709,7 +714,7 @@ export default function Campaigns() {
   const [wizardOpen, setWizardOpen]     = useState(false)
   const [confirmLaunch, setConfirmLaunch] = useState<LaunchConfirm | null>(null)
 
-  const load = useCallback(async () => {
+  async function load() {
     setLoading(true); setError('')
     try {
       const params: Record<string, string> = {}
@@ -724,9 +729,13 @@ export default function Campaigns() {
       setCampaigns(rows.map(normalizeCampaign))
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
-  }, [typeFilter, statusFilter])
+  }
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    let active = true
+    load()
+    return () => { active = false }
+  }, [typeFilter, statusFilter])
 
   function handleStartClick(campaign: Campaign) {
     setConfirmLaunch({

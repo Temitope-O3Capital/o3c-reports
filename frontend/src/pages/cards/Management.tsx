@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtDate, today, monthStart } from '../../lib/fmt'
 import {
@@ -31,28 +31,33 @@ export default function CardManagement() {
   const [search, setSearch]       = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    let active = true
     setLoading(true); setError('')
-    try {
-      const qs = new URLSearchParams({ date_from: from, date_to: to }).toString()
-      const [k, bp, bs, vt] = await Promise.all([
-        apiFetch(`/api/cards/kpis?${qs}`),
-        apiFetch(`/api/cards/by-product?${qs}`),
-        apiFetch(`/api/cards/by-status?${qs}`),
-        apiFetch(`/api/cards/volume-by-type?${qs}`),
-      ])
-      setKpis(k.data ?? k)
-      setByProduct(bp.data ?? [])
-      setByStatus(bs.data ?? [])
-      setByType(vt.data ?? [])
-      // cards table — load from sales cards endpoint
-      const salesCards = await apiFetch(`/api/sales/cards?${qs}&limit=500`).catch(() => ({ data: [] }))
-      setCards(salesCards.data ?? [])
-    } catch (e: any) { setError(e.message) }
-    finally { setLoading(false) }
+    async function load() {
+      try {
+        const qs = new URLSearchParams({ date_from: from, date_to: to }).toString()
+        const [k, bp, bs, vt] = await Promise.allSettled([
+          apiFetch(`/api/cards/kpis?${qs}`),
+          apiFetch(`/api/cards/by-product?${qs}`),
+          apiFetch(`/api/cards/by-status?${qs}`),
+          apiFetch(`/api/cards/volume-by-type?${qs}`),
+        ])
+        if (k.status === 'fulfilled') { if (active) setKpis(k.value.data ?? k.value) }
+        if (bp.status === 'fulfilled') { if (active) setByProduct(bp.value.data ?? []) }
+        if (bs.status === 'fulfilled') { if (active) setByStatus(bs.value.data ?? []) }
+        if (vt.status === 'fulfilled') { if (active) setByType(vt.value.data ?? []) }
+        if ([k, bp, bs, vt].every(r => r.status === 'rejected')) {
+          if (active) setError((k as PromiseRejectedResult).reason?.message ?? 'Failed to load')
+        }
+        const salesCards = await apiFetch(`/api/sales/cards?${qs}&limit=500`).catch(() => ({ data: [] }))
+        if (active) setCards(salesCards.data ?? [])
+      } catch (e: any) { if (active) setError(e.message) }
+      finally { if (active) setLoading(false) }
+    }
+    load()
+    return () => { active = false }
   }, [from, to])
-
-  useEffect(() => { load() }, [load])
 
   const k = kpis ?? {}
 
