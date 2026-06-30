@@ -162,9 +162,9 @@ export default function Training() {
       {/* Schedule training modal */}
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div role="dialog" aria-modal="true" aria-labelledby="training-add-title" className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-[16px] font-bold text-slate-800">Schedule Training Session</h2>
+              <h2 id="training-add-title" className="text-[16px] font-bold text-slate-800">Schedule Training Session</h2>
               <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-slate-700">
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
@@ -180,15 +180,15 @@ export default function Training() {
                 ['Max Participants *','max_participants','number',''],
               ].map(([label, key, type, ph]) => (
                 <div key={key}>
-                  <label className="block text-[12px] font-semibold text-slate-500 mb-1">{label}</label>
-                  <input type={type as string} placeholder={ph as string}
+                  <label htmlFor={`training-${key}`} className="block text-[12px] font-semibold text-slate-500 mb-1">{label}</label>
+                  <input id={`training-${key}`} type={type as string} placeholder={ph as string}
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
                     value={(addForm as any)[key]} onChange={e => setAddForm(f => ({ ...f, [key]: e.target.value }))} />
                 </div>
               ))}
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Description</label>
-                <textarea rows={3} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="training-description" className="block text-[12px] font-semibold text-slate-500 mb-1">Description</label>
+                <textarea id="training-description" rows={3} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
                   value={addForm.description} onChange={e => setAddForm(f => ({ ...f, description: e.target.value }))} />
               </div>
             </div>

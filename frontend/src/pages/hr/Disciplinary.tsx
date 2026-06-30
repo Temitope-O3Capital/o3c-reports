@@ -243,10 +243,10 @@ export default function Disciplinary() {
 
       {/* Update status modal */}
       {updateTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setUpdateTarget(null)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="disc-update-title" className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-[16px] font-bold text-slate-800">Update Case Status</h2>
+              <h2 id="disc-update-title" className="text-[16px] font-bold text-slate-800">Update Case Status</h2>
               <button onClick={() => setUpdateTarget(null)} className="text-slate-400 hover:text-slate-700">
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
@@ -255,20 +255,20 @@ export default function Disciplinary() {
             <ErrBanner msg={updateErr} />
             <div className="space-y-3">
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Status</label>
-                <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="disc-status" className="block text-[12px] font-semibold text-slate-500 mb-1">Status</label>
+                <select id="disc-status" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
                   value={updateForm.status} onChange={e => setUpdateForm(f => ({ ...f, status: e.target.value }))}>
                   {STATUSES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Sanction</label>
-                <input type="text" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="disc-sanction" className="block text-[12px] font-semibold text-slate-500 mb-1">Sanction</label>
+                <input id="disc-sanction" type="text" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
                   value={updateForm.sanction} onChange={e => setUpdateForm(f => ({ ...f, sanction: e.target.value }))} />
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Notes</label>
-                <textarea rows={3} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="disc-notes" className="block text-[12px] font-semibold text-slate-500 mb-1">Notes</label>
+                <textarea id="disc-notes" rows={3} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
                   value={updateForm.notes} onChange={e => setUpdateForm(f => ({ ...f, notes: e.target.value }))} />
               </div>
             </div>
@@ -285,10 +285,10 @@ export default function Disciplinary() {
 
       {/* New case modal */}
       {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowAdd(false)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="disc-add-title" className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-[16px] font-bold text-slate-800">Open Disciplinary Case</h2>
+              <h2 id="disc-add-title" className="text-[16px] font-bold text-slate-800">Open Disciplinary Case</h2>
               <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-slate-700">
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
@@ -296,37 +296,37 @@ export default function Disciplinary() {
             <ErrBanner msg={addErr} />
             <div className="space-y-3">
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Employee ID *</label>
-                <input type="text" placeholder="UUID"
+                <label htmlFor="disc-emp-id" className="block text-[12px] font-semibold text-slate-500 mb-1">Employee ID *</label>
+                <input id="disc-emp-id" type="text" placeholder="UUID"
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
                   value={addForm.employee_id} onChange={e => setAddForm(f => ({ ...f, employee_id: e.target.value }))} />
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Incident Type *</label>
-                <input type="text" placeholder="e.g. Tardiness, Misconduct"
+                <label htmlFor="disc-incident-type" className="block text-[12px] font-semibold text-slate-500 mb-1">Incident Type *</label>
+                <input id="disc-incident-type" type="text" placeholder="e.g. Tardiness, Misconduct"
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
                   value={addForm.incident_type} onChange={e => setAddForm(f => ({ ...f, incident_type: e.target.value }))} />
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Severity *</label>
-                <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="disc-severity" className="block text-[12px] font-semibold text-slate-500 mb-1">Severity *</label>
+                <select id="disc-severity" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
                   value={addForm.severity} onChange={e => setAddForm(f => ({ ...f, severity: e.target.value }))}>
                   {SEVERITIES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Incident Date *</label>
-                <input type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="disc-incident-date" className="block text-[12px] font-semibold text-slate-500 mb-1">Incident Date *</label>
+                <input id="disc-incident-date" type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
                   value={addForm.incident_date} onChange={e => setAddForm(f => ({ ...f, incident_date: e.target.value }))} />
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Description *</label>
-                <textarea rows={4} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="disc-description" className="block text-[12px] font-semibold text-slate-500 mb-1">Description *</label>
+                <textarea id="disc-description" rows={4} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
                   value={addForm.description} onChange={e => setAddForm(f => ({ ...f, description: e.target.value }))} />
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Evidence URLs (one per line)</label>
-                <textarea rows={2} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="disc-evidence" className="block text-[12px] font-semibold text-slate-500 mb-1">Evidence URLs (one per line)</label>
+                <textarea id="disc-evidence" rows={2} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
                   value={addForm.evidence_urls} onChange={e => setAddForm(f => ({ ...f, evidence_urls: e.target.value }))} />
               </div>
             </div>

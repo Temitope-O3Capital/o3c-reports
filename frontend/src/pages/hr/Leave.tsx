@@ -161,10 +161,10 @@ export default function Leave() {
 
       {/* Approve / decline modal */}
       {action && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setAction(null)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="leave-action-title" className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-[16px] font-bold text-slate-800 capitalize">{action.type} Leave Request</h2>
+              <h2 id="leave-action-title" className="text-[16px] font-bold text-slate-800 capitalize">{action.type} Leave Request</h2>
               <button onClick={() => setAction(null)} className="text-slate-400 hover:text-slate-700">
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
@@ -177,8 +177,8 @@ export default function Leave() {
             </p>
             <ErrBanner msg={actionErr} />
             <div className="mb-4">
-              <label className="block text-[12px] font-semibold text-slate-500 mb-1">Notes (optional)</label>
-              <textarea rows={3} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+              <label htmlFor="leave-notes" className="block text-[12px] font-semibold text-slate-500 mb-1">Notes (optional)</label>
+              <textarea id="leave-notes" rows={3} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                 value={actionForm.notes} onChange={e => setActionForm({ notes: e.target.value })} />
             </div>
             <div className="flex justify-end gap-2">
@@ -196,9 +196,9 @@ export default function Leave() {
       {/* Add leave request modal */}
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg">
+          <div role="dialog" aria-modal="true" aria-labelledby="leave-add-title" className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-[16px] font-bold text-slate-800">New Leave Request</h2>
+              <h2 id="leave-add-title" className="text-[16px] font-bold text-slate-800">New Leave Request</h2>
               <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-slate-700">
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
@@ -212,15 +212,15 @@ export default function Leave() {
                 ['Days *',        'days_requested', 'number', ''],
               ].map(([label, key, type, ph]) => (
                 <div key={key}>
-                  <label className="block text-[12px] font-semibold text-slate-500 mb-1">{label}</label>
-                  <input type={type as string} placeholder={ph as string}
+                  <label htmlFor={`leave-add-${key}`} className="block text-[12px] font-semibold text-slate-500 mb-1">{label}</label>
+                  <input id={`leave-add-${key}`} type={type as string} placeholder={ph as string}
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                     value={(addForm as any)[key]} onChange={e => setAddForm(f => ({ ...f, [key]: e.target.value }))} />
                 </div>
               ))}
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Leave Type *</label>
-                <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                <label htmlFor="leave-add-type" className="block text-[12px] font-semibold text-slate-500 mb-1">Leave Type *</label>
+                <select id="leave-add-type" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                   value={addForm.leave_type_id} onChange={e => setAddForm(f => ({ ...f, leave_type_id: e.target.value }))}>
                   <option value="">Select type…</option>
                   {leaveTypes.map(t => (
@@ -229,8 +229,8 @@ export default function Leave() {
                 </select>
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Reason</label>
-                <textarea rows={3} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                <label htmlFor="leave-add-reason" className="block text-[12px] font-semibold text-slate-500 mb-1">Reason</label>
+                <textarea id="leave-add-reason" rows={3} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                   value={addForm.reason} onChange={e => setAddForm(f => ({ ...f, reason: e.target.value }))} />
               </div>
             </div>

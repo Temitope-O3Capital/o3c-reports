@@ -323,10 +323,10 @@ export default function Performance() {
 
       {/* Create cycle modal */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowCreate(false)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="perf-create-title" className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-[15px] font-bold text-slate-800">New Review Cycle</h2>
+              <h2 id="perf-create-title" className="text-[15px] font-bold text-slate-800">New Review Cycle</h2>
               <button onClick={() => setShowCreate(false)} className="text-slate-400 hover:text-slate-700">
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
@@ -334,19 +334,19 @@ export default function Performance() {
             <ErrBanner msg={createErr} />
             <div className="space-y-3">
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Cycle Name *</label>
-                <input type="text" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="perf-cycle-name" className="block text-[12px] font-semibold text-slate-500 mb-1">Cycle Name *</label>
+                <input id="perf-cycle-name" type="text" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
                   placeholder="e.g. H1 2026"
                   value={cycleName} onChange={e => setCycleName(e.target.value)} />
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Period Start *</label>
-                <input type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="perf-cycle-start" className="block text-[12px] font-semibold text-slate-500 mb-1">Period Start *</label>
+                <input id="perf-cycle-start" type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
                   value={cycleStart} onChange={e => setCycleStart(e.target.value)} />
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Period End *</label>
-                <input type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="perf-cycle-end" className="block text-[12px] font-semibold text-slate-500 mb-1">Period End *</label>
+                <input id="perf-cycle-end" type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
                   value={cycleEnd} onChange={e => setCycleEnd(e.target.value)} />
               </div>
             </div>
