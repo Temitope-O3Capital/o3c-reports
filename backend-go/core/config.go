@@ -59,6 +59,12 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("DATABASE_URL (Supabase PostgreSQL URL) is required")
 	}
 
+	// In Railway (production), BOOTSTRAP_SECRET must be explicitly set so the
+	// first-user endpoint cannot be exploited against a fresh database.
+	if os.Getenv("RAILWAY_ENVIRONMENT") != "" && os.Getenv("BOOTSTRAP_SECRET") == "" {
+		return nil, fmt.Errorf("BOOTSTRAP_SECRET must be set in production (RAILWAY_ENVIRONMENT is set); generate with: openssl rand -hex 32")
+	}
+
 	srv := os.Getenv("MSSQL_SERVER")
 	db := os.Getenv("MSSQL_DB")
 	if srv != "" && db != "" {

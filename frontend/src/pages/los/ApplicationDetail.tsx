@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmt, fmtDate, fmtExact } from '../../lib/fmt'
-import { Spinner, ErrBanner, Page, NAVY, RED, AMBER, GREEN } from '../../components/UI'
+import { Spinner, ErrBanner, Page, ConfirmModal, NAVY, RED, AMBER, GREEN } from '../../components/UI'
 import { useAuth } from '../../hooks/useAuth'
 import { toast } from 'sonner'
 
@@ -71,7 +71,7 @@ function timeAgo(s: string) {
   return fmtDate(s)
 }
 
-const TABS = ['Summary', 'Documents', 'Conditions', 'Notes', 'Timeline'] as const
+const TABS = ['Summary', 'Conditions', 'Notes', 'Timeline'] as const
 type Tab = typeof TABS[number]
 
 // ── Advance stage transitions ─────────────────────────────────────
@@ -112,6 +112,9 @@ export default function ApplicationDetail() {
   const [noteInternal, setNoteInternal] = useState(false)
   const [addingNote, setAddingNote] = useState(false)
 
+  // confirm modal
+  const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
+
   const load = useCallback(async () => {
     if (!id) return
     setLoading(true); setError('')
@@ -128,17 +131,25 @@ export default function ApplicationDetail() {
   useEffect(() => { load() }, [load])
 
   async function advance(to_stage: string, notes?: string) {
+    const doAdvance = async () => {
+      setWorking(true); setActionErr('')
+      try {
+        await apiPut(`/api/los/${id}/advance`, { to_stage, notes })
+        toast.success(`Application moved to ${to_stage}`)
+        load()
+      } catch (e: any) { setActionErr(e.message) }
+      finally { setWorking(false) }
+    }
     const terminalStages = ['booking', 'active']
     if (terminalStages.includes(to_stage)) {
-      if (!window.confirm(`Confirm: Move to "${to_stage}"? This step cannot be undone.`)) return
+      setConfirm({
+        title: 'Advance Application',
+        message: `Move to "${to_stage}"? This step cannot be undone.`,
+        onConfirm: doAdvance,
+      })
+    } else {
+      doAdvance()
     }
-    setWorking(true); setActionErr('')
-    try {
-      await apiPut(`/api/los/${id}/advance`, { to_stage, notes })
-      toast.success(`Application moved to ${to_stage}`)
-      load()
-    } catch (e: any) { setActionErr(e.message) }
-    finally { setWorking(false) }
   }
 
   async function decline() {
@@ -261,14 +272,6 @@ export default function ApplicationDetail() {
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-
-          {/* Documents — placeholder */}
-          {activeTab === 'Documents' && (
-            <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-8 text-center">
-              <span className="material-symbols-rounded text-[40px] text-slate-300 block mb-2">folder_open</span>
-              <p className="text-[13px] text-slate-400">Document management coming soon</p>
             </div>
           )}
 
@@ -532,6 +535,17 @@ export default function ApplicationDetail() {
             </div>
           </div>
         </div>
+      )}
+
+      {confirm && (
+        <ConfirmModal
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel="Yes, proceed"
+          danger
+          onConfirm={() => { confirm.onConfirm(); setConfirm(null) }}
+          onCancel={() => setConfirm(null)}
+        />
       )}
     </Page>
   )

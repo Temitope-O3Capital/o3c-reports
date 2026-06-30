@@ -14,7 +14,8 @@ package handlers
 
 import (
 	"context"
-	"encoding/base64"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -200,7 +201,14 @@ func VoiceConnect(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		state := base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("%d", user.ID)))
+		// Generate a cryptographically random state nonce to prevent CSRF.
+		nonceBytes := make([]byte, 32)
+		rand.Read(nonceBytes) //nolint:errcheck
+		state := hex.EncodeToString(nonceBytes)
+		db.PGExec(ctx, `
+			INSERT INTO voice_oauth_states (nonce, user_id, expires_at)
+			VALUES ($1, $2, now() + interval '10 minutes')
+			ON CONFLICT (nonce) DO NOTHING`, state, user.ID) //nolint:errcheck
 
 		authURL := fmt.Sprintf(
 			"https://accounts.zoho.%s/oauth/v2/auth?response_type=code&client_id=%s&scope=%s&redirect_uri=%s&access_type=offline&prompt=consent&state=%s",
@@ -255,19 +263,18 @@ func VoiceOAuthCallback(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Decode user ID from state.
-		stateBytes, err := base64.URLEncoding.DecodeString(state)
-		if err != nil {
-			http.Error(w, "Invalid state parameter", http.StatusBadRequest)
-			return
-		}
-		var userID int64
-		if _, err := fmt.Sscanf(string(stateBytes), "%d", &userID); err != nil || userID == 0 {
-			http.Error(w, "Invalid state parameter", http.StatusBadRequest)
-			return
-		}
-
 		ctx := context.Background()
+
+		// Look up user from the state nonce stored at OAuth initiation.
+		stateRows, err := db.PGQuery(ctx,
+			`DELETE FROM voice_oauth_states
+			 WHERE nonce=$1 AND expires_at > now()
+			 RETURNING user_id`, state)
+		if err != nil || len(stateRows) == 0 {
+			http.Error(w, "Invalid or expired state parameter", http.StatusBadRequest)
+			return
+		}
+		userID := toInt64(stateRows[0]["user_id"])
 
 		clientID := zohoCred(ctx, db, "ZOHO_CLIENT_ID")
 		clientSecret := zohoCred(ctx, db, "ZOHO_CLIENT_SECRET")

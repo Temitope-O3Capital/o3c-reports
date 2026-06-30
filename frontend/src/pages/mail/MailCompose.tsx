@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../../lib/api'
 import { toast } from 'sonner'
+import DOMPurify from 'dompurify'
 import RecipientAutocomplete from '../../components/RecipientAutocomplete'
 import SenderPicker from '../../components/SenderPicker'
 import RichTextEditor from '../../components/RichTextEditor'
@@ -527,7 +528,7 @@ export default function MailCompose() {
             <div className="flex items-center gap-2">
               <div className="flex-1 text-[12px] text-slate-400 italic truncate">
                 <span className="text-slate-300 mr-1">--</span>
-                <span dangerouslySetInnerHTML={{ __html: signature || (sender?.name ?? 'Me') }} />
+                <span dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(signature || (sender?.name ?? 'Me')) }} />
               </div>
               <button type="button" onClick={() => setEditingSignature(true)}
                 className="flex-shrink-0 text-slate-300 hover:text-slate-500 transition-colors">

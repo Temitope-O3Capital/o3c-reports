@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { apiFetch, API } from '../../lib/api'
+import { apiFetch, apiExport } from '../../lib/api'
 import { fmtDate, today, monthStart } from '../../lib/fmt'
 import {
   Page, SectionCard, DataTable, ErrBanner, ColDef, NAVY,
@@ -56,19 +56,8 @@ export default function AuditTrail() {
     if (action) p.set('action', action)
     if (dateFrom) p.set('date_from', dateFrom)
     if (dateTo) p.set('date_to', dateTo)
-    const token = localStorage.getItem('o3c_token')
     try {
-      const res = await fetch(`${API}/api/compliance/audit-log/export?${p.toString()}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
-      if (!res.ok) throw new Error('Export failed')
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `audit-trail-${dateFrom}-${dateTo}.csv`
-      a.click()
-      URL.revokeObjectURL(url)
+      await apiExport(`/api/compliance/audit-log/export?${p.toString()}`, `audit-trail-${dateFrom}-${dateTo}`)
     } catch (e: any) {
       toast.error(e.message)
     }

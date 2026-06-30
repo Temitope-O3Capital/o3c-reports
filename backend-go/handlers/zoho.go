@@ -1693,15 +1693,18 @@ func zohoWebhookDeskRecent(db *core.DB) http.HandlerFunc {
 
 func zohoWebhookDesk(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if secret := zohoCred(r.Context(), db, "ZOHO_WEBHOOK_SECRET"); secret != "" {
-			got := r.Header.Get("X-O3C-Webhook-Secret")
-			if got == "" {
-				got = r.URL.Query().Get("secret")
-			}
-			if got != secret {
-				respondErr(w, 401, "Invalid webhook secret")
-				return
-			}
+		secret := zohoCred(r.Context(), db, "ZOHO_WEBHOOK_SECRET")
+		if secret == "" {
+			respondErr(w, 503, "Webhook not configured")
+			return
+		}
+		got := r.Header.Get("X-O3C-Webhook-Secret")
+		if got == "" {
+			got = r.URL.Query().Get("secret")
+		}
+		if got != secret {
+			respondErr(w, 401, "Invalid webhook secret")
+			return
 		}
 
 		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))

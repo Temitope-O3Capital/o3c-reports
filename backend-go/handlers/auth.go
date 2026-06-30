@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"context"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -16,6 +19,60 @@ func RegisterAuth(r chi.Router, db *core.DB) {
 	r.Post("/token", loginHandler(db))
 	r.Get("/me", meHandler())
 	r.Post("/change-password", changePasswordHandler(db))
+	r.Post("/forgot-password", forgotPasswordHandler(db))
+}
+
+func forgotPasswordHandler(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Email string `json:"email"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.Email == "" {
+			// Always return success to prevent email enumeration.
+			w.WriteHeader(204)
+			return
+		}
+		b.Email = strings.ToLower(strings.TrimSpace(b.Email))
+		ctx := context.Background()
+
+		rows, err := db.PGQuery(ctx, `SELECT id, full_name FROM o3c_users WHERE LOWER(email)=$1 AND deleted_at IS NULL AND is_active=TRUE LIMIT 1`, b.Email)
+		if err != nil || len(rows) == 0 {
+			w.WriteHeader(204) // don't reveal whether email exists
+			return
+		}
+
+		rawBytes := make([]byte, 8)
+		rand.Read(rawBytes) //nolint:errcheck
+		tempPW := hex.EncodeToString(rawBytes) // 16 hex chars — meets 12-char minimum
+
+		hash, err := core.HashPassword(tempPW)
+		if err != nil {
+			w.WriteHeader(204)
+			return
+		}
+
+		_, err = db.PGExec(ctx,
+			`UPDATE o3c_users SET password_hash=$1, must_change_password=TRUE WHERE id=$2`,
+			hash, rows[0]["id"])
+		if err != nil {
+			slog.Error("forgotPassword: update failed", "err", err)
+			w.WriteHeader(204)
+			return
+		}
+
+		name := str(rows[0]["full_name"])
+		go SendMail(ctx, db, SendMailOptions{
+			To:       []MailAddress{{Email: b.Email, Name: name}},
+			Subject:  "O3 Capital — Password Reset",
+			HTMLBody: "<p>Hi " + name + ",</p><p>Your temporary password is: <strong>" + tempPW + "</strong></p><p>Please log in and change it immediately.</p>",
+			TextBody: "Hi " + name + ",\n\nYour temporary password is: " + tempPW + "\n\nPlease log in and change it immediately.",
+			Kind:     "auth",
+			Category: "auth",
+		})
+
+		w.WriteHeader(204)
+	}
 }
 
 func loginHandler(db *core.DB) http.HandlerFunc {
@@ -145,8 +202,8 @@ func changePasswordHandler(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if len(b.NewPassword) < 8 {
-			respondErr(w, 422, "New password must be at least 8 characters")
+		if len(b.NewPassword) < 12 {
+			respondErr(w, 422, "New password must be at least 12 characters")
 			return
 		}
 		user := core.UserFromCtx(r.Context())
@@ -197,8 +254,8 @@ func BootstrapHandler(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "email and password are required")
 			return
 		}
-		if len(b.Password) < 8 {
-			respondErr(w, 422, "Password must be at least 8 characters")
+		if len(b.Password) < 12 {
+			respondErr(w, 422, "Password must be at least 12 characters")
 			return
 		}
 		if b.FullName == "" {
@@ -264,8 +321,8 @@ func ResetAdminHandler(db *core.DB, resetSecret string) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.Email == "" || len(b.Password) < 8 {
-			respondErr(w, 422, "email and password (min 8 chars) required")
+		if b.Email == "" || len(b.Password) < 12 {
+			respondErr(w, 422, "email and password (min 12 chars) required")
 			return
 		}
 		hash, err := core.HashPassword(b.Password)

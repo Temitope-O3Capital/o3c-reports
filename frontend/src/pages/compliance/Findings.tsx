@@ -36,8 +36,8 @@ export default function Findings() {
   const [error, setError] = useState('')
   const [showNew, setShowNew] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [responseId, setResponseId] = useState<string | null>(null)
   const [responseText, setResponseText] = useState('')
+  const [respondFinding, setRespondFinding] = useState<Finding | null>(null)
   const [closeId, setCloseId] = useState<string | null>(null)
   const [closeNotes, setCloseNotes] = useState('')
   const [newForm, setNewForm] = useState({
@@ -75,7 +75,7 @@ export default function Findings() {
     setSaving(true); setError('')
     try {
       await apiPost(`/api/compliance/findings/${id}/response`, { response_text: responseText })
-      setResponseId(null); setResponseText('')
+      setResponseText('')
       load(offset)
     } catch (e: any) { setError(e.message) }
     finally { setSaving(false) }
@@ -119,23 +119,12 @@ export default function Findings() {
     )},
     { key: 'actions', label: 'Actions', sortable: false, render: r => (
       <div className="flex items-center gap-1.5 flex-wrap">
-        {r.status !== 'closed' && responseId !== r.id && (
-          <button onClick={() => { setResponseId(r.id); setResponseText('') }}
+        {r.status !== 'closed' && (
+          <button onClick={() => { setRespondFinding(r); setResponseText('') }}
             className="text-[11px] px-2 py-1 rounded font-medium"
             style={{ background: 'rgba(14,40,65,0.07)', color: NAVY }}>
             Respond
           </button>
-        )}
-        {responseId === r.id && (
-          <span className="flex items-center gap-1">
-            <input value={responseText} onChange={e => setResponseText(e.target.value)}
-              placeholder="Response…"
-              className="px-2 py-1 rounded border text-[11px] outline-none"
-              style={{ borderColor: 'rgba(15,23,42,0.2)', width: 120 }} />
-            <button onClick={() => addResponse(r.id)} disabled={saving}
-              className="text-[11px] px-2 py-1 rounded" style={{ background: NAVY, color: '#fff' }}>OK</button>
-            <button onClick={() => setResponseId(null)} className="text-[11px] px-1" style={{ color: '#64748B' }}>✕</button>
-          </span>
         )}
         {r.status !== 'closed' && closeId !== r.id && (
           <button onClick={() => { setCloseId(r.id); setCloseNotes('') }}
@@ -263,6 +252,54 @@ export default function Findings() {
           </div>
         </div>
       </SectionCard>
+
+      {/* Respond slide-over */}
+      {respondFinding && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setRespondFinding(null)} />
+          <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div>
+                <p className="text-[11px] uppercase tracking-wide font-bold text-slate-400">Compliance Finding</p>
+                <h2 className="text-[15px] font-bold text-slate-800">{respondFinding.finding_ref}</h2>
+              </div>
+              <button onClick={() => setRespondFinding(null)} className="text-slate-400 hover:text-slate-700">
+                <span className="material-symbols-rounded text-[22px]">close</span>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+              <div className="p-3 rounded-lg text-[13px] text-slate-600" style={{ background: 'rgba(14,40,65,0.04)' }}>
+                {respondFinding.description}
+              </div>
+              <ErrBanner msg={error} />
+              <div>
+                <label className="block text-[12px] font-semibold text-slate-500 mb-1.5">Response / Management Action</label>
+                <textarea
+                  rows={6}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] resize-none focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                  placeholder="Describe the corrective action taken or planned…"
+                  value={responseText}
+                  onChange={e => setResponseText(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2">
+              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05]"
+                onClick={() => setRespondFinding(null)}>Cancel</button>
+              <button
+                className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
+                style={{ background: NAVY }}
+                disabled={saving || !responseText.trim()}
+                onClick={async () => {
+                  await addResponse(respondFinding.id)
+                  setRespondFinding(null)
+                }}>
+                {saving ? 'Saving…' : 'Submit Response'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </Page>
   )
 }

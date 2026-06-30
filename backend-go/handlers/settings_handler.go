@@ -59,14 +59,15 @@ func settingsList(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		// Decrypt any sensitive values before returning.
+		// Mask sensitive values — never return decrypted credentials to the client.
 		for _, row := range rows {
 			k, _ := row["key"].(string)
 			if sensitiveSettingKey(k) {
 				if enc, _ := row["value"].(string); enc != "" {
-					if plain, err := decryptValue(enc); err == nil {
-						row["value"] = plain
-					}
+					row["value"] = "••••••••"
+					row["has_value"] = true
+				} else {
+					row["has_value"] = false
 				}
 			}
 		}

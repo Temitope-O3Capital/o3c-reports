@@ -10,6 +10,11 @@ export default function Login({ onLogin }: { onLogin: (u: AuthUser) => void }) {
   const [error,    setError]    = useState('')
   const [loading,  setLoading]  = useState(false)
 
+  const [showForgot, setShowForgot] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotLoading, setForgotLoading] = useState(false)
+  const [forgotDone, setForgotDone] = useState(false)
+
   async function submit(e: FormEvent) {
     e.preventDefault()
     setError('')
@@ -51,6 +56,19 @@ export default function Login({ onLogin }: { onLogin: (u: AuthUser) => void }) {
   function blurStyle(e: React.FocusEvent<HTMLInputElement>) {
     e.currentTarget.style.borderColor = error ? '#DC2626' : 'rgba(15,23,42,0.15)'
     e.currentTarget.style.boxShadow   = 'none'
+  }
+
+  async function submitForgot(e: React.FormEvent) {
+    e.preventDefault()
+    if (!forgotEmail) return
+    setForgotLoading(true)
+    await fetch(`${API}/api/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: forgotEmail }),
+    }).catch(() => {})
+    setForgotLoading(false)
+    setForgotDone(true)
   }
 
   return (
@@ -162,6 +180,42 @@ export default function Login({ onLogin }: { onLogin: (u: AuthUser) => void }) {
                 : 'Sign in'}
             </button>
           </form>
+
+          <div className="mt-5 text-center">
+            <button
+              type="button"
+              onClick={() => { setShowForgot(!showForgot); setForgotDone(false); setForgotEmail('') }}
+              className="text-sm text-slate-500 hover:text-slate-800 underline underline-offset-2 transition-colors">
+              Forgot password?
+            </button>
+          </div>
+
+          {showForgot && (
+            <div className="mt-4 p-4 rounded-xl border border-slate-200 bg-white">
+              {forgotDone ? (
+                <p className="text-sm text-slate-600">
+                  If your email is on record, you'll receive a temporary password shortly. Check your inbox and log in, then change your password immediately.
+                </p>
+              ) : (
+                <form onSubmit={submitForgot} className="space-y-3">
+                  <p className="text-sm font-medium text-slate-700">Enter your work email to receive a temporary password.</p>
+                  <input
+                    type="email"
+                    value={forgotEmail}
+                    onChange={e => setForgotEmail(e.target.value)}
+                    placeholder="you@o3cards.com"
+                    className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-200 outline-none transition-all"
+                    required
+                  />
+                  <button type="submit" disabled={forgotLoading}
+                    className="w-full py-2.5 text-sm font-semibold text-white rounded-lg transition-all disabled:opacity-60"
+                    style={{ background: '#0E2841' }}>
+                    {forgotLoading ? 'Sending…' : 'Send temporary password'}
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -357,17 +357,30 @@ func hrLeaveApprove(db *core.DB) http.HandlerFunc {
 		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
 		user := core.UserFromCtx(r.Context())
 
-		_, err = db.PGExec(r.Context(), `
+		ctx := r.Context()
+		tx, err := db.PG.BeginTx(ctx, nil)
+		if err != nil {
+			respondErr(w, 500, "Transaction failed")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		// Conditional UPDATE: only proceeds if still pending (prevents double-approval race).
+		res, err := tx.ExecContext(ctx, `
 			UPDATE leave_applications SET status = 'approved',
 				approved_by = $1, approval_notes = $2, updated_at = NOW()
-			WHERE id = $3`, user.ID, b.Notes, id)
+			WHERE id = $3 AND status = 'pending'`, user.ID, b.Notes, id)
 		if err != nil {
 			respondErr(w, 500, "Approve failed")
 			return
 		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			respondErr(w, 409, "Leave request already processed — please refresh")
+			return
+		}
 
-		// Deduct from leave balance (best-effort — ignore error if balance row missing)
-		_, _ = db.PGExec(r.Context(), `
+		// Deduct from leave balance inside the same transaction.
+		_, err = tx.ExecContext(ctx, `
 			UPDATE leave_balances
 			SET days_used = days_used + (
 				SELECT days_requested FROM leave_applications WHERE id = $1
@@ -376,6 +389,15 @@ func hrLeaveApprove(db *core.DB) http.HandlerFunc {
 			  AND leave_type_id = (SELECT leave_type_id FROM leave_applications WHERE id = $1)
 			  AND year = EXTRACT(year FROM CURRENT_DATE)
 		`, id)
+		if err != nil {
+			respondErr(w, 500, "Balance update failed")
+			return
+		}
+
+		if err = tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed")
+			return
+		}
 
 		respondErr(w, 200, "Leave approved")
 	}

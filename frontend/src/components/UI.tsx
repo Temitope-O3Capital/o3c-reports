@@ -597,3 +597,43 @@ export function ExportBtn({ onClick, loading }: { onClick: () => void; loading: 
     </button>
   )
 }
+
+interface ConfirmModalProps {
+  title: string
+  message: string
+  confirmLabel?: string
+  danger?: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}
+
+export function ConfirmModal({ title, message, confirmLabel = 'Confirm', danger = false, onConfirm, onCancel }: ConfirmModalProps) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+        <div className="flex items-start gap-3 mb-4">
+          <span className="material-symbols-rounded text-[22px] mt-0.5" style={{ color: danger ? RED : NAVY }}>
+            {danger ? 'warning' : 'help'}
+          </span>
+          <div>
+            <h2 className="text-[15px] font-bold text-slate-800">{title}</h2>
+            <p className="text-[13px] text-slate-500 mt-1">{message}</p>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button
+            className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]"
+            onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white"
+            style={{ background: danger ? RED : NAVY }}
+            onClick={onConfirm}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}

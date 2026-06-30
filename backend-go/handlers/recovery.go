@@ -47,15 +47,17 @@ func recoveryKPIs(db *core.DB) http.HandlerFunc {
 			sources = append(sources, src)
 		}
 
-		collected, _, _ := db.DualScalar(ctx, "val",
-			"SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.o3_loan_Repayment",
-			`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log"`)
-		total := toFloat(collected) + toFloat(kpis["total_recovered"])
-		if total > 0 {
-			kpis["recovery_rate"] = round1(toFloat(kpis["total_recovered"]) / total * 100)
+		// CBN recovery rate = total_recovered / total_npl_book_value * 100
+		// (CBN supervisory framework: recoveries as % of gross NPL balance)
+		nplBalance, _, _ := db.DualScalar(ctx, "val",
+			"SELECT ISNULL(SUM([Outstanding Balance]),0) AS val FROM dbo.RecoveryMasterSheet",
+			`SELECT COALESCE(SUM("Outstanding Balance"),0) AS val FROM "Recovery Master Sheet"`)
+		if toFloat(nplBalance) > 0 {
+			kpis["recovery_rate"] = round1(toFloat(kpis["total_recovered"]) / toFloat(nplBalance) * 100)
 		} else {
 			kpis["recovery_rate"] = 0.0
 		}
+		kpis["total_npl_balance"] = nplBalance
 
 		respond(w, kpis, pickSource(sources))
 	}

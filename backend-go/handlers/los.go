@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -342,18 +343,42 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 			extra = ", booked_at = NOW()"
 		}
 
-		_, err = db.PGExec(ctx,
-			fmt.Sprintf(`UPDATE loan_applications SET stage = $1, status = $2%s, updated_at = NOW() WHERE id = $3`, extra),
-			b.ToStage, losStageToStatus(b.ToStage), id)
+		// Wrap UPDATE + event INSERT in a transaction so the audit trail is always consistent.
+		tx, err := db.PG.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+		if err != nil {
+			respondErr(w, 500, "Transaction failed")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		// Conditional UPDATE: only succeeds if stage hasn't changed since we read it (optimistic lock).
+		var updatedID int64
+		err = tx.QueryRowContext(ctx,
+			fmt.Sprintf(`UPDATE loan_applications SET stage = $1, status = $2%s, updated_at = NOW()
+			             WHERE id = $3 AND stage = $4 RETURNING id`, extra),
+			b.ToStage, losStageToStatus(b.ToStage), id, fromStage).Scan(&updatedID)
+		if err == sql.ErrNoRows {
+			respondErr(w, 409, "Application stage changed concurrently — please refresh and try again")
+			return
+		}
 		if err != nil {
 			respondErr(w, 500, "Advance failed")
 			return
 		}
 
-		db.PGExec(ctx, `
+		_, err = tx.ExecContext(ctx, `
 			INSERT INTO application_events (application_id, event_type, from_stage, to_stage, actor_user_id, notes, created_at)
 			VALUES ($1, 'stage_advance', $2, $3, $4, $5, NOW())`,
-			id, fromStage, b.ToStage, user.ID, b.Notes) //nolint:errcheck
+			id, fromStage, b.ToStage, user.ID, b.Notes)
+		if err != nil {
+			respondErr(w, 500, "Event log failed")
+			return
+		}
+
+		if err = tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed")
+			return
+		}
 
 		respondErr(w, 200, "Stage advanced")
 	}

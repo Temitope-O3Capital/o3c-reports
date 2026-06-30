@@ -31,6 +31,7 @@ func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
 		agentID := qstr(r, "agent_id")
 		stage := qstr(r, "stage")
 		q := qstr(r, "q")
+		accountCIF := qstr(r, "account_cif")
 		limit := qint(r, "limit", 50, 1, 200)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -44,6 +45,11 @@ func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
 		args := []any{}
 		n := 1
 
+		if accountCIF != "" {
+			query += fmt.Sprintf(" AND ca.account_cif = $%d", n)
+			args = append(args, accountCIF)
+			n++
+		}
 		if bucket != "" {
 			query += fmt.Sprintf(" AND ca.dpd_bucket = $%d", n)
 			args = append(args, bucket)
@@ -224,12 +230,19 @@ func collectionsOpsHonourPromise(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		_, err = db.PGExec(r.Context(), `
+		user := core.UserFromCtx(r.Context())
+		// Scope to promises logged by this agent or by someone the user manages.
+		res, err := db.PGQuery(r.Context(), `
 			UPDATE collection_promises
 			SET is_kept = TRUE, actual_date = CURRENT_DATE
-			WHERE id = $1`, pid)
+			WHERE id = $1 AND agent_user_id = $2
+			RETURNING id`, pid, user.ID)
 		if err != nil {
 			respondErr(w, 500, "Update failed")
+			return
+		}
+		if len(res) == 0 {
+			respondErr(w, 403, "Promise not found or does not belong to you")
 			return
 		}
 		respondErr(w, 200, "Promise marked as honoured")
@@ -377,6 +390,10 @@ func collectionsOpsDashboard(db *core.DB) http.HandlerFunc {
 			{"contacts_today", `
 				SELECT COUNT(*) AS val FROM collection_contacts
 				WHERE created_at::date = CURRENT_DATE`},
+			{"target_kobo", `
+				SELECT COALESCE(SUM(target_amount_kobo), 0) AS val
+				FROM collection_targets
+				WHERE target_date = CURRENT_DATE`},
 		}
 
 		result := map[string]any{}

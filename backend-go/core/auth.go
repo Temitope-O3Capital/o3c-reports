@@ -2,8 +2,11 @@ package core
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -27,6 +30,7 @@ type Claims struct {
 	FullName   string   `json:"full_name"`
 	Department string   `json:"department"`
 	Pages      []string `json:"pages"`
+	JTI        string   `json:"jti,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -39,16 +43,52 @@ func UserFromCtx(ctx context.Context) *Claims {
 }
 
 var secretKey string
+var authDB *DB // set by InitAuthDB; used for JTI denylist checks
 
 // InitAuth must be called once at startup with the SECRET_KEY value.
 func InitAuth(key string) { secretKey = key }
 
+// InitAuthDB wires in the database so AuthMiddleware can check the token denylist.
+func InitAuthDB(d *DB) { authDB = d }
+
+func newJTI() string {
+	b := make([]byte, 16)
+	rand.Read(b) //nolint:errcheck
+	return hex.EncodeToString(b)
+}
+
 func CreateToken(c *Claims) (string, error) {
+	c.JTI = newJTI()
 	c.RegisteredClaims = jwt.RegisteredClaims{
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(tokenExpiry)),
 		Audience:  jwt.ClaimStrings{tokenAudience},
+		ID:        c.JTI,
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString([]byte(secretKey))
+}
+
+// RevokeToken inserts a JTI into the denylist, invalidating that token immediately.
+func RevokeToken(ctx context.Context, jti string, userID int64, expiresAt time.Time) error {
+	if authDB == nil {
+		return fmt.Errorf("authDB not initialised")
+	}
+	_, err := authDB.PGExec(ctx,
+		`INSERT INTO token_denylists (jti, user_id, expires_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+		jti, userID, expiresAt)
+	return err
+}
+
+// isTokenRevoked returns true when the JTI is in the denylist.
+func isTokenRevoked(ctx context.Context, jti string) bool {
+	if authDB == nil || jti == "" {
+		return false
+	}
+	rows, err := authDB.PGQuery(ctx, `SELECT 1 FROM token_denylists WHERE jti=$1 LIMIT 1`, jti)
+	if err != nil {
+		slog.Warn("denylist check failed", "err", err)
+		return false // fail open to avoid locking out all users on DB hiccup
+	}
+	return len(rows) > 0
 }
 
 // CreateSSEToken issues a short-lived (2 min) token for the SSE endpoint.
@@ -104,6 +144,7 @@ func CheckPassword(plain, hashed string) bool {
 }
 
 // AuthMiddleware validates the Bearer token and populates the request context.
+// It also checks the JTI denylist so that explicitly revoked tokens (logout) are rejected.
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		header := r.Header.Get("Authorization")
@@ -114,6 +155,10 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		claims, err := VerifyToken(strings.TrimPrefix(header, "Bearer "))
 		if err != nil {
 			authErr(w, 401, "Invalid or expired token")
+			return
+		}
+		if isTokenRevoked(r.Context(), claims.JTI) {
+			authErr(w, 401, "Token has been revoked")
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, claims)))
@@ -240,7 +285,7 @@ var RolePages = map[string][]string{
 		"hr_employees", "hr_leave", "hr_performance", "hr_disciplinary", "hr_payroll", "hr_training",
 		"compliance_all", "compliance_checklists", "cbn_reports", "audit_trail", "audit_export",
 		"sars", "watch_list", "audit_findings",
-		"kpi_dashboard", "reports", "statements", "admin_users", "settings", "sync_status",
+		"kpi_dashboard", "reports", "approvals", "statements", "admin_users", "settings", "sync_status",
 	},
 	"coo": {
 		"overview", "executive", "transactions", "income", "eod", "uploads",

@@ -109,18 +109,32 @@ export function useAuth() {
   useEffect(() => {
     const token = localStorage.getItem('o3c_token')
     if (!token) { setLoading(false); return }
-    const payload = parseToken(token)
-    if (!payload || payload.exp * 1000 < Date.now()) {
-      localStorage.removeItem('o3c_token')
-      localStorage.removeItem('o3c_user')
-      setLoading(false)
-      return
-    }
-    const stored = localStorage.getItem('o3c_user')
-    if (stored) {
-      try { setUser(JSON.parse(stored)) } catch { localStorage.removeItem('o3c_user') }
-    }
-    setLoading(false)
+    // Validate token server-side on every load — catches revoked tokens and syncs pages.
+    fetch(`${API}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(claims => {
+        if (!claims) {
+          localStorage.removeItem('o3c_token')
+          localStorage.removeItem('o3c_user')
+        } else {
+          // Merge pages from server response into the stored user object.
+          const stored = localStorage.getItem('o3c_user')
+          const base: AuthUser = stored ? JSON.parse(stored) : {}
+          const u: AuthUser = { ...base, pages: claims.pages ?? base.pages }
+          localStorage.setItem('o3c_user', JSON.stringify(u))
+          setUser(u)
+        }
+      })
+      .catch(() => {
+        // Network error — fall back to cached user so offline doesn't log everyone out.
+        const stored = localStorage.getItem('o3c_user')
+        if (stored) {
+          try { setUser(JSON.parse(stored)) } catch { localStorage.removeItem('o3c_user') }
+        }
+      })
+      .finally(() => setLoading(false))
   }, [])
 
   const login = useCallback(async (email: string, password: string): Promise<AuthUser> => {
@@ -140,7 +154,15 @@ export function useAuth() {
     return data.user
   }, [])
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    const token = localStorage.getItem('o3c_token')
+    if (token) {
+      // Revoke the token server-side so it cannot be replayed
+      fetch(`${API}/api/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {}) // fire-and-forget; clear locally regardless
+    }
     localStorage.removeItem('o3c_token')
     localStorage.removeItem('o3c_user')
     setUser(null)
@@ -148,12 +170,13 @@ export function useAuth() {
 
   const canAccess = useCallback((page: string): boolean => {
     if (!user) return false
-    // Primary: use pages from JWT (set by backend at login)
+    // Server-authorised pages only — backend embeds these in the token at login.
+    // Local ROLE_PAGES is kept as a reference but never used for auth decisions.
     if (user.pages && user.pages.length > 0) {
       return user.pages.includes(page)
     }
-    // Fallback: legacy role map for backwards compatibility
-    return (ROLE_PAGES[user.role ?? ''] ?? []).includes(page)
+    // No pages in token → session predates page-embedding; deny and force re-login.
+    return false
   }, [user])
 
   const clearMustChangePassword = useCallback(() => {

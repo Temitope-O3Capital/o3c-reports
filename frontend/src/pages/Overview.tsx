@@ -103,12 +103,12 @@ export default function Overview() {
 
       {/* ── KPI row ── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
-        <KpiCard loading={loading} label="Total Cardholders"   value={fmtNum(kpi('total_cardholders'))}  icon="group"           accent={NAVY}  />
-        <KpiCard loading={loading} label="Active Accounts"     value={fmtNum(kpi('active_accounts'))}    icon="credit_card"     accent={BLUE}  />
-        <KpiCard loading={loading} label="Cards Issued"        value={fmtNum(kpi('total_cards_issued'))} icon="style"           accent={NAVY}  />
-        <KpiCard loading={loading} label="Total Txn Volume"    value={fmt(kpi('total_txn_volume'))}      icon="swap_vert"       accent={GREEN} />
-        <KpiCard loading={loading} label="New Accounts MTD"    value={fmtNum(kpi('new_accounts_mtd'))}   icon="person_add"      accent={AMBER} />
-        <KpiCard loading={loading} label="Collections MTD"     value={fmt(kpi('collections_mtd'))}       icon="payments"        accent={RED}   />
+        <KpiCard loading={loading} label="Total Cardholders"   value={fmtNum(kpi('total_cardholders'))}  sub="All-time"   icon="group"           accent={NAVY}  />
+        <KpiCard loading={loading} label="Active Accounts"     value={fmtNum(kpi('active_accounts'))}    sub="Live"       icon="credit_card"     accent={BLUE}  />
+        <KpiCard loading={loading} label="Cards Issued"        value={fmtNum(kpi('total_cards_issued'))} sub="All-time"   icon="style"           accent={NAVY}  />
+        <KpiCard loading={loading} label="Total Txn Volume"    value={fmt(kpi('total_txn_volume'))}      sub="All-time"   icon="swap_vert"       accent={GREEN} />
+        <KpiCard loading={loading} label="New Accounts MTD"    value={fmtNum(kpi('new_accounts_mtd'))}   sub="This month" icon="person_add"      accent={AMBER} />
+        <KpiCard loading={loading} label="Collections MTD"     value={fmt(kpi('collections_mtd'))}       sub="This month" icon="payments"        accent={RED}   />
       </div>
 
       {/* ── Charts row 1: Volume + New Accounts ── */}

@@ -36,6 +36,7 @@ func main() {
 	}
 
 	core.InitAuth(cfg.SecretKey)
+	core.InitAuthDB(db)
 
 	// Run any pending SQL migrations before serving traffic.
 	if err := runMigrations(db); err != nil {
@@ -96,6 +97,7 @@ func main() {
 			r.Use(core.AuthMiddleware)
 			r.Get("/me", mePublic())
 			r.Post("/change-password", changePasswordPublic(db))
+			r.Post("/logout", logoutHandler())
 		})
 	})
 
@@ -423,16 +425,10 @@ func securityHeaders(next http.Handler) http.Handler {
 
 // ── Health ─────────────────────────────────────────────────────────────────────
 
-func healthHandler(db *core.DB) http.HandlerFunc {
+func healthHandler(_ *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		report := db.Health(r.Context())
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"api":           "ok",
-			"mssql":         report.MSSQL,
-			"supabase":      report.PG,
-			"active_source": report.Active,
-		})
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
 	}
 }
 
@@ -469,6 +465,18 @@ func changePasswordPublic(db *core.DB) http.HandlerFunc {
 		r2 := r.Clone(r.Context())
 		r2.URL.Path = "/change-password"
 		sub.ServeHTTP(w, r2)
+	}
+}
+
+func logoutHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		claims := core.UserFromCtx(r.Context())
+		if claims != nil && claims.JTI != "" && claims.ExpiresAt != nil {
+			if err := core.RevokeToken(r.Context(), claims.JTI, claims.ID, claims.ExpiresAt.Time); err != nil {
+				slog.Warn("logout: denylist insert failed", "err", err)
+			}
+		}
+		w.WriteHeader(204)
 	}
 }
 

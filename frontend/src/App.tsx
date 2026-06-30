@@ -413,7 +413,7 @@ function ForceChangePassword({ onDone, onLogout }: { onDone: () => void; onLogou
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (next !== confirm) { setErr('Passwords do not match'); return }
-    if (next.length < 8)  { setErr('Password must be at least 8 characters'); return }
+    if (next.length < 12) { setErr('Password must be at least 12 characters'); return }
     setSaving(true); setErr('')
     try {
       const token = localStorage.getItem('o3c_token')
@@ -440,8 +440,11 @@ function ForceChangePassword({ onDone, onLogout }: { onDone: () => void; onLogou
           <span className="material-symbols-rounded text-white text-[22px]">lock_reset</span>
         </div>
         <h1 className="text-[20px] font-bold text-slate-800 mb-1">Set a New Password</h1>
-        <p className="text-[13px] text-slate-500 mb-6">
+        <p className="text-[13px] text-slate-500 mb-1">
           Your account requires a password change before you can continue.
+        </p>
+        <p className="text-[12px] text-slate-400 mb-6">
+          This is required because your account was newly created or reset by an administrator. Choose a strong password of at least 12 characters.
         </p>
         <form onSubmit={handleSubmit} className="space-y-3">
           {[
@@ -639,8 +642,8 @@ export default function App() {
                   }
                 />
 
-                {/* Approvals — keep this page, button is additive */}
-                <Route path="/approvals" element={<Approvals />} />
+                {/* Approvals — available to all authenticated roles; backend filters by role */}
+                <Route path="/approvals" element={<PageErrorBoundary><Approvals /></PageErrorBoundary>} />
 
                 {/* ── Finance ── */}
                 <Route path="/finance"              element={<PageErrorBoundary><RequireAccess page="income" user={user}><FinanceOverview /></RequireAccess></PageErrorBoundary>} />
@@ -733,7 +736,7 @@ export default function App() {
                 <Route path="/settings/voice"      element={<VoiceConnect />} />
 
                 {/* ── Reports ── */}
-                <Route path="/reports" element={<Reports />} />
+                <Route path="/reports" element={<PageErrorBoundary><RequireAccess page="reports" user={user}><Reports /></RequireAccess></PageErrorBoundary>} />
                 <Route path="/statements" element={<RequireAccess page="statements" user={user}><Statements /></RequireAccess>} />
 
                 {/* ── Admin ── */}

@@ -37,7 +37,7 @@ export function fmtNum(n: unknown): string {
 export function fmtDate(s: string | null | undefined, opts?: Intl.DateTimeFormatOptions): string {
   if (!s) return '—'
   try {
-    const d = new Date(s.includes('T') ? s : s + 'T00:00:00')
+    const d = new Date(s.includes('T') ? s : s + 'T00:00:00Z')
     return d.toLocaleDateString('en-GB', opts ?? { day: '2-digit', month: 'short', year: 'numeric' })
   } catch { return s }
 }

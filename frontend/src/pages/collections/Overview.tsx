@@ -126,8 +126,10 @@ export default function CollectionsOverview() {
         contacted_today:        n(d.contacts_today ?? 0),
         ptps_today:             n(d.honoured_today ?? 0),
         collected_today_kobo:   n(d.collected_today_kobo ?? 0),
-        target_kobo:            0,
-        target_achievement_pct: 0,
+        target_kobo:            n(d.target_kobo ?? 0),
+        target_achievement_pct: n(d.target_kobo) > 0
+          ? Math.min(100, (n(d.collected_today_kobo) / n(d.target_kobo)) * 100)
+          : 0,
       }
       setKpis(kpiData)
 

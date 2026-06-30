@@ -1,7 +1,11 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -102,7 +106,29 @@ func waVerify() http.HandlerFunc {
 // helpdesk_tickets (channel = 'whatsapp').
 func waInbound(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		r.Body = io.NopCloser(bytes.NewBuffer(body))
+
+		// Verify Meta X-Hub-Signature-256 HMAC.
+		appSecret := os.Getenv("WHATSAPP_APP_SECRET")
+		if appSecret == "" {
+			slog.Error("waInbound: WHATSAPP_APP_SECRET not configured — rejecting")
+			w.WriteHeader(503)
+			return
+		}
+		sig := r.Header.Get("X-Hub-Signature-256")
+		if sig == "" {
+			w.WriteHeader(403)
+			return
+		}
+		mac := hmac.New(sha256.New, []byte(appSecret))
+		mac.Write(body)
+		expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+		if !hmac.Equal([]byte(sig), []byte(expected)) {
+			w.WriteHeader(403)
+			return
+		}
+
 		var payload map[string]any
 		if err := json.Unmarshal(body, &payload); err != nil {
 			w.WriteHeader(200); return // always 200 to Meta

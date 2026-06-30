@@ -91,8 +91,7 @@ func runMigrations(db *core.DB) error {
 		}
 		slog.Info("running migration", "file", name)
 		if _, err := db.PGExec(ctx, string(data)); err != nil {
-			slog.Error("Migration failed — skipping", "file", name, "err", err)
-			continue // do not record as applied; will retry on next deploy
+			return fmt.Errorf("migration %s failed: %w", name, err)
 		}
 		if _, err := db.PGExec(ctx,
 			`INSERT INTO schema_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`, name); err != nil {

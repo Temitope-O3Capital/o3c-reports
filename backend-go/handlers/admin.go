@@ -203,7 +203,11 @@ func updateUser(db *core.DB) http.HandlerFunc {
 			setCols["department"] = *b.Department
 		}
 		if b.Password != nil && *b.Password != "" {
-			hash, _ := core.HashPassword(*b.Password)
+			hash, err := core.HashPassword(*b.Password)
+			if err != nil {
+				respondErr(w, 500, "Failed to hash password")
+				return
+			}
 			setCols["password_hash"] = hash
 		}
 		if len(setCols) == 0 {
@@ -266,16 +270,22 @@ func resetPassword(db *core.DB) http.HandlerFunc {
 			return
 		}
 		tempPW := genPassword()
-		hash, _ := core.HashPassword(tempPW)
-		db.PGExec(r.Context(), //nolint:errcheck
-			`UPDATE o3c_users SET password_hash=$1, must_change_password=TRUE WHERE id=$2`, hash, id)
+		hash, err := core.HashPassword(tempPW)
+		if err != nil {
+			respondErr(w, 500, "Failed to hash password")
+			return
+		}
+		if _, err := db.PGExec(r.Context(),
+			`UPDATE o3c_users SET password_hash=$1, must_change_password=TRUE WHERE id=$2`, hash, id); err != nil {
+			respondErr(w, 500, "Failed to reset password")
+			return
+		}
 		mailRes := SendTemporaryPasswordEmail(r.Context(), db,
 			str(rows[0]["email"]), str(rows[0]["full_name"]), tempPW, toInt64(rows[0]["id"]))
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"temp_password": tempPW,
-			"email_sent":    mailRes.OK,
-			"email_error":   mailRes.Error,
+			"email_sent":  mailRes.OK,
+			"email_error": mailRes.Error,
 		})
 	}
 }
@@ -464,6 +474,26 @@ func deleteRole(db *core.DB) http.HandlerFunc {
 
 // ── Activity log ──────────────────────────────────────────────────────────────
 
+// allowedActivityPages is the exhaustive set of page names the frontend may log.
+var allowedActivityPages = map[string]bool{
+	"overview": true, "executive": true, "approvals": true,
+	"los": true, "los_all": true, "los_risk_review": true, "los_risk_head": true,
+	"los_finance": true, "los_finance_approve": true, "los_booking": true,
+	"collections": true, "collections_assign": true, "collections_payment": true, "collections_payment_approve": true,
+	"recovery": true, "recovery_assign": true, "recovery_write_off": true,
+	"sales": true, "cohort": true, "crm_pipeline": true, "crm_contacts": true, "crm_tasks": true, "crm_reports": true,
+	"cards": true, "card_trends": true, "call_center": true, "customer_service": true, "customer360": true,
+	"campaigns": true, "contact_lists": true, "message_templates": true,
+	"hr_employees": true, "hr_leave": true, "hr_performance": true, "hr_disciplinary": true, "hr_payroll": true, "hr_training": true,
+	"compliance_all": true, "compliance_checklists": true, "cbn_reports": true,
+	"audit_trail": true, "audit_export": true, "sars": true, "watch_list": true, "audit_findings": true,
+	"income": true, "eod": true, "transactions": true, "reconciliation": true,
+	"credit_portfolio": true, "fixed_deposit": true, "settlement": true, "statements": true,
+	"kpi_dashboard": true, "reports": true,
+	"admin_users": true, "admin_api_keys": true, "settings": true, "sync_status": true, "uploads": true,
+	"loans": true, "mobile_app": true, "blink_card": true, "risk_all": true,
+}
+
 func logActivity(db *core.DB) http.HandlerFunc {
 	type body struct {
 		Page   string `json:"page"`
@@ -474,6 +504,10 @@ func logActivity(db *core.DB) http.HandlerFunc {
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			w.WriteHeader(204)
+			return
+		}
+		if !allowedActivityPages[b.Page] {
+			respondErr(w, 422, "Invalid page name")
 			return
 		}
 		user := core.UserFromCtx(r.Context())

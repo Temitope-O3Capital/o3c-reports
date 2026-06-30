@@ -118,8 +118,12 @@ function ApprovalCard({ item }: { item: ApprovalItem }) {
       {/* Center */}
       <div className="flex flex-col items-end gap-2 shrink-0">
         <PriorityBadge priority={item.priority} />
-        <span className="text-[11px] font-medium text-slate-500">
-          <span className="material-symbols-rounded text-[13px] align-middle mr-0.5 text-slate-400">schedule</span>
+        <span className="text-[11px] font-medium"
+          style={{ color: item.waiting_days >= 7 ? '#DC2626' : item.waiting_days >= 3 ? '#D97706' : '#64748B' }}>
+          <span className="material-symbols-rounded text-[13px] align-middle mr-0.5"
+            style={{ color: item.waiting_days >= 7 ? '#DC2626' : item.waiting_days >= 3 ? '#D97706' : '#94A3B8' }}>
+            {item.waiting_days >= 7 ? 'warning' : 'schedule'}
+          </span>
           {item.waiting_days}d waiting
         </span>
         {hasAmount && (

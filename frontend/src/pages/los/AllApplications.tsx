@@ -86,10 +86,17 @@ export default function AllApplications() {
 
   // Assign modal state
   const [assignTarget, setAssignTarget] = useState<string | null>(null)
-  // TODO: replace with dropdown once GET /api/settings/users is available
   const [assignUserId, setAssignUserId] = useState('')
   const [assigning, setAssigning]       = useState(false)
   const [assignErr, setAssignErr]       = useState('')
+
+  // user list for assign dropdown
+  const [losUsers, setLosUsers] = useState<{ id: string; full_name: string }[]>([])
+  useEffect(() => {
+    apiFetch<{ id: string; full_name: string; role: string }[]>('/api/admin/users')
+      .then(rows => setLosUsers(rows.filter(u => !u.role?.includes('collection') && !u.role?.includes('recovery'))))
+      .catch(() => {})
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -126,7 +133,7 @@ export default function AllApplications() {
     if (!assignTarget || !assignUserId.trim()) return
     setAssigning(true); setAssignErr('')
     try {
-      await apiPut(`/api/los/${assignTarget}/assign`, { assigned_to_user_id: assignUserId.trim() })
+      await apiPut(`/api/los/${assignTarget}/assign`, { assign_to_user_id: assignUserId.trim() })
       setAssignTarget(null); setAssignUserId('')
       load()
     } catch (e: any) {
@@ -291,16 +298,15 @@ export default function AllApplications() {
               </button>
             </div>
             <ErrBanner msg={assignErr} />
-            <label className="block text-[12px] font-semibold text-slate-500 mb-1">
-              User ID
-              {/* TODO: replace with user dropdown once GET /api/settings/users is wired */}
-            </label>
-            <input
+            <label className="block text-[12px] font-semibold text-slate-500 mb-1">Assign To</label>
+            <select
               className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20 mb-4"
-              placeholder="Enter user ID (temporary — will be a dropdown)"
               value={assignUserId}
               onChange={e => setAssignUserId(e.target.value)}
-            />
+            >
+              <option value="">— Select user —</option>
+              {losUsers.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+            </select>
             <div className="flex gap-2 justify-end">
               <button
                 className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]"

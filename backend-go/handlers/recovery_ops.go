@@ -524,13 +524,18 @@ func recoveryOpsApproveWriteOff(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		_, err = db.PGExec(ctx,
+		// Conditional UPDATE: only advances if status still matches what we read (prevents double-approval race).
+		updated, err := db.PGQuery(ctx,
 			fmt.Sprintf(`UPDATE recovery_write_off_approvals
 				SET status = $1, %s = $2, updated_at = NOW()
-				WHERE id = $3`, prog.roleCol),
-			prog.next, user.ID, wid)
+				WHERE id = $3 AND status = $4 RETURNING id`, prog.roleCol),
+			prog.next, user.ID, wid, currentStatus)
 		if err != nil {
 			respondErr(w, 500, "Approval failed")
+			return
+		}
+		if len(updated) == 0 {
+			respondErr(w, 409, "Write-off status changed concurrently — please refresh and try again")
 			return
 		}
 

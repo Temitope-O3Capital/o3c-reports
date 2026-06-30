@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { apiFetch, apiPost } from '../../lib/api'
 import { today, monthStart, fmtDate } from '../../lib/fmt'
-import { DataTable, DateFilter, ErrBanner, NAVY, Page, SectionCard, type ColDef } from '../../components/UI'
+import { ConfirmModal, DataTable, DateFilter, ErrBanner, NAVY, Page, SectionCard, type ColDef } from '../../components/UI'
 
 interface StatementLog {
   id: string
@@ -61,6 +61,7 @@ export default function Statements() {
   const [runs, setRuns] = useState<StatementRun[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
 
   async function loadLogs(cifFilter = '') {
     const url = cifFilter ? `/api/statements/emails?limit=100&cif=${encodeURIComponent(cifFilter)}` : '/api/statements/emails?limit=100'
@@ -126,27 +127,43 @@ export default function Statements() {
     const { start, end } = monthRange()
     const parsedLimit = Number(limit) || 0
     const countLabel = parsedLimit > 0 ? `up to ${parsedLimit} customers` : 'all eligible customers'
-    if (!window.confirm(`Queue monthly statements for ${start} to ${end} to ${countLabel}?`)) return
-    setLoading(true); setError('')
-    try {
-      const res: any = await apiPost('/api/statements/bulk-send', {
-        date_from: start, date_to: end, limit: parsedLimit, dry_run: false,
-        subject: subject.trim() || undefined, message: message.trim() || undefined, password_hint: passwordHint.trim() || undefined,
-      })
-      const data = res.data ?? res
-      toast.success(`Statement run queued for ${data.total ?? 0} customer(s)`)
-      setPreview(data)
-      await loadRuns()
-      await loadLogs()
-    } catch (e: any) {
-      setError(e.message); toast.error(e.message)
-    } finally {
-      setLoading(false)
-    }
+    setConfirm({
+      title: 'Queue Statement Run',
+      message: `Queue monthly statements for ${start} to ${end} to ${countLabel}?`,
+      onConfirm: async () => {
+        setLoading(true); setError('')
+        try {
+          const res: any = await apiPost('/api/statements/bulk-send', {
+            date_from: start, date_to: end, limit: parsedLimit, dry_run: false,
+            subject: subject.trim() || undefined, message: message.trim() || undefined, password_hint: passwordHint.trim() || undefined,
+          })
+          const data = res.data ?? res
+          toast.success(`Statement run queued for ${data.total ?? 0} customer(s)`)
+          setPreview(data)
+          await loadRuns()
+          await loadLogs()
+        } catch (e: any) {
+          setError(e.message); toast.error(e.message)
+        } finally {
+          setLoading(false)
+        }
+      },
+    })
   }
 
   async function runAction(id: string, action: 'pause' | 'resume' | 'cancel') {
-    if (action === 'cancel' && !window.confirm('Cancel this statement run? Pending recipients will not be sent.')) return
+    if (action === 'cancel') {
+      setConfirm({
+        title: 'Cancel Statement Run',
+        message: 'Cancel this statement run? Pending recipients will not be sent.',
+        onConfirm: () => doRunAction(id, action),
+      })
+      return
+    }
+    doRunAction(id, action)
+  }
+
+  async function doRunAction(id: string, action: 'pause' | 'resume' | 'cancel') {
     setLoading(true); setError('')
     try {
       await apiPost(`/api/statements/runs/${id}/${action}`, {})
@@ -245,6 +262,16 @@ export default function Statements() {
       <SectionCard title="Statement Email History" subtitle={`${logs.length} recent sends`} className="mt-5">
         <DataTable cols={cols} rows={logs} loading={loading && logs.length === 0} emptyIcon="receipt_long" emptyMsg="No statement emails yet" />
       </SectionCard>
+
+      {confirm && (
+        <ConfirmModal
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel="Yes, proceed"
+          onConfirm={() => { confirm.onConfirm(); setConfirm(null) }}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
     </Page>
   )
 }

@@ -87,6 +87,14 @@ export default function CollectionsQueue() {
   const [reassigning, setReassigning]   = useState(false)
   const [reassignErr, setReassignErr]   = useState('')
 
+  // user list for reassign dropdown
+  const [agents, setAgents] = useState<{ id: string; full_name: string }[]>([])
+  useEffect(() => {
+    apiFetch<{ id: string; full_name: string; role: string }[]>('/api/admin/users')
+      .then(rows => setAgents(rows.filter(u => u.role?.includes('collection'))))
+      .catch(() => {})
+  }, [])
+
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
@@ -350,10 +358,12 @@ export default function CollectionsQueue() {
             <ErrBanner msg={reassignErr} />
             <div className="space-y-3">
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Agent ID</label>
-                <input type="text" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
-                  placeholder="Agent user ID"
-                  value={agentId} onChange={e => setAgentId(e.target.value)} />
+                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Agent</label>
+                <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                  value={agentId} onChange={e => setAgentId(e.target.value)}>
+                  <option value="">— Select agent —</option>
+                  {agents.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+                </select>
               </div>
               <div>
                 <label className="block text-[12px] font-semibold text-slate-500 mb-1">Notes</label>

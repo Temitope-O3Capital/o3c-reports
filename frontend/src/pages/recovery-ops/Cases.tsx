@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { fmt, fmtDate } from '../../lib/fmt'
 import {
   Spinner, ErrBanner, StatusBadge, KpiCard, Page, SectionCard, ColDef, DataTable,
-  NAVY, RED, GREEN, AMBER,
+  ConfirmModal, NAVY, RED, GREEN, AMBER,
 } from '../../components/UI'
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -101,6 +101,9 @@ export default function Cases() {
   const [woApproveNotes, setWoApproveNotes] = useState('')
   const [woActBusy, setWoActBusy]           = useState(false)
   const [woActErr, setWoActErr]             = useState('')
+
+  // confirm modal
+  const [confirm, setConfirm] = useState<{ title: string; message: string; danger?: boolean; onConfirm: () => void } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -225,23 +228,28 @@ export default function Cases() {
   }
 
   async function actWriteOff(wid: string, action: 'approve' | 'reject', amountKobo?: number) {
-    if (action === 'approve') {
-      const displayAmt = amountKobo != null ? `₦${(amountKobo / 100).toLocaleString()}` : 'this amount'
-      if (!window.confirm(`Approve write-off of ${displayAmt}? This cannot be undone.`)) return
-    } else {
-      if (!window.confirm('Reject this write-off request?')) return
+    const doAct = async () => {
+      setWoActBusy(true); setWoActErr('')
+      try {
+        await apiPut(`/api/recovery-ops/write-off/${wid}/${action}`, { notes: woApproveNotes })
+        toast.success(action === 'approve' ? 'Write-off approved' : 'Write-off rejected')
+        setWoApproveNotes('')
+        if (expanded) expandCase(expanded)
+      } catch (e: any) {
+        setWoActErr(e.message)
+      } finally {
+        setWoActBusy(false)
+      }
     }
-    setWoActBusy(true); setWoActErr('')
-    try {
-      await apiPut(`/api/recovery-ops/write-off/${wid}/${action}`, { notes: woApproveNotes })
-      toast.success(action === 'approve' ? 'Write-off approved' : 'Write-off rejected')
-      setWoApproveNotes('')
-      if (expanded) expandCase(expanded)
-    } catch (e: any) {
-      setWoActErr(e.message)
-    } finally {
-      setWoActBusy(false)
-    }
+    const displayAmt = amountKobo != null ? `₦${(amountKobo / 100).toLocaleString()}` : 'this amount'
+    setConfirm({
+      title: action === 'approve' ? 'Approve Write-off' : 'Reject Write-off',
+      message: action === 'approve'
+        ? `Approve write-off of ${displayAmt}? This cannot be undone.`
+        : 'Reject this write-off request?',
+      danger: true,
+      onConfirm: doAct,
+    })
   }
 
   const d = dash
@@ -585,6 +593,17 @@ export default function Cases() {
           </div>
         </div>
       </SectionCard>
+
+      {confirm && (
+        <ConfirmModal
+          title={confirm.title}
+          message={confirm.message}
+          danger={confirm.danger}
+          confirmLabel="Yes, proceed"
+          onConfirm={() => { confirm.onConfirm(); setConfirm(null) }}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
     </Page>
   )
 }

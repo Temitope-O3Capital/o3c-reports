@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiDelete, apiFetch, apiPost, apiPut } from '../../lib/api'
 import { roleLabel } from '../../lib/roles'
-import { ErrBanner, NAVY, RED, SectionCard, Spinner } from '../../components/UI'
+import { ConfirmModal, ErrBanner, NAVY, RED, SectionCard, Spinner } from '../../components/UI'
 
 interface RoleRow {
   name: string
@@ -49,6 +49,7 @@ export default function RoleManagement() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
 
   async function load() {
     setLoading(true); setError('')
@@ -116,18 +117,24 @@ export default function RoleManagement() {
 
   async function remove() {
     if (!selected || selected.builtin || selected.built_in) return
-    if (!window.confirm(`Delete role ${selected.label || selected.name}?`)) return
-    setSaving(true); setError(''); setMessage('')
-    try {
-      await apiDelete(`/api/admin/roles/${encodeURIComponent(selected.name)}`)
-      setMessage('Role deleted')
-      setSelected(null)
-      await load()
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setSaving(false)
-    }
+    const name = selected.label || selected.name
+    setConfirm({
+      title: 'Delete Role',
+      message: `Delete role "${name}"? This cannot be undone.`,
+      onConfirm: async () => {
+        setSaving(true); setError(''); setMessage('')
+        try {
+          await apiDelete(`/api/admin/roles/${encodeURIComponent(selected.name)}`)
+          setMessage('Role deleted')
+          setSelected(null)
+          await load()
+        } catch (e: any) {
+          setError(e.message)
+        } finally {
+          setSaving(false)
+        }
+      },
+    })
   }
 
   const isBuiltin = Boolean(selected?.builtin ?? selected?.built_in)
@@ -219,6 +226,17 @@ export default function RoleManagement() {
           </div>
         </SectionCard>
       </div>
+
+      {confirm && (
+        <ConfirmModal
+          title={confirm.title}
+          message={confirm.message}
+          danger
+          confirmLabel="Delete"
+          onConfirm={() => { confirm.onConfirm(); setConfirm(null) }}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
     </div>
   )
 }
