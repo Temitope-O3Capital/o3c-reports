@@ -71,7 +71,7 @@ export default function RichTextEditor({
       Color,
     ],
     content,
-    onUpdate: ({ editor }) => {
+    onUpdate: ({ editor }: { editor: { getHTML(): string } }) => {
       onChange(editor.getHTML())
     },
     editorProps: {

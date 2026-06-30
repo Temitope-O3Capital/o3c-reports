@@ -57,9 +57,9 @@ export function useNotifications() {
     async function connect() {
       if (!alive) return
       try {
-        const { token } = await apiFetch<{ token: string }>('/api/notifications/sse-token', { method: 'POST' })
+        const { ticket } = await apiFetch<{ ticket: string }>('/api/notifications/sse-ticket', { method: 'POST' })
         const base = (import.meta.env.VITE_API_URL as string) || ''
-        const es = new EventSource(`${base}/api/sse?token=${encodeURIComponent(token)}`)
+        const es = new EventSource(`${base}/api/notifications/sse?ticket=${encodeURIComponent(ticket)}`)
         esRef.current = es
 
         es.addEventListener('notification', (e: MessageEvent) => {

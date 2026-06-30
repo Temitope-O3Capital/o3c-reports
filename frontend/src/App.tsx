@@ -225,10 +225,11 @@ function ToolbarIconButton({ onClick, icon, title }: { onClick: () => void; icon
 }
 
 function ApprovalsButton({ user }: { user: AuthUser }) {
-  const [open,     setOpen]    = useState(false)
-  const [summary,  setSummary] = useState<ApprovalSummary | null>(null)
-  const navigate               = useNavigate()
-  const intervalRef            = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [open,       setOpen]      = useState(false)
+  const [summary,    setSummary]   = useState<ApprovalSummary | null>(null)
+  const [fetchError, setFetchError] = useState(false)
+  const navigate                   = useNavigate()
+  const intervalRef                = useRef<ReturnType<typeof setInterval> | null>(null)
 
   async function fetchSummary() {
     try {
@@ -236,9 +237,14 @@ function ApprovalsButton({ user }: { user: AuthUser }) {
       const res = await fetch(`${API}/api/approvals/summary`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
-      if (res.ok) setSummary(await res.json())
+      if (res.ok) {
+        setSummary(await res.json())
+        setFetchError(false)
+      } else {
+        setFetchError(true)
+      }
     } catch {
-      // silently ignore — bell won't show a count
+      setFetchError(true)
     }
   }
 
@@ -302,10 +308,22 @@ function ApprovalsButton({ user }: { user: AuthUser }) {
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          {!summary && (
+          {!summary && !fetchError && (
             <div className="flex items-center justify-center py-12">
               <div className="w-6 h-6 border-2 rounded-full animate-spin"
                 style={{ borderColor: 'rgba(14,40,65,0.1)', borderTopColor: '#0E2841' }} />
+            </div>
+          )}
+          {fetchError && (
+            <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+              <span className="material-symbols-rounded text-[32px]" style={{ color: '#C00000', opacity: 0.5 }}>error_outline</span>
+              <p className="text-[13px] text-slate-500">Could not load approvals</p>
+              <button
+                onClick={fetchSummary}
+                className="text-[12px] font-medium px-3 py-1.5 rounded-lg transition-colors"
+                style={{ background: 'rgba(14,40,65,0.07)', color: '#0E2841' }}>
+                Retry
+              </button>
             </div>
           )}
 
@@ -695,7 +713,7 @@ export default function App() {
                 <Route path="/admin/email-senders"         element={<RequireAccess page="settings" user={user}><EmailSenders /></RequireAccess>} />
                 <Route path="/admin/roles"                 element={<RequireAccess page="admin_users" user={user}><RoleManagement /></RequireAccess>} />
                 <Route path="/admin/integrations"          element={<RequireAccess page="admin_api_keys" user={user}><ZohoIntegration /></RequireAccess>} />
-                <Route path="/admin/audit"                 element={<RequireAccess page="admin_users" user={user}><Placeholder title="Audit Log" dept="Admin" icon="history" /></RequireAccess>} />
+                <Route path="/admin/audit"                 element={<RequireAccess page="admin_users" user={user}><AuditTrail /></RequireAccess>} />
                 <Route path="/settings/notifications" element={<NotificationPreferences />} />
 
                 {/* ── Mail environment ── */}

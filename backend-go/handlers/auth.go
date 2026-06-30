@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -172,13 +174,20 @@ func changePasswordHandler(db *core.DB) http.HandlerFunc {
 
 // BootstrapHandler creates the first admin user when no users exist.
 // Once any user exists this endpoint returns 403 — it self-disables.
+// If BOOTSTRAP_SECRET env var is set, the X-Bootstrap-Secret header must match it.
 func BootstrapHandler(db *core.DB) http.HandlerFunc {
+	bootstrapSecret := os.Getenv("BOOTSTRAP_SECRET")
 	type body struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 		FullName string `json:"full_name"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
+		if bootstrapSecret != "" &&
+			subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Bootstrap-Secret")), []byte(bootstrapSecret)) != 1 {
+			respondErr(w, 403, "Forbidden")
+			return
+		}
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -245,7 +254,7 @@ func ResetAdminHandler(db *core.DB, resetSecret string) http.HandlerFunc {
 			ip = r.RemoteAddr
 		}
 
-		if r.Header.Get("X-Admin-Secret") != resetSecret {
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Admin-Secret")), []byte(resetSecret)) != 1 {
 			slog.Warn("ResetAdminHandler: forbidden attempt", "ip", ip)
 			respondErr(w, 403, "Forbidden")
 			return

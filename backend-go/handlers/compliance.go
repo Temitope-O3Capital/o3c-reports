@@ -717,11 +717,12 @@ func complianceFindingCreate(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
 
-		// Generate finding ref
-		countRows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS c FROM audit_findings`)
+		// Use a sequence for the finding ref to avoid race conditions under concurrent inserts.
+		db.PGExec(ctx, `CREATE SEQUENCE IF NOT EXISTS finding_ref_seq`) //nolint:errcheck
+		seqRows, _ := db.PGQuery(ctx, `SELECT nextval('finding_ref_seq') AS n`)
 		seq := int64(1)
-		if len(countRows) > 0 {
-			seq = toInt64(countRows[0]["c"]) + 1
+		if len(seqRows) > 0 {
+			seq = toInt64(seqRows[0]["n"])
 		}
 		findingRef := fmt.Sprintf("AF-%04d", seq)
 

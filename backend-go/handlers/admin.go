@@ -586,8 +586,7 @@ func encryptValue(plaintext string) (string, error) {
 		return "", err
 	}
 	if key == nil {
-		slog.Warn("ENCRYPTION_KEY not set — storing API key as base64 plaintext")
-		return "plain:" + base64.StdEncoding.EncodeToString([]byte(plaintext)), nil
+		return "", fmt.Errorf("ENCRYPTION_KEY is not configured — cannot encrypt API key")
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {

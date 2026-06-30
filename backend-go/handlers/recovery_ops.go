@@ -22,6 +22,7 @@ func RegisterRecoveryOps(r chi.Router, db *core.DB) {
 	r.With(base).Post("/cases/{id}/payment", recoveryOpsPayment(db))
 	r.With(base).Post("/cases/{id}/legal", recoveryOpsAddLegal(db))
 	r.With(base).Put("/legal/{lid}/status", recoveryOpsUpdateLegal(db))
+	r.With(base).Get("/visits", recoveryOpsVisitsList(db))
 	r.With(base).Post("/cases/{id}/visit", recoveryOpsVisit(db))
 	r.With(base).Post("/cases/{id}/write-off", recoveryOpsWriteOff(db))
 	r.With(writeOff).Put("/write-off/{wid}/approve", recoveryOpsApproveWriteOff(db))
@@ -332,6 +333,68 @@ func recoveryOpsUpdateLegal(db *core.DB) http.HandlerFunc {
 			return
 		}
 		respondErr(w, 200, "Legal proceeding updated")
+	}
+}
+
+func recoveryOpsVisitsList(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		visitType := qstr(r, "visit_type")
+		outcome   := qstr(r, "outcome")
+		agentID   := qstr(r, "agent_id")
+		dateFrom  := qstr(r, "date_from")
+		dateTo    := qstr(r, "date_to")
+		limit     := qint(r, "limit", 50, 1, 200)
+		offset    := qint(r, "offset", 0, 0, 1<<30)
+
+		query := `
+			SELECT rfv.id, rfv.case_id, rc.case_ref, rfv.agent_user_id,
+			       u.full_name AS agent_name, rfv.visit_date, rfv.visit_type,
+			       rfv.outcome, rfv.notes, rfv.created_at
+			FROM recovery_field_visits rfv
+			LEFT JOIN recovery_cases rc ON rfv.case_id = rc.id
+			LEFT JOIN o3c_users u ON rfv.agent_user_id = u.id
+			WHERE 1=1`
+		args := []any{}
+		n := 1
+
+		if visitType != "" {
+			query += fmt.Sprintf(" AND rfv.visit_type = $%d", n)
+			args = append(args, visitType)
+			n++
+		}
+		if outcome != "" {
+			query += fmt.Sprintf(" AND rfv.outcome = $%d", n)
+			args = append(args, outcome)
+			n++
+		}
+		if agentID != "" {
+			query += fmt.Sprintf(" AND rfv.agent_user_id = $%d", n)
+			args = append(args, agentID)
+			n++
+		}
+		if dateFrom != "" {
+			query += fmt.Sprintf(" AND rfv.visit_date >= $%d", n)
+			args = append(args, dateFrom)
+			n++
+		}
+		if dateTo != "" {
+			query += fmt.Sprintf(" AND rfv.visit_date <= $%d", n)
+			args = append(args, dateTo)
+			n++
+		}
+
+		query += fmt.Sprintf(" ORDER BY rfv.visit_date DESC LIMIT $%d OFFSET $%d", n, n+1)
+		args = append(args, limit, offset)
+
+		rows, err := db.PGQuery(r.Context(), query, args...)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
 	}
 }
 

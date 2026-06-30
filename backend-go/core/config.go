@@ -33,7 +33,14 @@ func LoadConfig() (*Config, error) {
 		EnableResetAdmin: os.Getenv("ENABLE_RESET_ADMIN") == "true",
 	}
 
-	if c.SecretKey == "" || c.SecretKey == "change-this-in-production" {
+	weakKeys := []string{"change-this-in-production", "change-this-to-a-random-64-char-string"}
+	secretWeak := c.SecretKey == ""
+	for _, w := range weakKeys {
+		if c.SecretKey == w || strings.HasPrefix(c.SecretKey, "change-this") {
+			secretWeak = true
+		}
+	}
+	if secretWeak {
 		return nil, fmt.Errorf("SECRET_KEY must be a secure random value — generate with: openssl rand -hex 32")
 	}
 	if c.EncryptionKey == "" {
@@ -41,6 +48,12 @@ func LoadConfig() (*Config, error) {
 	}
 	if len([]byte(c.EncryptionKey)) != 32 {
 		return nil, fmt.Errorf("ENCRYPTION_KEY must be exactly 32 bytes, got %d", len([]byte(c.EncryptionKey)))
+	}
+	weakEncKeys := []string{"change-this-to-exactly-32-bytes-"}
+	for _, w := range weakEncKeys {
+		if c.EncryptionKey == w || strings.HasPrefix(c.EncryptionKey, "change-this") {
+			return nil, fmt.Errorf("ENCRYPTION_KEY must be changed from the default — generate 32 random bytes")
+		}
 	}
 	if c.PGURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL (Supabase PostgreSQL URL) is required")
