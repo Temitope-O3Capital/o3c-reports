@@ -4,8 +4,9 @@ import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useParams } 
 import { Toaster, toast } from 'sonner'
 import Sidebar from './components/Sidebar'
 import NotificationBell from './components/NotificationBell'
-import Login from './pages/Login'
-import Overview from './pages/Overview'
+
+const Login    = lazy(() => import('./pages/Login'))
+const Overview = lazy(() => import('./pages/Overview'))
 import { AuthUser, parseToken, ROLE_PAGES } from './hooks/useAuth'
 import { roleLabel } from './lib/roles'
 import { API, apiFetch } from './lib/api'
@@ -565,7 +566,9 @@ export default function App() {
   if (!user) return (
     <>
       <Toaster richColors position="top-right" />
-      <Login onLogin={handleLogin} />
+      <Suspense fallback={<div className="min-h-screen bg-[#F6F5F2]" />}>
+        <Login onLogin={handleLogin} />
+      </Suspense>
     </>
   )
 

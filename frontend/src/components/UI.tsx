@@ -239,6 +239,8 @@ export function AreaChartCard({
   title: string; subtitle?: string; data: any[]; xKey: string; areaKey: string
   color?: string; currency?: boolean; height?: number; loading?: boolean
 }) {
+  const uid = useId()
+  const gradId = `grad-${uid.replace(/:/g, '')}`
   return (
     <SectionCard title={title} subtitle={subtitle}>
       <div className="px-5 py-4">
@@ -252,7 +254,7 @@ export function AreaChartCard({
           <ResponsiveContainer width="100%" height={height}>
             <AreaChart data={data} margin={{ top: 20, right: 12, left: 0, bottom: 4 }}>
               <defs>
-                <linearGradient id={`grad-${areaKey}`} x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%"   stopColor={color} stopOpacity={0.13} />
                   <stop offset="100%" stopColor={color} stopOpacity={0} />
                 </linearGradient>
@@ -264,7 +266,7 @@ export function AreaChartCard({
                 domain={[(dataMin: number) => dataMin < 0 ? Math.floor(dataMin * 1.12) : 0, (dataMax: number) => Math.ceil(dataMax * 1.15) || 10]} />
               <Tooltip content={<ChartTip currency={currency} />} />
               <Area type="monotone" dataKey={areaKey} stroke={color} strokeWidth={1.5}
-                fill={`url(#grad-${areaKey})`} dot={false}
+                fill={`url(#${gradId})`} dot={false}
                 activeDot={{ r: 3.5, fill: color, strokeWidth: 0 }} />
             </AreaChart>
           </ResponsiveContainer>
