@@ -325,7 +325,7 @@ func main() {
 		srv.Shutdown(ctx) //nolint:errcheck
 	}()
 
-	slog.Info("O3C Reports API starting", "port", cfg.Port)
+	slog.Info("O3 Capital Workspace API starting", "port", cfg.Port)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		slog.Error("Server error", "err", err)
 		os.Exit(1)

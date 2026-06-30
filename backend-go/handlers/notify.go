@@ -116,7 +116,7 @@ func Notify(ctx context.Context, db *core.DB, p NotifPayload) {
 	// ── SMS ────────────────────────────────────────────────────────────────────
 	if channelOn("sms") {
 		if phone := str(u["phone"]); phone != "" {
-			msg := fmt.Sprintf("O3C Cards: %s — %s", p.Title, p.Body)
+			msg := fmt.Sprintf("O3 Capital: %s — %s", p.Title, p.Body)
 			if len(msg) > 160 {
 				msg = msg[:157] + "..."
 			}

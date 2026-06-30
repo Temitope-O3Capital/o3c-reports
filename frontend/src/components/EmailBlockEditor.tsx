@@ -99,14 +99,14 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 
 // ── Default block constructors ───────────────────────────────────────
 const DEF: Record<string, () => EmailBlock> = {
-  header:  () => ({ id: uid(), type: 'header',  logoText: 'O3C Cards', tagline: '',   bg: C.NAVY, textColor: '#ffffff', padding: 32 }),
+  header:  () => ({ id: uid(), type: 'header',  logoText: 'O3 Capital', tagline: '',   bg: C.NAVY, textColor: '#ffffff', padding: 32 }),
   text:    () => ({ id: uid(), type: 'text',    html: '<p>Enter your message here...</p>' }),
   image:   () => ({ id: uid(), type: 'image',   src: '', alt: '', link: '', align: 'center', rounded: false }),
   button:  () => ({ id: uid(), type: 'button',  text: 'Click Here', url: '', bg: C.RED, textColor: '#ffffff', align: 'center', size: 'md', rounded: true }),
   divider: () => ({ id: uid(), type: 'divider', color: '#e0e0e0', thickness: 1, margin: 20 }),
   spacer:  () => ({ id: uid(), type: 'spacer',  height: 32 }),
   two_col: () => ({ id: uid(), type: 'two_col', leftHtml: '<p>Left content</p>', rightHtml: '<p>Right content</p>', split: '50/50' }),
-  footer:  () => ({ id: uid(), type: 'footer',  text: '© 2026 O3C Cards | Lagos, Nigeria', unsubscribe: true }),
+  footer:  () => ({ id: uid(), type: 'footer',  text: '© 2026 O3 Capital | Lagos, Nigeria', unsubscribe: true }),
 }
 
 // ── Block palette ────────────────────────────────────────────────────
@@ -133,8 +133,8 @@ const TEMPLATES: { id: string; name: string; icon: string; color: string; desc: 
     desc: 'Header · Message · CTA button · Footer',
     blocks: [
       { ...DEF.header(), tagline: 'Your Financial Partner' },
-      { ...DEF.text(), html: '<p style="margin:0 0 16px;">Dear <strong>{{first_name}}</strong>,</p><p style="margin:0 0 16px;">We have an important update regarding your O3C Cards account.</p><p style="margin:0;">Thank you for being a valued customer.</p>' },
-      { ...DEF.button(), text: 'View My Account', url: 'https://o3ccards.com' },
+      { ...DEF.text(), html: '<p style="margin:0 0 16px;">Dear <strong>{{first_name}}</strong>,</p><p style="margin:0 0 16px;">We have an important update regarding your O3 Capital account.</p><p style="margin:0;">Thank you for being a valued customer.</p>' },
+      { ...DEF.button(), text: 'View My Account', url: 'https://o3capital.com' },
       DEF.footer(),
     ],
   },
@@ -155,9 +155,9 @@ const TEMPLATES: { id: string; name: string; icon: string; color: string; desc: 
     blocks: [
       { ...DEF.header(), bg: C.RED, tagline: 'Action Required' },
       { ...DEF.text(), html: '<p style="margin:0 0 16px;">Dear <strong>{{first_name}}</strong>,</p><p style="margin:0 0 16px;">Your outstanding balance of <strong style="font-size:22px;color:#C00000;">₦{{amount}}</strong> is due on <strong>{{due_date}}</strong>.</p><p style="margin:0 0 16px;">Please settle your balance promptly to avoid any disruption to your account.</p>' },
-      { ...DEF.button(), text: 'Pay Now', bg: C.RED, url: 'https://o3ccards.com/pay' },
+      { ...DEF.button(), text: 'Pay Now', bg: C.RED, url: 'https://o3capital.com/pay' },
       DEF.divider(),
-      { ...DEF.text(), html: '<p style="margin:0;font-size:13px;color:#888;text-align:center;">Need help? Call 07000-O3CARDS or email <a href="mailto:support@o3ccards.com" style="color:#0E2841;">support@o3ccards.com</a></p>' },
+      { ...DEF.text(), html: '<p style="margin:0;font-size:13px;color:#888;text-align:center;">Need help? Call 07000-O3CARDS or email <a href="mailto:support@o3capital.com" style="color:#0E2841;">support@o3capital.com</a></p>' },
       DEF.footer(),
     ],
   },
@@ -165,7 +165,7 @@ const TEMPLATES: { id: string; name: string; icon: string; color: string; desc: 
     id: 'welcome', name: 'Welcome', icon: 'waving_hand', color: '#8B5CF6',
     desc: 'Onboard new cardholders',
     blocks: [
-      { ...DEF.header(), tagline: 'Welcome to O3C Cards' },
+      { ...DEF.header(), tagline: 'Welcome to O3 Capital' },
       { ...DEF.text(), html: "<h2 style=\"margin:0 0 16px;color:#0E2841;font-size:22px;\">Welcome aboard, {{first_name}}!</h2><p style=\"margin:0 0 16px;\">Your O3C Card account is ready. Here's what you get:</p><ul style=\"margin:0;padding-left:20px;color:#444;line-height:2.2;\"><li><strong>Instant payments</strong> — pay anywhere, anytime</li><li><strong>Cashback rewards</strong> — earn on every spend</li><li><strong>Zero forex fees</strong> — international transactions</li><li><strong>24/7 support</strong> — we're always here</li></ul>" },
       { ...DEF.button(), text: 'Activate My Card', bg: C.NAVY },
       DEF.footer(),
@@ -196,7 +196,7 @@ function blockToHtml(b: EmailBlock): string {
       return wrap(
         `<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
         `<td style="padding:${b.padding || 32}px 40px;background:${b.bg || C.NAVY};text-align:center;">` +
-        `<span style="font-size:24px;font-weight:700;color:${b.textColor || '#fff'};letter-spacing:-0.5px;display:block;">${b.logoText || 'O3C Cards'}</span>` +
+        `<span style="font-size:24px;font-weight:700;color:${b.textColor || '#fff'};letter-spacing:-0.5px;display:block;">${b.logoText || 'O3 Capital'}</span>` +
         (b.tagline ? `<span style="font-size:11px;color:${b.textColor || '#fff'}99;display:block;margin-top:6px;text-transform:uppercase;letter-spacing:0.1em;">${b.tagline}</span>` : '') +
         `</td></tr></table>`
       )
@@ -246,8 +246,8 @@ function blockToHtml(b: EmailBlock): string {
       return wrap(
         `<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
         `<td style="padding:24px 40px;background:#f8f9fa;border-top:1px solid #ececec;text-align:center;">` +
-        `<p style="margin:0 0 6px;font-size:12px;color:#888;">${b.text || '© 2026 O3C Cards'}</p>` +
-        (b.unsubscribe ? '<p style="margin:0;font-size:11px;color:#bbb;">You received this because you are an O3C Cards customer. <a href="{{unsubscribe_url}}" style="color:#bbb;">Unsubscribe</a></p>' : '') +
+        `<p style="margin:0 0 6px;font-size:12px;color:#888;">${b.text || '© 2026 O3 Capital'}</p>` +
+        (b.unsubscribe ? '<p style="margin:0;font-size:11px;color:#bbb;">You received this because you are an O3 Capital customer. <a href="{{unsubscribe_url}}" style="color:#bbb;">Unsubscribe</a></p>' : '') +
         `</td></tr></table>`
       )
 
@@ -317,7 +317,7 @@ function CanvasBlock({ block, selected, idx, total, onSelect, onUpdate, onMove, 
         return (
           <div style={{ padding: `${block.padding || 32}px 40px`, background: block.bg || C.NAVY, textAlign: 'center' }}>
             <div style={{ fontSize: 20, fontWeight: 700, color: block.textColor || '#fff', letterSpacing: '-0.3px' }}>
-              {block.logoText || 'O3C Cards'}
+              {block.logoText || 'O3 Capital'}
             </div>
             {block.tagline && (
               <div style={{ fontSize: 11, color: (block.textColor || '#fff') + '99', marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
@@ -500,7 +500,7 @@ function CanvasBlock({ block, selected, idx, total, onSelect, onUpdate, onMove, 
       case 'footer':
         return (
           <div style={{ padding: '20px 40px', background: '#f8f9fa', borderTop: '1px solid #ececec', textAlign: 'center' }}>
-            <p style={{ margin: '0 0 4px', fontSize: 11, color: '#888' }}>{block.text || '© 2026 O3C Cards'}</p>
+            <p style={{ margin: '0 0 4px', fontSize: 11, color: '#888' }}>{block.text || '© 2026 O3 Capital'}</p>
             {block.unsubscribe && <p style={{ margin: 0, fontSize: 10, color: '#bbb' }}>Unsubscribe link included automatically</p>}
           </div>
         )

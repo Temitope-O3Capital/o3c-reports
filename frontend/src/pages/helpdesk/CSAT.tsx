@@ -67,7 +67,7 @@ export default function CSAT() {
           style={{ background: NAVY }}
         >
           <span className="material-symbols-rounded text-white text-[20px]">credit_card</span>
-          <span className="text-white font-bold text-[15px] tracking-wide">O3C Cards</span>
+          <span className="text-white font-bold text-[15px] tracking-wide">O3 Capital</span>
         </div>
         <p className="text-slate-400 text-[13px]">Customer Support</p>
       </div>
@@ -160,7 +160,7 @@ export default function CSAT() {
         )}
       </div>
 
-      <p className="mt-6 text-slate-300 text-[11px]">Powered by O3C Cards · Secure</p>
+      <p className="mt-6 text-slate-300 text-[11px]">Powered by O3 Capital · Secure</p>
     </div>
   )
 }

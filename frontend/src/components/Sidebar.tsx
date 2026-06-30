@@ -356,7 +356,7 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
               O3 Capital
             </div>
             <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10.5, lineHeight: 1.3 }}>
-              Cards Platform
+              Workspace
             </div>
           </div>
         )}

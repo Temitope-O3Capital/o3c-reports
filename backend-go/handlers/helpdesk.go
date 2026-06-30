@@ -1572,10 +1572,10 @@ func hdSendCSATEmail(ctx context.Context, db *core.DB, ticket map[string]any) {
   <a href="%s?score=4">&#11088;&#11088;&#11088;&#11088; 4</a> &nbsp;
   <a href="%s?score=5">&#11088;&#11088;&#11088;&#11088;&#11088; 5</a>
 </p>
-<p style="font-size:12px;color:#666">O3C Cards Customer Support</p>`,
+<p style="font-size:12px;color:#666">O3 Capital Customer Support</p>`,
 		escapeMailHTML(customerName), escapeMailHTML(ticketRef),
 		csatURL, csatURL, csatURL, csatURL, csatURL)
-	text := fmt.Sprintf("Hi %s,\n\nYour support request (%s) has been resolved.\nRate your experience: %s\n\nO3C Cards Customer Support",
+	text := fmt.Sprintf("Hi %s,\n\nYour support request (%s) has been resolved.\nRate your experience: %s\n\nO3 Capital Customer Support",
 		customerName, ticketRef, csatURL)
 
 	SendMail(ctx, db, SendMailOptions{

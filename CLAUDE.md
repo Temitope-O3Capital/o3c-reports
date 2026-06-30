@@ -1,4 +1,4 @@
-# O3C Cards Reporting Platform — Claude Code Instructions
+# O3 Capital Workspace — Claude Code Instructions
 
 This file is read by Claude Code automatically. It tells you everything about
 this project so you can continue development without asking Temitope to re-explain context.
@@ -7,329 +7,244 @@ this project so you can continue development without asking Temitope to re-expla
 
 ## What This Project Is
 
-A full-stack web reporting dashboard for **O3C Cards** — a Nigerian fintech building
-prepaid, credit, and international USD cards plus business loans.
+A full-stack B2B operations platform for **O3 Capital** — a Nigerian fintech company
+offering prepaid, credit, and international USD cards plus business loans.
 
-The dashboard replaces Power BI with a live web app accessible from anywhere.
-
----
-
-## Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  OFFICE (on-site)                                               │
-│  ┌─────────────┐    ┌──────────────────┐   ┌─────────────────┐ │
-│  │  MSSQL DB   │◄───│  sync_engine.py  │   │  cloudflared    │ │
-│  │  (primary)  │    │  (daily 18:00 +  │   │  (tunnel agent) │ │
-│  └─────────────┘    │   manual trigger)│   └────────┬────────┘ │
-│                     └────────┬─────────┘            │          │
-└─────────────────────────────┼──────────────────────┼──────────┘
-                               │ syncs to             │ tunnel
-                               ▼                      ▼
-                        ┌─────────────┐      ┌───────────────┐
-                        │  Supabase   │      │  Cloudflare   │
-                        │ (PostgreSQL)│      │   Network     │
-                        │  fallback  │      └───────┬───────┘
-                        └─────┬───────┘              │
-                              │                      │
-                        ┌─────▼──────────────────────▼──────┐
-                        │         Railway (FastAPI)          │
-                        │   tries MSSQL first via tunnel     │
-                        │   falls back to Supabase snapshot  │
-                        │   shows data_source banner         │
-                        └─────────────────┬─────────────────┘
-                                          │ REST API
-                                          ▼
-                              ┌──────────────────────┐
-                              │  Cloudflare Pages     │
-                              │  (React + Vite)       │
-                              │  accessible anywhere  │
-                              └──────────────────────┘
-```
+O3 Capital Workspace is the internal staff platform: it consolidates loan origination,
+cards ops, collections, recovery, sales/CRM, compliance, HR, helpdesk, campaigns,
+finance, and executive reporting into a single authenticated web application.
+It replaces a fragmented mix of Power BI dashboards and spreadsheets.
 
 ---
 
-## Tech Stack
+## Architecture
 
-| Layer          | Technology              | Notes                                      |
-|----------------|-------------------------|--------------------------------------------|
-| Frontend       | React 18 + Vite         | Deployed on Cloudflare Pages               |
-| Styling        | Plain CSS (index.css)   | CSS variables, no Tailwind                 |
-| Charts         | Recharts                | LineChart, BarChart, PieChart, custom heatmap |
-| Routing        | React Router v6         | Protected routes, role-based nav           |
-| Auth           | JWT (python-jose)       | 8hr tokens, role-based page access         |
-| Backend        | FastAPI + Python 3.11   | Deployed on Railway                        |
-| Primary DB     | MSSQL (on-site)         | Connected via Cloudflare Tunnel + pyodbc   |
-| Fallback DB    | Supabase (PostgreSQL)   | Free tier, last-synced snapshot            |
-| Sync engine    | Python + Flask          | Runs on office PC, pyodbc → psycopg2       |
-| Tunnel         | Cloudflare Tunnel       | cloudflared on office PC → MSSQL port 1433 |
+```
+Frontend (React 18 + TypeScript + Tailwind v3)
+  ↓ REST / SSE
+Backend (Go + chi router)
+  ↓
+PostgreSQL (Supabase / Railway Postgres)
+  ↓  (secondary)
+MSSQL (on-site, via Cloudflare Tunnel — optional, for live card data)
+```
+
+| Layer       | Technology                        | Deploy              |
+|-------------|-----------------------------------|---------------------|
+| Frontend    | React 18 + Vite + TypeScript      | Cloudflare Pages    |
+| Styling     | Tailwind v3 + inline styles       | —                   |
+| Icons       | Material Symbols Rounded (CDN)    | Google Fonts        |
+| Charts      | Recharts                          | —                   |
+| Rich text   | Tiptap v3                         | —                   |
+| Toasts      | Sonner                            | —                   |
+| Backend     | Go (chi router)                   | Railway             |
+| Auth        | JWT (HS256, 8 h access tokens)    | —                   |
+| Primary DB  | PostgreSQL (Supabase)             | Supabase            |
+| File store  | Supabase Storage                  | Supabase            |
+| Mail        | SendGrid + Microsoft Graph        | —                   |
+| Call center | Zoho Desk + Zoho Voice            | —                   |
+| SMS/Push    | (configured per env)              | —                   |
 
 ---
 
-## O3C Brand
+## O3 Capital Brand
 
 ```
-Navy:   #0E2841  (primary — headers, sidebar, table headers)
-Red:    #C00000  (accent — charts, badges, CTAs)
-White:  #FFFFFF
-Grey:   #F4F6F8  (canvas background)
-Green:  #166534  (positive metrics, high retention)
-Amber:  #F59E0B  (medium retention, warnings)
-Font:   DM Sans (body), DM Mono (numbers/code)
+Navy:    #0E2841  — sidebar, headers, table headers, primary CTAs
+Red:     #C00000  — accent, active nav, badges, charts
+White:   #FFFFFF
+Canvas:  #F4F6F8  — page background
+Font:    DM Sans (body), DM Mono (numbers / mono)
+Icons:   Material Symbols Rounded (Google CDN, variable font)
 ```
 
 ---
 
-## Database Tables (MSSQL — exact names matter)
-
-| MSSQL Table Name   | Supabase Table Name    | Key Column   | Rows (approx) |
-|--------------------|------------------------|--------------|---------------|
-| Accounts           | Accounts               | CIF Number   | 19,101        |
-| Products           | Products               | CIF Number   | 19,887        |
-| Transactions       | Transactions           | —            | 1,016,704     |
-| MonthlyActivity    | Monthly Activity       | CIF Number   | 124,455       |
-| CollectionsLog     | Collections Log        | —            | 220           |
-| CIFTable           | CIF Table              | CIF Number   | 19,760        |
-| RecoveryMasterSheet| Recovery Master Sheet  | CIF Number   | unknown       |
-
-### Key Column Names (exact — used in queries)
-
-**Accounts:** CIF Number, Account Created Date, First Name, Last Name,
-              Full Address, Birthday, Email, Job Title, State, City
-
-**Products:** CIF Number, Name On Card, Account Manager, Product Name, Account Status
-
-**Transactions:** Transaction Date, Amount, Description, Merchant_Name, CIF Number
-
-**Monthly Activity:** CIF Number, ActivityMonth, TxnCount, TotalSpend
-
-**Collections Log:** Date, CIF, Agent, Amount, Mode Of Payment, Payment Receipt
-
-**CIF Table:** CIF Number, Cohort Date, Cohort Label
-
-**Recovery Master Sheet:** CIF Number, Recovery Date, Recovery Amount,
-                           Recovery Method, Legal Stage, Agent, Status
-                           (source: Excel on OneDrive — columns TBC with Temitope)
-
----
-
-## User Roles & Page Access
-
-```python
-ROLE_PAGES = {
-    "admin":       ["overview","transactions","collections","recovery","sales","cards","cohort"],
-    "management":  ["overview","transactions","collections","recovery","sales","cards","cohort"],
-    "collections": ["collections","recovery"],
-    "sales":       ["sales","overview"],
-    "cards_ops":   ["cards","transactions","overview"],
-    "recovery":    ["recovery","collections"],
-    "call_centre": ["overview","transactions"],
-}
-```
-
----
-
-## Report Pages
-
-| Page       | Route          | Data Sources                          |
-|------------|----------------|---------------------------------------|
-| Overview   | /              | All tables — executive KPIs           |
-| Transactions | /transactions | Transactions, Monthly Activity        |
-| Cards      | /cards         | Products, Accounts                    |
-| Cohort     | /cohort        | CIF Table, Monthly Activity           |
-| Collections| /collections   | Collections Log, Accounts             |
-| Recovery   | /recovery      | Recovery Master Sheet, Accounts       |
-| Sales      | /sales         | Accounts, Products                    |
-
----
-
-## Dual-Source Pattern (CRITICAL)
-
-Every API endpoint tries MSSQL first, falls back to Supabase.
-The response always includes a `data_source` field.
-
-```python
-# Pattern used in every router
-result, source = await dual_query(
-    db_mssql, db_pg,
-    mssql_query="SELECT ...",
-    pg_query="SELECT ..."
-)
-return {"data": result, "data_source": source}
-# source is either "mssql_live" or "supabase_snapshot"
-```
-
-Frontend reads `data_source` and shows a banner:
-- 🟢 "Live data · MSSQL" — green banner
-- 🟡 "Snapshot · Last synced [timestamp]" — amber banner
-
----
-
-## File Structure
+## Monorepo Layout
 
 ```
-o3c_v2/
-├── CLAUDE.md                  ← you are here
-├── .env.example               ← copy to .env, fill in secrets
-├── backend/
-│   ├── main.py                ← FastAPI app entry point
-│   ├── requirements.txt
-│   ├── core/
-│   │   ├── database.py        ← dual DB connections (MSSQL + Supabase)
-│   │   ├── auth.py            ← JWT logic, role checker
-│   │   └── dual_query.py      ← primary/fallback query pattern
-│   └── routers/
-│       ├── auth.py
-│       ├── overview.py
-│       ├── transactions.py
-│       ├── collections.py
-│       ├── recovery.py
-│       ├── sales.py
-│       ├── cards.py
-│       └── cohort.py
+o3c-reports/
+├── CLAUDE.md                      ← you are here
+├── .github/workflows/deploy.yml   ← CI: frontend → Cloudflare Pages; backend → Railway
+├── docs/DEPLOYMENT.md
+│
 ├── frontend/
 │   ├── index.html
-│   ├── package.json
-│   ├── vite.config.js
-│   ├── .env                   ← VITE_API_URL, VITE_SYNC_URL
+│   ├── package.json               ← name: o3c-workspace
+│   ├── vite.config.ts
+│   ├── tailwind.config.js
+│   ├── tsconfig.json
+│   ├── .env.example               ← VITE_API_URL=http://localhost:8000
 │   └── src/
-│       ├── main.jsx
-│       ├── App.jsx
-│       ├── index.css          ← all styles, CSS variables
+│       ├── main.tsx
+│       ├── App.tsx                ← router, auth guard, layout shell, all routes
+│       ├── lib/
+│       │   ├── api.ts             ← apiFetch() wrapper (adds Authorization header)
+│       │   └── fmt.ts             ← currency, date, number formatters
 │       ├── hooks/
-│       │   ├── useAuth.js     ← login, logout, canAccess()
-│       │   └── useApi.js      ← data fetching with data_source support
+│       │   ├── useAuth.ts         ← JWT login/logout, role check, token refresh
+│       │   └── useNotifications.ts← SSE bell via /api/notifications/sse
 │       ├── components/
-│       │   ├── Charts.jsx     ← KpiCard, LineChartCard, BarChartCard, DonutCard
-│       │   ├── DataBanner.jsx ← 🟢/🟡 live vs snapshot indicator
-│       │   └── SyncPanel.jsx  ← admin sync trigger modal
+│       │   ├── Sidebar.tsx        ← accordion nav, collapse, user footer
+│       │   ├── UI.tsx             ← shared design system components
+│       │   ├── EmailBlockEditor.tsx← drag-drop email block builder
+│       │   └── RichTextEditor.tsx ← Tiptap wrapper
 │       └── pages/
-│           ├── Login.jsx
-│           ├── Overview.jsx
-│           ├── Transactions.jsx
-│           ├── Collections.jsx
-│           ├── Recovery.jsx
-│           ├── Sales.jsx
-│           ├── Cards.jsx
-│           └── Cohort.jsx
-├── sync/
-│   ├── sync_engine.py         ← MSSQL → Supabase sync + Flask API
-│   ├── requirements.txt
-│   └── .env                   ← MSSQL_SERVER, MSSQL_DB, SUPABASE_URL
-└── docs/
-    ├── DEPLOYMENT.md          ← step-by-step deploy guide
-    ├── CLOUDFLARE_TUNNEL.md   ← tunnel setup for office PC
-    └── SUPABASE_SETUP.md      ← SQL to run in Supabase dashboard
-```
+│           ├── Login.tsx
+│           ├── Overview.tsx       ← executive dashboard
+│           ├── Approvals.tsx      ← cross-module approval queue
+│           ├── Campaigns.tsx
+│           ├── Settings.tsx
+│           ├── admin/             ← UserManagement, RoleManagement, ApiKeys, MailHealth…
+│           ├── cards/             ← Cards overview, cohort, customers
+│           ├── collections/       ← Collections overview + ops
+│           ├── collections-ops/
+│           ├── compliance/        ← Audit findings, regulatory tracking
+│           ├── crm/               ← CRM, reports
+│           ├── customer-service/  ← Helpdesk tickets, CSAT
+│           ├── customer360/       ← 360° customer view
+│           ├── finance/           ← P&L, overview
+│           ├── helpdesk/          ← Helpdesk queue, CSAT
+│           ├── hr/                ← Employees, leaves, payroll
+│           ├── kpi/               ← KPI tracker
+│           ├── los/               ← Loan origination, applications, queue
+│           ├── mail/              ← Mail inbox, composer
+│           ├── marketing/         ← Message templates, campaign builder
+│           ├── operations/        ← Fixed deposits, settlements
+│           ├── recovery/          ← Recovery overview
+│           ├── recovery-ops/      ← Recovery cases, visits, agents
+│           ├── reports/           ← Report generation
+│           ├── risk/              ← Risk dashboard
+│           ├── sales/             ← Sales overview, cohort, customers
+│           ├── settings/          ← User settings
+│           └── statements/        ← Account statements
+│
+└── backend-go/
+    ├── main.go                    ← chi router, middleware, route registration
+    ├── go.mod / go.sum
+    ├── .env.example
+    └── handlers/
+        ├── auth.go                ← login, bootstrap, password reset
+        ├── admin.go               ← user management, API keys, roles
+        ├── approvals.go
+        ├── batch.go
+        ├── campaigns.go / campaign_analytics.go
+        ├── cards.go / card_trends.go / cohort.go
+        ├── collections.go / collections_ops.go
+        ├── compliance.go          ← audit findings (uses finding_ref_seq sequence)
+        ├── crm.go / customer360.go / customer_service.go
+        ├── eod.go / executive.go / income.go / kpi.go / overview.go
+        ├── fixed_deposit.go
+        ├── helpdesk.go
+        ├── hr.go
+        ├── loans.go / los.go
+        ├── mail.go / mail_test.go / statement_emails.go
+        ├── marketing/ message_templates.go / contact_lists.go / email_senders.go
+        ├── notifications.go / notify.go / notification_prefs.go
+        ├── reconciliation.go / reports.go / risk.go / sales.go / settlements.go
+        ├── recovery.go / recovery_ops.go
+        ├── transactions.go / credit_portfolio.go
+        ├── uploads.go
+        ├── voice.go / call_center.go / zoho.go
+        ├── whatsapp.go
+        ├── helpers.go / stubs.go / settings_handler.go
+        └── core/
+            ├── config.go          ← env vars, weak secret detection
+            ├── db.go              ← PostgreSQL pool (pgx)
+            └── (encryption, etc.)
 
 ---
 
-## Environment Variables
+## Dev Servers
 
-### backend/.env
-```
-DATABASE_URL=postgresql://postgres:PASSWORD@db.PROJECT.supabase.co:5432/postgres
-MSSQL_SERVER=YOUR_MSSQL_SERVER_NAME_OR_IP
-MSSQL_DATABASE=YOUR_DATABASE_NAME
-MSSQL_TRUSTED=yes
-SECRET_KEY=generate-with-openssl-rand-hex-32
-SYNC_ENGINE_URL=http://YOUR_OFFICE_IP:5001
-```
-
-### frontend/.env
-```
-VITE_API_URL=https://your-app.railway.app
-VITE_SYNC_URL=http://YOUR_OFFICE_IP:5001
-```
-
-### sync/.env
-```
-MSSQL_SERVER=YOUR_SERVER
-MSSQL_DB=YOUR_DATABASE
-SUPABASE_URL=postgresql://postgres:PASSWORD@db.PROJECT.supabase.co:5432/postgres
-```
-
----
-
-## Common Tasks for Claude Code
-
-### Add a new API endpoint
-1. Find the relevant router in `backend/routers/`
-2. Use `dual_query()` from `core/dual_query.py` — always both MSSQL and PG versions
-3. Add the route to the router, include `data_source` in response
-4. Add a `useApi()` call in the relevant frontend page
-
-### Add a new chart to a page
-1. Import from `components/Charts.jsx`
-2. Available: `KpiCard`, `LineChartCard`, `BarChartCard`, `DonutCard`, `fmt()`, `pct()`
-3. Use O3C colours: navy `#0E2841`, red `#C00000`
-
-### Add a new user role
-1. Add to `ROLE_PAGES` in `backend/core/auth.py`
-2. Add to `ROLE_PAGES` in `frontend/src/hooks/useAuth.js` (keep in sync)
-
-### Add a new report page
-1. Create `frontend/src/pages/NewPage.jsx`
-2. Add route to `frontend/src/App.jsx`
-3. Add nav item to `NAV_ITEMS` array in `App.jsx`
-4. Add page key to `ROLE_PAGES` for relevant roles
-5. Create router `backend/routers/new_page.py`
-6. Register in `backend/main.py`
-
-### Change sync schedule
-Edit `sync/sync_engine.py` — find the `start_scheduler()` function.
-Currently: Mon–Fri at 18:00. Uses the `schedule` library.
-
-### Recovery Master Sheet columns
-⚠️ Temitope has not yet confirmed the exact column names for Recovery Master Sheet
-(it comes from Excel on OneDrive). Ask before writing queries against it.
-Assumed columns: CIF Number, Recovery Date, Recovery Amount, Recovery Method,
-Legal Stage, Agent, Status — but verify with Temitope.
-
----
-
-## Known Issues / TODOs
-
-- [ ] Recovery Master Sheet Excel column names need confirmation from Temitope
-- [ ] OneDrive/Microsoft Graph API integration not yet built — Recovery data currently reads from Supabase only
-- [ ] Date range filter not yet wired to API calls (filter bar UI exists, params not sent)
-- [ ] Card Type slicer filter not yet wired
-- [ ] Admin user creation UI not built — users created via SQL directly for now
-- [ ] Mobile responsive layout needs testing below 600px
-
----
-
-## Running Locally
-
-```bash
-# Terminal 1 — Backend
-cd backend
-pip install -r requirements.txt
-cp ../.env.example .env   # fill in values
-uvicorn main:app --reload --port 8000
-
-# Terminal 2 — Frontend
-cd frontend
-npm install
-npm run dev               # http://localhost:3000
-
-# Terminal 3 — Sync engine (office PC only)
-cd sync
-pip install -r requirements.txt
-python sync_engine.py     # http://localhost:5001
-```
-
-First login: admin@o3ccards.com / Admin@O3C2026
-(hash in SUPABASE_SETUP.md — change immediately after first login)
+| Service  | Command                                               | URL                  |
+|----------|-------------------------------------------------------|----------------------|
+| Frontend | `cd frontend && npm run dev`                          | http://localhost:3100 |
+| Backend  | `cd backend-go && go run main.go` (or `go build`)    | http://localhost:8000 |
 
 ---
 
 ## Deployment
 
-See `docs/DEPLOYMENT.md` for full step-by-step.
-Short version:
-- Backend → Railway (connect GitHub repo, set env vars)
-- Frontend → Cloudflare Pages (connect GitHub repo, build: `npm run build`, output: `dist`)
-- Tunnel → run `cloudflared` on office PC (see docs/CLOUDFLARE_TUNNEL.md)
-- Sync engine → runs on office PC as Windows service
+- **Frontend** → Cloudflare Pages, project name `o3c-workspace`, auto-deploys on push to `main`
+- **Backend** → Railway, `railway redeploy --from-source --yes` from `backend-go/`
+- **Never use Vercel** — Cloudflare Pages only
+
+### Required GitHub Secrets (Actions)
+| Secret                | Purpose                                       |
+|-----------------------|-----------------------------------------------|
+| `CLOUDFLARE_API_TOKEN`| Pages:Edit permission                         |
+| `CF_ACCOUNT_ID`       | Cloudflare account ID                         |
+| `VITE_API_URL`        | Backend Railway URL (e.g. https://…railway.app)|
+
+### Required Railway Env Vars
+| Var                   | Notes                                         |
+|-----------------------|-----------------------------------------------|
+| `DATABASE_URL`        | PostgreSQL connection string                  |
+| `SECRET_KEY`          | JWT signing secret — 32+ chars, not "change-this*" |
+| `ENCRYPTION_KEY`      | Exactly 32 bytes — not "change-this*"         |
+| `ALLOWED_ORIGINS`     | Comma-separated CORS origins                  |
+| `SENDGRID_API_KEY`    | Transactional email                           |
+| `BOOTSTRAP_SECRET`    | Optional: guard on POST /api/auth/bootstrap   |
+| `RESET_ADMIN_SECRET`  | Optional: guard on reset-admin endpoint       |
+
+---
+
+## Auth & Security Rules
+
+- JWTs are 8-hour access tokens. Include `Authorization: Bearer <token>` on all API calls.
+- `apiFetch()` in `src/lib/api.ts` handles this automatically.
+- `config.go` rejects weak `SECRET_KEY`/`ENCRYPTION_KEY` at startup.
+- `auth.go` uses `crypto/subtle.ConstantTimeCompare` for secret header checks.
+- Rate limiter uses the **rightmost** `X-Forwarded-For` value (Railway appends real IP last).
+- Bootstrap endpoint (`POST /api/auth/bootstrap`) is guarded by `BOOTSTRAP_SECRET` if set.
+- API keys stored via AES-GCM encryption — `encryptValue()` fails hard if `ENCRYPTION_KEY` missing.
+
+---
+
+## Notification System (SSE)
+
+1. Frontend calls `POST /api/notifications/sse-ticket` → receives `{ ticket: "..." }`
+2. Frontend opens `EventSource` at `GET /api/notifications/sse?ticket=<ticket>`
+3. Server streams events; ticket is single-use and expires in 30s.
+- File: `frontend/src/hooks/useNotifications.ts`
+
+---
+
+## Financial / Data Rules
+
+- All monetary amounts are stored in **kobo** (integer). Divide by 100 for display.
+- Every financial operation must post double-entry GL journal entries.
+- Audit finding refs use `finding_ref_seq` PostgreSQL sequence (race-free).
+
+---
+
+## Common Tasks
+
+### Add a new page
+1. Create `frontend/src/pages/<module>/NewPage.tsx`
+2. Add route in `src/App.tsx` (lazy import)
+3. Add nav item to the SECTIONS array in `src/components/Sidebar.tsx`
+4. Create handler in `backend-go/handlers/<module>.go`
+5. Register route in `backend-go/main.go`
+
+### Add a new API endpoint
+1. Add handler function to the relevant `handlers/*.go` file
+2. Register the route in `main.go` under the appropriate `r.Route()` group
+3. Call from frontend via `apiFetch('/api/...')` in `src/lib/api.ts`
+
+### Add a new user role
+1. Update role list in `backend-go/handlers/auth.go` / `admin.go`
+2. Update route guards in `main.go` middleware
+3. Update `canAccess()` in `frontend/src/hooks/useAuth.ts`
+
+---
+
+## What "Done" Means
+
+1. Code change is made, reads correctly, no syntax errors.
+2. `cd frontend && ./node_modules/.bin/tsc --noEmit` → zero errors.
+3. `cd backend-go && go build ./...` → compiles cleanly.
+4. Any required DB migration/sequence is idempotent.
+5. Change is committed with a clear message.
+6. For deployed changes: `railway redeploy --from-source --yes` run and health endpoint responds.

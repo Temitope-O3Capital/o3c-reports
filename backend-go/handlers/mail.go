@@ -462,9 +462,9 @@ func mailSendTest(db *core.DB) http.HandlerFunc {
 		res := SendMail(r.Context(), db, SendMailOptions{
 			To:      []MailAddress{{Email: b.To, Name: b.To}},
 			Subject: "O3C Mail Health — Test Email",
-			HTMLBody: `<p>This is a test email sent from the <strong>O3C Cards Mail Health</strong> dashboard.</p>
+			HTMLBody: `<p>This is a test email sent from the <strong>O3 Capital Mail Health</strong> dashboard.</p>
 <p>If you received this, your SendGrid integration is working correctly.</p>`,
-			TextBody:     "This is a test email from O3C Cards Mail Health. If you received this, your SendGrid integration is working.",
+			TextBody:     "This is a test email from O3 Capital Mail Health. If you received this, your SendGrid integration is working.",
 			CreatedBy:    user.ID,
 			ReplyToEmail: user.Sub,
 		})
@@ -851,12 +851,12 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 func SendTemporaryPasswordEmail(ctx context.Context, db *core.DB, email, name, tempPassword string, userID int64) SendMailResult {
 	html := fmt.Sprintf(`
 		<p>Hello %s,</p>
-		<p>Your O3C Cards portal password has been reset.</p>
+		<p>Your O3 Capital portal password has been reset.</p>
 		<p><strong>Temporary password:</strong> <code>%s</code></p>
 		<p>Please sign in and change it immediately.</p>
 		<p>If you did not request this reset, contact your administrator.</p>`,
 		escapeMailHTML(coalesce(name, "there")), escapeMailHTML(tempPassword))
-	text := fmt.Sprintf("Hello %s,\n\nYour O3C Cards portal password has been reset.\nTemporary password: %s\n\nPlease sign in and change it immediately.\nIf you did not request this reset, contact your administrator.",
+	text := fmt.Sprintf("Hello %s,\n\nYour O3 Capital portal password has been reset.\nTemporary password: %s\n\nPlease sign in and change it immediately.\nIf you did not request this reset, contact your administrator.",
 		coalesce(name, "there"), tempPassword)
 	return SendMail(ctx, db, SendMailOptions{
 		To:          []MailAddress{{Email: email, Name: name}},
@@ -1026,7 +1026,7 @@ func appendUnsubscribeHTML(ctx context.Context, db *core.DB, html string, mailID
 	if link == "" {
 		return html
 	}
-	footer := fmt.Sprintf(`<p style="margin-top:24px;font-size:12px;color:#64748b;">You are receiving this email from O3C Cards. <a href="%s" style="color:#0E2841;">Unsubscribe</a></p>`, escapeMailHTML(link))
+	footer := fmt.Sprintf(`<p style="margin-top:24px;font-size:12px;color:#64748b;">You are receiving this email from O3 Capital. <a href="%s" style="color:#0E2841;">Unsubscribe</a></p>`, escapeMailHTML(link))
 	return html + footer
 }
 

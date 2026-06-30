@@ -51,7 +51,7 @@ const STARTERS: StarterTemplate[] = [
   {
     name: 'Payment Reminder',
     channel: 'sms',
-    body: 'Dear {{first_name}}, your O3C Card repayment of ₦{{amount}} is due on {{date}}. Please pay to avoid late fees. Dial *901# or visit o3ccards.com. Reply STOP to opt out.',
+    body: 'Dear {{first_name}}, your O3C Card repayment of ₦{{amount}} is due on {{date}}. Please pay to avoid late fees. Dial *901# or visit o3capital.com. Reply STOP to opt out.',
     variables: ['first_name', 'amount', 'date'],
     tag: 'Collections',
     tagColor: '#C00000',
@@ -59,7 +59,7 @@ const STARTERS: StarterTemplate[] = [
   {
     name: 'Welcome Message',
     channel: 'sms',
-    body: 'Welcome to O3C Cards, {{first_name}}! Your account {{account_no}} is now active. Download the app or visit o3ccards.com to get started. We\'re excited to have you!',
+    body: 'Welcome to O3 Capital, {{first_name}}! Your account {{account_no}} is now active. Download the app or visit o3capital.com to get started. We\'re excited to have you!',
     variables: ['first_name', 'account_no'],
     tag: 'Onboarding',
     tagColor: '#059669',
@@ -67,7 +67,7 @@ const STARTERS: StarterTemplate[] = [
   {
     name: 'Overdue Notice',
     channel: 'sms',
-    body: 'URGENT: Your O3C account {{account_no}} has an overdue balance of ₦{{amount}}. Ignoring this may affect your credit rating. Call 01-XXXXXXX or pay now at o3ccards.com.',
+    body: 'URGENT: Your O3C account {{account_no}} has an overdue balance of ₦{{amount}}. Ignoring this may affect your credit rating. Call 01-XXXXXXX or pay now at o3capital.com.',
     variables: ['account_no', 'amount'],
     tag: 'Recovery',
     tagColor: '#D97706',
@@ -75,7 +75,7 @@ const STARTERS: StarterTemplate[] = [
   {
     name: 'Card Activation Prompt',
     channel: 'sms',
-    body: 'Hi {{first_name}}, your O3C Card has not been activated yet. Activate now by logging into o3ccards.com or calling 01-XXXXXXX. Don\'t miss out on your card benefits!',
+    body: 'Hi {{first_name}}, your O3C Card has not been activated yet. Activate now by logging into o3capital.com or calling 01-XXXXXXX. Don\'t miss out on your card benefits!',
     variables: ['first_name'],
     tag: 'Activation',
     tagColor: '#2563EB',
@@ -83,7 +83,7 @@ const STARTERS: StarterTemplate[] = [
   {
     name: 'Re-engagement',
     channel: 'sms',
-    body: 'Hi {{first_name}}, we noticed you haven\'t used your O3C Card recently. Come back and enjoy exclusive offers! Visit o3ccards.com or call us. Reply STOP to opt out.',
+    body: 'Hi {{first_name}}, we noticed you haven\'t used your O3C Card recently. Come back and enjoy exclusive offers! Visit o3capital.com or call us. Reply STOP to opt out.',
     variables: ['first_name'],
     tag: 'Marketing',
     tagColor: '#7C3AED',
@@ -92,7 +92,7 @@ const STARTERS: StarterTemplate[] = [
     name: 'Monthly Statement Ready',
     channel: 'email',
     subject: 'Your O3C Statement for {{month}} is ready',
-    body: 'Dear {{first_name}},\n\nYour monthly account statement for {{month}} is now available.\n\nAccount: {{account_no}}\nTotal Spend: ₦{{amount}}\nAvailable Balance: ₦{{balance}}\n\nLog in to view and download your full statement.\n\nBest regards,\nO3C Cards Team',
+    body: 'Dear {{first_name}},\n\nYour monthly account statement for {{month}} is now available.\n\nAccount: {{account_no}}\nTotal Spend: ₦{{amount}}\nAvailable Balance: ₦{{balance}}\n\nLog in to view and download your full statement.\n\nBest regards,\nO3 Capital Team',
     variables: ['first_name', 'month', 'account_no', 'amount', 'balance'],
     tag: 'Statements',
     tagColor: '#0E2841',
@@ -143,9 +143,9 @@ function starterEmailBlocks(body: string): EmailBlock[] {
     .join('')
 
   return [
-    { id: `header-${Date.now()}`, type: 'header', logoText: 'O3C Cards', tagline: '', bg: NAVY, textColor: '#ffffff', padding: 28 },
+    { id: `header-${Date.now()}`, type: 'header', logoText: 'O3 Capital', tagline: '', bg: NAVY, textColor: '#ffffff', padding: 28 },
     { id: `text-${Date.now()}`, type: 'text', html },
-    { id: `footer-${Date.now()}`, type: 'footer', text: 'O3C Cards | Lagos, Nigeria', unsubscribe: true },
+    { id: `footer-${Date.now()}`, type: 'footer', text: 'O3 Capital | Lagos, Nigeria', unsubscribe: true },
   ]
 }
 

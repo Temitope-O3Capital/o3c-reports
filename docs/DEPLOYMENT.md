@@ -1,4 +1,4 @@
-# O3C Reporting Platform — Deployment Guide
+# O3 Capital Workspace — Deployment Guide
 
 ---
 
@@ -51,7 +51,7 @@ VALUES (
 cd o3c_v2
 git init
 git add .
-git commit -m "Initial O3C Reports Platform"
+git commit -m "Initial O3 Capital Workspace"
 # Create a repo on github.com called o3c-reports (private)
 git remote add origin https://github.com/YOUR_USERNAME/o3c-reports.git
 git push -u origin main
@@ -88,7 +88,7 @@ git push -u origin main
    VITE_API_URL  = https://o3c-reports-xxxx.railway.app
    VITE_SYNC_URL = http://YOUR_OFFICE_IP:5001
    ```
-5. Deploy — your dashboard URL will be `https://o3c-reports.pages.dev`
+5. Deploy — your dashboard URL will be `https://o3capital-workspace.pages.dev`
    (you can add a custom domain like `reports.o3ccards.com` for free)
 
 ---
