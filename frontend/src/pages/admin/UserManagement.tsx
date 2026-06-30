@@ -396,7 +396,7 @@ function UserDrawer({
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          {i === 0 && <span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Most Recent</span>}
+                          {i === 0 && <span className="text-[11px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Most Recent</span>}
                           <p className="text-[12px] font-semibold text-slate-700">{fmtDate(s.logged_in_at)}</p>
                         </div>
                         <p className="font-mono text-[11px] text-slate-500 mt-0.5">{s.ip_address || 'Unknown IP'}</p>
@@ -438,13 +438,13 @@ function UserDrawer({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-[12px] font-semibold text-slate-700">{a.action || a.page}</span>
-                          {a.resource && <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{a.resource}</span>}
+                          {a.resource && <span className="text-[11px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{a.resource}</span>}
                         </div>
                         {a.detail && <p className="text-[11px] text-slate-400 truncate mt-0.5">{a.detail}</p>}
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <p className="text-[10px] text-slate-300 whitespace-nowrap">{fmtDate(a.ts)}</p>
-                        {a.ip && <p className="font-mono text-[10px] text-slate-300">{a.ip}</p>}
+                        <p className="text-[11px] text-slate-300 whitespace-nowrap">{fmtDate(a.ts)}</p>
+                        {a.ip && <p className="font-mono text-[11px] text-slate-300">{a.ip}</p>}
                       </div>
                     </div>
                   ))}

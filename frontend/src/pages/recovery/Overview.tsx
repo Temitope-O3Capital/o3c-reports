@@ -33,7 +33,7 @@ const STAGE_COLORS: Record<string, string> = {
   pre_legal:       AMBER,
   letter_of_demand: '#EA580C',
   court_filing:    RED,
-  hearing:         '#DC2626',
+  hearing:         '#C00000',
   garnishee:       '#7C3AED',
   judgment:        '#7F1D1D',
   closed:          '#94A3B8',

@@ -81,7 +81,7 @@ const STATUS_COLOR: Record<string, string> = {
   clicked:   '#7C3AED',
   bounced:   RED,
   dropped:   RED,
-  spam_report: '#DC2626',
+  spam_report: '#C00000',
   sending:   AMBER,
   failed:    RED,
 }

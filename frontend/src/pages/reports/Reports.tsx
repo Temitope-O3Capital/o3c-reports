@@ -339,8 +339,8 @@ function GenerateModal({ report, onClose }: { report: ReportDef; onClose: () => 
                       {log.last_error && <p className="text-[11px] text-red-600 truncate">{log.last_error}</p>}
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${log.status === 'delivered' || log.status === 'opened' ? 'bg-green-50 text-green-700' : log.status === 'failed' || log.status === 'bounced' ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-500'}`}>{log.status}</span>
-                      <p className="text-[10px] text-slate-400 mt-1">{log.opened_at ? 'Opened' : log.delivered_at ? 'Delivered' : log.bounced_at ? 'Bounced' : 'Tracking pending'}</p>
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold ${log.status === 'delivered' || log.status === 'opened' ? 'bg-green-50 text-green-700' : log.status === 'failed' || log.status === 'bounced' ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-500'}`}>{log.status}</span>
+                      <p className="text-[11px] text-slate-400 mt-1">{log.opened_at ? 'Opened' : log.delivered_at ? 'Delivered' : log.bounced_at ? 'Bounced' : 'Tracking pending'}</p>
                     </div>
                   </div>
                 ))}

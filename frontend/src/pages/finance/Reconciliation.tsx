@@ -490,12 +490,12 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                         style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
                         <td className="px-4 py-3.5">
                           <p className="font-mono text-[11px] text-slate-500">{t.reference}</p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">{fmtTs(t.paid_at || t.created_at)}</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">{fmtTs(t.paid_at || t.created_at)}</p>
                         </td>
                         <td className="px-4 py-3.5">
                           {custName && <p className="text-[12px] font-semibold text-slate-700">{custName}</p>}
                           <p className="text-[11px] text-slate-500">{cust.email || '—'}</p>
-                          {cardInfo && <p className="text-[10px] text-slate-400 mt-0.5">{cardInfo}</p>}
+                          {cardInfo && <p className="text-[11px] text-slate-400 mt-0.5">{cardInfo}</p>}
                         </td>
                         <td className="px-4 py-3.5 font-mono font-bold text-[14px] text-slate-700">
                           {kobo(gross)}
@@ -612,15 +612,15 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                         style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
                         <td className="px-4 py-3.5">
                           <p className="font-mono text-[11px] text-slate-500">{t.reference}</p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">{fmtTs(t.transferred_at || t.createdAt)}</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">{fmtTs(t.transferred_at || t.createdAt)}</p>
                         </td>
                         <td className="px-4 py-3.5">
                           <p className="text-[12px] font-semibold text-slate-700">{details.account_name || recip.name || '—'}</p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">{recip.type ? `${recip.type}` : ''}</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">{recip.type ? `${recip.type}` : ''}</p>
                         </td>
                         <td className="px-4 py-3.5">
                           <p className="text-[12px] text-slate-600">{details.bank_name || '—'}</p>
-                          <p className="font-mono text-[10px] text-slate-400 mt-0.5">{details.account_number || '—'}</p>
+                          <p className="font-mono text-[11px] text-slate-400 mt-0.5">{details.account_number || '—'}</p>
                         </td>
                         <td className="px-4 py-3.5 font-mono font-bold text-[14px] text-slate-700">{kobo(amt)}</td>
                         <td className="px-4 py-3.5 font-mono font-semibold text-[13px]" style={{ color: fee > 0 ? RED : '#94A3B8' }}>
@@ -629,7 +629,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                               ? `Transfer fee: ₦${(n(actual.transfer_fee)).toFixed(2)} · Stamp duty: ₦${(n(actual.stamp_duty)).toFixed(2)}`
                               : `Estimated: transfer fee + ${amt >= 1000000 ? '₦50 stamp duty' : 'no stamp duty'}`}>
                               {kobo(fee)}
-                              {isEst && <span className="text-[10px] text-slate-400 ml-1">est.</span>}
+                              {isEst && <span className="text-[11px] text-slate-400 ml-1">est.</span>}
                             </span>
                           ) : '—'}
                         </td>
@@ -784,33 +784,33 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                   {/* Detail grid — 2 columns, no horizontal scroll */}
                   <div className="grid grid-cols-2 gap-x-8 gap-y-2">
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Customer</p>
+                      <p className="text-[11px] uppercase tracking-wider text-slate-400 mb-0.5">Customer</p>
                       <p className="text-[12px] font-semibold text-slate-700">{custName}</p>
                       {cust.email && custName !== cust.email && (
                         <p className="text-[11px] text-slate-400">{cust.email}</p>
                       )}
                     </div>
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Transaction Reference</p>
+                      <p className="text-[11px] uppercase tracking-wider text-slate-400 mb-0.5">Transaction Reference</p>
                       <p className="font-mono text-[11px] text-slate-600">{rf.transaction_reference || rf.bank_reference || '—'}</p>
                     </div>
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Deducted from Wallet</p>
+                      <p className="text-[11px] uppercase tracking-wider text-slate-400 mb-0.5">Deducted from Wallet</p>
                       <p className="font-mono text-[12px] font-semibold text-slate-700">
                         {rf.deducted_amount != null ? kobo(rf.deducted_amount) : '—'}
                         {rf.fully_deducted === false && (
-                          <span className="ml-1.5 text-[10px] font-normal px-1.5 py-0.5 rounded"
+                          <span className="ml-1.5 text-[11px] font-normal px-1.5 py-0.5 rounded"
                             style={{ background: 'rgba(217,119,6,0.1)', color: AMBER }}>Partial</span>
                         )}
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Date</p>
+                      <p className="text-[11px] uppercase tracking-wider text-slate-400 mb-0.5">Date</p>
                       <p className="text-[12px] text-slate-600">{fmtTs(rf.refunded_at || rf.createdAt)}</p>
                     </div>
                     {(rf.customer_note || rf.merchant_note) && (
                       <div className="col-span-2">
-                        <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Note</p>
+                        <p className="text-[11px] uppercase tracking-wider text-slate-400 mb-0.5">Note</p>
                         <p className="text-[12px] text-slate-600">{rf.customer_note || rf.merchant_note}</p>
                       </div>
                     )}

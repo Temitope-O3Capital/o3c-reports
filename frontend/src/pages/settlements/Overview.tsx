@@ -74,21 +74,21 @@ function ReconPanel({ data, loading }: { data: ReconSummary | null; loading: boo
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">Credits</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">Credits</p>
           <p className="kpi-number text-[15px] font-bold text-slate-800">{fmt(data.total_credits)}</p>
         </div>
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">Debits</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">Debits</p>
           <p className="kpi-number text-[15px] font-bold text-slate-800">{fmt(data.total_debits)}</p>
         </div>
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">Matched</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">Matched</p>
           <p className="kpi-number text-[15px] font-bold" style={{ color: GREEN }}>
             {n(data.matched_count).toLocaleString()}
           </p>
         </div>
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">Exceptions</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">Exceptions</p>
           <p className="kpi-number text-[15px] font-bold" style={{ color: exceptionColor }}>
             {n(data.exception_count).toLocaleString()}
           </p>

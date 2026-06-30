@@ -9,7 +9,7 @@ import { useAuth } from '../../hooks/useAuth'
 
 /* ── Severity style map ─────────────────────────────────────────── */
 const SEV_STYLE: Record<string, { bg: string; text: string; icon: string }> = {
-  critical: { bg: 'rgba(220,38,38,0.08)',  text: '#DC2626', icon: 'emergency' },
+  critical: { bg: 'rgba(220,38,38,0.08)',  text: '#C00000', icon: 'emergency' },
   warning:  { bg: 'rgba(217,119,6,0.08)',  text: '#D97706', icon: 'warning'   },
   info:     { bg: 'rgba(37,99,235,0.08)',  text: '#2563EB', icon: 'info'      },
 }

@@ -65,7 +65,7 @@ const LINKED_LABELS: Record<string, string> = {
 
 const PRIORITY_STYLE: Record<string, { bg: string; color: string; icon: string }> = {
   urgent: { bg: 'rgba(192,0,0,0.08)',     color: RED,       icon: 'priority_high' },
-  high:   { bg: 'rgba(220,38,38,0.07)',   color: '#DC2626', icon: 'keyboard_arrow_up' },
+  high:   { bg: 'rgba(220,38,38,0.07)',   color: '#C00000', icon: 'keyboard_arrow_up' },
   medium: { bg: 'rgba(217,119,6,0.08)',   color: AMBER,     icon: 'drag_handle' },
   low:    { bg: 'rgba(100,116,139,0.07)', color: '#64748B', icon: 'keyboard_arrow_down' },
 }
@@ -104,12 +104,12 @@ function TaskStatusBadge({ status }: { status: string }) {
 /* ── Assignee avatar ────────────────────────────────────────────── */
 function Avatar({ name, size = 24 }: { name: string | null; size?: number }) {
   if (!name) return (
-    <span className="flex-shrink-0 rounded-full bg-slate-200 flex items-center justify-center text-[10px] text-slate-400 font-semibold"
+    <span className="flex-shrink-0 rounded-full bg-slate-200 flex items-center justify-center text-[11px] text-slate-400 font-semibold"
       style={{ width: size, height: size }}>?</span>
   )
   const initials = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
   return (
-    <span className="flex-shrink-0 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+    <span className="flex-shrink-0 rounded-full flex items-center justify-center text-[11px] font-bold text-white"
       style={{ width: size, height: size, background: NAVY }}>
       {initials}
     </span>
@@ -120,7 +120,7 @@ function Avatar({ name, size = 24 }: { name: string | null; size?: number }) {
 function LinkedChip({ type, id }: { type: string | null; id: number | null }) {
   if (!type || !id) return null
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full"
+    <span className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-full"
       style={{ background: 'rgba(37,99,235,0.08)', color: '#2563EB' }}>
       <span className="material-symbols-rounded text-[11px]">link</span>
       {LINKED_LABELS[type] ?? type} #{id}
@@ -395,7 +395,7 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
           <div className="px-5 py-4 grid grid-cols-2 gap-3"
             style={{ borderBottom: '1px solid rgba(15,23,42,0.06)' }}>
             <div>
-              <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Priority</label>
+              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Priority</label>
               <select className="w-full px-2 py-1.5 rounded-lg border text-[12px] bg-white outline-none"
                 style={{ borderColor: 'rgba(15,23,42,0.15)' }}
                 value={editing.priority ?? 'medium'}
@@ -404,7 +404,7 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
               </select>
             </div>
             <div>
-              <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Status</label>
+              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Status</label>
               <select className="w-full px-2 py-1.5 rounded-lg border text-[12px] bg-white outline-none"
                 style={{ borderColor: 'rgba(15,23,42,0.15)' }}
                 value={editing.status ?? 'open'}
@@ -413,7 +413,7 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
               </select>
             </div>
             <div>
-              <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Due Date</label>
+              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Due Date</label>
               <input type="date"
                 className="w-full px-2 py-1.5 rounded-lg border text-[12px] outline-none"
                 style={{ borderColor: 'rgba(15,23,42,0.15)' }}
@@ -421,7 +421,7 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
                 onChange={e => setEditing(f => ({ ...f, due_date: e.target.value || null }))} />
             </div>
             <div>
-              <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Assignee</label>
+              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Assignee</label>
               <select className="w-full px-2 py-1.5 rounded-lg border text-[12px] bg-white outline-none"
                 style={{ borderColor: 'rgba(15,23,42,0.15)' }}
                 value={editing.assigned_to ?? ''}
@@ -436,7 +436,7 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
           <div className="px-5 py-4 grid grid-cols-2 gap-3"
             style={{ borderBottom: '1px solid rgba(15,23,42,0.06)' }}>
             <div>
-              <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Link Type</label>
+              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Link Type</label>
               <select className="w-full px-2 py-1.5 rounded-lg border text-[12px] bg-white outline-none"
                 style={{ borderColor: 'rgba(15,23,42,0.15)' }}
                 value={editing.linked_type ?? ''}
@@ -446,7 +446,7 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
             </div>
             {editing.linked_type && (
               <div>
-                <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Reference ID</label>
+                <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Reference ID</label>
                 <input type="number"
                   className="w-full px-2 py-1.5 rounded-lg border text-[12px] outline-none"
                   style={{ borderColor: 'rgba(15,23,42,0.15)' }}
@@ -458,7 +458,7 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
 
           {/* Description */}
           <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(15,23,42,0.06)' }}>
-            <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Description</label>
+            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Description</label>
             <textarea
               className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none resize-none"
               style={{ borderColor: 'rgba(15,23,42,0.18)' }}
@@ -470,10 +470,10 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
           {/* Checklist */}
           <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(15,23,42,0.06)' }}>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
+              <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">
                 Checklist
                 {checklist.length > 0 && (
-                  <span className="ml-1.5 text-[10px] font-semibold"
+                  <span className="ml-1.5 text-[11px] font-semibold"
                     style={{ color: completedCount === checklist.length ? GREEN : AMBER }}>
                     {completedCount}/{checklist.length}
                   </span>
@@ -515,7 +515,7 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
 
           {/* Comments */}
           <div className="px-5 py-4">
-            <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">
+            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2">
               Comments ({comments.length})
             </label>
             <div className="space-y-3 mb-3 max-h-48 overflow-y-auto">
@@ -527,7 +527,7 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
                 <div key={c.id} className="bg-slate-50 rounded-lg px-3 py-2">
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <span className="text-[11px] font-semibold text-slate-700">{c.author_name ?? 'Unknown'}</span>
-                    <span className="text-[10px] text-slate-400">{fmtDatetime(c.created_at)}</span>
+                    <span className="text-[11px] text-slate-400">{fmtDatetime(c.created_at)}</span>
                   </div>
                   <p className="text-[12px] text-slate-600 leading-relaxed">{c.body}</p>
                 </div>

@@ -3,7 +3,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../../lib/api'
 import { fmt, fmtDate } from '../../lib/fmt'
-import { Spinner, ErrBanner, KpiCard, Page, NAVY, RED, AMBER, GREEN } from '../../components/UI'
+import { Spinner, ErrBanner, KpiCard, Page, FilterBar, NAVY, RED, AMBER, GREEN } from '../../components/UI'
+import { StageBadge, STAGE_COLORS } from './components'
 
 // ── Types ─────────────────────────────────────────────────────────
 interface Application {
@@ -24,32 +25,6 @@ interface QueueStats {
   submitted: number
   in_review: number
   pending_conditions: number
-}
-
-// ── Stage badge ───────────────────────────────────────────────────
-const STAGE_COLORS: Record<string, { bg: string; text: string }> = {
-  draft:              { bg: 'rgba(107,114,128,0.12)', text: '#6B7280' },
-  submitted:          { bg: 'rgba(37,99,235,0.10)',   text: '#2563EB' },
-  document_collection:{ bg: 'rgba(124,58,237,0.10)',  text: '#7C3AED' },
-  risk_review:        { bg: 'rgba(217,119,6,0.12)',   text: '#D97706' },
-  risk_head_review:   { bg: 'rgba(234,88,12,0.12)',   text: '#EA580C' },
-  pending_conditions: { bg: 'rgba(79,70,229,0.10)',   text: '#4F46E5' },
-  finance_approval:   { bg: 'rgba(14,165,233,0.10)',  text: '#0EA5E9' },
-  booking:            { bg: 'rgba(16,185,129,0.12)',  text: '#10B981' },
-  active:             { bg: 'rgba(5,150,105,0.10)',   text: '#059669' },
-  declined:           { bg: 'rgba(220,38,38,0.09)',   text: '#DC2626' },
-}
-
-function StageBadge({ stage }: { stage: string }) {
-  const c = STAGE_COLORS[stage] ?? { bg: 'rgba(14,40,65,0.07)', text: '#475569' }
-  return (
-    <span
-      className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap"
-      style={{ background: c.bg, color: c.text }}
-    >
-      {snake(stage)}
-    </span>
-  )
 }
 
 const PRODUCT_TYPES = ['prepaid_card', 'credit_card', 'usd_card', 'business_loan', 'personal_loan']
@@ -118,44 +93,41 @@ export default function Queue() {
         <KpiCard label="Pending Conditions" value={String(stats?.pending_conditions ?? '—')} icon="pending_actions" accent="#4F46E5" loading={loading && !stats} />
       </div>
 
-      {/* Filter bar */}
-      <div className="bg-white rounded-2xl border border-black/[0.06] p-4 shadow-sm mb-4">
-        <div className="flex flex-wrap gap-3 items-center">
-          <input
-            className="w-full max-w-xs px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
-            placeholder="Search name or reference…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-          <select
-            className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
-            value={stageF}
-            onChange={e => setStageF(e.target.value)}
+      <FilterBar>
+        <input
+          className="w-full max-w-xs px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+          placeholder="Search name or reference…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+        <select
+          className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+          value={stageF}
+          onChange={e => setStageF(e.target.value)}
+        >
+          <option value="">All Stages</option>
+          {STAGE_OPTS.map(s => <option key={s} value={s}>{snake(s)}</option>)}
+        </select>
+        <select
+          className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+          value={productF}
+          onChange={e => setProductF(e.target.value)}
+        >
+          <option value="">All Products</option>
+          {PRODUCT_TYPES.map(p => <option key={p} value={p}>{snake(p)}</option>)}
+        </select>
+        {(search || stageF || productF) && (
+          <button
+            className="px-3 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]"
+            onClick={() => { setSearch(''); setStageF(''); setProductF('') }}
           >
-            <option value="">All Stages</option>
-            {STAGE_OPTS.map(s => <option key={s} value={s}>{snake(s)}</option>)}
-          </select>
-          <select
-            className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
-            value={productF}
-            onChange={e => setProductF(e.target.value)}
-          >
-            <option value="">All Products</option>
-            {PRODUCT_TYPES.map(p => <option key={p} value={p}>{snake(p)}</option>)}
-          </select>
-          {(search || stageF || productF) && (
-            <button
-              className="px-3 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]"
-              onClick={() => { setSearch(''); setStageF(''); setProductF('') }}
-            >
-              Clear
-            </button>
-          )}
-        </div>
-      </div>
+            Clear
+          </button>
+        )}
+      </FilterBar>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+      <div className="card overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-20"><Spinner size={32} /></div>
         ) : (

@@ -167,8 +167,8 @@ export default function Checklists() {
                         <div className="flex-1">
                           <p className="text-[13px] text-slate-700">
                             {item.is_required && (
-                              <span className="text-[10px] font-bold uppercase mr-1.5"
-                                style={{ color: '#DC2626' }}>Required</span>
+                              <span className="text-[11px] font-bold uppercase mr-1.5"
+                                style={{ color: '#C00000' }}>Required</span>
                             )}
                             {item.item_text}
                           </p>

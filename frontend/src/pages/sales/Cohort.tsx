@@ -12,7 +12,7 @@ function retentionStyle(rate: number | null | undefined) {
   const r = Number(rate)
   if (r >= 60) return { background: GREEN,   color: '#fff' }
   if (r >= 30) return { background: AMBER,   color: '#fff' }
-  if (r > 0)   return { background: '#DC2626', color: '#fff' }
+  if (r > 0)   return { background: '#C00000', color: '#fff' }
   return { background: '#F1F5F9', color: '#CBD5E1' }
 }
 
@@ -55,12 +55,12 @@ function CohortHeatmap({ data, loading }: { data: Record<string, Record<string, 
           <table className="text-[11px] border-separate" style={{ borderSpacing: 2 }}>
             <thead>
               <tr>
-                <th className="text-left px-2 py-1 text-slate-400 font-semibold uppercase tracking-wider text-[10px] w-28">
+                <th className="text-left px-2 py-1 text-slate-400 font-semibold uppercase tracking-wider text-[11px] w-28">
                   Cohort
                 </th>
                 {ages.map(a => (
                   <th key={a}
-                    className="text-center px-1 py-1 font-semibold uppercase tracking-wider text-[10px] text-slate-400 whitespace-nowrap"
+                    className="text-center px-1 py-1 font-semibold uppercase tracking-wider text-[11px] text-slate-400 whitespace-nowrap"
                     style={{ minWidth: 40 }}>
                     M{a}
                   </th>
@@ -96,7 +96,7 @@ function CohortHeatmap({ data, loading }: { data: Record<string, Record<string, 
           {[
             { color: GREEN,    label: '≥ 60% retained' },
             { color: AMBER,    label: '30 – 60%' },
-            { color: '#DC2626', label: '< 30%' },
+            { color: '#C00000', label: '< 30%' },
             { color: '#F1F5F9', label: 'No data', text: '#94A3B8' },
           ].map(l => (
             <span key={l.label} className="flex items-center gap-1.5 text-[11px] text-slate-500">

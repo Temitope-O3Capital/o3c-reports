@@ -349,7 +349,7 @@ export default function ZohoIntegration() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-[12px]">
                       <thead>
-                        <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400 border-b">
+                        <tr className="text-left text-[11px] uppercase tracking-wide text-slate-400 border-b">
                           <th className="py-2 pr-3">Time</th>
                           <th className="py-2 pr-3">Event</th>
                           <th className="py-2 pr-3">Action</th>

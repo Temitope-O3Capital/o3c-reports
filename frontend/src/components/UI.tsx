@@ -46,7 +46,7 @@ export function ChangeBadge({ value, suffix = '%' }: { value: number | null | un
   const up = value >= 0
   return (
     <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold px-1.5 py-0.5 rounded"
-      style={{ background: up ? 'rgba(5,150,105,0.08)' : 'rgba(220,38,38,0.07)', color: up ? GREEN : '#DC2626' }}>
+      style={{ background: up ? 'rgba(5,150,105,0.08)' : 'rgba(220,38,38,0.07)', color: up ? GREEN : '#C00000' }}>
       <span className="material-symbols-rounded" style={{ fontSize: 12 }}>{up ? 'arrow_upward' : 'arrow_downward'}</span>
       {up ? '+' : ''}{Math.abs(value).toFixed(1)}{suffix}
     </span>
@@ -133,12 +133,16 @@ export interface ColDef<T> {
 
 export function DataTable<T extends Record<string, any>>({
   cols, rows, loading, emptyIcon = 'table_rows', emptyMsg = 'No data',
+  selectable, selectedIds, onSelectionChange,
 }: {
   cols: ColDef<T>[]
   rows: T[]
   loading?: boolean
   emptyIcon?: string
   emptyMsg?: string
+  selectable?: boolean
+  selectedIds?: Set<string | number>
+  onSelectionChange?: (ids: Set<string | number>) => void
 }) {
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
@@ -157,11 +161,35 @@ export function DataTable<T extends Record<string, any>>({
     })
   }
 
+  function toggleRow(id: string | number) {
+    if (!onSelectionChange || !selectedIds) return
+    const next = new Set(selectedIds)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    onSelectionChange(next)
+  }
+
+  function toggleAll() {
+    if (!onSelectionChange) return
+    const allIds = data.map(r => r.id)
+    const allSelected = allIds.every(id => selectedIds?.has(id))
+    onSelectionChange(allSelected ? new Set() : new Set(allIds))
+  }
+
+  const totalCols = cols.length + (selectable ? 1 : 0)
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-[13px]">
         <thead>
           <tr>
+            {selectable && (
+              <th className="px-5 py-3 w-10" style={{ background: '#F8FAFC' }}>
+                <input type="checkbox"
+                  checked={data.length > 0 && data.every(r => selectedIds?.has(r.id))}
+                  onChange={toggleAll} />
+              </th>
+            )}
             {cols.map(c => (
               <th key={c.key}
                 onClick={() => c.sortable !== false && toggleSort(c.key)}
@@ -184,13 +212,13 @@ export function DataTable<T extends Record<string, any>>({
           {loading
             ? Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
-                  {cols.map((_, j) => <td key={j} className="px-5 py-3.5"><Sk /></td>)}
+                  {Array.from({ length: totalCols }).map((_, j) => <td key={j} className="px-5 py-3.5"><Sk /></td>)}
                 </tr>
               ))
             : data.length === 0
             ? (
                 <tr>
-                  <td colSpan={cols.length} className="px-5 py-14 text-center">
+                  <td colSpan={totalCols} className="px-5 py-14 text-center">
                     <span className="material-symbols-rounded text-[36px] text-slate-300 block mb-2">{emptyIcon}</span>
                     <p className="text-[13px] text-slate-400">{emptyMsg}</p>
                     <p className="text-[12px] text-slate-400 mt-1">Try adjusting your filters</p>
@@ -200,6 +228,13 @@ export function DataTable<T extends Record<string, any>>({
             : data.map((row, i) => (
                 <tr key={row.id ?? i} className="transition-colors hover:bg-slate-50"
                   style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
+                  {selectable && (
+                    <td className="px-5 py-3 w-10">
+                      <input type="checkbox"
+                        checked={!!selectedIds?.has(row.id)}
+                        onChange={() => toggleRow(row.id)} />
+                    </td>
+                  )}
                   {cols.map(c => (
                     <td key={c.key} className={`px-5 py-3 ${c.right ? 'text-right' : ''}`}>
                       {c.render ? c.render(row) : row[c.key] ?? '—'}
@@ -219,7 +254,7 @@ function ChartTip({ active, payload, label, currency }: any) {
   return (
     <div className="bg-white rounded-lg border px-3 py-2.5 shadow-lg"
       style={{ borderColor: 'rgba(15,23,42,0.1)', fontSize: 12 }}>
-      <p className="text-slate-400 text-[10px] font-semibold uppercase tracking-wider mb-1.5">{label}</p>
+      <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider mb-1.5">{label}</p>
       {payload.map((p: any, i: number) => (
         <div key={i} className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: p.color ?? p.fill }} />
@@ -633,6 +668,185 @@ export function ConfirmModal({ title, message, confirmLabel = 'Confirm', danger 
             {confirmLabel}
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+/* ── Empty state ─────────────────────────────────────────────────── */
+export function EmptyState({ icon = 'inbox', message = 'No data', hint = 'Try adjusting your filters' }: {
+  icon?: string; message?: string; hint?: string
+}) {
+  return (
+    <div className="px-5 py-14 text-center">
+      <span className="material-symbols-rounded text-[36px] text-slate-300 block mb-2">{icon}</span>
+      <p className="text-[13px] text-slate-400">{message}</p>
+      {hint && <p className="text-[12px] text-slate-400 mt-1">{hint}</p>}
+    </div>
+  )
+}
+
+/* ── Tabs ────────────────────────────────────────────────────────── */
+export function Tabs<T extends string>({
+  tabs, active, onChange,
+}: { tabs: readonly T[]; active: T; onChange: (t: T) => void }) {
+  return (
+    <div className="flex gap-0 border-b" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+      {tabs.map(t => (
+        <button key={t} onClick={() => onChange(t)}
+          className="px-4 py-2.5 text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap"
+          style={{
+            borderColor: t === active ? NAVY : 'transparent',
+            color: t === active ? NAVY : '#94A3B8',
+          }}>
+          {t}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/* ── Stepper ─────────────────────────────────────────────────────── */
+export function Stepper({ steps, current }: { steps: string[]; current: number }) {
+  return (
+    <div className="flex items-center gap-0 mb-8">
+      {steps.map((label, i) => (
+        <div key={label} className="flex items-center flex-1">
+          <div className="flex flex-col items-center gap-1">
+            <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold transition-all"
+              style={{
+                background: i < current ? GREEN : i === current ? NAVY : 'rgba(15,23,42,0.08)',
+                color: i <= current ? '#fff' : '#94A3B8',
+              }}>
+              {i < current
+                ? <span className="material-symbols-rounded text-[14px]">check</span>
+                : i + 1}
+            </div>
+            <span className="text-[11px] font-semibold whitespace-nowrap"
+              style={{ color: i === current ? '#0F172A' : '#94A3B8' }}>
+              {label}
+            </span>
+          </div>
+          {i < steps.length - 1 && (
+            <div className="flex-1 h-0.5 mx-1 mt-[-12px]"
+              style={{ background: i < current ? GREEN : 'rgba(15,23,42,0.1)' }} />
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* ── Toggle ──────────────────────────────────────────────────────── */
+export function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+  return (
+    <button onClick={onChange} role="switch" aria-checked={checked}
+      className="relative flex-shrink-0 w-10 h-5 rounded-full transition-colors focus:outline-none"
+      style={{ background: checked ? NAVY : '#CBD5E1' }}>
+      <span className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform"
+        style={{ transform: checked ? 'translateX(20px)' : 'none' }} />
+    </button>
+  )
+}
+
+/* ── Avatar ──────────────────────────────────────────────────────── */
+export function Avatar({ name, size = 'md', color = NAVY }: {
+  name: string; size?: 'sm' | 'md' | 'lg'; color?: string
+}) {
+  const dim = size === 'sm' ? 28 : size === 'lg' ? 56 : 40
+  const fontSize = size === 'sm' ? 11 : size === 'lg' ? 20 : 15
+  const initials = name.split(' ').slice(0, 2).map(w => w[0] ?? '').join('').toUpperCase()
+  return (
+    <div className="rounded-full flex items-center justify-center flex-shrink-0 font-bold text-white"
+      style={{ width: dim, height: dim, fontSize, background: color }}>
+      {initials}
+    </div>
+  )
+}
+
+/* ── Detail field ────────────────────────────────────────────────── */
+export function DetailField({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex justify-between gap-3">
+      <span className="text-[11px] text-slate-400 flex-shrink-0">{label}</span>
+      <span className="text-[12px] text-slate-700 text-right">{value ?? '—'}</span>
+    </div>
+  )
+}
+
+/* ── Info callout ────────────────────────────────────────────────── */
+const CALLOUT_STYLES = {
+  info:    { bg: 'rgba(37,99,235,0.06)',  border: 'rgba(37,99,235,0.18)',  color: '#1D4ED8', icon: 'info' },
+  success: { bg: 'rgba(5,150,105,0.06)',  border: 'rgba(5,150,105,0.18)',  color: '#065F46', icon: 'check_circle' },
+  warning: { bg: 'rgba(217,119,6,0.07)',  border: 'rgba(217,119,6,0.20)',  color: '#92400E', icon: 'warning' },
+  error:   { bg: 'rgba(192,0,0,0.06)',    border: 'rgba(192,0,0,0.18)',    color: '#7F1D1D', icon: 'error' },
+}
+
+export function InfoCallout({ type = 'info', children }: { type?: keyof typeof CALLOUT_STYLES; children: ReactNode }) {
+  const s = CALLOUT_STYLES[type]
+  return (
+    <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl text-[13px]"
+      style={{ background: s.bg, border: `1px solid ${s.border}`, color: s.color }}>
+      <span className="material-symbols-rounded text-[16px] flex-shrink-0 mt-0.5">{s.icon}</span>
+      <div>{children}</div>
+    </div>
+  )
+}
+
+/* ── Search input ────────────────────────────────────────────────── */
+export function SearchInput({ value, onChange, placeholder = 'Search…', className = '' }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; className?: string
+}) {
+  return (
+    <div className={`relative ${className}`}>
+      <span className="material-symbols-rounded absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px] text-slate-400 pointer-events-none">
+        search
+      </span>
+      <input
+        type="search"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+      />
+    </div>
+  )
+}
+
+/* ── Filter bar ──────────────────────────────────────────────────── */
+export function FilterBar({ children }: { children: ReactNode }) {
+  return (
+    <div className="card p-4 mb-4">
+      <div className="flex flex-wrap gap-3 items-center">{children}</div>
+    </div>
+  )
+}
+
+/* ── Section label ───────────────────────────────────────────────── */
+export function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-3">
+      {children}
+    </p>
+  )
+}
+
+/* ── Pagination ──────────────────────────────────────────────────── */
+export function Pagination({ page, hasMore, onPrev, onNext }: {
+  page: number; hasMore: boolean; onPrev: () => void; onNext: () => void
+}) {
+  return (
+    <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100">
+      <span className="text-[12px] text-slate-400">Page {page + 1}</span>
+      <div className="flex gap-2">
+        <button disabled={page === 0} onClick={onPrev}
+          className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40">
+          Previous
+        </button>
+        <button disabled={!hasMore} onClick={onNext}
+          className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40">
+          Next
+        </button>
       </div>
     </div>
   )

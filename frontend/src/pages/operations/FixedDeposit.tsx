@@ -183,7 +183,7 @@ function TxnDrawer({ initial, onClose, onSaved }: TxnDrawerProps) {
   function Sec({ title }: { title: string }) {
     return (
       <div className="col-span-2 mt-4">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 pb-2"
+        <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 pb-2"
           style={{ borderBottom: '1px solid rgba(15,23,42,0.08)' }}>{title}</p>
       </div>
     )

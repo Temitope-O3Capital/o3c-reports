@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmt, fmtDate } from '../../lib/fmt'
-import { Spinner, ErrBanner, StatusBadge, KpiCard, Page, NAVY, RED, GREEN } from '../../components/UI'
+import { Spinner, ErrBanner, StatusBadge, KpiCard, Page, Pagination, FilterBar, NAVY, RED, GREEN } from '../../components/UI'
 
 // ── Types ─────────────────────────────────────────────────────────
 interface Department { id: string; name: string }
@@ -135,31 +135,28 @@ export default function Employees() {
       <div className="grid grid-cols-3 gap-4 mb-6">
         <KpiCard label="Active Staff" value={String(stats?.total_active ?? '—')} icon="group" accent={GREEN} loading={loading && !stats} />
         <KpiCard label="On Leave" value={String(stats?.on_leave ?? '—')} icon="event_busy" accent="#D97706" loading={loading && !stats} />
-        <KpiCard label="Exiting This Month" value={String(stats?.exiting_this_month ?? '—')} icon="logout" accent="#DC2626" loading={loading && !stats} />
+        <KpiCard label="Exiting This Month" value={String(stats?.exiting_this_month ?? '—')} icon="logout" accent="#C00000" loading={loading && !stats} />
       </div>
 
       <div className="flex gap-5">
         {/* Table section */}
         <div className="flex-1 min-w-0">
-          {/* Filters */}
-          <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-4 mb-4">
-            <div className="flex flex-wrap gap-3">
-              <input className="w-full max-w-xs px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
-                placeholder="Search by name or staff ID…" value={search} onChange={e => { setSearch(e.target.value); setPage(0) }} />
-              <select className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
-                value={deptF} onChange={e => setDeptF(e.target.value)}>
-                <option value="">All Departments</option>
-                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-              <select className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
-                value={statusF} onChange={e => { setStatusF(e.target.value); setPage(0) }}>
-                <option value="active">Active</option>
-                <option value="">All</option>
-              </select>
-            </div>
-          </div>
+          <FilterBar>
+            <input className="w-full max-w-xs px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+              placeholder="Search by name or staff ID…" value={search} onChange={e => { setSearch(e.target.value); setPage(0) }} />
+            <select className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+              value={deptF} onChange={e => setDeptF(e.target.value)}>
+              <option value="">All Departments</option>
+              {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+            <select className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+              value={statusF} onChange={e => { setStatusF(e.target.value); setPage(0) }}>
+              <option value="active">Active</option>
+              <option value="">All</option>
+            </select>
+          </FilterBar>
 
-          <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+          <div className="card overflow-hidden">
             {loading ? (
               <div className="flex items-center justify-center py-20"><Spinner size={32} /></div>
             ) : (
@@ -193,20 +190,14 @@ export default function Employees() {
                 </table>
               </div>
             )}
-            <div className="flex justify-between items-center px-5 py-3 border-t border-slate-100">
-              <span className="text-[12px] text-slate-400">Page {page + 1}</span>
-              <div className="flex gap-2">
-                <button disabled={page === 0} onClick={() => setPage(p => p - 1)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40">Prev</button>
-                <button disabled={employees.length < limit} onClick={() => setPage(p => p + 1)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40">Next</button>
-              </div>
-            </div>
+            <Pagination page={page} hasMore={employees.length >= limit} onPrev={() => setPage(p => p - 1)} onNext={() => setPage(p => p + 1)} />
           </div>
         </div>
 
         {/* Employee sidebar */}
         {selected && (
           <div className="w-72 flex-shrink-0 space-y-4">
-            <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-5">
+            <div className="card p-5">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-[16px]" style={{ background: NAVY }}>
                   {selected.first_name.charAt(0)}
@@ -234,7 +225,7 @@ export default function Employees() {
               </div>
             </div>
             {/* Leave balance */}
-            <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-4">
+            <div className="card p-4">
               <p className="text-[12px] font-semibold text-slate-400 uppercase tracking-wider mb-3">Leave Balance</p>
               {lbLoading ? <Spinner size={20} /> : leaveBalance.length === 0 ? (
                 <p className="text-[12px] text-slate-400">No leave data</p>

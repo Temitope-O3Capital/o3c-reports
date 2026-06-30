@@ -53,7 +53,7 @@ export default function MailLayout() {
                   <span className="flex-1">{f.label}</span>
                   {f.badge > 0 && (
                     <span
-                      className="min-w-[18px] h-[18px] flex items-center justify-center px-1 text-[10px] font-bold text-white rounded-full"
+                      className="min-w-[18px] h-[18px] flex items-center justify-center px-1 text-[11px] font-bold text-white rounded-full"
                       style={{ background: '#0E2841' }}>
                       {f.badge > 99 ? '99+' : f.badge}
                     </span>

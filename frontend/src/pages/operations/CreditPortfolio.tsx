@@ -173,7 +173,7 @@ function sel(
 function FormSection({ title }: { title: string }) {
   return (
     <div className="col-span-2 mt-4">
-      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 pb-2"
+      <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 pb-2"
         style={{ borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
         {title}
       </p>
@@ -493,7 +493,7 @@ function CollateralDrawer({ applicationId, initial, onClose, onSaved }: Collater
           {cf('Security Type', 'security_type')}
           {cf('Vehicle Info', 'vehicle_info')}
           {cf('Last Location', 'last_location')}
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 pt-2"
+          <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 pt-2"
             style={{ borderBottom: '1px solid rgba(15,23,42,0.08)', paddingBottom: 6 }}>
             Guarantor
           </p>

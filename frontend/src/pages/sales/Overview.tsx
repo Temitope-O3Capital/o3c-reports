@@ -126,7 +126,7 @@ function ManagerLeaderboard({ data, loading }: { data: any[] | null; loading: bo
                   </div>
                   <div className="text-right flex-shrink-0">
                     <p className="kpi-number text-[15px] font-bold text-slate-800">{fmtNum(mgr.total_accounts)}</p>
-                    <span className="text-[10px] font-semibold"
+                    <span className="text-[11px] font-semibold"
                       style={{ color: rate >= 70 ? GREEN : rate >= 40 ? AMBER : RED }}>
                       {rate.toFixed(0)}% activated
                     </span>

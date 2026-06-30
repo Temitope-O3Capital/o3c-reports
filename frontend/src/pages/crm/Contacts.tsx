@@ -111,7 +111,7 @@ function ContactModal({ contact, onClose, onSaved }: ModalProps) {
   )
 
   const Section = ({ label }: { label: string }) => (
-    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400 mb-3 mt-5">{label}</p>
+    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400 mb-3 mt-5">{label}</p>
   )
 
   return (
@@ -336,7 +336,7 @@ export default function Contacts() {
             <button key={s} onClick={() => setStatusFilter(statusFilter === s ? '' : s)}
               className="card p-3 text-left transition-all hover:shadow-md"
               style={{ borderColor: statusFilter === s ? NAVY : undefined, borderWidth: statusFilter === s ? 1.5 : 1 }}>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.07em] text-slate-400 mb-1">{s}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-slate-400 mb-1">{s}</p>
               <p className="kpi-number text-[20px] text-slate-800">{count}</p>
             </button>
           )

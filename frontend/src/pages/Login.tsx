@@ -46,7 +46,7 @@ export default function Login({ onLogin }: { onLogin: (u: AuthUser) => void }) {
 
   const inputBase = {
     background: '#fff',
-    borderColor: error ? '#DC2626' : 'rgba(15,23,42,0.15)',
+    borderColor: error ? '#C00000' : 'rgba(15,23,42,0.15)',
   }
 
   function focusStyle(e: React.FocusEvent<HTMLInputElement>) {
@@ -54,7 +54,7 @@ export default function Login({ onLogin }: { onLogin: (u: AuthUser) => void }) {
     e.currentTarget.style.boxShadow   = '0 0 0 3px rgba(14,40,65,0.08)'
   }
   function blurStyle(e: React.FocusEvent<HTMLInputElement>) {
-    e.currentTarget.style.borderColor = error ? '#DC2626' : 'rgba(15,23,42,0.15)'
+    e.currentTarget.style.borderColor = error ? '#C00000' : 'rgba(15,23,42,0.15)'
     e.currentTarget.style.boxShadow   = 'none'
   }
 

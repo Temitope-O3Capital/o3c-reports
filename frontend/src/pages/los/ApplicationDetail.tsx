@@ -6,6 +6,7 @@ import { fmt, fmtDate, fmtExact } from '../../lib/fmt'
 import { Spinner, ErrBanner, Page, ConfirmModal, NAVY, RED, AMBER, GREEN } from '../../components/UI'
 import { useAuth } from '../../hooks/useAuth'
 import { toast } from 'sonner'
+import { StageBadge } from './components'
 
 // ── Types ─────────────────────────────────────────────────────────
 interface Application {
@@ -35,30 +36,6 @@ interface DetailResponse {
   events: AppEvent[]
   conditions: Condition[]
   notes: Note[]
-}
-
-// ── Stage badge ───────────────────────────────────────────────────
-const STAGE_COLORS: Record<string, { bg: string; text: string }> = {
-  draft:              { bg: 'rgba(107,114,128,0.12)', text: '#6B7280' },
-  submitted:          { bg: 'rgba(37,99,235,0.10)',   text: '#2563EB' },
-  document_collection:{ bg: 'rgba(124,58,237,0.10)',  text: '#7C3AED' },
-  risk_review:        { bg: 'rgba(217,119,6,0.12)',   text: '#D97706' },
-  risk_head_review:   { bg: 'rgba(234,88,12,0.12)',   text: '#EA580C' },
-  pending_conditions: { bg: 'rgba(79,70,229,0.10)',   text: '#4F46E5' },
-  finance_approval:   { bg: 'rgba(14,165,233,0.10)',  text: '#0EA5E9' },
-  booking:            { bg: 'rgba(16,185,129,0.12)',  text: '#10B981' },
-  active:             { bg: 'rgba(5,150,105,0.10)',   text: '#059669' },
-  declined:           { bg: 'rgba(220,38,38,0.09)',   text: '#DC2626' },
-}
-
-function StageBadge({ stage }: { stage: string }) {
-  const c = STAGE_COLORS[stage] ?? { bg: 'rgba(14,40,65,0.07)', text: '#475569' }
-  return (
-    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[12px] font-semibold capitalize"
-      style={{ background: c.bg, color: c.text }}>
-      {snake(stage)}
-    </span>
-  )
 }
 
 function timeAgo(s: string) {
@@ -211,7 +188,7 @@ export default function ApplicationDetail() {
       }
     >
       {/* Header strip */}
-      <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-5 mb-5 flex flex-wrap gap-4 items-center justify-between">
+      <div className="card p-5 mb-5 flex flex-wrap gap-4 items-center justify-between">
         <div className="flex flex-wrap items-center gap-3">
           <StageBadge stage={app.stage} />
           <span className="text-[13.5px] font-semibold text-slate-700">{app.applicant_name}</span>
@@ -247,7 +224,7 @@ export default function ApplicationDetail() {
 
           {/* Summary */}
           {activeTab === 'Summary' && (
-            <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-5">
+            <div className="card p-5">
               <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-slate-400 mb-4">Application Details</h3>
               <div className="grid grid-cols-2 gap-x-8 gap-y-3">
                 {[
@@ -277,7 +254,7 @@ export default function ApplicationDetail() {
 
           {/* Conditions */}
           {activeTab === 'Conditions' && (
-            <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+            <div className="card overflow-hidden">
               {detail.conditions.length === 0 ? (
                 <div className="p-8 text-center">
                   <span className="material-symbols-rounded text-[40px] text-slate-300 block mb-2">checklist</span>
@@ -309,7 +286,7 @@ export default function ApplicationDetail() {
           {/* Notes */}
           {activeTab === 'Notes' && (
             <div className="space-y-3">
-              <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+              <div className="card overflow-hidden">
                 {detail.notes.length === 0 ? (
                   <div className="p-6 text-center text-[13px] text-slate-400">No notes yet</div>
                 ) : (
@@ -319,7 +296,7 @@ export default function ApplicationDetail() {
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-[12px] font-semibold text-slate-700">{n.author_name}</span>
                           {n.is_internal && (
-                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: 'rgba(124,58,237,0.1)', color: '#7C3AED' }}>Internal</span>
+                            <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded" style={{ background: 'rgba(124,58,237,0.1)', color: '#7C3AED' }}>Internal</span>
                           )}
                           <span className="text-[11px] text-slate-400 ml-auto">{timeAgo(n.created_at)}</span>
                         </div>
@@ -330,7 +307,7 @@ export default function ApplicationDetail() {
                 )}
               </div>
               {/* Add note form */}
-              <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-4">
+              <div className="card p-4">
                 <textarea
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20 resize-none"
                   rows={3}
@@ -358,7 +335,7 @@ export default function ApplicationDetail() {
 
           {/* Timeline */}
           {activeTab === 'Timeline' && (
-            <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-5">
+            <div className="card p-5">
               {detail.events.length === 0 ? (
                 <p className="text-center text-[13px] text-slate-400 py-6">No events recorded</p>
               ) : (
@@ -396,7 +373,7 @@ export default function ApplicationDetail() {
         {/* Right sidebar (30%) */}
         <div className="w-full xl:w-72 space-y-4 flex-shrink-0">
           {/* Actions panel */}
-          <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-4">
+          <div className="card p-4">
             <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-slate-400 mb-3">Actions</h3>
             <ErrBanner msg={actionErr} />
             {app.stage === 'declined' && (
@@ -440,13 +417,13 @@ export default function ApplicationDetail() {
           </div>
 
           {/* Assignment info */}
-          <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-4">
+          <div className="card p-4">
             <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-slate-400 mb-3">Assignment</h3>
             <p className="text-[13px] text-slate-700">{app.assigned_to_name ?? 'Unassigned'}</p>
           </div>
 
           {/* Key dates */}
-          <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-4">
+          <div className="card p-4">
             <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-slate-400 mb-3">Key Dates</h3>
             <div className="space-y-2">
               <div className="flex justify-between">

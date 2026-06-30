@@ -13,6 +13,8 @@ import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate, fmtKobo } from '../../lib/fmt'
 import { sanitizeHtml } from '../../lib/sanitize'
 import { Spinner, ErrBanner, NAVY, AMBER, RED, GREEN, BLUE } from '../../components/UI'
+import { StatusPill, PriorityPill } from './components'
+import { toast } from 'sonner'
 
 // Wire Zoho: add <script src="https://voice.zoho.com/api/v1/sdk.js"></script> to index.html once VITE_ZOHO_ORG_ID is set
 
@@ -140,21 +142,6 @@ const DEPT_OPTIONS = [
   { value: 'compliance',  label: 'Compliance' },
 ]
 
-const STATUS_BADGE: Record<string, { bg: string; color: string }> = {
-  open:        { bg: 'rgba(14,40,65,0.1)',    color: NAVY },
-  pending:     { bg: 'rgba(217,119,6,0.1)',   color: AMBER },
-  in_progress: { bg: 'rgba(37,99,235,0.1)',   color: BLUE },
-  resolved:    { bg: 'rgba(5,150,105,0.1)',   color: GREEN },
-  closed:      { bg: 'rgba(100,116,139,0.1)', color: '#64748B' },
-}
-
-const PRIORITY_BADGE: Record<string, { bg: string; color: string }> = {
-  urgent: { bg: 'rgba(192,0,0,0.1)',    color: RED },
-  high:   { bg: 'rgba(234,88,12,0.1)',  color: '#EA580C' },
-  normal: { bg: 'rgba(100,116,139,0.1)',color: '#475569' },
-  low:    { bg: 'rgba(148,163,184,0.1)',color: '#94A3B8' },
-}
-
 const CHANNEL_ICON: Record<string, string> = {
   email:    'email',
   sms:      'sms',
@@ -165,29 +152,6 @@ const CHANNEL_ICON: Record<string, string> = {
 }
 
 // ── Sub-components ──────────────────────────────────────────────────────────────
-function StatusPill({ status }: { status: string }) {
-  const key = status.toLowerCase().replace(/[\s-]+/g, '_')
-  const s = STATUS_BADGE[key] ?? { bg: 'rgba(14,40,65,0.06)', color: '#475569' }
-  return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full whitespace-nowrap"
-      style={{ background: s.bg, color: s.color }}>
-      <span style={{ width: 5, height: 5, borderRadius: '50%', background: s.color, display: 'inline-block' }} />
-      {status}
-    </span>
-  )
-}
-
-function PriorityPill({ priority }: { priority: string }) {
-  const key = priority.toLowerCase()
-  const s = PRIORITY_BADGE[key] ?? { bg: 'rgba(100,116,139,0.1)', color: '#64748B' }
-  return (
-    <span className="inline-flex items-center text-[11px] font-semibold px-2.5 py-0.5 rounded-full"
-      style={{ background: s.bg, color: s.color }}>
-      {priority}
-    </span>
-  )
-}
-
 function SLACountdown({ dueAt }: { dueAt: string | null | undefined }) {
   const [label, setLabel] = useState('')
   useEffect(() => {
@@ -212,21 +176,6 @@ function SLACountdown({ dueAt }: { dueAt: string | null | undefined }) {
   )
 }
 
-function Toast({ msg, type }: { msg: string; type: 'success' | 'error' }) {
-  if (!msg) return null
-  const bg = type === 'success' ? 'rgba(5,150,105,0.95)' : 'rgba(192,0,0,0.95)'
-  return (
-    <div
-      className="fixed bottom-6 right-6 z-[500] flex items-center gap-2 px-4 py-3 rounded-xl text-white text-[13px] font-semibold shadow-xl"
-      style={{ background: bg }}
-    >
-      <span className="material-symbols-rounded text-[16px]">
-        {type === 'success' ? 'check_circle' : 'error'}
-      </span>
-      {msg}
-    </div>
-  )
-}
 
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function TicketDetail() {
@@ -248,12 +197,10 @@ export default function TicketDetail() {
   const [sending, setSending]     = useState(false)
   const [sendErr, setSendErr]     = useState('')
 
-  // Toast
-  const [toast, setToast]         = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
-  const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
-  }, [])
+  function showToast(msg: string, type: 'success' | 'error' = 'success') {
+    if (type === 'error') toast.error(msg)
+    else toast.success(msg)
+  }
 
   // Tags local state
   const [tagInput, setTagInput]   = useState('')
@@ -560,7 +507,7 @@ export default function TicketDetail() {
               <div className="flex items-end gap-2.5">
                 <MsgAvatar name={ticket.customer_name || 'Customer'} color="#64748B" />
                 <div className="max-w-[78%]">
-                  <p className="text-[10px] font-semibold text-slate-400 mb-1 ml-1">
+                  <p className="text-[11px] font-semibold text-slate-400 mb-1 ml-1">
                     {ticket.customer_name || 'Customer'} · {fmtDate(ticket.created_at)} · Original message
                   </p>
                   <div className="bg-white rounded-2xl rounded-bl-md px-4 py-3 shadow-sm border"
@@ -609,7 +556,7 @@ export default function TicketDetail() {
               <div className="space-y-1">
                 <div className="flex items-center gap-2 py-2">
                   <div className="flex-1 h-px" style={{ background: 'rgba(15,23,42,0.08)' }} />
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Activity</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Activity</span>
                   <div className="flex-1 h-px" style={{ background: 'rgba(15,23,42,0.08)' }} />
                 </div>
                 {events.map(ev => (
@@ -620,7 +567,7 @@ export default function TicketDetail() {
                         ? 'Ticket created'
                         : `${ev.event_type.replace(/_/g, ' ')}: ${ev.old_value ?? '—'} → ${ev.new_value ?? '—'}`}
                     </span>
-                    <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                    <span className="text-[11px] text-slate-400 whitespace-nowrap">
                       {new Date(ev.ts).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
@@ -740,7 +687,7 @@ export default function TicketDetail() {
 
             {/* Zoho Voice Dialer */}
             <div className="mb-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
                 Phone
               </p>
               <ZohoDialer ticket={ticket} />
@@ -773,7 +720,6 @@ export default function TicketDetail() {
         </aside>
       </div>
 
-      {toast && <Toast msg={toast.msg} type={toast.type} />}
     </div>
   )
 }
@@ -982,7 +928,7 @@ function MessageBubble({ msg }: { msg: Message }) {
             <span className="material-symbols-rounded text-[14px] text-amber-600">lock</span>
             <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider">Internal Note</span>
             {msg.author_name && <span className="text-[11px] text-amber-600">· {msg.author_name}</span>}
-            <span className="text-[10px] text-amber-400 ml-auto">{time}</span>
+            <span className="text-[11px] text-amber-400 ml-auto">{time}</span>
           </div>
           <p className="text-[13px] text-amber-900 whitespace-pre-wrap leading-relaxed">{msg.body_text}</p>
         </div>
@@ -1000,7 +946,7 @@ function MessageBubble({ msg }: { msg: Message }) {
         <div>
           <div className="flex items-center gap-1.5 mb-1">
             <span className="text-[11px] font-semibold text-slate-600">{name}</span>
-            <span className="text-[10px] text-slate-400">{time}</span>
+            <span className="text-[11px] text-slate-400">{time}</span>
           </div>
           <div className="rounded-2xl rounded-bl-md px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap"
             style={{ background: 'white', border: '1px solid rgba(15,23,42,0.12)', color: '#334155' }}>
@@ -1016,7 +962,7 @@ function MessageBubble({ msg }: { msg: Message }) {
       <MsgAvatar name={name} color={NAVY} />
       <div className="flex flex-col items-end">
         <div className="flex items-center gap-1.5 mb-1">
-          <span className="text-[10px] text-slate-400">{time}</span>
+          <span className="text-[11px] text-slate-400">{time}</span>
           <span className="text-[11px] font-semibold text-slate-600">{name}</span>
         </div>
         <div className="rounded-2xl rounded-br-md px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap text-white"

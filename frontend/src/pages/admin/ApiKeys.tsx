@@ -287,7 +287,7 @@ export default function ApiKeys() {
                   <div className="flex items-center gap-2">
                     <p className="text-[12px] font-mono font-semibold text-slate-800">{key.key_name}</p>
                     {!key.is_secret && (
-                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+                      <span className="text-[11px] font-medium px-1.5 py-0.5 rounded"
                         style={{ background: 'rgba(14,40,65,0.07)', color: '#475569' }}>
                         config
                       </span>
@@ -300,7 +300,7 @@ export default function ApiKeys() {
                 <div className="hidden sm:flex flex-col items-end gap-0.5 flex-shrink-0">
                   <TestBadge status={key.test_status} />
                   {key.last_tested_at && (
-                    <span className="text-[10px] text-slate-300">
+                    <span className="text-[11px] text-slate-300">
                       Tested {fmtDate(key.last_tested_at)}
                     </span>
                   )}

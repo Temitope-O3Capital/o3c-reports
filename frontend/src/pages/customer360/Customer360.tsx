@@ -269,7 +269,7 @@ export default function Customer360() {
                                   <td className="px-4 py-3 text-slate-500">{fmtDate(t.transaction_date)}</td>
                                   <td className="px-4 py-3 text-slate-700">{t.description ?? t.merchant_name ?? '—'}</td>
                                   <td className="px-4 py-3 font-mono"
-                                    style={{ color: (t.type ?? '').toLowerCase().includes('credit') ? '#059669' : '#DC2626' }}>
+                                    style={{ color: (t.type ?? '').toLowerCase().includes('credit') ? '#059669' : '#C00000' }}>
                                     {fmtExact(t.amount)}
                                   </td>
                                   <td className="px-4 py-3 text-slate-500 capitalize">{t.type ?? '—'}</td>

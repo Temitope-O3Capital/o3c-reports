@@ -129,7 +129,7 @@ export default function Settlement() {
                       return (
                         <div className="bg-white rounded-lg border px-3 py-2.5 shadow-lg"
                           style={{ borderColor: 'rgba(15,23,42,0.1)', fontSize: 12 }}>
-                          <p className="text-slate-400 text-[10px] font-semibold uppercase tracking-wider mb-1.5">{label}</p>
+                          <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider mb-1.5">{label}</p>
                           {payload.map((p: any, i: number) => (
                             <div key={i} className="flex items-center gap-2">
                               <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: p.fill }} />

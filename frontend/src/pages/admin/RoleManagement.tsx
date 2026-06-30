@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiDelete, apiFetch, apiPost, apiPut } from '../../lib/api'
 import { roleLabel } from '../../lib/roles'
-import { ConfirmModal, ErrBanner, NAVY, RED, SectionCard, Spinner } from '../../components/UI'
+import { ConfirmModal, ErrBanner, NAVY, RED, SectionCard, Spinner, Page } from '../../components/UI'
 
 interface RoleRow {
   name: string
@@ -140,19 +140,14 @@ export default function RoleManagement() {
   const isBuiltin = Boolean(selected?.builtin ?? selected?.built_in)
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto">
-      <div className="flex items-center justify-between gap-4 mb-5">
-        <div>
-          <p className="text-[11px] uppercase tracking-wide font-bold text-slate-400">Admin</p>
-          <h1 className="text-[22px] font-bold text-slate-900">Roles & Access</h1>
-          <p className="text-[13px] text-slate-500 mt-1">Create custom roles and control page-level access.</p>
-        </div>
+    <Page dept="Admin" deptPath="/admin" title="Roles & Access" subtitle="Create custom roles and control page-level access."
+      actions={
         <button onClick={startNew} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-semibold text-white" style={{ background: NAVY }}>
           <span className="material-symbols-rounded text-[16px]">add</span>
           New Role
         </button>
-      </div>
-
+      }
+    >
       <ErrBanner msg={error} />
       {message && <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-[13px] font-semibold text-green-800">{message}</div>}
 
@@ -168,7 +163,7 @@ export default function RoleManagement() {
                       <p className="text-[13px] font-bold text-slate-800 truncate">{role.label || roleLabel(role.name)}</p>
                       <p className="text-[11px] font-mono text-slate-400 truncate">{role.name}</p>
                     </div>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${role.builtin || role.built_in ? 'bg-slate-100 text-slate-500' : 'bg-green-50 text-green-700'}`}>
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${role.builtin || role.built_in ? 'bg-slate-100 text-slate-500' : 'bg-green-50 text-green-700'}`}>
                       {role.builtin || role.built_in ? 'Built-in' : 'Custom'}
                     </span>
                   </div>
@@ -237,6 +232,6 @@ export default function RoleManagement() {
           onCancel={() => setConfirm(null)}
         />
       )}
-    </div>
+    </Page>
   )
 }

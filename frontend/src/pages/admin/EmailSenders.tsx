@@ -217,7 +217,7 @@ export default function EmailSenders() {
                   <div className="flex items-center gap-2">
                     <p className="text-[13px] font-semibold text-slate-800">{s.name}</p>
                     {s.is_default && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-white"
+                      <span className="text-[11px] font-bold px-1.5 py-0.5 rounded text-white"
                         style={{ background: NAVY }}>DEFAULT</span>
                     )}
                   </div>

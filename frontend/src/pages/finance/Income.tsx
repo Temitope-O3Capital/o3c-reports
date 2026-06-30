@@ -204,7 +204,7 @@ export default function Income() {
                       <td className="px-5 py-3">
                         <div className="flex gap-1 flex-wrap">
                           {(c.types || []).map(t => (
-                            <span key={t} className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                            <span key={t} className="text-[11px] font-semibold px-1.5 py-0.5 rounded"
                               style={{ background: 'rgba(14,40,65,0.07)', color: '#475569' }}>
                               {t}
                             </span>

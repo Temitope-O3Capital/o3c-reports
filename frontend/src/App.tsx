@@ -258,7 +258,7 @@ function ApprovalsButton({ user }: { user: AuthUser }) {
         <span className="material-symbols-rounded text-[20px]" style={{ color: '#0E2841' }}>approval</span>
         {total > 0 && (
           <span
-            className="absolute -top-1 -right-1 min-w-[16px] h-4 flex items-center justify-center px-1 text-[10px] font-bold text-white rounded-full"
+            className="absolute -top-1 -right-1 min-w-[16px] h-4 flex items-center justify-center px-1 text-[11px] font-bold text-white rounded-full"
             style={{ background: '#C00000' }}>
             {total > 99 ? '99+' : total}
           </span>

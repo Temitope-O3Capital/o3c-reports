@@ -217,7 +217,7 @@ export default function Customers() {
                     {/* Customer */}
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
                           style={{ background: avatarColor(c['CIF Number']) }}>
                           {initials(c)}
                         </div>

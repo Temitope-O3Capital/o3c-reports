@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, apiPost } from '../../lib/api'
 import { Page, KpiCard, SectionCard, Spinner, ErrBanner, NAVY, RED, AMBER, GREEN, BLUE } from '../../components/UI'
+import { StatusPill } from './components'
 import { toast } from 'sonner'
 import ComposeTicket from './ComposeTicket'
 
@@ -38,14 +39,6 @@ interface HelpdeskStats {
   in_progress?: number
 }
 
-const STATUS_BADGE: Record<string, { bg: string; color: string }> = {
-  open:        { bg: 'rgba(14,40,65,0.1)',    color: NAVY },
-  pending:     { bg: 'rgba(217,119,6,0.1)',   color: AMBER },
-  in_progress: { bg: 'rgba(37,99,235,0.1)',   color: BLUE },
-  resolved:    { bg: 'rgba(5,150,105,0.1)',   color: GREEN },
-  closed:      { bg: 'rgba(100,116,139,0.1)', color: '#64748B' },
-}
-
 const PRIORITY_DOT: Record<string, string> = {
   urgent: RED,
   high:   '#EA580C',
@@ -76,18 +69,6 @@ function slaCountdown(sla_due_at: string | null, sla_breached: boolean): { text:
   if (diff < 3600000)   return { text, color: RED }
   if (diff < 14400000)  return { text, color: AMBER }
   return { text, color: GREEN }
-}
-
-function StatusPill({ status }: { status: string }) {
-  const key = status.toLowerCase().replace(/\s+/g, '_')
-  const s = STATUS_BADGE[key] ?? { bg: 'rgba(14,40,65,0.06)', color: '#475569' }
-  return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
-      style={{ background: s.bg, color: s.color }}>
-      <span style={{ width: 5, height: 5, borderRadius: '50%', background: s.color, display: 'inline-block' }} />
-      {status}
-    </span>
-  )
 }
 
 function PriorityDot({ priority }: { priority: string }) {

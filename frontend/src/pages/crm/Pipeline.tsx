@@ -89,13 +89,13 @@ function StageColumn({ stage, deals, onClick }: { stage: Stage; deals: Deal[]; o
               {d.expected_value != null
                 ? <span className="text-[12px] font-mono font-semibold text-slate-700">{fmt(d.expected_value)}</span>
                 : <span className="text-[11px] text-slate-300">—</span>}
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+              <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded"
                 style={{ background: 'rgba(14,40,65,0.05)', color: '#94A3B8' }}>
                 {d.probability}%
               </span>
             </div>
             {d.assigned_name && (
-              <p className="text-[10px] text-slate-400 mt-1.5">{d.assigned_name}</p>
+              <p className="text-[11px] text-slate-400 mt-1.5">{d.assigned_name}</p>
             )}
           </button>
         ))}

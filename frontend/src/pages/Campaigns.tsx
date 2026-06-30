@@ -135,7 +135,7 @@ function Stepper({ step }: { step: number }) {
                 : i + 1}
             </div>
             <span
-              className="text-[10px] font-semibold whitespace-nowrap"
+              className="text-[11px] font-semibold whitespace-nowrap"
               style={{ color: i === step ? '#0F172A' : '#94A3B8' }}
             >
               {label}
@@ -794,7 +794,7 @@ export default function Campaigns() {
           {r.status === 'paused' &&
             <ActionBtn icon="play_arrow" label="Resume" onClick={() => handleStartClick(r)}       color={GREEN} />}
           {r.status !== 'cancelled' && r.status !== 'completed' &&
-            <ActionBtn icon="cancel" label="Cancel" onClick={() => handleAction(r.id, 'cancel')} color="#DC2626" />}
+            <ActionBtn icon="cancel" label="Cancel" onClick={() => handleAction(r.id, 'cancel')} color="#C00000" />}
         </div>
       ),
     },
@@ -914,7 +914,7 @@ function PreflightCard({ preflight, loading, channel, compact = false }: { prefl
 function Metric({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
   return (
     <div className="px-4 py-3">
-      <p className="text-[10px] font-bold uppercase text-slate-400 mb-0.5">{label}</p>
+      <p className="text-[11px] font-bold uppercase text-slate-400 mb-0.5">{label}</p>
       <p className={`text-[15px] ${strong ? 'font-bold text-slate-900' : 'font-semibold text-slate-700'}`}>{value}</p>
     </div>
   )
@@ -932,8 +932,8 @@ function formatDuration(seconds: number) {
 
 function ActionBtn({ icon, label, onClick, color }: { icon: string; label: string; onClick: () => void; color: string }) {
   return (
-    <button onClick={onClick} title={label}
-      className="p-1 rounded transition-colors hover:bg-slate-100" style={{ color }}>
+    <button onClick={onClick} title={label} aria-label={label}
+      className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded transition-colors hover:bg-slate-100" style={{ color }}>
       <span className="material-symbols-rounded text-[15px]">{icon}</span>
     </button>
   )
@@ -951,7 +951,7 @@ function CampaignProgress({ campaign }: { campaign: Campaign }) {
     <div className="min-w-[170px]">
       <div className="flex justify-between text-[11px] text-slate-500 mb-1"><span>{fmtNum(done)}/{fmtNum(total)}</span><span>{pct}%</span></div>
       <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} /></div>
-      <p className="mt-1 text-[10px] text-slate-400">Pending {fmtNum(pending)} · Sending {fmtNum(sending)} · Skipped {fmtNum(skipped)} · Failed {fmtNum(failed)}</p>
+      <p className="mt-1 text-[11px] text-slate-400">Pending {fmtNum(pending)} · Sending {fmtNum(sending)} · Skipped {fmtNum(skipped)} · Failed {fmtNum(failed)}</p>
     </div>
   )
 }

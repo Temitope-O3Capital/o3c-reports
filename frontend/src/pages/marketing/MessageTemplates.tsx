@@ -212,13 +212,13 @@ function StarterCard({ s, onUse }: { s: StarterTemplate; onUse: (s: StarterTempl
     <div className="card p-4 flex flex-col gap-2.5 hover:shadow-md transition-shadow">
       <div className="flex items-center justify-between gap-2">
         <span
-          className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
+          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full"
           style={{ background: `${s.tagColor}14`, color: s.tagColor }}
         >
           {s.tag}
         </span>
         <span
-          className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
+          className="inline-flex items-center gap-1 text-[11px] font-semibold px-1.5 py-0.5 rounded"
           style={{ background: cs.bg, color: cs.color }}
         >
           <span className="material-symbols-rounded text-[11px]">{cs.icon}</span>
@@ -239,7 +239,7 @@ function StarterCard({ s, onUse }: { s: StarterTemplate; onUse: (s: StarterTempl
       </p>
       <div className="flex flex-wrap gap-1">
         {s.variables.map(v => (
-          <span key={v} className="text-[10px] font-mono px-1 py-0.5 rounded"
+          <span key={v} className="text-[11px] font-mono px-1 py-0.5 rounded"
             style={{ background: 'rgba(14,40,65,0.06)', color: '#475569' }}>
             {`{{${v}}}`}
           </span>

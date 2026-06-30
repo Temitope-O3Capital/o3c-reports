@@ -33,7 +33,7 @@ const DPD_STYLE: Record<string, { bg: string; color: string }> = {
   current:  { bg: 'rgba(5,150,105,0.09)',  color: '#059669' },
   '1-30':   { bg: 'rgba(217,119,6,0.1)',   color: AMBER },
   '31-60':  { bg: 'rgba(234,88,12,0.1)',   color: '#EA580C' },
-  '61-90':  { bg: 'rgba(220,38,38,0.1)',   color: '#DC2626' },
+  '61-90':  { bg: 'rgba(220,38,38,0.1)',   color: '#C00000' },
   '91+':    { bg: 'rgba(127,29,29,0.12)',  color: '#7F1D1D' },
 }
 

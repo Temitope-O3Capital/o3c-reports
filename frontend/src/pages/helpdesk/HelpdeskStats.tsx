@@ -278,7 +278,7 @@ export default function HelpdeskStats() {
                       return (
                         <div className="bg-white rounded-lg border px-3 py-2 shadow-lg text-[12px]"
                           style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
-                          <p className="text-slate-400 text-[10px] font-semibold uppercase tracking-wider mb-1">{label}</p>
+                          <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider mb-1">{label}</p>
                           <p className="font-mono font-bold text-slate-900">{payload[0].value} tickets</p>
                         </div>
                       )

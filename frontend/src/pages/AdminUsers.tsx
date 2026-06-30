@@ -98,7 +98,7 @@ export default function AdminUsers() {
           </button>
           <button onClick={() => toggleStatus(r)} title={r.status === 'active' ? 'Deactivate' : 'Reactivate'}
             className="p-1 rounded transition-colors"
-            style={{ color: r.status === 'active' ? '#DC2626' : '#059669' }}>
+            style={{ color: r.status === 'active' ? '#C00000' : '#059669' }}>
             <span className="material-symbols-rounded text-[15px]">
               {r.status === 'active' ? 'person_off' : 'person_check'}
             </span>

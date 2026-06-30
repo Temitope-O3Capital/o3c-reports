@@ -112,7 +112,7 @@ export default function MailDrafts() {
             <p className="text-[11px] text-slate-300 mt-0.5 truncate">
               {excerpt(d.html_body, d.text_body)}
             </p>
-            <p className="text-[10px] text-slate-400 mt-1">{fmtTs(d.updated_at)}</p>
+            <p className="text-[11px] text-slate-400 mt-1">{fmtTs(d.updated_at)}</p>
           </div>
         ))}
       </div>

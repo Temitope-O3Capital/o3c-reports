@@ -181,14 +181,14 @@ export default function Statements() {
     { key: 'customer', label: 'Customer', render: r => <div><p className="text-[12px] font-semibold text-slate-800">{r.customer_name || 'Customer'}</p><p className="font-mono text-[11px] text-slate-400">{r.cif_number}</p></div> },
     { key: 'recipient_email', label: 'Recipient', render: r => <span className="text-[12px] text-slate-600">{r.recipient_email}</span> },
     { key: 'period', label: 'Period', render: r => <span className="text-[12px] text-slate-500 whitespace-nowrap">{r.date_from} to {r.date_to}</span> },
-    { key: 'status', label: 'Status', render: r => <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${statusClass(r.status)}`}>{r.status}</span> },
+    { key: 'status', label: 'Status', render: r => <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold ${statusClass(r.status)}`}>{r.status}</span> },
     { key: 'tracking', label: 'Tracking', render: r => <span className="text-[11px] text-slate-400">{r.opened_at ? 'Opened' : r.delivered_at ? 'Delivered' : r.bounced_at ? 'Bounced' : r.last_error ? r.last_error : 'Pending'}</span> },
   ]
 
   const runCols: ColDef<StatementRun>[] = [
     { key: 'created_at', label: 'Started', render: r => <span className="text-[11px] text-slate-500 whitespace-nowrap">{fmtDate(r.created_at)}</span> },
     { key: 'period', label: 'Period', render: r => <span className="text-[12px] text-slate-600 whitespace-nowrap">{r.date_from} to {r.date_to}</span> },
-    { key: 'status', label: 'Status', render: r => <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${statusClass(r.status)}`}>{r.status}</span> },
+    { key: 'status', label: 'Status', render: r => <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold ${statusClass(r.status)}`}>{r.status}</span> },
     { key: 'progress', label: 'Progress', render: r => <Progress sent={Number(r.sent_count || 0)} failed={Number(r.failed_count || 0)} total={Number(r.total_recipients || 0)} /> },
     { key: 'last_error', label: 'Last Note', render: r => <span className="text-[11px] text-slate-400">{r.last_error || '—'}</span> },
     { key: 'actions', label: '', render: r => <div className="flex justify-end gap-1">
@@ -283,7 +283,7 @@ function Progress({ sent, failed, total }: { sent: number; failed: number; total
     <div className="min-w-[150px]">
       <div className="flex justify-between text-[11px] text-slate-500 mb-1"><span>{done}/{total}</span><span>{pct}%</span></div>
       <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} /></div>
-      <p className="mt-1 text-[10px] text-slate-400">Sent {sent} · Failed {failed}</p>
+      <p className="mt-1 text-[11px] text-slate-400">Sent {sent} · Failed {failed}</p>
     </div>
   )
 }

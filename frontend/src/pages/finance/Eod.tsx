@@ -60,8 +60,8 @@ function BranchCard({ branches, loading }: { branches: any[]; loading: boolean }
                   <div style={{ flex: 1, background: GREEN, opacity: 0.7 }} />
                 </div>
                 <div className="flex justify-between mt-1">
-                  <span className="text-[10px] tabular-nums" style={{ color: RED }}>DR {fmt(b.total_dr)}</span>
-                  <span className="text-[10px] tabular-nums" style={{ color: GREEN }}>CR {fmt(b.total_cr)}</span>
+                  <span className="text-[11px] tabular-nums" style={{ color: RED }}>DR {fmt(b.total_dr)}</span>
+                  <span className="text-[11px] tabular-nums" style={{ color: GREEN }}>CR {fmt(b.total_cr)}</span>
                 </div>
               </div>
             )

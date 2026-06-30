@@ -105,7 +105,7 @@ function Avatar({ name }: { name: string }) {
   const initials = name.split(' ').map(w => w[0] ?? '').slice(0, 2).join('').toUpperCase()
   const hue = (name.charCodeAt(0) * 37 + name.charCodeAt(1 % name.length) * 13) % 360
   return (
-    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-[10px] font-bold text-white flex-shrink-0"
+    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-bold text-white flex-shrink-0"
       style={{ background: `hsl(${hue},60%,42%)` }}>
       {initials || '?'}
     </span>
@@ -231,7 +231,7 @@ function ChartTooltip({ active, payload, label }: any) {
   return (
     <div className="bg-white rounded-xl border shadow-xl px-3 py-2.5 text-[12px]"
       style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
-      {label && <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">{label}</p>}
+      {label && <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">{label}</p>}
       {payload.map((p: any) => (
         <div key={p.name} className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-sm" style={{ background: p.color ?? p.fill }} />
@@ -455,7 +455,7 @@ export default function CallLog() {
                       <div className="flex items-center gap-1.5">
                         <span className="text-[11px] font-bold text-slate-700">{d.value}</span>
                         {(sm?.total ?? 0) > 0 && (
-                          <span className="text-[10px] text-slate-400">
+                          <span className="text-[11px] text-slate-400">
                             ({Math.round((d.value / (sm?.total ?? 1)) * 100)}%)
                           </span>
                         )}
@@ -477,7 +477,7 @@ export default function CallLog() {
               <thead>
                 <tr style={{ background: '#F8FAFC', borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
                   {['#', 'Agent', 'Total', 'Inbound', 'Outbound', 'Resolved', 'Avg Duration'].map(h => (
-                    <th key={h} className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap">
+                    <th key={h} className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap">
                       {h}
                     </th>
                   ))}
@@ -510,7 +510,7 @@ export default function CallLog() {
                         <span className="font-semibold" style={{ color: a.resolved > 0 ? GREEN : '#94A3B8' }}>
                           {a.resolved}
                           {a.total > 0 && (
-                            <span className="text-[10px] text-slate-400 font-normal ml-1">
+                            <span className="text-[11px] text-slate-400 font-normal ml-1">
                               ({Math.round((a.resolved / a.total) * 100)}%)
                             </span>
                           )}
@@ -544,7 +544,7 @@ export default function CallLog() {
                 }}
               >
                 {t.label}
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full"
                   style={{ background: tab === t.key ? t.color + '1A' : 'transparent', color: tab === t.key ? t.color : '#94A3B8' }}>
                   {t.count}
                 </span>
@@ -577,7 +577,7 @@ export default function CallLog() {
               <thead>
                 <tr style={{ background: '#F8FAFC', borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
                   {['Time', 'Direction', 'Agent', 'Customer', 'Duration', 'Outcome', 'Notes', 'Ticket'].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap">{h}</th>
+                    <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -589,7 +589,7 @@ export default function CallLog() {
                       <p className="text-[12px] font-medium text-slate-700">
                         {new Date(c.started_at).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}
                       </p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">{relativeTime(c.started_at)}</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">{relativeTime(c.started_at)}</p>
                     </td>
                     <td className="px-4 py-3">
                       <span className="flex items-center gap-1.5 text-[12px] font-semibold"

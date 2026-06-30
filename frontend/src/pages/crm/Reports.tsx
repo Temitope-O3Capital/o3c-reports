@@ -275,8 +275,8 @@ export default function CrmReports() {
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: s.color || NAVY }} />
                       <span className="text-[12px] text-slate-600">{s.name}</span>
-                      {s.is_won && <span className="text-[10px] font-semibold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">WON</span>}
-                      {s.is_lost && <span className="text-[10px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">LOST</span>}
+                      {s.is_won && <span className="text-[11px] font-semibold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">WON</span>}
+                      {s.is_lost && <span className="text-[11px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">LOST</span>}
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-[12px] font-mono font-semibold text-slate-800">{s.deal_count} deals</span>
