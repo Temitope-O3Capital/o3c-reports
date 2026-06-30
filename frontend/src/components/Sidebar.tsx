@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { NavLink, useLocation, useNavigate, Link } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { AuthUser, ROLE_PAGES } from '../hooks/useAuth'
 import { roleLabel } from '../lib/roles'
 
-// ── Role helpers ──────────────────────────────────────────────────────────────
+// ── Access control ────────────────────────────────────────────────────────────
 
 const MGMT = ['md', 'coo', 'cfo', 'cmo', 'executive', 'admin', 'management', 'head_ops', 'head_it']
 
@@ -12,294 +12,274 @@ function hasAccess(role: string, moduleRoles: string[]): boolean {
 }
 
 const MODULE_PAGE_KEYS: Record<string, string[]> = {
-  overview: ['overview'],
-  sales: ['sales', 'crm_pipeline', 'crm_contacts', 'crm_tasks', 'crm_reports', 'los'],
-  risk: ['credit_portfolio', 'los_all', 'los_risk_review', 'risk_all'],
-  finance: ['income', 'transactions', 'fixed_deposit', 'eod', 'reconciliation', 'los_finance'],
+  overview:    ['overview'],
+  sales:       ['sales', 'crm_pipeline', 'crm_contacts', 'crm_tasks', 'crm_reports', 'los'],
+  risk:        ['credit_portfolio', 'los_all', 'los_risk_review', 'risk_all'],
+  finance:     ['income', 'transactions', 'fixed_deposit', 'eod', 'reconciliation', 'los_finance'],
   collections: ['collections', 'collections_assign', 'collections_payment', 'collections_payment_approve'],
-  recovery: ['recovery', 'recovery_assign', 'recovery_write_off'],
+  recovery:    ['recovery', 'recovery_assign', 'recovery_write_off'],
   settlements: ['settlement', 'reconciliation'],
-  cards: ['cards', 'card_trends', 'mobile_app', 'blink_card'],
-  helpdesk: ['customer_service', 'call_center'],
-  compliance: ['compliance_all', 'compliance_checklists', 'watch_list', 'sars', 'cbn_reports', 'audit_findings', 'audit_trail', 'audit_export'],
-  hr: ['hr_employees', 'hr_leave', 'hr_performance', 'hr_disciplinary', 'hr_payroll', 'hr_training'],
-  campaigns: ['campaigns', 'contact_lists', 'message_templates'],
-  statements: ['statements'],
-  reports: ['reports', 'kpi_dashboard'],
-  admin: ['admin_users', 'admin_api_keys', 'settings', 'sync_status'],
+  cards:       ['cards', 'card_trends', 'mobile_app', 'blink_card'],
+  helpdesk:    ['customer_service', 'call_center'],
+  compliance:  ['compliance_all', 'compliance_checklists', 'watch_list', 'sars', 'cbn_reports', 'audit_findings', 'audit_trail', 'audit_export'],
+  hr:          ['hr_employees', 'hr_leave', 'hr_performance', 'hr_disciplinary', 'hr_payroll', 'hr_training'],
+  campaigns:   ['campaigns', 'contact_lists', 'message_templates'],
+  statements:  ['statements'],
+  reports:     ['reports', 'kpi_dashboard'],
+  admin:       ['admin_users', 'admin_api_keys', 'settings', 'sync_status'],
 }
 
 function hasPageAccess(pages: Set<string>, moduleId: string): boolean {
   const keys = MODULE_PAGE_KEYS[moduleId] ?? [moduleId]
-  return keys.some(key => pages.has(key))
+  return keys.some(k => pages.has(k))
 }
 
-// ── Nav data types ────────────────────────────────────────────────────────────
+// ── Nav types ─────────────────────────────────────────────────────────────────
 
 interface SubItem {
-  label:   string
-  to:      string
-  icon:    string
-  header?: boolean  // if true, renders as a section label, not a nav link
-}
-
-interface Module {
-  id:    string
   label: string
-  icon:  string
-  roles: string[]    // non-management roles that can see this module
-  items: SubItem[]   // empty means single-page (no sub-items)
+  to:    string
 }
 
-// ── Module definitions ────────────────────────────────────────────────────────
+interface NavModule {
+  id:      string
+  label:   string
+  icon:    string
+  roles:   string[]
+  primary: string          // route to navigate to on header click
+  items:   SubItem[]
+}
 
-const MODULES: Module[] = [
+interface NavSection {
+  label: string | null     // null = no section header
+  modules: NavModule[]
+}
+
+// ── Nav data ──────────────────────────────────────────────────────────────────
+
+const SECTIONS: NavSection[] = [
   {
-    id: 'overview', label: 'Overview', icon: 'dashboard',
-    roles: [],  // management only — hasAccess handles this via MGMT check
-    items: [],
-  },
-  {
-    id: 'sales', label: 'Sales', icon: 'trending_up',
-    roles: ['sales_officer', 'sales_head'],
-    items: [
-      { label: 'Customers',    to: '/sales/customers',    icon: 'people' },
-      { label: 'CRM Pipeline', to: '/sales/crm',          icon: 'account_tree' },
-      { label: 'Applications', to: '/sales/applications', icon: 'description' },
+    label: null,
+    modules: [
+      { id: 'overview', label: 'Overview', icon: 'space_dashboard', roles: [], primary: '/', items: [] },
     ],
   },
   {
-    id: 'risk', label: 'Risk & Credit', icon: 'shield',
-    roles: ['risk_officer', 'risk_head'],
-    items: [
-      { label: 'App Review', to: '/risk/applications',   icon: 'rate_review' },
-      { label: 'Portfolio',  to: '/risk/portfolio',      icon: 'pie_chart' },
+    label: 'Lending',
+    modules: [
+      {
+        id: 'sales', label: 'Sales', icon: 'trending_up', roles: ['sales_officer', 'sales_head'],
+        primary: '/sales',
+        items: [
+          { label: 'Customers',    to: '/sales/customers' },
+          { label: 'CRM Pipeline', to: '/sales/crm' },
+          { label: 'Applications', to: '/sales/applications' },
+        ],
+      },
+      {
+        id: 'risk', label: 'Risk & Credit', icon: 'shield', roles: ['risk_officer', 'risk_head'],
+        primary: '/risk',
+        items: [
+          { label: 'App Review', to: '/risk/applications' },
+          { label: 'Portfolio',  to: '/risk/portfolio' },
+        ],
+      },
     ],
   },
   {
-    id: 'finance', label: 'Finance', icon: 'account_balance',
-    roles: ['finance_officer', 'finance_head', 'cfo', 'head_of_reconciliation'],
-    items: [
-      { label: 'Transactions',   to: '/finance/transactions',   icon: 'receipt_long' },
-      { label: 'Income',         to: '/finance/income',         icon: 'trending_up' },
-      { label: 'Fixed Deposits', to: '/finance/fixed-deposit',  icon: 'savings' },
-      { label: 'EOD/EOB',        to: '/finance/eod',            icon: 'event_available' },
+    label: 'Operations',
+    modules: [
+      {
+        id: 'finance', label: 'Finance', icon: 'account_balance', roles: ['finance_officer', 'finance_head', 'cfo', 'head_of_reconciliation'],
+        primary: '/finance',
+        items: [
+          { label: 'Transactions',   to: '/finance/transactions' },
+          { label: 'Income',         to: '/finance/income' },
+          { label: 'Fixed Deposits', to: '/finance/fixed-deposit' },
+          { label: 'EOD / EOB',      to: '/finance/eod' },
+        ],
+      },
+      {
+        id: 'cards', label: 'Cards & Channels', icon: 'credit_card', roles: ['cards_ops_officer', 'cards_ops_head'],
+        primary: '/cards',
+        items: [
+          { label: 'Trends',     to: '/cards/trends' },
+          { label: 'Management', to: '/cards/management' },
+          { label: 'Blink Card', to: '/cards/blink' },
+          { label: 'Mobile App', to: '/cards/mobile-app' },
+        ],
+      },
+      {
+        id: 'settlements', label: 'Settlements', icon: 'compare_arrows', roles: ['finance_head', 'cfo', 'head_of_reconciliation'],
+        primary: '/settlements',
+        items: [
+          { label: 'Settlement',     to: '/settlements' },
+          { label: 'Reconciliation', to: '/settlements/recon' },
+        ],
+      },
     ],
   },
   {
-    id: 'collections', label: 'Collections', icon: 'payments',
-    roles: ['collections_agent', 'collections_head'],
-    items: [
-      { label: 'Agent Queue',     to: '/collections/queue',    icon: 'format_list_bulleted' },
-      { label: 'Targets',         to: '/collections/targets',  icon: 'flag' },
-      { label: 'Promise-to-Pay',  to: '/collections/promises', icon: 'handshake' },
+    label: 'Portfolio',
+    modules: [
+      {
+        id: 'collections', label: 'Collections', icon: 'payments', roles: ['collections_agent', 'collections_head'],
+        primary: '/collections',
+        items: [
+          { label: 'Agent Queue',    to: '/collections/queue' },
+          { label: 'Targets',        to: '/collections/targets' },
+          { label: 'Promise-to-Pay', to: '/collections/promises' },
+        ],
+      },
+      {
+        id: 'recovery', label: 'Recovery', icon: 'refresh', roles: ['recovery_agent', 'recovery_head'],
+        primary: '/recovery',
+        items: [
+          { label: 'Cases',        to: '/recovery/cases' },
+          { label: 'Legal',        to: '/recovery/legal' },
+          { label: 'Field Visits', to: '/recovery/visits' },
+        ],
+      },
     ],
   },
   {
-    id: 'recovery', label: 'Recovery', icon: 'refresh',
-    roles: ['recovery_agent', 'recovery_head'],
-    items: [
-      { label: 'Cases',        to: '/recovery/cases',   icon: 'folder_open' },
-      { label: 'Legal',        to: '/recovery/legal',   icon: 'gavel' },
-      { label: 'Field Visits', to: '/recovery/visits',  icon: 'directions_car' },
+    label: 'Customer',
+    modules: [
+      {
+        id: 'helpdesk', label: 'Helpdesk', icon: 'support_agent',
+        roles: [
+          'call_center_agent', 'call_center_head', 'collections_agent', 'collections_head',
+          'recovery_agent', 'recovery_head', 'cards_ops_officer', 'cards_ops_head',
+          'sales_officer', 'sales_head', 'risk_officer', 'risk_head',
+          'finance_officer', 'finance_head', 'hr_officer', 'hr_manager',
+          'compliance_officer', 'compliance_head', 'it_admin', 'head_it',
+          'md', 'coo', 'cfo', 'cmo', 'management', 'admin',
+        ],
+        primary: '/helpdesk',
+        items: [
+          { label: 'Overview',         to: '/helpdesk' },
+          { label: 'All Tickets',      to: '/helpdesk/tickets' },
+          { label: 'Call Log',         to: '/helpdesk/calls' },
+          { label: 'Analytics',        to: '/helpdesk/stats' },
+          { label: 'Canned Responses', to: '/helpdesk/canned' },
+        ],
+      },
     ],
   },
   {
-    id: 'settlements', label: 'Settlements', icon: 'compare_arrows',
-    roles: ['finance_head', 'cfo', 'head_of_reconciliation'],
-    items: [
-      { label: 'Settlement',     to: '/settlements',       icon: 'payments' },
-      { label: 'Reconciliation', to: '/settlements/recon', icon: 'balance' },
+    label: 'Governance',
+    modules: [
+      {
+        id: 'compliance', label: 'Compliance', icon: 'policy', roles: ['compliance_officer', 'compliance_head', 'internal_control_head'],
+        primary: '/compliance',
+        items: [
+          { label: 'AML Watchlist', to: '/compliance/watchlist' },
+          { label: 'SAR Filing',   to: '/compliance/sars' },
+          { label: 'CBN Reports',  to: '/compliance/cbn-reports' },
+          { label: 'Findings',     to: '/compliance/findings' },
+          { label: 'Checklists',   to: '/compliance/checklists' },
+          { label: 'Audit Trail',  to: '/compliance/audit-trail' },
+        ],
+      },
+      {
+        id: 'hr', label: 'HR', icon: 'groups', roles: ['hr_officer', 'hr_manager'],
+        primary: '/hr',
+        items: [
+          { label: 'Employees',    to: '/hr/employees' },
+          { label: 'Leave',        to: '/hr/leave' },
+          { label: 'Performance',  to: '/hr/performance' },
+          { label: 'Disciplinary', to: '/hr/disciplinary' },
+          { label: 'Training',     to: '/hr/training' },
+        ],
+      },
     ],
   },
   {
-    id: 'cards', label: 'Cards & Channels', icon: 'credit_card',
-    roles: ['cards_ops_officer', 'cards_ops_head'],
-    items: [
-      { label: 'Trends',      to: '/cards/trends',      icon: 'show_chart' },
-      { label: 'Management',  to: '/cards/management',  icon: 'manage_accounts' },
-      { label: 'Blink Card',  to: '/cards/blink',       icon: 'contactless' },
-      { label: 'Mobile App',  to: '/cards/mobile-app',  icon: 'smartphone' },
+    label: 'Growth',
+    modules: [
+      {
+        id: 'campaigns', label: 'Campaigns', icon: 'campaign', roles: ['cmo', 'md', 'coo', 'management', 'admin'],
+        primary: '/campaigns',
+        items: [
+          { label: 'Overview',      to: '/campaigns/overview' },
+          { label: 'Campaigns',     to: '/campaigns' },
+          { label: 'Analytics',     to: '/campaigns/analytics' },
+          { label: 'Templates',     to: '/campaigns/templates' },
+          { label: 'Contact Lists', to: '/campaigns/lists' },
+        ],
+      },
     ],
   },
   {
-    id: 'helpdesk', label: 'Helpdesk', icon: 'support_agent',
-    roles: [
-      'call_center_agent', 'call_center_head',
-      'collections_agent', 'collections_head',
-      'recovery_agent',    'recovery_head',
-      'cards_ops_officer', 'cards_ops_head',
-      'sales_officer',     'sales_head',
-      'risk_officer',      'risk_head',
-      'finance_officer',   'finance_head',
-      'hr_officer',        'hr_manager',
-      'compliance_officer','compliance_head',
-      'it_admin',          'head_it',
-      'md', 'coo', 'cfo', 'cmo', 'management', 'admin',
-    ],
-    items: [
-      { label: 'Overview',         to: '/helpdesk',            icon: 'dashboard' },
-      { label: 'All Tickets',      to: '/helpdesk/tickets',    icon: 'confirmation_number' },
-      { label: 'Call Log',         to: '/helpdesk/calls',      icon: 'call' },
-      { label: 'Analytics',        to: '/helpdesk/stats',      icon: 'bar_chart' },
-      { label: 'Canned Responses', to: '/helpdesk/canned',     icon: 'quickreply' },
+    label: 'Intelligence',
+    modules: [
+      {
+        id: 'statements', label: 'Statements', icon: 'receipt_long',
+        roles: ['cmo', 'md', 'coo', 'cfo', 'finance_head', 'sales_head', 'call_center_head', 'management', 'admin'],
+        primary: '/statements',
+        items: [],
+      },
+      {
+        id: 'reports', label: 'Reports', icon: 'bar_chart',
+        roles: ['sales_head', 'risk_head', 'finance_head', 'collections_head', 'recovery_head', 'cards_ops_head', 'call_center_head', 'compliance_head', 'internal_control_head', 'hr_manager'],
+        primary: '/reports',
+        items: [],
+      },
     ],
   },
   {
-    id: 'compliance', label: 'Compliance', icon: 'policy',
-    roles: ['compliance_officer', 'compliance_head', 'internal_control_head'],
-    items: [
-      { label: 'AML Watchlist',to: '/compliance/watchlist',     icon: 'security' },
-      { label: 'SAR Filing',   to: '/compliance/sars',          icon: 'report' },
-      { label: 'CBN Reports',  to: '/compliance/cbn-reports',   icon: 'article' },
-      { label: 'Findings',     to: '/compliance/findings',      icon: 'search' },
-      { label: 'Checklists',   to: '/compliance/checklists',    icon: 'checklist' },
-      { label: 'Audit Trail',  to: '/compliance/audit-trail',   icon: 'history' },
-    ],
-  },
-  {
-    id: 'hr', label: 'HR', icon: 'groups',
-    roles: ['hr_officer', 'hr_manager'],
-    items: [
-      { label: 'Employees',     to: '/hr/employees',     icon: 'badge' },
-      { label: 'Leave',         to: '/hr/leave',         icon: 'event_available' },
-      { label: 'Performance',   to: '/hr/performance',   icon: 'star' },
-      { label: 'Disciplinary',  to: '/hr/disciplinary',  icon: 'warning' },
-      { label: 'Training',      to: '/hr/training',      icon: 'school' },
-    ],
-  },
-  {
-    id: 'campaigns', label: 'Campaigns', icon: 'campaign',
-    roles: ['cmo', 'md', 'coo', 'management', 'admin'],
-    items: [
-      { label: 'Overview',      to: '/campaigns/overview',     icon: 'bar_chart' },
-      { label: 'Campaigns',     to: '/campaigns',              icon: 'send' },
-      { label: 'Analytics',     to: '/campaigns/analytics',    icon: 'insights' },
-      { label: 'Templates',     to: '/campaigns/templates',    icon: 'article' },
-      { label: 'Contact Lists', to: '/campaigns/lists',        icon: 'list_alt' },
-      { label: 'Email Senders', to: '/admin/email-senders',    icon: 'alternate_email' },
-    ],
-  },
-  {
-    id: 'statements', label: 'Statements', icon: 'receipt_long',
-    roles: ['cmo', 'md', 'coo', 'cfo', 'finance_head', 'sales_head', 'call_center_head', 'management', 'admin'],
-    items: [],
-  },
-  {
-    id: 'reports', label: 'Reports', icon: 'bar_chart',
-    roles: [
-      'sales_head', 'risk_head', 'finance_head', 'collections_head',
-      'recovery_head', 'cards_ops_head', 'call_center_head', 'compliance_head',
-      'internal_control_head', 'hr_manager',
-    ],
-    items: [],
-  },
-  {
-    id: 'admin', label: 'Admin', icon: 'admin_panel_settings',
-    roles: ['it_admin', 'head_it'],
-    items: [
-      // Users & Access
-      { label: 'Overview',             to: '/admin/overview',              icon: 'dashboard' },
-      { label: 'Users',                to: '/admin/users',                 icon: 'manage_accounts' },
-      { label: 'Roles',                to: '/admin/roles',                 icon: 'lock_person' },
-      // Communications
-      { label: 'Email Senders',        to: '/admin/email-senders',         icon: 'alternate_email' },
-      { label: 'Mail Health',          to: '/admin/mail',                  icon: 'mark_email_read' },
-      { label: 'Notif. Settings',      to: '/admin/notification-settings', icon: 'notifications_active' },
-      // Integrations
-      { label: 'API Keys',             to: '/admin/api-keys',              icon: 'key' },
-      { label: 'Connected Services',   to: '/admin/integrations',          icon: 'hub' },
-      // Platform
-      { label: 'Settings',             to: '/admin/settings',              icon: 'settings' },
-      { label: 'Audit Log',            to: '/admin/audit',                 icon: 'history' },
-      { label: 'Sync Status',          to: '/admin/sync',                  icon: 'sync' },
+    label: 'Admin',
+    modules: [
+      {
+        id: 'admin', label: 'Admin', icon: 'admin_panel_settings', roles: ['it_admin', 'head_it'],
+        primary: '/admin/overview',
+        items: [
+          { label: 'Overview',           to: '/admin/overview' },
+          { label: 'Users',              to: '/admin/users' },
+          { label: 'Roles',              to: '/admin/roles' },
+          { label: 'Email Senders',      to: '/admin/email-senders' },
+          { label: 'Mail Health',        to: '/admin/mail' },
+          { label: 'API Keys',           to: '/admin/api-keys' },
+          { label: 'Settings',           to: '/admin/settings' },
+          { label: 'Sync Status',        to: '/admin/sync' },
+        ],
+      },
     ],
   },
 ]
 
-// Module → primary route (clicking the section header navigates here)
-const MODULE_PRIMARY: Record<string, string> = {
-  overview:         '/',
-  reports:          '/reports',
-  sales:            '/sales',
-  risk:             '/risk',
-  finance:          '/finance',
-  collections:      '/collections',
-  recovery:         '/recovery',
-  cards:            '/cards',
-  'customer-service': '/customer-service',
-  compliance:       '/compliance',
-  hr:               '/hr',
-  settlements:      '/settlements',
-  campaigns:        '/campaigns',
-  statements:       '/statements',
-  helpdesk:         '/helpdesk',
-  los:              '/los',
-  crm:              '/crm',
-  admin:            '/admin/overview',
-}
-
-function primaryRoute(mod: Module): string {
-  return MODULE_PRIMARY[mod.id] ?? (mod.items[0]?.to ?? '/')
-}
-
-// ── Design tokens ─────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 const NAVY   = '#0E2841'
 const ACCENT = '#C00000'
-const IDLE_TEXT   = 'rgba(255,255,255,0.58)'
-const IDLE_ICON   = 'rgba(255,255,255,0.38)'
-const ACTIVE_TEXT = '#ffffff'
 
-// ── Sub-item nav link ─────────────────────────────────────────────────────────
-
-function SubNavItem({ label, to, icon, header }: SubItem) {
-  // Section header: render as small uppercase label, no link behaviour
-  if (header) {
-    return (
-      <div className="px-3 pt-3 pb-0.5">
-        <span className="text-[9.5px] font-semibold uppercase tracking-[0.1em]"
-          style={{ color: 'rgba(255,255,255,0.25)' }}>
-          {label.replace(/^— | —$/g, '')}
-        </span>
-      </div>
-    )
-  }
-
-  return (
-    <NavLink to={to} end>
-      {({ isActive }) => (
-        <span
-          className={`flex items-center gap-2 py-[6px] text-[12.5px] cursor-pointer w-full transition-colors rounded-r-lg ${!isActive ? 'hover:bg-white/[0.07]' : ''}`}
-          style={{
-            marginLeft:  '-1px',
-            paddingLeft: isActive ? '11px' : '12px',
-            borderLeft:  isActive ? `2px solid ${ACCENT}` : '2px solid transparent',
-            color:       isActive ? ACTIVE_TEXT : 'rgba(255,255,255,0.52)',
-            fontWeight:  isActive ? 600 : 400,
-          }}>
-          <span className="material-symbols-rounded text-[14px] flex-shrink-0"
-            style={{ color: isActive ? '#fff' : 'rgba(255,255,255,0.3)' }}>
-            {icon}
-          </span>
-          {label}
-        </span>
-      )}
-    </NavLink>
-  )
+function initials(name: string): string {
+  return name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase()
 }
 
-// ── Main Sidebar ──────────────────────────────────────────────────────────────
+// ── Main component ────────────────────────────────────────────────────────────
 
 export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const location = useLocation()
   const navigate  = useNavigate()
-  const role = user.role as string
+  const role    = user.role as string
   const pageList = user.pages?.length ? user.pages : (ROLE_PAGES[role] ?? [])
-  const pageSet = new Set(pageList)
+  const pageSet  = new Set(pageList)
 
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem('o3c_sidebar_collapsed') === '1' } catch { return false }
+  })
+
+  const [openId, setOpenId] = useState<string | null>(() => {
+    // Auto-open the section that contains the current route
+    for (const sec of SECTIONS) {
+      for (const mod of sec.modules) {
+        if (mod.items.some(i => location.pathname === i.to || location.pathname.startsWith(i.to + '/'))) {
+          return mod.id
+        }
+      }
+    }
+    return null
   })
 
   function toggleCollapse() {
@@ -308,159 +288,280 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
     try { localStorage.setItem('o3c_sidebar_collapsed', next ? '1' : '0') } catch {}
   }
 
-  // Visible modules for this user's role
-  const visibleModules = MODULES.filter(m => {
-    if (pageSet.size > 0) return hasPageAccess(pageSet, m.id)
-    // 'overview' module is management-only; hasAccess with empty roles means only MGMT can see it
-    if (m.id === 'overview') return MGMT.includes(role)
-    return hasAccess(role, m.roles)
-  })
+  function isModuleVisible(mod: NavModule): boolean {
+    if (pageSet.size > 0) return hasPageAccess(pageSet, mod.id)
+    if (mod.id === 'overview') return MGMT.includes(role)
+    return hasAccess(role, mod.roles)
+  }
 
-  // Which module's section is currently active (by pathname prefix)
-  function isModuleActive(mod: Module): boolean {
+  function isModuleActive(mod: NavModule): boolean {
     if (mod.items.length === 0) {
-      // Single-page module
-      const pr = primaryRoute(mod)
-      if (pr === '/') return location.pathname === '/'
-      return location.pathname === pr || location.pathname.startsWith(pr + '/')
+      if (mod.primary === '/') return location.pathname === '/'
+      return location.pathname === mod.primary || location.pathname.startsWith(mod.primary + '/')
     }
     return mod.items.some(i =>
       location.pathname === i.to || location.pathname.startsWith(i.to + '/')
     )
   }
 
-  // Open state for expanded accordion — auto-open the active section
-  const initialOpen = visibleModules.find(m => isModuleActive(m) && m.items.length > 0)?.id ?? null
-  const [openId, setOpenId] = useState<string | null>(initialOpen)
+  function handleModuleClick(mod: NavModule) {
+    if (mod.items.length === 0) {
+      navigate(mod.primary)
+    } else {
+      setOpenId(openId === mod.id ? null : mod.id)
+      navigate(mod.primary)
+    }
+  }
 
-  const initials = user.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+  const sidebarWidth = collapsed ? 64 : 232
 
   return (
     <aside
-      className={`flex flex-col flex-shrink-0 h-screen transition-all duration-200 ${collapsed ? 'w-[64px]' : 'w-60'}`}
-      style={{ background: NAVY, borderRight: '1px solid rgba(255,255,255,0.06)' }}>
-
+      style={{
+        width: sidebarWidth,
+        minWidth: sidebarWidth,
+        background: NAVY,
+        borderRight: '1px solid rgba(255,255,255,0.06)',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100vh',
+        overflow: 'hidden',
+        transition: 'width 200ms ease, min-width 200ms ease',
+        flexShrink: 0,
+      }}
+    >
       {/* ── Logo ── */}
-      <div className={`flex items-center gap-2.5 px-4 pt-4 pb-3 flex-shrink-0 ${collapsed ? 'justify-center px-2' : ''}`}>
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-          style={{ background: ACCENT, boxShadow: '0 1px 6px rgba(192,0,0,0.35)' }}>
-          <span className="text-white font-extrabold text-[12px] tracking-tight">O3</span>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: collapsed ? '18px 0' : '18px 16px 14px',
+        justifyContent: collapsed ? 'center' : 'flex-start',
+        flexShrink: 0,
+      }}>
+        <div style={{
+          width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+          background: ACCENT,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 1px 6px rgba(192,0,0,0.4)',
+        }}>
+          <span style={{ color: '#fff', fontWeight: 800, fontSize: 11, letterSpacing: '-0.5px' }}>O3</span>
         </div>
         {!collapsed && (
-          <div>
-            <p className="font-bold text-[14px] tracking-tight text-white leading-tight">O3 Capital</p>
-            <p className="text-[10px] leading-tight" style={{ color: 'rgba(255,255,255,0.38)' }}>Cards Platform</p>
+          <div style={{ overflow: 'hidden' }}>
+            <div style={{ color: '#fff', fontWeight: 700, fontSize: 13.5, lineHeight: 1.2, letterSpacing: '-0.2px' }}>
+              O3 Capital
+            </div>
+            <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10.5, lineHeight: 1.3 }}>
+              Cards Platform
+            </div>
           </div>
         )}
       </div>
 
       {/* ── Nav ── */}
-      <nav className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
-        {visibleModules.map(mod => {
-          const active  = isModuleActive(mod)
-          const primary = primaryRoute(mod)
-          const hasSubs = mod.items.length > 0
-
-          // ── Collapsed: just icon, links to primary route ──
-          if (collapsed) {
-            return (
-              <NavLink key={mod.id} to={primary} end={primary === '/'} title={mod.label}>
-                {({ isActive: linkActive }) => {
-                  // For multi-item modules, use our own active check
-                  const shown = hasSubs ? active : linkActive
-                  return (
-                    <span
-                      className={`flex items-center justify-center w-full py-[7px] rounded-lg transition-colors cursor-pointer ${!shown ? 'hover:bg-white/[0.07]' : ''}`}
-                      style={{ borderLeft: shown ? `2px solid ${ACCENT}` : '2px solid transparent' }}>
-                      <span className="material-symbols-rounded text-[18px]"
-                        style={{ color: shown ? '#fff' : IDLE_ICON }}>
-                        {mod.icon}
-                      </span>
-                    </span>
-                  )
-                }}
-              </NavLink>
-            )
-          }
-
-          // ── Single-page module (no sub-items) ──
-          if (!hasSubs) {
-            return (
-              <NavLink key={mod.id} to={primary} end={primary === '/'}>
-                {({ isActive: linkActive }) => (
-                  <span
-                    className={`flex items-center gap-2.5 w-full px-3 py-[7px] rounded-lg text-[13px] font-medium transition-colors cursor-pointer ${!linkActive ? 'hover:bg-white/[0.07]' : ''}`}
-                    style={{
-                      color:       linkActive ? ACTIVE_TEXT : IDLE_TEXT,
-                      borderLeft:  linkActive ? `2px solid ${ACCENT}` : '2px solid transparent',
-                      paddingLeft: linkActive ? 'calc(0.75rem - 2px)' : '0.75rem',
-                    }}>
-                    <span className="material-symbols-rounded text-[18px] flex-shrink-0"
-                      style={{ color: linkActive ? '#fff' : IDLE_ICON }}>
-                      {mod.icon}
-                    </span>
-                    <span className="flex-1">{mod.label}</span>
-                  </span>
-                )}
-              </NavLink>
-            )
-          }
-
-          // ── Multi-item module with accordion ──
-          const isOpen = openId === mod.id
+      <nav style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: collapsed ? '4px 8px' : '4px 10px' }}>
+        {SECTIONS.map((section, si) => {
+          const visibleMods = section.modules.filter(isModuleVisible)
+          if (visibleMods.length === 0) return null
 
           return (
-            <div key={mod.id}>
-              {/* Section header — clicking navigates to the module overview and opens accordion */}
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => { setOpenId(mod.id); navigate(primary) }}
-                onKeyDown={e => { if (e.key === 'Enter') { setOpenId(mod.id); navigate(primary) } }}
-                className={`flex items-center gap-2.5 w-full px-3 py-[7px] rounded-lg text-[13px] font-semibold transition-colors cursor-pointer ${!active ? 'hover:bg-white/[0.07]' : ''}`}
-                style={{
-                  color:       active ? ACTIVE_TEXT : IDLE_TEXT,
-                  borderLeft:  active ? `2px solid ${ACCENT}` : '2px solid transparent',
-                  paddingLeft: active ? 'calc(0.75rem - 2px)' : '0.75rem',
+            <div key={si} style={{ marginBottom: 4 }}>
+              {/* Section label */}
+              {section.label && !collapsed && (
+                <div style={{
+                  fontSize: 9.5,
+                  fontWeight: 600,
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  color: 'rgba(255,255,255,0.22)',
+                  padding: '10px 10px 4px',
                 }}>
-                <span className="material-symbols-rounded text-[18px] flex-shrink-0"
-                  style={{ color: active ? '#fff' : IDLE_ICON }}>
-                  {mod.icon}
-                </span>
-                <span className="flex-1 text-left">{mod.label}</span>
-                <span className="material-symbols-rounded text-[14px] transition-transform"
-                  style={{
-                    color:     'rgba(255,255,255,0.25)',
-                    transform: isOpen ? 'rotate(180deg)' : 'none',
-                  }}>
-                  expand_more
-                </span>
-              </div>
-
-              {/* Sub-items accordion */}
-              <div
-                className="overflow-hidden transition-all duration-200 ease-out"
-                style={{ maxHeight: isOpen ? `${mod.items.length * 40 + 60}px` : '0px' }}>
-                <div className="ml-[30px] mt-0.5 mb-1"
-                  style={{ borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
-                  {mod.items.map(item => (
-                    <SubNavItem key={item.to} {...item} />
-                  ))}
+                  {section.label}
                 </div>
-              </div>
+              )}
+
+              {visibleMods.map(mod => {
+                const active   = isModuleActive(mod)
+                const hasSubs  = mod.items.length > 0
+                const isOpen   = openId === mod.id
+
+                /* ── Collapsed: icon only ── */
+                if (collapsed) {
+                  return (
+                    <button
+                      key={mod.id}
+                      onClick={() => handleModuleClick(mod)}
+                      title={mod.label}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '100%',
+                        padding: '8px 0',
+                        borderRadius: 8,
+                        border: 'none',
+                        background: active ? 'rgba(192,0,0,0.12)' : 'transparent',
+                        cursor: 'pointer',
+                        marginBottom: 1,
+                        transition: 'background 150ms',
+                        borderLeft: active ? `2px solid ${ACCENT}` : '2px solid transparent',
+                      }}
+                      onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.07)' }}
+                      onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
+                    >
+                      <span
+                        className="material-symbols-rounded"
+                        style={{ fontSize: 18, color: active ? '#fff' : 'rgba(255,255,255,0.38)' }}
+                      >
+                        {mod.icon}
+                      </span>
+                    </button>
+                  )
+                }
+
+                /* ── Expanded: module row ── */
+                return (
+                  <div key={mod.id}>
+                    <button
+                      onClick={() => handleModuleClick(mod)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 9,
+                        width: '100%',
+                        padding: '7px 10px',
+                        borderRadius: 7,
+                        border: 'none',
+                        background: active ? 'rgba(192,0,0,0.10)' : 'transparent',
+                        borderLeft: active ? `2px solid ${ACCENT}` : '2px solid transparent',
+                        paddingLeft: active ? 8 : 10,
+                        cursor: 'pointer',
+                        transition: 'background 150ms',
+                        marginBottom: 1,
+                      }}
+                      onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.07)' }}
+                      onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
+                    >
+                      <span
+                        className="material-symbols-rounded"
+                        style={{ fontSize: 17, flexShrink: 0, color: active ? '#fff' : 'rgba(255,255,255,0.38)' }}
+                      >
+                        {mod.icon}
+                      </span>
+                      <span style={{
+                        flex: 1,
+                        textAlign: 'left',
+                        fontSize: 13,
+                        fontWeight: active ? 600 : 400,
+                        color: active ? '#fff' : 'rgba(255,255,255,0.6)',
+                        letterSpacing: '-0.1px',
+                        overflow: 'hidden',
+                        whiteSpace: 'nowrap',
+                        textOverflow: 'ellipsis',
+                      }}>
+                        {mod.label}
+                      </span>
+                      {hasSubs && (
+                        <span
+                          className="material-symbols-rounded"
+                          style={{
+                            fontSize: 14,
+                            color: 'rgba(255,255,255,0.22)',
+                            transform: isOpen ? 'rotate(180deg)' : 'none',
+                            transition: 'transform 200ms',
+                          }}
+                        >
+                          expand_more
+                        </span>
+                      )}
+                    </button>
+
+                    {/* Sub-items */}
+                    {hasSubs && (
+                      <div style={{
+                        overflow: 'hidden',
+                        maxHeight: isOpen ? `${mod.items.length * 30 + 8}px` : '0px',
+                        transition: 'max-height 200ms ease',
+                      }}>
+                        <div style={{
+                          marginLeft: 16,
+                          paddingLeft: 12,
+                          borderLeft: '1px solid rgba(255,255,255,0.1)',
+                          marginBottom: 4,
+                          marginTop: 2,
+                        }}>
+                          {mod.items.map(item => (
+                            <NavLink
+                              key={item.to}
+                              to={item.to}
+                              end
+                              style={({ isActive }) => ({
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                padding: '5px 8px',
+                                fontSize: 12.5,
+                                fontWeight: isActive ? 600 : 400,
+                                color: isActive ? '#fff' : 'rgba(255,255,255,0.48)',
+                                borderRadius: '0 6px 6px 0',
+                                background: isActive ? 'rgba(255,255,255,0.06)' : 'transparent',
+                                textDecoration: 'none',
+                                transition: 'color 150ms, background 150ms',
+                                cursor: 'pointer',
+                              })}
+                              onMouseEnter={e => {
+                                const el = e.currentTarget
+                                if (el.style.color !== '#fff') el.style.color = 'rgba(255,255,255,0.75)'
+                              }}
+                              onMouseLeave={e => {
+                                const el = e.currentTarget
+                                if (el.style.fontWeight !== '600') el.style.color = 'rgba(255,255,255,0.48)'
+                              }}
+                            >
+                              <span style={{
+                                width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
+                                background: 'currentColor',
+                                opacity: 0.5,
+                              }} />
+                              {item.label}
+                            </NavLink>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )
         })}
       </nav>
 
       {/* ── Collapse toggle ── */}
-      <div className="flex-shrink-0 px-2 py-1.5" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+      <div style={{ flexShrink: 0, padding: '6px 10px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
         <button
           onClick={toggleCollapse}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className={`flex items-center gap-2 w-full px-3 py-2 rounded-lg text-[12px] transition-colors hover:bg-white/[0.07] ${collapsed ? 'justify-center' : ''}`}
-          style={{ color: 'rgba(255,255,255,0.38)' }}>
-          <span className="material-symbols-rounded text-[16px]">
+          title={collapsed ? 'Expand' : 'Collapse'}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            gap: 8,
+            width: '100%',
+            padding: '6px 8px',
+            borderRadius: 6,
+            border: 'none',
+            background: 'transparent',
+            cursor: 'pointer',
+            color: 'rgba(255,255,255,0.3)',
+            fontSize: 12,
+            transition: 'color 150ms, background 150ms',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.3)' }}
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>
             {collapsed ? 'chevron_right' : 'chevron_left'}
           </span>
           {!collapsed && <span>Collapse</span>}
@@ -468,60 +569,76 @@ export default function Sidebar({ user, onLogout }: { user: AuthUser; onLogout: 
       </div>
 
       {/* ── User footer ── */}
-      <div className="flex-shrink-0 px-2 py-2" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-        <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors group cursor-pointer hover:bg-white/[0.07] ${collapsed ? 'justify-center px-0' : ''}`}>
-          <div
-            className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
-            style={{ background: ACCENT }}>
-            {initials}
+      <div style={{
+        flexShrink: 0,
+        padding: '8px 10px',
+        borderTop: '1px solid rgba(255,255,255,0.07)',
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 9,
+          justifyContent: collapsed ? 'center' : 'flex-start',
+        }}>
+          {/* Avatar */}
+          <div style={{
+            width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+            background: ACCENT,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 11, fontWeight: 700, color: '#fff',
+            letterSpacing: '-0.3px',
+          }}>
+            {initials(user.name)}
           </div>
+
           {!collapsed && (
-            <div className="flex-1 min-w-0">
-              <p className="text-[12px] font-semibold text-white truncate leading-tight">{user.name}</p>
-              <p className="text-[11px] leading-tight" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                {roleLabel(role)}
-              </p>
-            </div>
-          )}
-          {!collapsed && (
-            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
-              <Link
-                to="/settings/notifications"
-                title="Notification preferences"
-                className="p-1 rounded"
-                style={{ color: 'rgba(255,255,255,0.45)' }}
-                onMouseEnter={e => (e.currentTarget.style.color = '#fff')}
-                onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.45)')}>
-                <span className="material-symbols-rounded text-[15px]">notifications</span>
-              </Link>
-              <Link
-                to="/settings/voice"
-                title="Connect Zoho Voice"
-                className="p-1 rounded"
-                style={{ color: 'rgba(255,255,255,0.45)' }}
-                onMouseEnter={e => (e.currentTarget.style.color = '#fff')}
-                onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.45)')}>
-                <span className="material-symbols-rounded text-[15px]">phone_in_talk</span>
-              </Link>
+            <>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontSize: 12.5, fontWeight: 600, color: '#fff',
+                  overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+                  lineHeight: 1.25,
+                }}>
+                  {user.name}
+                </div>
+                <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.38)', lineHeight: 1.3, marginTop: 1 }}>
+                  {roleLabel(role)}
+                </div>
+              </div>
               <button
                 onClick={onLogout}
                 title="Sign out"
-                aria-label="Sign out"
-                className="p-1 rounded"
-                style={{ color: 'rgba(255,255,255,0.45)' }}
-                onMouseEnter={e => (e.currentTarget.style.color = '#fff')}
-                onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.45)')}>
-                <span className="material-symbols-rounded text-[15px]">logout</span>
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  width: 28, height: 28, borderRadius: 6, border: 'none',
+                  background: 'transparent', cursor: 'pointer',
+                  color: 'rgba(255,255,255,0.3)',
+                  transition: 'color 150ms, background 150ms',
+                  flexShrink: 0,
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; e.currentTarget.style.color = '#fff' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.3)' }}
+              >
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>logout</span>
               </button>
-            </div>
+            </>
           )}
+
           {collapsed && (
             <button
               onClick={onLogout}
               title="Sign out"
-              className="p-1 rounded hover:bg-white/10"
-              style={{ color: 'rgba(255,255,255,0.38)' }}>
-              <span className="material-symbols-rounded text-[15px]">logout</span>
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 28, height: 28, borderRadius: 6, border: 'none',
+                background: 'transparent', cursor: 'pointer',
+                color: 'rgba(255,255,255,0.3)',
+                transition: 'color 150ms, background 150ms',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; e.currentTarget.style.color = '#fff' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.3)' }}
+            >
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>logout</span>
             </button>
           )}
         </div>
