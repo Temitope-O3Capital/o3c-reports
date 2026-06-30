@@ -1,13 +1,19 @@
 package handlers
 
 import (
+	"context"
+	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/o3c/reports/core"
 )
 
 var dateRE = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
@@ -137,6 +143,55 @@ func coalesce(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// ── GL journal ────────────────────────────────────────────────────────────────
+
+// glEntry describes one double-entry journal line.
+type glEntry struct {
+	Date          time.Time
+	Description   string
+	Reference     string
+	DebitAccount  string
+	CreditAccount string
+	AmountKobo    int64
+	SourceType    string
+	SourceID      int64
+	PostedBy      int64
+}
+
+// postJournalTx inserts a GL journal entry inside an existing transaction.
+// Returns an error — callers must roll back and surface it.
+func postJournalTx(ctx context.Context, tx *sql.Tx, e glEntry) error {
+	if e.AmountKobo <= 0 {
+		return fmt.Errorf("gl journal amount must be positive (got %d)", e.AmountKobo)
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO gl_journal_entries
+			(entry_date, description, reference, debit_account, credit_account,
+			 amount_kobo, source_type, source_id, posted_by, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())`,
+		e.Date, e.Description, e.Reference,
+		e.DebitAccount, e.CreditAccount,
+		e.AmountKobo, e.SourceType, e.SourceID, e.PostedBy)
+	if err != nil {
+		slog.Error("gl journal insert failed", "source", e.SourceType, "id", e.SourceID, "err", err)
+	}
+	return err
+}
+
+// postJournal inserts a GL journal entry outside a transaction (fire-safe helper for
+// operations that don't already have a tx open). Logs on error and returns the error.
+func postJournal(ctx context.Context, db *core.DB, e glEntry) error {
+	tx, err := db.PG.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := postJournalTx(ctx, tx, e); err != nil {
+		tx.Rollback() //nolint:errcheck
+		return err
+	}
+	return tx.Commit()
 }
 
 // ── CSV helper ────────────────────────────────────────────────────────────────

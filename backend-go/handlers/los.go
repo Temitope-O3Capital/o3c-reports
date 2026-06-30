@@ -34,14 +34,27 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 
 // allowedTransitions maps from_stage → []to_stage
 var allowedTransitions = map[string][]string{
-	"draft":              {"submitted"},
-	"submitted":          {"document_collection"},
+	"draft":               {"submitted"},
+	"submitted":           {"document_collection"},
 	"document_collection": {"risk_review"},
-	"risk_review":        {"risk_head_review"},
-	"risk_head_review":   {"pending_conditions"},
-	"pending_conditions": {"finance_approval"},
-	"finance_approval":   {"booking"},
-	"booking":            {"active"},
+	"risk_review":         {"risk_head_review"},
+	"risk_head_review":    {"pending_conditions"},
+	"pending_conditions":  {"finance_approval"},
+	"finance_approval":    {"booking"},
+	"booking":             {"active"},
+}
+
+// transitionRequiredPage maps "from:to" → the LOS page that authorises that transition.
+// Any user with "los_all" may bypass the per-transition check (supervisor override).
+var transitionRequiredPage = map[string]string{
+	"draft:submitted":                     "los",
+	"submitted:document_collection":       "los",
+	"document_collection:risk_review":     "los_risk_review",
+	"risk_review:risk_head_review":        "los_risk_review",
+	"risk_head_review:pending_conditions": "los_risk_head",
+	"pending_conditions:finance_approval": "los_finance",
+	"finance_approval:booking":            "los_finance_approve",
+	"booking:active":                      "los_booking",
 }
 
 func losParseID(r *http.Request) (int64, error) {
@@ -307,12 +320,17 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
 
-		apps, err := db.PGQuery(ctx, `SELECT stage, status FROM loan_applications WHERE id = $1`, id)
+		apps, err := db.PGQuery(ctx, `SELECT stage, status, reference, amount_approved_kobo, amount_requested_kobo FROM loan_applications WHERE id = $1`, id)
 		if err != nil || len(apps) == 0 {
 			respondErr(w, 404, "Application not found")
 			return
 		}
 		fromStage := str(apps[0]["stage"])
+		loanRef := str(apps[0]["reference"])
+		loanKobo := toInt64(apps[0]["amount_approved_kobo"])
+		if loanKobo == 0 {
+			loanKobo = toInt64(apps[0]["amount_requested_kobo"])
+		}
 
 		// Validate transition
 		allowed := allowedTransitions[fromStage]
@@ -326,6 +344,15 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 		if !ok {
 			respondErr(w, 422, fmt.Sprintf("Transition from '%s' to '%s' is not allowed", fromStage, b.ToStage))
 			return
+		}
+
+		// Check that the user's role is authorised for this specific transition.
+		// los_all acts as a supervisor override (managers can advance any stage).
+		if reqPage := transitionRequiredPage[fromStage+":"+b.ToStage]; reqPage != "" {
+			if !user.HasPage(reqPage) && !user.HasPage("los_all") {
+				respondErr(w, 403, fmt.Sprintf("Your role is not authorised to advance from '%s' to '%s'", fromStage, b.ToStage))
+				return
+			}
 		}
 
 		// Build extra field updates based on transition
@@ -373,6 +400,24 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 		if err != nil {
 			respondErr(w, 500, "Event log failed")
 			return
+		}
+
+		// Post GL entry when loan is activated (disbursed)
+		if b.ToStage == "active" && loanKobo > 0 {
+			if err = postJournalTx(ctx, tx, glEntry{
+				Date:          time.Now(),
+				Description:   fmt.Sprintf("Loan disbursement — %s", loanRef),
+				Reference:     loanRef,
+				DebitAccount:  "1100", // Loan Receivable
+				CreditAccount: "1001", // Cash/Bank Clearing
+				AmountKobo:    loanKobo,
+				SourceType:    "loan_disbursement",
+				SourceID:      id,
+				PostedBy:      user.ID,
+			}); err != nil {
+				respondErr(w, 500, "GL journal post failed")
+				return
+			}
 		}
 
 		if err = tx.Commit(); err != nil {

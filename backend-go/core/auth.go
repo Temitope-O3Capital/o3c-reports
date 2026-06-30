@@ -42,6 +42,22 @@ func UserFromCtx(ctx context.Context) *Claims {
 	return c
 }
 
+// HasPage reports whether the user has been granted the given page permission,
+// either via their role's built-in page list or their per-user page overrides.
+func (c *Claims) HasPage(page string) bool {
+	for _, p := range RolePages[c.Role] {
+		if p == page {
+			return true
+		}
+	}
+	for _, p := range c.Pages {
+		if p == page {
+			return true
+		}
+	}
+	return false
+}
+
 var secretKey string
 var authDB *DB // set by InitAuthDB; used for JTI denylist checks
 

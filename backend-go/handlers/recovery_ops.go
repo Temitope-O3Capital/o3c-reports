@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -243,6 +244,21 @@ func recoveryOpsPayment(db *core.DB) http.HandlerFunc {
 			b.AmountKobo, id)
 		if err != nil {
 			respondErr(w, 500, "Update recovered total failed")
+			return
+		}
+
+		if err := postJournalTx(ctx, tx, glEntry{
+			Date:          time.Now(),
+			Description:   fmt.Sprintf("Recovery payment received — case %d", id),
+			Reference:     fmt.Sprintf("RCOV-PAY-%d", payID),
+			DebitAccount:  "1001", // Cash/Bank Clearing
+			CreditAccount: "1100", // Loan Receivable
+			AmountKobo:    b.AmountKobo,
+			SourceType:    "recovery_payment",
+			SourceID:      payID,
+			PostedBy:      user.ID,
+		}); err != nil {
+			respondErr(w, 500, "GL journal post failed")
 			return
 		}
 
@@ -507,13 +523,14 @@ func recoveryOpsApproveWriteOff(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
 
-		wrows, err := db.PGQuery(ctx, `SELECT status FROM recovery_write_off_approvals WHERE id = $1`, wid)
+		wrows, err := db.PGQuery(ctx, `SELECT status, amount_kobo FROM recovery_write_off_approvals WHERE id = $1`, wid)
 		if err != nil || len(wrows) == 0 {
 			respondErr(w, 404, "Write-off request not found")
 			return
 		}
 
 		currentStatus := str(wrows[0]["status"])
+		writeOffKobo := toInt64(wrows[0]["amount_kobo"])
 		prog, ok := stageProgressions[currentStatus]
 		if !ok {
 			respondErr(w, 422, fmt.Sprintf("Write-off is already '%s' and cannot be advanced", currentStatus))
@@ -539,14 +556,30 @@ func recoveryOpsApproveWriteOff(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// If fully approved, stamp the write-off amount on the case
+		// If fully approved, stamp the write-off amount on the case and post GL entry.
 		if prog.next == "approved" {
-			db.PGExec(ctx, `
-				UPDATE recovery_cases rc
-				SET write_off_amount_kobo = wa.amount_kobo, status = 'closed', closed_at = NOW(), updated_at = NOW()
-				FROM recovery_write_off_approvals wa
-				WHERE wa.id = $1 AND rc.id = wa.case_id`,
-				wid) //nolint:errcheck
+			tx, txErr := db.PG.BeginTx(ctx, nil)
+			if txErr == nil {
+				defer tx.Rollback() //nolint:errcheck
+				tx.ExecContext(ctx, `
+					UPDATE recovery_cases rc
+					SET write_off_amount_kobo = wa.amount_kobo, status = 'closed', closed_at = NOW(), updated_at = NOW()
+					FROM recovery_write_off_approvals wa
+					WHERE wa.id = $1 AND rc.id = wa.case_id`,
+					wid) //nolint:errcheck
+				postJournalTx(ctx, tx, glEntry{ //nolint:errcheck
+					Date:          time.Now(),
+					Description:   fmt.Sprintf("Loan write-off approved — request %d", wid),
+					Reference:     fmt.Sprintf("WO-%d", wid),
+					DebitAccount:  "6001", // Loan Loss Expense
+					CreditAccount: "1100", // Loan Receivable
+					AmountKobo:    writeOffKobo,
+					SourceType:    "recovery_write_off",
+					SourceID:      wid,
+					PostedBy:      user.ID,
+				})
+				tx.Commit() //nolint:errcheck
+			}
 		}
 
 		respondErr(w, 200, fmt.Sprintf("Write-off advanced to '%s'", prog.next))
