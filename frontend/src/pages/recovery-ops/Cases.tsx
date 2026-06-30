@@ -563,7 +563,7 @@ export default function Cases() {
                             disabled={woBusy || !woAmt || !woReason}
                             onClick={submitWriteOff}
                             className="px-4 py-2 rounded-lg text-[12px] font-semibold text-white disabled:opacity-60"
-                            style={{ background: RED }}>
+                            style={{ background: NAVY }}>
                             {woBusy ? 'Requesting…' : 'Request Write-off'}
                           </button>
                         </div>

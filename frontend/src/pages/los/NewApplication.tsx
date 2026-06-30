@@ -221,7 +221,7 @@ export default function NewApplication() {
             ) : (
               <button
                 className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
-                style={{ background: RED }}
+                style={{ background: NAVY }}
                 disabled={saving}
                 onClick={submit}
               >

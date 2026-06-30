@@ -546,7 +546,7 @@ export default function ContactLists() {
               onClick={handleDelete}
               disabled={deleting}
               className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
-              style={{ background: '#C00000' }}
+              style={{ background: '#0E2841' }}
             >
               {deleting ? 'Deleting…' : 'Delete'}
             </button>

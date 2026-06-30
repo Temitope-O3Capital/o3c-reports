@@ -364,7 +364,7 @@ export default function CollectionsQueue() {
               <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05]" onClick={() => setReassignRow(null)}>Cancel</button>
               <button
                 className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
-                style={{ background: RED }}
+                style={{ background: NAVY }}
                 disabled={reassigning || !agentId}
                 onClick={submitReassign}>
                 {reassigning ? 'Saving…' : 'Reassign'}

@@ -145,7 +145,7 @@ export default function AllApplications() {
       actions={
         <button
           className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white"
-          style={{ background: RED }}
+          style={{ background: NAVY }}
           onClick={() => nav('/sales/applications/new')}
         >
           <span className="material-symbols-rounded text-[15px] align-middle mr-1">add</span>

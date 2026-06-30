@@ -120,7 +120,7 @@ export default function Training() {
       dept="HR"
       title="Training & Development"
       actions={
-        <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white" style={{ background: RED }}
+        <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white" style={{ background: NAVY }}
           onClick={() => { setShowAdd(true); setAddForm(EMPTY_ADD) }}>
           <span className="material-symbols-rounded text-[15px] align-middle mr-1">add</span>
           Schedule Training
@@ -194,7 +194,7 @@ export default function Training() {
             </div>
             <div className="flex justify-end gap-2 mt-5">
               <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setShowAdd(false)}>Cancel</button>
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60" style={{ background: RED }}
+              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60" style={{ background: NAVY }}
                 disabled={adding || !addForm.title || !addForm.trainer || !addForm.training_date || !addForm.duration_hours || !addForm.max_participants}
                 onClick={submitAdd}>
                 {adding ? 'Scheduling…' : 'Schedule'}

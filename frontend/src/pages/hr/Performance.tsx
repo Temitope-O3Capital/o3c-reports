@@ -148,7 +148,7 @@ export default function Performance() {
               <button
                 onClick={() => setShowCreate(true)}
                 className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white"
-                style={{ background: RED }}>
+                style={{ background: NAVY }}>
                 <span className="material-symbols-rounded text-[13px]">add</span>
                 New Cycle
               </button>
@@ -354,7 +354,7 @@ export default function Performance() {
               <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05]" onClick={() => setShowCreate(false)}>Cancel</button>
               <button
                 className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
-                style={{ background: RED }}
+                style={{ background: NAVY }}
                 disabled={creating || !cycleName || !cycleStart || !cycleEnd}
                 onClick={createCycle}>
                 {creating ? 'Creating…' : 'Create'}

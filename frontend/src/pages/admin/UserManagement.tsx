@@ -748,7 +748,7 @@ export default function UserManagement() {
               </button>
               <button onClick={handleDelete} disabled={deleting}
                 className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold text-white disabled:opacity-60"
-                style={{ background: RED }}>
+                style={{ background: NAVY }}>
                 {deleting ? 'Removing…' : 'Remove User'}
               </button>
             </div>

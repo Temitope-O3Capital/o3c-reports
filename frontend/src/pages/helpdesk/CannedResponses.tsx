@@ -365,7 +365,7 @@ function DeleteConfirm({
             </button>
             <button onClick={onConfirm} disabled={loading}
               className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold text-white transition-all disabled:opacity-50"
-              style={{ background: '#C00000' }}>
+              style={{ background: '#0E2841' }}>
               {loading ? <Spinner size={14} /> : null}
               Delete
             </button>

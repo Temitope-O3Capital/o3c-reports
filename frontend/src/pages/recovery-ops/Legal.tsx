@@ -230,7 +230,7 @@ export default function Legal() {
               <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05]" onClick={() => setUpdateRow(null)}>Cancel</button>
               <button
                 className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
-                style={{ background: RED }}
+                style={{ background: NAVY }}
                 disabled={updating || !newStatus}
                 onClick={submitUpdate}>
                 {updating ? 'Saving…' : 'Update'}

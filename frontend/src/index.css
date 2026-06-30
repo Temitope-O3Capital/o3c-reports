@@ -14,6 +14,21 @@
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 9999px; }
+
+  /* Global keyboard focus ring — covers all interactive elements that strip the browser outline.
+     :focus-visible fires only for keyboard navigation (not mouse/touch), so it never adds visual
+     noise for pointer users. This single rule fixes ~225 outline-none instances across the app. */
+  :focus-visible {
+    outline: 2px solid rgba(14,40,65,0.45) !important;
+    outline-offset: 2px;
+  }
+  /* Inputs/selects already have a border; use inset ring instead of outline */
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: none !important;
+    box-shadow: 0 0 0 2px rgba(14,40,65,0.25);
+  }
 }
 
 @layer components {
