@@ -111,8 +111,9 @@ export default function Login({ onLogin }: { onLogin: (u: AuthUser) => void }) {
 
           <form onSubmit={submit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Email address</label>
+              <label htmlFor="login-email" className="block text-sm font-medium text-slate-700 mb-1.5">Email address</label>
               <input
+                id="login-email"
                 type="email" value={email} onChange={e => setEmail(e.target.value)}
                 placeholder="you@o3cards.com" autoComplete="email"
                 className="w-full px-3.5 py-2.5 text-sm rounded-lg border transition-all outline-none"
@@ -124,10 +125,11 @@ export default function Login({ onLogin }: { onLogin: (u: AuthUser) => void }) {
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-sm font-medium text-slate-700">Password</label>
+                <label htmlFor="login-password" className="block text-sm font-medium text-slate-700">Password</label>
               </div>
               <div className="relative">
                 <input
+                  id="login-password"
                   type={showPw ? 'text' : 'password'} value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder="••••••••" autoComplete="current-password"

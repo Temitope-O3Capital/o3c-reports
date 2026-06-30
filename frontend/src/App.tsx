@@ -445,13 +445,13 @@ function ForceChangePassword({ onDone, onLogout }: { onDone: () => void; onLogou
         </p>
         <form onSubmit={handleSubmit} className="space-y-3">
           {[
-            { label: 'Current Password',  val: current,  set: setCurrent },
-            { label: 'New Password',      val: next,     set: setNext },
-            { label: 'Confirm Password',  val: confirm,  set: setConfirm },
+            { id: 'cp-current', label: 'Current Password',  val: current,  set: setCurrent },
+            { id: 'cp-next',    label: 'New Password',      val: next,     set: setNext },
+            { id: 'cp-confirm', label: 'Confirm Password',  val: confirm,  set: setConfirm },
           ].map(f => (
-            <div key={f.label}>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1">{f.label}</label>
-              <input type="password" required value={f.val} onChange={e => f.set(e.target.value)}
+            <div key={f.id}>
+              <label htmlFor={f.id} className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1">{f.label}</label>
+              <input id={f.id} type="password" required value={f.val} onChange={e => f.set(e.target.value)}
                 className="w-full rounded-xl border px-3 py-2.5 text-[13px] outline-none"
                 style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
             </div>
