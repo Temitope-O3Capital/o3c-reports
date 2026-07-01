@@ -102,7 +102,9 @@ func main() {
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
 			r.Get("/me", mePublic())
-			r.Post("/change-password", changePasswordPublic(db))
+			r.With(httprate.Limit(3, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
+				return rightmostIP(r), nil
+			}))).Post("/change-password", changePasswordPublic(db))
 			r.Post("/logout", logoutHandler())
 		})
 	})

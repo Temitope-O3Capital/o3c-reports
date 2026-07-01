@@ -494,10 +494,38 @@ const MGMT_ROLES = ['md', 'coo', 'cfo', 'cmo', 'executive', 'admin', 'management
 
 // ── Authenticated layout shell ────────────────────────────────────────────────
 
+const IDLE_WARN_MS   = 25 * 60 * 1000   // show warning after 25 min of inactivity
+const IDLE_LOGOUT_MS = 30 * 60 * 1000   // force logout after 30 min
+
 const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const [c360Open,    setC360Open]    = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [idleWarn,    setIdleWarn]    = useState(false)
   const openC360 = useCallback(() => setC360Open(true), [])
+
+  // Idle session timeout
+  useEffect(() => {
+    let warnTimer: ReturnType<typeof setTimeout>
+    let logoutTimer: ReturnType<typeof setTimeout>
+
+    function reset() {
+      setIdleWarn(false)
+      clearTimeout(warnTimer)
+      clearTimeout(logoutTimer)
+      warnTimer   = setTimeout(() => setIdleWarn(true), IDLE_WARN_MS)
+      logoutTimer = setTimeout(() => onLogout(), IDLE_LOGOUT_MS)
+    }
+
+    const EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'] as const
+    EVENTS.forEach(ev => window.addEventListener(ev, reset, { passive: true }))
+    reset()
+
+    return () => {
+      clearTimeout(warnTimer)
+      clearTimeout(logoutTimer)
+      EVENTS.forEach(ev => window.removeEventListener(ev, reset))
+    }
+  }, [onLogout])
 
   const role         = user.role as string
   const isManagement = MGMT_ROLES.includes(role)
@@ -713,6 +741,26 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
         <Suspense fallback={null}>
           <C360Drawer open={c360Open} onClose={() => setC360Open(false)} />
         </Suspense>
+
+        {/* Idle session warning */}
+        {idleWarn && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40">
+            <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4 text-center">
+              <span className="material-symbols-rounded text-[36px] mb-3 block" style={{ color: '#D97706' }}>timer</span>
+              <h2 className="text-[16px] font-bold text-slate-800 mb-1">Session expiring soon</h2>
+              <p className="text-[13px] text-slate-500 mb-5">
+                You've been inactive for 25 minutes. Move your mouse or press a key to stay signed in,
+                or you'll be automatically signed out.
+              </p>
+              <button
+                onClick={() => setIdleWarn(false)}
+                className="w-full py-2.5 rounded-xl text-[14px] font-semibold text-white"
+                style={{ background: '#0E2841' }}>
+                Stay signed in
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </BrowserRouter>
   )
