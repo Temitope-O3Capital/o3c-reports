@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, useCallback, Component } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, useCallback, Component, memo } from 'react'
 import type { ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useParams } from 'react-router-dom'
 import { Toaster, toast } from 'sonner'
@@ -492,111 +492,14 @@ function RequireAccess({ page, user, children }: { page: string; user: AuthUser;
 // NOTE: 'cmo' is a legacy role not in the canonical 24 — kept intentionally for backwards compatibility
 const MGMT_ROLES = ['md', 'coo', 'cfo', 'cmo', 'executive', 'admin', 'management', 'head_ops', 'head_it']
 
-export default function App() {
-  const [user,        setUser]        = useState<AuthUser | null>(null)
-  const [loading,     setLoading]     = useState(true)
+// ── Authenticated layout shell ────────────────────────────────────────────────
+
+const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const [c360Open,    setC360Open]    = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const openC360 = useCallback(() => setC360Open(true), [])
 
-  useEffect(() => {
-    try {
-      const token  = localStorage.getItem('o3c_token')
-      const stored = localStorage.getItem('o3c_user')
-      if (token && stored) {
-        const payload = parseToken(token)
-        if (payload && payload.exp * 1000 > Date.now()) {
-          const u = JSON.parse(stored)
-          if (u && typeof u.name === 'string' && typeof u.role === 'string') {
-            setUser(u)
-          } else {
-            localStorage.removeItem('o3c_token')
-            localStorage.removeItem('o3c_user')
-          }
-        } else {
-          localStorage.removeItem('o3c_token')
-          localStorage.removeItem('o3c_user')
-        }
-      }
-    } catch {
-      localStorage.removeItem('o3c_token')
-      localStorage.removeItem('o3c_user')
-    }
-    setLoading(false)
-
-    function onAuthExpired() {
-      setUser(null)
-      toast.error('Session expired — please sign in again')
-    }
-    function onStorage(e: StorageEvent) {
-      if (e.key === 'o3c_token' && !e.newValue) setUser(null)
-    }
-    window.addEventListener('auth:expired', onAuthExpired)
-    window.addEventListener('storage', onStorage)
-    return () => {
-      window.removeEventListener('auth:expired', onAuthExpired)
-      window.removeEventListener('storage', onStorage)
-    }
-  }, [])
-
-  function handleLogin(u: AuthUser) {
-    setUser(u)
-    toast.success(`Welcome back, ${u.name.split(' ')[0]}`, {
-      description: `Signed in as ${roleLabel(u.role as string)}`,
-    })
-  }
-
-  function handleLogout() {
-    localStorage.removeItem('o3c_token')
-    localStorage.removeItem('o3c_user')
-    setUser(null)
-    toast.info('Signed out')
-  }
-
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-[#F6F5F2]">
-      <div className="w-8 h-8 border-2 rounded-full animate-spin"
-        style={{ borderColor: 'rgba(14,40,65,0.1)', borderTopColor: '#0E2841' }} />
-    </div>
-  )
-
-  // Public routes — served without auth so customers can fill CSAT surveys
-  if (window.location.pathname.startsWith('/csat/')) {
-    return (
-      <BrowserRouter>
-        <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
-          <Routes>
-            <Route path="/csat/:token" element={<CSATPage />} />
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
-    )
-  }
-
-  if (!user) return (
-    <>
-      <Toaster richColors position="top-right" />
-      <Suspense fallback={<div className="min-h-screen bg-[#F6F5F2]" />}>
-        <Login onLogin={handleLogin} />
-      </Suspense>
-    </>
-  )
-
-  // Force password change if flagged (e.g. after admin reset)
-  if (user.must_change_password) return (
-    <>
-      <Toaster richColors position="top-right" />
-      <ForceChangePassword onDone={() => {
-        setUser(u => u ? { ...u, must_change_password: false } : u)
-        const stored = localStorage.getItem('o3c_user')
-        if (stored) {
-          try { localStorage.setItem('o3c_user', JSON.stringify({ ...JSON.parse(stored), must_change_password: false })) } catch {}
-        }
-      }} onLogout={handleLogout} />
-    </>
-  )
-
-  const role = user.role as string
+  const role         = user.role as string
   const isManagement = MGMT_ROLES.includes(role)
 
   return (
@@ -609,14 +512,12 @@ export default function App() {
       <div className="flex h-screen overflow-hidden bg-[#F6F5F2]">
         <Toaster richColors position="top-right" />
 
-        {/* Mobile backdrop */}
         {sidebarOpen && (
           <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
         )}
 
-        {/* Sidebar — fixed overlay on mobile, inline on desktop */}
         <div className={`fixed inset-y-0 left-0 z-50 md:relative md:inset-auto md:z-auto transition-transform duration-200 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
-          <Sidebar user={user} onLogout={handleLogout} onMobileClose={() => setSidebarOpen(false)} />
+          <Sidebar user={user} onLogout={onLogout} onMobileClose={() => setSidebarOpen(false)} />
         </div>
 
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -809,13 +710,117 @@ export default function App() {
             </Suspense>
           </main>
         </div>
-        {/* Customer 360 global slide-over drawer */}
         <Suspense fallback={null}>
           <C360Drawer open={c360Open} onClose={() => setC360Open(false)} />
         </Suspense>
       </div>
     </BrowserRouter>
   )
+})
+
+// ── App — auth layer only ─────────────────────────────────────────────────────
+
+export default function App() {
+  const [user,    setUser]    = useState<AuthUser | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    try {
+      const token  = localStorage.getItem('o3c_token')
+      const stored = localStorage.getItem('o3c_user')
+      if (token && stored) {
+        const payload = parseToken(token)
+        if (payload && payload.exp * 1000 > Date.now()) {
+          const u = JSON.parse(stored)
+          if (u && typeof u.name === 'string' && typeof u.role === 'string') {
+            setUser(u)
+          } else {
+            localStorage.removeItem('o3c_token')
+            localStorage.removeItem('o3c_user')
+          }
+        } else {
+          localStorage.removeItem('o3c_token')
+          localStorage.removeItem('o3c_user')
+        }
+      }
+    } catch {
+      localStorage.removeItem('o3c_token')
+      localStorage.removeItem('o3c_user')
+    }
+    setLoading(false)
+
+    function onAuthExpired() {
+      setUser(null)
+      toast.error('Session expired — please sign in again')
+    }
+    function onStorage(e: StorageEvent) {
+      if (e.key === 'o3c_token' && !e.newValue) setUser(null)
+    }
+    window.addEventListener('auth:expired', onAuthExpired)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener('auth:expired', onAuthExpired)
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
+
+  const handleLogin = useCallback((u: AuthUser) => {
+    setUser(u)
+    toast.success(`Welcome back, ${u.name.split(' ')[0]}`, {
+      description: `Signed in as ${roleLabel(u.role as string)}`,
+    })
+  }, [])
+
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('o3c_token')
+    localStorage.removeItem('o3c_user')
+    setUser(null)
+    toast.info('Signed out')
+  }, [])
+
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-[#F6F5F2]">
+      <div className="w-8 h-8 border-2 rounded-full animate-spin"
+        style={{ borderColor: 'rgba(14,40,65,0.1)', borderTopColor: '#0E2841' }} />
+    </div>
+  )
+
+  // Public routes — served without auth so customers can fill CSAT surveys
+  if (window.location.pathname.startsWith('/csat/')) {
+    return (
+      <BrowserRouter>
+        <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
+          <Routes>
+            <Route path="/csat/:token" element={<CSATPage />} />
+          </Routes>
+        </Suspense>
+      </BrowserRouter>
+    )
+  }
+
+  if (!user) return (
+    <>
+      <Toaster richColors position="top-right" />
+      <Suspense fallback={<div className="min-h-screen bg-[#F6F5F2]" />}>
+        <Login onLogin={handleLogin} />
+      </Suspense>
+    </>
+  )
+
+  if (user.must_change_password) return (
+    <>
+      <Toaster richColors position="top-right" />
+      <ForceChangePassword onDone={() => {
+        setUser(u => u ? { ...u, must_change_password: false } : u)
+        const stored = localStorage.getItem('o3c_user')
+        if (stored) {
+          try { localStorage.setItem('o3c_user', JSON.stringify({ ...JSON.parse(stored), must_change_password: false })) } catch {}
+        }
+      }} onLogout={handleLogout} />
+    </>
+  )
+
+  return <AppShell user={user} onLogout={handleLogout} />
 }
 
 // Helper: redirect /los/:id → /sales/applications/:id, preserving the param
