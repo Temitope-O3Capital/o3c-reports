@@ -989,15 +989,24 @@ const TABS = [
 ] as const
 type TabKey = typeof TABS[number]['key']
 
+const RECON_FROM_KEY = 'recon_date_from'
+const RECON_TO_KEY   = 'recon_date_to'
+
 export default function Reconciliation() {
   const [tab, setTab]   = useState<TabKey>('paystack')
-  const [from, setFrom] = useState(monthStart())
-  const [to, setTo]     = useState(today())
+  const [from, setFrom] = useState(() => sessionStorage.getItem(RECON_FROM_KEY) ?? monthStart())
+  const [to, setTo]     = useState(() => sessionStorage.getItem(RECON_TO_KEY)   ?? today())
+
+  function handleDateChange(f: string, t: string) {
+    setFrom(f); setTo(t)
+    sessionStorage.setItem(RECON_FROM_KEY, f)
+    sessionStorage.setItem(RECON_TO_KEY, t)
+  }
 
   return (
     <Page dept="Finance" title="Reconciliation"
       subtitle="Match processor settlements against internal EOD ledger"
-      actions={<DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />}>
+      actions={<DateFilter from={from} to={to} onChange={handleDateChange} />}>
 
       <div className="flex gap-0 mb-6 border-b-2" style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
         {TABS.map(t => (
