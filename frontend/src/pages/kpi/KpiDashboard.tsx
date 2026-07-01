@@ -26,6 +26,7 @@ const ROLE_EXTRA_KEYS: Record<string, string[]> = {
   md:                ['npl_ratio_pct', 'par30_pct', 'writeoff_pending'],
   cfo:               ['npl_ratio_pct', 'par30_pct', 'writeoff_pending'],
   coo:               ['npl_ratio_pct', 'par30_pct', 'writeoff_pending'],
+  risk_head:         ['npl_ratio_pct', 'par30_pct', 'writeoff_pending'],
   compliance_head:   ['open_findings', 'overdue_checklists', 'pending_sars'],
   compliance_officer:['open_findings', 'overdue_checklists', 'pending_sars'],
   hr_manager:        ['on_leave_today', 'pending_leave_approvals', 'open_disciplinary'],

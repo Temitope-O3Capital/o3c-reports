@@ -20,23 +20,48 @@ interface AuditRow {
 const PAGE_SIZE = 50
 
 export default function AuditTrail() {
+  // raw inputs (immediate)
+  const [entityTypeRaw, setEntityTypeRaw] = useState('')
+  const [actionRaw, setActionRaw] = useState('')
+  // debounced values (used for API calls)
   const [entityType, setEntityType] = useState('')
   const [action, setAction] = useState('')
+  const [actorId, setActorId] = useState('')
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo] = useState(today())
   const [rows, setRows] = useState<AuditRow[]>([])
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [actors, setActors] = useState<{ id: string; full_name: string }[]>([])
+
+  // Load actor list for filter dropdown
+  useEffect(() => {
+    apiFetch<{ id: string; full_name: string }[]>('/api/admin/users')
+      .then(r => setActors(Array.isArray(r) ? r : []))
+      .catch(() => {})
+  }, [])
+
+  // Debounce text inputs
+  useEffect(() => {
+    const t = setTimeout(() => setAction(actionRaw), 400)
+    return () => clearTimeout(t)
+  }, [actionRaw])
+
+  useEffect(() => {
+    const t = setTimeout(() => setEntityType(entityTypeRaw), 400)
+    return () => clearTimeout(t)
+  }, [entityTypeRaw])
 
   const buildQs = useCallback((off = offset) => {
     const p = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(off) })
     if (entityType) p.set('entity_type', entityType)
     if (action) p.set('action', action)
+    if (actorId) p.set('actor_id', actorId)
     if (dateFrom) p.set('date_from', dateFrom)
     if (dateTo) p.set('date_to', dateTo)
     return p.toString()
-  }, [entityType, action, dateFrom, dateTo, offset])
+  }, [entityType, action, actorId, dateFrom, dateTo, offset])
 
   const load = useCallback(async (off = 0) => {
     setLoading(true); setError('')
@@ -48,12 +73,13 @@ export default function AuditTrail() {
     finally { setLoading(false) }
   }, [buildQs])
 
-  useEffect(() => { load(0) }, [entityType, action, dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(0) }, [entityType, action, actorId, dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function doExport() {
     const p = new URLSearchParams()
     if (entityType) p.set('entity_type', entityType)
     if (action) p.set('action', action)
+    if (actorId) p.set('actor_id', actorId)
     if (dateFrom) p.set('date_from', dateFrom)
     if (dateTo) p.set('date_to', dateTo)
     try {
@@ -101,15 +127,22 @@ export default function AuditTrail() {
 
       <div className="flex flex-wrap gap-2 mb-4">
         <input
-          type="text" placeholder="Filter by action…" value={action}
-          onChange={e => setAction(e.target.value)}
+          type="text" placeholder="Filter by action…" value={actionRaw}
+          onChange={e => setActionRaw(e.target.value)}
           className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
           style={{ borderColor: 'rgba(15,23,42,0.15)', minWidth: 180 }} />
         <input
-          type="text" placeholder="Entity type…" value={entityType}
-          onChange={e => setEntityType(e.target.value)}
+          type="text" placeholder="Entity type…" value={entityTypeRaw}
+          onChange={e => setEntityTypeRaw(e.target.value)}
           className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
           style={{ borderColor: 'rgba(15,23,42,0.15)', minWidth: 150 }} />
+        <select
+          value={actorId} onChange={e => setActorId(e.target.value)}
+          className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
+          style={{ borderColor: 'rgba(15,23,42,0.15)', minWidth: 160 }}>
+          <option value="">All actors</option>
+          {actors.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+        </select>
         <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
           className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
           style={{ borderColor: 'rgba(15,23,42,0.15)' }} />

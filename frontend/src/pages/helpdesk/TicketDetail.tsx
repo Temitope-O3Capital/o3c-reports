@@ -12,7 +12,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate, fmtKobo } from '../../lib/fmt'
 import { sanitizeHtml } from '../../lib/sanitize'
-import { Spinner, ErrBanner, NAVY, AMBER, RED, GREEN, BLUE } from '../../components/UI'
+import { Spinner, ErrBanner, ConfirmModal, NAVY, AMBER, RED, GREEN, BLUE } from '../../components/UI'
 import { StatusPill, PriorityPill } from './components'
 import { toast } from 'sonner'
 
@@ -202,6 +202,9 @@ export default function TicketDetail() {
     else toast.success(msg)
   }
 
+  // Confirm before closing/resolving
+  const [confirmStatus, setConfirmStatus] = useState<string | null>(null)
+
   // Tags local state
   const [tagInput, setTagInput]   = useState('')
   const [showTagInput, setShowTagInput] = useState(false)
@@ -354,7 +357,14 @@ export default function TicketDetail() {
             <SideField label="Status">
               <select
                 value={ticket.status.toLowerCase().replace(/\s+/g, '_')}
-                onChange={e => patchTicket('status', e.target.value)}
+                onChange={e => {
+                  const v = e.target.value
+                  if (v === 'closed' || v === 'resolved') {
+                    setConfirmStatus(v)
+                  } else {
+                    patchTicket('status', v)
+                  }
+                }}
                 className="w-full px-2 py-1.5 rounded-lg border text-[12px] font-medium bg-white outline-none appearance-none"
                 style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}
               >
@@ -601,6 +611,12 @@ export default function TicketDetail() {
               <textarea
                 value={body}
                 onChange={e => setBody(e.target.value)}
+                onKeyDown={e => {
+                  if (e.ctrlKey && e.key === 'Enter' && body.trim() && !sending) {
+                    e.preventDefault()
+                    sendMessage(replyMode === 'note' ? 'default' : 'email')
+                  }
+                }}
                 placeholder={replyMode === 'note' ? 'Add an internal note — not visible to customer…' : 'Type your reply to the customer…'}
                 rows={4}
                 className="w-full px-3 py-2.5 rounded-xl border text-[13px] resize-none outline-none transition-colors"
@@ -720,6 +736,16 @@ export default function TicketDetail() {
         </aside>
       </div>
 
+      {confirmStatus && (
+        <ConfirmModal
+          title={confirmStatus === 'closed' ? 'Close Ticket?' : 'Resolve Ticket?'}
+          message={`Mark this ticket as ${confirmStatus}? This action will be logged.`}
+          confirmLabel={confirmStatus === 'closed' ? 'Close' : 'Resolve'}
+          danger={confirmStatus === 'closed'}
+          onConfirm={() => { patchTicket('status', confirmStatus); setConfirmStatus(null) }}
+          onCancel={() => setConfirmStatus(null)}
+        />
+      )}
     </div>
   )
 }

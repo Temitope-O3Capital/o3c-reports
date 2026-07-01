@@ -1,11 +1,11 @@
 import { snake } from '../../lib/labels'
 import { useState, useEffect } from 'react'
 import {
-  Page, KpiCard, SectionCard, DataTable, ColDef, ErrBanner, Spinner,
+  Page, KpiCard, SectionCard, DataTable, ColDef, ErrBanner, DateFilter, Spinner,
   NAVY, RED, GREEN, AMBER,
 } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmt, fmtNum } from '../../lib/fmt'
+import { fmt, fmtNum, today, monthStart } from '../../lib/fmt'
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -49,14 +49,17 @@ export default function RiskOverview() {
   const [quality, setQuality] = useState<PortfolioQuality | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
+  const [from, setFrom] = useState(monthStart)
+  const [to,   setTo]   = useState(today)
 
   useEffect(() => {
     let active = true
     setLoading(true); setErr('')
+    const qs = `date_from=${from}&date_to=${to}`
     async function load() {
       const [rOv, rPq] = await Promise.allSettled([
-        apiFetch<{ data: RiskOverview }>('/api/risk/overview'),
-        apiFetch<{ data: PortfolioQuality }>('/api/risk/portfolio-quality'),
+        apiFetch<{ data: RiskOverview }>(`/api/risk/overview?${qs}`),
+        apiFetch<{ data: PortfolioQuality }>(`/api/risk/portfolio-quality?${qs}`),
       ])
       if (!active) return
       if (rOv.status === 'fulfilled') setKpis(rOv.value.data ?? (rOv.value as any))
@@ -68,7 +71,7 @@ export default function RiskOverview() {
     }
     load()
     return () => { active = false }
-  }, [])
+  }, [from, to])
 
   const k = kpis
 
@@ -77,6 +80,7 @@ export default function RiskOverview() {
       dept="Risk & Credit"
       title="Risk Overview"
       subtitle="Credit portfolio quality and application pipeline"
+      actions={<DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />}
     >
       <ErrBanner msg={err} />
 

@@ -18,6 +18,7 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	assign := core.RequirePages("los_all", "los_assign")
 
 	r.With(base).Get("/stats", losStats(db))
+	r.With(base).Get("/funnel", losFunnel(db))
 	r.With(base).Get("/queue", losQueue(db))
 	r.With(all).Get("/all", losAll(db))
 	r.With(base).Post("/", losCreate(db))
@@ -63,7 +64,9 @@ func losParseID(r *http.Request) (int64, error) {
 
 func losStats(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.PGQuery(r.Context(), `
+		ctx := r.Context()
+
+		byStatus, err := db.PGQuery(ctx, `
 			SELECT status, COUNT(*) AS count
 			FROM loan_applications
 			GROUP BY status
@@ -72,10 +75,48 @@ func losStats(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Query failed")
 			return
 		}
-		if rows == nil {
-			rows = []core.Row{}
+		if byStatus == nil {
+			byStatus = []core.Row{}
 		}
-		respond(w, rows, "pg")
+
+		// Pipeline value grouped by stage — used for funnel and header KPI.
+		byStage, err := db.PGQuery(ctx, `
+			SELECT stage,
+			       COUNT(*)                                          AS count,
+			       COALESCE(SUM(amount_requested_kobo), 0)          AS pipeline_kobo,
+			       COALESCE(SUM(amount_approved_kobo),  0)          AS approved_kobo
+			FROM loan_applications
+			WHERE stage NOT IN ('declined', 'active', 'closed')
+			GROUP BY stage
+			ORDER BY stage`)
+		if err != nil {
+			respondErr(w, 500, "Stage query failed")
+			return
+		}
+		if byStage == nil {
+			byStage = []core.Row{}
+		}
+
+		// Total pipeline and avg days to close
+		totals, _ := db.PGQuery(ctx, `
+			SELECT
+				COALESCE(SUM(CASE WHEN stage NOT IN ('declined','active','closed') THEN amount_requested_kobo END), 0) AS total_pipeline_kobo,
+				COALESCE(SUM(CASE WHEN stage = 'active' THEN amount_approved_kobo END), 0)                           AS total_disbursed_kobo,
+				COUNT(CASE WHEN stage NOT IN ('declined','active','closed') THEN 1 END)                              AS open_count,
+				COALESCE(AVG(CASE WHEN stage IN ('active','declined') THEN EXTRACT(EPOCH FROM (updated_at - created_at))/86400 END), 0) AS avg_days_to_close
+			FROM loan_applications`)
+
+		resp := map[string]any{
+			"by_status":  byStatus,
+			"by_stage":   byStage,
+		}
+		if len(totals) > 0 {
+			resp["total_pipeline_kobo"]  = totals[0]["total_pipeline_kobo"]
+			resp["total_disbursed_kobo"] = totals[0]["total_disbursed_kobo"]
+			resp["open_count"]           = totals[0]["open_count"]
+			resp["avg_days_to_close"]    = totals[0]["avg_days_to_close"]
+		}
+		respond(w, resp, "pg")
 	}
 }
 
@@ -654,6 +695,41 @@ func losGetEvents(db *core.DB) http.HandlerFunc {
 			ORDER BY e.created_at ASC`, id)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+func losFunnel(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+				stage,
+				COUNT(*)                                                                     AS count,
+				COALESCE(SUM(amount_requested_kobo), 0)                                     AS pipeline_kobo,
+				COALESCE(AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 86400.0), 0)  AS avg_days_in_stage
+			FROM loan_applications
+			GROUP BY stage
+			ORDER BY
+				CASE stage
+					WHEN 'draft'             THEN 1
+					WHEN 'submitted'         THEN 2
+					WHEN 'document_collection' THEN 3
+					WHEN 'risk_review'       THEN 4
+					WHEN 'risk_head_review'  THEN 5
+					WHEN 'pending_conditions' THEN 6
+					WHEN 'finance_approval'  THEN 7
+					WHEN 'booking'           THEN 8
+					WHEN 'active'            THEN 9
+					WHEN 'declined'          THEN 10
+					ELSE 11
+				END`)
+		if err != nil {
+			respondErr(w, 500, "Funnel query failed")
 			return
 		}
 		if rows == nil {

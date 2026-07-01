@@ -19,6 +19,7 @@ interface QueueItem {
   current_stage: string
   notes?: string
   created_at: string
+  last_contact_at?: string
 }
 
 interface Dashboard {
@@ -65,8 +66,9 @@ export default function CollectionsQueue() {
   const [page, setPage]     = useState(0)
   const limit = 50
 
-  // contact modal
+  // contact modal (step 1 = log contact, step 2 = log promise when outcome=promised_payment)
   const [contactRow, setContactRow]     = useState<QueueItem | null>(null)
+  const [contactStep, setContactStep]   = useState(1)
   const [contactType, setContactType]   = useState('call')
   const [contactOutcome, setOutcome]    = useState('no_answer')
   const [contactNotes, setContactNotes] = useState('')
@@ -121,6 +123,12 @@ export default function CollectionsQueue() {
 
   useEffect(() => { load() }, [load])
 
+  function resetContactModal() {
+    setContactRow(null); setContactStep(1)
+    setContactNotes(''); setContactType('call'); setOutcome('no_answer')
+    setContactErr('')
+  }
+
   async function submitContact() {
     if (!contactRow) return
     setContactting(true); setContactErr('')
@@ -130,8 +138,13 @@ export default function CollectionsQueue() {
         outcome: contactOutcome,
         notes: contactNotes,
       })
-      setContactRow(null); setContactNotes(''); setContactType('call'); setOutcome('no_answer')
-      load()
+      if (contactOutcome === 'promised_payment') {
+        setContactStep(2)
+        setContactErr('')
+      } else {
+        resetContactModal()
+        load()
+      }
     } catch (e: any) {
       setContactErr(e.message)
     } finally {
@@ -139,15 +152,18 @@ export default function CollectionsQueue() {
     }
   }
 
-  async function submitPromise() {
-    if (!promiseRow) return
+  async function submitPromise(row?: QueueItem | null) {
+    const target = row ?? promiseRow
+    if (!target) return
     setPromising(true); setPromiseErr('')
     try {
-      await apiPost(`/api/collections-ops/${promiseRow.id}/promise`, {
+      await apiPost(`/api/collections-ops/${target.id}/promise`, {
         promise_date: promiseDate,
         amount_kobo: Math.round(parseFloat(promiseAmt) * 100),
       })
       setPromiseRow(null); setPromiseDate(''); setPromiseAmt('')
+      // also close combined modal if we came from step 2
+      if (row) resetContactModal()
       load()
     } catch (e: any) {
       setPromiseErr(e.message)
@@ -173,6 +189,17 @@ export default function CollectionsQueue() {
     }
   }
 
+  function lastContactedCell(ts?: string) {
+    if (!ts) return <span className="text-[11px] text-slate-400">Never</span>
+    const days = Math.floor((Date.now() - new Date(ts).getTime()) / 86_400_000)
+    const color = days >= 7 ? RED : days >= 3 ? AMBER : '#059669'
+    return (
+      <span className="text-[11px] font-medium whitespace-nowrap" style={{ color }}>
+        {days === 0 ? 'Today' : `${days}d ago`}
+      </span>
+    )
+  }
+
   const cols: ColDef<QueueItem>[] = [
     { key: 'account_cif', label: 'CIF', render: r => <span className="font-mono text-[12px] text-slate-500">{r.account_cif}</span> },
     { key: 'agent_name', label: 'Agent' },
@@ -180,12 +207,13 @@ export default function CollectionsQueue() {
     { key: 'dpd_bucket', label: 'DPD', render: r => <DpdBadge bucket={r.dpd_bucket} /> },
     { key: 'current_stage', label: 'Stage', render: r => <StatusBadge status={r.current_stage} /> },
     { key: 'assignment_date', label: 'Assigned', render: r => fmtDate(r.assignment_date) },
+    { key: 'last_contact_at', label: 'Last Contacted', render: r => lastContactedCell(r.last_contact_at) },
     {
       key: '_actions', label: '', sortable: false,
       render: r => (
         <div className="flex items-center gap-1.5">
           <button
-            onClick={e => { e.stopPropagation(); setContactRow(r) }}
+            onClick={e => { e.stopPropagation(); setContactRow(r); setContactStep(1) }}
             className="px-2 py-1 rounded text-[11px] font-semibold text-white"
             style={{ background: NAVY }}>
             Log Contact
@@ -261,47 +289,98 @@ export default function CollectionsQueue() {
         </div>
       </SectionCard>
 
-      {/* Log Contact modal */}
+      {/* Log Contact / Promise combined modal */}
       {contactRow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-[15px] font-bold text-slate-800">Log Contact — {contactRow.account_cif}</h2>
-              <button onClick={() => setContactRow(null)} className="text-slate-400 hover:text-slate-700">
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-[15px] font-bold text-slate-800">
+                {contactStep === 1 ? `Log Contact — ${contactRow.account_cif}` : `Log Promise — ${contactRow.account_cif}`}
+              </h2>
+              <button onClick={resetContactModal} className="text-slate-400 hover:text-slate-700">
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
             </div>
-            <ErrBanner msg={contactErr} />
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Contact Type</label>
-                <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
-                  value={contactType} onChange={e => setContactType(e.target.value)}>
-                  {CONTACT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Outcome</label>
-                <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
-                  value={contactOutcome} onChange={e => setOutcome(e.target.value)}>
-                  {OUTCOMES.map(o => <option key={o} value={o}>{snake(o)}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Notes</label>
-                <textarea rows={3} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none resize-none"
-                  value={contactNotes} onChange={e => setContactNotes(e.target.value)} />
-              </div>
+            {/* Step indicator */}
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                style={{ background: contactStep === 1 ? NAVY : 'rgba(14,40,65,0.1)', color: contactStep === 1 ? '#fff' : '#64748b' }}>
+                1 Contact
+              </span>
+              <span className="text-slate-300 text-[12px]">→</span>
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                style={{ background: contactStep === 2 ? '#059669' : 'rgba(0,0,0,0.06)', color: contactStep === 2 ? '#fff' : '#94a3b8' }}>
+                2 Promise
+              </span>
             </div>
-            <div className="flex justify-end gap-2 mt-5">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05]" onClick={() => setContactRow(null)}>Cancel</button>
-              <button
-                className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
-                style={{ background: NAVY }}
-                disabled={contactting}
-                onClick={submitContact}>
-                {contactting ? 'Saving…' : 'Save'}
+            <ErrBanner msg={contactErr} />
+
+            {contactStep === 1 ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[12px] font-semibold text-slate-500 mb-1">Contact Type</label>
+                  <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                    value={contactType} onChange={e => setContactType(e.target.value)}>
+                    {CONTACT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[12px] font-semibold text-slate-500 mb-1">Outcome</label>
+                  <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                    value={contactOutcome} onChange={e => setOutcome(e.target.value)}>
+                    {OUTCOMES.map(o => <option key={o} value={o}>{snake(o)}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[12px] font-semibold text-slate-500 mb-1">Notes</label>
+                  <textarea rows={3} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none resize-none"
+                    value={contactNotes} onChange={e => setContactNotes(e.target.value)} />
+                </div>
+                {contactOutcome === 'promised_payment' && (
+                  <p className="text-[11px] text-slate-400">
+                    Outcome is "Promised Payment" — next step will capture promise details.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <ErrBanner msg={promiseErr} />
+                <div>
+                  <label className="block text-[12px] font-semibold text-slate-500 mb-1">Promise Date</label>
+                  <input type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                    value={promiseDate} onChange={e => setPromiseDate(e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-[12px] font-semibold text-slate-500 mb-1">Amount (₦)</label>
+                  <input type="number" min="0" step="0.01" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                    placeholder="0.00"
+                    value={promiseAmt} onChange={e => setPromiseAmt(e.target.value)} />
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-between gap-2 mt-5">
+              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05]"
+                onClick={contactStep === 2 ? () => setContactStep(1) : resetContactModal}>
+                {contactStep === 2 ? '← Back' : 'Cancel'}
               </button>
+              {contactStep === 1 ? (
+                <button
+                  className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
+                  style={{ background: NAVY }}
+                  disabled={contactting}
+                  onClick={submitContact}>
+                  {contactting ? 'Saving…' : contactOutcome === 'promised_payment' ? 'Save & Add Promise →' : 'Save'}
+                </button>
+              ) : (
+                <button
+                  className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
+                  style={{ background: '#059669' }}
+                  disabled={promising || !promiseDate || !promiseAmt}
+                  onClick={() => submitPromise(contactRow)}>
+                  {promising ? 'Saving…' : 'Save Promise'}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -337,7 +416,7 @@ export default function CollectionsQueue() {
                 className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
                 style={{ background: GREEN }}
                 disabled={promising || !promiseDate || !promiseAmt}
-                onClick={submitPromise}>
+                onClick={() => submitPromise(contactRow)}>
                 {promising ? 'Saving…' : 'Save Promise'}
               </button>
             </div>

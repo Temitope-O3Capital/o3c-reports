@@ -18,12 +18,15 @@ import (
 
 var dateRE = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 
-// respond writes a standard {data, data_source} JSON response.
+// respond writes a standard {data, data_source, data_as_of} JSON response.
+// data_as_of is the server time the response was generated — frontends should
+// display this instead of client render time so users know how fresh the data is.
 func respond(w http.ResponseWriter, data any, source string) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 		"data":        data,
 		"data_source": source,
+		"data_as_of":  time.Now().UTC().Format(time.RFC3339),
 	})
 }
 

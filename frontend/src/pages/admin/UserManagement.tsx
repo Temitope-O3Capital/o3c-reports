@@ -87,6 +87,54 @@ function roleChoices(options: RoleOption[], selected?: string): RoleOption[] {
   return [{ name: selected, label: roleLabel(selected) }, ...options]
 }
 
+const ROLE_DEPT_GROUPS: Record<string, string[]> = {
+  Management:  ['md', 'coo', 'cfo', 'cmo', 'executive', 'management'],
+  Sales:       ['sales_head', 'sales_officer', 'sales_agent'],
+  Risk:        ['risk_head', 'risk_officer', 'credit_analyst'],
+  Finance:     ['finance_head', 'finance_officer', 'accountant'],
+  Collections: ['collections_head', 'collections_officer', 'collections_agent'],
+  Recovery:    ['recovery_head', 'recovery_officer', 'recovery_agent'],
+  Compliance:  ['compliance_head', 'compliance_officer', 'internal_control_head', 'internal_control_officer'],
+  'HR':        ['hr_manager', 'hr_officer'],
+  Helpdesk:    ['helpdesk_head', 'helpdesk_agent', 'customer_service_rep'],
+  IT:          ['head_it', 'it_officer'],
+  Operations:  ['head_ops', 'ops_officer', 'cards_ops_officer'],
+  Admin:       ['admin'],
+}
+
+function GroupedRoleOptions({ options, selected }: { options: RoleOption[]; selected?: string }) {
+  const nameSet = new Set(options.map(r => r.name))
+  const grouped: Record<string, RoleOption[]> = {}
+  const ungrouped: RoleOption[] = []
+
+  for (const opt of roleChoices(options, selected)) {
+    let placed = false
+    for (const [dept, names] of Object.entries(ROLE_DEPT_GROUPS)) {
+      if (names.includes(opt.name ?? '')) {
+        grouped[dept] = grouped[dept] ?? []
+        grouped[dept].push(opt)
+        placed = true; break
+      }
+    }
+    if (!placed) ungrouped.push(opt)
+  }
+
+  return (
+    <>
+      {Object.entries(grouped).map(([dept, opts]) => (
+        <optgroup key={dept} label={dept}>
+          {opts.map(r => <option key={r.name} value={r.name}>{r.label || roleLabel(r.name)}</option>)}
+        </optgroup>
+      ))}
+      {ungrouped.length > 0 && (
+        <optgroup label="Other">
+          {ungrouped.map(r => <option key={r.name} value={r.name}>{r.label || roleLabel(r.name)}</option>)}
+        </optgroup>
+      )}
+    </>
+  )
+}
+
 const EMPTY_CREATE: CreateForm = {
   first_name: '', last_name: '', email: '', role: 'sales_officer', department: '',
 }
@@ -308,7 +356,7 @@ function UserDrawer({
               </div>
               <Field label="Email Address" type="email" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} required />
               <SelectField label="Role" value={form.role} onChange={v => setForm(f => ({ ...f, role: v }))}>
-                {roleChoices(roles, form.role).map(r => <option key={r.name} value={r.name}>{r.label || roleLabel(r.name)}</option>)}
+                <GroupedRoleOptions options={roles} selected={form.role} />
               </SelectField>
               <Field label="Department" value={form.department} onChange={v => setForm(f => ({ ...f, department: v }))} />
 

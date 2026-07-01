@@ -39,7 +39,9 @@ func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
 		query := `
 			SELECT ca.id, ca.account_cif, ca.agent_user_id, u.full_name AS agent_name,
 			       ca.assigned_by, ca.assignment_date, ca.dpd_bucket, ca.outstanding_kobo,
-			       ca.current_stage, ca.notes, ca.created_at, ca.updated_at
+			       ca.current_stage, ca.notes, ca.created_at, ca.updated_at,
+			       (SELECT MAX(cc.created_at) FROM collection_contacts cc
+			        WHERE cc.cif_number = ca.account_cif) AS last_contact_at
 			FROM collection_assignments ca
 			LEFT JOIN o3c_users u ON ca.agent_user_id = u.id
 			WHERE 1=1`
@@ -402,6 +404,28 @@ func collectionsOpsDashboard(db *core.DB) http.HandlerFunc {
 				SELECT COALESCE(SUM(target_amount_kobo), 0) AS val
 				FROM collection_targets
 				WHERE target_date = CURRENT_DATE`},
+			// PTP Kept Rate: promises resolved this month that were honoured / total resolved
+			{"ptp_kept_rate_pct", `
+				SELECT CASE WHEN COUNT(*) = 0 THEN 0
+				            ELSE ROUND(100.0 * SUM(CASE WHEN is_kept = TRUE THEN 1 ELSE 0 END) / COUNT(*), 1)
+				       END AS val
+				FROM collection_promises
+				WHERE is_kept IS NOT NULL
+				  AND DATE_TRUNC('month', actual_date) = DATE_TRUNC('month', CURRENT_DATE)`},
+			// Contact Rate: contacts logged today / total assigned accounts
+			{"contact_rate_pct", `
+				SELECT CASE WHEN (SELECT COUNT(*) FROM collection_assignments) = 0 THEN 0
+				            ELSE ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM collection_assignments), 1)
+				       END AS val
+				FROM collection_contacts
+				WHERE created_at::date = CURRENT_DATE`},
+			// Cure Rate: accounts that moved from DPD>0 to DPD=0 this month
+			{"cure_rate_pct", `
+				SELECT CASE WHEN COUNT(*) = 0 THEN 0
+				            ELSE ROUND(100.0 * SUM(CASE WHEN dpd_bucket = '0' THEN 1 ELSE 0 END) / COUNT(*), 1)
+				       END AS val
+				FROM collection_assignments
+				WHERE updated_at >= DATE_TRUNC('month', CURRENT_DATE)`},
 		}
 
 		result := map[string]any{}

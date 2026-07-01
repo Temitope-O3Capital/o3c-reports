@@ -41,6 +41,7 @@ export default function Overview() {
   const [byProduct,   setByProduct]   = useState<any[]>([])
   const [byType,      setByType]      = useState<any[]>([])
   const [source,      setSource]      = useState('supabase_snapshot')
+  const [dataAsOf,    setDataAsOf]    = useState<string | null>(null)
   const [loading,     setLoading]     = useState(true)
   const [err,         setErr]         = useState('')
 
@@ -61,6 +62,7 @@ export default function Overview() {
         if (rKpis.status === 'fulfilled') {
           setKpis(rKpis.value.data)
           setSource(rKpis.value.data_source ?? 'supabase_snapshot')
+          if (rKpis.value.data_as_of) setDataAsOf(rKpis.value.data_as_of)
         }
         if (rVol.status === 'fulfilled') setVolume(Array.isArray(rVol.value.data) ? rVol.value.data : [])
         if (rNa.status === 'fulfilled') setNewAccounts(Array.isArray(rNa.value.data) ? rNa.value.data : [])
@@ -96,7 +98,7 @@ export default function Overview() {
   return (
     <Page
       title="Dashboard"
-      subtitle={`Portfolio snapshot · updated ${new Date().toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}`}
+      subtitle={`Portfolio snapshot · updated ${dataAsOf ? new Date(dataAsOf).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }) : '—'}`}
       actions={!loading && kpis ? <SourceBadge source={source} /> : undefined}>
 
       <ErrBanner msg={err} />

@@ -162,7 +162,7 @@ func createLoan(db *core.DB) http.HandlerFunc {
 			     sales_officer_id, assigned_to_user_id, stage, status,
 			     created_at, updated_at)
 			VALUES (
-			    'LA-' || TO_CHAR(NOW(),'YYYY') || '-' || LPAD((SELECT COUNT(*)+1 FROM loan_applications WHERE EXTRACT(year FROM created_at)=EXTRACT(year FROM NOW()))::text,4,'0'),
+			    'LA-' || TO_CHAR(NOW(),'YYYY') || '-' || LPAD(nextval('loan_ref_seq')::text,4,'0'),
 			    $1,$2,$3,$4,$5,$6,$7,$8,$9,$9,'draft','pending',NOW(),NOW()
 			)
 			RETURNING *`,

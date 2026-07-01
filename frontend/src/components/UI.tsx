@@ -1,5 +1,5 @@
 // Shared UI primitives used across all pages
-import { useState, useRef, useEffect, useId, ReactNode } from 'react'
+import { useState, useRef, useEffect, useId, useMemo, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { STATUS_LABELS, snake } from '../lib/labels'
 import {
@@ -59,12 +59,13 @@ interface KpiProps {
   value: string
   sub?: string
   change?: number | null
+  changePeriod?: string
   icon: string
   accent?: string
   loading?: boolean
 }
 
-export function KpiCard({ label, value, sub, change, icon, accent = NAVY, loading }: KpiProps) {
+export function KpiCard({ label, value, sub, change, changePeriod = 'MoM', icon, accent = NAVY, loading }: KpiProps) {
   if (loading) return (
     <div className="card p-5">
       <div className="flex justify-between mb-3"><Sk w="w-28" /><Sk w="w-8" h="h-8" /></div>
@@ -84,7 +85,7 @@ export function KpiCard({ label, value, sub, change, icon, accent = NAVY, loadin
       <p className="kpi-number text-[26px] leading-none text-slate-900">{value}</p>
       <div className="flex items-center gap-2 mt-3">
         {change != null
-          ? <><ChangeBadge value={change} /><span className="text-[11px] text-slate-400">WoW</span></>
+          ? <><ChangeBadge value={change} /><span className="text-[11px] text-slate-400">{changePeriod}</span></>
           : sub ? <span className="text-[12px] text-slate-400">{sub}</span>
           : null}
       </div>
@@ -133,7 +134,7 @@ export interface ColDef<T> {
 
 export function DataTable<T extends Record<string, any>>({
   cols, rows, loading, emptyIcon = 'table_rows', emptyMsg = 'No data',
-  selectable, selectedIds, onSelectionChange,
+  selectable, selectedIds, onSelectionChange, rowBg,
 }: {
   cols: ColDef<T>[]
   rows: T[]
@@ -143,6 +144,7 @@ export function DataTable<T extends Record<string, any>>({
   selectable?: boolean
   selectedIds?: Set<string | number>
   onSelectionChange?: (ids: Set<string | number>) => void
+  rowBg?: (row: T) => string | undefined
 }) {
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
@@ -152,14 +154,17 @@ export function DataTable<T extends Record<string, any>>({
     else { setSortKey(key); setSortDir('asc') }
   }
 
-  let data = [...rows]
-  if (sortKey) {
-    data.sort((a, b) => {
-      const av = a[sortKey], bv = b[sortKey]
-      if (av == null) return 1; if (bv == null) return -1
-      return sortDir === 'asc' ? (av < bv ? -1 : 1) : (av > bv ? -1 : 1)
-    })
-  }
+  const data = useMemo(() => {
+    const d = [...rows]
+    if (sortKey) {
+      d.sort((a, b) => {
+        const av = a[sortKey], bv = b[sortKey]
+        if (av == null) return 1; if (bv == null) return -1
+        return sortDir === 'asc' ? (av < bv ? -1 : 1) : (av > bv ? -1 : 1)
+      })
+    }
+    return d
+  }, [rows, sortKey, sortDir])
 
   function toggleRow(id: string | number) {
     if (!onSelectionChange || !selectedIds) return
@@ -227,7 +232,7 @@ export function DataTable<T extends Record<string, any>>({
               )
             : data.map((row, i) => (
                 <tr key={row.id ?? i} className="transition-colors hover:bg-slate-50"
-                  style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
+                  style={{ borderTop: '1px solid rgba(15,23,42,0.05)', background: rowBg?.(row) }}>
                   {selectable && (
                     <td className="px-5 py-3 w-10">
                       <input type="checkbox"

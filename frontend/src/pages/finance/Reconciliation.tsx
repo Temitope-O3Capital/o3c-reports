@@ -1014,8 +1014,12 @@ export default function Reconciliation() {
         ))}
       </div>
 
-      {tab === 'paystack'    && <PaystackTab from={from} to={to} />}
-      {tab === 'interswitch' && <InterspwitchTab />}
+      <div style={{ display: tab === 'paystack' ? 'block' : 'none' }}>
+        <PaystackTab from={from} to={to} />
+      </div>
+      <div style={{ display: tab === 'interswitch' ? 'block' : 'none' }}>
+        <InterspwitchTab />
+      </div>
     </Page>
   )
 }

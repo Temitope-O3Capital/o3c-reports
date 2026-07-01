@@ -1,11 +1,11 @@
 import { snake } from '../../lib/labels'
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../lib/api'
-import { fmtNum, fmtDate, n } from '../../lib/fmt'
+import { fmtNum, fmtDate, n, today, monthStart } from '../../lib/fmt'
 import {
   Page, KpiCard, SectionCard, DataTable, ColDef,
   AreaChartCard, BarChartCard, DonutCard, ProgressList,
-  ErrBanner, Sk, NAVY, RED, GREEN, AMBER,
+  ErrBanner, Sk, DateFilter, NAVY, RED, GREEN, AMBER,
 } from '../../components/UI'
 
 /* ── Types ──────────────────────────────────────────────────────── */
@@ -89,20 +89,23 @@ export default function CrmReports() {
   const [actTrend, setActTrend] = useState<any[]>([])
   const [loading,  setLoading]  = useState(true)
   const [err,      setErr]      = useState('')
+  const [from,     setFrom]     = useState(monthStart)
+  const [to,       setTo]       = useState(today)
 
   useEffect(() => {
     let active = true
     setLoading(true); setErr('')
+    const qs = `date_from=${from}&date_to=${to}`
     async function load() {
       try {
         const [ov, pip, ag, src, sl, tr, at] = await Promise.allSettled([
-          apiFetch<Overview>('/api/crm/reports/overview'),
-          apiFetch<PipelineStage[]>('/api/crm/reports/pipeline'),
-          apiFetch<AgentRow[]>('/api/crm/reports/agent-performance'),
-          apiFetch<SourceRow[]>('/api/crm/reports/contacts-by-source'),
-          apiFetch<SLARow[]>('/api/crm/reports/requests-sla'),
-          apiFetch<TrendPoint[]>('/api/crm/reports/new-contacts-trend'),
-          apiFetch<ActivityDay[]>('/api/crm/reports/activity-trend'),
+          apiFetch<Overview>(`/api/crm/reports/overview?${qs}`),
+          apiFetch<PipelineStage[]>(`/api/crm/reports/pipeline?${qs}`),
+          apiFetch<AgentRow[]>(`/api/crm/reports/agent-performance?${qs}`),
+          apiFetch<SourceRow[]>(`/api/crm/reports/contacts-by-source?${qs}`),
+          apiFetch<SLARow[]>(`/api/crm/reports/requests-sla?${qs}`),
+          apiFetch<TrendPoint[]>(`/api/crm/reports/new-contacts-trend?${qs}`),
+          apiFetch<ActivityDay[]>(`/api/crm/reports/activity-trend?${qs}`),
         ])
         if (ov.status === 'fulfilled' && active) setOverview(ov.value)
         if (pip.status === 'fulfilled' && active) setPipeline(pip.value ?? [])
@@ -128,7 +131,7 @@ export default function CrmReports() {
     }
     load()
     return () => { active = false }
-  }, [])
+  }, [from, to])
 
   const ov = overview
 
@@ -189,7 +192,8 @@ export default function CrmReports() {
   ]
 
   return (
-    <Page dept="CRM" title="CRM Reports" subtitle="Activity, pipeline, and team performance analytics">
+    <Page dept="CRM" title="CRM Reports" subtitle="Activity, pipeline, and team performance analytics"
+      actions={<DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />}>
       <ErrBanner msg={err} />
 
       {/* Overview KPIs */}

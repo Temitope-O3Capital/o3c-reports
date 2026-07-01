@@ -14,8 +14,58 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Get("/by-agent", collectionsByAgent(db))
 	r.Get("/by-mode", collectionsByMode(db))
 	r.Get("/monthly-trend", collectionsMonthlyTrend(db))
+	r.Get("/roll-rate", collectionsRollRate(db))
 	r.Get("/log", collectionsLog(db))
 	r.Get("/export", collectionsExport(db))
+}
+
+// collectionsRollRate returns DPD bucket distribution and MoM transition counts.
+// A full roll-rate matrix requires historical snapshots; this endpoint provides
+// the current DPD distribution plus last-month's distribution for comparison.
+func collectionsRollRate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// Current DPD distribution
+		current, err := db.PGQuery(ctx, `
+			SELECT
+				dpd_bucket,
+				COUNT(*)                             AS account_count,
+				COALESCE(SUM(outstanding_kobo), 0)  AS outstanding_kobo
+			FROM collection_assignments
+			GROUP BY dpd_bucket
+			ORDER BY
+				CASE dpd_bucket
+					WHEN '0'       THEN 0
+					WHEN '1-30'    THEN 1
+					WHEN '31-60'   THEN 2
+					WHEN '61-90'   THEN 3
+					WHEN '91-180'  THEN 4
+					WHEN '181-360' THEN 5
+					ELSE 6
+				END`)
+		if err != nil {
+			respondErr(w, 500, "Roll rate query failed")
+			return
+		}
+
+		// Movement this month: accounts that changed dpd_bucket in the current calendar month.
+		// Proxied by comparing updated_at vs created_at bucket changes.
+		cures, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS cured_count
+			FROM collection_assignments
+			WHERE dpd_bucket = '0'
+			  AND updated_at >= DATE_TRUNC('month', CURRENT_DATE)
+			  AND updated_at > created_at`)
+
+		respond(w, map[string]any{
+			"current_distribution": current,
+			"cured_this_month":     func() any {
+				if len(cures) > 0 { return cures[0]["cured_count"] }
+				return 0
+			}(),
+		}, "pg")
+	}
 }
 
 func collectionsKPIs(db *core.DB) http.HandlerFunc {

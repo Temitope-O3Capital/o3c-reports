@@ -8,24 +8,31 @@ function signOut() {
 
 export async function apiFetch<T = any>(path: string, init?: RequestInit): Promise<T> {
   const token = localStorage.getItem('o3c_token')
-  const res = await fetch(`${API}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-  })
-  if (res.status === 401) {
-    signOut()
-    throw new Error('Session expired')
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 30_000)
+  try {
+    const res = await fetch(`${API}${path}`, {
+      ...init,
+      signal: init?.signal ?? controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers ?? {}),
+      },
+    })
+    if (res.status === 401) {
+      signOut()
+      throw new Error('Session expired')
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error((err as any).detail || `Request failed (${res.status})`)
+    }
+    if (res.status === 204) return undefined as T
+    return res.json()
+  } finally {
+    clearTimeout(timeout)
   }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error((err as any).detail || `Request failed (${res.status})`)
-  }
-  if (res.status === 204) return undefined as T
-  return res.json()
 }
 
 export async function apiPost<T = any>(path: string, body: unknown): Promise<T> {

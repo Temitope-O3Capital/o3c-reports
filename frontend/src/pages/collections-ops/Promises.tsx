@@ -107,12 +107,34 @@ export default function Promises() {
     }
   }
 
-  const filtered = statusF ? rows.filter(r => r.status === statusF) : rows
+  const todayIso = new Date().toISOString().slice(0, 10)
+
+  const filtered = (statusF ? rows.filter(r => r.status === statusF) : rows)
+    .slice()
+    .sort((a, b) => (a.promise_date < b.promise_date ? -1 : 1))
+
+  function rowBg(r: PromiseRow): string | undefined {
+    if (r.status === 'honoured') return 'rgba(5,150,105,0.05)'
+    if (r.status === 'broken') return 'rgba(220,38,38,0.05)'
+    if (r.status === 'pending' && r.promise_date < todayIso) return 'rgba(220,38,38,0.07)'
+    if (r.status === 'pending' && r.promise_date === todayIso) return 'rgba(245,158,11,0.07)'
+    return undefined
+  }
 
   const cols: ColDef<PromiseRow>[] = [
     { key: 'account_cif',   label: 'CIF',     render: r => <span className="font-mono text-[12px] text-slate-500">{r.account_cif}</span> },
     { key: 'agent_name',    label: 'Agent' },
-    { key: 'promise_date',  label: 'Promise Date', render: r => fmtDate(r.promise_date) },
+    { key: 'promise_date',  label: 'Promise Date', render: r => {
+      const overdue = r.status === 'pending' && r.promise_date < todayIso
+      const dueToday = r.status === 'pending' && r.promise_date === todayIso
+      return (
+        <span className="flex items-center gap-1.5">
+          {fmtDate(r.promise_date)}
+          {overdue && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(220,38,38,0.1)', color: RED }}>OVERDUE</span>}
+          {dueToday && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.1)', color: '#D97706' }}>TODAY</span>}
+        </span>
+      )
+    }},
     { key: 'amount_kobo',   label: 'Amount', right: true, render: r => <span className="font-mono font-semibold">{fmt(r.amount_kobo / 100)}</span> },
     { key: 'status',        label: 'Status', render: r => <StatusBadge status={r.status} /> },
     {
@@ -192,6 +214,7 @@ export default function Promises() {
           <DataTable
             cols={cols}
             rows={filtered}
+            rowBg={rowBg}
             emptyIcon="handshake"
             emptyMsg="No promises found"
           />

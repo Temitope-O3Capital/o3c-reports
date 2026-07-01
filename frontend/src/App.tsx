@@ -528,8 +528,15 @@ export default function App() {
       setUser(null)
       toast.error('Session expired — please sign in again')
     }
+    function onStorage(e: StorageEvent) {
+      if (e.key === 'o3c_token' && !e.newValue) setUser(null)
+    }
     window.addEventListener('auth:expired', onAuthExpired)
-    return () => window.removeEventListener('auth:expired', onAuthExpired)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener('auth:expired', onAuthExpired)
+      window.removeEventListener('storage', onStorage)
+    }
   }, [])
 
   function handleLogin(u: AuthUser) {
@@ -642,8 +649,7 @@ export default function App() {
                   }
                 />
 
-                {/* Approvals — available to all authenticated roles; backend filters by role */}
-                <Route path="/approvals" element={<PageErrorBoundary><Approvals /></PageErrorBoundary>} />
+                <Route path="/approvals" element={<PageErrorBoundary><RequireAccess page="approvals" user={user}><Approvals /></RequireAccess></PageErrorBoundary>} />
 
                 {/* ── Finance ── */}
                 <Route path="/finance"              element={<PageErrorBoundary><RequireAccess page="income" user={user}><FinanceOverview /></RequireAccess></PageErrorBoundary>} />

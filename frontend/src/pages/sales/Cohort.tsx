@@ -10,8 +10,8 @@ import {
 function retentionStyle(rate: number | null | undefined) {
   if (rate == null) return { background: '#F1F5F9', color: '#CBD5E1' }
   const r = Number(rate)
-  if (r >= 60) return { background: GREEN,   color: '#fff' }
-  if (r >= 30) return { background: AMBER,   color: '#fff' }
+  if (r >= 40) return { background: GREEN,   color: '#fff' }
+  if (r >= 20) return { background: AMBER,   color: '#fff' }
   if (r > 0)   return { background: '#C00000', color: '#fff' }
   return { background: '#F1F5F9', color: '#CBD5E1' }
 }

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiPut } from '../lib/api'
 import { fmt } from '../lib/fmt'
 import { Page, ErrBanner, NAVY, RED, AMBER, GREEN } from '../components/UI'
 
@@ -94,9 +94,22 @@ function PriorityBadge({ priority }: { priority: string }) {
 }
 
 /* ── Approval card ──────────────────────────────────────────────── */
-function ApprovalCard({ item }: { item: ApprovalItem }) {
+function ApprovalCard({ item, onActioned }: { item: ApprovalItem; onActioned?: () => void }) {
   const navigate = useNavigate()
   const hasAmount = item.amount_kobo != null && item.amount_kobo > 0
+  const [acting, setActing] = useState<'approve' | 'decline' | null>(null)
+  const [actErr, setActErr] = useState('')
+
+  async function leaveAction(action: 'approve' | 'decline') {
+    setActing(action); setActErr('')
+    try {
+      await apiPut(`/api/hr/leave/${item.item_id}/${action}`, {})
+      onActioned?.()
+    } catch (e: any) {
+      setActErr(e.message || `${action} failed`)
+      setActing(null)
+    }
+  }
 
   return (
     <div className="card px-5 py-4 flex items-start gap-4">
@@ -113,6 +126,7 @@ function ApprovalCard({ item }: { item: ApprovalItem }) {
         <p className="text-[11px] text-slate-400 mt-1.5">
           Requested by <span className="font-medium text-slate-600">{item.requested_by}</span>
         </p>
+        {actErr && <p className="text-[11px] text-red-500 mt-1">{actErr}</p>}
       </div>
 
       {/* Center */}
@@ -134,14 +148,35 @@ function ApprovalCard({ item }: { item: ApprovalItem }) {
       </div>
 
       {/* Right */}
-      <div className="shrink-0 self-center">
-        <button
-          onClick={() => navigate(reviewPath(item))}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
-          style={{ background: NAVY }}>
-          <span className="material-symbols-rounded text-[14px]">open_in_new</span>
-          Review
-        </button>
+      <div className="shrink-0 self-center flex flex-col gap-1.5 items-end">
+        {item.module === 'Leave' ? (
+          <>
+            <button
+              disabled={!!acting}
+              onClick={() => leaveAction('approve')}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+              style={{ background: GREEN }}>
+              <span className="material-symbols-rounded text-[14px]">check</span>
+              {acting === 'approve' ? 'Approving…' : 'Approve'}
+            </button>
+            <button
+              disabled={!!acting}
+              onClick={() => leaveAction('decline')}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+              style={{ background: RED }}>
+              <span className="material-symbols-rounded text-[14px]">close</span>
+              {acting === 'decline' ? 'Declining…' : 'Decline'}
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => navigate(reviewPath(item))}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
+            style={{ background: NAVY }}>
+            <span className="material-symbols-rounded text-[14px]">open_in_new</span>
+            Review
+          </button>
+        )}
       </div>
     </div>
   )
@@ -166,31 +201,28 @@ export default function Approvals() {
   const [error, setError]     = useState('')
   const [filter, setFilter]   = useState<ModuleTab>('All')
 
-  useEffect(() => {
-    let active = true
+  const load = useCallback(async () => {
     setLoading(true); setError('')
-    async function load() {
-      try {
-        const [p, s] = await Promise.allSettled([
-          apiFetch('/api/approvals/pending'),
-          apiFetch('/api/approvals/summary'),
-        ])
-        if (p.status === 'fulfilled') {
-          const raw = p.value.data ?? p.value
-          if (active) setItems(Array.isArray(raw) ? raw : [])
-        }
-        if (s.status === 'fulfilled') {
-          if (active) setSummary(s.value.data ?? s.value)
-        }
-        if ([p, s].every(r => r.status === 'rejected')) {
-          if (active) setError((p as PromiseRejectedResult).reason?.message ?? 'Failed to load')
-        }
-      } catch (e: any) { if (active) setError(e.message) }
-      finally { if (active) setLoading(false) }
-    }
-    load()
-    return () => { active = false }
+    try {
+      const [p, s] = await Promise.allSettled([
+        apiFetch('/api/approvals/pending'),
+        apiFetch('/api/approvals/summary'),
+      ])
+      if (p.status === 'fulfilled') {
+        const raw = p.value.data ?? p.value
+        setItems(Array.isArray(raw) ? raw : [])
+      }
+      if (s.status === 'fulfilled') {
+        setSummary(s.value.data ?? s.value)
+      }
+      if ([p, s].every(r => r.status === 'rejected')) {
+        setError((p as PromiseRejectedResult).reason?.message ?? 'Failed to load')
+      }
+    } catch (e: any) { setError(e.message) }
+    finally { setLoading(false) }
   }, [])
+
+  useEffect(() => { load() }, [load])
 
   const filtered = filter === 'All'
     ? items
@@ -265,7 +297,7 @@ export default function Approvals() {
       ) : (
         <div className="flex flex-col gap-3">
           {filtered.map(item => (
-            <ApprovalCard key={`${item.module}-${item.item_id}`} item={item} />
+            <ApprovalCard key={`${item.module}-${item.item_id}`} item={item} onActioned={load} />
           ))}
         </div>
       )}

@@ -1,5 +1,5 @@
 import { snake } from '../../lib/labels'
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { apiFetch } from '../../lib/api'
 import { fmt, fmtDate, fmtExact } from '../../lib/fmt'
 import { Spinner, ErrBanner, StatusBadge, Page, NAVY, RED } from '../../components/UI'
@@ -15,6 +15,12 @@ interface LoanApp { id: string; reference: string; stage: string; amount_request
 interface Collection { id: string; date: string; agent?: string; amount: number; mode_of_payment?: string; payment_receipt?: string }
 interface RecoveryCase { id: string; legal_stage?: string; status?: string; recovery_amount?: number; recovery_date?: string }
 
+interface FinancialSummary {
+  dpd_bucket?: string
+  recovery_outstanding_kobo?: number
+  loan_approved_kobo?: number
+}
+
 interface CustomerProfile {
   account: {
     cif: string; first_name?: string; last_name?: string; full_name?: string
@@ -25,6 +31,9 @@ interface CustomerProfile {
   recent_transactions: Transaction[]
   loan_applications: LoanApp[]
   recovery_cases: RecoveryCase[]
+  financial_summary?: FinancialSummary
+  transactions?: Transaction[]
+  loan_apps?: LoanApp[]
 }
 
 const TABS = ['Overview', 'Transactions', 'Loans', 'Collections', 'Recovery'] as const
@@ -49,18 +58,21 @@ export default function Customer360() {
   const [collectionsLoading, setCollectionsLoading] = useState(false)
   const limit = 50
 
-  async function search() {
-    if (!query.trim()) return
-    setSearching(true); setSearchErr('')
-    try {
-      const res = await apiFetch<SearchResult[]>(`/api/customer360/search?q=${encodeURIComponent(query)}`)
-      setResults(Array.isArray(res) ? res : [])
-    } catch (e: any) {
-      setSearchErr(e.message)
-    } finally {
-      setSearching(false)
-    }
-  }
+  useEffect(() => {
+    if (!query.trim()) { setResults([]); return }
+    const timer = setTimeout(async () => {
+      setSearching(true); setSearchErr('')
+      try {
+        const res = await apiFetch<SearchResult[]>(`/api/customer360/search?q=${encodeURIComponent(query)}`)
+        setResults(Array.isArray(res) ? res : [])
+      } catch (e: any) {
+        setSearchErr(e.message)
+      } finally {
+        setSearching(false)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [query])
 
   async function loadProfile(cif: string) {
     setSelected(cif); setProfileLoading(true); setProfileErr(''); setActiveTab('Overview')
@@ -114,23 +126,16 @@ export default function Customer360() {
       {/* Search bar */}
       <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-4 mb-5">
         <div className="flex gap-3">
-          <input
-            className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
-            placeholder="Search by name, CIF number, or phone…"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && search()}
-          />
-          <button
-            className="px-5 py-2.5 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
-            style={{ background: NAVY }}
-            onClick={search}
-            disabled={searching || !query.trim()}
-          >
-            {searching ? <Spinner size={16} /> : (
-              <><span className="material-symbols-rounded text-[16px] align-middle mr-1">search</span>Search</>
-            )}
-          </button>
+          <div className="relative flex-1">
+            <span className="material-symbols-rounded absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-slate-400">search</span>
+            <input
+              className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-slate-200 text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+              placeholder="Search by name, CIF number, or phone…"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+            />
+            {searching && <span className="absolute right-3 top-1/2 -translate-y-1/2"><Spinner size={16} /></span>}
+          </div>
         </div>
         <ErrBanner msg={searchErr} />
       </div>
@@ -174,22 +179,89 @@ export default function Customer360() {
             ) : profile ? (
               <>
                 {/* Profile header */}
-                <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-5 mb-4 flex flex-wrap items-center gap-4">
-                  <div
-                    className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-[18px] flex-shrink-0"
-                    style={{ background: NAVY }}
-                  >
-                    {displayName.charAt(0)}
-                  </div>
-                  <div className="flex-1">
-                    <h2 className="text-[18px] font-bold text-slate-900">{displayName}</h2>
-                    <div className="flex flex-wrap gap-3 mt-1">
-                      <span className="text-[12px] font-mono text-slate-500">{profile.account.cif}</span>
-                      {profile.account.phone && <span className="text-[12px] text-slate-500">{profile.account.phone}</span>}
-                      {profile.account.email && <span className="text-[12px] text-slate-500">{profile.account.email}</span>}
+                <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-5 mb-4">
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div
+                      className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-[18px] flex-shrink-0"
+                      style={{ background: NAVY }}
+                    >
+                      {displayName.charAt(0)}
+                    </div>
+                    <div className="flex-1">
+                      <h2 className="text-[18px] font-bold text-slate-900">{displayName}</h2>
+                      <div className="flex flex-wrap gap-3 mt-1">
+                        <span className="text-[12px] font-mono text-slate-500">{profile.account.cif}</span>
+                        {profile.account.phone && <span className="text-[12px] text-slate-500">{profile.account.phone}</span>}
+                        {profile.account.email && <span className="text-[12px] text-slate-500">{profile.account.email}</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {profile.account.status && <StatusBadge status={profile.account.status} />}
+                      {/* Quick actions */}
+                      <a
+                        href={`/helpdesk?cif=${profile.account.cif}`}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition-all"
+                        style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY }}>
+                        <span className="material-symbols-rounded text-[14px]">confirmation_number</span>
+                        New Ticket
+                      </a>
+                      <a
+                        href={`/collections-ops?account_cif=${profile.account.cif}`}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition-all"
+                        style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY }}>
+                        <span className="material-symbols-rounded text-[14px]">handshake</span>
+                        Log Promise
+                      </a>
+                      {profile.account.phone && (
+                        <a
+                          href={`tel:${profile.account.phone}`}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition-all"
+                          style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY }}>
+                          <span className="material-symbols-rounded text-[14px]">call</span>
+                          Call
+                        </a>
+                      )}
                     </div>
                   </div>
-                  {profile.account.status && <StatusBadge status={profile.account.status} />}
+
+                  {/* Financial summary strip */}
+                  {profile.financial_summary && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-100">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">DPD Bucket</p>
+                        <p className="text-[15px] font-bold mt-0.5" style={{
+                          color: profile.financial_summary.dpd_bucket && profile.financial_summary.dpd_bucket !== 'current'
+                            ? RED : '#059669'
+                        }}>
+                          {profile.financial_summary.dpd_bucket ?? '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Recovery Outstanding</p>
+                        <p className="text-[15px] font-bold mt-0.5 font-mono" style={{ color: NAVY }}>
+                          {profile.financial_summary.recovery_outstanding_kobo != null
+                            ? fmt(profile.financial_summary.recovery_outstanding_kobo / 100)
+                            : '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Latest Loan Limit</p>
+                        <p className="text-[15px] font-bold mt-0.5 font-mono" style={{ color: NAVY }}>
+                          {profile.financial_summary.loan_approved_kobo != null
+                            ? fmt(profile.financial_summary.loan_approved_kobo / 100)
+                            : '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Last Transaction</p>
+                        <p className="text-[15px] font-bold mt-0.5" style={{ color: NAVY }}>
+                          {profile.transactions?.[0]
+                            ? fmtDate((profile.transactions[0] as any)['Transaction_Date'] ?? (profile.transactions[0] as any)['transaction_date'])
+                            : '—'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Tabs */}

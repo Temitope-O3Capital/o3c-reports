@@ -93,6 +93,14 @@ func c360Profile(db *core.DB) http.HandlerFunc {
 			FROM recovery_cases WHERE cif_number = $1
 			ORDER BY created_at DESC`, cif)
 
+		// Financial summary (PG only — best-effort, nullable)
+		summaryRows, _ := db.PGQuery(ctx, `
+			SELECT
+				(SELECT dpd_bucket FROM collection_assignments WHERE cif_number = $1 ORDER BY updated_at DESC LIMIT 1) AS dpd_bucket,
+				(SELECT COALESCE(SUM(total_outstanding_kobo), 0) FROM recovery_cases WHERE cif_number = $1 AND status = 'active') AS recovery_outstanding_kobo,
+				(SELECT amount_approved_kobo FROM loan_applications WHERE applicant_cif = $1 AND stage NOT IN ('rejected','cancelled') ORDER BY created_at DESC LIMIT 1) AS loan_approved_kobo
+		`, cif)
+
 		if accounts == nil {
 			accounts = []core.Row{}
 		}
@@ -110,11 +118,12 @@ func c360Profile(db *core.DB) http.HandlerFunc {
 		}
 
 		profile := map[string]any{
-			"account":        firstOrNil(accounts),
-			"products":       products,
-			"transactions":   transactions,
-			"loan_apps":      loanApps,
-			"recovery_cases": recoveryCases,
+			"account":           firstOrNil(accounts),
+			"products":          products,
+			"transactions":      transactions,
+			"loan_apps":         loanApps,
+			"recovery_cases":    recoveryCases,
+			"financial_summary": firstOrNil(summaryRows),
 		}
 
 		// Prefer mssql_live if any source is live

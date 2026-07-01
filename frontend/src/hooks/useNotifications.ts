@@ -31,6 +31,8 @@ export function useNotifications() {
   const esRef = useRef<EventSource | null>(null)
   const reconnectRef = useRef<ReturnType<typeof setTimeout>>()
   const delayRef = useRef(2000)
+  const lastNotifAtRef = useRef<string | null>(null)
+  const hasConnectedRef = useRef(false)
 
   // Load initial notifications
   useEffect(() => {
@@ -62,8 +64,28 @@ export function useNotifications() {
         const es = new EventSource(`${base}/api/notifications/sse?ticket=${encodeURIComponent(ticket)}`)
         esRef.current = es
 
+        // On reconnect (not first connect), catch up on missed notifications
+        if (hasConnectedRef.current && lastNotifAtRef.current) {
+          apiFetch<NotificationsResponse>(`/api/notifications?per_page=30&page=1&since=${encodeURIComponent(lastNotifAtRef.current)}`)
+            .then(res => {
+              const missed = res.notifications ?? []
+              if (missed.length > 0) {
+                setNotifications(prev => {
+                  const ids = new Set(prev.map(n => n.id))
+                  const newOnes = missed.filter((n: AppNotification) => !ids.has(n.id))
+                  if (newOnes.length === 0) return prev
+                  setUnreadCount(c => c + newOnes.filter((n: AppNotification) => !n.read_at).length)
+                  return [...newOnes, ...prev]
+                })
+              }
+            })
+            .catch(() => {})
+        }
+        hasConnectedRef.current = true
+
         es.addEventListener('notification', (e: MessageEvent) => {
           const notif: AppNotification = JSON.parse(e.data as string)
+          lastNotifAtRef.current = notif.created_at
           setNotifications(prev => {
             if (prev.find(n => n.id === notif.id)) return prev
             return [notif, ...prev]

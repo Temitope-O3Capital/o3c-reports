@@ -209,6 +209,108 @@ function DealDrawer({ deal, stages, onClose, onUpdated }: {
   )
 }
 
+/* ── Create Deal modal ──────────────────────────────────────────── */
+interface Contact { id: number; first_name: string; last_name: string }
+
+function CreateDealModal({ stages, onClose, onCreated }: {
+  stages: Stage[]; onClose: () => void; onCreated: () => void
+}) {
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const [form, setForm] = useState({
+    title: '', contact_id: '', stage_id: String(stages[0]?.id ?? ''),
+    expected_value: '', probability: '50', expected_close_date: '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    apiFetch<{ data: Contact[] } | Contact[]>('/api/crm/contacts?limit=200')
+      .then(r => setContacts(Array.isArray(r) ? r : (r.data ?? [])))
+      .catch(() => {})
+  }, [])
+
+  async function submit() {
+    if (!form.title || !form.contact_id) { setErr('Title and contact are required'); return }
+    setSaving(true); setErr('')
+    try {
+      await apiPost('/api/crm/deals', {
+        title: form.title,
+        contact_id: Number(form.contact_id),
+        stage_id: form.stage_id ? Number(form.stage_id) : undefined,
+        expected_value: form.expected_value ? Number(form.expected_value) : undefined,
+        probability: Number(form.probability),
+        expected_close_date: form.expected_close_date || undefined,
+      })
+      onCreated()
+    } catch (ex: any) { setErr(ex.message) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-[15px] font-bold text-slate-800">New Deal</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
+            <span className="material-symbols-rounded text-[20px]">close</span>
+          </button>
+        </div>
+        <ErrBanner msg={err} />
+        <div className="space-y-3">
+          <div>
+            <label className="block text-[12px] font-semibold text-slate-500 mb-1">Deal Title *</label>
+            <input className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+              value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+              placeholder="e.g. SME Loan — Adeola Bakeries" />
+          </div>
+          <div>
+            <label className="block text-[12px] font-semibold text-slate-500 mb-1">Contact *</label>
+            <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+              value={form.contact_id} onChange={e => setForm(f => ({ ...f, contact_id: e.target.value }))}>
+              <option value="">— Select contact —</option>
+              {contacts.map(c => <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[12px] font-semibold text-slate-500 mb-1">Stage</label>
+            <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+              value={form.stage_id} onChange={e => setForm(f => ({ ...f, stage_id: e.target.value }))}>
+              {stages.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[12px] font-semibold text-slate-500 mb-1">Value (₦)</label>
+              <input type="number" min="0" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                placeholder="0" value={form.expected_value} onChange={e => setForm(f => ({ ...f, expected_value: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-[12px] font-semibold text-slate-500 mb-1">Probability %</label>
+              <input type="number" min="0" max="100" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                value={form.probability} onChange={e => setForm(f => ({ ...f, probability: e.target.value }))} />
+            </div>
+          </div>
+          <div>
+            <label className="block text-[12px] font-semibold text-slate-500 mb-1">Expected Close</label>
+            <input type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+              value={form.expected_close_date} onChange={e => setForm(f => ({ ...f, expected_close_date: e.target.value }))} />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 mt-5">
+          <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05]" onClick={onClose}>Cancel</button>
+          <button
+            className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
+            style={{ background: NAVY }}
+            disabled={saving}
+            onClick={submit}>
+            {saving ? 'Creating…' : 'Create Deal'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ── Main page ──────────────────────────────────────────────────── */
 export default function Pipeline() {
   const [data, setData] = useState<PipelineResp | null>(null)
@@ -216,6 +318,7 @@ export default function Pipeline() {
   const [err, setErr] = useState('')
   const [view, setView] = useState<'kanban' | 'table'>('kanban')
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
 
   async function load() {
     setLoading(true); setErr('')
@@ -274,7 +377,16 @@ export default function Pipeline() {
   ]
 
   return (
-    <Page dept="CRM" title="Pipeline" subtitle="Track deals through your sales stages">
+    <Page dept="CRM" title="Pipeline" subtitle="Track deals through your sales stages"
+      actions={
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold text-white"
+          style={{ background: NAVY }}>
+          <span className="material-symbols-rounded text-[16px]">add</span>
+          New Deal
+        </button>
+      }>
 
       <ErrBanner msg={err} />
 
@@ -352,6 +464,12 @@ export default function Pipeline() {
           stages={stages}
           onClose={() => setSelectedDeal(null)}
           onUpdated={() => { setSelectedDeal(null); load() }} />
+      )}
+      {createOpen && (
+        <CreateDealModal
+          stages={stages}
+          onClose={() => setCreateOpen(false)}
+          onCreated={() => { setCreateOpen(false); load() }} />
       )}
     </Page>
   )
