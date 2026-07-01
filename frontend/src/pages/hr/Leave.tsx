@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, apiPost } from '../../lib/api'
 import { apiPut } from '../../lib/api'
-import { fmtDate } from '../../lib/fmt'
-import { Spinner, ErrBanner, StatusBadge, KpiCard, Page, SectionCard, DataTable, NAVY, RED, GREEN, AMBER } from '../../components/UI'
+import { fmtDate, today, yearStart } from '../../lib/fmt'
+import { Spinner, ErrBanner, StatusBadge, KpiCard, Page, SectionCard, DataTable, DateFilter, NAVY, RED, GREEN, AMBER } from '../../components/UI'
 import type { ColDef } from '../../components/UI'
 
 interface LeaveType { id: string; name: string; is_paid: boolean; max_days_per_year: number }
@@ -28,6 +28,8 @@ export default function Leave() {
   const [loading, setLoading]     = useState(true)
   const [error, setError]         = useState('')
   const [statusF, setStatusF]     = useState('')
+  const [from, setFrom]           = useState(yearStart)
+  const [to,   setTo]             = useState(today)
 
   // Approve / decline modal
   const [action, setAction]       = useState<{ row: LeaveRow; type: 'approve' | 'decline' } | null>(null)
@@ -44,7 +46,12 @@ export default function Leave() {
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const params = new URLSearchParams({ limit: '100', ...(statusF ? { status: statusF } : {}) })
+      const params = new URLSearchParams({
+        limit: '200',
+        ...(statusF ? { status: statusF } : {}),
+        date_from: from,
+        date_to: to,
+      })
       const [rLeaves, rTypes] = await Promise.allSettled([
         apiFetch<{ data: LeaveRow[] }>(`/api/hr/leave?${params}`),
         apiFetch<LeaveType[]>('/api/hr/leave-types'),
@@ -56,7 +63,7 @@ export default function Leave() {
     } finally {
       setLoading(false)
     }
-  }, [statusF])
+  }, [statusF, from, to])
 
   useEffect(() => { load() }, [load])
 
@@ -129,11 +136,14 @@ export default function Leave() {
       dept="HR"
       title="Leave Management"
       actions={
-        <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white" style={{ background: NAVY }}
-          onClick={() => { setShowAdd(true); setAddForm(EMPTY_ADD) }}>
-          <span className="material-symbols-rounded text-[15px] align-middle mr-1">add</span>
-          Request Leave
-        </button>
+        <div className="flex items-center gap-3">
+          <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
+          <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white" style={{ background: NAVY }}
+            onClick={() => { setShowAdd(true); setAddForm(EMPTY_ADD) }}>
+            <span className="material-symbols-rounded text-[15px] align-middle mr-1">add</span>
+            Request Leave
+          </button>
+        </div>
       }
     >
       <ErrBanner msg={error} />

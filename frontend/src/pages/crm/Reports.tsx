@@ -78,9 +78,23 @@ function pct(a: number, b: number): string {
   return (a / b * 100).toFixed(0) + '%'
 }
 
+function prevPeriod(from: string, to: string): [string, string] {
+  const f = new Date(from), t = new Date(to)
+  const days = Math.round((t.getTime() - f.getTime()) / 86400000) + 1
+  const prevTo = new Date(f.getTime() - 86400000)
+  const prevFrom = new Date(prevTo.getTime() - (days - 1) * 86400000)
+  return [prevFrom.toISOString().slice(0, 10), prevTo.toISOString().slice(0, 10)]
+}
+
+function delta(curr: number, prev: number): number | null {
+  if (!prev) return null
+  return Math.round((curr - prev) / prev * 100)
+}
+
 /* ── Main page ──────────────────────────────────────────────────── */
 export default function CrmReports() {
-  const [overview, setOverview] = useState<Overview | null>(null)
+  const [overview,    setOverview]    = useState<Overview | null>(null)
+  const [prevOverview,setPrevOverview] = useState<Overview | null>(null)
   const [pipeline, setPipeline] = useState<PipelineStage[]>([])
   const [agents,   setAgents]   = useState<AgentRow[]>([])
   const [sources,  setSources]  = useState<SourceRow[]>([])
@@ -96,9 +110,11 @@ export default function CrmReports() {
     let active = true
     setLoading(true); setErr('')
     const qs = `date_from=${from}&date_to=${to}`
+    const [pf, pt] = prevPeriod(from, to)
+    const prevQs = `date_from=${pf}&date_to=${pt}`
     async function load() {
       try {
-        const [ov, pip, ag, src, sl, tr, at] = await Promise.allSettled([
+        const [ov, pip, ag, src, sl, tr, at, prevOv] = await Promise.allSettled([
           apiFetch<Overview>(`/api/crm/reports/overview?${qs}`),
           apiFetch<PipelineStage[]>(`/api/crm/reports/pipeline?${qs}`),
           apiFetch<AgentRow[]>(`/api/crm/reports/agent-performance?${qs}`),
@@ -106,8 +122,10 @@ export default function CrmReports() {
           apiFetch<SLARow[]>(`/api/crm/reports/requests-sla?${qs}`),
           apiFetch<TrendPoint[]>(`/api/crm/reports/new-contacts-trend?${qs}`),
           apiFetch<ActivityDay[]>(`/api/crm/reports/activity-trend?${qs}`),
+          apiFetch<Overview>(`/api/crm/reports/overview?${prevQs}`),
         ])
         if (ov.status === 'fulfilled' && active) setOverview(ov.value)
+        if (prevOv.status === 'fulfilled' && active) setPrevOverview(prevOv.value)
         if (pip.status === 'fulfilled' && active) setPipeline(pip.value ?? [])
         if (ag.status === 'fulfilled' && active) setAgents(ag.value ?? [])
         if (src.status === 'fulfilled' && active) setSources(src.value ?? [])
@@ -134,6 +152,9 @@ export default function CrmReports() {
   }, [from, to])
 
   const ov = overview
+  const pov = prevOverview
+  const chg = (key: keyof Overview) =>
+    ov && pov ? delta(n(ov[key] as number), n(pov[key] as number)) : null
 
   /* Agent table cols */
   const agentCols: ColDef<AgentRow>[] = [
@@ -198,9 +219,9 @@ export default function CrmReports() {
 
       {/* Overview KPIs */}
       <div className="grid grid-cols-4 gap-4 mb-6">
-        <KpiCard label="Total Contacts" value={fmtNum(n(ov?.total_contacts))} icon="contacts" loading={loading} />
-        <KpiCard label="Total Leads"    value={fmtNum(n(ov?.total_leads))}    icon="person_search" loading={loading} />
-        <KpiCard label="Customers"      value={fmtNum(n(ov?.total_customers))} icon="verified_user" accent={GREEN} loading={loading} />
+        <KpiCard label="Total Contacts" value={fmtNum(n(ov?.total_contacts))} icon="contacts" loading={loading} change={chg('total_contacts')} changePeriod="vs prev period" />
+        <KpiCard label="Total Leads"    value={fmtNum(n(ov?.total_leads))}    icon="person_search" loading={loading} change={chg('total_leads')} changePeriod="vs prev period" />
+        <KpiCard label="Customers"      value={fmtNum(n(ov?.total_customers))} icon="verified_user" accent={GREEN} loading={loading} change={chg('total_customers')} changePeriod="vs prev period" />
         <KpiCard label="Conversion"
           value={ov ? pct(n(ov.total_customers), n(ov.total_contacts)) : '—'}
           icon="trending_up" accent={GREEN}
@@ -209,14 +230,14 @@ export default function CrmReports() {
       </div>
 
       <div className="grid grid-cols-4 gap-4 mb-6">
-        <KpiCard label="Active Deals"    value={String(n(ov?.total_deals))}     icon="handshake"      loading={loading} />
-        <KpiCard label="Won Deals"       value={String(n(ov?.won_deals))}        icon="check_circle"   accent={GREEN}  loading={loading} />
-        <KpiCard label="Open Tasks"      value={String(n(ov?.open_tasks))}       icon="task_alt"       loading={loading} />
-        <KpiCard label="Overdue Tasks"   value={String(n(ov?.overdue_tasks))}    icon="schedule"       accent={RED}    loading={loading} />
+        <KpiCard label="Active Deals"  value={String(n(ov?.total_deals))}  icon="handshake"    loading={loading} change={chg('total_deals')} changePeriod="vs prev period" />
+        <KpiCard label="Won Deals"     value={String(n(ov?.won_deals))}    icon="check_circle" accent={GREEN} loading={loading} change={chg('won_deals')} changePeriod="vs prev period" />
+        <KpiCard label="Open Tasks"    value={String(n(ov?.open_tasks))}   icon="task_alt"     loading={loading} />
+        <KpiCard label="Overdue Tasks" value={String(n(ov?.overdue_tasks))} icon="schedule"    accent={RED} loading={loading} />
       </div>
 
       <div className="grid grid-cols-3 gap-4 mb-6">
-        <KpiCard label="Activities (30d)"   value={fmtNum(n(ov?.activities_30d))} icon="local_activity" loading={loading} />
+        <KpiCard label="Activities (30d)"   value={fmtNum(n(ov?.activities_30d))} icon="local_activity" loading={loading} change={chg('activities_30d')} changePeriod="vs prev period" />
         <KpiCard label="SLA Breaches"       value={String(n(ov?.sla_breached))}   icon="gpp_bad"        accent={RED}   loading={loading} />
         <KpiCard label="Avg Resolution"
           value={ov?.avg_resolution_hrs != null ? ov.avg_resolution_hrs.toFixed(1) + 'h' : '—'}

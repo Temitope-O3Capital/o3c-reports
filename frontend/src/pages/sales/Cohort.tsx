@@ -94,9 +94,9 @@ function CohortHeatmap({ data, loading }: { data: Record<string, Record<string, 
         {/* Legend */}
         <div className="flex items-center gap-5 mt-4 pt-4" style={{ borderTop: '1px solid rgba(15,23,42,0.06)' }}>
           {[
-            { color: GREEN,    label: '≥ 60% retained' },
-            { color: AMBER,    label: '30 – 60%' },
-            { color: '#C00000', label: '< 30%' },
+            { color: GREEN,    label: '≥ 40% retained' },
+            { color: AMBER,    label: '20 – 40%' },
+            { color: '#C00000', label: '< 20%' },
             { color: '#F1F5F9', label: 'No data', text: '#94A3B8' },
           ].map(l => (
             <span key={l.label} className="flex items-center gap-1.5 text-[11px] text-slate-500">
@@ -154,7 +154,7 @@ function CohortStrengthCard({ data }: { data: Record<string, Record<string, numb
           const m0 = data[cohort]?.[0] ?? null
           const m1 = data[cohort]?.[1] ?? null
           const m2 = data[cohort]?.[2] ?? null
-          const barColor = m0 != null ? (m0 >= 60 ? GREEN : m0 >= 30 ? AMBER : RED) : '#CBD5E1'
+          const barColor = m0 != null ? (m0 >= 40 ? GREEN : m0 >= 20 ? AMBER : RED) : '#CBD5E1'
           return (
             <div key={cohort}>
               <div className="flex items-center justify-between mb-1">

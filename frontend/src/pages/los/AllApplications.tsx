@@ -206,11 +206,19 @@ export default function AllApplications() {
       <ErrBanner msg={error} />
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         <KpiCard label="Submitted" value={String(stats?.submitted ?? '—')} icon="send" accent="#2563EB" loading={loading && !stats} />
         <KpiCard label="Risk Review" value={String(stats?.risk_review ?? '—')} icon="rate_review" accent={AMBER} loading={loading && !stats} />
         <KpiCard label="Finance Approval" value={String(stats?.finance_approval ?? '—')} icon="account_balance" accent="#0EA5E9" loading={loading && !stats} />
         <KpiCard label="Active" value={String(stats?.active ?? '—')} icon="check_circle" accent={GREEN} loading={loading && !stats} />
+        <KpiCard
+          label="Pipeline Value"
+          value={funnelLoading ? '—' : fmt(funnel.filter(r => FUNNEL_STAGES.includes(r.stage)).reduce((s, r) => s + r.pipeline_kobo, 0) / 100)}
+          sub="Active pipeline ₦"
+          icon="account_balance_wallet"
+          accent={NAVY}
+          loading={funnelLoading}
+        />
       </div>
 
       {/* Conversion funnel */}

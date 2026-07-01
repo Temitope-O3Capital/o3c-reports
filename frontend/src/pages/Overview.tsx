@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../lib/api'
-import { fmt, fmtNum, n } from '../lib/fmt'
+import { fmt, fmtNum, fmtPct, n } from '../lib/fmt'
 import {
   Page, KpiCard, SectionCard, AreaChartCard, BarChartCard, DonutCard,
-  ProgressList, ErrBanner, NAVY, RED, GREEN, AMBER, BLUE,
+  ProgressList, ErrBanner, ChangeBadge, NAVY, RED, GREEN, AMBER, BLUE,
 } from '../components/UI'
 
 /* ── Data source badge ──────────────────────────────────────────── */
@@ -36,6 +36,8 @@ function rk(row: Record<string, any>, ...candidates: string[]): any {
 
 export default function Overview() {
   const [kpis,        setKpis]        = useState<Record<string, any> | null>(null)
+  const [execKpis,    setExecKpis]    = useState<Record<string, any> | null>(null)
+  const [loanKpis,    setLoanKpis]    = useState<Record<string, any> | null>(null)
   const [volume,      setVolume]      = useState<any[]>([])
   const [newAccounts, setNewAccounts] = useState<any[]>([])
   const [byProduct,   setByProduct]   = useState<any[]>([])
@@ -51,12 +53,14 @@ export default function Overview() {
     async function load() {
       setLoading(true); setErr('')
       try {
-        const [rKpis, rVol, rNa, rBp, rBt] = await Promise.allSettled([
+        const [rKpis, rVol, rNa, rBp, rBt, rExec, rLoan] = await Promise.allSettled([
           apiFetch('/api/overview/kpis'),
           apiFetch('/api/overview/monthly-volume'),
           apiFetch('/api/overview/new-accounts-trend'),
           apiFetch('/api/overview/cards-by-product'),
           apiFetch('/api/overview/txn-by-type'),
+          apiFetch('/api/executive/summary?period=month'),
+          apiFetch('/api/kpi/kpis'),
         ])
         if (cancelled) return
         if (rKpis.status === 'fulfilled') {
@@ -64,6 +68,8 @@ export default function Overview() {
           setSource(rKpis.value.data_source ?? 'supabase_snapshot')
           if (rKpis.value.data_as_of) setDataAsOf(rKpis.value.data_as_of)
         }
+        if (rExec.status === 'fulfilled') setExecKpis(rExec.value)
+        if (rLoan.status === 'fulfilled') setLoanKpis(rLoan.value.data ?? rLoan.value)
         if (rVol.status === 'fulfilled') setVolume(Array.isArray(rVol.value.data) ? rVol.value.data : [])
         if (rNa.status === 'fulfilled') setNewAccounts(Array.isArray(rNa.value.data) ? rNa.value.data : [])
         if (rBp.status === 'fulfilled') {
@@ -94,16 +100,74 @@ export default function Overview() {
   }, [])
 
   const kpi = (k: string) => (kpis ? n(kpis[k]) : 0)
+  const ek = execKpis ?? {}
+  const lk = loanKpis ?? {}
+  const nplPct = n(lk.npl_ratio_bps) / 100
+
+  // Period change helpers from executive summary
+  function execChange(curr: number, prev: number): number | null {
+    if (!prev) return null
+    return Math.round((curr - prev) / prev * 100)
+  }
 
   return (
     <Page
-      title="Dashboard"
+      title="Executive Dashboard"
       subtitle={`Portfolio snapshot · updated ${dataAsOf ? new Date(dataAsOf).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }) : '—'}`}
       actions={!loading && kpis ? <SourceBadge source={source} /> : undefined}>
 
       <ErrBanner msg={err} />
 
-      {/* ── KPI row ── */}
+      {/* ── Row 1: Loan portfolio ops ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+        <KpiCard loading={loading} label="Net Portfolio"
+          value={fmt(n(lk.total_outstanding_kobo) / 100)}
+          sub="Active loans"
+          icon="account_balance_wallet" accent={NAVY} />
+        <KpiCard loading={loading} label="NPL Ratio"
+          value={lk.npl_ratio_bps != null ? `${nplPct.toFixed(2)}%` : '—'}
+          sub="Non-performing loans"
+          icon="trending_down"
+          accent={nplPct > 5 ? RED : nplPct > 2 ? AMBER : GREEN} />
+        <KpiCard loading={loading} label="Disbursements MTD"
+          value={fmt(n(lk.new_disbursements_kobo) / 100)}
+          sub="New loans this month"
+          icon="payments" accent={BLUE} />
+        <KpiCard loading={loading} label="Repayments MTD"
+          value={fmt(n(lk.repayments_kobo) / 100)}
+          sub="Collections this month"
+          icon="price_check" accent={GREEN} />
+      </div>
+
+      {/* ── Row 2: Operations ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+        <KpiCard loading={loading} label="Collections MTD"
+          value={fmt(n(ek.collections_curr))}
+          sub="vs prev period"
+          icon="savings" accent={GREEN}
+          change={execChange(n(ek.collections_curr), n(ek.collections_prev))}
+          changePeriod="MoM" />
+        <KpiCard loading={loading} label="Recovery MTD"
+          value={fmt(n(ek.recovery_curr))}
+          sub="vs prev period"
+          icon="restore" accent={AMBER}
+          change={execChange(n(ek.recovery_curr), n(ek.recovery_prev))}
+          changePeriod="MoM" />
+        <KpiCard loading={loading} label="New Accounts MTD"
+          value={fmtNum(n(ek.new_accounts_curr))}
+          sub="vs prev period"
+          icon="person_add" accent={NAVY}
+          change={execChange(n(ek.new_accounts_curr), n(ek.new_accounts_prev))}
+          changePeriod="MoM" />
+        <KpiCard loading={loading} label="Txn Volume MTD"
+          value={fmt(n(ek.txn_volume_curr))}
+          sub="vs prev period"
+          icon="swap_vert" accent={BLUE}
+          change={execChange(n(ek.txn_volume_curr), n(ek.txn_volume_prev))}
+          changePeriod="MoM" />
+      </div>
+
+      {/* ── Card portfolio KPIs ── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         <KpiCard loading={loading} label="Total Cardholders"   value={fmtNum(kpi('total_cardholders'))}  sub="All-time"   icon="group"           accent={NAVY}  />
         <KpiCard loading={loading} label="Active Accounts"     value={fmtNum(kpi('active_accounts'))}    sub="Live"       icon="credit_card"     accent={BLUE}  />

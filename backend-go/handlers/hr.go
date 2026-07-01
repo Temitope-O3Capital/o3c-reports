@@ -273,6 +273,8 @@ func hrLeaveList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status := qstr(r, "status")
 		empID := qstr(r, "employee_id")
+		dateFrom := qstr(r, "date_from")
+		dateTo := qstr(r, "date_to")
 		limit := qint(r, "limit", 50, 1, 200)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -293,6 +295,16 @@ func hrLeaveList(db *core.DB) http.HandlerFunc {
 		if empID != "" {
 			query += fmt.Sprintf(" AND la.employee_id = $%d", n)
 			args = append(args, empID)
+			n++
+		}
+		if dateFrom != "" {
+			query += fmt.Sprintf(" AND la.start_date >= $%d", n)
+			args = append(args, dateFrom)
+			n++
+		}
+		if dateTo != "" {
+			query += fmt.Sprintf(" AND la.start_date <= $%d", n)
+			args = append(args, dateTo)
 			n++
 		}
 		query += fmt.Sprintf(" ORDER BY la.created_at DESC LIMIT $%d OFFSET $%d", n, n+1)

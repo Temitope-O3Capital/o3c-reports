@@ -544,7 +544,7 @@ function CreateModal({
           </div>
           <Field label="Email Address" type="email" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} required />
           <SelectField label="Role" value={form.role} onChange={v => setForm(f => ({ ...f, role: v }))}>
-            {roleChoices(roles, form.role).map(r => <option key={r.name} value={r.name}>{r.label || roleLabel(r.name)}</option>)}
+            <GroupedRoleOptions options={roles} selected={form.role} />
           </SelectField>
           <Field label="Department" value={form.department} onChange={v => setForm(f => ({ ...f, department: v }))} />
           {err && <p className="text-[12px] text-red-600 bg-red-50 px-3 py-2 rounded-lg">{err}</p>}

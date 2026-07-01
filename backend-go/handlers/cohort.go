@@ -146,7 +146,8 @@ func cohortMonthlyActivity(db *core.DB) http.HandlerFunc {
 			        DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1) AS month_sort,
 			        COUNT(DISTINCT CIF) AS active_users,
 			        ISNULL(SUM(Amount),0) AS total_spend,
-			        ISNULL(AVG(CAST(Amount AS FLOAT)),0) AS avg_spend
+			        CASE WHEN COUNT(DISTINCT CIF)=0 THEN 0
+			             ELSE ISNULL(SUM(Amount),0)/COUNT(DISTINCT CIF) END AS avg_spend
 			FROM dbo.Transaction_Listing
 			WHERE Transaction_Date IS NOT NULL
 			GROUP BY DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1),
@@ -156,7 +157,8 @@ func cohortMonthlyActivity(db *core.DB) http.HandlerFunc {
 			        DATE_TRUNC('month',"Transaction Date") AS month_sort,
 			        COUNT(DISTINCT "CIF Number") AS active_users,
 			        COALESCE(SUM("Amount"),0) AS total_spend,
-			        COALESCE(AVG("Amount"),0) AS avg_spend
+			        CASE WHEN COUNT(DISTINCT "CIF Number")=0 THEN 0
+			             ELSE COALESCE(SUM("Amount"),0)/COUNT(DISTINCT "CIF Number") END AS avg_spend
 			FROM "Transactions"
 			WHERE "Transaction Date" IS NOT NULL
 			GROUP BY DATE_TRUNC('month',"Transaction Date")
