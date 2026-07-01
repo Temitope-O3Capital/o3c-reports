@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, apiPut } from '../../lib/api'
 import { fmt, fmtDate } from '../../lib/fmt'
-import { Spinner, ErrBanner, KpiCard, Page, Pagination, FilterBar, NAVY, RED, AMBER, GREEN } from '../../components/UI'
+import { Spinner, ErrBanner, KpiCard, Page, Pagination, FilterBar, SectionCard, NAVY, RED, AMBER, GREEN } from '../../components/UI'
 import { useAuth } from '../../hooks/useAuth'
 import { StageBadge, STAGE_COLORS } from './components'
 
@@ -32,6 +32,64 @@ interface LosStats {
   declined: number
 }
 
+interface FunnelRow {
+  stage: string
+  count: number
+  pipeline_kobo: number
+  avg_days_in_stage: number
+}
+
+const FUNNEL_STAGES = [
+  'draft','submitted','document_collection','risk_review',
+  'risk_head_review','pending_conditions','finance_approval','booking','active',
+]
+
+function ConversionFunnel({ rows, loading }: { rows: FunnelRow[]; loading: boolean }) {
+  const pipeline = rows.filter(r => FUNNEL_STAGES.includes(r.stage))
+  const maxCount = Math.max(...pipeline.map(r => r.count), 1)
+  const first = pipeline[0]?.count ?? 0
+
+  return (
+    <SectionCard title="Conversion Funnel" subtitle="Applications by pipeline stage">
+      {loading ? (
+        <div className="px-5 py-8 flex justify-center"><Spinner /></div>
+      ) : pipeline.length === 0 ? (
+        <p className="px-5 py-8 text-center text-[13px] text-slate-400">No funnel data</p>
+      ) : (
+        <div className="px-5 py-4 space-y-2.5">
+          {pipeline.map((row, i) => {
+            const pct = maxCount > 0 ? (row.count / maxCount) * 100 : 0
+            const convRate = first > 0 ? (row.count / first) * 100 : 100
+            return (
+              <div key={row.stage}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[12px] font-semibold text-slate-700 capitalize w-44 truncate">{snake(row.stage)}</span>
+                  <div className="flex items-center gap-4 text-[11px] text-slate-500">
+                    <span className="font-mono font-semibold text-slate-800 tabular-nums w-8 text-right">{row.count}</span>
+                    <span className="tabular-nums w-12 text-right">{convRate.toFixed(0)}%</span>
+                    <span className="tabular-nums w-20 text-right font-mono">{fmt(row.pipeline_kobo / 100)}</span>
+                    <span className="tabular-nums w-16 text-right">{Number(row.avg_days_in_stage).toFixed(1)}d avg</span>
+                  </div>
+                </div>
+                <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(15,23,42,0.06)' }}>
+                  <div className="h-full rounded-full transition-all duration-700"
+                    style={{ width: `${pct}%`, background: i === 0 ? NAVY : convRate < 40 ? RED : convRate < 70 ? AMBER : GREEN }} />
+                </div>
+              </div>
+            )
+          })}
+          <div className="flex justify-end gap-4 text-[10px] text-slate-400 pt-1" style={{ borderTop: '1px solid rgba(15,23,42,0.06)' }}>
+            <span className="w-8 text-right">Count</span>
+            <span className="w-12 text-right">Conv.</span>
+            <span className="w-20 text-right">Pipeline ₦</span>
+            <span className="w-16 text-right">Avg days</span>
+          </div>
+        </div>
+      )}
+    </SectionCard>
+  )
+}
+
 const PRODUCT_TYPES = ['prepaid_card', 'credit_card', 'usd_card', 'business_loan', 'personal_loan']
 const STAGE_OPTS = Object.keys(STAGE_COLORS)
 const TEAM_LEAD_ROLES = [
@@ -49,14 +107,16 @@ export default function AllApplications() {
   const { user } = useAuth()
   const isTeamLead = TEAM_LEAD_ROLES.includes(user?.role ?? '')
 
-  const [apps, setApps]       = useState<Application[]>([])
-  const [stats, setStats]     = useState<LosStats | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError]     = useState('')
-  const [search, setSearch]   = useState('')
-  const [stageF, setStageF]   = useState('')
+  const [apps, setApps]         = useState<Application[]>([])
+  const [stats, setStats]       = useState<LosStats | null>(null)
+  const [funnel, setFunnel]     = useState<FunnelRow[]>([])
+  const [funnelLoading, setFunnelLoading] = useState(true)
+  const [loading, setLoading]   = useState(true)
+  const [error, setError]       = useState('')
+  const [search, setSearch]     = useState('')
+  const [stageF, setStageF]     = useState('')
   const [productF, setProductF] = useState('')
-  const [page, setPage]       = useState(0)
+  const [page, setPage]         = useState(0)
   const limit = 50
 
   // Assign modal state
@@ -64,6 +124,15 @@ export default function AllApplications() {
   const [assignUserId, setAssignUserId] = useState('')
   const [assigning, setAssigning]       = useState(false)
   const [assignErr, setAssignErr]       = useState('')
+
+  // Load funnel once on mount
+  useEffect(() => {
+    setFunnelLoading(true)
+    apiFetch<FunnelRow[]>('/api/los/funnel')
+      .then(rows => setFunnel(Array.isArray(rows) ? rows : (rows as any).data ?? []))
+      .catch(() => setFunnel([]))
+      .finally(() => setFunnelLoading(false))
+  }, [])
 
   // user list for assign dropdown
   const [losUsers, setLosUsers] = useState<{ id: string; full_name: string }[]>([])
@@ -142,6 +211,11 @@ export default function AllApplications() {
         <KpiCard label="Risk Review" value={String(stats?.risk_review ?? '—')} icon="rate_review" accent={AMBER} loading={loading && !stats} />
         <KpiCard label="Finance Approval" value={String(stats?.finance_approval ?? '—')} icon="account_balance" accent="#0EA5E9" loading={loading && !stats} />
         <KpiCard label="Active" value={String(stats?.active ?? '—')} icon="check_circle" accent={GREEN} loading={loading && !stats} />
+      </div>
+
+      {/* Conversion funnel */}
+      <div className="mb-6">
+        <ConversionFunnel rows={funnel} loading={funnelLoading} />
       </div>
 
       <FilterBar>

@@ -15,11 +15,20 @@ interface CollectionsKpi {
   collected_today_kobo: number
   target_kobo: number
   target_achievement_pct: number
+  ptp_kept_rate_pct: number
+  contact_rate_pct: number
+  cure_rate_pct: number
 }
 
 interface DpdBucket {
   dpd_bucket: string
   count: number
+  outstanding_kobo: number
+}
+
+interface RollRateRow {
+  dpd_bucket: string
+  account_count: number
   outstanding_kobo: number
 }
 
@@ -103,6 +112,65 @@ function DpdSummary({ data, loading }: { data: DpdBucket[]; loading: boolean }) 
   )
 }
 
+/* ── Roll-Rate Matrix ── */
+function RollRateMatrix({ rows, cured, loading }: { rows: RollRateRow[]; cured: number; loading: boolean }) {
+  const total = rows.reduce((s, r) => s + n(r.account_count), 0)
+  return (
+    <SectionCard title="DPD Roll-Rate" subtitle="Current distribution — accounts by days past due">
+      {loading ? (
+        <div className="px-5 py-8 flex justify-center"><div className="h-4 skeleton w-48 rounded" /></div>
+      ) : (
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr style={{ background: 'rgba(14,40,65,0.04)', borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
+                  {['DPD Bucket','Accounts','% of Queue','Outstanding'].map(h => (
+                    <th key={h} className="px-4 py-2.5 text-left text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, i) => {
+                  const pct = total > 0 ? (n(row.account_count) / total) * 100 : 0
+                  const color = DPD_COLOR[row.dpd_bucket] ?? '#94A3B8'
+                  return (
+                    <tr key={i} className="border-b border-slate-50">
+                      <td className="px-4 py-2.5">
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
+                          <span className="font-semibold text-slate-700">DPD {row.dpd_bucket}</span>
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 font-mono font-semibold text-slate-800">{n(row.account_count).toLocaleString()}</td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(15,23,42,0.06)', maxWidth: 80 }}>
+                            <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+                          </div>
+                          <span className="text-slate-500 tabular-nums">{pct.toFixed(1)}%</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-slate-600">{fmt(n(row.outstanding_kobo) / 100)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          {cured > 0 && (
+            <div className="mx-4 mb-4 mt-3 flex items-center gap-2 px-4 py-2.5 rounded-lg text-[12px]"
+              style={{ background: 'rgba(5,150,105,0.07)', border: '1px solid rgba(5,150,105,0.2)', color: GREEN }}>
+              <span className="material-symbols-rounded text-[16px]">trending_down</span>
+              <span><strong>{cured.toLocaleString()}</strong> account{cured === 1 ? '' : 's'} cured to DPD 0 this month</span>
+            </div>
+          )}
+        </>
+      )}
+    </SectionCard>
+  )
+}
+
 /* ── Main Page ── */
 export default function CollectionsOverview() {
   const [from, setFrom] = useState(monthStart())
@@ -110,6 +178,8 @@ export default function CollectionsOverview() {
 
   const [kpis,    setKpis]    = useState<CollectionsKpi | null>(null)
   const [buckets, setBuckets] = useState<DpdBucket[]>([])
+  const [rollRate, setRollRate] = useState<RollRateRow[]>([])
+  const [curedCount, setCuredCount] = useState(0)
   const [activity, setActivity] = useState<any[]>([])
   const [loading, setLoading]  = useState(true)
   const [error,   setError]    = useState('')
@@ -117,8 +187,6 @@ export default function CollectionsOverview() {
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      // Dashboard endpoint returns: total_assigned, contacts_today, honoured_today,
-      // collected_today_kobo, overdue_promises
       const res = await apiFetch('/api/collections-ops/dashboard')
       const d   = res.data ?? res
       const kpiData: CollectionsKpi = {
@@ -130,8 +198,21 @@ export default function CollectionsOverview() {
         target_achievement_pct: n(d.target_kobo) > 0
           ? Math.min(100, (n(d.collected_today_kobo) / n(d.target_kobo)) * 100)
           : 0,
+        ptp_kept_rate_pct: n(d.ptp_kept_rate_pct ?? 0),
+        contact_rate_pct:  n(d.contact_rate_pct ?? 0),
+        cure_rate_pct:     n(d.cure_rate_pct ?? 0),
       }
       setKpis(kpiData)
+
+      // Roll-rate data
+      try {
+        const rr = await apiFetch('/api/collections/roll-rate')
+        const rrData = rr.data ?? rr
+        setRollRate(rrData.current_distribution ?? [])
+        setCuredCount(n(rrData.cured_this_month ?? 0))
+      } catch {
+        setRollRate([])
+      }
 
       // Activity trend for the date range
       try {
@@ -193,7 +274,7 @@ export default function CollectionsOverview() {
       }>
       <ErrBanner msg={error} />
 
-      {/* KPI row */}
+      {/* KPI row 1 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           label="Active Queue"
@@ -222,6 +303,34 @@ export default function CollectionsOverview() {
           icon="payments"
           accent={GREEN}
           sub={d.target_kobo ? `Target: ${fmt(n(d.target_kobo) / 100)}` : undefined}
+          loading={loading}
+        />
+      </div>
+
+      {/* KPI row 2 — rate metrics */}
+      <div className="grid grid-cols-3 gap-4 mt-4">
+        <KpiCard
+          label="PTP Kept Rate"
+          value={loading ? '—' : `${Number(d.ptp_kept_rate_pct ?? 0).toFixed(1)}%`}
+          sub="Promises honoured MTD"
+          icon="check_circle"
+          accent={(d.ptp_kept_rate_pct ?? 0) >= 70 ? GREEN : (d.ptp_kept_rate_pct ?? 0) >= 50 ? AMBER : RED}
+          loading={loading}
+        />
+        <KpiCard
+          label="Contact Rate"
+          value={loading ? '—' : `${Number(d.contact_rate_pct ?? 0).toFixed(1)}%`}
+          sub="Contacts vs assigned today"
+          icon="phone_in_talk"
+          accent={(d.contact_rate_pct ?? 0) >= 50 ? GREEN : (d.contact_rate_pct ?? 0) >= 30 ? AMBER : RED}
+          loading={loading}
+        />
+        <KpiCard
+          label="Cure Rate"
+          value={loading ? '—' : `${Number(d.cure_rate_pct ?? 0).toFixed(1)}%`}
+          sub="Moved to DPD 0 this month"
+          icon="trending_down"
+          accent={(d.cure_rate_pct ?? 0) >= 10 ? GREEN : AMBER}
           loading={loading}
         />
       </div>
@@ -284,6 +393,11 @@ export default function CollectionsOverview() {
           />
         </div>
       )}
+
+      {/* Roll-rate matrix */}
+      <div className="mt-4">
+        <RollRateMatrix rows={rollRate} cured={curedCount} loading={loading} />
+      </div>
 
       {/* Quick links */}
       <div className="mt-4 flex flex-wrap gap-3">

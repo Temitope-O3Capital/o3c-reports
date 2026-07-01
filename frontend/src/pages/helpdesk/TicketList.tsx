@@ -528,6 +528,18 @@ export default function TicketList() {
             )
           })}
           <div className="ml-auto flex items-center gap-2 mb-2">
+            <button
+              onClick={() => setMyTickets(m => !m)}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all"
+              style={{
+                borderColor: myTickets ? NAVY : 'rgba(15,23,42,0.15)',
+                background:  myTickets ? `${NAVY}0f` : 'white',
+                color:       myTickets ? NAVY : '#64748B',
+              }}
+            >
+              <span className="material-symbols-rounded text-[14px]">person</span>
+              Mine
+            </button>
             <div className="relative">
               <span className="material-symbols-rounded text-[15px] absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">search</span>
               <input
@@ -547,18 +559,6 @@ export default function TicketList() {
           <FilterSelect value={priority}   options={PRIORITY_OPTIONS} onChange={setPriority}   label="Priority" />
           <FilterSelect value={channel}    options={CHANNEL_OPTIONS}  onChange={setChannel}    label="Channel" />
           <FilterSelect value={department} options={DEPT_OPTIONS}     onChange={setDepartment} label="Department" />
-          <button
-            onClick={() => setMyTickets(m => !m)}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all"
-            style={{
-              borderColor: myTickets ? NAVY : 'rgba(15,23,42,0.15)',
-              background:  myTickets ? `${NAVY}0f` : 'white',
-              color:       myTickets ? NAVY : '#64748B',
-            }}
-          >
-            <span className="material-symbols-rounded text-[14px]">person</span>
-            Mine
-          </button>
         </div>
 
         <ErrBanner msg={err} />
