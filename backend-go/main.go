@@ -320,6 +320,15 @@ func main() {
 		r.Route("/api/customer-service", func(r chi.Router) {
 			handlers.RegisterCustomerService(r, db)
 		})
+		r.Route("/api/telemarketing", func(r chi.Router) {
+			handlers.RegisterTelemarketing(r, db)
+		})
+		r.Route("/api/active-loans", func(r chi.Router) {
+			handlers.RegisterActiveLoanBook(r, db)
+		})
+		r.Route("/api/bd", func(r chi.Router) {
+			handlers.RegisterBusinessDev(r, db)
+		})
 
 	})
 

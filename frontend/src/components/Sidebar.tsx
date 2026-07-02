@@ -169,6 +169,39 @@ const SECTIONS: NavSection[] = [
     ],
   },
   {
+    label: 'Growth',
+    modules: [
+      {
+        id: 'telemarketing', label: 'Telemarketing', icon: 'call', roles: ['telemarketing_agent', 'telemarketing_head', 'md', 'coo', 'admin'],
+        primary: '/telemarketing',
+        items: [
+          { label: 'Overview',       to: '/telemarketing' },
+          { label: 'Outbound Queue', to: '/telemarketing/queue' },
+          { label: 'DNC List',       to: '/telemarketing/dnc' },
+        ],
+      },
+      {
+        id: 'bd', label: 'Business Dev', icon: 'handshake', roles: ['bd_officer', 'bd_head', 'sales_head', 'md', 'coo', 'admin'],
+        primary: '/bd',
+        items: [
+          { label: 'Overview',          to: '/bd' },
+          { label: 'Pipeline',          to: '/bd/pipeline' },
+          { label: 'Employer Register', to: '/bd/employers' },
+        ],
+      },
+    ],
+  },
+  {
+    label: 'Lending',
+    modules: [
+      {
+        id: 'active_loan_book', label: 'Loan Book', icon: 'account_balance', roles: ['md', 'coo', 'cfo', 'risk_head', 'collections_head', 'finance_head', 'admin'],
+        primary: '/active-loan-book',
+        items: [],
+      },
+    ],
+  },
+  {
     label: 'Governance',
     modules: [
       {

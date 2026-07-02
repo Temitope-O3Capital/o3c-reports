@@ -339,6 +339,7 @@ var RolePages = map[string][]string{
 		"compliance_all", "compliance_checklists", "cbn_reports", "audit_trail", "audit_export",
 		"sars", "watch_list", "audit_findings",
 		"kpi_dashboard", "reports", "approvals", "statements", "admin_users", "settings", "sync_status",
+		"active_loan_book", "telemarketing", "telemarketing_stats", "bd", "bd_employers", "bd_pipeline",
 	},
 	"coo": {
 		"overview", "executive", "transactions", "income", "eod", "uploads",
@@ -498,6 +499,7 @@ var RolePages = map[string][]string{
 		"collections_assign", "collections_payment", "collections_payment_approve",
 		"recovery_assign", "recovery_write_off",
 		"kpi_dashboard", "reports", "statements", "admin_users", "admin_api_keys", "settings", "sync_status",
+		"active_loan_book", "telemarketing", "telemarketing_stats", "bd", "bd_employers", "bd_pipeline",
 	},
 	"management": {
 		"overview", "executive", "transactions", "income", "eod", "uploads",
@@ -547,4 +549,23 @@ var RolePages = map[string][]string{
 	"head_sales":       {"sales", "overview", "uploads", "executive", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates", "statements"},
 	"head_collections": {"collections", "recovery", "overview", "eod", "uploads", "executive", "reconciliation", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks"},
 	"head_recovery":    {"recovery", "collections", "overview", "eod", "uploads", "executive", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks"},
+
+	// ── Telemarketing ─────────────────────────────────────────────────────────
+	"telemarketing_agent": {
+		"overview", "telemarketing", "customer360",
+	},
+	"telemarketing_head": {
+		"overview", "telemarketing", "telemarketing_stats", "customer360",
+		"kpi_dashboard",
+	},
+
+	// ── Business Development ──────────────────────────────────────────────────
+	"bd_officer": {
+		"overview", "bd", "bd_employers", "bd_pipeline", "customer360",
+		"crm_contacts",
+	},
+	"bd_head": {
+		"overview", "bd", "bd_employers", "bd_pipeline", "customer360",
+		"crm_contacts", "kpi_dashboard", "statements",
+	},
 }

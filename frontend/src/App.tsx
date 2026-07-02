@@ -151,6 +151,20 @@ const CallLog         = lazy(() => import('./pages/helpdesk/CallLog'))
 const NewTicketPage   = lazy(() => import('./pages/helpdesk/NewTicketPage'))
 const SupervisorPage  = lazy(() => import('./pages/helpdesk/Supervisor'))
 
+// Telemarketing
+const TelemarketingOverview = lazy(() => import('./pages/telemarketing/Overview'))
+const OutboundQueue         = lazy(() => import('./pages/telemarketing/OutboundQueue'))
+const DNCListPage           = lazy(() => import('./pages/telemarketing/DNCList'))
+
+// Active Loan Book
+const LoanBook   = lazy(() => import('./pages/active-loan-book/LoanBook'))
+const LoanDetail = lazy(() => import('./pages/active-loan-book/LoanDetail'))
+
+// Business Development
+const BDOverview       = lazy(() => import('./pages/bd/Overview'))
+const EmployerRegister = lazy(() => import('./pages/bd/EmployerRegister'))
+const BDPipeline       = lazy(() => import('./pages/bd/Pipeline'))
+
 // Reports & Approvals
 const Reports          = lazy(() => import('./pages/reports/Reports'))
 const Statements       = lazy(() => import('./pages/statements/Statements'))
@@ -698,6 +712,20 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                 <Route path="/helpdesk/calls"      element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><CallLog /></RequireAccess></PageErrorBoundary>} />
                 <Route path="/helpdesk/supervisor" element={<PageErrorBoundary><RequireAccess page="helpdesk_stats" user={user}><SupervisorPage /></RequireAccess></PageErrorBoundary>} />
                 <Route path="/helpdesk/:id"        element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><TicketDetail /></RequireAccess></PageErrorBoundary>} />
+
+                {/* ── Telemarketing ── */}
+                <Route path="/telemarketing"       element={<PageErrorBoundary><RequireAccess page="telemarketing" user={user}><TelemarketingOverview /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/telemarketing/queue" element={<PageErrorBoundary><RequireAccess page="telemarketing" user={user}><OutboundQueue /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/telemarketing/dnc"   element={<PageErrorBoundary><RequireAccess page="telemarketing" user={user}><DNCListPage /></RequireAccess></PageErrorBoundary>} />
+
+                {/* ── Active Loan Book ── */}
+                <Route path="/active-loan-book"     element={<PageErrorBoundary><RequireAccess page="active_loan_book" user={user}><LoanBook /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/active-loan-book/:id" element={<PageErrorBoundary><RequireAccess page="active_loan_book" user={user}><LoanDetail /></RequireAccess></PageErrorBoundary>} />
+
+                {/* ── Business Development ── */}
+                <Route path="/bd"           element={<PageErrorBoundary><RequireAccess page="bd" user={user}><BDOverview /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/bd/employers" element={<PageErrorBoundary><RequireAccess page="bd_employers" user={user}><EmployerRegister /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/bd/pipeline"  element={<PageErrorBoundary><RequireAccess page="bd_pipeline" user={user}><BDPipeline /></RequireAccess></PageErrorBoundary>} />
 
                 {/* ── Settings ── */}
                 <Route path="/settings/voice"      element={<VoiceConnect />} />
