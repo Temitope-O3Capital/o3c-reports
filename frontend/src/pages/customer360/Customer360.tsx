@@ -124,10 +124,10 @@ export default function Customer360() {
   return (
     <Page title="Customer 360" subtitle="Unified customer profile — search by name, CIF, or phone">
       {/* Search bar */}
-      <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-4 mb-5">
+      <div className="card p-4 mb-5">
         <div className="flex gap-3">
           <div className="relative flex-1">
-            <span className="material-symbols-rounded absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-slate-400">search</span>
+            <span className="material-symbols-rounded absolute left-3 top-1/2 -translate-y-1/2 text-[18px]" style={{ color: 'var(--txt2)' }}>search</span>
             <input
               className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-slate-200 text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
               placeholder="Search by name, CIF number, or phone…"
@@ -144,22 +144,22 @@ export default function Customer360() {
         {/* Results list */}
         {results.length > 0 && (
           <div className="xl:w-72 flex-shrink-0">
-            <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
-              <div className="px-4 py-3 border-b border-slate-100">
-                <p className="text-[12px] font-semibold text-slate-500">{results.length} result{results.length !== 1 ? 's' : ''}</p>
+            <div className="card overflow-hidden">
+              <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--bdr)' }}>
+                <p className="text-[12px] font-semibold" style={{ color: 'var(--txt2)' }}>{results.length} result{results.length !== 1 ? 's' : ''}</p>
               </div>
-              <div className="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto">
+              <div className="divide-theme max-h-[60vh] overflow-y-auto">
                 {results.map(r => (
                   <button
                     key={r.cif}
-                    className="w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors"
-                    style={{ background: selected === r.cif ? 'rgba(14,40,65,0.05)' : undefined }}
+                    className="w-full text-left px-4 py-3 tbl-row transition-colors"
+                    style={{ background: selected === r.cif ? 'var(--row-hvr)' : undefined }}
                     onClick={() => loadProfile(r.cif)}
                   >
-                    <p className="text-[13px] font-semibold text-slate-800">{r.name}</p>
-                    <p className="text-[11px] text-slate-400 font-mono mt-0.5">{r.cif}</p>
+                    <p className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>{r.name}</p>
+                    <p className="text-[11px] font-mono mt-0.5" style={{ color: 'var(--txt2)' }}>{r.cif}</p>
                     <div className="flex items-center gap-2 mt-1">
-                      {r.product && <span className="text-[11px] text-slate-500 capitalize">{snake(r.product)}</span>}
+                      {r.product && <span className="text-[11px] capitalize" style={{ color: 'var(--txt2)' }}>{snake(r.product)}</span>}
                       {r.status && <StatusBadge status={r.status} />}
                     </div>
                   </button>
@@ -179,7 +179,7 @@ export default function Customer360() {
             ) : profile ? (
               <>
                 {/* Profile header */}
-                <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-5 mb-4">
+                <div className="card p-5 mb-4">
                   <div className="flex flex-wrap items-center gap-4">
                     <div
                       className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-[18px] flex-shrink-0"
@@ -188,11 +188,11 @@ export default function Customer360() {
                       {displayName.charAt(0)}
                     </div>
                     <div className="flex-1">
-                      <h2 className="text-[18px] font-bold text-slate-900">{displayName}</h2>
+                      <h2 className="text-[18px] font-bold" style={{ color: 'var(--txt)' }}>{displayName}</h2>
                       <div className="flex flex-wrap gap-3 mt-1">
-                        <span className="text-[12px] font-mono text-slate-500">{profile.account.cif}</span>
-                        {profile.account.phone && <span className="text-[12px] text-slate-500">{profile.account.phone}</span>}
-                        {profile.account.email && <span className="text-[12px] text-slate-500">{profile.account.email}</span>}
+                        <span className="text-[12px] font-mono" style={{ color: 'var(--txt2)' }}>{profile.account.cif}</span>
+                        {profile.account.phone && <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{profile.account.phone}</span>}
+                        {profile.account.email && <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{profile.account.email}</span>}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -226,9 +226,9 @@ export default function Customer360() {
 
                   {/* Financial summary strip */}
                   {profile.financial_summary && (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-100">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4" style={{ borderTop: '1px solid var(--bdr)' }}>
                       <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">DPD Bucket</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--txt2)' }}>DPD Bucket</p>
                         <p className="text-[15px] font-bold mt-0.5" style={{
                           color: profile.financial_summary.dpd_bucket && profile.financial_summary.dpd_bucket !== 'current'
                             ? RED : '#059669'
@@ -237,7 +237,7 @@ export default function Customer360() {
                         </p>
                       </div>
                       <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Recovery Outstanding</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--txt2)' }}>Recovery Outstanding</p>
                         <p className="text-[15px] font-bold mt-0.5 font-mono" style={{ color: NAVY }}>
                           {profile.financial_summary.recovery_outstanding_kobo != null
                             ? fmt(profile.financial_summary.recovery_outstanding_kobo / 100)
@@ -245,7 +245,7 @@ export default function Customer360() {
                         </p>
                       </div>
                       <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Latest Loan Limit</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--txt2)' }}>Latest Loan Limit</p>
                         <p className="text-[15px] font-bold mt-0.5 font-mono" style={{ color: NAVY }}>
                           {profile.financial_summary.loan_approved_kobo != null
                             ? fmt(profile.financial_summary.loan_approved_kobo / 100)
@@ -253,7 +253,7 @@ export default function Customer360() {
                         </p>
                       </div>
                       <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Last Transaction</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--txt2)' }}>Last Transaction</p>
                         <p className="text-[15px] font-bold mt-0.5" style={{ color: NAVY }}>
                           {profile.transactions?.[0]
                             ? fmtDate((profile.transactions[0] as any)['Transaction_Date'] ?? (profile.transactions[0] as any)['transaction_date'])
@@ -265,7 +265,7 @@ export default function Customer360() {
                 </div>
 
                 {/* Tabs */}
-                <div className="flex gap-0 border-b border-slate-200 mb-4">
+                <div className="flex gap-0 border-b mb-4" style={{ borderColor: 'var(--bdr)' }}>
                   {TABS.map(t => (
                     <button key={t} onClick={() => setActiveTab(t)}
                       className="px-4 py-2.5 text-[13px] font-semibold border-b-2 -mb-px transition-colors"
@@ -278,8 +278,8 @@ export default function Customer360() {
                 {/* Overview */}
                 {activeTab === 'Overview' && (
                   <div className="space-y-4">
-                    <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-5">
-                      <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-slate-400 mb-4">Account Details</h3>
+                    <div className="card p-5">
+                      <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] mb-4" style={{ color: 'var(--txt2)' }}>Account Details</h3>
                       <div className="grid grid-cols-2 gap-x-8 gap-y-3">
                         {[
                           ['Job Title', profile.account.job_title ?? '—'],
@@ -287,26 +287,26 @@ export default function Customer360() {
                           ['Member Since', fmtDate(profile.account.account_created_date)],
                         ].map(([k, v]) => (
                           <div key={k}>
-                            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">{k}</p>
-                            <p className="text-[13.5px] text-slate-800 mt-0.5">{v}</p>
+                            <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--txt2)' }}>{k}</p>
+                            <p className="text-[13.5px] mt-0.5" style={{ color: 'var(--txt)' }}>{v}</p>
                           </div>
                         ))}
                       </div>
                     </div>
                     {profile.products.length > 0 && (
-                      <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
-                        <div className="px-5 py-3 border-b border-slate-100">
-                          <p className="text-[13px] font-semibold text-slate-700">Products ({profile.products.length})</p>
+                      <div className="card overflow-hidden">
+                        <div className="px-5 py-3" style={{ borderBottom: '1px solid var(--bdr)' }}>
+                          <p className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>Products ({profile.products.length})</p>
                         </div>
-                        <div className="divide-y divide-slate-100">
+                        <div className="divide-theme">
                           {profile.products.map(p => (
                             <div key={p.id} className="px-5 py-3 flex items-center justify-between">
                               <div>
-                                <p className="text-[13px] font-semibold text-slate-700 capitalize">{snake(p.product_name ?? '')}</p>
-                                {p.name_on_card && <p className="text-[11px] text-slate-400">{p.name_on_card}</p>}
+                                <p className="text-[13px] font-semibold capitalize" style={{ color: 'var(--txt)' }}>{snake(p.product_name ?? '')}</p>
+                                {p.name_on_card && <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>{p.name_on_card}</p>}
                               </div>
                               <div className="flex items-center gap-2">
-                                {p.account_manager && <span className="text-[11px] text-slate-400">{p.account_manager}</span>}
+                                {p.account_manager && <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{p.account_manager}</span>}
                                 {p.account_status && <StatusBadge status={p.account_status} />}
                               </div>
                             </div>
@@ -319,7 +319,7 @@ export default function Customer360() {
 
                 {/* Transactions */}
                 {activeTab === 'Transactions' && (
-                  <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+                  <div className="card overflow-hidden">
                     {txLoading ? (
                       <div className="flex items-center justify-center py-16"><Spinner size={28} /></div>
                     ) : (
@@ -327,31 +327,31 @@ export default function Customer360() {
                         <div className="overflow-x-auto">
                           <table className="w-full text-[13px]">
                             <thead>
-                              <tr style={{ background: 'rgba(14,40,65,0.04)', borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
+                              <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
                                 {['Date','Description','Amount','Type'].map(h => (
-                                  <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">{h}</th>
+                                  <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: 'var(--txt2)' }}>{h}</th>
                                 ))}
                               </tr>
                             </thead>
                             <tbody>
                               {transactions.length === 0 ? (
-                                <tr><td colSpan={4} className="px-4 py-10 text-center text-slate-400 text-[13px]">No transactions</td></tr>
+                                <tr><td colSpan={4} className="px-4 py-10 text-center text-[13px]" style={{ color: 'var(--txt2)' }}>No transactions</td></tr>
                               ) : transactions.map((t, i) => (
-                                <tr key={i} className="border-b border-slate-100 hover:bg-slate-50/60">
-                                  <td className="px-4 py-3 text-slate-500">{fmtDate(t.transaction_date)}</td>
-                                  <td className="px-4 py-3 text-slate-700">{t.description ?? t.merchant_name ?? '—'}</td>
+                                <tr key={i} className="tbl-row" style={{ borderBottom: '1px solid var(--bdr)' }}>
+                                  <td className="px-4 py-3" style={{ color: 'var(--txt2)' }}>{fmtDate(t.transaction_date)}</td>
+                                  <td className="px-4 py-3" style={{ color: 'var(--txt)' }}>{t.description ?? t.merchant_name ?? '—'}</td>
                                   <td className="px-4 py-3 font-mono"
                                     style={{ color: (t.type ?? '').toLowerCase().includes('credit') ? '#059669' : '#C00000' }}>
                                     {fmtExact(t.amount)}
                                   </td>
-                                  <td className="px-4 py-3 text-slate-500 capitalize">{t.type ?? '—'}</td>
+                                  <td className="px-4 py-3 capitalize" style={{ color: 'var(--txt2)' }}>{t.type ?? '—'}</td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
                         </div>
-                        <div className="flex justify-between items-center px-4 py-3 border-t border-slate-100">
-                          <span className="text-[12px] text-slate-400">Page {txPage + 1}</span>
+                        <div className="flex justify-between items-center px-4 py-3" style={{ borderTop: '1px solid var(--bdr)' }}>
+                          <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>Page {txPage + 1}</span>
                           <div className="flex gap-2">
                             <button disabled={txPage === 0} onClick={() => setTxPage(p => p - 1)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40">Prev</button>
                             <button disabled={transactions.length < limit} onClick={() => setTxPage(p => p + 1)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40">Next</button>
@@ -364,25 +364,25 @@ export default function Customer360() {
 
                 {/* Loans */}
                 {activeTab === 'Loans' && (
-                  <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+                  <div className="card overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full text-[13px]">
                         <thead>
-                          <tr style={{ background: 'rgba(14,40,65,0.04)', borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
+                          <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
                             {['Reference','Stage','Amount','Date'].map(h => (
-                              <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">{h}</th>
+                              <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: 'var(--txt2)' }}>{h}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
                           {(profile.loan_applications ?? []).length === 0 ? (
-                            <tr><td colSpan={4} className="px-4 py-10 text-center text-slate-400 text-[13px]">No loan applications</td></tr>
+                            <tr><td colSpan={4} className="px-4 py-10 text-center text-[13px]" style={{ color: 'var(--txt2)' }}>No loan applications</td></tr>
                           ) : profile.loan_applications.map(l => (
-                            <tr key={l.id} className="border-b border-slate-100">
-                              <td className="px-4 py-3 font-mono text-[12px] text-slate-600">{l.reference}</td>
+                            <tr key={l.id} style={{ borderBottom: '1px solid var(--bdr)' }}>
+                              <td className="px-4 py-3 font-mono text-[12px]" style={{ color: 'var(--txt2)' }}>{l.reference}</td>
                               <td className="px-4 py-3"><StatusBadge status={l.stage} /></td>
-                              <td className="px-4 py-3 font-mono text-slate-700">{fmt(l.amount_requested_kobo / 100)}</td>
-                              <td className="px-4 py-3 text-slate-500">{fmtDate(l.created_at)}</td>
+                              <td className="px-4 py-3 font-mono" style={{ color: 'var(--txt)' }}>{fmt(l.amount_requested_kobo / 100)}</td>
+                              <td className="px-4 py-3" style={{ color: 'var(--txt2)' }}>{fmtDate(l.created_at)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -393,29 +393,29 @@ export default function Customer360() {
 
                 {/* Collections */}
                 {activeTab === 'Collections' && (
-                  <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+                  <div className="card overflow-hidden">
                     {collectionsLoading ? (
                       <div className="flex items-center justify-center py-16"><Spinner size={28} /></div>
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-[13px]">
                           <thead>
-                            <tr style={{ background: 'rgba(14,40,65,0.04)', borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
+                            <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
                               {['Date','Agent','Amount','Mode','Receipt'].map(h => (
-                                <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">{h}</th>
+                                <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: 'var(--txt2)' }}>{h}</th>
                               ))}
                             </tr>
                           </thead>
                           <tbody>
                             {collections.length === 0 ? (
-                              <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-400 text-[13px]">No collections history found</td></tr>
+                              <tr><td colSpan={5} className="px-4 py-10 text-center text-[13px]" style={{ color: 'var(--txt2)' }}>No collections history found</td></tr>
                             ) : collections.map(c => (
-                              <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50/60">
-                                <td className="px-4 py-3 text-slate-500">{fmtDate(c.date)}</td>
-                                <td className="px-4 py-3 text-slate-700">{c.agent ?? '—'}</td>
-                                <td className="px-4 py-3 font-mono text-slate-700">{fmt(c.amount / 100)}</td>
-                                <td className="px-4 py-3 text-slate-500 capitalize">{c.mode_of_payment ?? '—'}</td>
-                                <td className="px-4 py-3 text-slate-500">{c.payment_receipt ?? '—'}</td>
+                              <tr key={c.id} className="tbl-row" style={{ borderBottom: '1px solid var(--bdr)' }}>
+                                <td className="px-4 py-3" style={{ color: 'var(--txt2)' }}>{fmtDate(c.date)}</td>
+                                <td className="px-4 py-3" style={{ color: 'var(--txt)' }}>{c.agent ?? '—'}</td>
+                                <td className="px-4 py-3 font-mono" style={{ color: 'var(--txt)' }}>{fmt(c.amount / 100)}</td>
+                                <td className="px-4 py-3 capitalize" style={{ color: 'var(--txt2)' }}>{c.mode_of_payment ?? '—'}</td>
+                                <td className="px-4 py-3" style={{ color: 'var(--txt2)' }}>{c.payment_receipt ?? '—'}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -427,26 +427,26 @@ export default function Customer360() {
 
                 {/* Recovery */}
                 {activeTab === 'Recovery' && (
-                  <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+                  <div className="card overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full text-[13px]">
                         <thead>
-                          <tr style={{ background: 'rgba(14,40,65,0.04)', borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
+                          <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
                             {['ID','Legal Stage','Status','Amount','Date'].map(h => (
-                              <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">{h}</th>
+                              <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: 'var(--txt2)' }}>{h}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
                           {(profile.recovery_cases ?? []).length === 0 ? (
-                            <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-400 text-[13px]">No recovery cases</td></tr>
+                            <tr><td colSpan={5} className="px-4 py-10 text-center text-[13px]" style={{ color: 'var(--txt2)' }}>No recovery cases</td></tr>
                           ) : profile.recovery_cases.map(r => (
-                            <tr key={r.id} className="border-b border-slate-100">
-                              <td className="px-4 py-3 font-mono text-[12px] text-slate-600">{r.id}</td>
-                              <td className="px-4 py-3 text-slate-600 capitalize">{r.legal_stage ?? '—'}</td>
+                            <tr key={r.id} style={{ borderBottom: '1px solid var(--bdr)' }}>
+                              <td className="px-4 py-3 font-mono text-[12px]" style={{ color: 'var(--txt2)' }}>{r.id}</td>
+                              <td className="px-4 py-3 capitalize" style={{ color: 'var(--txt2)' }}>{r.legal_stage ?? '—'}</td>
                               <td className="px-4 py-3"><StatusBadge status={r.status ?? 'pending'} /></td>
-                              <td className="px-4 py-3 font-mono">{r.recovery_amount ? fmt(r.recovery_amount / 100) : '—'}</td>
-                              <td className="px-4 py-3 text-slate-500">{fmtDate(r.recovery_date)}</td>
+                              <td className="px-4 py-3 font-mono" style={{ color: 'var(--txt)' }}>{r.recovery_amount ? fmt(r.recovery_amount / 100) : '—'}</td>
+                              <td className="px-4 py-3" style={{ color: 'var(--txt2)' }}>{fmtDate(r.recovery_date)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -462,8 +462,8 @@ export default function Customer360() {
         {!selected && results.length === 0 && (
           <div className="flex-1 flex items-center justify-center py-20 text-center">
             <div>
-              <span className="material-symbols-rounded text-[48px] text-slate-300 block mb-3">manage_search</span>
-              <p className="text-[14px] text-slate-400">Search for a customer above to view their profile</p>
+              <span className="material-symbols-rounded text-[48px] block mb-3" style={{ color: 'var(--bdr)' }}>manage_search</span>
+              <p className="text-[14px]" style={{ color: 'var(--txt2)' }}>Search for a customer above to view their profile</p>
             </div>
           </div>
         )}

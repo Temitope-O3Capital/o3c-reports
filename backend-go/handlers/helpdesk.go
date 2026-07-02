@@ -175,7 +175,6 @@ func hdCreateTicket(db *core.DB) http.HandlerFunc {
 
 		// Record created event
 		hdRecordEvent(r.Context(), db, ticketID, user.ID, "created", "", str(ticket["ticket_ref"]))
-		zohoSyncTicketByIDAsync(db, ticketID, "ticket_created")
 
 		// Send via channel
 		ctx := r.Context()
@@ -342,9 +341,6 @@ func hdBulkAssignTickets(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Update failed")
 			return
 		}
-		for _, id := range b.TicketIDs {
-			zohoSyncTicketByIDAsync(db, id, "bulk_assign")
-		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"updated": len(b.TicketIDs)}) //nolint:errcheck
 	}
@@ -374,9 +370,6 @@ func hdBulkCloseTickets(db *core.DB) http.HandlerFunc {
 				strings.Join(placeholders, ",")), args...); err != nil {
 			respondErr(w, 500, "Update failed")
 			return
-		}
-		for _, id := range b.TicketIDs {
-			zohoSyncTicketByIDAsync(db, id, "bulk_close")
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"updated": len(b.TicketIDs)}) //nolint:errcheck
@@ -409,9 +402,6 @@ func hdBulkPriorityTickets(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Update failed")
 			return
 		}
-		for _, id := range b.TicketIDs {
-			zohoSyncTicketByIDAsync(db, id, "bulk_priority")
-		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"updated": len(b.TicketIDs)}) //nolint:errcheck
 	}
@@ -437,7 +427,6 @@ func hdClaimTicket(db *core.DB) http.HandlerFunc {
 			return
 		}
 		hdRecordEvent(ctx, db, ticketID, user.ID, "assigned", "", fmt.Sprintf("%d", user.ID))
-		zohoSyncTicketByIDAsync(db, ticketID, "ticket_claimed")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"claimed": true, "assigned_to": user.ID}) //nolint:errcheck
 	}
@@ -464,15 +453,6 @@ func hdGetTicket(db *core.DB) http.HandlerFunc {
 			LEFT JOIN o3c_users u ON m.author_user_id=u.id
 			WHERE m.ticket_id=$1
 			ORDER BY m.created_at ASC`, id)
-
-		// If ticket came from Zoho and has no messages yet, fetch threads inline
-		if len(msgs) == 0 {
-			if zohoID, _ := ticket["zoho_ticket_id"].(string); zohoID != "" {
-				if zohoEnsureConfigured(r.Context(), db) {
-					go zohoFetchAndStoreThreads(context.Background(), db, toInt64(ticket["id"]), zohoID)
-				}
-			}
-		}
 
 		events, _ := db.PGQuery(r.Context(), `
 			SELECT e.*, u.full_name AS user_name
@@ -631,7 +611,6 @@ func hdUpdateTicket(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Not found")
 			return
 		}
-		zohoSyncTicketByIDAsync(db, ticketID, "ticket_updated")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(updated[0]) //nolint:errcheck
 	}
@@ -713,7 +692,6 @@ func hdSendMessage(db *core.DB) http.HandlerFunc {
 			return
 		}
 		msg := msgRows[0]
-		msgID := toInt64(msg["id"])
 
 		// Set first_response_at if this is the first outbound reply
 		if ticket["first_response_at"] == nil {
@@ -742,8 +720,6 @@ func hdSendMessage(db *core.DB) http.HandlerFunc {
 				go sendWhatsApp(context.Background(), db, customerPhone, b.BodyText)
 			}
 		}
-		zohoPostTicketMessageAsync(db, ticketID, msgID, b.BodyText, b.IsInternalNote)
-
 		// Notify the assigned agent when a new message arrives (if sender is not the assignee)
 		if assignedID := toInt64(ticket["assigned_to"]); assignedID != 0 && assignedID != user.ID {
 			ref := str(ticket["ticket_ref"])
@@ -1814,16 +1790,7 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if ticketID != nil {
-			zohoSyncTicketByIDAsync(db, *ticketID, "call_logged")
-			callNote := fmt.Sprintf("Call logged in O3C: %s call with %s. Outcome: %s.",
-				direction, strings.TrimSpace(b.CustomerPhone), outcome)
-			if b.DurationSec != nil {
-				callNote += fmt.Sprintf(" Duration: %ds.", *b.DurationSec)
-			}
-			if b.Notes != nil && strings.TrimSpace(*b.Notes) != "" {
-				callNote += " Notes: " + strings.TrimSpace(*b.Notes)
-			}
-			zohoPostTicketMessageAsync(db, *ticketID, 0, callNote, true)
+			db.PGExec(r.Context(), "UPDATE helpdesk_tickets SET updated_at=NOW() WHERE id=$1", *ticketID) //nolint:errcheck
 		}
 		jsonRows(w, rows)
 	}

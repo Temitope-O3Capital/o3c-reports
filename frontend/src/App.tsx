@@ -10,6 +10,7 @@ const Overview = lazy(() => import('./pages/Overview'))
 import { AuthUser, parseToken, ROLE_PAGES } from './hooks/useAuth'
 import { roleLabel } from './lib/roles'
 import { API, apiFetch } from './lib/api'
+import { LIGHT, DARK } from './lib/design'
 
 // ── Role → home route ─────────────────────────────────────────────────────────
 
@@ -155,6 +156,7 @@ const Approvals        = lazy(() => import('./pages/Approvals'))
 
 // Other platform pages
 const Watch            = lazy(() => import('./pages/Watch'))
+const DesignDemo       = lazy(() => import('./pages/DesignDemo'))
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
 
@@ -501,7 +503,16 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
   const [c360Open,    setC360Open]    = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [idleWarn,    setIdleWarn]    = useState(false)
+  const [dark, setDark] = useState(() => localStorage.getItem('o3c_theme') === 'dark')
   const openC360 = useCallback(() => setC360Open(true), [])
+
+  const toggleDark = useCallback(() => {
+    setDark(d => {
+      const next = !d
+      localStorage.setItem('o3c_theme', next ? 'dark' : 'light')
+      return next
+    })
+  }, [])
 
   // Idle session timeout
   useEffect(() => {
@@ -537,7 +548,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
         style={{ background: '#0E2841' }}>
         Skip to main content
       </a>
-      <div className="flex h-screen overflow-hidden bg-[#F6F5F2]">
+      <div className="flex h-screen overflow-hidden" style={{ ...(dark ? DARK : LIGHT), background: 'var(--bg)' }}>
         <Toaster richColors position="top-right" />
 
         {sidebarOpen && (
@@ -559,6 +570,20 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
               <span className="material-symbols-rounded text-[22px] text-slate-600" aria-hidden="true">menu</span>
             </button>
             <div className="flex-1" />
+            <button
+              onClick={toggleDark}
+              title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px',
+                borderRadius: 99, border: '1px solid var(--bdr, #E8EBF2)',
+                background: 'var(--chip-bg, #EEF0F8)', cursor: 'pointer',
+                fontSize: 11.5, fontWeight: 600, color: 'var(--txt2, #798094)',
+              }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>
+                {dark ? 'light_mode' : 'dark_mode'}
+              </span>
+              {dark ? 'Light' : 'Dark'}
+            </button>
             <ToolbarIconButton onClick={openC360} icon="person_search" title="Customer 360" />
             <ToolbarIconLink to="/tasks"       icon="task_alt"      title="Tasks" />
             <ToolbarIconLink to="/mail/inbox"  icon="mail"          title="Mail" />
@@ -570,6 +595,9 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
           <main id="main-content" className="flex-1 overflow-y-auto">
             <Suspense fallback={<PageLoader />}>
               <Routes>
+                {/* Design demo — full-screen overlay, no access guard */}
+                <Route path="/design-demo" element={<PageErrorBoundary><DesignDemo /></PageErrorBoundary>} />
+
                 {/* Root — redirect non-management users to their home module */}
                 <Route path="/"
                   element={isManagement
@@ -833,7 +861,19 @@ export default function App() {
     </div>
   )
 
-  // Public routes — served without auth so customers can fill CSAT surveys
+  // Public routes — no auth required
+  if (window.location.pathname === '/design-demo') {
+    return (
+      <BrowserRouter>
+        <Suspense fallback={<div className="min-h-screen bg-[#F6F7F9]" />}>
+          <Routes>
+            <Route path="/design-demo" element={<DesignDemo />} />
+          </Routes>
+        </Suspense>
+      </BrowserRouter>
+    )
+  }
+
   if (window.location.pathname.startsWith('/csat/')) {
     return (
       <BrowserRouter>

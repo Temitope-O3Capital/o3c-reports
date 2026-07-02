@@ -4,7 +4,7 @@
 
 @layer base {
   html {
-    font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+    font-family: 'Sora', ui-sans-serif, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     background-color: #F4F6F8;
     color: #0F172A;
@@ -33,14 +33,13 @@
 
 @layer components {
   .card {
-    background: #fff;
-    border-radius: 10px;
-    border: 1px solid rgba(15,23,42,0.08);
+    background: var(--card, #fff);
+    border-radius: 14px;
+    border: 1px solid var(--card-bdr, rgba(15,23,42,0.08));
     box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.03);
   }
-  /* .dark .card removed — no dark mode in O3C design system */
   .skeleton {
-    background: linear-gradient(90deg, #F1F5F9 25%, #E2E8F0 50%, #F1F5F9 75%);
+    background: linear-gradient(90deg, var(--th-bg, #F1F5F9) 25%, var(--bdr, #E2E8F0) 50%, var(--th-bg, #F1F5F9) 75%);
     background-size: 200% 100%;
     animation: skeleton-wave 1.5s ease-in-out infinite;
     border-radius: 6px;
@@ -67,6 +66,8 @@
     color: #64748B;
   }
   .btn-ghost:hover { background: rgba(15,23,42,0.05); color: #0F172A; }
+  .divide-theme > * + * { border-top: 1px solid var(--bdr, rgba(15,23,42,0.07)); }
+  .tbl-row:hover { background: var(--row-hvr, rgba(15,23,42,0.03)) !important; }
 }
 
 @keyframes skeleton-wave {

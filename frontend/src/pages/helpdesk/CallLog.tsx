@@ -256,7 +256,6 @@ export default function CallLog() {
   const [modal,           setModal]          = useState(false)
   const [tab,             setTab]            = useState<Tab>('all')
   const [search,          setSearch]         = useState('')
-  const [importing,       setImporting]      = useState(false)
   const [importingVoice,  setImportingVoice] = useState(false)
 
   async function load() {
@@ -297,19 +296,6 @@ export default function CallLog() {
       toast.error(e.message || 'Failed to import from Zoho Voice')
     } finally {
       setImportingVoice(false)
-    }
-  }
-
-  async function importZohoCalls() {
-    setImporting(true)
-    try {
-      const res = await apiPost<CallImportResult>('/api/zoho/calls/import', {})
-      toast.success(`Imported ${res.imported} calls from Zoho${res.skipped ? ` (${res.skipped} already existed)` : ''}`)
-      if (!applyImportRange(res)) load()
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to import calls from Zoho')
-    } finally {
-      setImporting(false)
     }
   }
 
@@ -363,16 +349,6 @@ export default function CallLog() {
           >
             {importingVoice ? <Spinner size={14} /> : <span className="material-symbols-rounded text-[16px]">phone_in_talk</span>}
             Zoho Voice
-          </button>
-          <button
-            onClick={importZohoCalls}
-            disabled={importing}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-semibold border transition-all disabled:opacity-50"
-            style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY }}
-            title="Pull call history from Zoho Desk"
-          >
-            {importing ? <Spinner size={14} /> : <span className="material-symbols-rounded text-[16px]">sync</span>}
-            Zoho Desk Calls
           </button>
           <button onClick={() => setModal(true)}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold text-white"

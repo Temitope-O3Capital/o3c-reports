@@ -104,7 +104,7 @@ export default function Overview() {
 
       {/* ── Credit Income ── */}
       <div className="mb-2">
-        <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-3">Credit Income</p>
+        <p className="text-[11px] font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--txt2)' }}>Credit Income</p>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
           <KpiCard loading={loading} label="Interest Income"     value={fmt(n(ic.interest))}     icon="trending_up"           accent={GREEN} />
           <KpiCard loading={loading} label="Fees & Charges"      value={fmt(n(ic.total_charges))} icon="receipt_long"          accent={NAVY}  />
@@ -119,7 +119,7 @@ export default function Overview() {
 
       {/* ── Portfolio Health ── */}
       <div className="mb-5">
-        <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-3">Portfolio Health</p>
+        <p className="text-[11px] font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--txt2)' }}>Portfolio Health</p>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard loading={loading} label="Overdue Balance"
             value={fmt(n(ic.overdue))}
@@ -164,7 +164,7 @@ export default function Overview() {
 
       {/* ── Card operations KPIs ── */}
       <div className="mb-5">
-        <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-3">Card Operations</p>
+        <p className="text-[11px] font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--txt2)' }}>Card Operations</p>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard loading={loading} label="Total Cardholders"  value={fmtNum(d.total_cardholders)}  icon="groups"       accent={NAVY}  />
           <KpiCard loading={loading} label="Active Accounts"    value={fmtNum(d.active_accounts)}    icon="credit_card"  accent={GREEN} />

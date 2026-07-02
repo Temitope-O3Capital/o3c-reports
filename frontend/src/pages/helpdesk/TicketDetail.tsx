@@ -494,13 +494,6 @@ export default function TicketDetail() {
               </SideField>
             )}
 
-            {/* Thread count from Zoho */}
-            {ticket.zoho_thread_count != null && (
-              <SideField label="Zoho Threads">
-                <span className="text-[12px] text-slate-600">{ticket.zoho_thread_count} message{ticket.zoho_thread_count !== 1 ? 's' : ''} in Zoho</span>
-              </SideField>
-            )}
-
             <div className="pt-1" style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }}>
               <p className="text-[11px] text-slate-400 mb-0.5">Created</p>
               <p className="text-[12px] text-slate-600">{fmtDate(ticket.created_at)}</p>
@@ -532,30 +525,7 @@ export default function TicketDetail() {
               <div className="flex flex-col items-center justify-center py-12 text-slate-400">
                 <span className="material-symbols-rounded text-[40px] mb-2 text-slate-300">chat</span>
                 <p className="text-[13px]">No messages yet</p>
-                {ticket.zoho_ticket_id ? (
-                  <button
-                    onClick={async () => {
-                      setFetchingThreads(true)
-                      try {
-                        await apiPost(`/api/zoho/desk/import-threads?zoho_id=${ticket.zoho_ticket_id}`, {})
-                        showToast('Fetching messages from Zoho — reload in a moment')
-                        setTimeout(() => load(), 2500)
-                      } catch {
-                        showToast('Could not fetch from Zoho', 'error')
-                      } finally {
-                        setFetchingThreads(false)
-                      }
-                    }}
-                    disabled={fetchingThreads}
-                    className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition-all disabled:opacity-50"
-                    style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY }}
-                  >
-                    {fetchingThreads ? <Spinner size={12} /> : <span className="material-symbols-rounded text-[14px]">sync</span>}
-                    Fetch from Zoho
-                  </button>
-                ) : (
-                  <p className="text-[12px] mt-1">Send the first reply below</p>
-                )}
+                <p className="text-[12px] mt-1">Send the first reply below</p>
               </div>
             )}
 

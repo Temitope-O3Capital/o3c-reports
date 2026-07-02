@@ -136,9 +136,8 @@ func main() {
 		handlers.RegisterWhatsAppPublic(r, db)
 	})
 
-	// Zoho OAuth callback + webhooks (no JWT)
+	// Zoho Voice routes (call initiation, voice log import)
 	r.Route("/api/zoho", func(r chi.Router) {
-		handlers.RegisterZohoPublic(r, db)
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
 			r.Use(activityLogger(db))

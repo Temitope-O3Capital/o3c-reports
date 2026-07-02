@@ -54,7 +54,7 @@ function ConversionFunnel({ rows, loading }: { rows: FunnelRow[]; loading: boole
       {loading ? (
         <div className="px-5 py-8 flex justify-center"><Spinner /></div>
       ) : pipeline.length === 0 ? (
-        <p className="px-5 py-8 text-center text-[13px] text-slate-400">No funnel data</p>
+        <p className="px-5 py-8 text-center text-[13px]" style={{ color: 'var(--txt2)' }}>No funnel data</p>
       ) : (
         <div className="px-5 py-4 space-y-2.5">
           {pipeline.map((row, i) => {
@@ -63,22 +63,22 @@ function ConversionFunnel({ rows, loading }: { rows: FunnelRow[]; loading: boole
             return (
               <div key={row.stage}>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[12px] font-semibold text-slate-700 capitalize w-44 truncate">{snake(row.stage)}</span>
-                  <div className="flex items-center gap-4 text-[11px] text-slate-500">
-                    <span className="font-mono font-semibold text-slate-800 tabular-nums w-8 text-right">{row.count}</span>
+                  <span className="text-[12px] font-semibold capitalize w-44 truncate" style={{ color: 'var(--txt)' }}>{snake(row.stage)}</span>
+                  <div className="flex items-center gap-4 text-[11px]" style={{ color: 'var(--txt2)' }}>
+                    <span className="font-mono font-semibold tabular-nums w-8 text-right" style={{ color: 'var(--txt)' }}>{row.count}</span>
                     <span className="tabular-nums w-12 text-right">{convRate.toFixed(0)}%</span>
                     <span className="tabular-nums w-20 text-right font-mono">{fmt(row.pipeline_kobo / 100)}</span>
                     <span className="tabular-nums w-16 text-right">{Number(row.avg_days_in_stage).toFixed(1)}d avg</span>
                   </div>
                 </div>
-                <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(15,23,42,0.06)' }}>
+                <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bdr)' }}>
                   <div className="h-full rounded-full transition-all duration-700"
                     style={{ width: `${pct}%`, background: i === 0 ? NAVY : convRate < 40 ? RED : convRate < 70 ? AMBER : GREEN }} />
                 </div>
               </div>
             )
           })}
-          <div className="flex justify-end gap-4 text-[10px] text-slate-400 pt-1" style={{ borderTop: '1px solid rgba(15,23,42,0.06)' }}>
+          <div className="flex justify-end gap-4 text-[10px] pt-1" style={{ borderTop: '1px solid var(--bdr)', color: 'var(--txt2)' }}>
             <span className="w-8 text-right">Count</span>
             <span className="w-12 text-right">Conv.</span>
             <span className="w-20 text-right">Pipeline ₦</span>
@@ -118,6 +118,8 @@ export default function AllApplications() {
   const [productF, setProductF] = useState('')
   const [page, setPage]         = useState(0)
   const limit = 50
+
+  const [hoveredApp, setHoveredApp] = useState<string | null>(null)
 
   // Assign modal state
   const [assignTarget, setAssignTarget] = useState<string | null>(null)
@@ -267,33 +269,36 @@ export default function AllApplications() {
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
-                <tr style={{ background: 'rgba(14,40,65,0.04)', borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
+                <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
                   {['Reference','Applicant','Product','Amount','Stage','Assigned To','Days', ...(isTeamLead ? ['Assign'] : []), 'Actions'].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">{h}</th>
+                    <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: 'var(--txt2)' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={isTeamLead ? 9 : 8} className="px-4 py-14 text-center text-slate-400 text-[13px]">
-                      <span className="material-symbols-rounded text-[36px] block mb-2 text-slate-300">inbox</span>
+                    <td colSpan={isTeamLead ? 9 : 8} className="px-4 py-14 text-center text-[13px]" style={{ color: 'var(--txt2)' }}>
+                      <span className="material-symbols-rounded text-[36px] block mb-2" style={{ color: 'var(--bdr)' }}>inbox</span>
                       No applications found
                     </td>
                   </tr>
                 ) : filtered.map(a => (
                   <tr
                     key={a.id}
-                    className="border-b border-slate-100 hover:bg-slate-50/60 cursor-pointer"
+                    className="cursor-pointer"
+                    onMouseEnter={() => setHoveredApp(a.id)}
+                    onMouseLeave={() => setHoveredApp(null)}
+                    style={{ borderBottom: '1px solid var(--bdr)', background: hoveredApp === a.id ? 'var(--row-hvr)' : undefined }}
                     onClick={() => nav(`/sales/applications/${a.id}`)}
                   >
-                    <td className="px-4 py-3 font-mono text-[12px] text-slate-600">{a.reference}</td>
-                    <td className="px-4 py-3 font-semibold text-slate-800">{a.applicant_name}</td>
-                    <td className="px-4 py-3 text-slate-600 capitalize">{snake(a.product_type ?? '')}</td>
-                    <td className="px-4 py-3 font-mono text-slate-700">{fmt(a.amount_requested_kobo / 100)}</td>
+                    <td className="px-4 py-3 font-mono text-[12px]" style={{ color: 'var(--txt2)' }}>{a.reference}</td>
+                    <td className="px-4 py-3 font-semibold" style={{ color: 'var(--txt)' }}>{a.applicant_name}</td>
+                    <td className="px-4 py-3 capitalize" style={{ color: 'var(--txt2)' }}>{snake(a.product_type ?? '')}</td>
+                    <td className="px-4 py-3 font-mono" style={{ color: 'var(--txt)' }}>{fmt(a.amount_requested_kobo / 100)}</td>
                     <td className="px-4 py-3"><StageBadge stage={a.stage} /></td>
-                    <td className="px-4 py-3 text-slate-500">{a.assigned_to_name ?? '—'}</td>
-                    <td className="px-4 py-3 text-slate-500">{a.days_in_stage ?? '—'}</td>
+                    <td className="px-4 py-3" style={{ color: 'var(--txt2)' }}>{a.assigned_to_name ?? '—'}</td>
+                    <td className="px-4 py-3" style={{ color: 'var(--txt2)' }}>{a.days_in_stage ?? '—'}</td>
                     {isTeamLead && (
                       <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                         <button
@@ -327,13 +332,13 @@ export default function AllApplications() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="card shadow-xl p-6 w-full max-w-sm">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-[16px] font-bold text-slate-800">Assign Application</h2>
-              <button onClick={() => setAssignTarget(null)} className="text-slate-400 hover:text-slate-700">
+              <h2 className="text-[16px] font-bold" style={{ color: 'var(--txt)' }}>Assign Application</h2>
+              <button onClick={() => setAssignTarget(null)} style={{ color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
             </div>
             <ErrBanner msg={assignErr} />
-            <label className="block text-[12px] font-semibold text-slate-500 mb-1">Assign To</label>
+            <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Assign To</label>
             <select
               className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20 mb-4"
               value={assignUserId}

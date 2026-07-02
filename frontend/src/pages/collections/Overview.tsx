@@ -47,8 +47,8 @@ function QuickLink({ label, to, icon }: { label: string; to: string; icon: strin
   return (
     <button
       onClick={() => nav(to)}
-      className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[13px] font-semibold transition-all hover:shadow-sm bg-white"
-      style={{ borderColor: 'rgba(15,23,42,0.12)', color: NAVY }}>
+      className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[13px] font-semibold transition-all hover:shadow-sm"
+      style={{ background: 'var(--card)', borderColor: 'rgba(15,23,42,0.12)', color: NAVY }}>
       <span className="material-symbols-rounded text-[17px]">{icon}</span>
       {label}
     </button>
@@ -72,7 +72,7 @@ function DpdSummary({ data, loading }: { data: DpdBucket[]; loading: boolean }) 
               </div>
             ))
           : data.length === 0
-          ? <p className="text-[13px] text-slate-400 py-8 text-center">No bucket data</p>
+          ? <p className="text-[13px] py-8 text-center" style={{ color: 'var(--txt2)' }}>No bucket data</p>
           : data.map((row, i) => {
               const share = total > 0 ? (n(row.count) / total) * 100 : 0
               const color = DPD_COLOR[row.dpd_bucket] ?? '#94A3B8'
@@ -81,19 +81,19 @@ function DpdSummary({ data, loading }: { data: DpdBucket[]; loading: boolean }) 
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
-                      <span className="text-[12px] font-semibold text-slate-700">
+                      <span className="text-[12px] font-semibold" style={{ color: 'var(--txt)' }}>
                         DPD {row.dpd_bucket}
                       </span>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="text-[11px] text-slate-400">{fmt(n(row.outstanding_kobo) / 100)}</span>
-                      <span className="kpi-number text-[13px] font-bold text-slate-800">
+                      <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{fmt(n(row.outstanding_kobo) / 100)}</span>
+                      <span className="kpi-number text-[13px] font-bold" style={{ color: 'var(--txt)' }}>
                         {n(row.count).toLocaleString()}
                       </span>
-                      <span className="text-[11px] text-slate-400 w-8 text-right">{share.toFixed(1)}%</span>
+                      <span className="text-[11px] w-8 text-right" style={{ color: 'var(--txt2)' }}>{share.toFixed(1)}%</span>
                     </div>
                   </div>
-                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(15,23,42,0.06)' }}>
+                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bdr)' }}>
                     <div className="h-full rounded-full transition-all duration-700"
                       style={{ width: `${share}%`, background: color }} />
                   </div>
@@ -101,10 +101,10 @@ function DpdSummary({ data, loading }: { data: DpdBucket[]; loading: boolean }) 
               )
             })}
         {!loading && total > 0 && (
-          <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2"
-            style={{ borderTop: '1px solid rgba(15,23,42,0.06)' }}>
+          <div className="flex items-center justify-between text-[11px] pt-2"
+            style={{ borderTop: '1px solid var(--bdr)', color: 'var(--txt2)' }}>
             <span>Total in queue</span>
-            <span className="kpi-number font-semibold text-slate-600">{total.toLocaleString()}</span>
+            <span className="kpi-number font-semibold" style={{ color: 'var(--txt2)' }}>{total.toLocaleString()}</span>
           </div>
         )}
       </div>
@@ -124,9 +124,9 @@ function RollRateMatrix({ rows, cured, loading }: { rows: RollRateRow[]; cured: 
           <div className="overflow-x-auto">
             <table className="w-full text-[12px]">
               <thead>
-                <tr style={{ background: 'rgba(14,40,65,0.04)', borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
+                <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
                   {['DPD Bucket','Accounts','% of Queue','Outstanding'].map(h => (
-                    <th key={h} className="px-4 py-2.5 text-left text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">{h}</th>
+                    <th key={h} className="px-4 py-2.5 text-left text-[10.5px] font-semibold uppercase tracking-wide" style={{ color: 'var(--txt2)' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -135,23 +135,23 @@ function RollRateMatrix({ rows, cured, loading }: { rows: RollRateRow[]; cured: 
                   const pct = total > 0 ? (n(row.account_count) / total) * 100 : 0
                   const color = DPD_COLOR[row.dpd_bucket] ?? '#94A3B8'
                   return (
-                    <tr key={i} className="border-b border-slate-50">
+                    <tr key={i} style={{ borderBottom: '1px solid var(--bdr)' }}>
                       <td className="px-4 py-2.5">
                         <span className="flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
-                          <span className="font-semibold text-slate-700">DPD {row.dpd_bucket}</span>
+                          <span className="font-semibold" style={{ color: 'var(--txt)' }}>DPD {row.dpd_bucket}</span>
                         </span>
                       </td>
-                      <td className="px-4 py-2.5 font-mono font-semibold text-slate-800">{n(row.account_count).toLocaleString()}</td>
+                      <td className="px-4 py-2.5 font-mono font-semibold" style={{ color: 'var(--txt)' }}>{n(row.account_count).toLocaleString()}</td>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
-                          <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(15,23,42,0.06)', maxWidth: 80 }}>
+                          <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bdr)', maxWidth: 80 }}>
                             <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
                           </div>
-                          <span className="text-slate-500 tabular-nums">{pct.toFixed(1)}%</span>
+                          <span className="tabular-nums" style={{ color: 'var(--txt2)' }}>{pct.toFixed(1)}%</span>
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 font-mono text-slate-600">{fmt(n(row.outstanding_kobo) / 100)}</td>
+                      <td className="px-4 py-2.5 font-mono" style={{ color: 'var(--txt2)' }}>{fmt(n(row.outstanding_kobo) / 100)}</td>
                     </tr>
                   )
                 })}
@@ -339,19 +339,19 @@ export default function CollectionsOverview() {
       {!loading && n(d.target_kobo) > 0 && (
         <div className="mt-4 card px-5 py-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[13px] font-semibold text-slate-700">Daily Target Achievement</span>
+            <span className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>Daily Target Achievement</span>
             <span className="kpi-number text-[15px] font-bold" style={{ color: achievePct >= 100 ? GREEN : achievePct >= 70 ? AMBER : RED }}>
               {achievePct.toFixed(1)}%
             </span>
           </div>
-          <div className="h-3 rounded-full overflow-hidden" style={{ background: 'rgba(15,23,42,0.06)' }}>
+          <div className="h-3 rounded-full overflow-hidden" style={{ background: 'var(--bdr)' }}>
             <div className="h-full rounded-full transition-all duration-700"
               style={{
                 width: `${Math.min(achievePct, 100)}%`,
                 background: achievePct >= 100 ? GREEN : achievePct >= 70 ? AMBER : RED,
               }} />
           </div>
-          <p className="text-[11px] text-slate-400 mt-1.5">
+          <p className="text-[11px] mt-1.5" style={{ color: 'var(--txt2)' }}>
             {fmt(n(d.collected_today_kobo) / 100)} collected of {fmt(n(d.target_kobo) / 100)} target
           </p>
         </div>
@@ -363,7 +363,7 @@ export default function CollectionsOverview() {
           {activity.length > 0
             ? <DataTable cols={activityCols} rows={activity} loading={loading} emptyMsg="No activity data" />
             : (
-              <div className="px-5 py-10 flex flex-col items-center gap-2 text-slate-400">
+              <div className="px-5 py-10 flex flex-col items-center gap-2" style={{ color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded text-[36px]">bar_chart</span>
                 <p className="text-[13px]">No activity data for this period</p>
               </div>

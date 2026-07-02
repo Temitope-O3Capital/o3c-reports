@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -49,26 +48,6 @@ func RunBatchNightly(ctx context.Context, db *core.DB) {
 		}
 	}()
 
-	// Hourly Zoho resync — keep helpdesk tickets fresh through the day
-	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if !zohoEnsureConfigured(ctx, db) {
-					continue
-				}
-				runCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
-				if err := batchZohoResync(runCtx, db); err != nil {
-					slog.Error("Hourly Zoho resync failed", "err", err)
-				}
-				cancel()
-			}
-		}
-	}()
 }
 
 // batchRunHandler triggers the batch manually (HTTP).
@@ -173,16 +152,6 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, "los_sla:FAILED")
 	} else {
 		steps = append(steps, "los_sla:ok")
-	}
-
-	// 5. Zoho Desk resync — pull tickets modified in the last 24 hours
-	if zohoEnsureConfigured(ctx, db) {
-		if err := batchZohoResync(ctx, db); err != nil {
-			slog.Error("Batch: Zoho resync failed", "err", err)
-			steps = append(steps, "zoho_resync:FAILED")
-		} else {
-			steps = append(steps, "zoho_resync:ok")
-		}
 	}
 
 	status := "success"
@@ -457,141 +426,4 @@ func batchLOSSLACheck(ctx context.Context, db *core.DB) error {
 	return nil
 }
 
-// batchZohoResync pulls the most recently modified Zoho Desk tickets and
-// upserts them. Zoho's list endpoint sorts by modifiedTime ascending by
-// default (sortOrder is rejected by the API), so the most recently modified
-// tickets are at the end of the result set. We binary-search to find that
-// tail, then fetch the last 500 tickets from there.
-func batchZohoResync(ctx context.Context, db *core.DB) error {
-	ensureZohoSchema(ctx, db)
-
-	tailOffset := zohoFindTailOffset(ctx)
-	startFrom := tailOffset - 500
-	if startFrom < 0 {
-		startFrom = 0
-	}
-
-	limit := 100
-	updated := 0
-
-	for from := startFrom; ; from += limit {
-		result, err := zohoFetch(ctx, "tickets", map[string][]string{
-			"from":    {fmt.Sprintf("%d", from)},
-			"limit":   {fmt.Sprintf("%d", limit)},
-			"sortBy":  {"modifiedTime"},
-			"include": {"contacts,assignee"},
-		})
-		if err != nil {
-			return fmt.Errorf("zohoFetch at %d: %w", from, err)
-		}
-		items := zohoItems(result)
-		if len(items) == 0 {
-			break
-		}
-
-		for _, t := range items {
-			zohoID, _ := t["id"].(string)
-			if zohoID == "" {
-				continue
-			}
-			statusRaw, _ := t["status"].(string)
-			priorityRaw, _ := t["priority"].(string)
-			channelRaw, _ := t["channel"].(string)
-			subject, _ := t["subject"].(string)
-
-			var deptName string
-			if dept, ok := t["department"].(map[string]any); ok {
-				deptName, _ = dept["name"].(string)
-			}
-
-			ourStatus := "open"
-			for k, v := range zohoStatusMap {
-				if strings.EqualFold(v, statusRaw) {
-					ourStatus = k
-					break
-				}
-			}
-			ourPriority := "normal"
-			for k, v := range zohoPriorityMap {
-				if strings.EqualFold(v, priorityRaw) {
-					ourPriority = k
-					break
-				}
-			}
-			ourChannel := zohoMapChannel(channelRaw)
-
-			contactName, contactEmail, contactPhone := "", "", ""
-			if contact, ok := t["contact"].(map[string]any); ok {
-				contactName, _ = contact["firstName"].(string)
-				if ln, _ := contact["lastName"].(string); ln != "" {
-					if contactName != "" {
-						contactName += " " + ln
-					} else {
-						contactName = ln
-					}
-				}
-				contactEmail, _ = contact["email"].(string)
-				contactPhone, _ = contact["phone"].(string)
-			}
-
-			var createdAt *time.Time
-			if ct, _ := t["createdTime"].(string); ct != "" {
-				if ts, err2 := time.Parse(time.RFC3339, ct); err2 == nil {
-					createdAt = &ts
-				}
-			}
-
-			description, slaDueAt, csatScore, csatComment, threadCount := zohoTicketExtras(t)
-
-			db.PGExec(ctx, `
-				INSERT INTO helpdesk_tickets
-				    (channel, status, priority, subject, customer_name, customer_email,
-				     customer_phone, department, zoho_department_name, description,
-				     sla_due_at, csat_score, csat_comment, zoho_thread_count,
-				     zoho_ticket_id, zoho_synced_at, created_at)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW(),$16)
-				ON CONFLICT (zoho_ticket_id) DO UPDATE
-				  SET status=$2, priority=$3, subject=$4, customer_name=$5,
-				      customer_email=$6, customer_phone=$7, department=$8,
-				      zoho_department_name=$9,
-				      description=COALESCE(EXCLUDED.description, helpdesk_tickets.description),
-				      sla_due_at=COALESCE(EXCLUDED.sla_due_at, helpdesk_tickets.sla_due_at),
-				      csat_score=COALESCE(EXCLUDED.csat_score, helpdesk_tickets.csat_score),
-				      csat_comment=COALESCE(EXCLUDED.csat_comment, helpdesk_tickets.csat_comment),
-				      zoho_thread_count=EXCLUDED.zoho_thread_count,
-				      zoho_synced_at=NOW()`,
-				ourChannel, ourStatus, ourPriority, subject,
-				contactName, contactEmail, contactPhone,
-				ptrOrNilStr(deptName), ptrOrNilStr(deptName), ptrOrNilStr(description),
-				slaDueAt, csatScore, ptrOrNilStr(csatComment), threadCount,
-				zohoID, createdAt) //nolint:errcheck
-			updated++
-		}
-	}
-
-	slog.Info("Batch: Zoho resync done", "tail_offset", tailOffset, "upserted", updated)
-	return nil
-}
-
-// zohoFindTailOffset binary-searches for the last valid from-offset in the
-// Zoho tickets list (sorted by modifiedTime ascending). The tail is where the
-// most recently modified tickets live, since Zoho won't accept sortOrder=desc.
-// Uses ~10 API calls; result grows by ~33 per day at O3C's current volume.
-func zohoFindTailOffset(ctx context.Context) int {
-	lo, hi := 0, 50000
-	for hi-lo > 200 {
-		mid := (lo + hi) / 2
-		result, err := zohoFetch(ctx, "tickets", map[string][]string{
-			"from":   {fmt.Sprintf("%d", mid)},
-			"limit":  {"1"},
-			"sortBy": {"modifiedTime"},
-		})
-		if err != nil || len(zohoItems(result)) == 0 {
-			hi = mid
-		} else {
-			lo = mid
-		}
-	}
-	return lo
-}
 

@@ -234,7 +234,7 @@ export default function Overview() {
               { label: 'Recovery Rate',               value: `${n(kpis?.recovery_rate ?? 0).toFixed(1)}%`, accent: kpi('recovery_rate') >= 50 ? GREEN : RED },
             ].map(({ label, value, accent }) => (
               <div key={label} className="flex items-center justify-between">
-                <span className="text-[13px] text-slate-500">{label}</span>
+                <span className="text-[13px]" style={{ color: 'var(--txt2)' }}>{label}</span>
                 <span className="text-[14px] font-semibold font-mono" style={{ color: accent }}>{loading ? '—' : value}</span>
               </div>
             ))}
@@ -262,9 +262,9 @@ export default function Overview() {
               <div key={label} className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="material-symbols-rounded text-[15px]" style={{ color: accent }}>{icon}</span>
-                  <span className="text-[13px] text-slate-500">{label}</span>
+                  <span className="text-[13px]" style={{ color: 'var(--txt2)' }}>{label}</span>
                 </div>
-                <span className="text-[13px] font-semibold font-mono text-slate-800">{loading ? '—' : value}</span>
+                <span className="text-[13px] font-semibold font-mono" style={{ color: 'var(--txt)' }}>{loading ? '—' : value}</span>
               </div>
             ))}
           </div>

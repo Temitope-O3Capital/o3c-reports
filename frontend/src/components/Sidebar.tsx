@@ -253,9 +253,6 @@ const SECTIONS: NavSection[] = [
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const NAVY   = '#0E2841'
-const ACCENT = '#C00000'
-
 function initials(name: string): string {
   return name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase()
 }
@@ -317,15 +314,15 @@ export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthU
     }
   }
 
-  const sidebarWidth = collapsed ? 64 : 232
+  const sidebarWidth = collapsed ? 64 : 236
 
   return (
     <aside
       style={{
         width: sidebarWidth,
         minWidth: sidebarWidth,
-        background: NAVY,
-        borderRight: '1px solid rgba(255,255,255,0.06)',
+        background: 'var(--sb)',
+        borderRight: '1px solid var(--sb-bdr)',
         display: 'flex',
         flexDirection: 'column',
         height: '100vh',
@@ -344,20 +341,24 @@ export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthU
         flexShrink: 0,
       }}>
         <div style={{
-          width: 30, height: 30, borderRadius: 8, flexShrink: 0,
-          background: ACCENT,
+          width: 28, height: 28, borderRadius: 7, flexShrink: 0,
+          background: '#0E2841',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 1px 6px rgba(192,0,0,0.4)',
         }}>
-          <span style={{ color: '#fff', fontWeight: 800, fontSize: 11, letterSpacing: '-0.5px' }}>O3</span>
+          <span style={{ color: '#fff', fontWeight: 800, fontSize: 11, letterSpacing: '-0.5px', fontFamily: "'Inter', sans-serif" }}>O3</span>
         </div>
         {!collapsed && (
-          <div style={{ overflow: 'hidden' }}>
-            <div style={{ color: '#fff', fontWeight: 700, fontSize: 13.5, lineHeight: 1.2, letterSpacing: '-0.2px' }}>
-              O3 Capital
+          <div style={{ overflow: 'hidden', flex: 1 }}>
+            <div style={{ color: 'var(--txt)', fontWeight: 800, fontSize: 13.5, lineHeight: 1.2, letterSpacing: '-0.4px' }}>
+              O3 <span style={{ color: '#C00000' }}>Capital</span>
             </div>
-            <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10.5, lineHeight: 1.3 }}>
-              Workspace
+            <div style={{
+              display: 'inline-block', marginTop: 2,
+              fontSize: 8.5, fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase',
+              color: 'var(--chip-txt)', background: 'var(--chip-bg)',
+              padding: '1px 5px', borderRadius: 4,
+            }}>
+              WORKSPACE
             </div>
           </div>
         )}
@@ -374,12 +375,12 @@ export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthU
               {/* Section label */}
               {section.label && !collapsed && (
                 <div style={{
-                  fontSize: 9.5,
-                  fontWeight: 600,
-                  letterSpacing: '0.08em',
+                  fontSize: 8.5,
+                  fontWeight: 700,
+                  letterSpacing: '1.3px',
                   textTransform: 'uppercase',
-                  color: 'rgba(255,255,255,0.22)',
-                  padding: '10px 10px 4px',
+                  color: 'var(--grp)',
+                  padding: '10px 14px 3px',
                 }}>
                   {section.label}
                 </div>
@@ -404,21 +405,28 @@ export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthU
                         justifyContent: 'center',
                         width: '100%',
                         padding: '8px 0',
-                        borderRadius: 8,
+                        borderRadius: 7,
                         border: 'none',
-                        background: active ? 'rgba(192,0,0,0.12)' : 'transparent',
+                        background: active ? 'var(--nav-act-bg)' : 'transparent',
                         cursor: 'pointer',
                         marginBottom: 1,
                         transition: 'background 150ms',
-                        borderLeft: active ? `2px solid ${ACCENT}` : '2px solid transparent',
+                        position: 'relative',
                       }}
-                      onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.07)' }}
+                      onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--nav-hvr-bg)' }}
                       onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
                     >
+                      {active && (
+                        <div style={{
+                          position: 'absolute', left: -7, top: '50%',
+                          transform: 'translateY(-50%)', width: 3, height: 16,
+                          background: 'var(--nav-dot)', borderRadius: '0 3px 3px 0',
+                        }} />
+                      )}
                       <span
                         aria-hidden="true"
                         className="material-symbols-rounded"
-                        style={{ fontSize: 18, color: active ? '#fff' : 'rgba(255,255,255,0.38)' }}
+                        style={{ fontSize: 18, color: active ? 'var(--nav-act-txt)' : 'var(--nav-txt)' }}
                       >
                         {mod.icon}
                       </span>
@@ -428,7 +436,7 @@ export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthU
 
                 /* ── Expanded: module row ── */
                 return (
-                  <div key={mod.id}>
+                  <div key={mod.id} style={{ margin: '1px 0' }}>
                     <button
                       onClick={() => handleModuleClick(mod)}
                       aria-expanded={hasSubs ? isOpen : undefined}
@@ -438,32 +446,38 @@ export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthU
                         alignItems: 'center',
                         gap: 9,
                         width: '100%',
-                        padding: '7px 10px',
+                        height: 32,
+                        padding: '0 9px 0 11px',
                         borderRadius: 7,
                         border: 'none',
-                        background: active ? 'rgba(192,0,0,0.10)' : 'transparent',
-                        borderLeft: active ? `2px solid ${ACCENT}` : '2px solid transparent',
-                        paddingLeft: active ? 8 : 10,
+                        background: active ? 'var(--nav-act-bg)' : 'transparent',
                         cursor: 'pointer',
                         transition: 'background 150ms',
-                        marginBottom: 1,
+                        position: 'relative',
                       }}
-                      onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.07)' }}
+                      onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--nav-hvr-bg)' }}
                       onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
                     >
+                      {active && (
+                        <div style={{
+                          position: 'absolute', left: -7, top: '50%',
+                          transform: 'translateY(-50%)', width: 3, height: 16,
+                          background: 'var(--nav-dot)', borderRadius: '0 3px 3px 0',
+                        }} />
+                      )}
                       <span
                         aria-hidden="true"
                         className="material-symbols-rounded"
-                        style={{ fontSize: 17, flexShrink: 0, color: active ? '#fff' : 'rgba(255,255,255,0.38)' }}
+                        style={{ fontSize: 16, flexShrink: 0, color: active ? 'var(--nav-act-txt)' : 'var(--nav-txt)' }}
                       >
                         {mod.icon}
                       </span>
                       <span style={{
                         flex: 1,
                         textAlign: 'left',
-                        fontSize: 13,
-                        fontWeight: active ? 600 : 400,
-                        color: active ? '#fff' : 'rgba(255,255,255,0.6)',
+                        fontSize: 12.5,
+                        fontWeight: active ? 600 : 500,
+                        color: active ? 'var(--nav-act-txt)' : 'var(--nav-txt)',
                         letterSpacing: '-0.1px',
                         overflow: 'hidden',
                         whiteSpace: 'nowrap',
@@ -476,10 +490,10 @@ export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthU
                           aria-hidden="true"
                           className="material-symbols-rounded"
                           style={{
-                            fontSize: 14,
-                            color: 'rgba(255,255,255,0.22)',
+                            fontSize: 13,
+                            color: 'var(--grp)',
                             transform: isOpen ? 'rotate(180deg)' : 'none',
-                            transition: 'transform 200ms',
+                            transition: 'transform .22s ease',
                           }}
                         >
                           expand_more
@@ -487,58 +501,64 @@ export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthU
                       )}
                     </button>
 
-                    {/* Sub-items */}
+                    {/* Sub-items accordion */}
                     {hasSubs && (
                       <div id={`submenu-${mod.id}`} style={{
                         overflow: 'hidden',
                         maxHeight: isOpen ? `${mod.items.length * 30 + 8}px` : '0px',
-                        transition: 'max-height 200ms ease',
+                        transition: 'max-height .22s ease',
+                        padding: '0 7px 0 14px',
                       }}>
-                        <div style={{
-                          marginLeft: 16,
-                          paddingLeft: 12,
-                          borderLeft: '1px solid rgba(255,255,255,0.1)',
-                          marginBottom: 4,
-                          marginTop: 2,
-                        }}>
-                          {mod.items.map(item => (
-                            <NavLink
-                              key={item.to}
-                              to={item.to}
-                              end
-                              onClick={onMobileClose}
-                              style={({ isActive }) => ({
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                padding: '5px 8px',
-                                fontSize: 12.5,
-                                fontWeight: isActive ? 600 : 400,
-                                color: isActive ? '#fff' : 'rgba(255,255,255,0.48)',
-                                borderRadius: '0 6px 6px 0',
-                                background: isActive ? 'rgba(255,255,255,0.06)' : 'transparent',
-                                textDecoration: 'none',
-                                transition: 'color 150ms, background 150ms',
-                                cursor: 'pointer',
-                              })}
-                              onMouseEnter={e => {
-                                const el = e.currentTarget
-                                if (el.style.color !== '#fff') el.style.color = 'rgba(255,255,255,0.75)'
-                              }}
-                              onMouseLeave={e => {
-                                const el = e.currentTarget
-                                if (el.style.fontWeight !== '600') el.style.color = 'rgba(255,255,255,0.48)'
-                              }}
-                            >
-                              <span style={{
-                                width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
-                                background: 'currentColor',
-                                opacity: 0.5,
-                              }} />
-                              {item.label}
-                            </NavLink>
-                          ))}
-                        </div>
+                        {mod.items.map(item => (
+                          <NavLink
+                            key={item.to}
+                            to={item.to}
+                            end
+                            onClick={onMobileClose}
+                            style={({ isActive }) => ({
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 7,
+                              height: 28,
+                              padding: '0 8px 0 9px',
+                              margin: '1px 0',
+                              fontSize: 12.5,
+                              fontWeight: isActive ? 600 : 400,
+                              color: isActive ? 'var(--sub-act)' : 'var(--sub-txt)',
+                              borderRadius: 5,
+                              background: isActive ? 'var(--nav-act-bg)' : 'transparent',
+                              textDecoration: 'none',
+                              transition: 'color 120ms, background 120ms',
+                              cursor: 'pointer',
+                            })}
+                            onMouseEnter={e => {
+                              const el = e.currentTarget
+                              if (el.getAttribute('aria-current') !== 'page') {
+                                el.style.color = 'var(--sub-hvr)'
+                                el.style.background = 'var(--nav-hvr-bg)'
+                              }
+                            }}
+                            onMouseLeave={e => {
+                              const el = e.currentTarget
+                              if (el.getAttribute('aria-current') !== 'page') {
+                                el.style.color = 'var(--sub-txt)'
+                                el.style.background = 'transparent'
+                              }
+                            }}
+                          >
+                            {/* 1px × 14px vertical indicator line */}
+                            {({ isActive }: { isActive: boolean }) => (
+                              <>
+                                <div style={{
+                                  width: 1, height: 14, flexShrink: 0, borderRadius: 1,
+                                  background: isActive ? 'var(--nav-dot)' : 'var(--bdr)',
+                                  transition: 'background .12s',
+                                }} />
+                                {item.label}
+                              </>
+                            )}
+                          </NavLink>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -550,10 +570,10 @@ export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthU
       </nav>
 
       {/* ── Collapse toggle ── */}
-      <div style={{ flexShrink: 0, padding: '6px 10px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+      <div style={{ flexShrink: 0, padding: '6px 10px', borderTop: '1px solid var(--sb-bdr)' }}>
         <button
           onClick={toggleCollapse}
-          title={collapsed ? 'Expand' : 'Collapse'}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -565,12 +585,13 @@ export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthU
             border: 'none',
             background: 'transparent',
             cursor: 'pointer',
-            color: 'rgba(255,255,255,0.3)',
+            color: 'var(--nav-txt)',
             fontSize: 12,
+            fontWeight: 500,
             transition: 'color 150ms, background 150ms',
           }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.3)' }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--nav-hvr-bg)'; e.currentTarget.style.color = 'var(--txt2)' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--nav-txt)' }}
         >
           <span className="material-symbols-rounded" style={{ fontSize: 16 }}>
             {collapsed ? 'chevron_right' : 'chevron_left'}
@@ -583,7 +604,7 @@ export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthU
       <div style={{
         flexShrink: 0,
         padding: '8px 10px',
-        borderTop: '1px solid rgba(255,255,255,0.07)',
+        borderTop: '1px solid var(--sb-bdr)',
       }}>
         <div style={{
           display: 'flex',
@@ -591,10 +612,10 @@ export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthU
           gap: 9,
           justifyContent: collapsed ? 'center' : 'flex-start',
         }}>
-          {/* Avatar */}
+          {/* Avatar — always navy, initials in white */}
           <div style={{
             width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
-            background: ACCENT,
+            background: 'linear-gradient(135deg, #0E2841 0%, #1A4068 100%)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 11, fontWeight: 700, color: '#fff',
             letterSpacing: '-0.3px',
@@ -606,13 +627,13 @@ export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthU
             <>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
-                  fontSize: 12.5, fontWeight: 600, color: '#fff',
+                  fontSize: 12.5, fontWeight: 600, color: 'var(--txt)',
                   overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
                   lineHeight: 1.25,
                 }}>
                   {user.name}
                 </div>
-                <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.38)', lineHeight: 1.3, marginTop: 1 }}>
+                <div style={{ fontSize: 10.5, color: 'var(--txt2)', lineHeight: 1.3, marginTop: 1 }}>
                   {roleLabel(role)}
                 </div>
               </div>
@@ -623,12 +644,12 @@ export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthU
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   width: 28, height: 28, borderRadius: 6, border: 'none',
                   background: 'transparent', cursor: 'pointer',
-                  color: 'rgba(255,255,255,0.3)',
+                  color: 'var(--nav-txt)',
                   transition: 'color 150ms, background 150ms',
                   flexShrink: 0,
                 }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; e.currentTarget.style.color = '#fff' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.3)' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--nav-hvr-bg)'; e.currentTarget.style.color = 'var(--txt)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--nav-txt)' }}
               >
                 <span className="material-symbols-rounded" style={{ fontSize: 15 }}>logout</span>
               </button>
@@ -643,11 +664,11 @@ export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthU
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 width: 28, height: 28, borderRadius: 6, border: 'none',
                 background: 'transparent', cursor: 'pointer',
-                color: 'rgba(255,255,255,0.3)',
+                color: 'var(--nav-txt)',
                 transition: 'color 150ms, background 150ms',
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; e.currentTarget.style.color = '#fff' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.3)' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--nav-hvr-bg)'; e.currentTarget.style.color = 'var(--txt)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--nav-txt)' }}
             >
               <span className="material-symbols-rounded" style={{ fontSize: 15 }}>logout</span>
             </button>

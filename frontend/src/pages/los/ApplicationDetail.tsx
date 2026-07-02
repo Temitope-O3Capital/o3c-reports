@@ -191,22 +191,22 @@ export default function ApplicationDetail() {
       <div className="card p-5 mb-5 flex flex-wrap gap-4 items-center justify-between">
         <div className="flex flex-wrap items-center gap-3">
           <StageBadge stage={app.stage} />
-          <span className="text-[13.5px] font-semibold text-slate-700">{app.applicant_name}</span>
-          <span className="text-slate-300">·</span>
-          <span className="text-[13px] text-slate-500 capitalize">{snake(app.product_type)}</span>
-          <span className="text-slate-300">·</span>
-          <span className="text-[13px] font-mono text-slate-700">{fmt(app.amount_requested_kobo / 100)}</span>
-          <span className="text-slate-300">·</span>
-          <span className="text-[13px] text-slate-500">{app.tenor_months}m</span>
+          <span className="text-[13.5px] font-semibold" style={{ color: 'var(--txt)' }}>{app.applicant_name}</span>
+          <span style={{ color: 'var(--bdr)' }}>·</span>
+          <span className="text-[13px] capitalize" style={{ color: 'var(--txt2)' }}>{snake(app.product_type)}</span>
+          <span style={{ color: 'var(--bdr)' }}>·</span>
+          <span className="text-[13px] font-mono" style={{ color: 'var(--txt)' }}>{fmt(app.amount_requested_kobo / 100)}</span>
+          <span style={{ color: 'var(--bdr)' }}>·</span>
+          <span className="text-[13px]" style={{ color: 'var(--txt2)' }}>{app.tenor_months}m</span>
         </div>
-        <span className="text-[12px] text-slate-400">Created {fmtDate(app.created_at)}</span>
+        <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>Created {fmtDate(app.created_at)}</span>
       </div>
 
       <div className="flex gap-5 flex-col xl:flex-row">
         {/* Left — main content (70%) */}
         <div className="flex-1 min-w-0">
           {/* Tabs */}
-          <div className="flex gap-0 border-b border-slate-200 mb-5">
+          <div className="flex gap-0 border-b mb-5" style={{ borderColor: 'var(--bdr)' }}>
             {TABS.map(t => (
               <button
                 key={t}
@@ -225,7 +225,7 @@ export default function ApplicationDetail() {
           {/* Summary */}
           {activeTab === 'Summary' && (
             <div className="card p-5">
-              <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-slate-400 mb-4">Application Details</h3>
+              <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] mb-4" style={{ color: 'var(--txt2)' }}>Application Details</h3>
               <div className="grid grid-cols-2 gap-x-8 gap-y-3">
                 {[
                   ['Reference', app.reference],
@@ -244,8 +244,8 @@ export default function ApplicationDetail() {
                   ...(app.decline_reason ? [['Decline Reason', app.decline_reason]] : []),
                 ].map(([k, v]) => (
                   <div key={k}>
-                    <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">{k}</p>
-                    <p className="text-[13.5px] text-slate-800 capitalize">{v}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: 'var(--txt2)' }}>{k}</p>
+                    <p className="text-[13.5px] capitalize" style={{ color: 'var(--txt)' }}>{v}</p>
                   </div>
                 ))}
               </div>
@@ -257,23 +257,23 @@ export default function ApplicationDetail() {
             <div className="card overflow-hidden">
               {detail.conditions.length === 0 ? (
                 <div className="p-8 text-center">
-                  <span className="material-symbols-rounded text-[40px] text-slate-300 block mb-2">checklist</span>
-                  <p className="text-[13px] text-slate-400">No conditions recorded</p>
+                  <span className="material-symbols-rounded text-[40px] block mb-2" style={{ color: 'var(--bdr)' }}>checklist</span>
+                  <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>No conditions recorded</p>
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100">
+                <div className="divide-theme">
                   {detail.conditions.map(c => (
                     <div key={c.id} className="flex items-start gap-3 px-5 py-4">
                       <span
                         className="material-symbols-rounded text-[20px] mt-0.5 flex-shrink-0"
-                        style={{ color: c.is_met ? GREEN : '#D1D5DB' }}
+                        style={{ color: c.is_met ? GREEN : 'var(--bdr)' }}
                       >
                         {c.is_met ? 'check_circle' : 'radio_button_unchecked'}
                       </span>
                       <div className="flex-1">
-                        <p className="text-[13.5px] text-slate-800">{c.description}</p>
+                        <p className="text-[13.5px]" style={{ color: 'var(--txt)' }}>{c.description}</p>
                         {c.is_met && (
-                          <p className="text-[11px] text-slate-400 mt-0.5">Met by {c.met_by_name} · {fmtDate(c.met_at)}</p>
+                          <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>Met by {c.met_by_name} · {fmtDate(c.met_at)}</p>
                         )}
                       </div>
                     </div>
@@ -288,19 +288,19 @@ export default function ApplicationDetail() {
             <div className="space-y-3">
               <div className="card overflow-hidden">
                 {detail.notes.length === 0 ? (
-                  <div className="p-6 text-center text-[13px] text-slate-400">No notes yet</div>
+                  <div className="p-6 text-center text-[13px]" style={{ color: 'var(--txt2)' }}>No notes yet</div>
                 ) : (
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-theme">
                     {detail.notes.map(n => (
                       <div key={n.id} className="px-5 py-4">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[12px] font-semibold text-slate-700">{n.author_name}</span>
+                          <span className="text-[12px] font-semibold" style={{ color: 'var(--txt)' }}>{n.author_name}</span>
                           {n.is_internal && (
                             <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded" style={{ background: 'rgba(124,58,237,0.1)', color: '#7C3AED' }}>Internal</span>
                           )}
-                          <span className="text-[11px] text-slate-400 ml-auto">{timeAgo(n.created_at)}</span>
+                          <span className="text-[11px] ml-auto" style={{ color: 'var(--txt2)' }}>{timeAgo(n.created_at)}</span>
                         </div>
-                        <p className="text-[13px] text-slate-600">{n.body}</p>
+                        <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>{n.body}</p>
                       </div>
                     ))}
                   </div>
@@ -316,7 +316,7 @@ export default function ApplicationDetail() {
                   onChange={e => setNoteBody(e.target.value)}
                 />
                 <div className="flex items-center gap-3 mt-2">
-                  <label className="flex items-center gap-2 text-[12px] text-slate-600 cursor-pointer">
+                  <label className="flex items-center gap-2 text-[12px] cursor-pointer" style={{ color: 'var(--txt2)' }}>
                     <input type="checkbox" checked={noteInternal} onChange={e => setNoteInternal(e.target.checked)} />
                     Internal note
                   </label>
@@ -337,30 +337,30 @@ export default function ApplicationDetail() {
           {activeTab === 'Timeline' && (
             <div className="card p-5">
               {detail.events.length === 0 ? (
-                <p className="text-center text-[13px] text-slate-400 py-6">No events recorded</p>
+                <p className="text-center text-[13px] py-6" style={{ color: 'var(--txt2)' }}>No events recorded</p>
               ) : (
                 <div className="relative space-y-4">
-                  <div className="absolute left-4 top-2 bottom-2 w-px bg-slate-200" />
+                  <div className="absolute left-4 top-2 bottom-2 w-px" style={{ background: 'var(--bdr)' }} />
                   {[...detail.events].reverse().map(ev => (
                     <div key={ev.id} className="relative pl-10 flex gap-3">
                       <div className="absolute left-0 top-0.5 w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-                        style={{ background: 'rgba(14,40,65,0.07)' }}>
+                        style={{ background: 'var(--th-bg)' }}>
                         <span className="material-symbols-rounded text-[15px]" style={{ color: NAVY }}>swap_horiz</span>
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[12px] font-semibold text-slate-700">{ev.actor_name}</span>
+                          <span className="text-[12px] font-semibold" style={{ color: 'var(--txt)' }}>{ev.actor_name}</span>
                           {ev.stage_from && (
                             <>
-                              <span className="text-[11px] text-slate-400">moved from</span>
-                              <span className="text-[11px] text-slate-600 capitalize">{snake(ev.stage_from)}</span>
-                              <span className="text-[11px] text-slate-400">to</span>
+                              <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>moved from</span>
+                              <span className="text-[11px] capitalize" style={{ color: 'var(--txt2)' }}>{snake(ev.stage_from)}</span>
+                              <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>to</span>
                             </>
                           )}
-                          <span className="text-[11px] font-semibold text-slate-700 capitalize">{snake(ev.stage_to)}</span>
-                          <span className="text-[11px] text-slate-400 ml-auto">{timeAgo(ev.created_at)}</span>
+                          <span className="text-[11px] font-semibold capitalize" style={{ color: 'var(--txt)' }}>{snake(ev.stage_to)}</span>
+                          <span className="text-[11px] ml-auto" style={{ color: 'var(--txt2)' }}>{timeAgo(ev.created_at)}</span>
                         </div>
-                        {ev.notes && <p className="text-[12px] text-slate-500 mt-1">{ev.notes}</p>}
+                        {ev.notes && <p className="text-[12px] mt-1" style={{ color: 'var(--txt2)' }}>{ev.notes}</p>}
                       </div>
                     </div>
                   ))}
@@ -374,13 +374,13 @@ export default function ApplicationDetail() {
         <div className="w-full xl:w-72 space-y-4 flex-shrink-0">
           {/* Actions panel */}
           <div className="card p-4">
-            <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-slate-400 mb-3">Actions</h3>
+            <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] mb-3" style={{ color: 'var(--txt2)' }}>Actions</h3>
             <ErrBanner msg={actionErr} />
             {app.stage === 'declined' && (
-              <p className="text-[13px] text-slate-400 text-center py-2">Application declined</p>
+              <p className="text-[13px] text-center py-2" style={{ color: 'var(--txt2)' }}>Application declined</p>
             )}
             {app.stage === 'active' && (
-              <p className="text-[13px] text-slate-500 text-center py-2">Application is active</p>
+              <p className="text-[13px] text-center py-2" style={{ color: 'var(--txt2)' }}>Application is active</p>
             )}
             {advAction && app.stage !== 'active' && app.stage !== 'declined' && (
               <button
@@ -418,27 +418,27 @@ export default function ApplicationDetail() {
 
           {/* Assignment info */}
           <div className="card p-4">
-            <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-slate-400 mb-3">Assignment</h3>
-            <p className="text-[13px] text-slate-700">{app.assigned_to_name ?? 'Unassigned'}</p>
+            <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] mb-3" style={{ color: 'var(--txt2)' }}>Assignment</h3>
+            <p className="text-[13px]" style={{ color: 'var(--txt)' }}>{app.assigned_to_name ?? 'Unassigned'}</p>
           </div>
 
           {/* Key dates */}
           <div className="card p-4">
-            <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-slate-400 mb-3">Key Dates</h3>
+            <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] mb-3" style={{ color: 'var(--txt2)' }}>Key Dates</h3>
             <div className="space-y-2">
               <div className="flex justify-between">
-                <span className="text-[12px] text-slate-500">Created</span>
-                <span className="text-[12px] text-slate-700">{fmtDate(app.created_at)}</span>
+                <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>Created</span>
+                <span className="text-[12px]" style={{ color: 'var(--txt)' }}>{fmtDate(app.created_at)}</span>
               </div>
               {app.updated_at && (
                 <div className="flex justify-between">
-                  <span className="text-[12px] text-slate-500">Last Updated</span>
-                  <span className="text-[12px] text-slate-700">{fmtDate(app.updated_at)}</span>
+                  <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>Last Updated</span>
+                  <span className="text-[12px]" style={{ color: 'var(--txt)' }}>{fmtDate(app.updated_at)}</span>
                 </div>
               )}
               <div className="flex justify-between">
-                <span className="text-[12px] text-slate-500">Info Requests</span>
-                <span className="text-[12px] text-slate-700">{app.request_info_count ?? 0} / 2</span>
+                <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>Info Requests</span>
+                <span className="text-[12px]" style={{ color: 'var(--txt)' }}>{app.request_info_count ?? 0} / 2</span>
               </div>
             </div>
           </div>
@@ -448,14 +448,14 @@ export default function ApplicationDetail() {
       {/* Decline modal */}
       {showDecline && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg">
+          <div className="card rounded-2xl shadow-xl p-6 w-full max-w-lg">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-[16px] font-bold text-slate-800">Decline Application</h2>
-              <button onClick={() => setShowDecline(false)} className="text-slate-400 hover:text-slate-700">
+              <h2 className="text-[16px] font-bold" style={{ color: 'var(--txt)' }}>Decline Application</h2>
+              <button onClick={() => setShowDecline(false)} style={{ color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
             </div>
-            <label className="block text-[12px] font-semibold text-slate-500 mb-1">Decline Reason *</label>
+            <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Decline Reason *</label>
             <textarea
               className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20 resize-none mb-4"
               rows={4}
@@ -481,14 +481,14 @@ export default function ApplicationDetail() {
       {/* Request info modal */}
       {showReqInfo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg">
+          <div className="card rounded-2xl shadow-xl p-6 w-full max-w-lg">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-[16px] font-bold text-slate-800">Request More Information</h2>
-              <button onClick={() => setShowReqInfo(false)} className="text-slate-400 hover:text-slate-700">
+              <h2 className="text-[16px] font-bold" style={{ color: 'var(--txt)' }}>Request More Information</h2>
+              <button onClick={() => setShowReqInfo(false)} style={{ color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
             </div>
-            <label className="block text-[12px] font-semibold text-slate-500 mb-1">Notes for Applicant</label>
+            <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Notes for Applicant</label>
             <textarea
               className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20 resize-none mb-4"
               rows={4}
@@ -496,7 +496,7 @@ export default function ApplicationDetail() {
               value={reqInfoNotes}
               onChange={e => setReqInfoNotes(e.target.value)}
             />
-            <p className="text-[11px] text-slate-400 mb-4">
+            <p className="text-[11px] mb-4" style={{ color: 'var(--txt2)' }}>
               This is request {(app.request_info_count ?? 0) + 1} of 2. Max 2 info requests allowed per application.
             </p>
             <div className="flex gap-2 justify-end">

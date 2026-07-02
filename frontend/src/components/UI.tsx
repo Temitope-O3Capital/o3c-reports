@@ -76,17 +76,17 @@ export function KpiCard({ label, value, sub, change, changePeriod = 'MoM', icon,
   return (
     <div className="card p-5">
       <div className="flex items-start justify-between mb-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-slate-500">{label}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.07em]" style={{ color: 'var(--txt2)' }}>{label}</p>
         <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
           style={{ background: `${accent}12` }}>
           <span className="material-symbols-rounded text-[16px]" style={{ color: accent }}>{icon}</span>
         </div>
       </div>
-      <p className="kpi-number text-[26px] leading-none text-slate-900">{value}</p>
+      <p className="kpi-number text-[26px] leading-none" style={{ color: 'var(--txt)' }}>{value}</p>
       <div className="flex items-center gap-2 mt-3">
         {change != null
-          ? <><ChangeBadge value={change} /><span className="text-[11px] text-slate-400">{changePeriod}</span></>
-          : sub ? <span className="text-[12px] text-slate-400">{sub}</span>
+          ? <><ChangeBadge value={change} /><span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{changePeriod}</span></>
+          : sub ? <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{sub}</span>
           : null}
       </div>
     </div>
@@ -103,15 +103,15 @@ export function SectionCard({
   return (
     <div className={`card overflow-hidden ${className}`}>
       <div className="flex items-center justify-between px-5 py-3.5"
-        style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
+        style={{ borderBottom: '1px solid var(--bdr)' }}>
         <div>
-          <p className="text-[14px] font-semibold text-slate-800">{title}</p>
-          {subtitle && <p className="text-[12px] text-slate-400 mt-0.5">{subtitle}</p>}
+          <p className="text-[14px] font-semibold" style={{ color: 'var(--txt)' }}>{title}</p>
+          {subtitle && <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>{subtitle}</p>}
         </div>
         <div className="flex items-center gap-2">
           {badge != null && (
             <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
-              style={{ background: 'rgba(14,40,65,0.07)', color: '#475569' }}>
+              style={{ background: 'rgba(14,40,65,0.07)', color: 'var(--txt2)' }}>
               {badge}
             </span>
           )}
@@ -148,6 +148,7 @@ export function DataTable<T extends Record<string, any>>({
 }) {
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [hoveredId, setHoveredId] = useState<string | number | null>(null)
 
   function toggleSort(key: string) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -189,7 +190,7 @@ export function DataTable<T extends Record<string, any>>({
         <thead>
           <tr>
             {selectable && (
-              <th className="px-5 py-3 w-10" style={{ background: '#F8FAFC' }}>
+              <th className="px-5 py-3 w-10" style={{ background: 'var(--th-bg)' }}>
                 <input type="checkbox"
                   checked={data.length > 0 && data.every(r => selectedIds?.has(r.id))}
                   onChange={toggleAll} />
@@ -199,12 +200,12 @@ export function DataTable<T extends Record<string, any>>({
               <th key={c.key}
                 onClick={() => c.sortable !== false && toggleSort(c.key)}
                 className={`px-5 py-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] whitespace-nowrap select-none ${c.sortable !== false ? 'cursor-pointer' : ''} ${c.right ? 'text-right' : 'text-left'}`}
-                style={{ background: sortKey === c.key ? '#F1F5F9' : '#F8FAFC', color: sortKey === c.key ? '#0F172A' : '#64748B' }}>
+                style={{ background: sortKey === c.key ? 'var(--bdr)' : 'var(--th-bg)', color: sortKey === c.key ? 'var(--txt)' : 'var(--txt2)' }}>
                 <span className={`inline-flex items-center gap-1 ${c.right ? 'flex-row-reverse' : ''}`}>
                   {c.label}
                   {c.sortable !== false && (
                     <span className="material-symbols-rounded text-[13px]"
-                      style={{ color: sortKey === c.key ? '#0F172A' : '#94A3B8' }}>
+                      style={{ color: sortKey === c.key ? 'var(--txt)' : 'var(--txt2)' }}>
                       {sortKey === c.key ? (sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
                     </span>
                   )}
@@ -216,7 +217,7 @@ export function DataTable<T extends Record<string, any>>({
         <tbody>
           {loading
             ? Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i} style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
+                <tr key={i} style={{ borderTop: '1px solid var(--bdr)' }}>
                   {Array.from({ length: totalCols }).map((_, j) => <td key={j} className="px-5 py-3.5"><Sk /></td>)}
                 </tr>
               ))
@@ -224,15 +225,17 @@ export function DataTable<T extends Record<string, any>>({
             ? (
                 <tr>
                   <td colSpan={totalCols} className="px-5 py-14 text-center">
-                    <span className="material-symbols-rounded text-[36px] text-slate-300 block mb-2">{emptyIcon}</span>
-                    <p className="text-[13px] text-slate-400">{emptyMsg}</p>
-                    <p className="text-[12px] text-slate-400 mt-1">Try adjusting your filters</p>
+                    <span className="material-symbols-rounded text-[36px] block mb-2" style={{ color: 'var(--bdr)' }}>{emptyIcon}</span>
+                    <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>{emptyMsg}</p>
+                    <p className="text-[12px] mt-1" style={{ color: 'var(--txt2)' }}>Try adjusting your filters</p>
                   </td>
                 </tr>
               )
             : data.map((row, i) => (
-                <tr key={row.id ?? i} className="transition-colors hover:bg-slate-50"
-                  style={{ borderTop: '1px solid rgba(15,23,42,0.05)', background: rowBg?.(row) }}>
+                <tr key={row.id ?? i}
+                  onMouseEnter={() => setHoveredId(row.id ?? i)}
+                  onMouseLeave={() => setHoveredId(null)}
+                  style={{ borderTop: '1px solid var(--bdr)', background: hoveredId === (row.id ?? i) ? 'var(--row-hvr)' : (rowBg?.(row) || undefined) }}>
                   {selectable && (
                     <td className="px-5 py-3 w-10">
                       <input type="checkbox"
@@ -257,13 +260,13 @@ export function DataTable<T extends Record<string, any>>({
 function ChartTip({ active, payload, label, currency }: any) {
   if (!active || !payload?.length) return null
   return (
-    <div className="bg-white rounded-lg border px-3 py-2.5 shadow-lg"
-      style={{ borderColor: 'rgba(15,23,42,0.1)', fontSize: 12 }}>
-      <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider mb-1.5">{label}</p>
+    <div className="rounded-lg border px-3 py-2.5 shadow-lg"
+      style={{ background: 'var(--card)', borderColor: 'var(--bdr)', fontSize: 12 }}>
+      <p className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--txt2)' }}>{label}</p>
       {payload.map((p: any, i: number) => (
         <div key={i} className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: p.color ?? p.fill }} />
-          <span className="font-semibold font-mono text-slate-800">
+          <span className="font-semibold font-mono" style={{ color: 'var(--txt)' }}>
             {currency ? fmt(p.value) : fmtNum(p.value)}
           </span>
         </div>
@@ -299,7 +302,7 @@ export function AreaChartCard({
                   <stop offset="100%" stopColor={color} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" vertical={false} />
               <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false}
                 tickFormatter={v => currency ? fmt(v) : fmtNum(v)} width={currency ? 60 : 44}
@@ -335,7 +338,7 @@ export function BarChartCard({
         ) : (
           <ResponsiveContainer width="100%" height={height}>
             <BarChart data={data} margin={{ top: 20, right: 12, left: 0, bottom: 4 }} barSize={20}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" vertical={false} />
               <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false}
                 tickFormatter={v => currency ? fmt(v) : fmtNum(v)} width={currency ? 60 : 44}
@@ -383,11 +386,11 @@ export function DonutCard({
                 <div key={i} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
-                    <span className="text-[12px] text-slate-500">{d[nameKey]}</span>
+                    <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{d[nameKey]}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[12px] font-semibold font-mono text-slate-800">{fmt(d[valueKey])}</span>
-                    {total > 0 && <span className="text-[11px] text-slate-400">({((n(d[valueKey]) / total) * 100).toFixed(0)}%)</span>}
+                    <span className="text-[12px] font-semibold font-mono" style={{ color: 'var(--txt)' }}>{fmt(d[valueKey])}</span>
+                    {total > 0 && <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>({((n(d[valueKey]) / total) * 100).toFixed(0)}%)</span>}
                   </div>
                 </div>
               ))}
@@ -415,12 +418,12 @@ export function ProgressList({
           : data.map((d, i) => (
               <div key={i}>
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[12px] text-slate-600 truncate max-w-[60%]">{d[nameKey]}</span>
-                  <span className="text-[12px] font-semibold font-mono text-slate-800">
+                  <span className="text-[12px] truncate max-w-[60%]" style={{ color: 'var(--txt2)' }}>{d[nameKey]}</span>
+                  <span className="text-[12px] font-semibold font-mono" style={{ color: 'var(--txt)' }}>
                     {currency ? fmt(d[valueKey]) : fmtNum(d[valueKey])}
                   </span>
                 </div>
-                <div className="h-1.5 rounded-full" style={{ background: 'rgba(14,40,65,0.07)' }}>
+                <div className="h-1.5 rounded-full" style={{ background: 'var(--bdr)' }}>
                   <div className="h-full rounded-full transition-all"
                     style={{ width: `${(n(d[valueKey]) / maxVal) * 100}%`, background: NAVY }} />
                 </div>
@@ -607,16 +610,16 @@ export function Page({
       <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
         <div>
           {dept && deptPath && (
-            <p className="text-[13px] text-slate-400 mb-1">
-              <Link to={deptPath} className="text-slate-600 font-medium hover:text-slate-900 hover:underline">{dept}</Link>
-              <span className="mx-1.5 text-slate-300">›</span>
-              <span className="text-slate-500">{title}</span>
+            <p className="text-[13px] mb-1" style={{ color: 'var(--txt2)' }}>
+              <Link to={deptPath} className="font-medium hover:underline" style={{ color: 'var(--txt)' }}>{dept}</Link>
+              <span className="mx-1.5" style={{ color: 'var(--bdr)' }}>›</span>
+              <span style={{ color: 'var(--txt2)' }}>{title}</span>
             </p>
           )}
-          <h1 className="text-[26px] font-bold tracking-tight text-slate-900 leading-tight">
+          <h1 className="text-[26px] font-bold tracking-tight leading-tight" style={{ color: 'var(--txt)' }}>
             {title}
           </h1>
-          {subtitle && <p className="text-[13px] text-slate-400 mt-0.5">{subtitle}</p>}
+          {subtitle && <p className="text-[13px] mt-0.5" style={{ color: 'var(--txt2)' }}>{subtitle}</p>}
         </div>
         {actions && <div className="flex items-center gap-2 flex-wrap">{actions}</div>}
       </div>

@@ -304,10 +304,6 @@ export default function TicketList() {
   // Sort state
   const [sortBy,  setSortBy]  = useState<'created_at' | 'priority' | 'sla_due_at'>('created_at')
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
-  const [syncing,         setSyncing]         = useState(false)
-  const [syncingThreads,  setSyncingThreads]  = useState(false)
-  const [lastSyncedAt,    setLastSyncedAt]    = useState<Date | null>(null)
-  const [lastThreadSyncAt, setLastThreadSyncAt] = useState<Date | null>(null)
   const [refreshKey,      setRefreshKey]      = useState(0)
   function toggleSort(col: typeof sortBy) {
     setSortBy(prev => {
@@ -403,34 +399,6 @@ export default function TicketList() {
     setSelectedIds(new Set())
   }
 
-  async function syncThreads() {
-    setSyncingThreads(true)
-    try {
-      const res = await apiPost<{ imported: number; tickets: number }>('/api/zoho/desk/import-threads', {})
-      toast.success(`Imported ${res.imported} messages across ${res.tickets} tickets`)
-      setLastThreadSyncAt(new Date())
-      setRefreshKey(k => k + 1)
-    } catch (e: any) {
-      toast.error(e.message || 'Thread sync failed')
-    } finally {
-      setSyncingThreads(false)
-    }
-  }
-
-  async function syncFromZoho() {
-    setSyncing(true)
-    try {
-      const res = await apiPost<{ synced: number; failed: number }>('/api/zoho/desk/resync', {})
-      toast.success(`Synced ${res.synced} tickets from Zoho${res.failed ? ` (${res.failed} failed)` : ''}`)
-      setLastSyncedAt(new Date())
-      setRefreshKey(k => k + 1)
-    } catch (e: any) {
-      toast.error(e.message || 'Sync failed')
-    } finally {
-      setSyncing(false)
-    }
-  }
-
   return (
     <Page
       dept="Customer Service"
@@ -439,40 +407,6 @@ export default function TicketList() {
       actions={
         <div className="flex items-center gap-2">
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); setPage(1) }} />
-          <div className="flex flex-col items-end gap-0.5">
-            <button
-              onClick={syncThreads}
-              disabled={syncingThreads}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-semibold border transition-all disabled:opacity-50"
-              style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY }}
-              title="Import message threads from Zoho Desk"
-            >
-              {syncingThreads ? <Spinner size={14} /> : <span className="material-symbols-rounded text-[16px]">chat_bubble_outline</span>}
-              Sync Messages
-            </button>
-            {lastThreadSyncAt && (
-              <span className="text-[10px] text-slate-400">
-                Last: {lastThreadSyncAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            )}
-          </div>
-          <div className="flex flex-col items-end gap-0.5">
-            <button
-              onClick={syncFromZoho}
-              disabled={syncing}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-semibold border transition-all disabled:opacity-50"
-              style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY }}
-              title="Re-sync ticket status from Zoho Desk"
-            >
-              {syncing ? <Spinner size={14} /> : <span className="material-symbols-rounded text-[16px]">sync</span>}
-              Sync Tickets
-            </button>
-            {lastSyncedAt && (
-              <span className="text-[10px] text-slate-400">
-                Last: {lastSyncedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            )}
-          </div>
           <button
             onClick={() => setCompose(true)}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold text-white"
