@@ -303,6 +303,7 @@ export default function TicketList() {
   const [sortBy,  setSortBy]  = useState<'created_at' | 'priority' | 'sla_due_at'>('created_at')
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
   const [refreshKey,      setRefreshKey]      = useState(0)
+  const [lastSynced,      setLastSynced]      = useState<Date | null>(null)
   function toggleSort(col: typeof sortBy) {
     setSortBy(prev => {
       if (prev === col) { setSortDir(d => d === 'desc' ? 'asc' : 'desc'); return prev }
@@ -348,7 +349,7 @@ export default function TicketList() {
     params.set('per_page', String(PER_PAGE))
 
     apiFetch<TicketPage>(`/api/helpdesk/tickets?${params}`)
-      .then(setTicketPage)
+      .then(data => { setTicketPage(data); setLastSynced(new Date()) })
       .catch((e: Error) => setErr(e.message))
       .finally(() => setLoading(false))
   }, [status, priority, channel, department, assignedTo, searchQ, myTickets, page, dateFrom, dateTo, refreshKey])
@@ -405,6 +406,26 @@ export default function TicketList() {
       actions={
         <div className="flex items-center gap-2">
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); setPage(1) }} />
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setRefreshKey(k => k + 1)}
+              title="Refresh tickets"
+              className="flex items-center gap-1 px-3 py-2 rounded-lg border text-[12px] font-medium transition-all"
+              style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#64748B', background: 'white' }}
+            >
+              <span className="material-symbols-rounded text-[15px]">refresh</span>
+            </button>
+            {lastSynced && (
+              <span className="text-[11px] whitespace-nowrap" style={{ color: '#94A3B8' }}>
+                Synced {(() => {
+                  const s = Math.floor((Date.now() - lastSynced.getTime()) / 1000)
+                  if (s < 60) return 'just now'
+                  if (s < 3600) return `${Math.floor(s / 60)}m ago`
+                  return `${Math.floor(s / 3600)}h ago`
+                })()}
+              </span>
+            )}
+          </div>
           <button
             onClick={() => navigate('/helpdesk/new')}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold text-white"

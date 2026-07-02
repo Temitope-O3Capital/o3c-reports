@@ -109,9 +109,7 @@ export default function Promises() {
 
   const todayIso = new Date().toISOString().slice(0, 10)
 
-  const filtered = (statusF ? rows.filter(r => r.status === statusF) : rows)
-    .slice()
-    .sort((a, b) => (a.promise_date < b.promise_date ? -1 : 1))
+  const filtered = statusF ? rows.filter(r => r.status === statusF) : rows
 
   function rowBg(r: PromiseRow): string | undefined {
     if (r.status === 'honoured') return 'rgba(5,150,105,0.05)'
