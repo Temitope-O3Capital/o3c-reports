@@ -340,6 +340,7 @@ var RolePages = map[string][]string{
 		"sars", "watch_list", "audit_findings",
 		"kpi_dashboard", "reports", "approvals", "statements", "admin_users", "settings", "sync_status",
 		"active_loan_book", "telemarketing", "telemarketing_stats", "bd", "bd_employers", "bd_pipeline",
+		"helpdesk_kb",
 	},
 	"coo": {
 		"overview", "executive", "transactions", "income", "eod", "uploads",
@@ -441,7 +442,7 @@ var RolePages = map[string][]string{
 	},
 	"call_center_head": {
 		"overview", "call_center", "customer360", "transactions",
-		"crm_contacts", "uploads", "kpi_dashboard", "statements",
+		"crm_contacts", "uploads", "kpi_dashboard", "statements", "helpdesk_kb",
 	},
 
 	// ── HR ─────────────────────────────────────────────────────────────────────
@@ -500,6 +501,7 @@ var RolePages = map[string][]string{
 		"recovery_assign", "recovery_write_off",
 		"kpi_dashboard", "reports", "statements", "admin_users", "admin_api_keys", "settings", "sync_status",
 		"active_loan_book", "telemarketing", "telemarketing_stats", "bd", "bd_employers", "bd_pipeline",
+		"helpdesk_kb",
 	},
 	"management": {
 		"overview", "executive", "transactions", "income", "eod", "uploads",

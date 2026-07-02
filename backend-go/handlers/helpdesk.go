@@ -98,6 +98,18 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 	r.Get("/calls", hdListCalls(db))
 	r.Post("/calls", hdLogCall(db))
 	r.Get("/calls/stats", hdCallStats(db))
+
+	// Knowledge Base
+	r.Get("/kb", hdKBList(db))
+	r.Post("/kb", hdKBCreate(db))
+	r.Get("/kb/search", hdKBSearch(db))
+	r.Get("/kb/{id}", hdKBGet(db))
+	r.Put("/kb/{id}", hdKBUpdate(db))
+	r.Delete("/kb/{id}", hdKBDelete(db))
+	r.Post("/kb/{id}/view", hdKBIncView(db))
+
+	// Inbound call auto-ticket webhook (Zoho Voice)
+	r.Post("/inbound/call", hdInboundCall(db))
 }
 
 // ── Tickets ───────────────────────────────────────────────────────────────────
@@ -1986,5 +1998,311 @@ func hdCallStats(db *core.DB) http.HandlerFunc {
 			"by_day":     byDay,
 			"by_agent":   byAgent,
 		})
+	}
+}
+
+// ── Knowledge Base ─────────────────────────────────────────────────────────────
+
+func ensureKBSchema(ctx context.Context, db *core.DB) error {
+	_, err := db.PGExec(ctx, `
+		CREATE TABLE IF NOT EXISTS helpdesk_knowledge_base (
+			id          BIGSERIAL PRIMARY KEY,
+			title       TEXT NOT NULL,
+			slug        TEXT UNIQUE NOT NULL,
+			category    TEXT NOT NULL DEFAULT '',
+			body_html   TEXT NOT NULL DEFAULT '',
+			body_text   TEXT NOT NULL DEFAULT '',
+			tags        TEXT[] DEFAULT '{}',
+			is_public   BOOL DEFAULT false,
+			view_count  INT DEFAULT 0,
+			created_by  BIGINT,
+			updated_by  BIGINT,
+			created_at  TIMESTAMPTZ DEFAULT NOW(),
+			updated_at  TIMESTAMPTZ DEFAULT NOW()
+		);
+		CREATE INDEX IF NOT EXISTS idx_hkb_fts ON helpdesk_knowledge_base
+			USING GIN (to_tsvector('english', title || ' ' || body_text));
+		CREATE INDEX IF NOT EXISTS idx_hkb_category ON helpdesk_knowledge_base (category);
+	`)
+	return err
+}
+
+func hdKBList(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureKBSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Schema setup failed")
+			return
+		}
+		ctx := r.Context()
+		category := r.URL.Query().Get("category")
+		search := r.URL.Query().Get("search")
+
+		q := `SELECT id, title, slug, category, tags, is_public, view_count, created_at, updated_at
+		      FROM helpdesk_knowledge_base WHERE TRUE`
+		args := []any{}
+		n := 1
+		if category != "" {
+			q += fmt.Sprintf(" AND category=$%d", n)
+			args = append(args, category)
+			n++
+		}
+		if search != "" {
+			q += fmt.Sprintf(" AND (title ILIKE $%d OR body_text ILIKE $%d)", n, n)
+			args = append(args, "%"+search+"%")
+			n++
+		}
+		q += " ORDER BY updated_at DESC LIMIT 200"
+		_ = n
+
+		rows, _ := db.PGQuery(ctx, q, args...)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
+	}
+}
+
+func hdKBCreate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureKBSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Schema setup failed")
+			return
+		}
+		var b struct {
+			Title    string   `json:"title"`
+			Slug     string   `json:"slug"`
+			Category string   `json:"category"`
+			BodyHTML string   `json:"body_html"`
+			BodyText string   `json:"body_text"`
+			Tags     []string `json:"tags"`
+			IsPublic bool     `json:"is_public"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.Title == "" {
+			respondErr(w, 400, "title required")
+			return
+		}
+		if b.Slug == "" {
+			b.Slug = strings.ToLower(strings.ReplaceAll(b.Title, " ", "-"))
+		}
+		tags := b.Tags
+		if tags == nil {
+			tags = []string{}
+		}
+		uid := func() int64 {
+			if u := core.UserFromCtx(r.Context()); u != nil {
+				return u.ID
+			}
+			return 0
+		}()
+		ctx := r.Context()
+		rows, err := db.PGQuery(ctx, `
+			INSERT INTO helpdesk_knowledge_base (title, slug, category, body_html, body_text, tags, is_public, created_by, updated_by)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)
+			RETURNING id, title, slug, category, tags, is_public, view_count, created_at, updated_at`,
+			b.Title, b.Slug, b.Category, b.BodyHTML, b.BodyText, tags, b.IsPublic, uid)
+		if err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		if len(rows) > 0 {
+			json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+		}
+	}
+}
+
+func hdKBSearch(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureKBSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Schema setup failed")
+			return
+		}
+		q := r.URL.Query().Get("q")
+		if q == "" {
+			respondErr(w, 400, "q required")
+			return
+		}
+		ctx := r.Context()
+		rows, _ := db.PGQuery(ctx, `
+			SELECT id, title, slug, category, tags, is_public, view_count,
+			       ts_rank(to_tsvector('english', title||' '||body_text), plainto_tsquery('english',$1)) AS rank
+			FROM helpdesk_knowledge_base
+			WHERE to_tsvector('english', title||' '||body_text) @@ plainto_tsquery('english',$1)
+			ORDER BY rank DESC LIMIT 20`, q)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
+	}
+}
+
+func hdKBGet(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureKBSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Schema setup failed")
+			return
+		}
+		id := chi.URLParam(r, "id")
+		ctx := r.Context()
+		rows, err := db.PGQuery(ctx,
+			`SELECT id, title, slug, category, body_html, body_text, tags, is_public, view_count, created_at, updated_at
+			 FROM helpdesk_knowledge_base WHERE id=$1`, id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "not found")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+func hdKBIncView(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureKBSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Schema setup failed")
+			return
+		}
+		id := chi.URLParam(r, "id")
+		db.PGExec(r.Context(), `UPDATE helpdesk_knowledge_base SET view_count=view_count+1 WHERE id=$1`, id) //nolint:errcheck
+		w.WriteHeader(204)
+	}
+}
+
+func hdKBUpdate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureKBSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Schema setup failed")
+			return
+		}
+		id := chi.URLParam(r, "id")
+		var b struct {
+			Title    *string  `json:"title"`
+			Category *string  `json:"category"`
+			BodyHTML *string  `json:"body_html"`
+			BodyText *string  `json:"body_text"`
+			Tags     []string `json:"tags"`
+			IsPublic *bool    `json:"is_public"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "invalid json")
+			return
+		}
+		uid := func() int64 {
+			if u := core.UserFromCtx(r.Context()); u != nil {
+				return u.ID
+			}
+			return 0
+		}()
+		ctx := r.Context()
+		q := "UPDATE helpdesk_knowledge_base SET updated_at=NOW(), updated_by=$1"
+		args := []any{uid}
+		n := 2
+		add := func(col string, v any) {
+			q += fmt.Sprintf(", %s=$%d", col, n)
+			args = append(args, v)
+			n++
+		}
+		if b.Title != nil {
+			add("title", *b.Title)
+		}
+		if b.Category != nil {
+			add("category", *b.Category)
+		}
+		if b.BodyHTML != nil {
+			add("body_html", *b.BodyHTML)
+		}
+		if b.BodyText != nil {
+			add("body_text", *b.BodyText)
+		}
+		if b.Tags != nil {
+			add("tags", b.Tags)
+		}
+		if b.IsPublic != nil {
+			add("is_public", *b.IsPublic)
+		}
+		if n == 2 {
+			respondErr(w, 400, "nothing to update")
+			return
+		}
+		q += fmt.Sprintf(" WHERE id=$%d", n)
+		args = append(args, id)
+		if _, err := db.PGExec(ctx, q, args...); err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+		w.WriteHeader(204)
+	}
+}
+
+func hdKBDelete(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureKBSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Schema setup failed")
+			return
+		}
+		id := chi.URLParam(r, "id")
+		db.PGExec(r.Context(), `DELETE FROM helpdesk_knowledge_base WHERE id=$1`, id) //nolint:errcheck
+		w.WriteHeader(204)
+	}
+}
+
+// ── Inbound Call → Auto-Ticket (Zoho Voice webhook) ──────────────────────────
+
+func hdInboundCall(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			Phone       string `json:"phone"`
+			AgentID     int64  `json:"agent_id"`
+			AgentName   string `json:"agent_name"`
+			CallID      string `json:"call_id"`
+			QueueName   string `json:"queue_name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "invalid json")
+			return
+		}
+		if b.Phone == "" {
+			respondErr(w, 400, "phone required")
+			return
+		}
+		ctx := r.Context()
+
+		// Determine queue from routing rules (default: general)
+		queue := "general"
+		if b.QueueName != "" {
+			queue = b.QueueName
+		}
+
+		// Auto-create ticket
+		subject := "Inbound Call — " + b.Phone
+		body := "Auto-created from inbound call. Caller: " + b.Phone
+		if b.CallID != "" {
+			body += ". Call ID: " + b.CallID
+		}
+
+		assignedTo := (*int64)(nil)
+		if b.AgentID != 0 {
+			assignedTo = &b.AgentID
+		}
+
+		var agentName *string
+		if b.AgentName != "" {
+			agentName = &b.AgentName
+		}
+		_ = agentName
+
+		rows, err := db.PGQuery(ctx, `
+			INSERT INTO helpdesk_tickets
+			  (subject, body, channel, status, priority, queue, ticket_type, assigned_to)
+			VALUES ($1, $2, 'phone', 'open', 'normal', $3, 'inbound_call', $4)
+			RETURNING id, subject, status, queue, ticket_type, created_at`,
+			subject, body, queue, assignedTo)
+		if err != nil {
+			slog.Error("inbound call ticket creation failed", "err", err)
+			respondErr(w, 500, "failed to create ticket")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		if len(rows) > 0 {
+			json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+		}
 	}
 }

@@ -150,6 +150,7 @@ const MailDrafts  = lazy(() => import('./pages/mail/MailDrafts'))
 const CallLog         = lazy(() => import('./pages/helpdesk/CallLog'))
 const NewTicketPage   = lazy(() => import('./pages/helpdesk/NewTicketPage'))
 const SupervisorPage  = lazy(() => import('./pages/helpdesk/Supervisor'))
+const KnowledgeBase   = lazy(() => import('./pages/helpdesk/KnowledgeBase'))
 
 // Telemarketing
 const TelemarketingOverview = lazy(() => import('./pages/telemarketing/Overview'))
@@ -710,8 +711,9 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                 <Route path="/helpdesk/stats"      element={<PageErrorBoundary><RequireAccess page="helpdesk_stats" user={user}><HelpdeskStats /></RequireAccess></PageErrorBoundary>} />
                 <Route path="/helpdesk/canned"     element={<PageErrorBoundary><RequireAccess page="helpdesk_canned" user={user}><CannedResponses /></RequireAccess></PageErrorBoundary>} />
                 <Route path="/helpdesk/calls"      element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><CallLog /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/helpdesk/supervisor" element={<PageErrorBoundary><RequireAccess page="helpdesk_stats" user={user}><SupervisorPage /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/helpdesk/:id"        element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><TicketDetail /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/helpdesk/supervisor"      element={<PageErrorBoundary><RequireAccess page="helpdesk_stats" user={user}><SupervisorPage /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/helpdesk/knowledge-base" element={<PageErrorBoundary><RequireAccess page="helpdesk_kb" user={user}><KnowledgeBase /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/helpdesk/:id"             element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><TicketDetail /></RequireAccess></PageErrorBoundary>} />
 
                 {/* ── Telemarketing ── */}
                 <Route path="/telemarketing"       element={<PageErrorBoundary><RequireAccess page="telemarketing" user={user}><TelemarketingOverview /></RequireAccess></PageErrorBoundary>} />

@@ -164,6 +164,7 @@ const SECTIONS: NavSection[] = [
           { label: 'Supervisor',       to: '/helpdesk/supervisor' },
           { label: 'Analytics',        to: '/helpdesk/stats' },
           { label: 'Canned Responses', to: '/helpdesk/canned' },
+          { label: 'Knowledge Base',   to: '/helpdesk/knowledge-base' },
         ],
       },
     ],
