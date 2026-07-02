@@ -13,6 +13,7 @@ export async function apiFetch<T = any>(path: string, init?: RequestInit): Promi
   try {
     const res = await fetch(`${API}${path}`, {
       ...init,
+      credentials: 'include',
       signal: init?.signal ?? controller.signal,
       headers: {
         'Content-Type': 'application/json',
@@ -50,6 +51,7 @@ export async function apiDelete(path: string): Promise<void> {
 export async function apiExport(path: string, filename: string): Promise<void> {
   const token = localStorage.getItem('o3c_token')
   const res = await fetch(`${API}${path}`, {
+    credentials: 'include',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
   if (res.status === 401) {

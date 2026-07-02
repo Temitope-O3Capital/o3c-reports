@@ -23,7 +23,6 @@ import { fmtDate } from '../../lib/fmt'
 import { Page, KpiCard, SectionCard, Spinner, ErrBanner, DateFilter, NAVY, RED, AMBER, GREEN, BLUE } from '../../components/UI'
 import { StatusPill, PriorityPill } from './components'
 import { today, yearStart } from '../../lib/fmt'
-import ComposeTicket from './ComposeTicket'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface HelpdeskStats {
@@ -286,7 +285,6 @@ export default function TicketList() {
   const [search,     setSearch]     = useState('')
   const [searchQ,    setSearchQ]    = useState('')  // debounced
   const [myTickets,  setMyTickets]  = useState(false)
-  const [compose,    setCompose]    = useState(false)
   const [dateFrom,   setDateFrom]   = useState(yearStart())
   const [dateTo,     setDateTo]     = useState(today())
 
@@ -408,7 +406,7 @@ export default function TicketList() {
         <div className="flex items-center gap-2">
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); setPage(1) }} />
           <button
-            onClick={() => setCompose(true)}
+            onClick={() => navigate('/helpdesk/new')}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold text-white"
             style={{ background: NAVY }}
           >
@@ -668,16 +666,6 @@ export default function TicketList() {
           </div>
         )}
       </SectionCard>
-
-      {/* Compose modal */}
-      <ComposeTicket
-        open={compose}
-        onClose={() => setCompose(false)}
-        onCreated={ticket => {
-          setCompose(false)
-          navigate(`/helpdesk/${ticket.id}`)
-        }}
-      />
 
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (

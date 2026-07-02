@@ -147,7 +147,9 @@ const MailCompose = lazy(() => import('./pages/mail/MailCompose'))
 const MailDrafts  = lazy(() => import('./pages/mail/MailDrafts'))
 
 // Helpdesk additions
-const CallLog = lazy(() => import('./pages/helpdesk/CallLog'))
+const CallLog         = lazy(() => import('./pages/helpdesk/CallLog'))
+const NewTicketPage   = lazy(() => import('./pages/helpdesk/NewTicketPage'))
+const SupervisorPage  = lazy(() => import('./pages/helpdesk/Supervisor'))
 
 // Reports & Approvals
 const Reports          = lazy(() => import('./pages/reports/Reports'))
@@ -690,9 +692,11 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                 {/* ── Helpdesk ── */}
                 <Route path="/helpdesk"            element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><HelpdeskOverview /></RequireAccess></PageErrorBoundary>} />
                 <Route path="/helpdesk/tickets"    element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><TicketList /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/helpdesk/new"        element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><NewTicketPage /></RequireAccess></PageErrorBoundary>} />
                 <Route path="/helpdesk/stats"      element={<PageErrorBoundary><RequireAccess page="helpdesk_stats" user={user}><HelpdeskStats /></RequireAccess></PageErrorBoundary>} />
                 <Route path="/helpdesk/canned"     element={<PageErrorBoundary><RequireAccess page="helpdesk_canned" user={user}><CannedResponses /></RequireAccess></PageErrorBoundary>} />
                 <Route path="/helpdesk/calls"      element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><CallLog /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/helpdesk/supervisor" element={<PageErrorBoundary><RequireAccess page="helpdesk_stats" user={user}><SupervisorPage /></RequireAccess></PageErrorBoundary>} />
                 <Route path="/helpdesk/:id"        element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><TicketDetail /></RequireAccess></PageErrorBoundary>} />
 
                 {/* ── Settings ── */}

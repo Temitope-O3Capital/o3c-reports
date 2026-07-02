@@ -76,6 +76,7 @@ func ensureHelpdeskColumns(ctx context.Context, db *core.DB) {
 func RegisterHelpdesk(r chi.Router, db *core.DB) {
 	go ensureHelpdeskColumns(context.Background(), db)
 	r.Get("/stats", hdStats(db))
+	r.Get("/supervisor", hdSupervisor(db))
 	r.Post("/tickets", hdCreateTicket(db))
 	r.Get("/tickets", hdListTickets(db))
 	r.Get("/tickets/search", hdSearchTickets(db))
@@ -104,16 +105,19 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 func hdCreateTicket(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b struct {
-			Channel       string  `json:"channel"`
-			Subject       string  `json:"subject"`
-			CustomerCIF   *string `json:"customer_cif"`
-			CustomerName  *string `json:"customer_name"`
-			CustomerEmail *string `json:"customer_email"`
-			CustomerPhone *string `json:"customer_phone"`
-			Priority      *string `json:"priority"`
-			Department    *string `json:"department"`
-			MessageText   string  `json:"message_text"`
-			MessageHTML   *string `json:"message_html"`
+			Channel       string          `json:"channel"`
+			Subject       string          `json:"subject"`
+			CustomerCIF   *string         `json:"customer_cif"`
+			CustomerName  *string         `json:"customer_name"`
+			CustomerEmail *string         `json:"customer_email"`
+			CustomerPhone *string         `json:"customer_phone"`
+			Priority      *string         `json:"priority"`
+			Department    *string         `json:"department"`
+			MessageText   string          `json:"message_text"`
+			MessageHTML   *string         `json:"message_html"`
+			TicketType    *string         `json:"ticket_type"`
+			Queue         *string         `json:"queue"`
+			CustomFields  json.RawMessage `json:"custom_fields"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -137,21 +141,29 @@ func hdCreateTicket(db *core.DB) http.HandlerFunc {
 			priority = *b.Priority
 		}
 
-		// Look up SLA for priority
+		// Look up SLA for priority (DB trigger will also set it from ticket_type)
 		slaDueAt := hdComputeSLADue(r.Context(), db, priority)
+
+		// Custom fields: pass as JSON string for JSONB column; nil if absent
+		var customFieldsArg any
+		if len(b.CustomFields) > 0 && string(b.CustomFields) != "null" && string(b.CustomFields) != "{}" {
+			customFieldsArg = string(b.CustomFields)
+		}
 
 		user := core.UserFromCtx(r.Context())
 
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO helpdesk_tickets
 			    (channel, status, priority, subject, customer_cif, customer_name,
-			     customer_email, customer_phone, department, sla_due_at)
-			VALUES ($1,'open',$2,$3,$4,$5,$6,$7,$8,$9)
+			     customer_email, customer_phone, department, sla_due_at,
+			     ticket_type, queue, custom_fields)
+			VALUES ($1,'open',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 			RETURNING *`,
 			b.Channel, priority, b.Subject,
 			ptrOrNil(b.CustomerCIF), ptrOrNil(b.CustomerName),
 			ptrOrNil(b.CustomerEmail), ptrOrNil(b.CustomerPhone),
-			ptrOrNil(b.Department), slaDueAt)
+			ptrOrNil(b.Department), slaDueAt,
+			ptrOrNil(b.TicketType), ptrOrNil(b.Queue), customFieldsArg)
 		if err != nil {
 			slog.Error("hdCreateTicket: insert ticket", "err", err)
 			respondErr(w, 500, "Could not create ticket")
@@ -1822,6 +1834,86 @@ func hdListCalls(db *core.DB) http.HandlerFunc {
 			return
 		}
 		jsonRows(w, rows)
+	}
+}
+
+// hdSupervisor returns a live snapshot of agent load and queue health for the supervisor view.
+func hdSupervisor(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		totals, _ := db.PGQuery(ctx, `
+			SELECT
+			  COUNT(*) FILTER (WHERE status NOT IN ('closed','resolved'))                               AS open,
+			  COUNT(*) FILTER (WHERE status NOT IN ('closed','resolved') AND sla_due_at < NOW())        AS sla_breached,
+			  COUNT(*) FILTER (WHERE status NOT IN ('closed','resolved') AND assigned_to IS NULL)       AS unassigned,
+			  COUNT(DISTINCT assigned_to) FILTER (WHERE status NOT IN ('closed','resolved')
+			    AND assigned_to IS NOT NULL)                                                             AS active_agents
+			FROM helpdesk_tickets`)
+
+		agents, _ := db.PGQuery(ctx, `
+			SELECT
+			  u.id,
+			  u.full_name,
+			  COUNT(t.id) FILTER (WHERE t.status NOT IN ('closed','resolved'))          AS open_tickets,
+			  COUNT(t.id) FILTER (WHERE t.status NOT IN ('closed','resolved')
+			    AND t.sla_due_at < NOW())                                                AS sla_breached,
+			  MAX(m.created_at)                                                          AS last_reply
+			FROM o3c_users u
+			LEFT JOIN helpdesk_tickets t  ON t.assigned_to = u.id
+			LEFT JOIN helpdesk_messages m ON m.ticket_id = t.id AND m.sender_type = 'agent' AND m.sender_id = u.id::text
+			WHERE u.deleted_at IS NULL AND u.is_active = TRUE
+			  AND (t.id IS NOT NULL OR EXISTS (
+			    SELECT 1 FROM helpdesk_tickets tt WHERE tt.assigned_to = u.id AND tt.status NOT IN ('closed','resolved')
+			  ))
+			GROUP BY u.id, u.full_name
+			ORDER BY open_tickets DESC, u.full_name`)
+
+		queues, _ := db.PGQuery(ctx, `
+			SELECT
+			  COALESCE(queue, 'general')                                                  AS queue,
+			  COUNT(*) FILTER (WHERE status NOT IN ('closed','resolved'))                AS open,
+			  COUNT(*) FILTER (WHERE status NOT IN ('closed','resolved')
+			    AND sla_due_at < NOW())                                                   AS sla_breached,
+			  COUNT(*) FILTER (WHERE status NOT IN ('closed','resolved')
+			    AND assigned_to IS NULL)                                                  AS unassigned
+			FROM helpdesk_tickets
+			GROUP BY COALESCE(queue, 'general')
+			ORDER BY open DESC`)
+
+		recentBreaches, _ := db.PGQuery(ctx, `
+			SELECT t.id, t.ticket_ref, t.subject, t.priority,
+			       t.sla_due_at, t.created_at,
+			       u.full_name AS assigned_to_name
+			FROM helpdesk_tickets t
+			LEFT JOIN o3c_users u ON u.id = t.assigned_to
+			WHERE t.status NOT IN ('closed','resolved')
+			  AND t.sla_due_at IS NOT NULL
+			  AND t.sla_due_at < NOW()
+			ORDER BY t.sla_due_at ASC
+			LIMIT 10`)
+
+		totalsRow := map[string]any{"open": 0, "sla_breached": 0, "unassigned": 0, "active_agents": 0}
+		if len(totals) > 0 {
+			totalsRow = totals[0]
+		}
+		if agents == nil {
+			agents = []map[string]any{}
+		}
+		if queues == nil {
+			queues = []map[string]any{}
+		}
+		if recentBreaches == nil {
+			recentBreaches = []map[string]any{}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"totals":          totalsRow,
+			"agents":          agents,
+			"queues":          queues,
+			"recent_breaches": recentBreaches,
+		})
 	}
 }
 

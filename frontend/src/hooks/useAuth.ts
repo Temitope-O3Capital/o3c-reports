@@ -111,6 +111,7 @@ export function useAuth() {
     if (!token) { setLoading(false); return }
     // Validate token server-side on every load — catches revoked tokens and syncs pages.
     fetch(`${API}/api/auth/me`, {
+      credentials: 'include',
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(r => r.ok ? r.json() : null)
@@ -135,6 +136,35 @@ export function useAuth() {
         }
       })
       .finally(() => setLoading(false))
+  }, [])
+
+  // Silent token refresh: check every 60 s, refresh when < 30 min to expiry
+  useEffect(() => {
+    const tick = async () => {
+      const token = localStorage.getItem('o3c_token')
+      if (!token) return
+      const payload = parseToken(token)
+      if (!payload?.exp) return
+      const secsLeft = payload.exp - Math.floor(Date.now() / 1000)
+      if (secsLeft > 30 * 60) return  // more than 30 min left — no action
+      try {
+        const res = await fetch(`${API}/api/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        if (data.access_token) {
+          localStorage.setItem('o3c_token', data.access_token)
+        }
+      } catch {
+        // Network hiccup — ignore; next tick will retry
+      }
+    }
+    tick() // run immediately on mount too
+    const id = setInterval(tick, 60_000)
+    return () => clearInterval(id)
   }, [])
 
   const login = useCallback(async (email: string, password: string): Promise<AuthUser> => {

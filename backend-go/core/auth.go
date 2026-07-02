@@ -22,6 +22,9 @@ const tokenExpiry = 8 * time.Hour
 const sseTokenAudience = "o3c:sse"
 const sseTokenExpiry = 2 * time.Minute
 
+const mfaTokenAudience = "o3c:mfa"
+const mfaTokenExpiry = 10 * time.Minute
+
 // Claims is the JWT payload.
 type Claims struct {
 	Sub        string   `json:"sub"`
@@ -121,6 +124,35 @@ func CreateSSEToken(userID int64) (string, error) {
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString([]byte(secretKey))
 }
 
+// CreateMFAToken issues a short-lived (10 min) challenge token after a successful
+// password check when the user has TOTP enabled. The token only contains the user
+// ID; it must be exchanged for a full access token via POST /api/auth/totp/challenge.
+func CreateMFAToken(userID int64) (string, error) {
+	c := &Claims{
+		ID: userID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(mfaTokenExpiry)),
+			Audience:  jwt.ClaimStrings{mfaTokenAudience},
+		},
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString([]byte(secretKey))
+}
+
+// VerifyMFAToken validates a token issued by CreateMFAToken and returns the user ID.
+func VerifyMFAToken(raw string) (int64, error) {
+	c := &Claims{}
+	_, err := jwt.ParseWithClaims(raw, c, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(secretKey), nil
+	}, jwt.WithAudience(mfaTokenAudience))
+	if err != nil {
+		return 0, err
+	}
+	return c.ID, nil
+}
+
 // VerifySSEToken validates a ticket issued by CreateSSEToken.
 func VerifySSEToken(raw string) (*Claims, error) {
 	c := &Claims{}
@@ -159,16 +191,21 @@ func CheckPassword(plain, hashed string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hashed), []byte(plain)) == nil
 }
 
-// AuthMiddleware validates the Bearer token and populates the request context.
-// It also checks the JTI denylist so that explicitly revoked tokens (logout) are rejected.
+// AuthMiddleware validates the Bearer token (or o3c_token HttpOnly cookie as fallback)
+// and populates the request context. Also checks the JTI denylist.
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		header := r.Header.Get("Authorization")
-		if !strings.HasPrefix(header, "Bearer ") {
+		raw := ""
+		if header := r.Header.Get("Authorization"); strings.HasPrefix(header, "Bearer ") {
+			raw = strings.TrimPrefix(header, "Bearer ")
+		} else if cookie, err := r.Cookie("o3c_token"); err == nil {
+			raw = cookie.Value
+		}
+		if raw == "" {
 			authErr(w, 401, "Unauthorized")
 			return
 		}
-		claims, err := VerifyToken(strings.TrimPrefix(header, "Bearer "))
+		claims, err := VerifyToken(raw)
 		if err != nil {
 			authErr(w, 401, "Invalid or expired token")
 			return

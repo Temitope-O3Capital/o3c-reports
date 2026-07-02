@@ -1,6 +1,9 @@
 import { useState } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
 import { Page, SectionCard, NAVY } from '../components/UI'
 import { roleLabel } from '../lib/roles'
+import { apiFetch } from '../lib/api'
+import { toast } from 'sonner'
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
@@ -12,6 +15,8 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void 
     </button>
   )
 }
+
+type TOTPStep = 'idle' | 'setup' | 'verify' | 'enabled'
 
 export default function Settings() {
   const user = JSON.parse(localStorage.getItem('o3c_user') || '{}')
@@ -26,6 +31,70 @@ export default function Settings() {
 
   function toggle(key: keyof typeof notif) {
     setNotif(n => ({ ...n, [key]: !n[key] }))
+  }
+
+  // ── TOTP state ────────────────────────────────────────────────────────────
+  const [totpStep,    setTotpStep]    = useState<TOTPStep>('idle')
+  const [totpSecret,  setTotpSecret]  = useState('')
+  const [totpURI,     setTotpURI]     = useState('')
+  const [totpCode,    setTotpCode]    = useState('')
+  const [totpLoading, setTotpLoading] = useState(false)
+  const [totpEnabled, setTotpEnabled] = useState(false)   // derived from server on mount
+
+  // Disable TOTP state
+  const [showDisable,   setShowDisable]   = useState(false)
+  const [disableCode,   setDisableCode]   = useState('')
+  const [disableLoading,setDisableLoading]= useState(false)
+
+  async function startSetup() {
+    setTotpLoading(true)
+    try {
+      const d = await apiFetch('/api/auth/totp/setup', { method: 'POST' })
+      setTotpSecret(d.secret)
+      setTotpURI(d.uri)
+      setTotpStep('setup')
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to start setup')
+    } finally {
+      setTotpLoading(false)
+    }
+  }
+
+  async function verifyCode() {
+    if (totpCode.length !== 6) return
+    setTotpLoading(true)
+    try {
+      await apiFetch('/api/auth/totp/verify', {
+        method: 'POST',
+        body: JSON.stringify({ code: totpCode }),
+      })
+      setTotpStep('enabled')
+      setTotpEnabled(true)
+      toast.success('Two-factor authentication enabled')
+    } catch (e: any) {
+      toast.error(e.message || 'Invalid code — try again')
+    } finally {
+      setTotpLoading(false)
+    }
+  }
+
+  async function disableTOTP() {
+    setDisableLoading(true)
+    try {
+      await apiFetch('/api/auth/totp/disable', {
+        method: 'POST',
+        body: JSON.stringify({ code: disableCode }),
+      })
+      setTotpEnabled(false)
+      setTotpStep('idle')
+      setShowDisable(false)
+      setDisableCode('')
+      toast.success('Two-factor authentication disabled')
+    } catch (e: any) {
+      toast.error(e.message || 'Invalid code')
+    } finally {
+      setDisableLoading(false)
+    }
   }
 
   return (
@@ -67,6 +136,115 @@ export default function Settings() {
               </div>
             ))}
           </div>
+        </div>
+      </SectionCard>
+
+      {/* Security / TOTP */}
+      <SectionCard title="Security" subtitle="Two-factor authentication" className="mb-4">
+        <div className="px-5 py-4">
+          {totpEnabled || totpStep === 'enabled' ? (
+            /* ── TOTP enabled state ── */
+            <div>
+              <div className="flex items-center gap-3 p-4 rounded-xl mb-4"
+                style={{ background: 'rgba(5,150,105,0.06)', border: '1px solid rgba(5,150,105,0.14)' }}>
+                <span className="material-symbols-rounded text-[20px]" style={{ color: '#059669' }}>verified_user</span>
+                <div>
+                  <p className="text-[13px] font-semibold" style={{ color: '#059669' }}>Two-factor authentication is active</p>
+                  <p className="text-[12px] text-slate-500 mt-0.5">Your account requires an authenticator code on every login.</p>
+                </div>
+              </div>
+              {!showDisable ? (
+                <button onClick={() => setShowDisable(true)}
+                  className="text-[13px] text-slate-500 hover:text-red-600 underline underline-offset-2 transition-colors">
+                  Disable two-factor authentication
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-[13px] text-slate-600">Enter your authenticator code to confirm disabling 2FA:</p>
+                  <input type="text" inputMode="numeric" maxLength={6}
+                    value={disableCode}
+                    onChange={e => setDisableCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="000000"
+                    className="w-40 px-3 py-2 text-center text-lg tracking-widest rounded-lg border border-slate-200 outline-none"
+                  />
+                  <div className="flex gap-2">
+                    <button onClick={disableTOTP} disabled={disableLoading || disableCode.length !== 6}
+                      className="px-4 py-2 text-sm font-semibold text-white rounded-lg disabled:opacity-60 transition-colors"
+                      style={{ background: '#C00000' }}>
+                      {disableLoading ? 'Disabling…' : 'Disable 2FA'}
+                    </button>
+                    <button onClick={() => { setShowDisable(false); setDisableCode('') }}
+                      className="px-4 py-2 text-sm text-slate-500 hover:text-slate-800 rounded-lg transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : totpStep === 'idle' ? (
+            /* ── Idle: offer to enable ── */
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: 'rgba(14,40,65,0.06)' }}>
+                <span className="material-symbols-rounded text-[20px]" style={{ color: NAVY }}>phonelink_lock</span>
+              </div>
+              <div className="flex-1">
+                <p className="text-[13px] font-semibold text-slate-700">Authenticator app (TOTP)</p>
+                <p className="text-[12px] text-slate-400 mt-0.5 mb-3">
+                  Add an extra layer of security. Use Google Authenticator, Authy, or any TOTP app.
+                </p>
+                <button onClick={startSetup} disabled={totpLoading}
+                  className="px-4 py-2 text-sm font-semibold text-white rounded-lg disabled:opacity-60 transition-colors"
+                  style={{ background: NAVY }}>
+                  {totpLoading ? 'Setting up…' : 'Enable two-factor authentication'}
+                </button>
+              </div>
+            </div>
+          ) : totpStep === 'setup' ? (
+            /* ── QR code + manual secret ── */
+            <div className="space-y-5">
+              <p className="text-[13px] text-slate-600">
+                Scan this QR code with your authenticator app, then enter the 6-digit code to verify.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-6 items-start">
+                <div className="p-3 bg-white border border-slate-200 rounded-xl shadow-sm">
+                  <QRCodeSVG value={totpURI} size={160} level="M" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Manual entry key</p>
+                  <code className="block text-[13px] font-mono bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 break-all select-all">
+                    {totpSecret}
+                  </code>
+                  <p className="text-[11.5px] text-slate-400 mt-2">
+                    If you can't scan the code, enter this key manually in your authenticator app.
+                  </p>
+                </div>
+              </div>
+              <div className="pt-2 border-t" style={{ borderColor: 'rgba(15,23,42,0.07)' }}>
+                <p className="text-[13px] text-slate-600 mb-3">Enter the 6-digit code from your authenticator app:</p>
+                <div className="flex items-center gap-3">
+                  <input type="text" inputMode="numeric" maxLength={6}
+                    value={totpCode}
+                    onChange={e => setTotpCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="000000"
+                    autoFocus
+                    className="w-36 px-3 py-2.5 text-center text-xl tracking-[0.4em] rounded-lg border border-slate-200 outline-none transition-all"
+                    onFocus={e => { e.currentTarget.style.borderColor = NAVY; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(14,40,65,0.08)' }}
+                    onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none' }}
+                  />
+                  <button onClick={verifyCode} disabled={totpLoading || totpCode.length !== 6}
+                    className="px-5 py-2.5 text-sm font-semibold text-white rounded-lg disabled:opacity-60 transition-colors"
+                    style={{ background: NAVY }}>
+                    {totpLoading ? 'Verifying…' : 'Verify & Enable'}
+                  </button>
+                  <button onClick={() => { setTotpStep('idle'); setTotpCode('') }}
+                    className="text-sm text-slate-400 hover:text-slate-700 transition-colors">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </SectionCard>
 

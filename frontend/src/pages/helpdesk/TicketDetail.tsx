@@ -213,6 +213,21 @@ export default function TicketDetail() {
   // Patch in-flight guard
   const patchingRef = useRef(false)
 
+  // Right panel
+  const [rightTab, setRightTab]         = useState<'context' | 'actions'>('context')
+  const [c360, setC360]                 = useState<any | null>(null)
+  const [c360Loading, setC360Loading]   = useState(false)
+  const [assignId, setAssignId]         = useState<number | null>(null)
+  const [ptpOpen, setPtpOpen]           = useState(false)
+  const [ptpAmount, setPtpAmount]       = useState('')
+  const [ptpDate, setPtpDate]           = useState('')
+  const [ptpSaving, setPtpSaving]       = useState(false)
+  const [stmtOpen, setStmtOpen]         = useState(false)
+  const [stmtFrom, setStmtFrom]         = useState('')
+  const [stmtTo, setStmtTo]             = useState('')
+  const [stmtSaving, setStmtSaving]     = useState(false)
+  const [escalating, setEscalating]     = useState(false)
+
   // Load ticket
   const load = useCallback(() => {
     if (!id) return
@@ -233,6 +248,27 @@ export default function TicketDetail() {
       .then(rows => setAgents((rows ?? []).map(u => ({ id: u.id, name: u.name ?? u.full_name ?? u.email ?? `User ${u.id}` }))))
       .catch(() => {})
   }, [])
+
+  // Fetch Customer 360 profile once the ticket CIF is known
+  useEffect(() => {
+    const cif = data?.ticket?.customer_cif
+    if (!cif) return
+    setC360Loading(true)
+    apiFetch<any>(`/api/customer360/${cif}`)
+      .then(setC360)
+      .catch(() => {})
+      .finally(() => setC360Loading(false))
+  }, [data?.ticket?.customer_cif])
+
+  // Fetch the collection assignment ID the first time the Actions tab is opened
+  useEffect(() => {
+    if (rightTab !== 'actions') return
+    const cif = data?.ticket?.customer_cif
+    if (!cif) return
+    apiFetch<any[]>(`/api/collections-ops/queue?account_cif=${encodeURIComponent(cif)}&limit=1`)
+      .then(rows => { if (rows?.length) setAssignId(Number(rows[0].id)) })
+      .catch(() => {})
+  }, [rightTab, data?.ticket?.customer_cif])
 
   // Patch ticket field immediately on change
   async function patchTicket(field: string, value: string) {
@@ -296,6 +332,76 @@ export default function TicketDetail() {
     const next = normalizeTags(data?.ticket.tags).filter(t => t !== tag)
     await patchTicket('tags', next.join(','))
     load()
+  }
+
+  async function logPromiseToPay() {
+    if (!ptpAmount || !ptpDate || !assignId) return
+    setPtpSaving(true)
+    try {
+      await apiFetch(`/api/collections-ops/${assignId}/promise`, {
+        method: 'POST',
+        body: JSON.stringify({
+          promised_amount_kobo: Math.round(parseFloat(ptpAmount) * 100),
+          promised_date: ptpDate,
+        }),
+      })
+      setPtpOpen(false); setPtpAmount(''); setPtpDate('')
+      showToast('Promise to pay logged')
+    } catch (e: any) {
+      showToast(e.message || 'Failed to log promise', 'error')
+    } finally {
+      setPtpSaving(false)
+    }
+  }
+
+  async function requestStatement() {
+    if (!stmtFrom || !stmtTo || !ticket) return
+    if (!ticket.customer_email) { showToast('No email address on this ticket', 'error'); return }
+    setStmtSaving(true)
+    try {
+      await apiFetch('/api/statements/send', {
+        method: 'POST',
+        body: JSON.stringify({
+          cif:             ticket.customer_cif,
+          date_from:       stmtFrom,
+          date_to:         stmtTo,
+          recipient_email: ticket.customer_email,
+          subject:         'Your Account Statement',
+          message:         'Please find your account statement attached.',
+        }),
+      })
+      setStmtOpen(false); setStmtFrom(''); setStmtTo('')
+      showToast('Statement sent to customer')
+    } catch (e: any) {
+      showToast(e.message || 'Failed to send statement', 'error')
+    } finally {
+      setStmtSaving(false)
+    }
+  }
+
+  async function escalateToSupervisor() {
+    if (!id || escalating) return
+    setEscalating(true)
+    try {
+      await apiFetch(`/api/helpdesk/tickets/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ priority: 'urgent' }),
+      })
+      await apiFetch(`/api/helpdesk/tickets/${id}/messages`, {
+        method: 'POST',
+        body: JSON.stringify({
+          body_text:        '⚠ Escalated to Supervisor — priority set to Urgent.',
+          is_internal_note: true,
+          channel:          ticket?.channel ?? 'email',
+        }),
+      })
+      load()
+      showToast('Ticket escalated to supervisor')
+    } catch (e: any) {
+      showToast(e.message || 'Escalation failed', 'error')
+    } finally {
+      setEscalating(false)
+    }
   }
 
   if (loading) return (
@@ -637,70 +743,331 @@ export default function TicketDetail() {
           </div>
         </main>
 
-        {/* RIGHT: Customer 360 */}
-        <aside className="w-64 bg-white border-l flex-shrink-0 overflow-y-auto"
+        {/* RIGHT: Customer 360 + Actions */}
+        <aside className="w-64 bg-white border-l flex-shrink-0 flex flex-col overflow-hidden"
           style={{ borderColor: 'rgba(15,23,42,0.09)' }}>
-          <div className="p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-3">
-              Customer 360
+
+          {/* Customer header — always visible */}
+          <div className="px-4 pt-4 pb-3 flex-shrink-0" style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
+            <p className="font-semibold text-slate-800 text-[14px] leading-snug">
+              {ticket.customer_name}
             </p>
-
-            {/* Customer name & CIF */}
-            <div className="mb-4">
-              <p className="font-semibold text-slate-800 text-[14px] leading-snug">
-                {ctx?.full_name ?? ticket.customer_name}
-              </p>
-              {(ctx?.cif_number ?? ticket.customer_cif) && (
-                <span className="text-[11px] font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded mt-1 inline-block">
-                  CIF: {ctx?.cif_number ?? ticket.customer_cif}
-                </span>
-              )}
-            </div>
-
-            {/* Contact */}
+            {ticket.customer_cif && (
+              <span className="text-[11px] font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded mt-1 inline-block">
+                CIF: {ticket.customer_cif}
+              </span>
+            )}
             {ticket.customer_email && (
-              <div className="flex items-center gap-1.5 text-[12px] text-slate-500 mb-1.5">
-                <span className="material-symbols-rounded text-[14px]">email</span>
+              <div className="flex items-center gap-1.5 text-[12px] text-slate-500 mt-1.5">
+                <span className="material-symbols-rounded text-[13px]">email</span>
                 <span className="truncate">{ticket.customer_email}</span>
               </div>
             )}
             {ticket.customer_phone && (
-              <div className="flex items-center gap-1.5 text-[12px] text-slate-500 mb-3">
-                <span className="material-symbols-rounded text-[14px]">phone</span>
+              <div className="flex items-center gap-1.5 text-[12px] text-slate-500 mt-1">
+                <span className="material-symbols-rounded text-[13px]">phone</span>
                 <span>{ticket.customer_phone}</span>
               </div>
             )}
+          </div>
 
-            {/* Zoho Voice Dialer */}
-            <div className="mb-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                Phone
-              </p>
-              <ZohoDialer ticket={ticket} />
-            </div>
-
-            <div style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }} className="pt-3 space-y-2.5">
-              {ctx ? (
-                <>
-                  <Ctx360Item label="Account Status" value={ctx.account_status ?? '—'} />
-                  <Ctx360Item label="Loan Balance" value={fmtKobo(ctx.loan_balance_kobo)} />
-                  <Ctx360Item label="DPD" value={String(ctx.dpd ?? 0)} />
-                  <Ctx360Item label="Open Tickets" value={String(ctx.open_tickets ?? 0)} />
-                </>
-              ) : (
-                <p className="text-[12px] text-slate-400">No profile data</p>
-              )}
-            </div>
-
-            {ticket.customer_cif && (
+          {/* Tab switcher */}
+          <div className="flex flex-shrink-0" style={{ borderBottom: '1px solid rgba(15,23,42,0.09)' }}>
+            {(['context', 'actions'] as const).map(tab => (
               <button
-                onClick={() => navigate(`/customers/${ticket.customer_cif}`)}
-                className="mt-4 w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-semibold border transition-all"
-                style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY }}
+                key={tab}
+                onClick={() => setRightTab(tab)}
+                className="flex-1 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors"
+                style={{
+                  color: rightTab === tab ? NAVY : '#94A3B8',
+                  borderBottom: rightTab === tab ? `2px solid ${NAVY}` : '2px solid transparent',
+                  background: 'transparent',
+                }}
               >
-                <span className="material-symbols-rounded text-[15px]">open_in_new</span>
-                View Profile
+                {tab === 'context' ? '360' : 'Actions'}
               </button>
+            ))}
+          </div>
+
+          {/* Scrollable content */}
+          <div className="flex-1 overflow-y-auto">
+
+            {/* ── 360 context tab ────────────────────────────────────────── */}
+            {rightTab === 'context' && (
+              <div className="p-4 space-y-4">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Phone</p>
+                  <ZohoDialer ticket={ticket} />
+                </div>
+
+                <div style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }} className="pt-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                    Financial Summary
+                  </p>
+                  {c360Loading ? (
+                    <div className="space-y-1.5">
+                      {[...Array(4)].map((_, i) => (
+                        <div key={i} className="skeleton h-4 rounded w-full" />
+                      ))}
+                    </div>
+                  ) : c360?.financial_summary ? (
+                    <div className="space-y-2">
+                      <Ctx360Item label="DPD Bucket"    value={String(c360.financial_summary.dpd_bucket ?? ctx?.dpd ?? '—')} />
+                      <Ctx360Item label="Recovery Bal." value={fmtKobo(c360.financial_summary.recovery_outstanding_kobo ?? ctx?.loan_balance_kobo)} />
+                      <Ctx360Item label="Loan Approved" value={fmtKobo(c360.financial_summary.loan_approved_kobo)} />
+                      <Ctx360Item label="Open Tickets"  value={String(ctx?.open_tickets ?? '—')} />
+                    </div>
+                  ) : ctx ? (
+                    <div className="space-y-2">
+                      <Ctx360Item label="Account Status" value={ctx.account_status ?? '—'} />
+                      <Ctx360Item label="Loan Balance"   value={fmtKobo(ctx.loan_balance_kobo)} />
+                      <Ctx360Item label="DPD"            value={String(ctx.dpd ?? 0)} />
+                      <Ctx360Item label="Open Tickets"   value={String(ctx.open_tickets ?? 0)} />
+                    </div>
+                  ) : (
+                    <p className="text-[12px] text-slate-400">No financial data</p>
+                  )}
+                </div>
+
+                {/* Products */}
+                {(c360?.products as any[])?.length > 0 && (
+                  <div style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }} className="pt-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Products</p>
+                    <div className="space-y-1.5">
+                      {(c360.products as any[]).slice(0, 3).map((p: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between gap-1">
+                          <span className="text-[12px] text-slate-600 truncate">
+                            {p['Product Name'] ?? p.Product_Name ?? '—'}
+                          </span>
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0 ${
+                            (p['Account Status'] ?? p.Account_Status ?? '').toLowerCase().includes('active')
+                              ? 'bg-green-50 text-green-700' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {(p['Account Status'] ?? p.Account_Status ?? '—').slice(0, 8)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Recent Loan Apps */}
+                {(c360?.loan_apps as any[])?.length > 0 && (
+                  <div style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }} className="pt-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Loans</p>
+                    <div className="space-y-2">
+                      {(c360.loan_apps as any[]).slice(0, 2).map((la: any) => (
+                        <div key={la.id} className="rounded-lg p-2" style={{ background: 'rgba(14,40,65,0.04)' }}>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-mono text-slate-500 truncate">{la.reference ?? '—'}</span>
+                            <span className="text-[10px] font-semibold text-slate-500 ml-1">{la.stage ?? la.status ?? '—'}</span>
+                          </div>
+                          <p className="text-[12px] font-semibold text-slate-700 mt-0.5">
+                            {fmtKobo(la.amount_approved_kobo ?? la.amount_requested_kobo)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Recent Transactions */}
+                {(c360?.transactions as any[])?.length > 0 && (
+                  <div style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }} className="pt-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                      Recent Transactions
+                    </p>
+                    <div className="space-y-2">
+                      {(c360.transactions as any[]).slice(0, 3).map((tx: any, i: number) => (
+                        <div key={i} className="flex items-start justify-between gap-1">
+                          <div className="min-w-0">
+                            <p className="text-[11px] text-slate-600 truncate">
+                              {tx.Description ?? tx['Description'] ?? '—'}
+                            </p>
+                            <p className="text-[10px] text-slate-400">
+                              {tx['Transaction Date'] ?? tx.Transaction_Date ?? ''}
+                            </p>
+                          </div>
+                          <span className="text-[11px] font-semibold text-slate-700 whitespace-nowrap">
+                            {tx.Amount ?? tx['Amount'] ?? '—'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {ticket.customer_cif && (
+                  <button
+                    onClick={() => navigate(`/customers/${ticket.customer_cif}`)}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-semibold border transition-all"
+                    style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY }}
+                  >
+                    <span className="material-symbols-rounded text-[15px]">open_in_new</span>
+                    View Full Profile
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* ── Actions tab ───────────────────────────────────────────── */}
+            {rightTab === 'actions' && (
+              <div className="p-4 space-y-2">
+
+                {/* Log Promise to Pay */}
+                <ActionSection>
+                  <ActionBtn
+                    icon="handshake"
+                    label="Log Promise to Pay"
+                    color="#16A34A"
+                    onClick={() => setPtpOpen(o => !o)}
+                  />
+                  {ptpOpen && (
+                    <div className="mt-2 space-y-1.5 pt-2" style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }}>
+                      {assignId === null && (
+                        <p className="text-[11px] text-amber-600">No active collection case found for this CIF.</p>
+                      )}
+                      <label className="block">
+                        <span className="text-[11px] text-slate-400">Amount (₦)</span>
+                        <input
+                          type="number" min="0"
+                          value={ptpAmount}
+                          onChange={e => setPtpAmount(e.target.value)}
+                          placeholder="0.00"
+                          className="w-full mt-0.5 px-2 py-1.5 rounded-lg border text-[12px] outline-none"
+                          style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-[11px] text-slate-400">Promise Date</span>
+                        <input
+                          type="date"
+                          value={ptpDate}
+                          onChange={e => setPtpDate(e.target.value)}
+                          className="w-full mt-0.5 px-2 py-1.5 rounded-lg border text-[12px] outline-none"
+                          style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                        />
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={logPromiseToPay}
+                          disabled={ptpSaving || !ptpAmount || !ptpDate || !assignId}
+                          className="flex-1 py-1.5 rounded-lg text-[11px] font-semibold text-white disabled:opacity-50"
+                          style={{ background: '#16A34A' }}
+                        >
+                          {ptpSaving ? 'Saving…' : 'Log PTP'}
+                        </button>
+                        <button
+                          onClick={() => { setPtpOpen(false); setPtpAmount(''); setPtpDate('') }}
+                          className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 hover:bg-slate-100"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </ActionSection>
+
+                {/* Escalate to Collections */}
+                <ActionSection>
+                  <ActionBtn
+                    icon="assignment_ind"
+                    label="Escalate to Collections"
+                    color={AMBER}
+                    onClick={async () => {
+                      await patchTicket('department', 'collections')
+                      await apiFetch(`/api/helpdesk/tickets/${id}/messages`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                          body_text:        '⚠ Ticket escalated to Collections department.',
+                          is_internal_note: true,
+                          channel:          ticket.channel,
+                        }),
+                      })
+                      load()
+                      showToast('Escalated to Collections')
+                    }}
+                  />
+                </ActionSection>
+
+                {/* Create Application */}
+                <ActionSection>
+                  <ActionBtn
+                    icon="add_circle"
+                    label="Create Application"
+                    color={NAVY}
+                    onClick={() => navigate(`/los/new${ticket.customer_cif ? `?cif=${ticket.customer_cif}` : ''}`)}
+                  />
+                </ActionSection>
+
+                {/* Request Statement */}
+                <ActionSection>
+                  <ActionBtn
+                    icon="description"
+                    label="Request Statement"
+                    color={BLUE}
+                    onClick={() => setStmtOpen(o => !o)}
+                  />
+                  {stmtOpen && (
+                    <div className="mt-2 space-y-1.5 pt-2" style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }}>
+                      {!ticket.customer_email && (
+                        <p className="text-[11px] text-amber-600">No email address on this ticket.</p>
+                      )}
+                      <label className="block">
+                        <span className="text-[11px] text-slate-400">From</span>
+                        <input
+                          type="date"
+                          value={stmtFrom}
+                          onChange={e => setStmtFrom(e.target.value)}
+                          className="w-full mt-0.5 px-2 py-1.5 rounded-lg border text-[12px] outline-none"
+                          style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-[11px] text-slate-400">To</span>
+                        <input
+                          type="date"
+                          value={stmtTo}
+                          onChange={e => setStmtTo(e.target.value)}
+                          className="w-full mt-0.5 px-2 py-1.5 rounded-lg border text-[12px] outline-none"
+                          style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                        />
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={requestStatement}
+                          disabled={stmtSaving || !stmtFrom || !stmtTo || !ticket.customer_email}
+                          className="flex-1 py-1.5 rounded-lg text-[11px] font-semibold text-white disabled:opacity-50"
+                          style={{ background: BLUE }}
+                        >
+                          {stmtSaving ? 'Sending…' : 'Send'}
+                        </button>
+                        <button
+                          onClick={() => { setStmtOpen(false); setStmtFrom(''); setStmtTo('') }}
+                          className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 hover:bg-slate-100"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </ActionSection>
+
+                {/* Escalate to Supervisor */}
+                <ActionSection>
+                  <ActionBtn
+                    icon="supervisor_account"
+                    label={escalating ? 'Escalating…' : 'Escalate to Supervisor'}
+                    color={RED}
+                    disabled={escalating}
+                    onClick={escalateToSupervisor}
+                  />
+                </ActionSection>
+
+                <p className="text-[11px] text-slate-400 text-center pt-1">
+                  All actions are logged internally.
+                </p>
+              </div>
             )}
           </div>
         </aside>
@@ -967,6 +1334,32 @@ function MessageBubble({ msg }: { msg: Message }) {
         </div>
       </div>
     </div>
+  )
+}
+
+function ActionSection({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl overflow-hidden border" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+      <div className="p-2.5">{children}</div>
+    </div>
+  )
+}
+
+function ActionBtn({
+  icon, label, color, onClick, disabled = false,
+}: {
+  icon: string; label: string; color: string; onClick: () => void; disabled?: boolean
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="w-full flex items-center gap-2.5 px-1 py-1 rounded-lg text-[12px] font-semibold transition-all disabled:opacity-50 hover:opacity-80"
+      style={{ color }}
+    >
+      <span className="material-symbols-rounded text-[18px]">{icon}</span>
+      {label}
+    </button>
   )
 }
 

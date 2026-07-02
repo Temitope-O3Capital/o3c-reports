@@ -159,7 +159,9 @@ const SECTIONS: NavSection[] = [
         items: [
           { label: 'Overview',         to: '/helpdesk' },
           { label: 'All Tickets',      to: '/helpdesk/tickets' },
+          { label: 'New Ticket',       to: '/helpdesk/new' },
           { label: 'Call Log',         to: '/helpdesk/calls' },
+          { label: 'Supervisor',       to: '/helpdesk/supervisor' },
           { label: 'Analytics',        to: '/helpdesk/stats' },
           { label: 'Canned Responses', to: '/helpdesk/canned' },
         ],

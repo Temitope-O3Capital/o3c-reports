@@ -96,6 +96,7 @@ func main() {
 			return rightmostIP(r), nil
 		}))).Post("/token", loginPublic(db))
 		r.Post("/bootstrap", handlers.BootstrapHandler(db))
+		r.Post("/refresh", RefreshPublic(db))
 		if cfg.EnableResetAdmin {
 			r.Post("/reset-admin", handlers.ResetAdminHandler(db, cfg.ResetAdminSecret))
 		}
@@ -106,8 +107,16 @@ func main() {
 				return rightmostIP(r), nil
 			}))).Post("/change-password", changePasswordPublic(db))
 			r.Post("/logout", logoutHandler())
+			r.Route("/totp", func(r chi.Router) {
+				handlers.RegisterMFA(r, db)
+			})
 		})
 	})
+
+	// TOTP MFA challenge (public — called after password step, before full auth token)
+	r.With(httprate.Limit(10, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
+		return rightmostIP(r), nil
+	}))).Post("/api/auth/totp/challenge", MFAChallengePublic(db))
 
 	// Public campaign webhooks (Termii / SendGrid — no JWT)
 	r.Route("/api/campaign-webhooks", func(r chi.Router) {
@@ -453,6 +462,28 @@ func loginPublic(db *core.DB) http.HandlerFunc {
 		// Rewrite the path to match what RegisterAuth expects (/token → /token)
 		r2 := r.Clone(r.Context())
 		r2.URL.Path = "/token"
+		sub.ServeHTTP(w, r2)
+	}
+}
+
+// RefreshPublic exposes the /refresh endpoint without auth middleware — the cookie is the credential.
+func RefreshPublic(db *core.DB) http.HandlerFunc {
+	sub := chi.NewRouter()
+	handlers.RegisterAuth(sub, db)
+	return func(w http.ResponseWriter, r *http.Request) {
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/refresh"
+		sub.ServeHTTP(w, r2)
+	}
+}
+
+// MFAChallengePublic exposes the TOTP challenge endpoint — it accepts an MFA token, not a full JWT.
+func MFAChallengePublic(db *core.DB) http.HandlerFunc {
+	sub := chi.NewRouter()
+	handlers.RegisterMFA(sub, db)
+	return func(w http.ResponseWriter, r *http.Request) {
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/challenge"
 		sub.ServeHTTP(w, r2)
 	}
 }

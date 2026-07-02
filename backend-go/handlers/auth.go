@@ -17,9 +17,24 @@ import (
 
 func RegisterAuth(r chi.Router, db *core.DB) {
 	r.Post("/token", loginHandler(db))
+	r.Post("/refresh", refreshHandler(db))
 	r.Get("/me", meHandler())
 	r.Post("/change-password", changePasswordHandler(db))
 	r.Post("/forgot-password", forgotPasswordHandler(db))
+}
+
+// setAuthCookie writes the access token as an HttpOnly SameSite=Strict cookie.
+// The expiry matches the JWT (8 h). Secure is enabled when the request came over HTTPS.
+func setAuthCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "o3c_token",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   8 * 60 * 60,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   true,
+	})
 }
 
 func forgotPasswordHandler(db *core.DB) http.HandlerFunc {
@@ -100,6 +115,7 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			        role, department,
 			        COALESCE(must_change_password, false) AS must_change_password,
 			        COALESCE(is_active, true)             AS is_active,
+			        COALESCE(totp_enabled, false)         AS totp_enabled,
 			        deleted_at
 			 FROM o3c_users WHERE email = $1`, email)
 		if err != nil {
@@ -145,6 +161,21 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			}
 		}
 
+		// If TOTP is enabled, issue a short-lived MFA challenge token instead.
+		if totpEnabled, _ := u["totp_enabled"].(bool); totpEnabled {
+			mfaTok, err := core.CreateMFAToken(toInt64(u["id"]))
+			if err != nil {
+				respondErr(w, 500, "Token generation failed")
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"mfa_required": true,
+				"mfa_token":    mfaTok,
+			})
+			return
+		}
+
 		claims := &core.Claims{
 			Sub:        str(u["email"]),
 			ID:         toInt64(u["id"]),
@@ -158,6 +189,8 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Token generation failed")
 			return
 		}
+
+		setAuthCookie(w, token)
 
 		mustChange, _ := u["must_change_password"].(bool)
 		w.Header().Set("Content-Type", "application/json")
@@ -175,6 +208,52 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 				"pages":                pages,
 				"must_change_password": mustChange,
 			},
+		})
+	}
+}
+
+// refreshHandler reads the o3c_token HttpOnly cookie, verifies it, and issues a fresh token.
+func refreshHandler(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie("o3c_token")
+		if err != nil {
+			respondErr(w, 401, "No refresh token")
+			return
+		}
+		old, err := core.VerifyToken(cookie.Value)
+		if err != nil {
+			respondErr(w, 401, "Invalid or expired token")
+			return
+		}
+
+		role := old.Role
+		pages := core.RolePages[role]
+		if len(pages) == 0 {
+			rows, _ := db.PGQuery(r.Context(), `SELECT pages FROM o3c_custom_roles WHERE name = $1`, role)
+			if len(rows) > 0 {
+				pages = core.ParsePages(rows[0]["pages"])
+			}
+		}
+
+		claims := &core.Claims{
+			Sub:        old.Sub,
+			ID:         old.ID,
+			Role:       old.Role,
+			FullName:   old.FullName,
+			Department: old.Department,
+			Pages:      pages,
+		}
+		token, err := core.CreateToken(claims)
+		if err != nil {
+			respondErr(w, 500, "Token generation failed")
+			return
+		}
+
+		setAuthCookie(w, token)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"access_token": token,
+			"token_type":   "bearer",
 		})
 	}
 }
