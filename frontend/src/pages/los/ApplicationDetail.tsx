@@ -180,7 +180,7 @@ export default function ApplicationDetail() {
       subtitle={app.applicant_name}
       actions={
         <button
-          className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]"
+          className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08]"
           onClick={() => window.history.length > 1 ? nav(-1) : nav('/sales/applications')}
         >
           ← Back
@@ -309,7 +309,7 @@ export default function ApplicationDetail() {
               {/* Add note form */}
               <div className="card p-4">
                 <textarea
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20 resize-none"
+                  className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20 resize-none"
                   rows={3}
                   placeholder="Add a note…"
                   value={noteBody}
@@ -395,7 +395,7 @@ export default function ApplicationDetail() {
             )}
             {canReqInfo && (
               <button
-                className="w-full mb-2 px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-60"
+                className="w-full mb-2 px-4 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-60"
                 disabled={working}
                 onClick={() => setShowReqInfo(true)}
               >
@@ -457,14 +457,14 @@ export default function ApplicationDetail() {
             </div>
             <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Decline Reason *</label>
             <textarea
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20 resize-none mb-4"
+              className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20 resize-none mb-4"
               rows={4}
               placeholder="State the reason for declining this application…"
               value={declineReason}
               onChange={e => setDeclineReason(e.target.value)}
             />
             <div className="flex gap-2 justify-end">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setShowDecline(false)}>Cancel</button>
+              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setShowDecline(false)}>Cancel</button>
               <button
                 className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
                 style={{ background: RED }}
@@ -490,7 +490,7 @@ export default function ApplicationDetail() {
             </div>
             <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Notes for Applicant</label>
             <textarea
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20 resize-none mb-4"
+              className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20 resize-none mb-4"
               rows={4}
               placeholder="Describe what information is needed…"
               value={reqInfoNotes}
@@ -500,7 +500,7 @@ export default function ApplicationDetail() {
               This is request {(app.request_info_count ?? 0) + 1} of 2. Max 2 info requests allowed per application.
             </p>
             <div className="flex gap-2 justify-end">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setShowReqInfo(false)}>Cancel</button>
+              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setShowReqInfo(false)}>Cancel</button>
               <button
                 className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
                 style={{ background: NAVY }}

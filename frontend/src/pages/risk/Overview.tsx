@@ -32,12 +32,12 @@ interface PortfolioQuality {
 const stageCols: ColDef<StageRow>[] = [
   {
     key: 'stage', label: 'Stage', render: r => (
-      <span className="font-medium text-slate-700 capitalize">{snake(r.stage || '—')}</span>
+      <span className="font-medium text-[color:var(--txt)] capitalize">{snake(r.stage || '—')}</span>
     ),
   },
   {
     key: 'count', label: 'Applications', right: true, render: r => (
-      <span className="font-mono font-semibold text-slate-800">{fmtNum(r.count)}</span>
+      <span className="font-mono font-semibold text-[color:var(--txt)]">{fmtNum(r.count)}</span>
     ),
   },
 ]

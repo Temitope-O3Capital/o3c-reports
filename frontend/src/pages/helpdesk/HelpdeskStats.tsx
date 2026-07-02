@@ -79,14 +79,14 @@ export default function HelpdeskStats() {
     {
       key: 'agent_name',
       label: 'Agent',
-      render: row => <span className="font-semibold text-slate-800">{row.agent_name}</span>,
+      render: row => <span className="font-semibold" style={{ color: 'var(--txt)' }}>{row.agent_name}</span>,
     },
     {
       key: 'open_tickets',
       label: 'Open Tickets',
       right: true,
       render: row => (
-        <span className="font-mono font-semibold text-slate-700">{row.open_tickets}</span>
+        <span className="font-mono font-semibold" style={{ color: 'var(--txt)' }}>{row.open_tickets}</span>
       ),
     },
     {
@@ -94,7 +94,7 @@ export default function HelpdeskStats() {
       label: resolvedLabel,
       right: true,
       render: row => (
-        <span className="font-mono font-semibold text-slate-700">{row.resolved_today}</span>
+        <span className="font-mono font-semibold text-[color:var(--txt)]">{row.resolved_today}</span>
       ),
     },
     {
@@ -103,7 +103,7 @@ export default function HelpdeskStats() {
       right: true,
       render: row => row.avg_csat != null
         ? <span className="font-semibold text-amber-600">⭐ {Number(row.avg_csat).toFixed(1)}</span>
-        : <span className="text-slate-300">—</span>,
+        : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
   ]
 
@@ -145,17 +145,17 @@ export default function HelpdeskStats() {
               <OverviewStat label={resolvedLabel}     value={data?.resolved_today ?? 0}           color={GREEN} />
               <OverviewStat label="SLA Breached"      value={data?.sla_breached ?? 0}             color={RED} />
               <div className="flex flex-col justify-center">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--txt2)' }}>
                   Avg First Response
                 </p>
-                <p className="text-[22px] font-bold text-slate-900 kpi-number">
+                <p className="text-[22px] font-bold kpi-number" style={{ color: 'var(--txt)' }}>
                   {data?.avg_first_response_hours != null
                     ? `${Number(data.avg_first_response_hours).toFixed(1)}h`
                     : '—'}
                 </p>
               </div>
               <div className="flex flex-col justify-center">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--txt2)' }}>
                   Avg CSAT
                 </p>
                 <p className="text-[22px] font-bold text-amber-600 kpi-number">
@@ -178,7 +178,7 @@ export default function HelpdeskStats() {
                 <div className="w-full space-y-2"><div className="h-3 skeleton rounded" /><div className="h-3 skeleton rounded w-3/4" /></div>
               </div>
             ) : statusData.length === 0 ? (
-              <p className="text-center text-slate-400 text-[13px] py-8">No data</p>
+              <p className="text-center text-[13px] py-8" style={{ color: 'var(--txt2)' }}>No data</p>
             ) : (
               <>
                 <div style={{ height: 160 }}>
@@ -203,10 +203,10 @@ export default function HelpdeskStats() {
                       content={({ active, payload }) => {
                         if (!active || !payload?.length) return null
                         return (
-                          <div className="bg-white rounded-lg border px-3 py-2 shadow-lg text-[12px]"
-                            style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
-                            <p className="font-semibold text-slate-700">{payload[0].name}</p>
-                            <p className="font-mono font-bold text-slate-900">{payload[0].value}</p>
+                          <div className="rounded-lg border px-3 py-2 shadow-lg text-[12px]"
+                            style={{ background: 'var(--card)', borderColor: 'var(--bdr)' }}>
+                            <p className="font-semibold" style={{ color: 'var(--txt)' }}>{payload[0].name}</p>
+                            <p className="font-mono font-bold" style={{ color: 'var(--txt)' }}>{payload[0].value}</p>
                           </div>
                         )
                       }}
@@ -222,12 +222,12 @@ export default function HelpdeskStats() {
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-sm flex-shrink-0"
                             style={{ background: STATUS_COLORS[i % STATUS_COLORS.length] }} />
-                          <span className="text-[12px] text-slate-500">{d.name}</span>
+                          <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{d.name}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[12px] font-semibold font-mono text-slate-800">{d.value}</span>
+                          <span className="text-[12px] font-semibold font-mono" style={{ color: 'var(--txt)' }}>{d.value}</span>
                           {total > 0 && (
-                            <span className="text-[11px] text-slate-400">
+                            <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>
                               ({((d.value / total) * 100).toFixed(0)}%)
                             </span>
                           )}
@@ -251,7 +251,7 @@ export default function HelpdeskStats() {
                 ))}
               </div>
             ) : channelData.length === 0 ? (
-              <p className="text-center text-slate-400 text-[13px] py-8">No data</p>
+              <p className="text-center text-[13px] py-8" style={{ color: 'var(--txt2)' }}>No data</p>
             ) : (
               <div style={{ height: 220 }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -276,10 +276,10 @@ export default function HelpdeskStats() {
                     content={({ active, payload, label }) => {
                       if (!active || !payload?.length) return null
                       return (
-                        <div className="bg-white rounded-lg border px-3 py-2 shadow-lg text-[12px]"
-                          style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
-                          <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider mb-1">{label}</p>
-                          <p className="font-mono font-bold text-slate-900">{payload[0].value} tickets</p>
+                        <div className="rounded-lg border px-3 py-2 shadow-lg text-[12px]"
+                          style={{ background: 'var(--card)', borderColor: 'var(--bdr)' }}>
+                          <p className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--txt2)' }}>{label}</p>
+                          <p className="font-mono font-bold" style={{ color: 'var(--txt)' }}>{payload[0].value} tickets</p>
                         </div>
                       )
                     }}
@@ -323,7 +323,7 @@ export default function HelpdeskStats() {
 function OverviewStat({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div className="flex flex-col">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">{label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--txt2)' }}>{label}</p>
       <p className="text-[26px] font-bold kpi-number" style={{ color }}>{value}</p>
     </div>
   )

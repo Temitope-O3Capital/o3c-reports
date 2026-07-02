@@ -145,7 +145,7 @@ export default function KnowledgeBase() {
       {/* Article list */}
       <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead style={{ background: 'var(--bg)' }}>
+          <thead style={{ background: 'var(--th-bg)' }}>
             <tr>
               {['Title', 'Category', 'Tags', 'Views', 'Public', 'Updated', ''].map(h => (
                 <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{h}</th>
@@ -175,7 +175,7 @@ export default function KnowledgeBase() {
                 </td>
                 <td style={{ padding: '10px 14px', color: 'var(--txt2)', fontFamily: 'DM Mono, monospace' }}>{a.view_count}</td>
                 <td style={{ padding: '10px 14px' }}>
-                  <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 600, background: a.is_public ? '#16a34a22' : '#6b728022', color: a.is_public ? '#16a34a' : '#6b7280' }}>
+                  <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 600, background: a.is_public ? '#16a34a22' : '#6b728022', color: a.is_public ? '#16a34a' : 'var(--txt2)' }}>
                     {a.is_public ? 'Public' : 'Internal'}
                   </span>
                 </td>

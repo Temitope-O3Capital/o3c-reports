@@ -207,8 +207,8 @@ export default function KpiDashboard() {
           </div>
         ) : alerts.length === 0 ? (
           <div className="px-5 py-12 text-center">
-            <span className="material-symbols-rounded text-[36px] text-slate-300 block mb-2">check_circle</span>
-            <p className="text-[13px] text-slate-400">No active alerts</p>
+            <span className="material-symbols-rounded text-[36px] text-[color:var(--txt3)] block mb-2">check_circle</span>
+            <p className="text-[13px] text-[color:var(--txt2)]">No active alerts</p>
           </div>
         ) : (
           <div className="px-5 py-4 space-y-2.5">
@@ -232,8 +232,8 @@ export default function KpiDashboard() {
                         {sev}
                       </span>
                     </div>
-                    <p className="text-[12px] text-slate-600 mt-0.5">{alert.details}</p>
-                    <p className="text-[11px] text-slate-400 mt-1">{fmtDate(alert.triggered_at)}</p>
+                    <p className="text-[12px] text-[color:var(--txt2)] mt-0.5">{alert.details}</p>
+                    <p className="text-[11px] text-[color:var(--txt2)] mt-1">{fmtDate(alert.triggered_at)}</p>
                   </div>
                   {canResolve && (
                     <button

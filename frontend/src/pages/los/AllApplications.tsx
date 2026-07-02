@@ -230,13 +230,13 @@ export default function AllApplications() {
 
       <FilterBar>
         <input
-          className="w-full max-w-xs px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+          className="w-full max-w-xs px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
           placeholder="Search name or reference…"
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
         <select
-          className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+          className="px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
           value={stageF}
           onChange={e => { setStageF(e.target.value); setPage(0) }}
         >
@@ -244,7 +244,7 @@ export default function AllApplications() {
           {STAGE_OPTS.map(s => <option key={s} value={s}>{snake(s)}</option>)}
         </select>
         <select
-          className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+          className="px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
           value={productF}
           onChange={e => setProductF(e.target.value)}
         >
@@ -253,7 +253,7 @@ export default function AllApplications() {
         </select>
         {(search || stageF || productF) && (
           <button
-            className="px-3 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]"
+            className="px-3 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08]"
             onClick={() => { setSearch(''); setStageF(''); setProductF(''); setPage(0) }}
           >
             Clear
@@ -302,7 +302,7 @@ export default function AllApplications() {
                     {isTeamLead && (
                       <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                         <button
-                          className="px-3 py-1 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]"
+                          className="px-3 py-1 rounded-lg text-[12px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08]"
                           onClick={() => { setAssignTarget(a.id); setAssignUserId(a.assigned_to_user_id ?? '') }}
                         >
                           Assign
@@ -340,7 +340,7 @@ export default function AllApplications() {
             <ErrBanner msg={assignErr} />
             <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Assign To</label>
             <select
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20 mb-4"
+              className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20 mb-4"
               value={assignUserId}
               onChange={e => setAssignUserId(e.target.value)}
             >
@@ -349,7 +349,7 @@ export default function AllApplications() {
             </select>
             <div className="flex gap-2 justify-end">
               <button
-                className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]"
+                className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08]"
                 onClick={() => setAssignTarget(null)}
               >
                 Cancel

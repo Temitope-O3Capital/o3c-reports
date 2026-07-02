@@ -48,17 +48,17 @@ export default function Supervisor() {
   const maxLoad = Math.max(...agents.map(a => Number(a.open_tickets) || 0), 1)
 
   return (
-    <div style={{ background: '#F4F6F8', minHeight: '100vh', padding: '28px 32px' }}>
+    <div style={{ background: 'var(--bg)', minHeight: '100vh', padding: '28px 32px' }}>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-[22px] font-bold" style={{ color: NAVY }}>Supervisor View</h1>
-          <p className="text-[13px] text-slate-400 mt-0.5">Live helpdesk monitoring</p>
+          <p className="text-[13px] mt-0.5" style={{ color: 'var(--txt2)' }}>Live helpdesk monitoring</p>
         </div>
         <div className="flex items-center gap-3">
-          {lastRef && <span className="text-[12px] text-slate-400">Refreshed {lastRef}</span>}
+          {lastRef && <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>Refreshed {lastRef}</span>}
           <button onClick={load}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors"
-            style={{ background: 'rgba(14,40,65,0.06)', color: NAVY }}>
+            style={{ background: 'var(--chip-bg)', color: NAVY }}>
             <span className="material-symbols-rounded text-[15px]">refresh</span>
             Refresh
           </button>
@@ -68,16 +68,16 @@ export default function Supervisor() {
       {/* KPI strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {kpis.map(k => (
-          <div key={k.label} className="bg-white rounded-xl p-4 shadow-sm"
-            style={{ border: '1px solid rgba(15,23,42,0.07)' }}>
+          <div key={k.label} className="rounded-xl p-4 shadow-sm"
+            style={{ background: 'var(--card)', border: '1px solid var(--bdr)' }}>
             <div className="flex items-center justify-between mb-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{k.label}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--txt2)' }}>{k.label}</p>
               <div className="w-8 h-8 rounded-lg flex items-center justify-center"
                 style={{ background: `${k.color}12` }}>
                 <span className="material-symbols-rounded text-[17px]" style={{ color: k.color }}>{k.icon}</span>
               </div>
             </div>
-            <p className="text-[28px] font-bold" style={{ color: loading ? '#CBD5E1' : k.color }}>
+            <p className="text-[28px] font-bold" style={{ color: loading ? 'var(--txt3)' : k.color }}>
               {loading ? '—' : k.value}
             </p>
           </div>
@@ -86,17 +86,17 @@ export default function Supervisor() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Agent load grid */}
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm"
-          style={{ border: '1px solid rgba(15,23,42,0.07)' }}>
-          <div className="px-5 py-4 border-b" style={{ borderColor: 'rgba(15,23,42,0.07)' }}>
+        <div className="lg:col-span-2 rounded-xl shadow-sm"
+          style={{ background: 'var(--card)', border: '1px solid var(--bdr)' }}>
+          <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--bdr)' }}>
             <h2 className="text-[14px] font-semibold" style={{ color: NAVY }}>Agent Load</h2>
           </div>
           {loading ? (
-            <div className="px-5 py-8 text-center text-slate-400 text-sm">Loading…</div>
+            <div className="px-5 py-8 text-center text-sm" style={{ color: 'var(--txt2)' }}>Loading…</div>
           ) : agents.length === 0 ? (
-            <div className="px-5 py-8 text-center text-slate-400 text-sm">No active agents</div>
+            <div className="px-5 py-8 text-center text-sm" style={{ color: 'var(--txt2)' }}>No active agents</div>
           ) : (
-            <div className="divide-y" style={{ borderColor: 'rgba(15,23,42,0.05)' }}>
+            <div className="divide-y" style={{ borderColor: 'var(--bdr)' }}>
               {agents.map(a => {
                 const pct = Math.round((Number(a.open_tickets) / maxLoad) * 100)
                 const breachPct = Number(a.open_tickets) > 0
@@ -110,9 +110,9 @@ export default function Supervisor() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-[13px] font-medium text-slate-700 truncate">{a.full_name}</span>
+                        <span className="text-[13px] font-medium truncate" style={{ color: 'var(--txt)' }}>{a.full_name}</span>
                         <div className="flex items-center gap-3 ml-4 flex-shrink-0">
-                          <span className="text-[12px] text-slate-500">{a.open_tickets} open</span>
+                          <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{a.open_tickets} open</span>
                           {Number(a.sla_breached) > 0 && (
                             <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full"
                               style={{ background: 'rgba(192,0,0,0.08)', color: RED }}>
@@ -121,7 +121,7 @@ export default function Supervisor() {
                           )}
                         </div>
                       </div>
-                      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: '#F1F5F9' }}>
+                      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--chip-bg)' }}>
                         <div className="h-full rounded-full transition-all"
                           style={{
                             width: `${pct}%`,
@@ -137,26 +137,26 @@ export default function Supervisor() {
         </div>
 
         {/* Queue breakdown */}
-        <div className="bg-white rounded-xl shadow-sm"
-          style={{ border: '1px solid rgba(15,23,42,0.07)' }}>
-          <div className="px-5 py-4 border-b" style={{ borderColor: 'rgba(15,23,42,0.07)' }}>
+        <div className="rounded-xl shadow-sm"
+          style={{ background: 'var(--card)', border: '1px solid var(--bdr)' }}>
+          <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--bdr)' }}>
             <h2 className="text-[14px] font-semibold" style={{ color: NAVY }}>Queues</h2>
           </div>
           {loading ? (
-            <div className="px-5 py-8 text-center text-slate-400 text-sm">Loading…</div>
+            <div className="px-5 py-8 text-center text-sm" style={{ color: 'var(--txt2)' }}>Loading…</div>
           ) : queues.length === 0 ? (
-            <div className="px-5 py-8 text-center text-slate-400 text-sm">No open queues</div>
+            <div className="px-5 py-8 text-center text-sm" style={{ color: 'var(--txt2)' }}>No open queues</div>
           ) : (
-            <div className="divide-y" style={{ borderColor: 'rgba(15,23,42,0.05)' }}>
+            <div className="divide-y" style={{ borderColor: 'var(--bdr)' }}>
               {queues.map(q => (
                 <div key={q.queue} className="px-5 py-3">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[13px] font-medium text-slate-700 capitalize">
+                    <span className="text-[13px] font-medium capitalize" style={{ color: 'var(--txt)' }}>
                       {q.queue.replace(/_/g, ' ')}
                     </span>
                     <span className="text-[13px] font-semibold" style={{ color: NAVY }}>{q.open}</span>
                   </div>
-                  <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                  <div className="flex items-center gap-3 text-[11px]" style={{ color: 'var(--txt2)' }}>
                     {Number(q.sla_breached) > 0 && (
                       <span style={{ color: RED }}>{q.sla_breached} breached</span>
                     )}
@@ -176,23 +176,23 @@ export default function Supervisor() {
 
       {/* SLA breach feed */}
       {(breaches.length > 0 || loading) && (
-        <div className="mt-4 bg-white rounded-xl shadow-sm"
-          style={{ border: '1px solid rgba(192,0,0,0.18)' }}>
+        <div className="mt-4 rounded-xl shadow-sm"
+          style={{ background: 'var(--card)', border: '1px solid rgba(192,0,0,0.18)' }}>
           <div className="px-5 py-4 border-b flex items-center gap-2"
             style={{ borderColor: 'rgba(192,0,0,0.12)' }}>
             <span className="material-symbols-rounded text-[17px]" style={{ color: RED }}>timer_off</span>
             <h2 className="text-[14px] font-semibold" style={{ color: RED }}>SLA Breaches</h2>
           </div>
-          <div className="divide-y" style={{ borderColor: 'rgba(15,23,42,0.05)' }}>
+          <div className="divide-y" style={{ borderColor: 'var(--bdr)' }}>
             {breaches.map(b => {
               const minsOverdue = Math.round((Date.now() - new Date(b.sla_due_at).getTime()) / 60_000)
               return (
                 <a key={b.id} href={`/helpdesk/${b.id}`}
                   className="flex items-center gap-4 px-5 py-3 hover:bg-red-50 transition-colors cursor-pointer">
-                  <span className="text-[12px] font-mono text-slate-400 flex-shrink-0">{b.ticket_ref || `#${b.id}`}</span>
-                  <span className="text-[13px] text-slate-700 flex-1 truncate">{b.subject}</span>
+                  <span className="text-[12px] font-mono flex-shrink-0" style={{ color: 'var(--txt2)' }}>{b.ticket_ref || `#${b.id}`}</span>
+                  <span className="text-[13px] flex-1 truncate" style={{ color: 'var(--txt)' }}>{b.subject}</span>
                   <span className="text-[12px] flex-shrink-0" style={{ color: RED }}>{minsOverdue}m overdue</span>
-                  <span className="text-[12px] text-slate-400 flex-shrink-0">{b.assigned_to_name || 'Unassigned'}</span>
+                  <span className="text-[12px] flex-shrink-0" style={{ color: 'var(--txt2)' }}>{b.assigned_to_name || 'Unassigned'}</span>
                 </a>
               )
             })}

@@ -55,6 +55,9 @@ export default function LoanBook() {
   const [dpd, setDpd] = useState('')
   const [product, setProduct] = useState('')
   const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   const load = (q = search, d = dpd, p = product) => {
     setLoading(true)
@@ -78,6 +81,18 @@ export default function LoanBook() {
 
   const s = stats?.summary
 
+  const toggleSort = (key: string) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
+  const sorted = [...loans].sort((a, b) => {
+    if (!sortKey) return 0
+    const va = (a as any)[sortKey] ?? ''
+    const vb = (b as any)[sortKey] ?? ''
+    const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))
+    return sortDir === 'asc' ? cmp : -cmp
+  })
+
   return (
     <div style={{ padding: '24px 32px' }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 20, color: 'var(--txt)' }}>Active Loan Book</h1>
@@ -93,7 +108,7 @@ export default function LoanBook() {
             { label: '90+ DPD', value: fmtNum(s.dpd_90plus), bad: s.dpd_90plus > 0 },
           ].map(k => (
             <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '14px 18px' }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-2)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 }}>{k.label}</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 }}>{k.label}</div>
               <div style={{ fontSize: 20, fontWeight: 700, fontFamily: k.mono ? 'DM Mono, monospace' : undefined, color: k.good ? '#16a34a' : k.warn ? '#d97706' : k.bad ? '#dc2626' : 'var(--txt)' }}>{k.value}</div>
             </div>
           ))}
@@ -120,34 +135,56 @@ export default function LoanBook() {
 
       {/* Table */}
       <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, overflow: 'auto' }}>
+        {selectedIds.size > 0 && (
+          <div style={{ padding: '10px 14px', background: '#F0F4FF', borderBottom: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#0E2841' }}>{selectedIds.size} selected</span>
+            <button style={{ padding: '5px 12px', border: '1px solid var(--bdr)', borderRadius: 7, fontSize: 12, fontWeight: 600, background: '#fff', color: '#0E2841', cursor: 'pointer' }}>Export</button>
+            <button onClick={() => setSelectedIds(new Set())} style={{ marginLeft: 'auto', padding: '5px 12px', border: '1px solid var(--bdr)', borderRadius: 7, fontSize: 12, background: 'transparent', color: 'var(--txt2)', cursor: 'pointer' }}>Clear</button>
+          </div>
+        )}
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead style={{ background: 'var(--bg)' }}>
+          <thead style={{ background: 'var(--th-bg)' }}>
             <tr>
-              {['Reference', 'Customer', 'Product', 'Disbursed', 'Outstanding', 'Monthly', 'Next Due', 'DPD', 'Officer'].map(h => (
-                <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontSize: 11, fontWeight: 700, color: 'var(--txt-2)', textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap' }}>{h}</th>
+              <th style={{ width: 40, padding: '10px 14px' }}>
+                <input type="checkbox" checked={selectedIds.size === sorted.length && sorted.length > 0}
+                  onChange={e => setSelectedIds(e.target.checked ? new Set(sorted.map(x => x.id)) : new Set())}
+                  style={{ cursor: 'pointer' }} />
+              </th>
+              {([['Reference','reference'],['Customer','applicant_name'],['Product','product_type'],['Disbursed','disbursed_amount_kobo'],['Outstanding','outstanding_kobo'],['Monthly','monthly_repayment_kobo'],['Next Due','next_due_date'],['DPD','dpd'],['Officer','officer_name']] as [string, string][]).map(([h, k]) => (
+                <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontSize: 11, fontWeight: 700, color: sortKey === k ? 'var(--txt)' : 'var(--txt2)', textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap', cursor: 'pointer' }}
+                  onClick={() => toggleSort(k)}>
+                  {h}<span style={{ marginLeft: 3, color: '#C00000', opacity: sortKey === k ? 1 : 0.3 }}>{sortKey === k ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9} style={{ padding: 32, textAlign: 'center', color: 'var(--txt-2)' }}>Loading…</td></tr>
-            ) : loans.length === 0 ? (
-              <tr><td colSpan={9} style={{ padding: 32, textAlign: 'center', color: 'var(--txt-2)' }}>No active loans found.</td></tr>
-            ) : loans.map(l => (
-              <tr key={l.id} onClick={() => nav(`/active-loan-book/${l.id}`)} style={{ borderTop: '1px solid var(--bdr)', cursor: 'pointer' }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg)')}
-                onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                <td style={{ padding: '10px 14px', fontFamily: 'DM Mono, monospace', color: '#2563eb', fontWeight: 600, whiteSpace: 'nowrap' }}>{l.reference}</td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt)', fontWeight: 500 }}>{l.applicant_name}</td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)' }}>{l.product_type ?? l.loan_product ?? '—'}</td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)', fontFamily: 'DM Mono, monospace', whiteSpace: 'nowrap' }}>{l.disbursed_amount_kobo ? fmtKobo(l.disbursed_amount_kobo) : '—'}</td>
+              <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: 'var(--txt2)' }}>Loading…</td></tr>
+            ) : sorted.length === 0 ? (
+              <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: 'var(--txt2)' }}>No active loans found.</td></tr>
+            ) : sorted.map(l => (
+              <tr key={l.id} style={{ borderTop: '1px solid var(--bdr)', cursor: 'pointer', background: selectedIds.has(l.id) ? 'var(--row-sel)' : undefined }}
+                onMouseEnter={e => { if (!selectedIds.has(l.id)) e.currentTarget.style.background = 'var(--row-hvr)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = selectedIds.has(l.id) ? 'var(--row-sel)' : '' }}>
+                <td style={{ padding: '10px 14px' }} onClick={ev => ev.stopPropagation()}>
+                  <input type="checkbox" checked={selectedIds.has(l.id)}
+                    onChange={() => setSelectedIds(s => { const n = new Set(s); n.has(l.id) ? n.delete(l.id) : n.add(l.id); return n })}
+                    style={{ cursor: 'pointer' }} />
+                </td>
+                <td style={{ padding: '10px 14px', fontFamily: 'DM Mono, monospace', color: '#2563eb', fontWeight: 600, whiteSpace: 'nowrap' }}
+                  onClick={() => nav(`/active-loan-book/${l.id}`)}>{l.reference}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt)', fontWeight: 500 }}
+                  onClick={() => nav(`/active-loan-book/${l.id}`)}>{l.applicant_name}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)' }}>{l.product_type ?? l.loan_product ?? '—'}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)', fontFamily: 'DM Mono, monospace', whiteSpace: 'nowrap' }}>{l.disbursed_amount_kobo ? fmtKobo(l.disbursed_amount_kobo) : '—'}</td>
                 <td style={{ padding: '10px 14px', fontFamily: 'DM Mono, monospace', fontWeight: 600, color: 'var(--txt)', whiteSpace: 'nowrap' }}>{l.outstanding_kobo ? fmtKobo(l.outstanding_kobo) : '—'}</td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)', fontFamily: 'DM Mono, monospace', whiteSpace: 'nowrap' }}>{l.monthly_repayment_kobo ? fmtKobo(l.monthly_repayment_kobo) : '—'}</td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)', whiteSpace: 'nowrap' }}>{l.next_due_date ? new Date(l.next_due_date).toLocaleDateString('en-GB') : '—'}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)', fontFamily: 'DM Mono, monospace', whiteSpace: 'nowrap' }}>{l.monthly_repayment_kobo ? fmtKobo(l.monthly_repayment_kobo) : '—'}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)', whiteSpace: 'nowrap' }}>{l.next_due_date ? new Date(l.next_due_date).toLocaleDateString('en-GB') : '—'}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <span style={{ fontFamily: 'DM Mono, monospace', fontWeight: 700, color: dpdColor(l.dpd) }}>{l.dpd ?? 0}</span>
                 </td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)' }}>{l.officer_name ?? '—'}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)' }}>{l.officer_name ?? '—'}</td>
               </tr>
             ))}
           </tbody>

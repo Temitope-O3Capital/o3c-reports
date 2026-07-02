@@ -8,7 +8,7 @@ import {
 } from '../../components/UI'
 
 function LegalBadge({ stage }: { stage: string | null }) {
-  if (!stage) return <span className="text-slate-300 text-xs">—</span>
+  if (!stage) return <span className="text-[color:var(--txt3)] text-xs">—</span>
   return (
     <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded whitespace-nowrap"
       style={{ background: 'rgba(192,0,0,0.08)', color: '#C00000' }}>
@@ -66,11 +66,11 @@ export default function Recovery() {
   const casesCols: ColDef<CaseRow>[] = [
     {
       key: 'Recovery Date', label: 'Date', sortable: false,
-      render: r => <span className="text-xs text-slate-500 whitespace-nowrap">{r['Recovery Date'] ? fmtDate(r['Recovery Date']) : '—'}</span>,
+      render: r => <span className="text-xs text-[color:var(--txt2)] whitespace-nowrap">{r['Recovery Date'] ? fmtDate(r['Recovery Date']) : '—'}</span>,
     },
     {
       key: 'CIF Number', label: 'CIF', sortable: false,
-      render: r => <span className="font-mono text-xs text-slate-500">{r['CIF Number']}</span>,
+      render: r => <span className="font-mono text-xs text-[color:var(--txt2)]">{r['CIF Number']}</span>,
     },
     {
       key: 'First Name', label: 'Customer', sortable: false,

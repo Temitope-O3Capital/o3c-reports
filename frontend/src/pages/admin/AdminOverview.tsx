@@ -49,21 +49,21 @@ function KPICard({
   label: string; value: string | number; icon: string; accent?: string; loading?: boolean; unit?: string
 }) {
   return (
-    <div className="bg-white rounded-xl px-5 py-4 flex items-center gap-4"
-      style={{ border: '1px solid rgba(15,23,42,0.07)' }}>
+    <div className="rounded-xl px-5 py-4 flex items-center gap-4"
+      style={{ background: 'var(--card)', border: '1px solid var(--bdr)' }}>
       <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
         style={{ background: `${accent}14` }}>
         <span className="material-symbols-rounded text-[20px]" style={{ color: accent }}>{icon}</span>
       </div>
       <div>
-        <p className="text-[22px] font-bold text-slate-800 leading-tight">
+        <p className="text-[22px] font-bold leading-tight" style={{ color: 'var(--txt)' }}>
           {loading ? (
             <span className="inline-block w-12 h-5 skeleton rounded" />
           ) : (
-            <>{value}{unit && <span className="text-[14px] font-normal text-slate-400 ml-1">{unit}</span>}</>
+            <>{value}{unit && <span className="text-[14px] font-normal ml-1" style={{ color: 'var(--txt2)' }}>{unit}</span>}</>
           )}
         </p>
-        <p className="text-[12px] text-slate-400 mt-0.5">{label}</p>
+        <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>{label}</p>
       </div>
     </div>
   )
@@ -79,11 +79,11 @@ function StatusCard({ name, status, detail }: { name: string; status: 'ok' | 'wa
   const c = colors[status]
   return (
     <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
-      style={{ background: c.bg, border: '1px solid rgba(15,23,42,0.07)' }}>
+      style={{ background: c.bg, border: '1px solid var(--bdr)' }}>
       <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: c.dot }} />
       <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-semibold text-slate-700">{name}</p>
-        {detail && <p className="text-[11px] text-slate-400 truncate">{detail}</p>}
+        <p className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>{name}</p>
+        {detail && <p className="text-[11px] truncate" style={{ color: 'var(--txt2)' }}>{detail}</p>}
       </div>
       <span className="text-[11px] font-semibold flex-shrink-0" style={{ color: c.dot }}>{c.label}</span>
     </div>
@@ -100,15 +100,15 @@ function QuickAction({
   return (
     <button
       onClick={() => navigate(to)}
-      className="flex flex-col items-start gap-2 p-4 rounded-xl bg-white text-left transition-all hover:shadow-md group"
-      style={{ border: '1px solid rgba(15,23,42,0.08)' }}>
+      className="flex flex-col items-start gap-2 p-4 rounded-xl text-left transition-all hover:shadow-md group"
+      style={{ background: 'var(--card)', border: '1px solid var(--bdr)' }}>
       <div className="w-9 h-9 rounded-lg flex items-center justify-center"
         style={{ background: `${accent}14` }}>
         <span className="material-symbols-rounded text-[18px]" style={{ color: accent }}>{icon}</span>
       </div>
       <div>
-        <p className="text-[13px] font-semibold text-slate-700 group-hover:text-slate-900 transition-colors">{label}</p>
-        {desc && <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">{desc}</p>}
+        <p className="text-[13px] font-semibold transition-colors" style={{ color: 'var(--txt)' }}>{label}</p>
+        {desc && <p className="text-[11px] mt-0.5 leading-snug" style={{ color: 'var(--txt2)' }}>{desc}</p>}
       </div>
     </button>
   )
@@ -201,11 +201,11 @@ export default function AdminOverview() {
           <div className="px-5 pb-5">
             <div className="flex flex-col items-center justify-center py-10 text-center">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3"
-                style={{ background: 'rgba(14,40,65,0.06)' }}>
+                style={{ background: 'var(--chip-bg)' }}>
                 <span className="material-symbols-rounded text-[20px]" style={{ color: NAVY }}>history</span>
               </div>
-              <p className="text-[13px] font-medium text-slate-600">Audit log coming soon</p>
-              <p className="text-[12px] text-slate-400 mt-1 max-w-[220px] leading-relaxed">
+              <p className="text-[13px] font-medium" style={{ color: 'var(--txt)' }}>Audit log coming soon</p>
+              <p className="text-[12px] mt-1 max-w-[220px] leading-relaxed" style={{ color: 'var(--txt2)' }}>
                 Last 10 admin actions and user logins will appear here once the audit log is wired up.
               </p>
             </div>

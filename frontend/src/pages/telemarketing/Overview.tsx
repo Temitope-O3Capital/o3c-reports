@@ -21,7 +21,7 @@ export default function TelemarketingOverview() {
     apiFetch('/api/telemarketing/stats').then(r => r.json()).then(setStats).finally(() => setLoading(false))
   }, [])
 
-  if (loading) return <div style={{ padding: 32, color: 'var(--txt-2)' }}>Loading…</div>
+  if (loading) return <div style={{ padding: 32, color: 'var(--txt2)' }}>Loading…</div>
   if (!stats) return null
 
   const t = stats.totals
@@ -45,7 +45,7 @@ export default function TelemarketingOverview() {
             background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12,
             padding: '16px 20px',
           }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-2)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{k.label}</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{k.label}</div>
             <div style={{ fontSize: 24, fontWeight: 700, color: k.good ? '#16a34a' : k.warn ? '#d97706' : 'var(--txt)', fontFamily: 'DM Mono, monospace' }}>{k.value}</div>
           </div>
         ))}
@@ -56,13 +56,13 @@ export default function TelemarketingOverview() {
         <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: 24 }}>
           <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 16, color: 'var(--txt)' }}>Agent Performance</h2>
           {stats.agents.length === 0 ? (
-            <p style={{ color: 'var(--txt-2)', fontSize: 14 }}>No call activity yet.</p>
+            <p style={{ color: 'var(--txt2)', fontSize: 14 }}>No call activity yet.</p>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--bdr)' }}>
+                <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
                   {['Agent', 'Today', 'Total Calls', 'Converted'].map(h => (
-                    <th key={h} style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: 11, color: 'var(--txt-2)', textTransform: 'uppercase' }}>{h}</th>
+                    <th key={h} style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: 11, color: 'var(--txt2)', textTransform: 'uppercase' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -70,8 +70,8 @@ export default function TelemarketingOverview() {
                 {stats.agents.map(a => (
                   <tr key={a.id} style={{ borderBottom: '1px solid var(--bdr)' }}>
                     <td style={{ padding: '8px', color: 'var(--txt)', fontWeight: 500 }}>{a.full_name}</td>
-                    <td style={{ padding: '8px', color: 'var(--txt-2)' }}>{a.calls_today}</td>
-                    <td style={{ padding: '8px', color: 'var(--txt-2)' }}>{a.calls_made}</td>
+                    <td style={{ padding: '8px', color: 'var(--txt2)' }}>{a.calls_today}</td>
+                    <td style={{ padding: '8px', color: 'var(--txt2)' }}>{a.calls_made}</td>
                     <td style={{ padding: '8px', color: '#16a34a', fontWeight: 600 }}>{a.conversions}</td>
                   </tr>
                 ))}
@@ -84,7 +84,7 @@ export default function TelemarketingOverview() {
         <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: 24 }}>
           <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 16, color: 'var(--txt)' }}>Disposition Breakdown</h2>
           {stats.outcomes.length === 0 ? (
-            <p style={{ color: 'var(--txt-2)', fontSize: 14 }}>No dispositions logged yet.</p>
+            <p style={{ color: 'var(--txt2)', fontSize: 14 }}>No dispositions logged yet.</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {stats.outcomes.map(o => {
@@ -94,7 +94,7 @@ export default function TelemarketingOverview() {
                   <div key={o.outcome}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13 }}>
                       <span style={{ color: 'var(--txt)', fontWeight: 500 }}>{OUTCOME_LABELS[o.outcome] ?? o.outcome}</span>
-                      <span style={{ color: 'var(--txt-2)', fontFamily: 'DM Mono, monospace' }}>{fmtNum(o.count)} ({pct.toFixed(1)}%)</span>
+                      <span style={{ color: 'var(--txt2)', fontFamily: 'DM Mono, monospace' }}>{fmtNum(o.count)} ({pct.toFixed(1)}%)</span>
                     </div>
                     <div style={{ height: 6, background: 'var(--bdr)', borderRadius: 3 }}>
                       <div style={{ height: 6, width: `${pct}%`, background: o.outcome === 'converted' ? '#16a34a' : o.outcome === 'dnc' ? '#dc2626' : '#0E2841', borderRadius: 3 }} />

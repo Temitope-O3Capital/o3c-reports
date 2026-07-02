@@ -81,24 +81,24 @@ export default function DNCList() {
 
       <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead style={{ background: 'var(--bg)' }}>
+          <thead style={{ background: 'var(--th-bg)' }}>
             <tr>
               {['Phone', 'Reason', 'Added By', 'Added On', ''].map(h => (
-                <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontSize: 11, fontWeight: 700, color: 'var(--txt-2)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{h}</th>
+                <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={5} style={{ padding: 32, textAlign: 'center', color: 'var(--txt-2)' }}>Loading…</td></tr>
+              <tr><td colSpan={5} style={{ padding: 32, textAlign: 'center', color: 'var(--txt2)' }}>Loading…</td></tr>
             ) : entries.length === 0 ? (
-              <tr><td colSpan={5} style={{ padding: 32, textAlign: 'center', color: 'var(--txt-2)' }}>No DNC entries found.</td></tr>
+              <tr><td colSpan={5} style={{ padding: 32, textAlign: 'center', color: 'var(--txt2)' }}>No DNC entries found.</td></tr>
             ) : entries.map(e => (
               <tr key={e.id} style={{ borderTop: '1px solid var(--bdr)' }}>
                 <td style={{ padding: '10px 14px', fontFamily: 'DM Mono, monospace', color: 'var(--txt)', fontWeight: 600 }}>{e.phone}</td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)' }}>{e.reason ?? '—'}</td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)' }}>{e.added_by_name ?? '—'}</td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)' }}>{fmt(e.added_at)}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)' }}>{e.reason ?? '—'}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)' }}>{e.added_by_name ?? '—'}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)' }}>{fmt(e.added_at)}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <button
                     onClick={() => removeEntry(e.id)}
@@ -119,12 +119,12 @@ export default function DNCList() {
           <div style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
             <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 20, color: 'var(--txt)' }}>Add to DNC List</h3>
             <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-2)', display: 'block', marginBottom: 6 }}>Phone Number *</label>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Phone Number *</label>
               <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="e.g. 08012345678"
                 style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, background: 'var(--bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
             </div>
             <div style={{ marginBottom: 20 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-2)', display: 'block', marginBottom: 6 }}>Reason</label>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Reason</label>
               <input value={reason} onChange={e => setReason(e.target.value)} placeholder="Optional reason"
                 style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, background: 'var(--bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
             </div>

@@ -57,7 +57,7 @@ export default function SyncStatus() {
       dept="Admin"
       title="Sync Status"
       actions={
-        <button onClick={load} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08] flex items-center gap-1.5">
+        <button onClick={load} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08] flex items-center gap-1.5">
           <span className="material-symbols-rounded text-[16px]">refresh</span>
           Refresh
         </button>
@@ -76,7 +76,7 @@ export default function SyncStatus() {
         {loading ? (
           <div className="flex items-center justify-center py-20"><Spinner size={32} /></div>
         ) : runs.length === 0 ? (
-          <div className="flex flex-col items-center py-16 text-slate-400">
+          <div className="flex flex-col items-center py-16 text-[color:var(--txt2)]">
             <span className="material-symbols-rounded text-[40px] mb-2">sync_disabled</span>
             <p className="text-[13px]">No sync runs recorded yet.</p>
           </div>
@@ -102,19 +102,19 @@ export default function SyncStatus() {
                   <div className="flex-1 min-w-0 pb-4">
                     <div className="flex items-center gap-3 flex-wrap mb-1">
                       <StatusBadge status={run.status} />
-                      <span className="text-[12px] text-slate-500">{fmtDate(run.started_at, { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                      <span className="text-[11px] text-slate-400">
+                      <span className="text-[12px] text-[color:var(--txt2)]">{fmtDate(run.started_at, { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                      <span className="text-[11px] text-[color:var(--txt2)]">
                         {new Date(run.started_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-x-5 gap-y-1 mt-1.5">
-                      <span className="flex items-center gap-1 text-[12px] text-slate-600">
-                        <span className="material-symbols-rounded text-[14px] text-slate-400">timer</span>
+                      <span className="flex items-center gap-1 text-[12px] text-[color:var(--txt2)]">
+                        <span className="material-symbols-rounded text-[14px] text-[color:var(--txt2)]">timer</span>
                         {duration(run.started_at, run.finished_at)}
                       </span>
                       {run.rows_synced != null && (
-                        <span className="flex items-center gap-1 text-[12px] text-slate-600">
-                          <span className="material-symbols-rounded text-[14px] text-slate-400">table_rows</span>
+                        <span className="flex items-center gap-1 text-[12px] text-[color:var(--txt2)]">
+                          <span className="material-symbols-rounded text-[14px] text-[color:var(--txt2)]">table_rows</span>
                           {run.rows_synced.toLocaleString()} rows synced
                         </span>
                       )}

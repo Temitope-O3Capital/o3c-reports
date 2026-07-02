@@ -20,11 +20,11 @@ const STATUS_TRACK: Record<string, { color: string; bg: string }> = {
   terminated:   { color: RED,      bg: 'rgba(192,0,0,0.07)' },
   'legal acti': { color: '#7C3AED', bg: 'rgba(139,92,246,0.08)' },
   suspended:    { color: AMBER,    bg: 'rgba(217,119,6,0.08)' },
-  inactive:     { color: '#94A3B8', bg: 'rgba(100,116,139,0.08)' },
-  closed:       { color: '#475569', bg: 'rgba(71,85,105,0.07)' },
+  inactive:     { color: 'var(--txt2)', bg: 'rgba(100,116,139,0.08)' },
+  closed:       { color: 'var(--txt2)', bg: 'rgba(71,85,105,0.07)' },
 }
 function statusStyle(s: string) {
-  return STATUS_TRACK[(s || '').toLowerCase()] ?? { color: '#94A3B8', bg: 'rgba(15,23,42,0.06)' }
+  return STATUS_TRACK[(s || '').toLowerCase()] ?? { color: 'var(--txt2)', bg: 'rgba(15,23,42,0.06)' }
 }
 
 /* ── Portfolio health grid ───────────────────────────────────── */
@@ -38,7 +38,7 @@ function PortfolioHealthGrid({ data, loading }: { data: any[]; loading: boolean 
               <div key={i} className="space-y-1.5"><Sk w="w-28" /><Sk h="h-2" /></div>
             ))
           : data.length === 0
-          ? <p className="text-[13px] text-slate-400 py-8 text-center">No data</p>
+          ? <p className="text-[13px] py-8 text-center" style={{ color: 'var(--txt2)' }}>No data</p>
           : data.map((row, i) => {
               const status = row['Account Status'] || row.status || ''
               const count  = n(row.count)
@@ -49,13 +49,13 @@ function PortfolioHealthGrid({ data, loading }: { data: any[]; loading: boolean 
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: sty.color }} />
-                      <span className="text-[12px] font-semibold text-slate-700 capitalize">
+                      <span className="text-[12px] font-semibold capitalize" style={{ color: 'var(--txt)' }}>
                         {status || 'Unknown'}
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-slate-400 kpi-number">{share.toFixed(1)}%</span>
-                      <span className="kpi-number text-[14px] font-bold text-slate-800">{count.toLocaleString()}</span>
+                      <span className="text-[11px] kpi-number" style={{ color: 'var(--txt2)' }}>{share.toFixed(1)}%</span>
+                      <span className="kpi-number text-[14px] font-bold" style={{ color: 'var(--txt)' }}>{count.toLocaleString()}</span>
                     </div>
                   </div>
                   <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(15,23,42,0.06)' }}>
@@ -66,10 +66,9 @@ function PortfolioHealthGrid({ data, loading }: { data: any[]; loading: boolean 
               )
             })}
         {!loading && total > 0 && (
-          <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2"
-            style={{ borderTop: '1px solid rgba(15,23,42,0.06)' }}>
+          <div className="flex items-center justify-between text-[11px] pt-2" style={{ color: 'var(--txt2)', borderTop: '1px solid var(--bdr)' }}>
             <span>Total cards</span>
-            <span className="kpi-number font-semibold text-slate-600">{total.toLocaleString()}</span>
+            <span className="kpi-number font-semibold" style={{ color: 'var(--txt2)' }}>{total.toLocaleString()}</span>
           </div>
         )}
       </div>
@@ -99,19 +98,18 @@ function ProductGrid({ data, loading }: { data: any[]; loading: boolean }) {
                     <div key={i} className="rounded-xl p-3" style={{ background: `${color}08` }}>
                       <div className="flex items-center gap-2 mb-1">
                         <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
-                        <span className="text-[11px] font-semibold text-slate-600 truncate">{name}</span>
+                        <span className="text-[11px] font-semibold truncate" style={{ color: 'var(--txt2)' }}>{name}</span>
                       </div>
-                      <p className="kpi-number text-[20px] font-bold text-slate-900">{fmtNum(count)}</p>
-                      <p className="text-[11px] text-slate-400">{share.toFixed(1)}% of total</p>
+                      <p className="kpi-number text-[20px] font-bold" style={{ color: 'var(--txt)' }}>{fmtNum(count)}</p>
+                      <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>{share.toFixed(1)}% of total</p>
                     </div>
                   )
                 })}
               </div>
               {/* Total */}
-              <div className="flex items-center justify-between text-[11px] text-slate-400 pt-3"
-                style={{ borderTop: '1px solid rgba(15,23,42,0.06)' }}>
+              <div className="flex items-center justify-between text-[11px] pt-3" style={{ color: 'var(--txt2)', borderTop: '1px solid var(--bdr)' }}>
                 <span>Total issued</span>
-                <span className="kpi-number font-semibold text-slate-600">{fmtNum(total)}</span>
+                <span className="kpi-number font-semibold" style={{ color: 'var(--txt2)' }}>{fmtNum(total)}</span>
               </div>
             </>
           )}
@@ -131,7 +129,14 @@ export default function CardsOverview() {
   const [volByType, setVolByType] = useState<any[]>([])
   const [loading,   setLoading]   = useState(true)
   const [error,     setError]     = useState('')
-  const [exporting, setExporting] = useState(false)
+  const [exporting,   setExporting]   = useState(false)
+  const [volSortKey,  setVolSortKey]  = useState<string | null>(null)
+  const [volSortDir,  setVolSortDir]  = useState<'asc' | 'desc'>('asc')
+
+  const toggleVolSort = (key: string) => {
+    if (volSortKey === key) setVolSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setVolSortKey(key); setVolSortDir('asc') }
+  }
 
   useEffect(() => {
     let active = true
@@ -243,11 +248,12 @@ export default function CardsOverview() {
               <table className="w-full text-[13px]">
                 <thead>
                   <tr>
-                    {['Card Type', 'Transactions', 'Volume', 'Share'].map((col, i) => (
+                    {([['Card Type', 'Product Name', 'left'], ['Transactions', 'txn_count', 'right'], ['Volume', 'volume', 'right'], ['Share', null, 'right']] as [string, string|null, string][]).map(([col, k, align]) => (
                       <th key={col}
-                        className={`px-5 py-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] whitespace-nowrap ${i > 0 ? 'text-right' : 'text-left'}`}
-                        style={{ background: NAVY, color: 'rgba(255,255,255,0.6)' }}>
-                        {col}
+                        className={`px-5 py-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] whitespace-nowrap text-${align}`}
+                        style={{ background: 'var(--th-bg)', color: volSortKey === k ? 'var(--txt)' : 'var(--txt2)', cursor: k ? 'pointer' : undefined }}
+                        onClick={k ? () => toggleVolSort(k) : undefined}>
+                        {col}{k && <span style={{ marginLeft: 3, color: '#C00000', opacity: volSortKey === k ? 1 : 0.3 }}>{volSortKey === k ? (volSortDir === 'asc' ? '↑' : '↓') : '↕'}</span>}
                       </th>
                     ))}
                   </tr>
@@ -255,7 +261,7 @@ export default function CardsOverview() {
                 <tbody>
                   {loading
                     ? Array.from({ length: 4 }).map((_, i) => (
-                        <tr key={i} style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
+                        <tr key={i} style={{ borderTop: '1px solid var(--bdr)' }}>
                           {Array.from({ length: 4 }).map((_, j) => (
                             <td key={j} className="px-5 py-3.5"><Sk /></td>
                           ))}
@@ -263,23 +269,31 @@ export default function CardsOverview() {
                       ))
                     : (() => {
                         const volTotal = volByType.reduce((s, r) => s + n(r.volume), 0)
-                        return volByType.map((row, i) => {
+                        const sortedVol = volSortKey
+                          ? [...volByType].sort((a, b) => {
+                              const va = (a as any)[volSortKey] ?? ''
+                              const vb = (b as any)[volSortKey] ?? ''
+                              const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))
+                              return volSortDir === 'asc' ? cmp : -cmp
+                            })
+                          : volByType
+                        return sortedVol.map((row, i) => {
                           const share = volTotal > 0 ? (n(row.volume) / volTotal * 100).toFixed(1) : '0.0'
                           return (
-                            <tr key={i} className="hover:bg-slate-50 transition-colors"
-                              style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
-                              <td className="px-5 py-3 font-semibold text-slate-800">
+                            <tr key={i} className="transition-colors hover:bg-[var(--row-hvr)]"
+                              style={{ borderTop: '1px solid var(--bdr)' }}>
+                              <td className="px-5 py-3 font-semibold" style={{ color: 'var(--txt)' }}>
                                 {row['Product Name'] || '—'}
                               </td>
-                              <td className="px-5 py-3 text-right kpi-number text-slate-600">
+                              <td className="px-5 py-3 text-right kpi-number" style={{ color: 'var(--txt2)' }}>
                                 {n(row.txn_count).toLocaleString()}
                               </td>
-                              <td className="px-5 py-3 text-right kpi-number font-semibold text-slate-800">
+                              <td className="px-5 py-3 text-right kpi-number font-semibold" style={{ color: 'var(--txt)' }}>
                                 {fmt(row.volume)}
                               </td>
                               <td className="px-5 py-3 text-right">
                                 <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded"
-                                  style={{ background: 'rgba(15,23,42,0.06)', color: '#475569' }}>
+                                  style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>
                                   {share}%
                                 </span>
                               </td>

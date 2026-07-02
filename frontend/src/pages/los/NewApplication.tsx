@@ -100,32 +100,32 @@ export default function NewApplication() {
           ))}
         </div>
 
-        <div className="bg-white rounded-2xl border border-black/[0.06] p-6 shadow-sm">
+        <div className="bg-[var(--card)] rounded-2xl border border-black/[0.06] p-6 shadow-sm">
           <ErrBanner msg={error} />
 
           {step === 0 && (
             <div className="space-y-4">
-              <h2 className="text-[16px] font-bold text-slate-800 mb-4">Applicant Details</h2>
+              <h2 className="text-[16px] font-bold text-[color:var(--txt)] mb-4">Applicant Details</h2>
               <div>
-                <label htmlFor="los-applicant_name" className="block text-[12px] font-semibold text-slate-500 mb-1">Full Name *</label>
-                <input id="los-applicant_name" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                <label htmlFor="los-applicant_name" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">Full Name *</label>
+                <input id="los-applicant_name" className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                   value={form.applicant_name} onChange={e => set('applicant_name', e.target.value)} placeholder="e.g. John Adebayo" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="los-phone" className="block text-[12px] font-semibold text-slate-500 mb-1">Phone Number *</label>
-                  <input id="los-phone" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                  <label htmlFor="los-phone" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">Phone Number *</label>
+                  <input id="los-phone" className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                     value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="08012345678" />
                 </div>
                 <div>
-                  <label htmlFor="los-email" className="block text-[12px] font-semibold text-slate-500 mb-1">Email</label>
-                  <input id="los-email" type="email" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                  <label htmlFor="los-email" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">Email</label>
+                  <input id="los-email" type="email" className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                     value={form.email} onChange={e => set('email', e.target.value)} placeholder="john@example.com" />
                 </div>
               </div>
               <div>
-                <label htmlFor="los-cif" className="block text-[12px] font-semibold text-slate-500 mb-1">CIF Number (if existing customer)</label>
-                <input id="los-cif" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                <label htmlFor="los-cif" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">CIF Number (if existing customer)</label>
+                <input id="los-cif" className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                   value={form.cif} onChange={e => set('cif', e.target.value)} placeholder="Leave blank for new customer" />
               </div>
             </div>
@@ -133,10 +133,10 @@ export default function NewApplication() {
 
           {step === 1 && (
             <div className="space-y-4">
-              <h2 className="text-[16px] font-bold text-slate-800 mb-4">Product & Loan Details</h2>
+              <h2 className="text-[16px] font-bold text-[color:var(--txt)] mb-4">Product & Loan Details</h2>
               <div>
-                <label htmlFor="los-product_type" className="block text-[12px] font-semibold text-slate-500 mb-1">Product Type *</label>
-                <select id="los-product_type" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                <label htmlFor="los-product_type" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">Product Type *</label>
+                <select id="los-product_type" className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                   value={form.product_type} onChange={e => set('product_type', e.target.value)}>
                   <option value="">Select product…</option>
                   {PRODUCT_TYPES.map(p => <option key={p} value={p}>{snake(p)}</option>)}
@@ -144,31 +144,31 @@ export default function NewApplication() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="los-amount" className="block text-[12px] font-semibold text-slate-500 mb-1">Amount Requested (₦) *</label>
-                  <input id="los-amount" type="number" min="0" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                  <label htmlFor="los-amount" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">Amount Requested (₦) *</label>
+                  <input id="los-amount" type="number" min="0" className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                     value={form.amount_requested_kobo} onChange={e => set('amount_requested_kobo', e.target.value)} placeholder="500000" />
-                  <p className="text-[11px] text-slate-400 mt-0.5">Enter in Naira (e.g. 500000 = ₦500,000)</p>
+                  <p className="text-[11px] text-[color:var(--txt2)] mt-0.5">Enter in Naira (e.g. 500000 = ₦500,000)</p>
                 </div>
                 <div>
-                  <label htmlFor="los-tenor" className="block text-[12px] font-semibold text-slate-500 mb-1">Tenor (months) *</label>
-                  <input id="los-tenor" type="number" min="1" max="60" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                  <label htmlFor="los-tenor" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">Tenor (months) *</label>
+                  <input id="los-tenor" type="number" min="1" max="60" className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                     value={form.tenor_months} onChange={e => set('tenor_months', e.target.value)} placeholder="12" />
                 </div>
               </div>
               <div>
-                <label htmlFor="los-purpose" className="block text-[12px] font-semibold text-slate-500 mb-1">Loan Purpose</label>
-                <input id="los-purpose" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                <label htmlFor="los-purpose" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">Loan Purpose</label>
+                <input id="los-purpose" className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                   value={form.purpose} onChange={e => set('purpose', e.target.value)} placeholder="e.g. Working capital" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="los-employer" className="block text-[12px] font-semibold text-slate-500 mb-1">Employer / Business</label>
-                  <input id="los-employer" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                  <label htmlFor="los-employer" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">Employer / Business</label>
+                  <input id="los-employer" className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                     value={form.employer} onChange={e => set('employer', e.target.value)} placeholder="Employer name" />
                 </div>
                 <div>
-                  <label htmlFor="los-income" className="block text-[12px] font-semibold text-slate-500 mb-1">Monthly Income (₦)</label>
-                  <input id="los-income" type="number" min="0" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                  <label htmlFor="los-income" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">Monthly Income (₦)</label>
+                  <input id="los-income" type="number" min="0" className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
                     value={form.monthly_income_kobo} onChange={e => set('monthly_income_kobo', e.target.value)} placeholder="200000" />
                 </div>
               </div>
@@ -177,7 +177,7 @@ export default function NewApplication() {
 
           {step === 2 && (
             <div>
-              <h2 className="text-[16px] font-bold text-slate-800 mb-4">Review & Submit</h2>
+              <h2 className="text-[16px] font-bold text-[color:var(--txt)] mb-4">Review & Submit</h2>
               <div className="space-y-3">
                 {[
                   ['Applicant Name', form.applicant_name],
@@ -191,9 +191,9 @@ export default function NewApplication() {
                   ['Employer', form.employer || '—'],
                   ['Monthly Income', form.monthly_income_kobo ? `₦${parseFloat(form.monthly_income_kobo).toLocaleString()}` : '—'],
                 ].map(([k, v]) => (
-                  <div key={k} className="flex justify-between py-2 border-b border-slate-100">
-                    <span className="text-[12px] font-semibold text-slate-500">{k}</span>
-                    <span className="text-[13px] text-slate-800 capitalize">{v}</span>
+                  <div key={k} className="flex justify-between py-2 border-b border-[var(--bdr)]">
+                    <span className="text-[12px] font-semibold text-[color:var(--txt2)]">{k}</span>
+                    <span className="text-[13px] text-[color:var(--txt)] capitalize">{v}</span>
                   </div>
                 ))}
               </div>
@@ -201,9 +201,9 @@ export default function NewApplication() {
           )}
 
           {/* Nav buttons */}
-          <div className="flex justify-between mt-6 pt-4 border-t border-slate-100">
+          <div className="flex justify-between mt-6 pt-4 border-t border-[var(--bdr)]">
             <button
-              className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40"
+              className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40"
               disabled={step === 0}
               onClick={() => setStep(s => s - 1)}
             >

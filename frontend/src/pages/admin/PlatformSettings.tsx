@@ -49,18 +49,18 @@ function GroupCard({
 
   return (
     <SectionCard title={snake(title) + ' Settings'}>
-      <div className="divide-y divide-slate-100">
+      <div className="divide-y divide-[var(--bdr)]">
         {settings.map(s => (
           <div key={s.key} className="px-5 py-3.5 flex items-center gap-4">
             <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-semibold text-slate-700">{s.key}</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Updated {fmtDate(s.updated_at)}</p>
+              <p className="text-[13px] font-semibold text-[color:var(--txt)]">{s.key}</p>
+              <p className="text-[11px] text-[color:var(--txt2)] mt-0.5">Updated {fmtDate(s.updated_at)}</p>
             </div>
             {editing === s.key ? (
               <div className="flex items-center gap-2 flex-shrink-0">
                 <input
                   type="text"
-                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20 w-56"
+                  className="px-2.5 py-1.5 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20 w-56"
                   value={draft}
                   onChange={e => setDraft(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') save(s.key); if (e.key === 'Escape') setEditing(null) }}
@@ -75,7 +75,7 @@ function GroupCard({
                   {saving ? '…' : 'Save'}
                 </button>
                 <button
-                  className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-600 bg-black/[0.05] hover:bg-black/[0.08]"
+                  className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-[color:var(--txt2)] bg-black/[0.05] hover:bg-black/[0.08]"
                   onClick={() => setEditing(null)}
                 >
                   Cancel
@@ -83,9 +83,9 @@ function GroupCard({
               </div>
             ) : (
               <div className="flex items-center gap-3 flex-shrink-0">
-                <span className="font-mono text-[13px] text-slate-700 max-w-[200px] truncate">{s.value || '—'}</span>
+                <span className="font-mono text-[13px] text-[color:var(--txt)] max-w-[200px] truncate">{s.value || '—'}</span>
                 <button
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                  className="p-1.5 rounded-lg text-[color:var(--txt2)] hover:text-[color:var(--txt)] hover:bg-[var(--chip-bg)]"
                   onClick={() => startEdit(s)}
                 >
                   <span className="material-symbols-rounded text-[16px]">edit</span>
@@ -148,7 +148,7 @@ export default function PlatformSettings() {
       {loading ? (
         <div className="flex items-center justify-center py-24"><Spinner size={36} /></div>
       ) : settings.length === 0 ? (
-        <div className="text-center py-24 text-slate-400 text-[14px]">No platform settings found.</div>
+        <div className="text-center py-24 text-[color:var(--txt2)] text-[14px]">No platform settings found.</div>
       ) : (
         <div className="space-y-5">
           {Object.entries(groups)

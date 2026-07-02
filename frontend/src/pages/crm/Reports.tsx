@@ -158,10 +158,10 @@ export default function CrmReports() {
 
   /* Agent table cols */
   const agentCols: ColDef<AgentRow>[] = [
-    { key: 'full_name', label: 'Agent', render: r => <span className="font-semibold text-slate-800 text-[13px]">{r.full_name}</span> },
+    { key: 'full_name', label: 'Agent', render: r => <span className="font-semibold text-[13px]" style={{ color: 'var(--txt)' }}>{r.full_name}</span> },
     { key: 'role', label: 'Role', render: r => (
       <span className="text-[11px] font-semibold px-2 py-0.5 rounded"
-        style={{ background: 'rgba(14,40,65,0.06)', color: '#475569' }}>
+        style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>
         {r.role}
       </span>
     )},
@@ -173,10 +173,10 @@ export default function CrmReports() {
       key: 'tasks_done', label: 'Task Rate', right: true,
       render: r => (
         <div className="flex items-center gap-2 justify-end">
-          <div className="w-16 h-1.5 rounded-full" style={{ background: 'rgba(14,40,65,0.08)' }}>
+          <div className="w-16 h-1.5 rounded-full" style={{ background: 'var(--chip-bg)' }}>
             <div className="h-full rounded-full" style={{ width: pct(r.tasks_done, r.tasks_assigned), background: GREEN }} />
           </div>
-          <span className="text-[12px] text-slate-500">{pct(r.tasks_done, r.tasks_assigned)}</span>
+          <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{pct(r.tasks_done, r.tasks_assigned)}</span>
         </div>
       ),
     },
@@ -184,29 +184,29 @@ export default function CrmReports() {
 
   /* SLA table cols */
   const slaCols: ColDef<SLARow>[] = [
-    { key: 'request_type', label: 'Request Type', render: r => <span className="font-medium text-slate-700 capitalize">{snake(r.request_type)}</span> },
+    { key: 'request_type', label: 'Request Type', render: r => <span className="font-medium capitalize" style={{ color: 'var(--txt)' }}>{snake(r.request_type)}</span> },
     { key: 'total',    label: 'Total',    right: true, render: r => <span className="kpi-number text-[12px]">{r.total}</span> },
     { key: 'resolved', label: 'Resolved', right: true, render: r => <span className="kpi-number text-[12px] text-green-600">{r.resolved}</span> },
     {
       key: 'sla_breached', label: 'SLA Breached', right: true,
       render: r => (
-        <span className={`kpi-number text-[12px] font-semibold ${r.sla_breached > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+        <span className={`kpi-number text-[12px] font-semibold ${r.sla_breached > 0 ? 'text-red-600' : 'text-[color:var(--txt2)]'}`}>
           {r.sla_breached}
         </span>
       ),
     },
     {
       key: 'avg_resolution_hrs', label: 'Avg Resolution', right: true,
-      render: r => <span className="text-[12px] text-slate-500">{r.avg_resolution_hrs != null ? r.avg_resolution_hrs.toFixed(1) + 'h' : '—'}</span>,
+      render: r => <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{r.avg_resolution_hrs != null ? r.avg_resolution_hrs.toFixed(1) + 'h' : '—'}</span>,
     },
     {
       key: '_rate', label: 'Resolve Rate', right: true,
       render: r => (
         <div className="flex items-center gap-2 justify-end">
-          <div className="w-14 h-1.5 rounded-full" style={{ background: 'rgba(14,40,65,0.08)' }}>
+          <div className="w-14 h-1.5 rounded-full" style={{ background: 'var(--chip-bg)' }}>
             <div className="h-full rounded-full" style={{ width: pct(r.resolved, r.total), background: NAVY }} />
           </div>
-          <span className="text-[11px] text-slate-500">{pct(r.resolved, r.total)}</span>
+          <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{pct(r.resolved, r.total)}</span>
         </div>
       ),
     },
@@ -299,16 +299,16 @@ export default function CrmReports() {
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: s.color || NAVY }} />
-                      <span className="text-[12px] text-slate-600">{s.name}</span>
+                      <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{s.name}</span>
                       {s.is_won && <span className="text-[11px] font-semibold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">WON</span>}
                       {s.is_lost && <span className="text-[11px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">LOST</span>}
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="text-[12px] font-mono font-semibold text-slate-800">{s.deal_count} deals</span>
-                      <span className="text-[11px] text-slate-400 w-8 text-right">{pctVal}%</span>
+                      <span className="text-[12px] font-mono font-semibold" style={{ color: 'var(--txt)' }}>{s.deal_count} deals</span>
+                      <span className="text-[11px] w-8 text-right" style={{ color: 'var(--txt2)' }}>{pctVal}%</span>
                     </div>
                   </div>
-                  <div className="h-1.5 rounded-full" style={{ background: 'rgba(14,40,65,0.07)' }}>
+                  <div className="h-1.5 rounded-full" style={{ background: 'var(--chip-bg)' }}>
                     <div className="h-full rounded-full transition-all"
                       style={{ width: `${pctVal}%`, background: s.color || NAVY }} />
                   </div>

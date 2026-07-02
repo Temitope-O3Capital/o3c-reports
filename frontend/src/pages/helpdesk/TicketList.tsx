@@ -86,7 +86,7 @@ function relativeTime(iso: string | null | undefined): string {
 function frtDisplay(first_response_at: string | null, created_at: string): {
   text: string; color: string
 } {
-  if (!first_response_at) return { text: '—', color: '#94A3B8' }
+  if (!first_response_at) return { text: '—', color: 'var(--txt2)' }
   const ms = new Date(first_response_at).getTime() - new Date(created_at).getTime()
   const h = Math.floor(ms / 3600000)
   const m = Math.floor((ms % 3600000) / 60000)
@@ -109,7 +109,7 @@ function slaDisplay(t: Ticket): { text: string; bg: string; color: string } {
     }
     return { text: 'On Track', bg: 'rgba(5,150,105,0.1)', color: GREEN }
   }
-  return { text: '—', bg: 'transparent', color: '#94A3B8' }
+  return { text: '—', bg: 'transparent', color: 'var(--txt2)' }
 }
 
 const CHANNEL_ICON: Record<string, string> = {
@@ -127,8 +127,8 @@ function FilterSelect({ value, options, onChange, label }: {
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
-      className="px-3 py-1.5 rounded-lg border text-[12px] font-medium bg-white appearance-none pr-7 outline-none"
-      style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155', minWidth: 110 }}
+      className="px-3 py-1.5 rounded-lg border text-[12px] font-medium appearance-none pr-7 outline-none"
+      style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)', minWidth: 110 }}
       aria-label={label}
     >
       {options.map(o => <option key={o} value={o}>{o}</option>)}
@@ -158,56 +158,60 @@ function BulkBar({
   const [prioVal,  setPrioVal]  = useState('')
 
   return (
-    <div
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 rounded-2xl px-5 py-3 shadow-2xl text-white text-[12px]"
-      style={{ background: '#0F172A', minWidth: 520 }}>
-      <span className="font-semibold">{count} selected</span>
-      <div className="w-px h-5 bg-slate-600 mx-1" />
+    <div className="flex items-center flex-wrap gap-2 px-3 py-2.5 flex-shrink-0 text-[12px]"
+      style={{ background: '#F0F4FF', borderBottom: '1px solid var(--bdr)' }}>
+      <span className="font-semibold" style={{ color: '#0E2841' }}>{count} selected</span>
+      <div className="w-px h-4 mx-0.5" style={{ background: 'var(--bdr)' }} />
 
       {/* Assign to */}
       <select
         value={agentVal}
         onChange={e => setAgentVal(e.target.value)}
-        className="px-2.5 py-1.5 rounded-lg text-[12px] bg-slate-700 border border-slate-600 text-white outline-none">
-        <option value="">Assign to…</option>
+        className="px-2 py-1 rounded-lg text-[11px] border outline-none"
+        style={{ borderColor: 'var(--bdr)', background: '#fff', color: '#0E2841' }}>
+        <option value="">Assign…</option>
         {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
       </select>
       <button
         disabled={!agentVal}
         onClick={() => { onAssign(Number(agentVal)); setAgentVal('') }}
-        className="px-2.5 py-1.5 rounded-lg font-semibold bg-white text-slate-900 disabled:opacity-40">
+        className="px-2 py-1 rounded-lg font-semibold border disabled:opacity-40 text-[11px]"
+        style={{ borderColor: 'var(--bdr)', background: '#fff', color: '#0E2841' }}>
         Apply
       </button>
 
-      <div className="w-px h-5 bg-slate-600 mx-1" />
+      <div className="w-px h-4 mx-0.5" style={{ background: 'var(--bdr)' }} />
 
       {/* Set priority */}
       <select
         value={prioVal}
         onChange={e => setPrioVal(e.target.value)}
-        className="px-2.5 py-1.5 rounded-lg text-[12px] bg-slate-700 border border-slate-600 text-white outline-none">
-        <option value="">Set Priority…</option>
+        className="px-2 py-1 rounded-lg text-[11px] border outline-none"
+        style={{ borderColor: 'var(--bdr)', background: '#fff', color: '#0E2841' }}>
+        <option value="">Priority…</option>
         {['urgent','high','normal','low'].map(p => <option key={p} value={p}>{p}</option>)}
       </select>
       <button
         disabled={!prioVal}
         onClick={() => { onPriority(prioVal); setPrioVal('') }}
-        className="px-2.5 py-1.5 rounded-lg font-semibold bg-white text-slate-900 disabled:opacity-40">
+        className="px-2 py-1 rounded-lg font-semibold border disabled:opacity-40 text-[11px]"
+        style={{ borderColor: 'var(--bdr)', background: '#fff', color: '#0E2841' }}>
         Apply
       </button>
 
-      <div className="w-px h-5 bg-slate-600 mx-1" />
+      <div className="w-px h-4 mx-0.5" style={{ background: 'var(--bdr)' }} />
 
       <button onClick={onCloseSelected}
-        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-semibold"
-        style={{ background: 'rgba(5,150,105,0.25)', color: '#6EE7B7' }}>
-        <span className="material-symbols-rounded text-[14px]">check_circle</span>
-        Close Selected
+        className="flex items-center gap-1 px-2 py-1 rounded-lg font-semibold text-[11px]"
+        style={{ background: 'rgba(5,150,105,0.12)', color: '#059669' }}>
+        <span className="material-symbols-rounded text-[13px]">check_circle</span>
+        Close
       </button>
 
       <button onClick={onClear}
-        className="ml-auto w-6 h-6 flex items-center justify-center rounded-full hover:bg-slate-700">
-        <span className="material-symbols-rounded text-[15px] text-slate-400">close</span>
+        className="ml-auto w-6 h-6 flex items-center justify-center rounded-full hover:bg-black/[0.08]"
+        style={{ color: 'var(--txt2)' }}>
+        <span className="material-symbols-rounded text-[15px]">close</span>
       </button>
     </div>
   )
@@ -245,15 +249,79 @@ function QuickStats({ stats, tickets, statsLoading }: {
     <div className="flex gap-4 mb-6">
       {items.map(item => (
         <div key={item.label}
-          className="flex items-center gap-3 bg-white rounded-xl px-4 py-3 flex-1"
-          style={{ border: '1px solid rgba(15,23,42,0.07)' }}>
+          className="flex items-center gap-3 rounded-xl px-4 py-3 flex-1"
+          style={{ background: 'var(--card)', border: '1px solid var(--bdr)' }}>
           <span className="material-symbols-rounded text-[20px]" style={{ color: item.color }}>{item.icon}</span>
           <div>
-            <p className="text-[18px] font-bold text-slate-800 leading-tight">{item.value}</p>
-            <p className="text-[11px] text-slate-400">{item.label}</p>
+            <p className="text-[18px] font-bold leading-tight" style={{ color: 'var(--txt)' }}>{item.value}</p>
+            <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>{item.label}</p>
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+// ── Ticket preview panel (right side of split view) ──────────────────────────
+function TicketPreview({ ticket: t, navigate }: { ticket: Ticket; navigate: (path: string) => void }) {
+  const frt = frtDisplay(t.first_response_at, t.created_at)
+  const sla = slaDisplay(t)
+  return (
+    <div className="p-6">
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <div className="min-w-0">
+          <span className="font-mono text-[11px]" style={{ color: 'var(--txt2)' }}>{t.ticket_ref}</span>
+          <h2 className="text-[15px] font-bold mt-1 leading-snug" style={{ color: 'var(--txt)' }}>{t.subject}</h2>
+        </div>
+        <button
+          onClick={() => navigate(`/helpdesk/${t.id}`)}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-semibold text-white flex-shrink-0"
+          style={{ background: NAVY }}>
+          <span className="material-symbols-rounded text-[14px]">open_in_new</span>
+          Open
+        </button>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap mb-5">
+        <StatusPill status={t.status} />
+        <PriorityPill priority={t.priority} />
+        <span className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full"
+          style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>
+          <span className="material-symbols-rounded text-[13px]">{CHANNEL_ICON[t.channel?.toLowerCase()] ?? 'chat'}</span>
+          {t.channel}
+        </span>
+        {sla.text !== '—' && (
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+            style={{ background: sla.bg, color: sla.color }}>{sla.text}</span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-5"
+        style={{ borderTop: '1px solid var(--bdr)', borderBottom: '1px solid var(--bdr)' }}>
+        {([
+          ['Customer',     t.customer_name],
+          ['CIF',          t.customer_cif || '—'],
+          ['Department',   t.department || '—'],
+          ['Assigned to',  t.assigned_to_name ?? 'Unassigned'],
+          ['FRT',          frt.text],
+          ['Created',      fmtDate(t.created_at)],
+          ['Last message', relativeTime(t.last_message_at) || '—'],
+          ['SLA due',      t.sla_due_at ? fmtDate(t.sla_due_at) : '—'],
+        ] as [string, string][]).map(([label, value]) => (
+          <div key={label}>
+            <div className="text-[10px] font-semibold uppercase tracking-wide mb-0.5" style={{ color: 'var(--txt2)' }}>{label}</div>
+            <div className="text-[13px] font-medium" style={{ color: ['—', 'Unassigned'].includes(value) ? 'var(--txt2)' : 'var(--txt)' }}>{value}</div>
+          </div>
+        ))}
+      </div>
+
+      <button
+        onClick={() => navigate(`/helpdesk/${t.id}`)}
+        className="w-full flex items-center justify-center gap-2 mt-5 py-2.5 rounded-xl text-[13px] font-semibold"
+        style={{ background: NAVY, color: '#fff' }}>
+        <span className="material-symbols-rounded text-[16px]">open_in_new</span>
+        Open Full Ticket
+      </button>
     </div>
   )
 }
@@ -304,6 +372,7 @@ export default function TicketList() {
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
   const [refreshKey,      setRefreshKey]      = useState(0)
   const [lastSynced,      setLastSynced]      = useState<Date | null>(null)
+  const [selectedTicket,  setSelectedTicket]  = useState<Ticket | null>(null)
   function toggleSort(col: typeof sortBy) {
     setSortBy(prev => {
       if (prev === col) { setSortDir(d => d === 'desc' ? 'asc' : 'desc'); return prev }
@@ -411,12 +480,12 @@ export default function TicketList() {
               onClick={() => setRefreshKey(k => k + 1)}
               title="Refresh tickets"
               className="flex items-center gap-1 px-3 py-2 rounded-lg border text-[12px] font-medium transition-all"
-              style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#64748B', background: 'white' }}
+              style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)', background: 'var(--card)' }}
             >
               <span className="material-symbols-rounded text-[15px]">refresh</span>
             </button>
             {lastSynced && (
-              <span className="text-[11px] whitespace-nowrap" style={{ color: '#94A3B8' }}>
+              <span className="text-[11px] whitespace-nowrap" style={{ color: 'var(--txt2)' }}>
                 Synced {(() => {
                   const s = Math.floor((Date.now() - lastSynced.getTime()) / 1000)
                   if (s < 60) return 'just now'
@@ -450,255 +519,174 @@ export default function TicketList() {
         />
       </div>
 
-      {/* Filter bar + table */}
-      <SectionCard
-        title="Tickets"
-        badge={ticketPage?.total}
-      >
-        {/* Status chip quick-filters */}
-        <div className="flex items-center gap-1.5 px-5 pt-3 pb-0"
-          style={{ borderBottom: '1px solid rgba(15,23,42,0.06)' }}>
-          {[
-            { label: 'All',         val: 'All',         color: '#64748B' },
-            { label: 'Open',        val: 'Open',        color: NAVY },
-            { label: 'Pending',     val: 'Pending',     color: AMBER },
-            { label: 'In Progress', val: 'In Progress', color: BLUE },
-            { label: 'Resolved',    val: 'Resolved',    color: GREEN },
-            { label: 'SLA Risk',    val: 'All',         color: RED, slaOnly: true },
-          ].map(chip => {
-            const active = chip.slaOnly ? false : status === chip.val
-            return (
-              <button
-                key={chip.label}
-                onClick={() => { setStatus(chip.val); setPage(1) }}
-                className="flex items-center gap-1 px-3 py-1.5 mb-0 text-[12px] font-semibold border-b-2 transition-all whitespace-nowrap"
-                style={{
-                  borderColor: active ? chip.color : 'transparent',
-                  color: active ? chip.color : '#94A3B8',
-                  background: 'none',
-                }}
-              >{chip.label}</button>
-            )
-          })}
-          <div className="ml-auto flex items-center gap-2 mb-2">
+      {/* Split view */}
+      <div className="flex rounded-[14px] border overflow-hidden"
+        style={{ borderColor: 'var(--card-bdr)', background: 'var(--card)', boxShadow: 'var(--card-shadow)', minHeight: 540 }}>
+
+        {/* ── Left list panel ── */}
+        <div className="w-[380px] flex-shrink-0 flex flex-col" style={{ borderRight: '1px solid var(--bdr)' }}>
+
+          {/* Panel header */}
+          <div className="flex items-center justify-between px-4 py-3 flex-shrink-0"
+            style={{ borderBottom: '1px solid var(--bdr)' }}>
+            <span className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>
+              Tickets
+              {ticketPage?.total != null && (
+                <span className="ml-1.5 px-1.5 py-0.5 rounded text-[11px] font-bold"
+                  style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>
+                  {ticketPage.total}
+                </span>
+              )}
+            </span>
             <button
               onClick={() => setMyTickets(m => !m)}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all"
               style={{
-                borderColor: myTickets ? NAVY : 'rgba(15,23,42,0.15)',
-                background:  myTickets ? `${NAVY}0f` : 'white',
-                color:       myTickets ? NAVY : '#64748B',
-              }}
-            >
-              <span className="material-symbols-rounded text-[14px]">person</span>
+                borderColor: myTickets ? NAVY : 'var(--bdr)',
+                background:  myTickets ? `${NAVY}0f` : 'transparent',
+                color:       myTickets ? NAVY : 'var(--txt2)',
+              }}>
+              <span className="material-symbols-rounded text-[13px]">person</span>
               Mine
             </button>
+          </div>
+
+          {/* Status tabs */}
+          <div className="flex items-center overflow-x-auto flex-shrink-0"
+            style={{ borderBottom: '1px solid var(--bdr)' }}>
+            {[
+              { label: 'All',         val: 'All',         color: 'var(--txt2)' },
+              { label: 'Open',        val: 'Open',        color: NAVY },
+              { label: 'Pending',     val: 'Pending',     color: AMBER },
+              { label: 'In Progress', val: 'In Progress', color: BLUE },
+              { label: 'Resolved',    val: 'Resolved',    color: GREEN },
+            ].map(chip => {
+              const active = status === chip.val
+              return (
+                <button key={chip.label}
+                  onClick={() => { setStatus(chip.val); setPage(1) }}
+                  className="flex-shrink-0 px-3 py-2 text-[11px] font-semibold border-b-2 transition-all whitespace-nowrap"
+                  style={{ borderColor: active ? chip.color : 'transparent', color: active ? chip.color : 'var(--txt2)', background: 'none' }}>
+                  {chip.label}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Search + filters */}
+          <div className="flex flex-col gap-1.5 px-3 py-2 flex-shrink-0"
+            style={{ borderBottom: '1px solid var(--bdr)', background: 'var(--bg)' }}>
             <div className="relative">
-              <span className="material-symbols-rounded text-[15px] absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">search</span>
+              <span className="material-symbols-rounded text-[14px] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--txt2)' }}>search</span>
               <input
                 value={search}
                 onChange={e => handleSearchChange(e.target.value)}
-                placeholder="Search…"
-                className="pl-8 pr-3 py-1.5 rounded-lg border text-[12px] bg-white outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.15)', width: 180 }}
+                placeholder="Search tickets…"
+                className="w-full pl-7 pr-3 py-1.5 rounded-lg border text-[12px] outline-none"
+                style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}
               />
             </div>
-          </div>
-        </div>
-
-        {/* Advanced filters (collapsible row) */}
-        <div className="flex flex-wrap items-center gap-2 px-5 py-2"
-          style={{ borderBottom: '1px solid rgba(15,23,42,0.06)', background: '#FAFBFC' }}>
-          <FilterSelect value={priority}   options={PRIORITY_OPTIONS} onChange={setPriority}   label="Priority" />
-          <FilterSelect value={channel}    options={CHANNEL_OPTIONS}  onChange={setChannel}    label="Channel" />
-          <FilterSelect value={department} options={DEPT_OPTIONS}     onChange={setDepartment} label="Department" />
-        </div>
-
-        <ErrBanner msg={err} />
-
-        {/* Table */}
-        <div className="overflow-x-auto">
-          {loading ? (
-            <div className="flex items-center justify-center py-16"><Spinner size={28} /></div>
-          ) : tickets.length === 0 ? (
-            <div className="py-16 text-center">
-              <span className="material-symbols-rounded text-[40px] text-slate-300 block mb-2">support_agent</span>
-              <p className="text-[13px] text-slate-400">No tickets found</p>
-              <p className="text-[12px] text-slate-400 mt-1">Try adjusting your filters</p>
+            <div className="flex gap-1.5">
+              <FilterSelect value={priority}   options={PRIORITY_OPTIONS} onChange={setPriority}   label="Priority" />
+              <FilterSelect value={department} options={DEPT_OPTIONS}     onChange={setDepartment} label="Department" />
             </div>
-          ) : (
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr style={{ background: '#F8FAFC', borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
-                  {/* Checkbox */}
-                  <th className="px-4 py-3 w-10">
+          </div>
+
+          <ErrBanner msg={err} />
+
+          {selectedIds.size > 0 && (
+            <BulkBar
+              count={selectedIds.size}
+              agents={agents}
+              onAssign={bulkAssign}
+              onPriority={bulkPriority}
+              onClose={bulkClose}
+              onClear={() => setSelectedIds(new Set())}
+            />
+          )}
+
+          {/* Ticket rows */}
+          <div className="flex-1 overflow-y-auto">
+            {loading ? (
+              <div className="flex items-center justify-center py-16"><Spinner size={24} /></div>
+            ) : tickets.length === 0 ? (
+              <div className="py-16 text-center">
+                <span className="material-symbols-rounded text-[36px] block mb-2" style={{ color: 'var(--txt3)' }}>support_agent</span>
+                <p className="text-[12px]" style={{ color: 'var(--txt2)' }}>No tickets found</p>
+              </div>
+            ) : tickets.map(t => {
+              const sla = slaDisplay(t)
+              const isSelected = selectedIds.has(t.id)
+              const isPreview  = selectedTicket?.id === t.id
+              return (
+                <div key={t.id}
+                  onClick={() => setSelectedTicket(t)}
+                  className="cursor-pointer transition-colors hover:bg-[var(--row-hvr)]"
+                  style={{
+                    borderBottom: '1px solid var(--bdr)',
+                    background: isPreview ? 'var(--row-sel)' : isSelected ? 'rgba(14,40,65,0.03)' : undefined,
+                  }}>
+                  <div className="flex items-start gap-2 px-4 py-3">
                     <input
                       type="checkbox"
-                      checked={selectedIds.size === tickets.length && tickets.length > 0}
-                      onChange={toggleAll}
-                      className="rounded cursor-pointer"
+                      checked={isSelected}
+                      onChange={e => { e.stopPropagation(); toggleSelect(t.id) }}
+                      onClick={e => e.stopPropagation()}
+                      className="mt-0.5 rounded flex-shrink-0 cursor-pointer"
                     />
-                  </th>
-                  {[
-                    { label: 'REF',      sortable: false },
-                    { label: 'SUBJECT',  sortable: false },
-                    { label: 'CUSTOMER', sortable: false },
-                    { label: 'CHANNEL',  sortable: false },
-                    { label: 'STATUS',   sortable: false },
-                    { label: 'PRIORITY', sortable: true,  col: 'priority' as const },
-                    { label: 'FRT',      sortable: false },
-                    { label: 'SLA',      sortable: true,  col: 'sla_due_at' as const },
-                    { label: 'CREATED',  sortable: true,  col: 'created_at' as const },
-                  ].map(h => (
-                    <th key={h.label}
-                      className={`px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.07em] text-slate-400 whitespace-nowrap ${h.sortable ? 'cursor-pointer select-none hover:text-slate-600' : ''}`}
-                      onClick={h.sortable && h.col ? () => toggleSort(h.col!) : undefined}>
-                      <span className="flex items-center gap-1">
-                        {h.label}
-                        {h.sortable && h.col && sortBy === h.col && (
-                          <span className="material-symbols-rounded text-[12px]">
-                            {sortDir === 'desc' ? 'arrow_downward' : 'arrow_upward'}
-                          </span>
-                        )}
-                      </span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {tickets.map(t => {
-                  const frt = frtDisplay(t.first_response_at, t.created_at)
-                  const sla = slaDisplay(t)
-                  const isSelected = selectedIds.has(t.id)
-                  return (
-                    <tr
-                      key={t.id}
-                      className="transition-colors hover:bg-slate-50 cursor-pointer"
-                      style={{
-                        borderTop: '1px solid rgba(15,23,42,0.05)',
-                        background: isSelected ? 'rgba(14,40,65,0.03)' : undefined,
-                      }}
-                    >
-                      {/* Checkbox */}
-                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleSelect(t.id)}
-                          className="rounded cursor-pointer"
-                        />
-                      </td>
-
-                      {/* Ref */}
-                      <td className="px-5 py-3 whitespace-nowrap" onClick={() => navigate(`/helpdesk/${t.id}`)}>
-                        <span className="font-mono text-[12px] text-slate-600">{t.ticket_ref}</span>
-                      </td>
-
-                      {/* Subject */}
-                      <td className="px-5 py-3 max-w-[240px]" onClick={() => navigate(`/helpdesk/${t.id}`)}>
-                        <p className="font-semibold text-slate-800 truncate">{t.subject}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          {t.assigned_to_name ?? 'Unassigned'} · {relativeTime(t.last_message_at)}
-                        </p>
-                        {sla.text === 'BREACHED' && (
-                          <span className="text-[11px] font-bold text-red-600 mt-0.5 block">⚠ SLA BREACHED</span>
-                        )}
-                      </td>
-
-                      {/* Customer */}
-                      <td className="px-5 py-3 whitespace-nowrap" onClick={() => navigate(`/helpdesk/${t.id}`)}>
-                        <p className="text-slate-700 font-medium">{t.customer_name}</p>
-                        {t.customer_cif && (
-                          <span className="text-[11px] font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded mt-0.5 inline-block">
-                            CIF:{t.customer_cif}
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Channel */}
-                      <td className="px-5 py-3" onClick={() => navigate(`/helpdesk/${t.id}`)}>
-                        <span className="flex items-center gap-1 text-[12px] text-slate-500">
-                          <span className="material-symbols-rounded text-[15px]">
-                            {CHANNEL_ICON[t.channel?.toLowerCase()] ?? 'chat'}
-                          </span>
-                          {t.channel}
-                        </span>
-                      </td>
-
-                      {/* Status */}
-                      <td className="px-5 py-3" onClick={() => navigate(`/helpdesk/${t.id}`)}>
-                        <StatusPill status={t.status} />
-                      </td>
-
-                      {/* Priority */}
-                      <td className="px-5 py-3" onClick={() => navigate(`/helpdesk/${t.id}`)}>
-                        <PriorityPill priority={t.priority} />
-                      </td>
-
-                      {/* FRT */}
-                      <td className="px-5 py-3 whitespace-nowrap" onClick={() => navigate(`/helpdesk/${t.id}`)}>
-                        <span className="text-[12px] font-semibold" style={{ color: frt.color }}>
-                          {frt.text}
-                        </span>
-                      </td>
-
-                      {/* SLA */}
-                      <td className="px-5 py-3 whitespace-nowrap" onClick={() => navigate(`/helpdesk/${t.id}`)}>
-                        {sla.text !== '—' ? (
-                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full"
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-1 mb-1">
+                        <p className="text-[13px] font-semibold leading-tight truncate" style={{ color: 'var(--txt)' }}>{t.subject}</p>
+                        {sla.text !== '—' && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0"
                             style={{ background: sla.bg, color: sla.color }}>
-                            {sla.text}
+                            {sla.text === 'BREACHED' ? '⚠' : sla.text}
                           </span>
-                        ) : (
-                          <span className="text-[12px] text-slate-300">—</span>
                         )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          )}
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                        <StatusPill status={t.status} />
+                        <PriorityPill priority={t.priority} />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] truncate" style={{ color: 'var(--txt2)' }}>{t.customer_name}</span>
+                        <span className="text-[10px] flex-shrink-0 ml-1" style={{ color: 'var(--txt3)' }}>{relativeTime(t.last_message_at)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+
+            {/* Pagination */}
+            {!loading && totalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 px-4 py-3 text-[12px]"
+                style={{ borderTop: '1px solid var(--bdr)' }}>
+                <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
+                  className="px-2.5 py-1 rounded-lg font-semibold bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40"
+                  style={{ color: 'var(--txt)' }}>Prev</button>
+                <span style={{ color: 'var(--txt2)' }}>{page} / {totalPages}</span>
+                <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
+                  className="px-2.5 py-1 rounded-lg font-semibold bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40"
+                  style={{ color: 'var(--txt)' }}>Next</button>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Pagination */}
-        {!loading && totalPages > 1 && (
-          <div className="flex items-center justify-between px-5 py-3"
-            style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }}>
-            <span className="text-[12px] text-slate-400">
-              Page {page} of {totalPages} · {ticketPage?.total ?? 0} tickets
-            </span>
-            <div className="flex gap-2">
-              <button
-                disabled={page <= 1}
-                onClick={() => setPage(p => p - 1)}
-                className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40"
-              >
-                Prev
-              </button>
-              <button
-                disabled={page >= totalPages}
-                onClick={() => setPage(p => p + 1)}
-                className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40"
-              >
-                Next
-              </button>
+        {/* ── Right preview panel ── */}
+        <div className="flex-1 overflow-y-auto">
+          {!selectedTicket ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3">
+              <span className="material-symbols-rounded text-[52px]" style={{ color: 'var(--txt3)' }}>support_agent</span>
+              <p className="text-[13px] font-medium" style={{ color: 'var(--txt2)' }}>Select a ticket to preview</p>
             </div>
-          </div>
-        )}
-      </SectionCard>
+          ) : (
+            <TicketPreview ticket={selectedTicket} navigate={navigate} />
+          )}
+        </div>
+      </div>
 
-      {/* Bulk action bar */}
-      {selectedIds.size > 0 && (
-        <BulkBar
-          count={selectedIds.size}
-          agents={agents}
-          onAssign={bulkAssign}
-          onPriority={bulkPriority}
-          onClose={bulkClose}
-          onClear={() => setSelectedIds(new Set())}
-        />
-      )}
     </Page>
   )
 }

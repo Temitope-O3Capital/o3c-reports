@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState, useCallback, Component, memo } from 'react'
 import type { ReactNode } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useParams } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useParams, useLocation } from 'react-router-dom'
 import { Toaster, toast } from 'sonner'
 import Sidebar from './components/Sidebar'
 import NotificationBell from './components/NotificationBell'
@@ -165,6 +165,10 @@ const LoanDetail = lazy(() => import('./pages/active-loan-book/LoanDetail'))
 const BDOverview       = lazy(() => import('./pages/bd/Overview'))
 const EmployerRegister = lazy(() => import('./pages/bd/EmployerRegister'))
 const BDPipeline       = lazy(() => import('./pages/bd/Pipeline'))
+
+const PayrollOverview  = lazy(() => import('./pages/payroll/Overview'))
+const PayrollRunDetail = lazy(() => import('./pages/payroll/RunDetail'))
+const PayrollPayslip   = lazy(() => import('./pages/payroll/Payslip'))
 
 // Reports & Approvals
 const Reports          = lazy(() => import('./pages/reports/Reports'))
@@ -511,6 +515,12 @@ function RequireAccess({ page, user, children }: { page: string; user: AuthUser;
 // NOTE: 'cmo' is a legacy role not in the canonical 24 — kept intentionally for backwards compatibility
 const MGMT_ROLES = ['md', 'coo', 'cfo', 'cmo', 'executive', 'admin', 'management', 'head_ops', 'head_it']
 
+// ── Page crossfade on route change ───────────────────────────────────────────
+function PageFade({ children }: { children: ReactNode }) {
+  const location = useLocation()
+  return <div key={location.pathname} className="animate-crossfade">{children}</div>
+}
+
 // ── Authenticated layout shell ────────────────────────────────────────────────
 
 const IDLE_WARN_MS   = 25 * 60 * 1000   // show warning after 25 min of inactivity
@@ -565,7 +575,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
         style={{ background: '#0E2841' }}>
         Skip to main content
       </a>
-      <div className="flex h-screen overflow-hidden" style={{ ...(dark ? DARK : LIGHT), background: 'var(--bg)' }}>
+      <div className="flex h-screen overflow-hidden" style={{ ...(dark ? DARK : LIGHT), background: 'var(--bg)', transition: 'background .25s, color .25s' }}>
         <Toaster richColors position="top-right" />
 
         {sidebarOpen && (
@@ -611,6 +621,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
           <main id="main-content" className="flex-1 overflow-y-auto">
             <Suspense fallback={<PageLoader />}>
+              <PageFade>
               <Routes>
                 {/* Design demo — full-screen overlay, no access guard */}
                 <Route path="/design-demo" element={<PageErrorBoundary><DesignDemo /></PageErrorBoundary>} />
@@ -729,6 +740,11 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                 <Route path="/bd/employers" element={<PageErrorBoundary><RequireAccess page="bd_employers" user={user}><EmployerRegister /></RequireAccess></PageErrorBoundary>} />
                 <Route path="/bd/pipeline"  element={<PageErrorBoundary><RequireAccess page="bd_pipeline" user={user}><BDPipeline /></RequireAccess></PageErrorBoundary>} />
 
+                {/* ── Payroll ── */}
+                <Route path="/payroll"                       element={<PageErrorBoundary><RequireAccess page="payroll" user={user}><PayrollOverview /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/payroll/runs/:id"              element={<PageErrorBoundary><RequireAccess page="payroll" user={user}><PayrollRunDetail /></RequireAccess></PageErrorBoundary>} />
+                <Route path="/payroll/runs/:runId/items/:itemId" element={<PageErrorBoundary><RequireAccess page="payroll" user={user}><PayrollPayslip /></RequireAccess></PageErrorBoundary>} />
+
                 {/* ── Settings ── */}
                 <Route path="/settings/voice"      element={<VoiceConnect />} />
 
@@ -797,6 +813,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
                 <Route path="*" element={<Navigate to={homeFor(role)} replace />} />
               </Routes>
+              </PageFade>
             </Suspense>
           </main>
         </div>

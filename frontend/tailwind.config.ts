@@ -131,7 +131,7 @@ export default {
 
       // ── Typography ────────────────────────────────────────────────
       fontFamily: {
-        sans: ['DM Sans', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: ['Sora', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         mono: ['DM Mono', 'ui-monospace', 'monospace'],
       },
 
@@ -160,13 +160,15 @@ export default {
       // ── Animations ────────────────────────────────────────────────
       keyframes: {
         shimmer: { '0%,100%': { opacity: '1' }, '50%': { opacity: '0.4' } },
-        fadeIn:  { from: { opacity: '0', transform: 'translateY(6px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
-        slideIn: { from: { opacity: '0', transform: 'translateX(-8px)' }, to: { opacity: '1', transform: 'translateX(0)' } },
+        fadeIn:     { from: { opacity: '0', transform: 'translateY(6px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+        slideIn:    { from: { opacity: '0', transform: 'translateX(-8px)' }, to: { opacity: '1', transform: 'translateX(0)' } },
+        crossfadeIn:{ from: { opacity: '0' }, to: { opacity: '1' } },
       },
       animation: {
-        shimmer: 'shimmer 1.6s ease-in-out infinite',
-        fadeIn:  'fadeIn 0.2s ease-out both',
-        slideIn: 'slideIn 0.15s ease-out both',
+        shimmer:   'shimmer 1.6s ease-in-out infinite',
+        fadeIn:    'fadeIn 0.2s ease-out both',
+        slideIn:   'slideIn 0.15s ease-out both',
+        crossfade: 'crossfadeIn 0.3s ease 0.12s both',
       },
     },
   },

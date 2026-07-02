@@ -32,7 +32,7 @@ function StatusBreakdown({ data, loading }: { data: any[]; loading: boolean }) {
         {loading
           ? Array.from({ length: 4 }).map((_, i) => <div key={i} className="space-y-1.5"><Sk w="w-24" /><Sk h="h-1.5" /></div>)
           : data.length === 0
-          ? <p className="text-[13px] text-slate-400 py-8 text-center">No data</p>
+          ? <p className="text-[13px] py-8 text-center" style={{ color: 'var(--txt2)' }}>No data</p>
           : data.map((row, i) => {
               const status = row['Account Status'] || row.status || ''
               const count  = n(row.count)
@@ -43,11 +43,11 @@ function StatusBreakdown({ data, loading }: { data: any[]; loading: boolean }) {
                   <div className="flex items-center justify-between mb-1.5">
                     <StatusBadge status={status.toLowerCase() === 'open' ? 'active' : status} />
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-slate-400">{share.toFixed(1)}%</span>
-                      <span className="kpi-number text-[14px] font-bold text-slate-800">{count.toLocaleString()}</span>
+                      <span className="text-[11px] text-[color:var(--txt2)]">{share.toFixed(1)}%</span>
+                      <span className="kpi-number text-[14px] font-bold text-[color:var(--txt)]">{count.toLocaleString()}</span>
                     </div>
                   </div>
-                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(15,23,42,0.06)' }}>
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--chip-bg)' }}>
                     <div className="h-full rounded-full transition-all duration-700"
                       style={{ width: `${share}%`, background: color }} />
                   </div>
@@ -116,7 +116,7 @@ export default function CardsIssuance() {
     { key: '_share', label: 'Share', right: true, sortable: false,
       render: r => (
         <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded"
-          style={{ background: 'rgba(15,23,42,0.06)', color: '#475569' }}>
+          style={{ background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
           {volTotal > 0 ? ((n(r.volume) / volTotal) * 100).toFixed(1) : '0.0'}%
         </span>
       )
@@ -129,7 +129,7 @@ export default function CardsIssuance() {
     { key: '_share', label: 'Share', right: true, sortable: false,
       render: r => (
         <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded"
-          style={{ background: 'rgba(15,23,42,0.06)', color: '#475569' }}>
+          style={{ background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
           {prodTotal > 0 ? ((n(r.count) / prodTotal) * 100).toFixed(1) : '0.0'}%
         </span>
       )
@@ -153,11 +153,11 @@ export default function CardsIssuance() {
           <ExportBtn onClick={doExport} loading={exporting} />
           {/* Card type filter */}
           <div className="flex rounded-lg overflow-hidden text-[11px] font-semibold"
-            style={{ border: '1px solid rgba(15,23,42,0.15)' }}>
+            style={{ border: '1px solid var(--bdr)' }}>
             <button
               onClick={() => setCardType('')}
               className="px-3 py-1.5 transition-colors"
-              style={{ background: !cardType ? NAVY : 'white', color: !cardType ? '#fff' : '#64748B' }}>
+              style={{ background: !cardType ? NAVY : 'var(--card)', color: !cardType ? '#fff' : 'var(--txt2)' }}>
               All
             </button>
             {CARD_TYPES.map(t => (
@@ -166,8 +166,8 @@ export default function CardsIssuance() {
                 className="px-3 py-1.5 transition-colors border-l"
                 style={{
                   borderColor: 'rgba(15,23,42,0.12)',
-                  background: cardType === t ? NAVY : 'white',
-                  color: cardType === t ? '#fff' : '#64748B',
+                  background: cardType === t ? NAVY : 'var(--card)',
+                  color: cardType === t ? '#fff' : 'var(--txt2)',
                 }}>
                 {t}
               </button>

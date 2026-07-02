@@ -162,19 +162,19 @@ function TxnDrawer({ initial, onClose, onSaved }: TxnDrawerProps) {
 
   const inp = (label: string, key: keyof FormState, type = 'text', opts: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
     <div>
-      <label className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">{label}</label>
+      <label className="block text-[12px] font-semibold mb-1.5 uppercase tracking-wide" style={{ color: 'var(--txt2)' }}>{label}</label>
       <input type={type} value={form[key]} onChange={e => setF(key, e.target.value)}
         className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
-        style={{ borderColor: 'rgba(15,23,42,0.15)' }} {...opts} />
+        style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} {...opts} />
     </div>
   )
 
   const selF = (label: string, key: keyof FormState, opts: { value: string; label: string }[]) => (
     <div>
-      <label className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">{label}</label>
+      <label className="block text-[12px] font-semibold mb-1.5 uppercase tracking-wide" style={{ color: 'var(--txt2)' }}>{label}</label>
       <select value={form[key]} onChange={e => setF(key, e.target.value)}
-        className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none bg-white"
-        style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+        className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
+        style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}>
         {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     </div>
@@ -183,26 +183,26 @@ function TxnDrawer({ initial, onClose, onSaved }: TxnDrawerProps) {
   function Sec({ title }: { title: string }) {
     return (
       <div className="col-span-2 mt-4">
-        <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 pb-2"
-          style={{ borderBottom: '1px solid rgba(15,23,42,0.08)' }}>{title}</p>
+        <p className="text-[11px] font-bold uppercase tracking-widest pb-2"
+          style={{ color: 'var(--txt2)', borderBottom: '1px solid var(--bdr)' }}>{title}</p>
       </div>
     )
   }
 
   return (
     <div className="fixed inset-0 z-40" onClick={onClose} style={{ background: 'rgba(0,0,0,0.3)' }}>
-      <div className="absolute right-0 top-0 h-full w-[480px] bg-white shadow-2xl overflow-y-auto flex flex-col"
+      <div className="absolute right-0 top-0 h-full w-[480px] shadow-2xl overflow-y-auto flex flex-col" style={{ background: 'var(--card)' }}
         onClick={e => e.stopPropagation()}>
-        <div className="px-6 py-5 flex-shrink-0" style={{ borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
+        <div className="px-6 py-5 flex-shrink-0" style={{ borderBottom: '1px solid var(--bdr)' }}>
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-[15px] font-semibold text-slate-800">
+              <h3 className="text-[15px] font-semibold" style={{ color: 'var(--txt)' }}>
                 {initial?.id ? 'Edit Transaction' : 'Book FD Transaction'}
               </h3>
-              <p className="text-[12px] text-slate-400 mt-0.5">Fixed Deposit</p>
+              <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>Fixed Deposit</p>
             </div>
             <button onClick={onClose}>
-              <span className="material-symbols-rounded text-[20px] text-slate-400">close</span>
+              <span className="material-symbols-rounded text-[20px]" style={{ color: 'var(--txt2)' }}>close</span>
             </button>
           </div>
         </div>
@@ -235,20 +235,20 @@ function TxnDrawer({ initial, onClose, onSaved }: TxnDrawerProps) {
             {inp('Rate (% p.a.)', 'rate', 'number', { placeholder: '0.00', step: 0.01 })}
 
             <div className="col-span-2 mt-2">
-              <label className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">Notes</label>
+              <label className="block text-[12px] font-semibold mb-1.5 uppercase tracking-wide" style={{ color: 'var(--txt2)' }}>Notes</label>
               <textarea value={form.notes} onChange={e => setF('notes', e.target.value)}
                 rows={3} className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none resize-y"
-                style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+                style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
             </div>
           </div>
           {err && <ErrBanner msg={err} />}
         </form>
 
         <div className="flex-shrink-0 px-6 py-4 flex justify-end gap-3"
-          style={{ borderTop: '1px solid rgba(15,23,42,0.08)' }}>
+          style={{ borderTop: '1px solid var(--bdr)' }}>
           <button type="button" onClick={onClose}
-            className="px-4 py-2 text-[13px] font-medium text-slate-600 rounded-lg border"
-            style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+            className="px-4 py-2 text-[13px] font-medium rounded-lg border"
+            style={{ color: 'var(--txt2)', borderColor: 'var(--bdr)' }}>
             Cancel
           </button>
           <button onClick={handleSubmit} disabled={saving}
@@ -291,7 +291,7 @@ function DashboardTab({ dateFrom, dateTo }: { dateFrom: string; dateTo: string }
 
   useEffect(() => { load() }, [load])
 
-  if (loading) return <div className="flex items-center gap-3 text-slate-400 py-16"><Spinner />Loading dashboard…</div>
+  if (loading) return <div className="flex items-center gap-3 py-16" style={{ color: 'var(--txt2)' }}><Spinner />Loading dashboard…</div>
 
   const s         = summary
   const netPos    = n(s?.net_position)
@@ -317,11 +317,11 @@ function DashboardTab({ dateFrom, dateTo }: { dateFrom: string; dateTo: string }
           <SectionCard title="Monthly Trend" subtitle="Inflows vs Liquidations">
             <div className="px-5 py-4 space-y-3">
               {trend.length === 0
-                ? <p className="text-[13px] text-slate-400 text-center py-8">No trend data in this period</p>
+                ? <p className="text-[13px] text-center py-8" style={{ color: 'var(--txt2)' }}>No trend data in this period</p>
                 : trend.map((row, i) => (
                     <div key={i}>
                       <div className="flex justify-between mb-1.5">
-                        <span className="text-[12px] font-semibold text-slate-600">{row.label}</span>
+                        <span className="text-[12px] font-semibold" style={{ color: 'var(--txt2)' }}>{row.label}</span>
                         <div className="flex gap-4">
                           <span className="text-[11px] tabular-nums" style={{ color: GREEN }}>+{fmt(row.inflow)}</span>
                           <span className="text-[11px] tabular-nums" style={{ color: RED }}>−{fmt(row.liquidation)}</span>
@@ -341,11 +341,11 @@ function DashboardTab({ dateFrom, dateTo }: { dateFrom: string; dateTo: string }
               <div className="flex gap-5 pt-1">
                 <div className="flex items-center gap-1.5">
                   <div className="w-2.5 h-2.5 rounded-sm" style={{ background: GREEN }} />
-                  <span className="text-[11px] text-slate-400">Inflow</span>
+                  <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>Inflow</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <div className="w-2.5 h-2.5 rounded-sm" style={{ background: RED }} />
-                  <span className="text-[11px] text-slate-400">Liquidation</span>
+                  <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>Liquidation</span>
                 </div>
               </div>
             </div>
@@ -355,14 +355,14 @@ function DashboardTab({ dateFrom, dateTo }: { dateFrom: string; dateTo: string }
         <SectionCard title="By Location">
           <div className="px-5 py-4 space-y-5">
             {byLoc.length === 0
-              ? <p className="text-[13px] text-slate-400 text-center py-8">No location data</p>
+              ? <p className="text-[13px] text-center py-8" style={{ color: 'var(--txt2)' }}>No location data</p>
               : byLoc.map((loc, i) => {
                   const total = n(loc.total_inflow) + n(loc.total_liquidated)
                   return (
                     <div key={i}>
                       <div className="flex justify-between mb-1.5">
-                        <span className="text-[13px] font-semibold text-slate-700">{loc.location}</span>
-                        <span className="text-[11px] text-slate-400">{fmtNum(n(loc.inflow_count) + n(loc.liquidation_count))} txn</span>
+                        <span className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>{loc.location}</span>
+                        <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{fmtNum(n(loc.inflow_count) + n(loc.liquidation_count))} txn</span>
                       </div>
                       {total > 0 && (
                         <div className="flex gap-1 h-2">
@@ -428,8 +428,8 @@ function TransactionsTab({ dateFrom, dateTo }: { dateFrom: string; dateTo: strin
   }
 
   const cols: ColDef<FDTransaction>[] = [
-    { key: 'transaction_date', label: 'Date', render: r => <span className="text-[12px] text-slate-500 whitespace-nowrap">{fmtDate(r.transaction_date)}</span> },
-    { key: 'customer_name',    label: 'Customer', render: r => <span className="font-medium text-slate-800 max-w-[140px] truncate block">{r.customer_name}</span> },
+    { key: 'transaction_date', label: 'Date', render: r => <span className="text-[12px] whitespace-nowrap" style={{ color: 'var(--txt2)' }}>{fmtDate(r.transaction_date)}</span> },
+    { key: 'customer_name',    label: 'Customer', render: r => <span className="font-medium max-w-[140px] truncate block" style={{ color: 'var(--txt)' }}>{r.customer_name}</span> },
     { key: 'transaction_type', label: 'Type', render: r => <StatusBadge status={r.transaction_type} /> },
     { key: 'ngn_amount',       label: 'NGN Amount', right: true, render: r => <span className="tabular-nums font-semibold text-[13px]">{r.ngn_amount ? fmt(r.ngn_amount) : '—'}</span> },
     { key: 'principal',        label: 'Principal',  right: true, render: r => <span className="tabular-nums text-[13px]">{r.principal ? fmt(r.principal) : '—'}</span> },
@@ -441,17 +441,17 @@ function TransactionsTab({ dateFrom, dateTo }: { dateFrom: string; dateTo: strin
         {r.currency || 'NGN'}
       </span>
     )},
-    { key: 'rate',             label: 'Rate', render: r => <span className="text-[12px] text-slate-500 tabular-nums">{r.rate ? `${r.rate}%` : '—'}</span> },
-    { key: 'tenor_days',       label: 'Tenor', render: r => <span className="text-[12px] text-slate-500 tabular-nums">{r.tenor_days ? `${r.tenor_days}d` : '—'}</span> },
-    { key: 'maturity_date',    label: 'Maturity', render: r => <span className="text-[12px] text-slate-500 whitespace-nowrap">{r.maturity_date ? fmtDate(r.maturity_date) : '—'}</span> },
-    { key: 'location',         label: 'Location', render: r => <span className="text-[12px] text-slate-500">{r.location || '—'}</span> },
-    { key: 'account_officer',  label: 'Officer',  render: r => <span className="text-[12px] text-slate-500">{r.account_officer || '—'}</span> },
+    { key: 'rate',             label: 'Rate', render: r => <span className="text-[12px] tabular-nums" style={{ color: 'var(--txt2)' }}>{r.rate ? `${r.rate}%` : '—'}</span> },
+    { key: 'tenor_days',       label: 'Tenor', render: r => <span className="text-[12px] tabular-nums" style={{ color: 'var(--txt2)' }}>{r.tenor_days ? `${r.tenor_days}d` : '—'}</span> },
+    { key: 'maturity_date',    label: 'Maturity', render: r => <span className="text-[12px] whitespace-nowrap" style={{ color: 'var(--txt2)' }}>{r.maturity_date ? fmtDate(r.maturity_date) : '—'}</span> },
+    { key: 'location',         label: 'Location', render: r => <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{r.location || '—'}</span> },
+    { key: 'account_officer',  label: 'Officer',  render: r => <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{r.account_officer || '—'}</span> },
     { key: '_actions', label: '', sortable: false, render: r => (
       <div className="flex gap-1">
-        <button onClick={() => { setEditRow(r); setDrawerOpen(true) }} className="p-1 rounded hover:bg-slate-100 text-slate-500">
+        <button onClick={() => { setEditRow(r); setDrawerOpen(true) }} className="p-1 rounded" style={{ color: 'var(--txt2)' }}>
           <span className="material-symbols-rounded text-[16px]">edit</span>
         </button>
-        <button onClick={() => deleteTxn(r.id)} className="p-1 rounded hover:bg-slate-100" style={{ color: RED }}>
+        <button onClick={() => deleteTxn(r.id)} className="p-1 rounded" style={{ color: RED }}>
           <span className="material-symbols-rounded text-[16px]">delete</span>
         </button>
       </div>
@@ -464,25 +464,25 @@ function TransactionsTab({ dateFrom, dateTo }: { dateFrom: string; dateTo: strin
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div className="flex items-center gap-2 flex-wrap">
           <div className="relative">
-            <span className="material-symbols-rounded absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px] text-slate-400 pointer-events-none">search</span>
+            <span className="material-symbols-rounded absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px] pointer-events-none" style={{ color: 'var(--txt2)' }}>search</span>
             <input
               className="pl-8 pr-3 py-1.5 rounded-lg border text-[13px] outline-none w-48"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+              style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               placeholder="Customer name…"
               value={search}
               onChange={e => { setSearch(e.target.value); setOffset(0) }}
             />
           </div>
           <select value={typeF} onChange={e => { setTypeF(e.target.value); setOffset(0) }}
-            className="px-3 py-1.5 rounded-lg border text-[13px] outline-none bg-white"
-            style={{ borderColor: 'rgba(15,23,42,0.15)', color: typeF ? NAVY : '#94A3B8' }}>
+            className="px-3 py-1.5 rounded-lg border text-[13px] outline-none"
+            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: typeF ? NAVY : 'var(--txt2)' }}>
             <option value="">All Types</option>
             <option value="inflow">Inflow</option>
             <option value="liquidation">Liquidation</option>
           </select>
           <select value={locF} onChange={e => { setLocF(e.target.value); setOffset(0) }}
-            className="px-3 py-1.5 rounded-lg border text-[13px] outline-none bg-white"
-            style={{ borderColor: 'rgba(15,23,42,0.15)', color: locF ? NAVY : '#94A3B8' }}>
+            className="px-3 py-1.5 rounded-lg border text-[13px] outline-none"
+            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: locF ? NAVY : 'var(--txt2)' }}>
             <option value="">All Locations</option>
             {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
           </select>
@@ -499,14 +499,14 @@ function TransactionsTab({ dateFrom, dateTo }: { dateFrom: string; dateTo: strin
         <DataTable cols={cols} rows={rows} loading={loading} emptyIcon="savings" emptyMsg="No transactions found" />
         {total > LIMIT && (
           <div className="px-5 py-3 flex items-center justify-between" style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
-            <p className="text-[12px] text-slate-400">Showing {offset + 1}–{Math.min(offset + LIMIT, total)} of {total.toLocaleString()}</p>
+            <p className="text-[12px]" style={{ color: 'var(--txt2)' }}>Showing {offset + 1}–{Math.min(offset + LIMIT, total)} of {total.toLocaleString()}</p>
             <div className="flex gap-2">
               <button onClick={() => setOffset(o => Math.max(0, o - LIMIT))} disabled={offset === 0}
-                className="p-1.5 rounded-lg border disabled:opacity-40" style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+                className="p-1.5 rounded-lg border disabled:opacity-40" style={{ borderColor: 'var(--bdr)' }}>
                 <span className="material-symbols-rounded text-[16px]">chevron_left</span>
               </button>
               <button onClick={() => setOffset(o => o + LIMIT)} disabled={offset + LIMIT >= total}
-                className="p-1.5 rounded-lg border disabled:opacity-40" style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+                className="p-1.5 rounded-lg border disabled:opacity-40" style={{ borderColor: 'var(--bdr)' }}>
                 <span className="material-symbols-rounded text-[16px]">chevron_right</span>
               </button>
             </div>
@@ -543,13 +543,13 @@ function ByOfficerTab({ dateFrom, dateTo }: { dateFrom: string; dateTo: string }
   const maxInflow = Math.max(...rows.map(r => n(r.total_inflow)), 1)
 
   const cols: ColDef<OfficerRow>[] = [
-    { key: 'account_officer', label: 'Account Officer', render: r => <span className="font-medium text-slate-800">{r.account_officer || '—'}</span> },
+    { key: 'account_officer', label: 'Account Officer', render: r => <span className="font-medium" style={{ color: 'var(--txt)' }}>{r.account_officer || '—'}</span> },
     { key: 'inflow_count',      label: 'Inflows',         right: true, render: r => <span className="tabular-nums">{fmtNum(r.inflow_count)}</span> },
     { key: 'total_inflow',      label: 'Total Inflow',    right: true, render: r => <span className="tabular-nums font-semibold" style={{ color: GREEN }}>{fmt(r.total_inflow)}</span> },
     { key: 'liquidation_count', label: 'Liquidations',    right: true, render: r => <span className="tabular-nums">{fmtNum(r.liquidation_count)}</span> },
     { key: 'total_liquidated',  label: 'Total Liquidated',right: true, render: r => <span className="tabular-nums font-semibold" style={{ color: RED }}>{fmt(r.total_liquidated)}</span> },
     { key: '_share', label: 'Share', sortable: false, render: r => (
-      <div className="w-32 h-1.5 rounded-full" style={{ background: 'rgba(14,40,65,0.07)' }}>
+      <div className="w-32 h-1.5 rounded-full" style={{ background: 'var(--chip-bg)' }}>
         <div className="h-full rounded-full" style={{ width: `${(n(r.total_inflow) / maxInflow) * 100}%`, background: GREEN }} />
       </div>
     )},
@@ -581,7 +581,7 @@ export default function FixedDeposit() {
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
       }
     >
-      <div className="flex gap-0 mb-5 border-b" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+      <div className="flex gap-0 mb-5 border-b" style={{ borderColor: 'var(--bdr)' }}>
         {TABS.map((t, i) => (
           <button key={t} onClick={() => setTab(i)}
             className="px-4 py-2.5 text-[13px] font-medium transition-colors"

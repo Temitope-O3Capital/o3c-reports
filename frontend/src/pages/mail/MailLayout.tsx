@@ -27,7 +27,7 @@ export default function MailLayout() {
     <div className="flex h-full overflow-hidden">
       {/* Sidebar */}
       <aside className="w-[200px] flex-shrink-0 border-r flex flex-col py-4"
-        style={{ borderColor: 'rgba(15,23,42,0.08)', background: '#FAFAFA' }}>
+        style={{ borderColor: 'var(--bdr)', background: 'var(--bg)' }}>
         <div className="px-4 mb-4">
           <button
             onClick={() => navigate('/mail/compose')}
@@ -44,7 +44,7 @@ export default function MailLayout() {
               {({ isActive }) => (
                 <span
                   className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium cursor-pointer transition-colors ${
-                    isActive ? 'text-slate-900' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
+                    isActive ? 'text-[color:var(--txt)]' : 'text-[color:var(--txt2)] hover:text-[color:var(--txt)] hover:bg-[var(--chip-bg)]'
                   }`}
                   style={{ background: isActive ? 'rgba(14,40,65,0.07)' : undefined }}
                 >
@@ -64,10 +64,10 @@ export default function MailLayout() {
           ))}
         </nav>
 
-        <div className="px-2 pt-2 border-t" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+        <div className="px-2 pt-2 border-t" style={{ borderColor: 'var(--bdr)' }}>
           <NavLink to="/admin/mail">
             {({ isActive }) => (
-              <span className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] cursor-pointer transition-colors ${isActive ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}>
+              <span className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] cursor-pointer transition-colors ${isActive ? 'text-[color:var(--txt)]' : 'text-[color:var(--txt2)] hover:text-[color:var(--txt2)] hover:bg-[var(--chip-bg)]'}`}>
                 <span className="material-symbols-rounded text-[15px]">mark_email_read</span>
                 Mail Health
               </span>

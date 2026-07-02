@@ -92,24 +92,24 @@ export default function AuditTrail() {
   const cols: ColDef<AuditRow>[] = [
     { key: 'actor_name', label: 'Actor', render: r => (
       <span>
-        <span className="font-medium text-slate-800">{r.actor_name || '—'}</span>
-        <span className="ml-1.5 text-[11px] text-slate-400">{r.actor_role}</span>
+        <span className="font-medium" style={{ color: 'var(--txt)' }}>{r.actor_name || '—'}</span>
+        <span className="ml-1.5 text-[11px]" style={{ color: 'var(--txt2)' }}>{r.actor_role}</span>
       </span>
     )},
     { key: 'action', label: 'Action', render: r => (
-      <span className="font-mono text-[12px] text-slate-700">{r.action}</span>
+      <span className="font-mono text-[12px]" style={{ color: 'var(--txt)' }}>{r.action}</span>
     )},
     { key: 'entity_type', label: 'Entity Type', render: r => (
-      <span className="text-[12px] text-slate-600">{r.entity_type}</span>
+      <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{r.entity_type}</span>
     )},
     { key: 'entity_id', label: 'Entity ID', render: r => (
-      <span className="font-mono text-[11px] text-slate-400 truncate max-w-[120px] block">{r.entity_id || '—'}</span>
+      <span className="font-mono text-[11px] truncate max-w-[120px] block" style={{ color: 'var(--txt2)' }}>{r.entity_id || '—'}</span>
     )},
     { key: 'ip_address', label: 'IP Address', render: r => (
-      <span className="font-mono text-[12px] text-slate-500">{r.ip_address || '—'}</span>
+      <span className="font-mono text-[12px]" style={{ color: 'var(--txt2)' }}>{r.ip_address || '—'}</span>
     )},
     { key: 'created_at', label: 'Time', render: r => (
-      <span className="text-[12px] text-slate-500 whitespace-nowrap">{fmtDate(r.created_at)}</span>
+      <span className="text-[12px] whitespace-nowrap" style={{ color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span>
     )},
   ]
 
@@ -118,8 +118,8 @@ export default function AuditTrail() {
       subtitle="Full log of all user actions across the platform"
       actions={
         <button onClick={doExport}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium bg-white"
-          style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#475569' }}>
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium"
+          style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)', background: 'var(--card)' }}>
           <span className="material-symbols-rounded text-[15px]">download</span>
           Export CSV
         </button>
@@ -130,25 +130,25 @@ export default function AuditTrail() {
           type="text" placeholder="Filter by action…" value={actionRaw}
           onChange={e => setActionRaw(e.target.value)}
           className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
-          style={{ borderColor: 'rgba(15,23,42,0.15)', minWidth: 180 }} />
+          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', minWidth: 180 }} />
         <input
           type="text" placeholder="Entity type…" value={entityTypeRaw}
           onChange={e => setEntityTypeRaw(e.target.value)}
           className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
-          style={{ borderColor: 'rgba(15,23,42,0.15)', minWidth: 150 }} />
+          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', minWidth: 150 }} />
         <select
           value={actorId} onChange={e => setActorId(e.target.value)}
           className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
-          style={{ borderColor: 'rgba(15,23,42,0.15)', minWidth: 160 }}>
+          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', minWidth: 160 }}>
           <option value="">All actors</option>
           {actors.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
         </select>
         <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
           className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
-          style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
         <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
           className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
-          style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
       </div>
 
       <ErrBanner msg={error} />
@@ -156,21 +156,21 @@ export default function AuditTrail() {
       <SectionCard title="Audit Log" badge={rows.length}>
         <DataTable cols={cols} rows={rows} loading={loading} emptyIcon="history" emptyMsg="No audit entries found" />
         <div className="flex items-center justify-between px-5 py-3"
-          style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }}>
-          <span className="text-[12px] text-slate-400">
+          style={{ borderTop: '1px solid var(--bdr)' }}>
+          <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>
             Showing {offset + 1}–{offset + rows.length}
           </span>
           <div className="flex gap-2">
             <button disabled={offset === 0}
               onClick={() => load(Math.max(0, offset - PAGE_SIZE))}
               className="px-3 py-1 rounded border text-[12px] disabled:opacity-40"
-              style={{ borderColor: 'rgba(15,23,42,0.15)', color: NAVY }}>
+              style={{ borderColor: 'var(--bdr)', color: NAVY }}>
               Previous
             </button>
             <button disabled={rows.length < PAGE_SIZE}
               onClick={() => load(offset + PAGE_SIZE)}
               className="px-3 py-1 rounded border text-[12px] disabled:opacity-40"
-              style={{ borderColor: 'rgba(15,23,42,0.15)', color: NAVY }}>
+              style={{ borderColor: 'var(--bdr)', color: NAVY }}>
               Next
             </button>
           </div>

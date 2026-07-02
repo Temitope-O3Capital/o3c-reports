@@ -90,9 +90,9 @@ function ContactModal({ contact, onClose, onSaved }: ModalProps) {
 
   const Field = ({ label, name, type = 'text', placeholder }: { label: string; name: string; type?: string; placeholder?: string }) => (
     <div>
-      <label className="block text-[11px] font-semibold text-slate-500 mb-1">{label}</label>
-      <input className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none focus:border-[#0E2841] transition-colors"
-        style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+      <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>{label}</label>
+      <input className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none transition-colors"
+        style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
         type={type} placeholder={placeholder}
         value={form[name] ?? ''} onChange={set(name)} />
     </div>
@@ -100,9 +100,9 @@ function ContactModal({ contact, onClose, onSaved }: ModalProps) {
 
   const Select = ({ label, name, options }: { label: string; name: string; options: string[] }) => (
     <div>
-      <label className="block text-[11px] font-semibold text-slate-500 mb-1">{label}</label>
-      <select className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none focus:border-[#0E2841] bg-white transition-colors"
-        style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+      <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>{label}</label>
+      <select className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none transition-colors"
+        style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
         value={form[name] ?? ''} onChange={set(name)}>
         <option value="">—</option>
         {options.map(o => <option key={o} value={o}>{snake(o)}</option>)}
@@ -111,19 +111,19 @@ function ContactModal({ contact, onClose, onSaved }: ModalProps) {
   )
 
   const Section = ({ label }: { label: string }) => (
-    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400 mb-3 mt-5">{label}</p>
+    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] mb-3 mt-5" style={{ color: 'var(--txt2)' }}>{label}</p>
   )
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
-      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-auto shadow-2xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
-          <h2 className="text-[15px] font-semibold text-slate-900">
+      <div className="rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-auto shadow-2xl" style={{ background: 'var(--card)' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'var(--bdr)' }}>
+          <h2 className="text-[15px] font-semibold" style={{ color: 'var(--txt)' }}>
             {isEdit ? 'Edit Contact' : 'Add New Contact'}
           </h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors">
-            <span className="material-symbols-rounded text-[20px] text-slate-500">close</span>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors" style={{ color: 'var(--txt2)' }}>
+            <span className="material-symbols-rounded text-[20px]">close</span>
           </button>
         </div>
 
@@ -163,17 +163,17 @@ function ContactModal({ contact, onClose, onSaved }: ModalProps) {
           <Section label="CRM" />
           <div className="grid grid-cols-2 gap-3 mb-1">
             <div>
-              <label className="block text-[11px] font-semibold text-slate-500 mb-1">Source</label>
-              <select className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none bg-white"
-                style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+              <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Source</label>
+              <select className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={form.source ?? 'walk_in'} onChange={set('source')}>
                 {SOURCES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-[11px] font-semibold text-slate-500 mb-1">Status</label>
-              <select className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none bg-white"
-                style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+              <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Status</label>
+              <select className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={form.status ?? 'lead'} onChange={set('status')}>
                 {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
@@ -183,16 +183,16 @@ function ContactModal({ contact, onClose, onSaved }: ModalProps) {
           </div>
 
           <div className="mt-4">
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Notes</label>
+            <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Notes</label>
             <textarea className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none resize-none"
-              style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+              style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               rows={3} value={form.notes ?? ''} onChange={set('notes')}
               placeholder="Additional notes about this contact…" />
           </div>
 
           <div className="flex justify-end gap-2 mt-5">
             <button type="button" onClick={onClose}
-              className="px-4 py-2 rounded-lg text-[13px] font-medium text-slate-600 hover:bg-slate-100 transition-colors">
+              className="px-4 py-2 rounded-lg text-[13px] font-medium transition-colors" style={{ color: 'var(--txt2)' }}>
               Cancel
             </button>
             <button type="submit"
@@ -243,47 +243,48 @@ export default function Contacts() {
         <div className="flex items-center gap-3">
           <Avatar c={c} />
           <div>
-            <p className="font-semibold text-slate-800 text-[13px]">{c.first_name} {c.last_name}</p>
-            {c.email && <p className="text-[11px] text-slate-400">{c.email}</p>}
+            <p className="font-semibold text-[13px]" style={{ color: 'var(--txt)' }}>{c.first_name} {c.last_name}</p>
+            {c.email && <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>{c.email}</p>}
           </div>
         </div>
       ),
     },
-    { key: 'phone', label: 'Phone', render: c => <span className="text-slate-600 font-mono text-[12px]">{c.phone ?? '—'}</span> },
+    { key: 'phone', label: 'Phone', render: c => <span className="font-mono text-[12px]" style={{ color: 'var(--txt2)' }}>{c.phone ?? '—'}</span> },
     {
       key: 'source', label: 'Source',
       render: c => (
         <span className="text-[11px] font-semibold px-2 py-0.5 rounded"
-          style={{ background: 'rgba(14,40,65,0.06)', color: '#475569' }}>
+          style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>
           {snake(c.source ?? '')}
         </span>
       ),
     },
     { key: 'status', label: 'Status', render: c => <StatusBadge status={c.status} /> },
-    { key: 'state', label: 'State', render: c => <span className="text-slate-500">{c.state ?? '—'}</span> },
+    { key: 'state', label: 'State', render: c => <span style={{ color: 'var(--txt2)' }}>{c.state ?? '—'}</span> },
     {
       key: 'deal_count', label: 'Deals', right: true,
-      render: c => <span className="kpi-number text-[13px] text-slate-700">{c.deal_count ?? 0}</span>,
+      render: c => <span className="kpi-number text-[13px]" style={{ color: 'var(--txt)' }}>{c.deal_count ?? 0}</span>,
     },
     {
       key: 'open_tasks', label: 'Open Tasks', right: true,
       render: c => (
-        <span className={`kpi-number text-[13px] font-semibold ${(c.open_tasks ?? 0) > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+        <span className={`kpi-number text-[13px] font-semibold ${(c.open_tasks ?? 0) > 0 ? 'text-amber-600' : ''}`}
+          style={(c.open_tasks ?? 0) > 0 ? undefined : { color: 'var(--txt2)' }}>
           {c.open_tasks ?? 0}
         </span>
       ),
     },
-    { key: 'assigned_name', label: 'Assigned To', render: c => <span className="text-slate-500">{c.assigned_name ?? '—'}</span> },
+    { key: 'assigned_name', label: 'Assigned To', render: c => <span style={{ color: 'var(--txt2)' }}>{c.assigned_name ?? '—'}</span> },
     {
       key: 'updated_at', label: 'Last Updated', sortable: false,
-      render: c => <span className="text-slate-400 text-[12px]">{fmtDate(c.updated_at)}</span>,
+      render: c => <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{fmtDate(c.updated_at)}</span>,
     },
     {
       key: '_actions', label: '', sortable: false,
       render: c => (
         <button onClick={e => { e.stopPropagation(); setModal(c) }}
-          className="w-7 h-7 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 hover:bg-slate-100 transition-all">
-          <span className="material-symbols-rounded text-[16px] text-slate-500">edit</span>
+          className="w-7 h-7 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 transition-all" style={{ color: 'var(--txt2)' }}>
+          <span className="material-symbols-rounded text-[16px]">edit</span>
         </button>
       ),
     },
@@ -305,24 +306,24 @@ export default function Contacts() {
       {/* Filters */}
       <div className="flex gap-3 mb-5 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <span className="material-symbols-rounded text-[17px] text-slate-400 absolute left-3 top-1/2 -translate-y-1/2">search</span>
+          <span className="material-symbols-rounded text-[17px] absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--txt2)' }}>search</span>
           <input
-            className="w-full pl-9 pr-3 py-2 rounded-lg border text-[13px] outline-none focus:border-slate-400 transition-colors bg-white"
-            style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+            className="w-full pl-9 pr-3 py-2 rounded-lg border text-[13px] outline-none transition-colors"
+            style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
             placeholder="Search name, phone, email, CIF…"
             value={q} onChange={e => setQ(e.target.value)} />
         </div>
         <select
-          className="px-3 py-2 rounded-lg border text-[13px] bg-white outline-none"
-          style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+          className="px-3 py-2 rounded-lg border text-[13px] outline-none"
+          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
           value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
           <option value="">All statuses</option>
           {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
         {(q || statusFilter) && (
           <button onClick={() => { setQ(''); setStatusFilter('') }}
-            className="px-3 py-2 rounded-lg border text-[12px] text-slate-500 bg-white hover:bg-slate-50 transition-colors"
-            style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+            className="px-3 py-2 rounded-lg border text-[12px] transition-colors"
+            style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)', background: 'var(--card)' }}>
             Clear
           </button>
         )}
@@ -336,8 +337,8 @@ export default function Contacts() {
             <button key={s} onClick={() => setStatusFilter(statusFilter === s ? '' : s)}
               className="card p-3 text-left transition-all hover:shadow-md"
               style={{ borderColor: statusFilter === s ? NAVY : undefined, borderWidth: statusFilter === s ? 1.5 : 1 }}>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-slate-400 mb-1">{s}</p>
-              <p className="kpi-number text-[20px] text-slate-800">{count}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.07em] mb-1" style={{ color: 'var(--txt2)' }}>{s}</p>
+              <p className="kpi-number text-[20px]" style={{ color: 'var(--txt)' }}>{count}</p>
             </button>
           )
         })}

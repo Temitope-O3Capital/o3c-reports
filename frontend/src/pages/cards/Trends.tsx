@@ -53,7 +53,7 @@ function StatusDistPanel({ data, loading }: { data: any[]; loading: boolean }) {
               <div key={i} className="space-y-1.5"><Sk w="w-28" /><Sk h="h-1.5" /></div>
             ))
           : data.length === 0
-          ? <p className="text-[13px] text-slate-400 py-8 text-center">No data</p>
+          ? <p className="text-[13px] py-8 text-center" style={{ color: 'var(--txt2)' }}>No data</p>
           : data.map((row, i) => {
               const share = total > 0 ? n(row.count) / total * 100 : 0
               const color = statusColor(row.status)
@@ -62,12 +62,12 @@ function StatusDistPanel({ data, loading }: { data: any[]; loading: boolean }) {
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
-                      <span className="text-[12px] font-medium text-slate-700 capitalize">
+                      <span className="text-[12px] font-medium capitalize" style={{ color: 'var(--txt)' }}>
                         {row.status || 'Unknown'}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 text-[12px]">
-                      <span className="kpi-number text-slate-500">{n(row.count).toLocaleString()}</span>
+                      <span className="kpi-number" style={{ color: 'var(--txt2)' }}>{n(row.count).toLocaleString()}</span>
                       <span className="font-semibold kpi-number" style={{ color }}>{share.toFixed(1)}%</span>
                     </div>
                   </div>
@@ -96,7 +96,7 @@ function PortfolioHealthChart({ data, loading }: { data: any[]; loading: boolean
             ))}
           </div>
         ) : data.length === 0 ? (
-          <p className="text-[13px] text-slate-400 py-16 text-center">No data</p>
+          <p className="text-[13px] py-16 text-center" style={{ color: 'var(--txt2)' }}>No data</p>
         ) : (
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={data} margin={{ top: 20, right: 12, left: 0, bottom: 4 }} barSize={14}>
@@ -109,14 +109,14 @@ function PortfolioHealthChart({ data, loading }: { data: any[]; loading: boolean
                 content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null
                   return (
-                    <div className="bg-white rounded-lg border px-3 py-2.5 shadow-lg"
-                      style={{ borderColor: 'rgba(15,23,42,0.1)', fontSize: 12 }}>
-                      <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider mb-1.5">{label}</p>
+                    <div className="rounded-lg border px-3 py-2.5 shadow-lg"
+                      style={{ background: 'var(--card)', borderColor: 'var(--bdr)', fontSize: 12 }}>
+                      <p className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--txt2)' }}>{label}</p>
                       {payload.map((p: any, i: number) => (
                         <div key={i} className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: p.fill }} />
-                          <span className="text-slate-600">{p.name}:</span>
-                          <span className="font-semibold kpi-number text-slate-800">{fmtNum(p.value)}</span>
+                          <span style={{ color: 'var(--txt2)' }}>{p.name}:</span>
+                          <span className="font-semibold kpi-number" style={{ color: 'var(--txt)' }}>{fmtNum(p.value)}</span>
                         </div>
                       ))}
                     </div>
@@ -147,9 +147,16 @@ export default function CardsTrends() {
   const [byProduct,  setByProduct]  = useState<any[]>([])
   const [byProgram,  setByProgram]  = useState<any[]>([])
   const [allProducts, setAllProducts] = useState<string[]>([])
-  const [loading,    setLoading]    = useState(true)
-  const [error,      setError]      = useState('')
-  const [exporting,  setExporting]  = useState(false)
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState('')
+  const [exporting,    setExporting]    = useState(false)
+  const [prodSortKey,  setProdSortKey]  = useState<string | null>(null)
+  const [prodSortDir,  setProdSortDir]  = useState<'asc' | 'desc'>('asc')
+
+  const toggleProdSort = (key: string) => {
+    if (prodSortKey === key) setProdSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setProdSortKey(key); setProdSortDir('asc') }
+  }
 
   /* Load product list once */
   useEffect(() => {
@@ -216,12 +223,12 @@ export default function CardsTrends() {
               <select
                 value={product}
                 onChange={e => setProduct(e.target.value)}
-                className="appearance-none pl-3 pr-8 py-1.5 rounded-lg border text-[12px] font-medium bg-white outline-none cursor-pointer"
-                style={{ borderColor: product ? NAVY : 'rgba(15,23,42,0.15)', color: '#334155' }}>
+                className="appearance-none pl-3 pr-8 py-1.5 rounded-lg border text-[12px] font-medium outline-none cursor-pointer"
+                style={{ background: 'var(--input-bg)', borderColor: product ? NAVY : 'var(--input-bdr)', color: 'var(--txt)' }}>
                 <option value="">All Products</option>
                 {allProducts.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
-              <span className="material-symbols-rounded text-[14px] absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+              <span className="material-symbols-rounded text-[14px] absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--txt2)' }}>
                 expand_more
               </span>
             </div>
@@ -276,7 +283,7 @@ export default function CardsTrends() {
                     {['Card Program', 'Total', 'Active', 'Inactive', 'Activation Rate'].map((col, i) => (
                       <th key={col}
                         className={`px-5 py-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] whitespace-nowrap ${i > 0 ? 'text-right' : 'text-left'}`}
-                        style={{ background: NAVY, color: 'rgba(255,255,255,0.6)' }}>
+                        style={{ background: 'var(--th-bg)', color: 'var(--txt2)', fontFamily: "'Inter', ui-sans-serif, sans-serif", fontSize: 10 }}>
                         {col}
                       </th>
                     ))}
@@ -285,17 +292,17 @@ export default function CardsTrends() {
                 <tbody>
                   {loading
                     ? Array.from({ length: 3 }).map((_, i) => (
-                        <tr key={i} style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
+                        <tr key={i} style={{ borderTop: '1px solid var(--bdr)' }}>
                           {Array.from({ length: 5 }).map((_, j) => <td key={j} className="px-5 py-3.5"><Sk /></td>)}
                         </tr>
                       ))
                     : byProgram.map((row, i) => (
-                        <tr key={i} className="hover:bg-slate-50 transition-colors"
-                          style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
-                          <td className="px-5 py-3 font-semibold text-slate-800">{row.program || '—'}</td>
-                          <td className="px-5 py-3 text-right kpi-number">{n(row.total).toLocaleString()}</td>
+                        <tr key={i} className="transition-colors"
+                          style={{ borderTop: '1px solid var(--bdr)' }}>
+                          <td className="px-5 py-3 font-semibold" style={{ color: 'var(--txt)' }}>{row.program || '—'}</td>
+                          <td className="px-5 py-3 text-right kpi-number" style={{ color: 'var(--txt)' }}>{n(row.total).toLocaleString()}</td>
                           <td className="px-5 py-3 text-right kpi-number font-semibold" style={{ color: GREEN }}>{n(row.active).toLocaleString()}</td>
-                          <td className="px-5 py-3 text-right kpi-number text-slate-400">{n(row.inactive).toLocaleString()}</td>
+                          <td className="px-5 py-3 text-right kpi-number" style={{ color: 'var(--txt2)' }}>{n(row.inactive).toLocaleString()}</td>
                           <td className="px-5 py-3 text-right"><RateBar rate={n(row.activation_rate)} /></td>
                         </tr>
                       ))}
@@ -314,11 +321,12 @@ export default function CardsTrends() {
             <table className="w-full text-[13px]">
               <thead>
                 <tr>
-                  {['Product', 'Total Issued', 'Active', 'Inactive', 'Activation Rate'].map((col, i) => (
+                  {([['Product','Product Name','left'],['Total Issued','total','right'],['Active','active','right'],['Inactive','inactive','right'],['Activation Rate','activation_rate','right']] as [string,string,string][]).map(([col, k, align]) => (
                     <th key={col}
-                      className={`px-5 py-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] whitespace-nowrap ${i > 0 ? 'text-right' : 'text-left'}`}
-                      style={{ background: NAVY, color: 'rgba(255,255,255,0.6)' }}>
-                      {col}
+                      className={`px-5 py-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] whitespace-nowrap text-${align}`}
+                      style={{ background: 'var(--th-bg)', color: prodSortKey === k ? 'var(--txt)' : 'var(--txt2)', cursor: 'pointer' }}
+                      onClick={() => toggleProdSort(k)}>
+                      {col}<span style={{ marginLeft: 3, color: '#C00000', opacity: prodSortKey === k ? 1 : 0.3 }}>{prodSortKey === k ? (prodSortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                     </th>
                   ))}
                 </tr>
@@ -330,36 +338,45 @@ export default function CardsTrends() {
                         {Array.from({ length: 5 }).map((_, j) => <td key={j} className="px-5 py-3.5"><Sk /></td>)}
                       </tr>
                     ))
-                  : byProduct.map((row, i) => {
+                  : (() => {
+                      const sortedByProduct = prodSortKey
+                        ? [...byProduct].sort((a, b) => {
+                            const va = (a as any)[prodSortKey] ?? ''
+                            const vb = (b as any)[prodSortKey] ?? ''
+                            const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))
+                            return prodSortDir === 'asc' ? cmp : -cmp
+                          })
+                        : byProduct
+                      return sortedByProduct.map((row, i) => {
                       const name    = row['Product Name'] || '—'
                       const active  = product === name
                       return (
                         <tr key={i}
-                          className="hover:bg-slate-50 transition-colors cursor-pointer"
+                          className="transition-colors cursor-pointer"
                           style={{
-                            borderTop: '1px solid rgba(15,23,42,0.05)',
+                            borderTop: '1px solid var(--bdr)',
                             background: active ? `${NAVY}06` : undefined,
                           }}
                           onClick={() => setProduct(product === name ? '' : name)}>
-                          <td className="px-5 py-3 font-semibold text-slate-800">
+                          <td className="px-5 py-3 font-semibold" style={{ color: 'var(--txt)' }}>
                             <div className="flex items-center gap-2">
                               {active && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: NAVY }} />}
                               {name}
                             </div>
                           </td>
-                          <td className="px-5 py-3 text-right kpi-number">{n(row.total).toLocaleString()}</td>
+                          <td className="px-5 py-3 text-right kpi-number" style={{ color: 'var(--txt)' }}>{n(row.total).toLocaleString()}</td>
                           <td className="px-5 py-3 text-right kpi-number font-semibold" style={{ color: GREEN }}>{n(row.active).toLocaleString()}</td>
-                          <td className="px-5 py-3 text-right kpi-number text-slate-400">{n(row.inactive).toLocaleString()}</td>
+                          <td className="px-5 py-3 text-right kpi-number" style={{ color: 'var(--txt2)' }}>{n(row.inactive).toLocaleString()}</td>
                           <td className="px-5 py-3 text-right"><RateBar rate={n(row.activation_rate)} /></td>
                         </tr>
                       )
-                    })}
+                    })
+                  })()}
               </tbody>
             </table>
           </div>
           {!loading && !product && (
-            <p className="text-[11px] text-slate-400 px-5 py-3"
-              style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
+            <p className="text-[11px] px-5 py-3" style={{ color: 'var(--txt2)', borderTop: '1px solid var(--bdr)' }}>
               Click any row to filter all charts by that product
             </p>
           )}

@@ -8,12 +8,12 @@ import {
 
 /* ── Retention colour ────────────────────────────────────────── */
 function retentionStyle(rate: number | null | undefined) {
-  if (rate == null) return { background: '#F1F5F9', color: '#CBD5E1' }
+  if (rate == null) return { background: 'var(--bg)', color: 'var(--txt3)' }
   const r = Number(rate)
   if (r >= 40) return { background: GREEN,   color: '#fff' }
   if (r >= 20) return { background: AMBER,   color: '#fff' }
   if (r > 0)   return { background: '#C00000', color: '#fff' }
-  return { background: '#F1F5F9', color: '#CBD5E1' }
+  return { background: 'var(--bg)', color: 'var(--txt3)' }
 }
 
 /* ── Cohort heatmap ──────────────────────────────────────────── */
@@ -36,7 +36,7 @@ function CohortHeatmap({ data, loading }: { data: Record<string, Record<string, 
   if (!data || Object.keys(data).length === 0) {
     return (
       <SectionCard title="Cohort Retention Heatmap" subtitle="Monthly retention by acquisition cohort">
-        <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-400">
+        <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color: 'var(--txt2)' }}>
           <span className="material-symbols-rounded text-[40px]">grid_on</span>
           <p className="text-[13px]">No cohort data available</p>
         </div>
@@ -54,14 +54,14 @@ function CohortHeatmap({ data, loading }: { data: Record<string, Record<string, 
         <div className="overflow-x-auto">
           <table className="text-[11px] border-separate" style={{ borderSpacing: 2 }}>
             <thead>
-              <tr>
-                <th className="text-left px-2 py-1 text-slate-400 font-semibold uppercase tracking-wider text-[11px] w-28">
+              <tr style={{ background: 'var(--th-bg)' }}>
+                <th className="text-left px-2 py-1 font-semibold uppercase tracking-wider text-[11px] w-28" style={{ color: 'var(--txt2)' }}>
                   Cohort
                 </th>
                 {ages.map(a => (
                   <th key={a}
-                    className="text-center px-1 py-1 font-semibold uppercase tracking-wider text-[11px] text-slate-400 whitespace-nowrap"
-                    style={{ minWidth: 40 }}>
+                    className="text-center px-1 py-1 font-semibold uppercase tracking-wider text-[11px] whitespace-nowrap"
+                    style={{ color: 'var(--txt2)', minWidth: 40 }}>
                     M{a}
                   </th>
                 ))}
@@ -70,7 +70,7 @@ function CohortHeatmap({ data, loading }: { data: Record<string, Record<string, 
             <tbody>
               {cohorts.map(cohort => (
                 <tr key={cohort}>
-                  <td className="px-2 py-1 font-semibold text-slate-700 whitespace-nowrap text-[11px]">
+                  <td className="px-2 py-1 font-semibold whitespace-nowrap text-[11px]" style={{ color: 'var(--txt)' }}>
                     {cohort}
                   </td>
                   {ages.map(age => {
@@ -99,7 +99,7 @@ function CohortHeatmap({ data, loading }: { data: Record<string, Record<string, 
             { color: '#C00000', label: '< 20%' },
             { color: '#F1F5F9', label: 'No data', text: '#94A3B8' },
           ].map(l => (
-            <span key={l.label} className="flex items-center gap-1.5 text-[11px] text-slate-500">
+            <span key={l.label} className="flex items-center gap-1.5 text-[11px] text-[color:var(--txt2)]">
               <span className="w-3 h-3 rounded flex-shrink-0"
                 style={{ background: l.color, border: l.color === '#F1F5F9' ? '1px solid #CBD5E1' : 'none' }} />
               {l.label}
@@ -158,11 +158,11 @@ function CohortStrengthCard({ data }: { data: Record<string, Record<string, numb
           return (
             <div key={cohort}>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[12px] font-semibold text-slate-700">{cohort}</span>
+                <span className="text-[12px] font-semibold text-[color:var(--txt)]">{cohort}</span>
                 <div className="flex items-center gap-3 text-[11px]">
-                  {m0 != null && <span><span className="text-slate-400">M0 </span><span className="font-semibold kpi-number" style={{ color: barColor }}>{m0.toFixed(0)}%</span></span>}
-                  {m1 != null && <span><span className="text-slate-400">M1 </span><span className="font-semibold kpi-number text-slate-600">{m1.toFixed(0)}%</span></span>}
-                  {m2 != null && <span><span className="text-slate-400">M2 </span><span className="font-semibold kpi-number text-slate-600">{m2.toFixed(0)}%</span></span>}
+                  {m0 != null && <span><span className="text-[color:var(--txt2)]">M0 </span><span className="font-semibold kpi-number" style={{ color: barColor }}>{m0.toFixed(0)}%</span></span>}
+                  {m1 != null && <span><span className="text-[color:var(--txt2)]">M1 </span><span className="font-semibold kpi-number text-[color:var(--txt2)]">{m1.toFixed(0)}%</span></span>}
+                  {m2 != null && <span><span className="text-[color:var(--txt2)]">M2 </span><span className="font-semibold kpi-number text-[color:var(--txt2)]">{m2.toFixed(0)}%</span></span>}
                 </div>
               </div>
               <div className="h-1.5 rounded-full" style={{ background: 'rgba(15,23,42,0.06)' }}>
@@ -182,8 +182,15 @@ export default function Cohort() {
   const [kpis,     setKpis]     = useState<any>(null)
   const [heatmap,  setHeatmap]  = useState<any>(null)
   const [activity, setActivity] = useState<any[]>([])
-  const [loading,  setLoading]  = useState(true)
-  const [error,    setError]    = useState('')
+  const [loading,     setLoading]     = useState(true)
+  const [error,       setError]       = useState('')
+  const [actSortKey,  setActSortKey]  = useState<string | null>(null)
+  const [actSortDir,  setActSortDir]  = useState<'asc' | 'desc'>('asc')
+
+  const toggleActSort = (key: string) => {
+    if (actSortKey === key) setActSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setActSortKey(key); setActSortDir('asc') }
+  }
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -242,30 +249,43 @@ export default function Cohort() {
         <div className="mt-4">
           <SectionCard title="Monthly Activity Detail" subtitle="Active users and spend by month">
             <div className="overflow-x-auto">
-              <table className="w-full text-[13px]">
-                <thead>
-                  <tr>
-                    {['Month', 'Active Users', 'Total Spend', 'Avg Spend / User'].map((col, i) => (
-                      <th key={col}
-                        className={`px-5 py-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] whitespace-nowrap ${i > 0 ? 'text-right' : 'text-left'}`}
-                        style={{ background: NAVY, color: 'rgba(255,255,255,0.6)' }}>
-                        {col}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {activity.map((row, i) => (
-                    <tr key={i} className="hover:bg-slate-50 transition-colors"
-                      style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
-                      <td className="px-5 py-3 font-semibold text-slate-700">{row.month}</td>
-                      <td className="px-5 py-3 text-right kpi-number">{fmtNum(row.active_users)}</td>
-                      <td className="px-5 py-3 text-right kpi-number">{fmt(row.total_spend)}</td>
-                      <td className="px-5 py-3 text-right kpi-number">{fmt(row.avg_spend)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {(() => {
+                const sortedActivity = actSortKey
+                  ? [...activity].sort((a, b) => {
+                      const va = (a as any)[actSortKey] ?? ''
+                      const vb = (b as any)[actSortKey] ?? ''
+                      const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))
+                      return actSortDir === 'asc' ? cmp : -cmp
+                    })
+                  : activity
+                return (
+                  <table className="w-full text-[13px]">
+                    <thead>
+                      <tr>
+                        {([['Month', 'month', 'left'], ['Active Users', 'active_users', 'right'], ['Total Spend', 'total_spend', 'right'], ['Avg Spend / User', 'avg_spend', 'right']] as [string, string, string][]).map(([col, k, align]) => (
+                          <th key={col}
+                            className={`px-5 py-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] whitespace-nowrap text-${align}`}
+                            style={{ background: 'var(--th-bg)', color: actSortKey === k ? 'var(--txt)' : 'var(--txt2)', cursor: 'pointer' }}
+                            onClick={() => toggleActSort(k)}>
+                            {col}<span style={{ marginLeft: 3, color: '#C00000', opacity: actSortKey === k ? 1 : 0.3 }}>{actSortKey === k ? (actSortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedActivity.map((row, i) => (
+                        <tr key={i} className="hover:bg-[var(--row-hvr)] transition-colors"
+                          style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
+                          <td className="px-5 py-3 font-semibold text-[color:var(--txt)]">{row.month}</td>
+                          <td className="px-5 py-3 text-right kpi-number">{fmtNum(row.active_users)}</td>
+                          <td className="px-5 py-3 text-right kpi-number">{fmt(row.total_spend)}</td>
+                          <td className="px-5 py-3 text-right kpi-number">{fmt(row.avg_spend)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+              })()}
             </div>
           </SectionCard>
         </div>

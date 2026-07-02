@@ -153,21 +153,21 @@ export default function RoleManagement() {
 
       <div className="grid grid-cols-[360px_minmax(0,1fr)] gap-5 items-start">
         <SectionCard title="Role Catalogue" subtitle={`${roles.length} roles`}>
-          <div className="max-h-[calc(100vh-230px)] overflow-y-auto divide-y divide-slate-100">
+          <div className="max-h-[calc(100vh-230px)] overflow-y-auto divide-y divide-[var(--bdr)]">
             {loading ? <div className="p-8 text-center"><Spinner /></div> : roles.map(role => {
               const active = selected?.name === role.name
               return (
-                <button key={role.name} onClick={() => choose(role)} className={`w-full text-left px-4 py-3 hover:bg-slate-50 ${active ? 'bg-slate-50' : ''}`}>
+                <button key={role.name} onClick={() => choose(role)} className={`w-full text-left px-4 py-3 hover:bg-[var(--bg)] ${active ? 'bg-[var(--bg)]' : ''}`}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-[13px] font-bold text-slate-800 truncate">{role.label || roleLabel(role.name)}</p>
-                      <p className="text-[11px] font-mono text-slate-400 truncate">{role.name}</p>
+                      <p className="text-[13px] font-bold text-[color:var(--txt)] truncate">{role.label || roleLabel(role.name)}</p>
+                      <p className="text-[11px] font-mono text-[color:var(--txt2)] truncate">{role.name}</p>
                     </div>
-                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${role.builtin || role.built_in ? 'bg-slate-100 text-slate-500' : 'bg-green-50 text-green-700'}`}>
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${role.builtin || role.built_in ? 'bg-[var(--chip-bg)] text-[color:var(--txt2)]' : 'bg-green-50 text-green-700'}`}>
                       {role.builtin || role.built_in ? 'Built-in' : 'Custom'}
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-1">{role.pages.length} permissions</p>
+                  <p className="text-[11px] text-[color:var(--txt2)] mt-1">{role.pages.length} permissions</p>
                 </button>
               )
             })}
@@ -182,25 +182,25 @@ export default function RoleManagement() {
           <div className="p-5 space-y-5">
             <div className="grid grid-cols-2 gap-4">
               <label className="block">
-                <span className="block text-[11px] font-bold uppercase text-slate-500 mb-1">Role Name</span>
-                <input value={name} disabled={Boolean(selected) || isBuiltin} onChange={e => setName(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-400" placeholder="marketing_manager" />
+                <span className="block text-[11px] font-bold uppercase text-[color:var(--txt2)] mb-1">Role Name</span>
+                <input value={name} disabled={Boolean(selected) || isBuiltin} onChange={e => setName(e.target.value)} className="w-full rounded-lg border border-[var(--bdr)] px-3 py-2 text-[13px] disabled:bg-[var(--bg)] disabled:text-[color:var(--txt2)]" placeholder="marketing_manager" />
               </label>
               <label className="block">
-                <span className="block text-[11px] font-bold uppercase text-slate-500 mb-1">Display Label</span>
-                <input value={label} disabled={isBuiltin} onChange={e => setLabel(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-400" placeholder="Marketing Manager" />
+                <span className="block text-[11px] font-bold uppercase text-[color:var(--txt2)] mb-1">Display Label</span>
+                <input value={label} disabled={isBuiltin} onChange={e => setLabel(e.target.value)} className="w-full rounded-lg border border-[var(--bdr)] px-3 py-2 text-[13px] disabled:bg-[var(--bg)] disabled:text-[color:var(--txt2)]" placeholder="Marketing Manager" />
               </label>
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <p className="text-[12px] font-bold text-slate-700">Page Permissions</p>
-                <p className="text-[11px] text-slate-400">{pages.length} selected</p>
+                <p className="text-[12px] font-bold text-[color:var(--txt)]">Page Permissions</p>
+                <p className="text-[11px] text-[color:var(--txt2)]">{pages.length} selected</p>
               </div>
               <div className="grid grid-cols-2 xl:grid-cols-3 gap-2 max-h-[calc(100vh-430px)] overflow-y-auto pr-1">
                 {allPages.map(page => {
                   const checked = pages.includes(page)
                   return (
-                    <label key={page} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-[12px] ${checked ? 'bg-slate-50 border-slate-300 text-slate-800' : 'border-slate-200 text-slate-500'}`}>
+                    <label key={page} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-[12px] ${checked ? 'bg-[var(--bg)] border-[var(--bdr)] text-[color:var(--txt)]' : 'border-[var(--bdr)] text-[color:var(--txt2)]'}`}>
                       <input type="checkbox" checked={checked} disabled={isBuiltin} onChange={() => togglePage(page)} className="w-4 h-4 accent-[#0E2841]" />
                       <span className="min-w-0 truncate">{pageLabel(page)}</span>
                     </label>
@@ -211,7 +211,7 @@ export default function RoleManagement() {
 
             {!isBuiltin && (
               <div className="flex justify-end gap-2 pt-1">
-                <button onClick={startNew} type="button" className="px-4 py-2 rounded-lg border border-slate-200 text-[13px] font-semibold text-slate-600">Clear</button>
+                <button onClick={startNew} type="button" className="px-4 py-2 rounded-lg border border-[var(--bdr)] text-[13px] font-semibold text-[color:var(--txt2)]">Clear</button>
                 <button onClick={save} disabled={saving || !name.trim()} type="button" className="inline-flex items-center gap-2 px-5 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60" style={{ background: NAVY }}>
                   {saving ? <Spinner size={16} /> : <span className="material-symbols-rounded text-[16px]">save</span>}
                   {selected ? 'Save Changes' : 'Create Role'}

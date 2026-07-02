@@ -34,6 +34,9 @@ export default function Customers() {
   const [search,       setSearch]       = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [exporting,    setExporting]    = useState(false)
+  const [sortKey,      setSortKey]      = useState<string | null>(null)
+  const [sortDir,      setSortDir]      = useState<'asc' | 'desc'>('asc')
+  const [selectedCifs, setSelectedCifs] = useState<Set<string>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -45,6 +48,11 @@ export default function Customers() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const toggleSort = (key: string) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
 
   const filtered = useMemo(() => {
     return data.filter(c => {
@@ -63,6 +71,16 @@ export default function Customers() {
       return matchSearch && matchStatus
     })
   }, [data, search, statusFilter])
+
+  const sorted = useMemo(() => {
+    if (!sortKey) return filtered
+    return [...filtered].sort((a, b) => {
+      const va = (a as any)[sortKey] ?? ''
+      const vb = (b as any)[sortKey] ?? ''
+      const cmp = String(va).localeCompare(String(vb))
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [filtered, sortKey, sortDir])
 
   function initials(c: Customer) {
     const first = (c['First Name'] || '').trim()
@@ -115,14 +133,14 @@ export default function Customers() {
         ].map(item => (
           <div key={item.label} className="card p-4">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-slate-400">{item.label}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.07em]" style={{ color: 'var(--txt2)' }}>{item.label}</p>
               <div className="w-7 h-7 rounded-lg flex items-center justify-center"
                 style={{ background: `${item.color}12` }}>
                 <span className="material-symbols-rounded text-[15px]" style={{ color: item.color }}>{item.icon}</span>
               </div>
             </div>
             {loading ? <Sk w="w-20" h="h-6" /> : (
-              <p className="kpi-number text-[22px] text-slate-900">{item.value}</p>
+              <p className="kpi-number text-[22px]" style={{ color: 'var(--txt)' }}>{item.value}</p>
             )}
           </div>
         ))}
@@ -159,7 +177,7 @@ export default function Customers() {
                   className="px-3 py-1.5 transition-colors"
                   style={{
                     background: statusFilter === f.value ? NAVY : 'transparent',
-                    color: statusFilter === f.value ? '#fff' : '#64748B',
+                    color: statusFilter === f.value ? '#fff' : 'var(--txt2)',
                   }}>
                   {f.label}
                 </button>
@@ -167,28 +185,41 @@ export default function Customers() {
             </div>
             {/* Search */}
             <div className="relative">
-              <span className="material-symbols-rounded text-[14px] absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+              <span className="material-symbols-rounded text-[14px] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--txt2)' }}>
                 search
               </span>
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Name, CIF, state…"
-                className="pl-8 pr-3 py-1.5 rounded-lg border text-[12px] outline-none bg-white"
-                style={{ borderColor: 'rgba(15,23,42,0.15)', width: 180 }}
+                className="pl-8 pr-3 py-1.5 rounded-lg border text-[12px] outline-none"
+                style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)', width: 180 }}
               />
             </div>
           </div>
         }>
+        {selectedCifs.size > 0 && (
+          <div style={{ padding: '10px 14px', background: '#F0F4FF', borderBottom: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#0E2841' }}>{selectedCifs.size} selected</span>
+            <button style={{ padding: '5px 12px', border: '1px solid var(--bdr)', borderRadius: 7, fontSize: 12, fontWeight: 600, background: '#fff', color: '#0E2841', cursor: 'pointer' }}>Export Selected</button>
+            <button onClick={() => setSelectedCifs(new Set())} style={{ marginLeft: 'auto', padding: '5px 12px', border: '1px solid var(--bdr)', borderRadius: 7, fontSize: 12, background: 'transparent', color: 'var(--txt2)', cursor: 'pointer' }}>Clear</button>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
               <tr>
-                {['Customer', 'Location', 'Product', 'Status', 'Manager', 'Joined'].map(col => (
+                <th className="px-5 py-3 w-10" style={{ background: 'var(--th-bg)' }}>
+                  <input type="checkbox" checked={selectedCifs.size === sorted.length && sorted.length > 0}
+                    onChange={e => setSelectedCifs(e.target.checked ? new Set(sorted.map(c => c['CIF Number'])) : new Set())}
+                    style={{ cursor: 'pointer' }} />
+                </th>
+                {([['Customer','First Name'],['Location','State'],['Product','Product Name'],['Status','Account Status'],['Manager','Account Manager'],['Joined','Account Created Date']] as [string, string][]).map(([col, k]) => (
                   <th key={col}
                     className="px-5 py-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-left whitespace-nowrap"
-                    style={{ background: NAVY, color: 'rgba(255,255,255,0.6)' }}>
-                    {col}
+                    style={{ background: 'var(--th-bg)', color: sortKey === k ? 'var(--txt)' : 'var(--txt2)', cursor: 'pointer' }}
+                    onClick={() => toggleSort(k)}>
+                    {col}<span style={{ marginLeft: 3, color: '#C00000', opacity: sortKey === k ? 1 : 0.3 }}>{sortKey === k ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                   </th>
                 ))}
               </tr>
@@ -197,23 +228,29 @@ export default function Customers() {
               {loading
                 ? Array.from({ length: 8 }).map((_, i) => (
                     <tr key={i} style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
-                      {Array.from({ length: 6 }).map((_, j) => (
+                      {Array.from({ length: 7 }).map((_, j) => (
                         <td key={j} className="px-5 py-3.5"><Sk /></td>
                       ))}
                     </tr>
                   ))
-                : filtered.length === 0
+                : sorted.length === 0
                 ? (
                   <tr>
-                    <td colSpan={6} className="px-5 py-14 text-center">
-                      <span className="material-symbols-rounded text-[36px] text-slate-300 block mb-2">person_search</span>
-                      <p className="text-[13px] text-slate-400">No customers match your filters</p>
+                    <td colSpan={7} className="px-5 py-14 text-center">
+                      <span className="material-symbols-rounded text-[36px] block mb-2" style={{ color: 'var(--txt3)' }}>person_search</span>
+                      <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>No customers match your filters</p>
                     </td>
                   </tr>
                 )
-                : filtered.map((c, i) => (
-                  <tr key={i} className="hover:bg-slate-50 transition-colors"
-                    style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
+                : sorted.map((c, i) => (
+                  <tr key={i} className="transition-colors"
+                    style={{ borderTop: '1px solid rgba(15,23,42,0.05)', background: selectedCifs.has(c['CIF Number']) ? 'var(--row-sel)' : undefined }}>
+                    {/* Checkbox */}
+                    <td className="px-5 py-3" onClick={e => e.stopPropagation()}>
+                      <input type="checkbox" checked={selectedCifs.has(c['CIF Number'])}
+                        onChange={() => setSelectedCifs(s => { const n = new Set(s); n.has(c['CIF Number']) ? n.delete(c['CIF Number']) : n.add(c['CIF Number']); return n })}
+                        style={{ cursor: 'pointer' }} />
+                    </td>
                     {/* Customer */}
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
@@ -222,18 +259,18 @@ export default function Customers() {
                           {initials(c)}
                         </div>
                         <div className="min-w-0">
-                          <p className="font-semibold text-slate-800 truncate">
+                          <p className="font-semibold truncate" style={{ color: 'var(--txt)' }}>
                             {[c['First Name'], c['Last Name']].filter(Boolean).join(' ') || '—'}
                           </p>
-                          <p className="text-[11px] text-slate-400 kpi-number">{c['CIF Number']}</p>
+                          <p className="text-[11px] kpi-number" style={{ color: 'var(--txt2)' }}>{c['CIF Number']}</p>
                         </div>
                       </div>
                     </td>
                     {/* Location */}
                     <td className="px-5 py-3">
-                      <p className="text-slate-700">{c.State || '—'}</p>
+                      <p style={{ color: 'var(--txt)' }}>{c.State || '—'}</p>
                       {c.City && c.City !== c.State && (
-                        <p className="text-[11px] text-slate-400">{c.City}</p>
+                        <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>{c.City}</p>
                       )}
                     </td>
                     {/* Product */}
@@ -250,9 +287,9 @@ export default function Customers() {
                       } />
                     </td>
                     {/* Manager */}
-                    <td className="px-5 py-3 text-slate-500">{c['Account Manager'] || '—'}</td>
+                    <td className="px-5 py-3" style={{ color: 'var(--txt2)' }}>{c['Account Manager'] || '—'}</td>
                     {/* Joined */}
-                    <td className="px-5 py-3 text-[12px] text-slate-400 kpi-number whitespace-nowrap">
+                    <td className="px-5 py-3 text-[12px] kpi-number whitespace-nowrap" style={{ color: 'var(--txt2)' }}>
                       {fmtDate(c['Account Created Date'])}
                     </td>
                   </tr>
@@ -261,8 +298,8 @@ export default function Customers() {
           </table>
         </div>
         {!loading && data.length >= 200 && (
-          <div className="px-5 py-3 text-[11px] text-slate-400 flex items-center gap-1"
-            style={{ borderTop: '1px solid rgba(15,23,42,0.05)', background: 'rgba(15,23,42,0.01)' }}>
+          <div className="px-5 py-3 text-[11px] flex items-center gap-1"
+            style={{ color: 'var(--txt2)', borderTop: '1px solid rgba(15,23,42,0.05)', background: 'rgba(15,23,42,0.01)' }}>
             <span className="material-symbols-rounded text-[14px]">info</span>
             Showing up to 500 most recent. Export for full dataset.
           </div>

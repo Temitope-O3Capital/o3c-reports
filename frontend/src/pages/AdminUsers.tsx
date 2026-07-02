@@ -83,17 +83,17 @@ export default function AdminUsers() {
     { key: 'email',      label: 'Email' },
     { key: 'role',       label: 'Role',      render: r => (
         <span className="text-[12px] font-medium px-2 py-0.5 rounded capitalize"
-          style={{ background: 'rgba(14,40,65,0.06)', color: '#475569' }}>
+          style={{ background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
           {roleLabel(r.role || '')}
         </span>
       )},
     { key: 'status',     label: 'Status',    render: r => <StatusBadge status={r.status || 'inactive'} /> },
-    { key: 'last_login', label: 'Last Login', render: r => r.last_login ? fmtDate(r.last_login) : <span className="text-slate-400">Never</span> },
+    { key: 'last_login', label: 'Last Login', render: r => r.last_login ? fmtDate(r.last_login) : <span style={{ color: 'var(--txt2)' }}>Never</span> },
     { key: 'created_at', label: 'Created',   render: r => fmtDate(r.created_at) },
     { key: '_actions',   label: '',          sortable: false, render: r => (
         <div className="flex gap-1">
           <button onClick={() => resetPassword(r)} title="Reset password"
-            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
+            className="p-1 rounded text-[color:var(--txt2)] hover:text-[color:var(--txt)] hover:bg-[var(--chip-bg)] transition-colors">
             <span className="material-symbols-rounded text-[15px]">key</span>
           </button>
           <button onClick={() => toggleStatus(r)} title={r.status === 'active' ? 'Deactivate' : 'Reactivate'}
@@ -112,10 +112,10 @@ export default function AdminUsers() {
       actions={
         <div className="flex items-center gap-2">
           <div className="relative">
-            <span className="material-symbols-rounded absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px] text-slate-400">search</span>
+            <span className="material-symbols-rounded absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px]" style={{ color: 'var(--txt2)' }}>search</span>
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search users…"
               className="pl-8 pr-3 py-1.5 rounded-lg border text-[12px] outline-none w-48"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
           </div>
           <button onClick={() => setDrawerOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white"
@@ -142,13 +142,14 @@ export default function AdminUsers() {
       {drawerOpen && (
         <div className="fixed inset-0 z-40" onClick={() => setDrawerOpen(false)}
           style={{ background: 'rgba(0,0,0,0.3)' }}>
-          <div className="absolute right-0 top-0 h-full w-[380px] bg-white shadow-2xl overflow-y-auto"
+          <div className="absolute right-0 top-0 h-full w-[380px] shadow-2xl overflow-y-auto"
+            style={{ background: 'var(--card)' }}
             onClick={e => e.stopPropagation()}>
-            <div className="px-6 py-5 border-b" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+            <div className="px-6 py-5 border-b" style={{ borderColor: 'var(--bdr)' }}>
               <div className="flex items-center justify-between">
-                <h3 className="text-[15px] font-semibold text-slate-800">Invite New User</h3>
+                <h3 className="text-[15px] font-semibold" style={{ color: 'var(--txt)' }}>Invite New User</h3>
                 <button onClick={() => setDrawerOpen(false)}>
-                  <span className="material-symbols-rounded text-[20px] text-slate-400">close</span>
+                  <span className="material-symbols-rounded text-[20px]" style={{ color: 'var(--txt2)' }}>close</span>
                 </button>
               </div>
             </div>
@@ -159,25 +160,25 @@ export default function AdminUsers() {
                 { label: 'Temp Password', key: 'password', type: 'password', placeholder: '••••••••' },
               ].map(f => (
                 <div key={f.key}>
-                  <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">{f.label}</label>
+                  <label className="block text-[12px] font-semibold mb-1.5" style={{ color: 'var(--txt2)' }}>{f.label}</label>
                   <input required type={f.type} placeholder={f.placeholder}
                     value={(form as any)[f.key]}
                     onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
                     className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
-                    style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+                    style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
                 </div>
               ))}
               <div>
-                <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">Role</label>
+                <label className="block text-[12px] font-semibold mb-1.5" style={{ color: 'var(--txt2)' }}>Role</label>
                 <select value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
-                  style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+                  style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}>
                   {ROLES.map(r => (
                     <option key={r} value={r}>{roleLabel(r)}</option>
                   ))}
                 </select>
               </div>
-              <p className="text-[11.5px] text-slate-400 leading-relaxed">
+              <p className="text-[11.5px] leading-relaxed" style={{ color: 'var(--txt3)' }}>
                 The user will be prompted to change their password on first login.
               </p>
               <button type="submit" disabled={saving}

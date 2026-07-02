@@ -31,7 +31,7 @@ const CATEGORY_ICON: Record<string, string> = {
 }
 
 function TestBadge({ status }: { status: string | null }) {
-  if (!status) return <span className="text-[11px] text-slate-400">Not tested</span>
+  if (!status) return <span className="text-[11px] text-[color:var(--txt2)]">Not tested</span>
   if (status === 'ok') return (
     <span className="inline-flex items-center gap-1 text-[11px] font-medium text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
       <span className="material-symbols-rounded text-[13px]">check_circle</span> OK
@@ -79,17 +79,17 @@ function EditModal({
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 50,
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: '100%', maxWidth: 440,
+      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: '100%', maxWidth: 440,
         boxShadow: '0 20px 60px rgba(0,0,0,.18)' }}>
-        <h3 className="text-[15px] font-bold text-slate-800 mb-1">
+        <h3 className="text-[15px] font-bold mb-1" style={{ color: 'var(--txt)' }}>
           {isSecret ? 'Update API Key' : 'Update Setting'}
         </h3>
-        <p className="text-[12px] text-slate-500 mb-5">{description}</p>
-        <p className="text-[11px] font-mono text-slate-400 mb-4 px-2 py-1 rounded"
-          style={{ background: 'rgba(15,23,42,0.04)' }}>{keyName}</p>
+        <p className="text-[12px] mb-5" style={{ color: 'var(--txt2)' }}>{description}</p>
+        <p className="text-[11px] font-mono mb-4 px-2 py-1 rounded"
+          style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>{keyName}</p>
         <form onSubmit={handleSave} className="space-y-4">
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">
+            <label className="block text-[11px] font-bold uppercase tracking-wide mb-1.5" style={{ color: 'var(--txt2)' }}>
               {isSecret ? 'New Value' : 'Value'}
             </label>
             <div className="relative">
@@ -102,7 +102,9 @@ function EditModal({
                 onChange={e => setValue(e.target.value)}
                 className="w-full rounded-lg border px-3 py-2.5 text-[13px] outline-none pr-10"
                 style={{
-                  borderColor: 'rgba(15,23,42,0.15)',
+                  background: 'var(--input-bg)',
+                  borderColor: 'var(--input-bdr)',
+                  color: 'var(--txt)',
                   fontFamily: isSecret ? 'monospace' : 'inherit',
                 }}
               />
@@ -110,7 +112,7 @@ function EditModal({
                 <button
                   type="button"
                   onClick={() => setShow(s => !s)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--txt2)] hover:text-[color:var(--txt2)]"
                   tabIndex={-1}>
                   <span className="material-symbols-rounded text-[18px]">
                     {show ? 'visibility_off' : 'visibility'}
@@ -122,7 +124,7 @@ function EditModal({
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={onClose}
               className="flex-1 py-2 rounded-lg text-[13px] font-semibold border"
-              style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#64748b' }}>
+              style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
               Cancel
             </button>
             <button type="submit" disabled={saving}
@@ -176,7 +178,7 @@ function LogoUpload({ onDone }: { onDone: () => void }) {
         onClick={() => inputRef.current?.click()}
         disabled={uploading}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold border transition-all disabled:opacity-50"
-        style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#475569' }}>
+        style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
         <span className="material-symbols-rounded text-[13px]">
           {uploading ? 'hourglass_empty' : 'upload'}
         </span>
@@ -262,7 +264,7 @@ export default function ApiKeys() {
       )}
 
       {!loading && grouped.length === 0 && !error && (
-        <div className="flex flex-col items-center py-20 gap-3 text-slate-400">
+        <div className="flex flex-col items-center py-20 gap-3 text-[color:var(--txt2)]">
           <span className="material-symbols-rounded text-[48px]">key_off</span>
           <p className="text-[14px]">No API credentials configured yet.</p>
           <p className="text-[12px]">Run migration 012_api_credentials.sql to seed the key names.</p>
@@ -277,7 +279,9 @@ export default function ApiKeys() {
           <div className="divide-y" style={{ borderColor: 'rgba(15,23,42,0.06)' }}>
             {items.map(key => (
               <div key={key.key_name}
-                className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors">
+                className="flex items-center gap-4 px-5 py-3.5 transition-colors" style={{ background: 'var(--card)' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'var(--card)')}>
                 {/* Status dot */}
                 <span className="w-2 h-2 rounded-full flex-shrink-0 mt-0.5"
                   style={{ background: key.has_value ? '#22C55E' : '#94A3B8' }} />
@@ -285,22 +289,22 @@ export default function ApiKeys() {
                 {/* Key info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-[12px] font-mono font-semibold text-slate-800">{key.key_name}</p>
+                    <p className="text-[12px] font-mono font-semibold" style={{ color: 'var(--txt)' }}>{key.key_name}</p>
                     {!key.is_secret && (
                       <span className="text-[11px] font-medium px-1.5 py-0.5 rounded"
-                        style={{ background: 'rgba(14,40,65,0.07)', color: '#475569' }}>
+                        style={{ background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
                         config
                       </span>
                     )}
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-0.5">{key.description}</p>
+                  <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{key.description}</p>
                 </div>
 
                 {/* Test status + last tested */}
                 <div className="hidden sm:flex flex-col items-end gap-0.5 flex-shrink-0">
                   <TestBadge status={key.test_status} />
                   {key.last_tested_at && (
-                    <span className="text-[11px] text-slate-300">
+                    <span className="text-[11px]" style={{ color: 'var(--txt3)' }}>
                       Tested {fmtDate(key.last_tested_at)}
                     </span>
                   )}
@@ -313,7 +317,7 @@ export default function ApiKeys() {
                       onClick={() => handleTest(key.key_name)}
                       disabled={testing === key.key_name}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold border transition-all disabled:opacity-50"
-                      style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#475569' }}>
+                      style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
                       <span className="material-symbols-rounded text-[13px]">
                         {testing === key.key_name ? 'hourglass_empty' : 'wifi_tethering'}
                       </span>

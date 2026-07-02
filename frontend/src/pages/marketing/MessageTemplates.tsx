@@ -167,7 +167,7 @@ function normalizeTemplate(row: any): Template {
 }
 
 function channelStyle(channel: string) {
-  return CHANNEL_STYLES[channel.toLowerCase()] ?? { bg: 'rgba(14,40,65,0.06)', color: '#475569', icon: 'send' }
+  return CHANNEL_STYLES[channel.toLowerCase()] ?? { bg: 'rgba(14,40,65,0.06)', color: 'var(--txt2)', icon: 'send' }
 }
 
 /* ── Shared modal ──────────────────────────────────────────────────── */
@@ -181,7 +181,7 @@ function Modal({
       onClick={e => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="bg-white shadow-2xl w-full overflow-hidden flex flex-col"
+        className="bg-[var(--card)] shadow-2xl w-full overflow-hidden flex flex-col"
         style={{
           maxWidth: wide ? 960 : 520,
           maxHeight: wide ? '100vh' : '88vh',
@@ -192,11 +192,11 @@ function Modal({
       >
         <div
           className="flex items-center justify-between px-6 py-4 border-b shrink-0"
-          style={{ borderColor: 'rgba(15,23,42,0.08)' }}
+          style={{ borderColor: 'var(--bdr)' }}
         >
-          <h3 className="text-[15px] font-semibold text-slate-800">{title}</h3>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100">
-            <span className="material-symbols-rounded text-[20px] text-slate-400">close</span>
+          <h3 className="text-[15px] font-semibold text-[color:var(--txt)]">{title}</h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-[var(--chip-bg)]">
+            <span className="material-symbols-rounded text-[20px] text-[color:var(--txt2)]">close</span>
           </button>
         </div>
         <div className="px-6 py-5 overflow-y-auto flex-1">{children}</div>
@@ -225,9 +225,9 @@ function StarterCard({ s, onUse }: { s: StarterTemplate; onUse: (s: StarterTempl
           {s.channel.toUpperCase()}
         </span>
       </div>
-      <p className="text-[13px] font-semibold text-slate-800">{s.name}</p>
+      <p className="text-[13px] font-semibold text-[color:var(--txt)]">{s.name}</p>
       <p
-        className="text-[11px] text-slate-500 leading-relaxed"
+        className="text-[11px] text-[color:var(--txt2)] leading-relaxed"
         style={{
           display: '-webkit-box',
           WebkitLineClamp: 2,
@@ -240,7 +240,7 @@ function StarterCard({ s, onUse }: { s: StarterTemplate; onUse: (s: StarterTempl
       <div className="flex flex-wrap gap-1">
         {s.variables.map(v => (
           <span key={v} className="text-[11px] font-mono px-1 py-0.5 rounded"
-            style={{ background: 'rgba(14,40,65,0.06)', color: '#475569' }}>
+            style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>
             {`{{${v}}}`}
           </span>
         ))}
@@ -261,14 +261,14 @@ function StarterCard({ s, onUse }: { s: StarterTemplate; onUse: (s: StarterTempl
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">{label}</label>
+      <label className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1.5">{label}</label>
       {children}
     </div>
   )
 }
 
-const INPUT_CLS = 'w-full px-3 py-2 rounded-lg border text-[13px] outline-none focus:border-slate-400 transition-colors'
-const INPUT_STYLE = { borderColor: 'rgba(15,23,42,0.15)' }
+const INPUT_CLS = 'w-full px-3 py-2 rounded-lg border text-[13px] outline-none focus:border-[var(--input-bdr)] transition-colors'
+const INPUT_STYLE = { borderColor: 'var(--bdr)' }
 
 /* ── Template card ─────────────────────────────────────────────────── */
 function TemplateCard({
@@ -292,20 +292,20 @@ function TemplateCard({
           <span className="material-symbols-rounded text-[12px]">{cs.icon}</span>
           {t.channel.toUpperCase()}
         </span>
-        <span className="text-[11px] text-slate-400">{fmtDate(t.updated_at)}</span>
+        <span className="text-[11px] text-[color:var(--txt2)]">{fmtDate(t.updated_at)}</span>
       </div>
 
       {/* name */}
-      <p className="text-[14px] font-semibold text-slate-800 leading-snug">{t.name}</p>
+      <p className="text-[14px] font-semibold text-[color:var(--txt)] leading-snug">{t.name}</p>
 
       {/* subject */}
       {t.subject && (
-        <p className="text-[12px] italic text-slate-400 -mt-1">{t.subject}</p>
+        <p className="text-[12px] italic text-[color:var(--txt2)] -mt-1">{t.subject}</p>
       )}
 
       {/* body preview */}
       <p
-        className="text-[12px] text-slate-500 leading-relaxed"
+        className="text-[12px] text-[color:var(--txt2)] leading-relaxed"
         style={{
           display: '-webkit-box',
           WebkitLineClamp: 2,
@@ -323,7 +323,7 @@ function TemplateCard({
             <span
               key={v}
               className="text-[11px] font-mono px-1.5 py-0.5 rounded"
-              style={{ background: 'rgba(14,40,65,0.06)', color: '#475569' }}
+              style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}
             >
               {'{{'}{v}{'}}'}
             </span>
@@ -338,8 +338,8 @@ function TemplateCard({
       >
         <button
           onClick={() => onEdit(t)}
-          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-colors hover:bg-slate-50"
-          style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}
+          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-colors hover:bg-[var(--bg)]"
+          style={{ borderColor: 'var(--bdr)', color: 'var(--txt)' }}
         >
           <span className="material-symbols-rounded text-[14px]">edit</span>
           Edit
@@ -364,11 +364,11 @@ function StarterSection({ starters, onUse }: { starters: StarterTemplate[]; onUs
     <div className="mb-6">
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 text-[12px] font-semibold text-slate-500 hover:text-slate-700 transition-colors mb-3"
+        className="flex items-center gap-2 text-[12px] font-semibold text-[color:var(--txt2)] hover:text-[color:var(--txt)] transition-colors mb-3"
       >
         <span className="material-symbols-rounded text-[16px]">{open ? 'expand_less' : 'expand_more'}</span>
         Starter Templates
-        <span className="text-[11px] font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+        <span className="text-[11px] font-normal text-[color:var(--txt2)] bg-[var(--chip-bg)] px-2 py-0.5 rounded-full">
           {starters.length} built-in — duplicate & customise
         </span>
       </button>
@@ -548,8 +548,8 @@ export default function MessageTemplates() {
             className="px-4 py-1.5 rounded-lg text-[13px] font-medium transition-all"
             style={
               channelFilter === tab.key
-                ? { background: '#fff', color: NAVY, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }
-                : { color: '#64748B' }
+                ? { background: 'var(--card)', color: NAVY, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }
+                : { color: 'var(--txt2)' }
             }
           >
             {tab.label}
@@ -561,16 +561,16 @@ export default function MessageTemplates() {
       {templates.length === 0 && !loading && (
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-3">
-            <p className="text-[13px] font-semibold text-slate-700">Starter Templates</p>
-            <span className="text-[11px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Duplicate & customise</span>
+            <p className="text-[13px] font-semibold text-[color:var(--txt)]">Starter Templates</p>
+            <span className="text-[11px] text-[color:var(--txt2)] bg-[var(--chip-bg)] px-2 py-0.5 rounded-full">Duplicate & customise</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {STARTERS.map(s => (
               <StarterCard key={s.name} s={s} onUse={useStarter} />
             ))}
           </div>
-          <div className="mt-4 border-t pt-5" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
-            <p className="text-[12px] text-slate-500 mb-3">Your saved templates will appear below.</p>
+          <div className="mt-4 border-t pt-5" style={{ borderColor: 'var(--bdr)' }}>
+            <p className="text-[12px] text-[color:var(--txt2)] mb-3">Your saved templates will appear below.</p>
           </div>
         </div>
       )}
@@ -601,8 +601,8 @@ export default function MessageTemplates() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="py-20 text-center">
-          <span className="material-symbols-rounded text-[40px] text-slate-300 block mb-2">description</span>
-          <p className="text-[13px] text-slate-400">No templates found</p>
+          <span className="material-symbols-rounded text-[40px] text-[color:var(--txt3)] block mb-2">description</span>
+          <p className="text-[13px] text-[color:var(--txt2)]">No templates found</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -698,14 +698,14 @@ export default function MessageTemplates() {
                     <span
                       key={v}
                       className="text-[11px] font-mono px-1.5 py-0.5 rounded"
-                      style={{ background: 'rgba(14,40,65,0.07)', color: '#475569' }}
+                      style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}
                     >
                       {'{{'}{v}{'}}'}
                     </span>
                   ))}
                 </div>
               )}
-              <p className="text-[11px] text-slate-400 mt-1">
+              <p className="text-[11px] text-[color:var(--txt2)] mt-1">
                 These become {'{{variable}}'} placeholders in the template body.
               </p>
             </Field>
@@ -727,14 +727,14 @@ export default function MessageTemplates() {
       {/* Delete confirm modal */}
       {confirmDelete && (
         <Modal title="Delete Template" onClose={() => setConfirmDelete(null)}>
-          <p className="text-[13px] text-slate-600 mb-5">
+          <p className="text-[13px] text-[color:var(--txt2)] mb-5">
             Are you sure you want to delete <strong>{confirmDelete.name}</strong>? This cannot be undone.
           </p>
           <div className="flex items-center gap-2 justify-end">
             <button
               onClick={() => setConfirmDelete(null)}
-              className="px-4 py-2 rounded-lg text-[13px] font-medium border transition-colors hover:bg-slate-50"
-              style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#475569' }}
+              className="px-4 py-2 rounded-lg text-[13px] font-medium border transition-colors hover:bg-[var(--bg)]"
+              style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}
             >
               Cancel
             </button>

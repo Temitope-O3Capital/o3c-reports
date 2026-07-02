@@ -132,40 +132,40 @@ function TestModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/30">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+      <div className="rounded-2xl shadow-xl w-full max-w-sm p-6" style={{ background: 'var(--card)' }} onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
-          <h3 className="text-[15px] font-semibold text-slate-800">Send Test Email</h3>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100">
-            <span className="material-symbols-rounded text-[18px] text-slate-400">close</span>
+          <h3 className="text-[15px] font-semibold" style={{ color: 'var(--txt)' }}>Send Test Email</h3>
+          <button onClick={onClose} className="p-1 rounded-lg" style={{ background: 'var(--chip-bg)' }}>
+            <span className="material-symbols-rounded text-[18px]" style={{ color: 'var(--txt2)' }}>close</span>
           </button>
         </div>
 
         {result?.ok ? (
           <div className="text-center py-6">
             <span className="material-symbols-rounded text-[40px] mb-2 block" style={{ color: GREEN }}>check_circle</span>
-            <p className="text-[14px] font-semibold text-slate-700 mb-1">Test email sent!</p>
-            <p className="text-[12px] text-slate-400">Check your inbox — delivery may take up to 2 minutes.</p>
+            <p className="text-[14px] font-semibold mb-1" style={{ color: 'var(--txt)' }}>Test email sent!</p>
+            <p className="text-[12px]" style={{ color: 'var(--txt2)' }}>Check your inbox — delivery may take up to 2 minutes.</p>
             <button onClick={onClose} className="mt-4 px-4 py-2 rounded-lg text-[13px] text-white" style={{ background: NAVY }}>
               Close
             </button>
           </div>
         ) : (
           <>
-            <p className="text-[13px] text-slate-500 mb-4">
+            <p className="text-[13px] mb-4" style={{ color: 'var(--txt2)' }}>
               Sends a test email through your SendGrid configuration to verify the integration is working.
             </p>
-            <label className="block text-[12px] font-medium text-slate-600 mb-1">Recipient email</label>
+            <label className="block text-[12px] font-medium mb-1" style={{ color: 'var(--txt2)' }}>Recipient email</label>
             <input
               type="email"
               value={to}
               onChange={e => setTo(e.target.value)}
               placeholder="you@example.com"
               className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none mb-4"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}
             />
             {result?.error && <p className="text-[12px] text-red-600 mb-3">{result.error}</p>}
             <div className="flex gap-2">
-              <button onClick={onClose} className="flex-1 py-2 rounded-lg text-[13px] border" style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+              <button onClick={onClose} className="flex-1 py-2 rounded-lg text-[13px] border" style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
                 Cancel
               </button>
               <button
@@ -304,14 +304,14 @@ export default function MailHealth() {
   const msgCols = [
     { key: 'status',     label: 'Status',    render: (r: MailMessage) => statusBadge(r.status) },
     { key: 'subject',    label: 'Subject',   render: (r: MailMessage) => <span className="truncate max-w-[220px] block">{r.subject}</span> },
-    { key: 'recipients', label: 'To',        render: (r: MailMessage) => <span className="text-slate-500">{recipientSummary(r.recipients as any)}</span> },
-    { key: 'kind',       label: 'Kind',      render: (r: MailMessage) => <span className="text-[11px] text-slate-400">{r.kind}</span> },
+    { key: 'recipients', label: 'To',        render: (r: MailMessage) => <span style={{ color: 'var(--txt2)' }}>{recipientSummary(r.recipients as any)}</span> },
+    { key: 'kind',       label: 'Kind',      render: (r: MailMessage) => <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{r.kind}</span> },
     { key: 'created_at', label: 'Sent',      render: (r: MailMessage) => fmtDate(r.created_at) },
     { key: 'delivered_at', label: 'Delivered', render: (r: MailMessage) => fmtDate(r.delivered_at) },
     { key: 'opened_at', label: 'Opened',    render: (r: MailMessage) => fmtDate(r.opened_at) },
     { key: 'last_error', label: 'Error',     render: (r: MailMessage) => r.last_error
         ? <span className="text-[11px] text-red-500 truncate max-w-[180px] block">{r.last_error}</span>
-        : <span className="text-slate-300">—</span> },
+        : <span style={{ color: 'var(--txt3)' }}>—</span> },
   ]
 
   const supCols = [
@@ -342,7 +342,7 @@ export default function MailHealth() {
         <div className="flex items-center gap-2">
           <button onClick={() => load()}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium"
-            style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+            style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
             <span className="material-symbols-rounded text-[14px]">refresh</span>Refresh
           </button>
           <button onClick={() => setTestOpen(true)}
@@ -369,26 +369,26 @@ export default function MailHealth() {
         <SectionCard title="Campaign Send Controls" subtitle="Applies to email campaign dispatch">
           <div className="p-5 space-y-4">
             <label className="block">
-              <span className="block text-[11px] font-bold uppercase text-slate-500 mb-1">Daily email limit</span>
-              <input value={dailyLimit} onChange={e => setDailyLimit(e.target.value)} type="number" min={0} max={100000} className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+              <span className="block text-[11px] font-bold uppercase mb-1" style={{ color: 'var(--txt2)' }}>Daily email limit</span>
+              <input value={dailyLimit} onChange={e => setDailyLimit(e.target.value)} type="number" min={0} max={100000} className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
             </label>
             <label className="block">
-              <span className="block text-[11px] font-bold uppercase text-slate-500 mb-1">Per-campaign daily limit</span>
-              <input value={perCampaignLimit} onChange={e => setPerCampaignLimit(e.target.value)} type="number" min={0} max={100000} className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+              <span className="block text-[11px] font-bold uppercase mb-1" style={{ color: 'var(--txt2)' }}>Per-campaign daily limit</span>
+              <input value={perCampaignLimit} onChange={e => setPerCampaignLimit(e.target.value)} type="number" min={0} max={100000} className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
             </label>
-            <label className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2" style={{ borderColor: 'rgba(15,23,42,0.12)' }}>
-              <span className="text-[12px] font-semibold text-slate-600">Warmup mode</span>
+            <label className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2" style={{ borderColor: 'var(--bdr)' }}>
+              <span className="text-[12px] font-semibold" style={{ color: 'var(--txt2)' }}>Warmup mode</span>
               <input type="checkbox" checked={warmupEnabled} onChange={e => setWarmupEnabled(e.target.checked)} />
             </label>
             <label className="block">
-              <span className="block text-[11px] font-bold uppercase text-slate-500 mb-1">Warmup daily limit</span>
-              <input value={warmupLimit} onChange={e => setWarmupLimit(e.target.value)} type="number" min={0} max={100000} className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+              <span className="block text-[11px] font-bold uppercase mb-1" style={{ color: 'var(--txt2)' }}>Warmup daily limit</span>
+              <input value={warmupLimit} onChange={e => setWarmupLimit(e.target.value)} type="number" min={0} max={100000} className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
             </label>
             <label className="block">
-              <span className="block text-[11px] font-bold uppercase text-slate-500 mb-1">Send delay milliseconds</span>
-              <input value={sendDelay} onChange={e => setSendDelay(e.target.value)} type="number" min={50} max={60000} className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+              <span className="block text-[11px] font-bold uppercase mb-1" style={{ color: 'var(--txt2)' }}>Send delay milliseconds</span>
+              <input value={sendDelay} onChange={e => setSendDelay(e.target.value)} type="number" min={50} max={60000} className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
             </label>
-            <p className="text-[11px] text-slate-400">Effective daily limit: <strong>{fmtNum(campaignHealth?.effective_daily_limit ?? (Number(dailyLimit) || 0))}</strong></p>
+            <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>Effective daily limit: <strong>{fmtNum(campaignHealth?.effective_daily_limit ?? (Number(dailyLimit) || 0))}</strong></p>
             <button onClick={saveCampaignSettings} disabled={loading} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-50" style={{ background: NAVY }}>
               <span className="material-symbols-rounded text-[16px]">save</span>Save Controls
             </button>
@@ -408,7 +408,7 @@ export default function MailHealth() {
             <HealthTile label="Webhook" value={campaignHealth?.last_webhook_at ? 'Receiving' : 'No recent'} color={campaignHealth?.last_webhook_at ? GREEN : AMBER} />
             <HealthTile label="Signed Webhook" value={campaignHealth?.webhook_signed ? 'Enabled' : 'Missing'} color={campaignHealth?.webhook_signed ? GREEN : RED} />
           </div>
-          {campaignHealth?.last_webhook_at && <p className="px-4 pb-4 text-[11px] text-slate-400">Last webhook: {campaignHealth.last_webhook_event || 'event'} at {fmtDate(campaignHealth.last_webhook_at)}</p>}
+          {campaignHealth?.last_webhook_at && <p className="px-4 pb-4 text-[11px]" style={{ color: 'var(--txt2)' }}>Last webhook: {campaignHealth.last_webhook_event || 'event'} at {fmtDate(campaignHealth.last_webhook_at)}</p>}
         </SectionCard>
       </div>
 
@@ -425,13 +425,13 @@ export default function MailHealth() {
                 {check.ok ? 'check_circle' : 'error'}
               </span>
               <div className="min-w-0">
-                <p className="text-[13px] font-semibold text-slate-800">{check.label}</p>
-                <p className="text-[12px] text-slate-500 mt-0.5 break-words">{check.detail}</p>
+                <p className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>{check.label}</p>
+                <p className="text-[12px] mt-0.5 break-words" style={{ color: 'var(--txt2)' }}>{check.detail}</p>
               </div>
             </div>
           ))}
           {!loading && !deliverability?.checks?.length && (
-            <div className="px-5 py-8 text-center text-[13px] text-slate-400">
+            <div className="px-5 py-8 text-center text-[13px]" style={{ color: 'var(--txt2)' }}>
               No checks available — configure SENDGRID_FROM_EMAIL to begin.
             </div>
           )}
@@ -445,8 +445,8 @@ export default function MailHealth() {
             {metrics.map(row => (
               <div key={`${row.kind}-${row.status}`}
                 className="rounded-lg border px-4 py-3"
-                style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
-                <p className="text-[11px] text-slate-400 uppercase font-semibold">{row.kind}</p>
+                style={{ borderColor: 'var(--bdr)' }}>
+                <p className="text-[11px] uppercase font-semibold" style={{ color: 'var(--txt2)' }}>{row.kind}</p>
                 <div className="flex items-center justify-between mt-1">
                   <span>{statusBadge(row.status)}</span>
                   <p className="text-[18px] font-bold tabular-nums" style={{ color: NAVY }}>{fmtNum(row.count)}</p>
@@ -474,13 +474,13 @@ export default function MailHealth() {
         subtitle={`${activeSups} active suppression${activeSups !== 1 ? 's' : ''} — emails on this list will not be sent campaign mail`}
         className="mt-5"
       >
-        <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
-          <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-medium cursor-pointer" style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+        <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b" style={{ borderColor: 'var(--bdr)' }}>
+          <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-medium cursor-pointer" style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
             <span className="material-symbols-rounded text-[14px]">upload_file</span>Import CSV
             <input type="file" accept=".csv,text/csv" className="hidden" onChange={e => importSuppressions(e.target.files?.[0] ?? null)} />
           </label>
           <button onClick={() => apiExport('/api/mail/suppressions/export', 'mail-suppressions')}
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-medium" style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-medium" style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
             <span className="material-symbols-rounded text-[14px]">download</span>Export CSV
           </button>
         </div>
@@ -508,10 +508,10 @@ function riskColor(v: number | undefined | null, threshold: number) {
 
 function HealthTile({ label, value, count, color }: { label: string; value: string; count?: number; color: string }) {
   return (
-    <div className="rounded-lg border px-4 py-3" style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
-      <p className="text-[11px] text-slate-400 uppercase font-semibold">{label}</p>
+    <div className="rounded-lg border px-4 py-3" style={{ borderColor: 'var(--bdr)' }}>
+      <p className="text-[11px] uppercase font-semibold" style={{ color: 'var(--txt2)' }}>{label}</p>
       <p className="text-[20px] font-bold tabular-nums mt-1" style={{ color }}>{value}</p>
-      {count != null && <p className="text-[11px] text-slate-400 mt-0.5">{fmtNum(count)} event{count === 1 ? '' : 's'}</p>}
+      {count != null && <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{fmtNum(count)} event{count === 1 ? '' : 's'}</p>}
     </div>
   )
 }

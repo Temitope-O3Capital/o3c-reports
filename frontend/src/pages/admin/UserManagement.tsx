@@ -149,7 +149,7 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+      <label className="block text-[11px] font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--txt2)' }}>
         {label}{required && <span className="text-red-500 ml-0.5">*</span>}
       </label>
       <input
@@ -158,8 +158,8 @@ function Field({
         disabled={disabled}
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-full rounded-lg border px-3 py-2 text-[13px] outline-none disabled:bg-slate-50 disabled:text-slate-400"
-        style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+        className="w-full rounded-lg border px-3 py-2 text-[13px] outline-none"
+        style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}
       />
     </div>
   )
@@ -172,14 +172,14 @@ function SelectField({
 }) {
   return (
     <div>
-      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+      <label className="block text-[11px] font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--txt2)' }}>
         {label}
       </label>
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-full rounded-lg border px-3 py-2 text-[13px] outline-none bg-white"
-        style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+        className="w-full rounded-lg border px-3 py-2 text-[13px] outline-none"
+        style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}
       >
         {children}
       </select>
@@ -265,22 +265,22 @@ function UserDrawer({
   }
 
   const actCols: ColDef<Activity>[] = [
-    { key: 'ts',     label: 'Time',    render: r => <span className="text-[11px] text-slate-400 whitespace-nowrap">{fmtDate(r.ts)}</span> },
-    { key: 'page',   label: 'Module',  render: r => <span className="text-[12px] font-medium">{r.page || '—'}</span> },
-    { key: 'action', label: 'Action',  render: r => <span className="text-[12px]">{r.action}</span> },
-    { key: 'detail', label: 'Detail',  render: r => <span className="text-[11px] text-slate-500 truncate max-w-[200px] block">{r.detail || '—'}</span> },
-    { key: 'ip',     label: 'IP',      render: r => <span className="font-mono text-[11px] text-slate-400">{r.ip || '—'}</span> },
+    { key: 'ts',     label: 'Time',    render: r => <span className="text-[11px] whitespace-nowrap" style={{ color: 'var(--txt2)' }}>{fmtDate(r.ts)}</span> },
+    { key: 'page',   label: 'Module',  render: r => <span className="text-[12px] font-medium" style={{ color: 'var(--txt)' }}>{r.page || '—'}</span> },
+    { key: 'action', label: 'Action',  render: r => <span className="text-[12px]" style={{ color: 'var(--txt)' }}>{r.action}</span> },
+    { key: 'detail', label: 'Detail',  render: r => <span className="text-[11px] truncate max-w-[200px] block" style={{ color: 'var(--txt2)' }}>{r.detail || '—'}</span> },
+    { key: 'ip',     label: 'IP',      render: r => <span className="font-mono text-[11px]" style={{ color: 'var(--txt2)' }}>{r.ip || '—'}</span> },
   ]
 
   const sesCols: ColDef<Session>[] = [
     { key: 'logged_in_at',  label: 'Login Time',   render: r => <span className="text-[12px] whitespace-nowrap">{fmtDate(r.logged_in_at)}</span> },
-    { key: 'last_active_at',label: 'Last Active',  render: r => <span className="text-[11px] text-slate-400 whitespace-nowrap">{fmtDate(r.last_active_at)}</span> },
-    { key: 'ip_address',    label: 'IP Address',   render: r => <span className="font-mono text-[12px]">{r.ip_address || '—'}</span> },
+    { key: 'last_active_at',label: 'Last Active',  render: r => <span className="text-[11px] whitespace-nowrap" style={{ color: 'var(--txt2)' }}>{fmtDate(r.last_active_at)}</span> },
+    { key: 'ip_address',    label: 'IP Address',   render: r => <span className="font-mono text-[12px]" style={{ color: 'var(--txt)' }}>{r.ip_address || '—'}</span> },
     { key: 'user_agent',    label: 'Browser / Device', render: r => {
       const ua = r.user_agent || ''
       const browser = ua.includes('Chrome') ? 'Chrome' : ua.includes('Firefox') ? 'Firefox' : ua.includes('Safari') ? 'Safari' : ua.includes('Edge') ? 'Edge' : 'Unknown'
       const os = ua.includes('Windows') ? 'Windows' : ua.includes('Mac') ? 'macOS' : ua.includes('Linux') ? 'Linux' : ua.includes('Android') ? 'Android' : ua.includes('iPhone') ? 'iOS' : 'Unknown'
-      return <span className="text-[12px] text-slate-600">{browser} · {os}</span>
+      return <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{browser} · {os}</span>
     }},
   ]
 
@@ -300,35 +300,35 @@ function UserDrawer({
       {/* Drawer */}
       <aside style={{
         position: 'fixed', top: 0, right: 0, bottom: 0, width: 520,
-        background: '#fff', zIndex: 50, display: 'flex', flexDirection: 'column',
+        background: 'var(--card)', zIndex: 50, display: 'flex', flexDirection: 'column',
         boxShadow: '-4px 0 24px rgba(0,0,0,0.12)',
       }}>
         {/* Header */}
         <div className="flex items-center gap-3 px-6 py-4 flex-shrink-0"
-          style={{ borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
+          style={{ borderBottom: '1px solid var(--bdr)' }}>
           <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-[15px] flex-shrink-0"
             style={{ background: NAVY }}>
             {(form.first_name[0] || '?').toUpperCase()}{(form.last_name[0] || '').toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[15px] font-bold text-slate-800 truncate">
+            <p className="text-[15px] font-bold truncate" style={{ color: 'var(--txt)' }}>
               {form.first_name} {form.last_name}
             </p>
-            <p className="text-[12px] text-slate-400 truncate">{user.email}</p>
+            <p className="text-[12px] truncate" style={{ color: 'var(--txt2)' }}>{user.email}</p>
           </div>
           <div className="flex items-center gap-2">
             <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${user.is_active ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
               {user.is_active ? 'Active' : 'Inactive'}
             </span>
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
-              <span className="material-symbols-rounded text-[18px] text-slate-500">close</span>
+            <button onClick={onClose} className="p-1.5 rounded-lg transition-colors" style={{ background: 'var(--chip-bg)' }}>
+              <span className="material-symbols-rounded text-[18px]" style={{ color: 'var(--txt2)' }}>close</span>
             </button>
           </div>
         </div>
 
         {/* Tabs */}
         <div className="flex gap-0 flex-shrink-0 px-6"
-          style={{ borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
+          style={{ borderBottom: '1px solid var(--bdr)' }}>
           {TABS.map(t => (
             <button
               key={t.id}
@@ -362,10 +362,10 @@ function UserDrawer({
 
               {/* Active toggle */}
               <div className="flex items-center justify-between rounded-xl p-4"
-                style={{ background: 'rgba(15,23,42,0.03)', border: '1px solid rgba(15,23,42,0.08)' }}>
+                style={{ background: 'rgba(15,23,42,0.03)', border: '1px solid var(--bdr)' }}>
                 <div>
-                  <p className="text-[13px] font-semibold text-slate-700">Account Status</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Inactive users cannot log in</p>
+                  <p className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>Account Status</p>
+                  <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>Inactive users cannot log in</p>
                 </div>
                 <button
                   type="button"
@@ -378,18 +378,18 @@ function UserDrawer({
                   <span style={{
                     position: 'absolute', top: 2, left: form.is_active ? 22 : 2,
                     width: 20, height: 20, borderRadius: '50%',
-                    background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    background: 'var(--card)', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
                     transition: 'left 0.2s',
                   }} />
                 </button>
               </div>
 
               {/* Meta info */}
-              <div className="grid grid-cols-2 gap-3 text-[11px] text-slate-400 pt-1">
-                <div><span className="font-semibold text-slate-500">Created</span><br />{fmtDate(user.created_at)}</div>
-                <div><span className="font-semibold text-slate-500">Last Login</span><br />{user.last_login ? fmtDate(user.last_login) : 'Never'}</div>
-                <div><span className="font-semibold text-slate-500">Must Change PW</span><br />{user.must_change_password ? 'Yes' : 'No'}</div>
-                <div><span className="font-semibold text-slate-500">Role</span><br />{roleLabel(user.role)}</div>
+              <div className="grid grid-cols-2 gap-3 text-[11px] pt-1" style={{ color: 'var(--txt2)' }}>
+                <div><span className="font-semibold" style={{ color: 'var(--txt2)' }}>Created</span><br />{fmtDate(user.created_at)}</div>
+                <div><span className="font-semibold" style={{ color: 'var(--txt2)' }}>Last Login</span><br />{user.last_login ? fmtDate(user.last_login) : 'Never'}</div>
+                <div><span className="font-semibold" style={{ color: 'var(--txt2)' }}>Must Change PW</span><br />{user.must_change_password ? 'Yes' : 'No'}</div>
+                <div><span className="font-semibold" style={{ color: 'var(--txt2)' }}>Role</span><br />{roleLabel(user.role)}</div>
               </div>
 
               {saveErr && <p className="text-[12px] text-red-600 bg-red-50 px-3 py-2 rounded-lg">{saveErr}</p>}
@@ -403,7 +403,7 @@ function UserDrawer({
                 </button>
                 <button type="button" onClick={handleReset} disabled={resetting}
                   className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[13px] font-semibold border transition-colors disabled:opacity-60"
-                  style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#475569' }}>
+                  style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
                   <span className="material-symbols-rounded text-[15px]">lock_reset</span>
                   {resetting ? 'Resetting…' : 'Reset PW'}
                 </button>
@@ -428,7 +428,7 @@ function UserDrawer({
                   <div className="w-6 h-6 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(14,40,65,0.1)', borderTopColor: NAVY }} />
                 </div>
               ) : sessions.length === 0 ? (
-                <div className="flex flex-col items-center py-16 gap-3 text-slate-400">
+                <div className="flex flex-col items-center py-16 gap-3" style={{ color: 'var(--txt2)' }}>
                   <span className="material-symbols-rounded text-[40px]">devices</span>
                   <p className="text-[13px]">No login sessions recorded yet</p>
                   <p className="text-[11px] text-center">Sessions are recorded on each login going forward</p>
@@ -437,7 +437,7 @@ function UserDrawer({
                 <div className="space-y-2">
                   {sessions.map((s, i) => (
                     <div key={s.id} className="rounded-xl p-4 flex items-start gap-3"
-                      style={{ background: i === 0 ? 'rgba(14,40,65,0.03)' : '#fff', border: '1px solid rgba(15,23,42,0.07)' }}>
+                      style={{ background: i === 0 ? 'rgba(14,40,65,0.03)' : 'var(--card)', border: '1px solid var(--bdr)' }}>
                       <span className="material-symbols-rounded text-[20px] mt-0.5 flex-shrink-0"
                         style={{ color: i === 0 ? NAVY : '#94a3b8' }}>
                         {s.user_agent?.includes('Mobile') || s.user_agent?.includes('Android') || s.user_agent?.includes('iPhone') ? 'smartphone' : 'laptop_mac'}
@@ -445,10 +445,10 @@ function UserDrawer({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           {i === 0 && <span className="text-[11px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Most Recent</span>}
-                          <p className="text-[12px] font-semibold text-slate-700">{fmtDate(s.logged_in_at)}</p>
+                          <p className="text-[12px] font-semibold" style={{ color: 'var(--txt)' }}>{fmtDate(s.logged_in_at)}</p>
                         </div>
-                        <p className="font-mono text-[11px] text-slate-500 mt-0.5">{s.ip_address || 'Unknown IP'}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+                        <p className="font-mono text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{s.ip_address || 'Unknown IP'}</p>
+                        <p className="text-[11px] mt-0.5 truncate" style={{ color: 'var(--txt2)' }}>
                           {(() => {
                             const ua = s.user_agent || ''
                             const browser = ua.includes('Chrome') ? 'Chrome' : ua.includes('Firefox') ? 'Firefox' : ua.includes('Safari') ? 'Safari' : ua.includes('Edge') ? 'Edge' : 'Unknown Browser'
@@ -472,27 +472,27 @@ function UserDrawer({
                   <div className="w-6 h-6 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(14,40,65,0.1)', borderTopColor: NAVY }} />
                 </div>
               ) : activity.length === 0 ? (
-                <div className="flex flex-col items-center py-16 gap-3 text-slate-400">
+                <div className="flex flex-col items-center py-16 gap-3" style={{ color: 'var(--txt2)' }}>
                   <span className="material-symbols-rounded text-[40px]">history</span>
                   <p className="text-[13px]">No activity recorded for this user</p>
                 </div>
               ) : (
                 <div className="space-y-1">
                   {activity.map(a => (
-                    <div key={a.id} className="flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-50 transition-colors">
-                      <span className="material-symbols-rounded text-[14px] mt-0.5 flex-shrink-0 text-slate-400">
+                    <div key={a.id} className="flex items-start gap-3 px-3 py-2.5 rounded-lg transition-colors" style={{ background: 'transparent' }}>
+                      <span className="material-symbols-rounded text-[14px] mt-0.5 flex-shrink-0" style={{ color: 'var(--txt2)' }}>
                         {a.method === 'DELETE' ? 'delete' : a.method === 'POST' ? 'add_circle' : a.method === 'PUT' ? 'edit' : 'visibility'}
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[12px] font-semibold text-slate-700">{a.action || a.page}</span>
-                          {a.resource && <span className="text-[11px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{a.resource}</span>}
+                          <span className="text-[12px] font-semibold" style={{ color: 'var(--txt)' }}>{a.action || a.page}</span>
+                          {a.resource && <span className="text-[11px] px-1.5 py-0.5 rounded" style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>{a.resource}</span>}
                         </div>
-                        {a.detail && <p className="text-[11px] text-slate-400 truncate mt-0.5">{a.detail}</p>}
+                        {a.detail && <p className="text-[11px] truncate mt-0.5" style={{ color: 'var(--txt2)' }}>{a.detail}</p>}
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <p className="text-[11px] text-slate-300 whitespace-nowrap">{fmtDate(a.ts)}</p>
-                        {a.ip && <p className="font-mono text-[11px] text-slate-300">{a.ip}</p>}
+                        <p className="text-[11px] whitespace-nowrap" style={{ color: 'var(--txt3)' }}>{fmtDate(a.ts)}</p>
+                        {a.ip && <p className="font-mono text-[11px]" style={{ color: 'var(--txt3)' }}>{a.ip}</p>}
                       </div>
                     </div>
                   ))}
@@ -534,9 +534,9 @@ function CreateModal({
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 60,
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: '100%', maxWidth: 480,
+      <div style={{ background: 'var(--card)', borderRadius: 16, padding: 28, width: '100%', maxWidth: 480,
         boxShadow: '0 24px 60px rgba(0,0,0,0.18)' }}>
-        <h3 className="text-[16px] font-bold text-slate-800 mb-5">Create New User</h3>
+        <h3 className="text-[16px] font-bold mb-5" style={{ color: 'var(--txt)' }}>Create New User</h3>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <Field label="First Name" value={form.first_name} onChange={v => setForm(f => ({ ...f, first_name: v }))} required />
@@ -551,7 +551,7 @@ function CreateModal({
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose}
               className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold border"
-              style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#64748b' }}>
+              style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
               Cancel
             </button>
             <button type="submit" disabled={creating}
@@ -635,12 +635,12 @@ export default function UserManagement() {
             {(r.last_name?.[0] || '').toUpperCase()}
           </div>
           <div>
-            <p className="text-[13px] font-semibold text-slate-800">
+            <p className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>
               {r.first_name || r.last_name
                 ? `${r.first_name} ${r.last_name}`.trim()
                 : r.full_name}
             </p>
-            <p className="text-[11px] text-slate-400">{r.email}</p>
+            <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>{r.email}</p>
           </div>
         </div>
       ),
@@ -648,12 +648,12 @@ export default function UserManagement() {
     {
       key: 'role', label: 'Role',
       render: r => (
-        <span className="text-[12px] font-medium text-slate-700">{roleLabel(r.role)}</span>
+        <span className="text-[12px] font-medium" style={{ color: 'var(--txt)' }}>{roleLabel(r.role)}</span>
       ),
     },
     {
       key: 'department', label: 'Department',
-      render: r => <span className="text-[12px] text-slate-500">{r.department || '—'}</span>,
+      render: r => <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{r.department || '—'}</span>,
     },
     {
       key: 'is_active', label: 'Status',
@@ -671,14 +671,14 @@ export default function UserManagement() {
     },
     {
       key: 'last_login', label: 'Last Login',
-      render: r => <span className="text-[11px] text-slate-400">{r.last_login ? fmtDate(r.last_login) : 'Never'}</span>,
+      render: r => <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{r.last_login ? fmtDate(r.last_login) : 'Never'}</span>,
     },
     {
       key: 'actions', label: '',
       render: r => (
         <div className="flex items-center gap-1 justify-end">
           <button onClick={() => setDrawerUser(r)}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors hover:bg-slate-100"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors hover:bg-[var(--chip-bg)]"
             style={{ color: NAVY }}>
             <span className="material-symbols-rounded text-[13px]">manage_accounts</span>
             Manage
@@ -742,13 +742,14 @@ export default function UserManagement() {
         subtitle={`${filtered.length} of ${users.length}`}
         actions={
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px]"
-            style={{ borderColor: 'rgba(15,23,42,0.12)' }}>
-            <span className="material-symbols-rounded text-[14px] text-slate-400">search</span>
+            style={{ borderColor: 'var(--bdr)' }}>
+            <span className="material-symbols-rounded text-[14px]" style={{ color: 'var(--txt2)' }}>search</span>
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search name, email, role…"
-              className="outline-none bg-transparent w-48 text-slate-700 placeholder-slate-300"
+              className="outline-none bg-transparent w-48"
+              style={{ color: 'var(--txt)' }}
             />
           </div>
         }>
@@ -783,16 +784,16 @@ export default function UserManagement() {
       {delTarget && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 60,
           display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 28, maxWidth: 400, width: '100%',
+          <div style={{ background: 'var(--card)', borderRadius: 16, padding: 28, maxWidth: 400, width: '100%',
             boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
-            <h3 className="text-[15px] font-bold text-slate-800 mb-2">Remove User?</h3>
-            <p className="text-[13px] text-slate-500 mb-6">
+            <h3 className="text-[15px] font-bold mb-2" style={{ color: 'var(--txt)' }}>Remove User?</h3>
+            <p className="text-[13px] mb-6" style={{ color: 'var(--txt2)' }}>
               <strong>{delTarget.full_name}</strong> ({delTarget.email}) will be deactivated and removed from the platform. This cannot be undone.
             </p>
             <div className="flex gap-2">
               <button onClick={() => setDelTarget(null)}
                 className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold border"
-                style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#64748b' }}>
+                style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
                 Cancel
               </button>
               <button onClick={handleDelete} disabled={deleting}

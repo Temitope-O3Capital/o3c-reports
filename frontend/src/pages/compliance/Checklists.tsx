@@ -93,30 +93,30 @@ export default function Checklists() {
         style={{ color: NAVY }}>
         {r.checklist_ref}
         <span className="material-symbols-rounded text-[14px] ml-1 align-middle"
-          style={{ color: expanded === r.id ? NAVY : '#94A3B8' }}>
+          style={{ color: expanded === r.id ? NAVY : 'var(--txt2)' }}>
           {expanded === r.id ? 'expand_less' : 'expand_more'}
         </span>
       </button>
     )},
     { key: 'template_name', label: 'Template', render: r => (
-      <span className="text-[13px] text-slate-700">{r.template_name}</span>
+      <span className="text-[13px]" style={{ color: 'var(--txt)' }}>{r.template_name}</span>
     )},
     { key: 'period', label: 'Period', render: r => (
-      <span className="text-[12px] text-slate-500">{r.period || '—'}</span>
+      <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{r.period || '—'}</span>
     )},
     { key: 'due_date', label: 'Due', render: r => (
-      <span className="text-[12px] text-slate-400 whitespace-nowrap">{fmtDate(r.due_date)}</span>
+      <span className="text-[12px] whitespace-nowrap" style={{ color: 'var(--txt2)' }}>{fmtDate(r.due_date)}</span>
     )},
     { key: 'status', label: 'Status', render: r => <StatusBadge status={r.status} /> },
     { key: 'progress', label: 'Progress', render: r => {
       const pct = r.total_items > 0 ? Math.round((r.completed_items / r.total_items) * 100) : 0
       return (
         <div className="flex items-center gap-2 min-w-[120px]">
-          <div className="flex-1 h-1.5 rounded-full" style={{ background: 'rgba(14,40,65,0.08)' }}>
+          <div className="flex-1 h-1.5 rounded-full" style={{ background: 'var(--chip-bg)' }}>
             <div className="h-full rounded-full transition-all"
               style={{ width: `${pct}%`, background: pct === 100 ? GREEN : NAVY }} />
           </div>
-          <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">
+          <span className="text-[11px] font-semibold whitespace-nowrap" style={{ color: 'var(--txt2)' }}>
             {r.completed_items}/{r.total_items}
           </span>
         </div>
@@ -132,10 +132,10 @@ export default function Checklists() {
         <input type="text" placeholder="Filter by period…" value={period}
           onChange={e => setPeriod(e.target.value)}
           className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
-          style={{ borderColor: 'rgba(15,23,42,0.15)', minWidth: 160 }} />
+          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', minWidth: 160 }} />
         <select value={status} onChange={e => setStatus(e.target.value)}
-          className="px-3 py-1.5 rounded-lg border text-[12px] outline-none bg-white"
-          style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+          className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
+          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}>
           <option value="">All Statuses</option>
           {['pending','in_progress','complete','overdue'].map(s => (
             <option key={s} value={s}>{s.replace('_',' ')}</option>
@@ -149,10 +149,10 @@ export default function Checklists() {
         <DataTable cols={cols} rows={rows} loading={loading} emptyIcon="checklist" emptyMsg="No checklists found" />
 
         {expanded && (
-          <div className="border-t px-5 py-5" style={{ borderColor: 'rgba(15,23,42,0.07)', background: 'rgba(14,40,65,0.015)' }}>
+          <div className="border-t px-5 py-5" style={{ borderColor: 'var(--bdr)', background: 'var(--bg)' }}>
             {detailLoading ? (
-              <div className="flex items-center gap-2 text-[13px] text-slate-400">
-                <div className="w-4 h-4 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
+              <div className="flex items-center gap-2 text-[13px]" style={{ color: 'var(--txt2)' }}>
+                <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--bdr)', borderTopColor: 'var(--txt)' }} />
                 Loading items…
               </div>
             ) : detail ? (
@@ -165,7 +165,7 @@ export default function Checklists() {
                     <div key={item.id} className="card p-4">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1">
-                          <p className="text-[13px] text-slate-700">
+                          <p className="text-[13px]" style={{ color: 'var(--txt)' }}>
                             {item.is_required && (
                               <span className="text-[11px] font-bold uppercase mr-1.5"
                                 style={{ color: '#C00000' }}>Required</span>
@@ -173,10 +173,10 @@ export default function Checklists() {
                             {item.item_text}
                           </p>
                           {item.response ? (
-                            <div className="mt-2 text-[12px] text-slate-500">
+                            <div className="mt-2 text-[12px]" style={{ color: 'var(--txt2)' }}>
                               <span className="font-semibold" style={{ color: GREEN }}>Responded: </span>
                               {item.response}
-                              <span className="ml-2 text-slate-400">by {item.responded_by} · {fmtDate(item.responded_at)}</span>
+                              <span className="ml-2" style={{ color: 'var(--txt2)' }}>by {item.responded_by} · {fmtDate(item.responded_at)}</span>
                             </div>
                           ) : (
                             <div className="mt-2 flex flex-col gap-1.5">
@@ -189,7 +189,7 @@ export default function Checklists() {
                                 placeholder="Enter response…"
                                 rows={2}
                                 className="w-full px-3 py-2 rounded border text-[12px] outline-none resize-none"
-                                style={{ borderColor: 'rgba(15,23,42,0.2)', maxWidth: 480 }} />
+                                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', maxWidth: 480 }} />
                               <div className="flex items-center gap-2">
                                 <input
                                   value={responses[item.id]?.evidence_url || ''}
@@ -199,7 +199,7 @@ export default function Checklists() {
                                   }))}
                                   placeholder="Evidence URL (optional)"
                                   className="px-3 py-1.5 rounded border text-[12px] outline-none"
-                                  style={{ borderColor: 'rgba(15,23,42,0.2)', width: 260 }} />
+                                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', width: 260 }} />
                                 <button
                                   onClick={() => respondItem(expanded, item.id)}
                                   disabled={submitting === item.id || !responses[item.id]?.response}

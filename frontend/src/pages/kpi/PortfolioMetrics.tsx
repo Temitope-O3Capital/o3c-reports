@@ -92,7 +92,7 @@ export default function PortfolioMetrics() {
         <span className="inline-flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
             style={{ background: BUCKET_COLORS[r.bucket] ?? NAVY }} />
-          <span className="font-medium text-slate-700">{r.bucket}</span>
+          <span className="font-medium text-[color:var(--txt)]">{r.bucket}</span>
         </span>
       ),
     },

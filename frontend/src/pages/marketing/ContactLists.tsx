@@ -58,13 +58,13 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
       onClick={e => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto"
+        className="bg-[var(--card)] rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
-          <h3 className="text-[15px] font-semibold text-slate-800">{title}</h3>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100">
-            <span className="material-symbols-rounded text-[20px] text-slate-400">close</span>
+        <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'var(--bdr)' }}>
+          <h3 className="text-[15px] font-semibold text-[color:var(--txt)]">{title}</h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-[var(--chip-bg)]">
+            <span className="material-symbols-rounded text-[20px] text-[color:var(--txt2)]">close</span>
           </button>
         </div>
         <div className="px-6 py-5">{children}</div>
@@ -77,14 +77,14 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">{label}</label>
+      <label className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1.5">{label}</label>
       {children}
     </div>
   )
 }
 
-const INPUT_CLS = 'w-full px-3 py-2 rounded-lg border text-[13px] outline-none focus:border-slate-400 transition-colors'
-const INPUT_STYLE = { borderColor: 'rgba(15,23,42,0.15)' }
+const INPUT_CLS = 'w-full px-3 py-2 rounded-lg border text-[13px] outline-none focus:border-[var(--input-bdr)] transition-colors'
+const INPUT_STYLE = { borderColor: 'var(--bdr)' }
 
 /* ── Members drawer ────────────────────────────────────────────────── */
 function MembersDrawer({
@@ -211,23 +211,23 @@ function MembersDrawer({
   return (
     <div className="fixed inset-0 z-40" onClick={onClose} style={{ background: 'rgba(0,0,0,0.3)' }}>
       <div
-        className="absolute right-0 top-0 h-full bg-white shadow-2xl overflow-y-auto flex flex-col"
+        className="absolute right-0 top-0 h-full bg-[var(--card)] shadow-2xl overflow-y-auto flex flex-col"
         style={{ width: 'min(920px, 100vw)' }}
         onClick={e => e.stopPropagation()}
       >
         {/* Drawer header */}
         <div
           className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0"
-          style={{ borderColor: 'rgba(15,23,42,0.08)' }}
+          style={{ borderColor: 'var(--bdr)' }}
         >
           <div>
-            <h3 className="text-[15px] font-semibold text-slate-800">{list.name}</h3>
-            <p className="text-[12px] text-slate-400 mt-0.5">
+            <h3 className="text-[15px] font-semibold text-[color:var(--txt)]">{list.name}</h3>
+            <p className="text-[12px] text-[color:var(--txt2)] mt-0.5">
               {fmtNum(list.member_count)} members
             </p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100">
-            <span className="material-symbols-rounded text-[20px] text-slate-400">close</span>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-[var(--chip-bg)]">
+            <span className="material-symbols-rounded text-[20px] text-[color:var(--txt2)]">close</span>
           </button>
         </div>
 
@@ -252,12 +252,12 @@ function MembersDrawer({
                   placeholder={placeholder}
                   type={key === 'email' ? 'email' : 'text'}
                   className="px-3 py-1.5 rounded-lg border text-[13px] outline-none"
-                  style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                  style={{ borderColor: 'var(--bdr)' }}
                 />
               ))}
             </div>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <p className="text-[11px] text-slate-400">Email or phone is required. CIF is optional for prospects.</p>
+              <p className="text-[11px] text-[color:var(--txt2)]">Email or phone is required. CIF is optional for prospects.</p>
               <div className="flex items-center gap-2">
                 <button
                   type="submit"
@@ -281,8 +281,8 @@ function MembersDrawer({
                   type="button"
                   onClick={() => fileRef.current?.click()}
                   disabled={uploading}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-colors hover:bg-slate-50 disabled:opacity-60"
-                  style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-colors hover:bg-[var(--bg)] disabled:opacity-60"
+                  style={{ borderColor: 'var(--bdr)', color: 'var(--txt)' }}
                 >
                   <span className="material-symbols-rounded text-[14px]">upload_file</span>
                   {uploading ? 'Uploading…' : 'Upload CSV'}
@@ -405,15 +405,15 @@ export default function ContactLists() {
 
   const cols: ColDef<ContactList>[] = [
     { key: 'name',         label: 'Name',        render: r => (
-      <span className="font-medium text-slate-800">{r.name}</span>
+      <span className="font-medium text-[color:var(--txt)]">{r.name}</span>
     )},
     { key: 'description',  label: 'Description', render: r => (
-      <span className="text-slate-500">{r.description || '—'}</span>
+      <span className="text-[color:var(--txt2)]">{r.description || '—'}</span>
     )},
     { key: 'member_count', label: 'Members', right: true, render: r => (
       <span
         className="inline-flex items-center gap-1 text-[12px] font-semibold px-2 py-0.5 rounded-full"
-        style={{ background: 'rgba(14,40,65,0.07)', color: '#334155' }}
+        style={{ background: 'var(--chip-bg)', color: 'var(--txt)' }}
       >
         <span className="material-symbols-rounded text-[12px]">group</span>
         {fmtNum(r.member_count)}
@@ -429,8 +429,8 @@ export default function ContactLists() {
           <button
             onClick={() => setDrawerList(r)}
             title="View members"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[12px] font-medium border transition-colors hover:bg-slate-50"
-            style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[12px] font-medium border transition-colors hover:bg-[var(--bg)]"
+            style={{ borderColor: 'var(--bdr)', color: 'var(--txt)' }}
           >
             <span className="material-symbols-rounded text-[13px]">group</span>
             View Members
@@ -438,8 +438,8 @@ export default function ContactLists() {
           <button
             onClick={() => openEdit(r)}
             title="Edit list"
-            className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
-            style={{ color: '#475569' }}
+            className="p-1.5 rounded-lg transition-colors hover:bg-[var(--chip-bg)]"
+            style={{ color: 'var(--txt2)' }}
           >
             <span className="material-symbols-rounded text-[15px]">edit</span>
           </button>
@@ -530,15 +530,15 @@ export default function ContactLists() {
       {/* Delete confirm modal */}
       {confirmDelete && (
         <Modal title="Delete Contact List" onClose={() => setConfirmDelete(null)}>
-          <p className="text-[13px] text-slate-600 mb-5">
+          <p className="text-[13px] text-[color:var(--txt2)] mb-5">
             Are you sure you want to delete <strong>{confirmDelete.name}</strong>?
             All {fmtNum(confirmDelete.member_count)} members will be removed. This cannot be undone.
           </p>
           <div className="flex items-center gap-2 justify-end">
             <button
               onClick={() => setConfirmDelete(null)}
-              className="px-4 py-2 rounded-lg text-[13px] font-medium border transition-colors hover:bg-slate-50"
-              style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#475569' }}
+              className="px-4 py-2 rounded-lg text-[13px] font-medium border transition-colors hover:bg-[var(--bg)]"
+              style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}
             >
               Cancel
             </button>

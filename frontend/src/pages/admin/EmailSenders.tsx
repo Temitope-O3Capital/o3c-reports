@@ -67,49 +67,49 @@ function SenderModal({
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 50,
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: '100%', maxWidth: 460,
+      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: '100%', maxWidth: 460,
         boxShadow: '0 20px 60px rgba(0,0,0,.18)' }}>
-        <h3 className="text-[15px] font-bold text-slate-800 mb-5">
+        <h3 className="text-[15px] font-bold mb-5" style={{ color: 'var(--txt)' }}>
           {isEdit ? 'Edit Sender' : 'Add Sender'}
         </h3>
         <form onSubmit={handleSave} className="space-y-4">
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">
+            <label className="block text-[11px] font-bold uppercase tracking-wide mb-1.5" style={{ color: 'var(--txt2)' }}>
               Email Address <span className="text-red-500">*</span>
             </label>
             <input type="email" required value={address} onChange={e => setAddress(e.target.value)}
               placeholder="promo@o3cards.com"
               className="w-full rounded-lg border px-3 py-2.5 text-[13px] outline-none"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
-            <p className="text-[11px] text-slate-400 mt-1">Must be on an authenticated domain (e.g. @o3cards.com)</p>
+              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
+            <p className="text-[11px] mt-1" style={{ color: 'var(--txt2)' }}>Must be on an authenticated domain (e.g. @o3cards.com)</p>
           </div>
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">
+            <label className="block text-[11px] font-bold uppercase tracking-wide mb-1.5" style={{ color: 'var(--txt2)' }}>
               Display Name <span className="text-red-500">*</span>
             </label>
             <input type="text" required value={name} onChange={e => setName(e.target.value)}
               placeholder="O3 Capital Offers"
               className="w-full rounded-lg border px-3 py-2.5 text-[13px] outline-none"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
-            <p className="text-[11px] text-slate-400 mt-1">What recipients see in their inbox as the sender name</p>
+              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
+            <p className="text-[11px] mt-1" style={{ color: 'var(--txt2)' }}>What recipients see in their inbox as the sender name</p>
           </div>
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">
+            <label className="block text-[11px] font-bold uppercase tracking-wide mb-1.5" style={{ color: 'var(--txt2)' }}>
               Label <span className="text-red-500">*</span>
             </label>
             <input type="text" required value={label} onChange={e => setLabel(e.target.value)}
               placeholder="Promotions Team"
               className="w-full rounded-lg border px-3 py-2.5 text-[13px] outline-none"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
-            <p className="text-[11px] text-slate-400 mt-1">Internal label shown in dropdowns</p>
+              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
+            <p className="text-[11px] mt-1" style={{ color: 'var(--txt2)' }}>Internal label shown in dropdowns</p>
           </div>
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">
+            <label className="block text-[11px] font-bold uppercase tracking-wide mb-1.5" style={{ color: 'var(--txt2)' }}>
               Purpose
             </label>
             <select value={purpose} onChange={e => setPurpose(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2.5 text-[13px] outline-none bg-white"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+              className="w-full rounded-lg border px-3 py-2.5 text-[13px] outline-none"
+              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}>
               {PURPOSES.map(p => (
                 <option key={p} value={p}>{PURPOSE_LABELS[p]}</option>
               ))}
@@ -118,14 +118,14 @@ function SenderModal({
           <label className="flex items-center gap-2.5 cursor-pointer select-none">
             <input type="checkbox" checked={isDefault} onChange={e => setIsDefault(e.target.checked)}
               className="w-4 h-4 rounded" />
-            <span className="text-[13px] text-slate-700">
+            <span className="text-[13px]" style={{ color: 'var(--txt)' }}>
               Set as default for <strong>{PURPOSE_LABELS[purpose]}</strong> emails
             </span>
           </label>
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose}
               className="flex-1 py-2 rounded-lg text-[13px] font-semibold border"
-              style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#64748b' }}>
+              style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
               Cancel
             </button>
             <button type="submit" disabled={saving}
@@ -200,7 +200,7 @@ export default function EmailSenders() {
       )}
 
       {!loading && grouped.length === 0 && !error && (
-        <div className="flex flex-col items-center py-20 gap-3 text-slate-400">
+        <div className="flex flex-col items-center py-20 gap-3 text-[color:var(--txt2)]">
           <span className="material-symbols-rounded text-[48px]">alternate_email</span>
           <p className="text-[14px]">No senders configured yet. Add one above.</p>
         </div>
@@ -212,23 +212,25 @@ export default function EmailSenders() {
           <div className="divide-y" style={{ borderColor: 'rgba(15,23,42,0.06)' }}>
             {items.map(s => (
               <div key={s.id}
-                className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors">
+                className="flex items-center gap-4 px-5 py-3.5 transition-colors" style={{ background: 'var(--card)' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'var(--card)')}>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-[13px] font-semibold text-slate-800">{s.name}</p>
+                    <p className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>{s.name}</p>
                     {s.is_default && (
                       <span className="text-[11px] font-bold px-1.5 py-0.5 rounded text-white"
                         style={{ background: NAVY }}>DEFAULT</span>
                     )}
                   </div>
-                  <p className="text-[12px] text-slate-500 mt-0.5">{s.address}</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">{s.label}</p>
+                  <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>{s.address}</p>
+                  <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{s.label}</p>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {!s.is_default && (
                     <button onClick={() => handleSetDefault(s)}
                       className="px-3 py-1.5 rounded-lg text-[11px] font-semibold border transition-all"
-                      style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#475569' }}>
+                      style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
                       Set default
                     </button>
                   )}

@@ -75,7 +75,7 @@ function normalizeAttachments(value: unknown): AttachmentMeta[] {
 
 function RecipientTag({ email, onRemove }: { email: string; onRemove: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[12px] font-medium bg-slate-100 text-slate-700 flex-shrink-0">
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[12px] font-medium bg-[var(--chip-bg)] text-[color:var(--txt)] flex-shrink-0">
       {email}
       <button type="button" onClick={onRemove} className="hover:text-red-500 ml-0.5">
         <span className="material-symbols-rounded text-[13px]">close</span>
@@ -104,11 +104,11 @@ function readFileAsAttachment(file: File): Promise<AttachmentMeta> {
 
 function AttachmentChip({ att, onRemove }: { att: AttachmentMeta; onRemove: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
-      <span className="material-symbols-rounded text-[14px] text-slate-500">attach_file</span>
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] font-medium bg-[var(--chip-bg)] text-[color:var(--txt)] border border-[var(--bdr)]">
+      <span className="material-symbols-rounded text-[14px] text-[color:var(--txt2)]">attach_file</span>
       <span className="truncate max-w-[140px]">{att.filename}</span>
       {att.size !== undefined && (
-        <span className="text-slate-400">({fmtBytes(att.size)})</span>
+        <span className="text-[color:var(--txt2)]">({fmtBytes(att.size)})</span>
       )}
       <button type="button" onClick={onRemove} className="hover:text-red-500 ml-0.5 flex-shrink-0">
         <span className="material-symbols-rounded text-[13px]">close</span>
@@ -379,35 +379,35 @@ export default function MailCompose() {
         <button
           type="button"
           onClick={() => navigate(-1)}
-          className="flex items-center gap-1 text-[13px] text-slate-500 hover:text-slate-800 transition-colors"
+          className="flex items-center gap-1 text-[13px] text-[color:var(--txt2)] hover:text-[color:var(--txt)] transition-colors"
         >
           <span className="material-symbols-rounded text-[16px]">arrow_back</span>
           Back
         </button>
-        <h1 className="text-[18px] font-bold text-slate-900 flex-1">New Message</h1>
+        <h1 className="text-[18px] font-bold text-[color:var(--txt)] flex-1">New Message</h1>
         {draftStatus === 'saving' && (
-          <span className="text-[11px] text-slate-400 flex items-center gap-1">
+          <span className="text-[11px] text-[color:var(--txt2)] flex items-center gap-1">
             <span className="material-symbols-rounded text-[13px] animate-spin">refresh</span>
             Saving…
           </span>
         )}
         {draftStatus === 'saved' && (
-          <span className="text-[11px] text-slate-400">Draft saved</span>
+          <span className="text-[11px] text-[color:var(--txt2)]">Draft saved</span>
         )}
       </div>
 
-      <div className="rounded-2xl border shadow-sm overflow-hidden bg-white"
-        style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
+      <div className="rounded-2xl border shadow-sm overflow-hidden bg-[var(--card)]"
+        style={{ borderColor: 'var(--bdr)' }}>
 
         {/* From */}
-        <div className="px-5 py-3 border-b" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+        <div className="px-5 py-3 border-b" style={{ borderColor: 'var(--bdr)' }}>
           <SenderPicker purpose="general" label="" value={sender} onChange={setSender} />
         </div>
 
         {/* To */}
         <div className="px-5 py-2.5 border-b flex items-start gap-3"
-          style={{ borderColor: 'rgba(15,23,42,0.08)', minHeight: 44 }}>
-          <span className="text-[12px] font-semibold text-slate-400 pt-2 w-8 flex-shrink-0">To</span>
+          style={{ borderColor: 'var(--bdr)', minHeight: 44 }}>
+          <span className="text-[12px] font-semibold text-[color:var(--txt2)] pt-2 w-8 flex-shrink-0">To</span>
           <div className="flex-1 flex flex-wrap gap-1.5 items-center min-h-[36px]">
             {to.map(r => (
               <RecipientTag key={r.email} email={r.email}
@@ -426,13 +426,13 @@ export default function MailCompose() {
           <div className="flex items-center gap-1 pt-2 flex-shrink-0">
             {!showCc && (
               <button type="button" onClick={() => setShowCc(true)}
-                className="text-[11px] font-medium text-slate-400 hover:text-slate-700 px-1.5 py-0.5 rounded transition-colors">
+                className="text-[11px] font-medium text-[color:var(--txt2)] hover:text-[color:var(--txt)] px-1.5 py-0.5 rounded transition-colors">
                 Cc
               </button>
             )}
             {!showBcc && (
               <button type="button" onClick={() => setShowBcc(true)}
-                className="text-[11px] font-medium text-slate-400 hover:text-slate-700 px-1.5 py-0.5 rounded transition-colors">
+                className="text-[11px] font-medium text-[color:var(--txt2)] hover:text-[color:var(--txt)] px-1.5 py-0.5 rounded transition-colors">
                 Bcc
               </button>
             )}
@@ -442,8 +442,8 @@ export default function MailCompose() {
         {/* Cc */}
         {showCc && (
           <div className="px-5 py-2.5 border-b flex items-start gap-3"
-            style={{ borderColor: 'rgba(15,23,42,0.08)', minHeight: 44 }}>
-            <span className="text-[12px] font-semibold text-slate-400 pt-2 w-8 flex-shrink-0">Cc</span>
+            style={{ borderColor: 'var(--bdr)', minHeight: 44 }}>
+            <span className="text-[12px] font-semibold text-[color:var(--txt2)] pt-2 w-8 flex-shrink-0">Cc</span>
             <div className="flex-1 flex flex-wrap gap-1.5 items-center min-h-[36px]">
               {cc.map(r => (
                 <RecipientTag key={r.email} email={r.email}
@@ -465,8 +465,8 @@ export default function MailCompose() {
         {/* Bcc */}
         {showBcc && (
           <div className="px-5 py-2.5 border-b flex items-start gap-3"
-            style={{ borderColor: 'rgba(15,23,42,0.08)', minHeight: 44 }}>
-            <span className="text-[12px] font-semibold text-slate-400 pt-2 w-8 flex-shrink-0">Bcc</span>
+            style={{ borderColor: 'var(--bdr)', minHeight: 44 }}>
+            <span className="text-[12px] font-semibold text-[color:var(--txt2)] pt-2 w-8 flex-shrink-0">Bcc</span>
             <div className="flex-1 flex flex-wrap gap-1.5 items-center min-h-[36px]">
               {bcc.map(r => (
                 <RecipientTag key={r.email} email={r.email}
@@ -487,14 +487,14 @@ export default function MailCompose() {
 
         {/* Subject */}
         <div className="px-5 py-3 border-b flex items-center gap-3"
-          style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
-          <span className="text-[12px] font-semibold text-slate-400 w-8 flex-shrink-0">Sub</span>
+          style={{ borderColor: 'var(--bdr)' }}>
+          <span className="text-[12px] font-semibold text-[color:var(--txt2)] w-8 flex-shrink-0">Sub</span>
           <input
             type="text"
             value={subject}
             onChange={e => setSubject(e.target.value)}
             placeholder="Subject"
-            className="flex-1 text-[14px] font-medium text-slate-900 outline-none bg-transparent placeholder:text-slate-300"
+            className="flex-1 text-[14px] font-medium text-[color:var(--txt)] outline-none bg-transparent placeholder:text-[color:var(--txt3)]"
           />
         </div>
 
@@ -503,13 +503,13 @@ export default function MailCompose() {
           {editingSignature ? (
             <div className="flex items-start gap-2">
               <div className="flex-1">
-                <div className="text-[11px] font-semibold text-slate-400 mb-1">Signature</div>
+                <div className="text-[11px] font-semibold text-[color:var(--txt2)] mb-1">Signature</div>
                 <textarea
                   value={signatureInput}
                   onChange={e => setSignatureInput(e.target.value)}
                   rows={3}
-                  className="w-full text-[12px] text-slate-600 border rounded-lg px-3 py-2 outline-none resize-none"
-                  style={{ borderColor: 'rgba(15,23,42,0.15)', fontFamily: 'inherit' }}
+                  className="w-full text-[12px] text-[color:var(--txt2)] border rounded-lg px-3 py-2 outline-none resize-none"
+                  style={{ borderColor: 'var(--bdr)', fontFamily: 'inherit' }}
                 />
               </div>
               <div className="flex flex-col gap-1 pt-5 flex-shrink-0">
@@ -519,19 +519,19 @@ export default function MailCompose() {
                   Save
                 </button>
                 <button type="button" onClick={() => { setEditingSignature(false); setSignatureInput(signature) }}
-                  className="px-3 py-1.5 rounded-lg text-[12px] text-slate-500 hover:bg-slate-100 transition-colors">
+                  className="px-3 py-1.5 rounded-lg text-[12px] text-[color:var(--txt2)] hover:bg-[var(--chip-bg)] transition-colors">
                   Cancel
                 </button>
               </div>
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <div className="flex-1 text-[12px] text-slate-400 italic truncate">
-                <span className="text-slate-300 mr-1">--</span>
+              <div className="flex-1 text-[12px] text-[color:var(--txt2)] italic truncate">
+                <span className="text-[color:var(--txt3)] mr-1">--</span>
                 <span dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(signature || (sender?.name ?? 'Me')) }} />
               </div>
               <button type="button" onClick={() => setEditingSignature(true)}
-                className="flex-shrink-0 text-slate-300 hover:text-slate-500 transition-colors">
+                className="flex-shrink-0 text-[color:var(--txt3)] hover:text-[color:var(--txt2)] transition-colors">
                 <span className="material-symbols-rounded text-[15px]">edit</span>
               </button>
             </div>
@@ -549,13 +549,13 @@ export default function MailCompose() {
         {/* Attachment bar */}
         {(attachments.length > 0 || uploading) && (
           <div className="px-5 py-2.5 border-t flex flex-wrap gap-2 items-center"
-            style={{ borderColor: 'rgba(15,23,42,0.06)', background: '#FAFAFA' }}>
+            style={{ borderColor: 'rgba(15,23,42,0.06)', background: 'var(--bg)' }}>
             {attachments.map((att, i) => (
               <AttachmentChip key={`${att.filename}-${i}`} att={att}
                 onRemove={() => setAttachments(prev => prev.filter((_, idx) => idx !== i))} />
             ))}
             {uploading && (
-              <span className="text-[12px] text-slate-400 flex items-center gap-1">
+              <span className="text-[12px] text-[color:var(--txt2)] flex items-center gap-1">
                 <span className="material-symbols-rounded text-[14px] animate-spin">refresh</span>
                 Uploading…
               </span>
@@ -565,7 +565,7 @@ export default function MailCompose() {
 
         {/* Bottom action bar */}
         <div className="flex items-center justify-between px-5 py-3 border-t"
-          style={{ borderColor: 'rgba(15,23,42,0.08)', background: '#FAFAFA' }}>
+          style={{ borderColor: 'var(--bdr)', background: 'var(--bg)' }}>
           <div className="flex items-center gap-2">
             {/* Send */}
             <button
@@ -584,20 +584,20 @@ export default function MailCompose() {
               <button
                 type="button"
                 onClick={() => setShowSchedule(v => !v)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors ${scheduledAt ? 'text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors ${scheduledAt ? 'text-white' : 'text-[color:var(--txt2)] hover:bg-[var(--bdr)]'}`}
                 style={scheduledAt ? { background: '#2563EB' } : { background: 'rgba(15,23,42,0.07)' }}
               >
                 <span className="material-symbols-rounded text-[15px]">schedule_send</span>
                 {scheduledAt ? new Date(scheduledAt).toLocaleString('en-NG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Schedule'}
               </button>
               {showSchedule && (
-                <div className="absolute bottom-full mb-2 left-0 bg-white rounded-xl shadow-xl border p-4 z-30 min-w-[260px]"
-                  style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
-                  <p className="text-[12px] font-semibold text-slate-600 mb-2">Schedule send</p>
+                <div className="absolute bottom-full mb-2 left-0 bg-[var(--card)] rounded-xl shadow-xl border p-4 z-30 min-w-[260px]"
+                  style={{ borderColor: 'var(--bdr)' }}>
+                  <p className="text-[12px] font-semibold text-[color:var(--txt2)] mb-2">Schedule send</p>
                   <input
                     type="datetime-local"
                     className="w-full border rounded-lg px-3 py-2 text-[13px] outline-none"
-                    style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                    style={{ borderColor: 'var(--bdr)' }}
                     value={scheduledAt ? scheduledAt.slice(0, 16) : ''}
                     onChange={e => setScheduledAt(e.target.value ? new Date(e.target.value).toISOString() : null)}
                   />
@@ -616,7 +616,7 @@ export default function MailCompose() {
               type="button"
               onClick={handleSaveDraftManual}
               disabled={savingDraft}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-600 transition-colors hover:bg-slate-200 disabled:opacity-60"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-medium text-[color:var(--txt2)] transition-colors hover:bg-[var(--bdr)] disabled:opacity-60"
               style={{ background: 'rgba(15,23,42,0.07)' }}
             >
               <span className="material-symbols-rounded text-[15px]">save</span>
@@ -627,7 +627,7 @@ export default function MailCompose() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-600 transition-colors hover:bg-slate-200"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-medium text-[color:var(--txt2)] transition-colors hover:bg-[var(--bdr)]"
               style={{ background: 'rgba(15,23,42,0.07)' }}
             >
               <span className="material-symbols-rounded text-[15px]">attach_file</span>
@@ -643,11 +643,11 @@ export default function MailCompose() {
           </div>
 
           <div className="flex items-center gap-4">
-            <span className="text-[11px] text-slate-400">{wordCount} words</span>
+            <span className="text-[11px] text-[color:var(--txt2)]">{wordCount} words</span>
             <button
               type="button"
               onClick={() => navigate(-1)}
-              className="text-[12px] text-slate-400 hover:text-red-500 transition-colors"
+              className="text-[12px] text-[color:var(--txt2)] hover:text-red-500 transition-colors"
             >
               Discard
             </button>

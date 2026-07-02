@@ -33,7 +33,7 @@ function TypePill({ type }: { type: string }) {
     email: { bg: 'rgba(22,101,52,0.1)',  color: '#166534', label: 'Email' },
     multi: { bg: 'rgba(14,40,65,0.1)',   color: '#0E2841', label: 'Multi' },
   }
-  const s = styles[type?.toLowerCase()] ?? { bg: 'rgba(100,116,139,0.1)', color: '#64748B', label: type ?? '—' }
+  const s = styles[type?.toLowerCase()] ?? { bg: 'rgba(100,116,139,0.1)', color: 'var(--txt2)', label: type ?? '—' }
   return (
     <span
       className="inline-flex items-center text-[11px] font-semibold px-2.5 py-0.5 rounded-full"
@@ -113,7 +113,7 @@ export default function CampaignsOverview() {
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-24 bg-white rounded-2xl border animate-pulse" style={{ borderColor: 'rgba(15,23,42,0.07)' }} />
+            <div key={i} className="h-24 rounded-2xl border animate-pulse" style={{ background: 'var(--card)', borderColor: 'var(--bdr)' }} />
           ))}
         </div>
       ) : (
@@ -145,8 +145,8 @@ export default function CampaignsOverview() {
           <div className="flex items-center justify-center py-16"><Spinner size={28} /></div>
         ) : recentCampaigns.length === 0 ? (
           <div className="py-16 text-center">
-            <span className="material-symbols-rounded text-[40px] text-slate-300 block mb-2">campaign</span>
-            <p className="text-[13px] text-slate-400">No campaigns yet</p>
+            <span className="material-symbols-rounded text-[40px] block mb-2" style={{ color: 'var(--txt3)' }}>campaign</span>
+            <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>No campaigns yet</p>
             <button
               onClick={() => navigate('/campaigns/new')}
               className="mt-3 px-4 py-2 rounded-lg text-[12px] font-semibold text-white"
@@ -159,9 +159,9 @@ export default function CampaignsOverview() {
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
-                <tr style={{ background: '#F8FAFC', borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
+                <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
                   {['Name', 'Type', 'Status', 'Recipients', 'Sent', 'Open Rate', 'Created', 'Actions'].map(h => (
-                    <th key={h} className="px-5 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.07em] text-slate-400 whitespace-nowrap">
+                    <th key={h} className="px-5 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.07em] whitespace-nowrap" style={{ color: 'var(--txt2)' }}>
                       {h}
                     </th>
                   ))}
@@ -171,24 +171,24 @@ export default function CampaignsOverview() {
                 {recentCampaigns.map(c => (
                   <tr
                     key={c.id}
-                    className="transition-colors hover:bg-slate-50 cursor-pointer"
-                    style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}
+                    className="transition-colors cursor-pointer"
+                    style={{ borderTop: '1px solid var(--bdr)' }}
                     onClick={() => navigate(`/campaigns/${c.id}/report`)}
                   >
                     <td className="px-5 py-3">
-                      <p className="font-semibold text-slate-800 truncate max-w-[180px]">{c.name}</p>
+                      <p className="font-semibold truncate max-w-[180px]" style={{ color: 'var(--txt)' }}>{c.name}</p>
                       {c.list_name && (
-                        <p className="text-[11px] text-slate-400 mt-0.5">{c.list_name}</p>
+                        <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{c.list_name}</p>
                       )}
                     </td>
                     <td className="px-5 py-3"><TypePill type={c.type} /></td>
                     <td className="px-5 py-3"><StatusBadge status={c.status} /></td>
-                    <td className="px-5 py-3 font-mono text-slate-600">{(c.total_contacts ?? 0).toLocaleString()}</td>
-                    <td className="px-5 py-3 font-mono text-slate-600">
+                    <td className="px-5 py-3 font-mono" style={{ color: 'var(--txt2)' }}>{(c.total_contacts ?? 0).toLocaleString()}</td>
+                    <td className="px-5 py-3 font-mono" style={{ color: 'var(--txt2)' }}>
                       {((c.emails_sent ?? 0) + (c.sms_sent ?? 0)).toLocaleString()}
                     </td>
-                    <td className="px-5 py-3 font-mono text-slate-600">{openRate(c)}</td>
-                    <td className="px-5 py-3 text-slate-500 whitespace-nowrap">{fmtDate(c.created_at)}</td>
+                    <td className="px-5 py-3 font-mono" style={{ color: 'var(--txt2)' }}>{openRate(c)}</td>
+                    <td className="px-5 py-3 whitespace-nowrap" style={{ color: 'var(--txt2)' }}>{fmtDate(c.created_at)}</td>
                     <td className="px-5 py-3">
                       <button
                         onClick={e => { e.stopPropagation(); navigate(`/campaigns/${c.id}/report`) }}
@@ -234,8 +234,8 @@ export default function CampaignsOverview() {
           <button
             key={item.to}
             onClick={() => navigate(item.to)}
-            className="text-left p-5 bg-white rounded-2xl border hover:shadow-md transition-all group"
-            style={{ borderColor: 'rgba(15,23,42,0.07)' }}
+            className="text-left p-5 rounded-2xl border hover:shadow-md transition-all group"
+            style={{ background: 'var(--card)', borderColor: 'var(--bdr)' }}
           >
             <div
               className="w-10 h-10 rounded-xl flex items-center justify-center mb-3"
@@ -245,8 +245,8 @@ export default function CampaignsOverview() {
                 {item.icon}
               </span>
             </div>
-            <p className="text-[14px] font-semibold text-slate-800 mb-0.5 group-hover:underline">{item.title}</p>
-            <p className="text-[12px] text-slate-400">{item.desc}</p>
+            <p className="text-[14px] font-semibold mb-0.5 group-hover:underline" style={{ color: 'var(--txt)' }}>{item.title}</p>
+            <p className="text-[12px]" style={{ color: 'var(--txt2)' }}>{item.desc}</p>
           </button>
         ))}
       </div>

@@ -32,8 +32,8 @@ function QuickLink({ label, to, icon }: { label: string; to: string; icon: strin
   return (
     <button
       onClick={() => nav(to)}
-      className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[13px] font-semibold transition-all hover:shadow-sm bg-white"
-      style={{ borderColor: 'rgba(15,23,42,0.12)', color: NAVY }}>
+      className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[13px] font-semibold transition-all hover:shadow-sm"
+      style={{ background: 'var(--card)', borderColor: 'rgba(15,23,42,0.12)', color: NAVY }}>
       <span className="material-symbols-rounded text-[17px]">{icon}</span>
       {label}
     </button>
@@ -44,7 +44,7 @@ function QuickLink({ label, to, icon }: { label: string; to: string; icon: strin
 function ReconPanel({ data, loading }: { data: ReconSummary | null; loading: boolean }) {
   if (loading) {
     return (
-      <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+      <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'var(--bdr)' }}>
         <div className="h-4 skeleton w-24 rounded" />
         <div className="h-3 skeleton w-full rounded" />
         <div className="h-3 skeleton w-3/4 rounded" />
@@ -53,8 +53,7 @@ function ReconPanel({ data, loading }: { data: ReconSummary | null; loading: boo
   }
   if (!data) {
     return (
-      <div className="rounded-xl border p-4 flex items-center justify-center gap-2 text-slate-400"
-        style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+      <div className="rounded-xl border p-4 flex items-center justify-center gap-2" style={{ color: 'var(--txt2)', borderColor: 'var(--bdr)' }}>
         <span className="material-symbols-rounded text-[18px]">sync_disabled</span>
         <span className="text-[13px]">No data available</span>
       </div>
@@ -63,32 +62,32 @@ function ReconPanel({ data, loading }: { data: ReconSummary | null; loading: boo
 
   const exceptionColor = data.exception_count > 0 ? RED : GREEN
   return (
-    <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+    <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'var(--bdr)' }}>
       <div className="flex items-center justify-between">
-        <span className="text-[13px] font-semibold text-slate-800">{data.processor}</span>
+        <span className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>{data.processor}</span>
         {data.last_run_at && (
-          <span className="text-[11px] text-slate-400">
+          <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>
             Live · as of {new Date(data.last_run_at).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}
           </span>
         )}
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">Credits</p>
-          <p className="kpi-number text-[15px] font-bold text-slate-800">{fmt(data.total_credits)}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: 'var(--txt2)' }}>Credits</p>
+          <p className="kpi-number text-[15px] font-bold" style={{ color: 'var(--txt)' }}>{fmt(data.total_credits)}</p>
         </div>
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">Debits</p>
-          <p className="kpi-number text-[15px] font-bold text-slate-800">{fmt(data.total_debits)}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: 'var(--txt2)' }}>Debits</p>
+          <p className="kpi-number text-[15px] font-bold" style={{ color: 'var(--txt)' }}>{fmt(data.total_debits)}</p>
         </div>
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">Matched</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: 'var(--txt2)' }}>Matched</p>
           <p className="kpi-number text-[15px] font-bold" style={{ color: GREEN }}>
             {n(data.matched_count).toLocaleString()}
           </p>
         </div>
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">Exceptions</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: 'var(--txt2)' }}>Exceptions</p>
           <p className="kpi-number text-[15px] font-bold" style={{ color: exceptionColor }}>
             {n(data.exception_count).toLocaleString()}
           </p>
@@ -121,7 +120,7 @@ function SettlementByDayChart({ data, loading }: { data: SettlementRow[]; loadin
           )
           : chartData.length === 0
           ? (
-            <div className="flex flex-col items-center py-10 gap-2 text-slate-400" style={{ height: 220 }}>
+            <div className="flex flex-col items-center py-10 gap-2" style={{ color: 'var(--txt2)', height: 220 }}>
               <span className="material-symbols-rounded text-[36px]">bar_chart</span>
               <p className="text-[13px]">No settlement data for this period</p>
             </div>
@@ -136,7 +135,7 @@ function SettlementByDayChart({ data, loading }: { data: SettlementRow[]; loadin
                   domain={[(dataMin: number) => dataMin < 0 ? Math.floor(dataMin * 1.12) : 0, (dataMax: number) => Math.ceil(dataMax * 1.15) || 10]} />
                 <Tooltip
                   formatter={(value: number, name: string) => [fmt(value), name === 'credits' ? 'Credits' : 'Debits']}
-                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid rgba(15,23,42,0.1)' }}
+                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid var(--bdr)' }}
                 />
                 <Legend formatter={(v: string) => v === 'credits' ? 'Credits' : 'Debits'} />
                 <Bar dataKey="credits" fill={GREEN}  radius={[3, 3, 0, 0]} />

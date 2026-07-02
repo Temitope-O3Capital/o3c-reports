@@ -77,11 +77,11 @@ export default function VoiceConnect() {
                 style={{ background: status?.connected ? GREEN : '#94A3B8' }}
               />
               <div className="flex-1">
-                <p className="text-[14px] font-semibold text-slate-800">
+                <p className="text-[14px] font-semibold text-[color:var(--txt)]">
                   {status?.connected ? 'Connected' : 'Not connected'}
                 </p>
                 {status?.connected && (
-                  <p className="text-[12px] text-slate-500 mt-0.5">
+                  <p className="text-[12px] text-[color:var(--txt2)] mt-0.5">
                     {status.email && `Zoho account: ${status.email}`}
                     {status.connected_at && ` · Connected ${new Date(status.connected_at).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' })}`}
                   </p>
@@ -104,7 +104,7 @@ export default function VoiceConnect() {
             {/* What this does */}
             {!status?.connected && (
               <div className="space-y-2">
-                <p className="text-[13px] font-semibold text-slate-700">What you get after connecting:</p>
+                <p className="text-[13px] font-semibold text-[color:var(--txt)]">What you get after connecting:</p>
                 <ul className="space-y-1.5">
                   {[
                     'Click any phone number on a ticket to dial directly from O3C',
@@ -112,7 +112,7 @@ export default function VoiceConnect() {
                     'Call logs are saved automatically to the ticket',
                     'One-time setup — stays connected until you disconnect',
                   ].map(item => (
-                    <li key={item} className="flex items-start gap-2 text-[12px] text-slate-600">
+                    <li key={item} className="flex items-start gap-2 text-[12px] text-[color:var(--txt2)]">
                       <span className="material-symbols-rounded text-[14px] flex-shrink-0 mt-0.5" style={{ color: GREEN }}>check_circle</span>
                       {item}
                     </li>
@@ -160,7 +160,7 @@ export default function VoiceConnect() {
               </button>
             )}
 
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-[color:var(--txt2)]">
               You'll be redirected to Zoho to authorise O3C. Each team member connects their own account independently.
               {' '}Admin Zoho credentials must be set in Admin → API Keys first.
             </p>

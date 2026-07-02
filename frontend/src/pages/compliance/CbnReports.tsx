@@ -87,10 +87,10 @@ export default function CbnReports() {
     )},
     { key: 'status', label: 'Status', render: r => <StatusBadge status={r.status} /> },
     { key: 'notes', label: 'Notes', render: r => (
-      <span className="text-[12px] text-slate-500 max-w-[200px] block truncate">{r.notes || '—'}</span>
+      <span className="text-[12px] max-w-[200px] block truncate" style={{ color: 'var(--txt2)' }}>{r.notes || '—'}</span>
     )},
     { key: 'submitted_at', label: 'Submitted', render: r => (
-      <span className="text-[12px] text-slate-400">{r.submitted_at ? fmtDate(r.submitted_at) : '—'}</span>
+      <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{r.submitted_at ? fmtDate(r.submitted_at) : '—'}</span>
     )},
     { key: 'actions', label: 'Actions', sortable: false, render: r => (
       <div className="flex items-center gap-2">
@@ -106,19 +106,19 @@ export default function CbnReports() {
             <input value={signNotes} onChange={e => setSignNotes(e.target.value)}
               placeholder="Notes…"
               className="px-2 py-1 rounded border text-[12px] outline-none"
-              style={{ borderColor: 'rgba(15,23,42,0.2)', width: 120 }} />
+              style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', width: 120 }} />
             <button onClick={() => signOff(r.id)} disabled={saving}
               className="text-[11px] px-2 py-1 rounded font-medium"
               style={{ background: GREEN, color: '#fff' }}>OK</button>
             <button onClick={() => setSignOffId(null)}
               className="text-[11px] px-2 py-1 rounded"
-              style={{ color: '#64748B' }}>Cancel</button>
+              style={{ color: 'var(--txt2)' }}>Cancel</button>
           </span>
         )}
         {CAN_SUBMIT.includes(r.status) && (
           <button onClick={() => submit(r.id)} disabled={saving}
             className="text-[11px] font-medium px-2 py-1 rounded"
-            style={{ background: 'rgba(14,40,65,0.08)', color: NAVY }}>
+            style={{ background: 'var(--chip-bg)', color: NAVY }}>
             Submit
           </button>
         )}
@@ -141,10 +141,10 @@ export default function CbnReports() {
       <div className="flex flex-wrap gap-2 mb-4">
         <input type="number" value={year} onChange={e => setYear(e.target.value)}
           className="px-3 py-1.5 rounded-lg border text-[12px] outline-none w-24"
-          style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
         <select value={status} onChange={e => setStatus(e.target.value)}
-          className="px-3 py-1.5 rounded-lg border text-[12px] outline-none bg-white"
-          style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+          className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
+          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}>
           <option value="">All Statuses</option>
           {['draft','pending','signed_off','submitted','rejected'].map(s => (
             <option key={s} value={s}>{snake(s)}</option>
@@ -160,40 +160,40 @@ export default function CbnReports() {
             <h2 className="text-[16px] font-bold mb-4" style={{ color: NAVY }}>New CBN Report</h2>
             <div className="space-y-3">
               <div>
-                <label className="text-[11px] font-semibold uppercase text-slate-400 block mb-1">Report Type</label>
+                <label className="text-[11px] font-semibold uppercase block mb-1" style={{ color: 'var(--txt2)' }}>Report Type</label>
                 <select value={newForm.report_type} onChange={e => setNewForm(f => ({ ...f, report_type: e.target.value }))}
-                  className="w-full px-3 py-2 rounded border text-[13px] outline-none bg-white"
-                  style={{ borderColor: 'rgba(15,23,42,0.2)' }}>
+                  className="w-full px-3 py-2 rounded border text-[13px] outline-none"
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}>
                   {REPORT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[11px] font-semibold uppercase text-slate-400 block mb-1">Period Start</label>
+                  <label className="text-[11px] font-semibold uppercase block mb-1" style={{ color: 'var(--txt2)' }}>Period Start</label>
                   <input type="date" value={newForm.period_start}
                     onChange={e => setNewForm(f => ({ ...f, period_start: e.target.value }))}
                     className="w-full px-3 py-2 rounded border text-[13px] outline-none"
-                    style={{ borderColor: 'rgba(15,23,42,0.2)' }} />
+                    style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
                 </div>
                 <div>
-                  <label className="text-[11px] font-semibold uppercase text-slate-400 block mb-1">Period End</label>
+                  <label className="text-[11px] font-semibold uppercase block mb-1" style={{ color: 'var(--txt2)' }}>Period End</label>
                   <input type="date" value={newForm.period_end}
                     onChange={e => setNewForm(f => ({ ...f, period_end: e.target.value }))}
                     className="w-full px-3 py-2 rounded border text-[13px] outline-none"
-                    style={{ borderColor: 'rgba(15,23,42,0.2)' }} />
+                    style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
                 </div>
               </div>
               <div>
-                <label className="text-[11px] font-semibold uppercase text-slate-400 block mb-1">Notes</label>
+                <label className="text-[11px] font-semibold uppercase block mb-1" style={{ color: 'var(--txt2)' }}>Notes</label>
                 <textarea value={newForm.notes} onChange={e => setNewForm(f => ({ ...f, notes: e.target.value }))}
                   className="w-full px-3 py-2 rounded border text-[13px] outline-none resize-none"
-                  style={{ borderColor: 'rgba(15,23,42,0.2)' }} rows={3} />
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} rows={3} />
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-5">
               <button onClick={() => setShowNew(false)}
                 className="px-4 py-2 rounded text-[13px] font-medium"
-                style={{ color: '#64748B' }}>Cancel</button>
+                style={{ color: 'var(--txt2)' }}>Cancel</button>
               <button onClick={createReport} disabled={saving || !newForm.period_start || !newForm.period_end}
                 className="px-4 py-2 rounded text-[13px] font-semibold disabled:opacity-50"
                 style={{ background: NAVY, color: '#fff' }}>

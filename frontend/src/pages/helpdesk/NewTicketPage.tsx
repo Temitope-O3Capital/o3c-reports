@@ -7,7 +7,7 @@ export default function NewTicketPage() {
   const prefillCif  = params.get('cif') ?? undefined
 
   return (
-    <div className="min-h-screen" style={{ background: '#F4F6F8' }}>
+    <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
       <ComposeTicket
         open={true}
         prefillCif={prefillCif}

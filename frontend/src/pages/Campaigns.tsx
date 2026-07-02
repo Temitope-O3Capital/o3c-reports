@@ -126,8 +126,8 @@ function Stepper({ step }: { step: number }) {
             <div
               className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold transition-all"
               style={{
-                background: i < step ? '#166534' : i === step ? NAVY : 'rgba(15,23,42,0.08)',
-                color: i <= step ? '#fff' : '#94A3B8',
+                background: i < step ? '#166534' : i === step ? NAVY : 'var(--chip-bg)',
+                color: i <= step ? '#fff' : 'var(--txt2)',
               }}
             >
               {i < step
@@ -136,7 +136,7 @@ function Stepper({ step }: { step: number }) {
             </div>
             <span
               className="text-[11px] font-semibold whitespace-nowrap"
-              style={{ color: i === step ? '#0F172A' : '#94A3B8' }}
+              style={{ color: i === step ? 'var(--txt)' : 'var(--txt2)' }}
             >
               {label}
             </span>
@@ -144,7 +144,7 @@ function Stepper({ step }: { step: number }) {
           {i < STEPS.length - 1 && (
             <div
               className="flex-1 h-0.5 mx-1 mt-[-12px]"
-              style={{ background: i < step ? '#166534' : 'rgba(15,23,42,0.1)' }}
+              style={{ background: i < step ? '#166534' : 'var(--bdr)' }}
             />
           )}
         </div>
@@ -157,15 +157,15 @@ function Stepper({ step }: { step: number }) {
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
     <div>
-      <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">{label}</label>
+      <label className="block text-[12px] font-semibold mb-1.5" style={{ color: 'var(--txt2)' }}>{label}</label>
       {children}
-      {hint && <p className="text-[11px] text-slate-400 mt-1">{hint}</p>}
+      {hint && <p className="text-[11px] mt-1" style={{ color: 'var(--txt2)' }}>{hint}</p>}
     </div>
   )
 }
 
-const INPUT = 'w-full px-3 py-2 rounded-lg border text-[13px] outline-none focus:border-slate-400 transition-colors'
-const IBRD  = { borderColor: 'rgba(15,23,42,0.15)' }
+const INPUT = 'w-full px-3 py-2 rounded-lg border text-[13px] outline-none focus:border-[var(--input-bdr)] transition-colors'
+const IBRD  = { borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }
 
 function normalizeCampaign(row: any): Campaign {
   const sent = (row.sms_sent ?? 0) + (row.emails_sent ?? 0)
@@ -357,18 +357,19 @@ function CampaignWizard({
       onClick={e => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full overflow-hidden flex flex-col"
+        className="rounded-2xl shadow-2xl w-full overflow-hidden flex flex-col"
         style={{
+          background: 'var(--card)',
           maxWidth: isEmailBuilderStep ? 'min(1240px, calc(100vw - 24px))' : 576,
           maxHeight: 'calc(100vh - 24px)',
         }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
-          <h3 className="text-[15px] font-semibold text-slate-800">New Campaign</h3>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100">
-            <span className="material-symbols-rounded text-[20px] text-slate-400">close</span>
+        <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'var(--bdr)' }}>
+          <h3 className="text-[15px] font-semibold" style={{ color: 'var(--txt)' }}>New Campaign</h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-[var(--chip-bg)]">
+            <span className="material-symbols-rounded text-[20px]" style={{ color: 'var(--txt2)' }}>close</span>
           </button>
         </div>
 
@@ -398,18 +399,18 @@ function CampaignWizard({
                       onClick={() => setData(d => ({ ...d, type: t, template_id: null, email_blocks: t === 'email' ? d.email_blocks : [] }))}
                       className="flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left"
                       style={{
-                        borderColor: data.type === t ? NAVY : 'rgba(15,23,42,0.12)',
-                        background: data.type === t ? 'rgba(14,40,65,0.04)' : '#fff',
+                        borderColor: data.type === t ? NAVY : 'var(--bdr)',
+                        background: data.type === t ? 'rgba(14,40,65,0.04)' : 'var(--card)',
                       }}
                     >
                       <span className="material-symbols-rounded text-[22px]" style={{ color: data.type === t ? NAVY : '#94A3B8' }}>
                         {t === 'sms' ? 'sms' : 'mail'}
                       </span>
                       <div>
-                        <p className="text-[13px] font-semibold" style={{ color: data.type === t ? '#0F172A' : '#64748B' }}>
+                        <p className="text-[13px] font-semibold" style={{ color: data.type === t ? 'var(--txt)' : 'var(--txt2)' }}>
                           {t.toUpperCase()}
                         </p>
-                        <p className="text-[11px] text-slate-400">{t === 'sms' ? 'Text message' : 'HTML email'}</p>
+                        <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>{t === 'sms' ? 'Text message' : 'HTML email'}</p>
                       </div>
                     </button>
                   ))}
@@ -427,14 +428,14 @@ function CampaignWizard({
           {/* ── Step 1: Audience ── */}
           {step === 1 && (
             <div className="space-y-3">
-              <p className="text-[12px] text-slate-500 mb-1">Choose the contact list for this campaign.</p>
+              <p className="text-[12px] mb-1" style={{ color: 'var(--txt2)' }}>Choose the contact list for this campaign.</p>
               {listsLoading ? (
-                <div className="py-8 text-center text-[12px] text-slate-400">Loading contact lists...</div>
+                <div className="py-8 text-center text-[12px]" style={{ color: 'var(--txt2)' }}>Loading contact lists...</div>
               ) : lists.length === 0 ? (
-                <div className="rounded-xl border px-4 py-5 text-center" style={{ borderColor: 'rgba(15,23,42,0.12)' }}>
-                  <span className="material-symbols-rounded text-[28px] text-slate-300 block mb-2">list_alt</span>
-                  <p className="text-[13px] font-semibold text-slate-700">No contact lists yet</p>
-                  <p className="text-[12px] text-slate-400 mt-1">Create or upload a list from Contact Lists before launching mail.</p>
+                <div className="rounded-xl border px-4 py-5 text-center" style={{ borderColor: 'var(--bdr)' }}>
+                  <span className="material-symbols-rounded text-[28px] block mb-2" style={{ color: 'var(--txt3)' }}>list_alt</span>
+                  <p className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>No contact lists yet</p>
+                  <p className="text-[12px] mt-1" style={{ color: 'var(--txt2)' }}>Create or upload a list from Contact Lists before launching mail.</p>
                 </div>
               ) : lists.map(list => {
                 const count = list.member_count ?? list.total_members ?? 0
@@ -445,17 +446,17 @@ function CampaignWizard({
                     onClick={() => set('list_id', list.id)}
                     className="w-full flex items-center gap-4 px-4 py-3 rounded-xl border-2 transition-all text-left"
                     style={{
-                      borderColor: data.list_id === list.id ? NAVY : 'rgba(15,23,42,0.12)',
-                      background: data.list_id === list.id ? 'rgba(14,40,65,0.04)' : '#fff',
+                      borderColor: data.list_id === list.id ? NAVY : 'var(--bdr)',
+                      background: data.list_id === list.id ? 'rgba(14,40,65,0.04)' : 'var(--card)',
                     }}
                   >
                     <span
                       className="material-symbols-rounded text-[22px] shrink-0"
-                      style={{ color: data.list_id === list.id ? NAVY : '#94A3B8' }}
+                      style={{ color: data.list_id === list.id ? NAVY : 'var(--txt2)' }}
                     >group</span>
                     <div>
-                      <p className="text-[13px] font-semibold text-slate-800">{list.name}</p>
-                      <p className="text-[11px] text-slate-400">{fmtNum(count)} active contacts</p>
+                      <p className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>{list.name}</p>
+                      <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>{fmtNum(count)} active contacts</p>
                     </div>
                     {data.list_id === list.id && (
                       <span className="material-symbols-rounded text-[18px] ml-auto" style={{ color: NAVY }}>check_circle</span>
@@ -524,8 +525,8 @@ function CampaignWizard({
                   />
                 )}
               </Field>
-              <div className="p-3 rounded-xl" style={{ background: 'rgba(14,40,65,0.04)' }}>
-                <p className="text-[11px] font-semibold text-slate-600 mb-1.5">Available variables</p>
+              <div className="p-3 rounded-xl" style={{ background: 'var(--chip-bg)' }}>
+                <p className="text-[11px] font-semibold mb-1.5" style={{ color: 'var(--txt2)' }}>Available variables</p>
                 <div className="flex flex-wrap gap-1.5">
                   {['first_name', 'last_name', 'name', 'email', 'phone', 'amount', 'date', 'account_no'].map(v => (
                     <button
@@ -536,8 +537,8 @@ function CampaignWizard({
                         if (data.type === 'email') navigator.clipboard?.writeText(tag).catch(() => {})
                         else set('message', data.message + tag)
                       }}
-                      className="text-[11px] font-mono px-2 py-0.5 rounded border transition-colors hover:bg-white"
-                      style={{ borderColor: 'rgba(14,40,65,0.2)', color: '#334155' }}
+                      className="text-[11px] font-mono px-2 py-0.5 rounded border transition-colors"
+                      style={{ borderColor: 'var(--bdr)', color: 'var(--txt)' }}
                       title={data.type === 'email' ? 'Copy tag' : 'Insert tag'}
                     >
                       {`{{${v}}}`}
@@ -559,20 +560,20 @@ function CampaignWizard({
                     onClick={() => set('send_when', opt)}
                     className="flex flex-col items-center gap-2 px-4 py-5 rounded-xl border-2 transition-all"
                     style={{
-                      borderColor: data.send_when === opt ? NAVY : 'rgba(15,23,42,0.12)',
-                      background: data.send_when === opt ? 'rgba(14,40,65,0.04)' : '#fff',
+                      borderColor: data.send_when === opt ? NAVY : 'var(--bdr)',
+                      background: data.send_when === opt ? 'rgba(14,40,65,0.04)' : 'var(--card)',
                     }}
                   >
                     <span
                       className="material-symbols-rounded text-[28px]"
-                      style={{ color: data.send_when === opt ? NAVY : '#94A3B8' }}
+                      style={{ color: data.send_when === opt ? NAVY : 'var(--txt2)' }}
                     >
                       {opt === 'now' ? 'send' : 'schedule_send'}
                     </span>
-                    <p className="text-[13px] font-semibold" style={{ color: data.send_when === opt ? '#0F172A' : '#64748B' }}>
+                    <p className="text-[13px] font-semibold" style={{ color: data.send_when === opt ? 'var(--txt)' : 'var(--txt2)' }}>
                       {opt === 'now' ? 'Send Immediately' : 'Schedule for Later'}
                     </p>
-                    <p className="text-[11px] text-slate-400 text-center">
+                    <p className="text-[11px] text-center" style={{ color: 'var(--txt2)' }}>
                       {opt === 'now' ? 'Campaign starts right after creation' : 'Pick a date and time to send'}
                     </p>
                   </button>
@@ -598,9 +599,9 @@ function CampaignWizard({
           {/* ── Step 4: Review ── */}
           {step === 4 && (
             <div className="space-y-3">
-              <p className="text-[12px] text-slate-500">Review your campaign before launching.</p>
+              <p className="text-[12px]" style={{ color: 'var(--txt2)' }}>Review your campaign before launching.</p>
               <PreflightCard preflight={preflight} loading={preflightLoading} channel={data.type} />
-              <div className="rounded-xl border divide-y" style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
+              <div className="rounded-xl border divide-y" style={{ borderColor: 'var(--bdr)' }}>
                 {[
                   { label: 'Name',     value: data.name },
                   { label: 'Channel',  value: data.type.toUpperCase() },
@@ -610,8 +611,8 @@ function CampaignWizard({
                   { label: 'Sending',  value: data.send_when === 'now' ? 'Immediately' : data.scheduled_at || '—' },
                 ].map(row => (
                   <div key={row.label} className="flex gap-4 px-4 py-2.5">
-                    <span className="text-[11px] font-semibold text-slate-400 w-20 shrink-0">{row.label}</span>
-                    <span className="text-[12px] text-slate-700 break-words">{row.value}</span>
+                    <span className="text-[11px] font-semibold w-20 shrink-0" style={{ color: 'var(--txt2)' }}>{row.label}</span>
+                    <span className="text-[12px] break-words" style={{ color: 'var(--txt)' }}>{row.value}</span>
                   </div>
                 ))}
               </div>
@@ -620,11 +621,12 @@ function CampaignWizard({
         </div>
 
         {/* Footer nav */}
-        <div className="flex items-center justify-between px-6 py-4 border-t shrink-0" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-t shrink-0" style={{ borderColor: 'var(--bdr)' }}>
           <button
             type="button"
             onClick={() => step === 0 ? onClose() : setStep(s => s - 1)}
-            className="px-4 py-2 rounded-lg text-[13px] font-medium text-slate-600 hover:bg-slate-100 transition-colors"
+            className="px-4 py-2 rounded-lg text-[13px] font-medium hover:bg-[var(--chip-bg)] transition-colors"
+            style={{ color: 'var(--txt2)' }}
           >
             {step === 0 ? 'Cancel' : '← Back'}
           </button>
@@ -670,11 +672,11 @@ function LaunchConfirmModal({
       style={{ background: 'rgba(0,0,0,0.45)' }}
       onClick={e => e.target === e.currentTarget && onCancel()}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className="rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" style={{ background: 'var(--card)' }} onClick={e => e.stopPropagation()}>
         <div className="px-6 pt-6 pb-2 text-center">
           <span className="material-symbols-rounded text-[36px] block mb-2" style={{ color: '#D97706' }}>warning</span>
-          <h3 className="text-[15px] font-bold text-slate-800 mb-1">Launch Campaign?</h3>
-          <p className="text-[13px] text-slate-500 mb-4">
+          <h3 className="text-[15px] font-bold mb-1" style={{ color: 'var(--txt)' }}>Launch Campaign?</h3>
+          <p className="text-[13px] mb-4" style={{ color: 'var(--txt2)' }}>
             This will immediately dispatch <strong>{campaign.type.toUpperCase()}</strong> messages to{' '}
             <strong>{fmtNum(campaign.recipient_count)}</strong> contacts.
             <br />
@@ -685,8 +687,8 @@ function LaunchConfirmModal({
         <div className="flex gap-2 px-6 pb-5">
           <button
             onClick={onCancel}
-            className="flex-1 py-2 rounded-lg text-[13px] font-medium border transition-colors hover:bg-slate-50"
-            style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#475569' }}
+            className="flex-1 py-2 rounded-lg text-[13px] font-medium border transition-colors"
+            style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)', background: 'var(--card)' }}
           >
             Cancel
           </button>
@@ -806,14 +808,14 @@ export default function Campaigns() {
         <div className="flex items-center gap-2">
           <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
             className="px-2.5 py-1.5 rounded-lg border text-[12px] outline-none"
-            style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+            style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}>
             <option value="all">All Types</option>
             <option value="sms">SMS</option>
             <option value="email">Email</option>
           </select>
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
             className="px-2.5 py-1.5 rounded-lg border text-[12px] outline-none"
-            style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+            style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}>
             {['all','draft','scheduled','active','paused','completed','cancelled'].map(s => (
               <option key={s} value={s}>{s === 'all' ? 'All Status' : s.charAt(0).toUpperCase() + s.slice(1)}</option>
             ))}
@@ -865,22 +867,22 @@ export default function Campaigns() {
 
 function PreflightCard({ preflight, loading, channel, compact = false }: { preflight: CampaignPreflight | null; loading: boolean; channel: 'sms' | 'email'; compact?: boolean }) {
   if (loading) {
-    return <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] text-slate-500">Checking audience...</div>
+    return <div className="rounded-xl border px-4 py-3 text-[12px]" style={{ borderColor: 'var(--bdr)', background: 'var(--bg)', color: 'var(--txt2)' }}>Checking audience...</div>
   }
   if (!preflight) return null
   const usable = channel === 'email' ? preflight.usable_email_recipients : preflight.usable_sms_recipients
   const missing = channel === 'email' ? preflight.missing_email : preflight.missing_phone
   const estimated = formatDuration(preflight.estimated_seconds)
   return (
-    <div className="rounded-xl border bg-white overflow-hidden" style={{ borderColor: 'rgba(15,23,42,0.12)' }}>
-      <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0 divide-slate-100">
+    <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--bdr)', background: 'var(--card)' }}>
+      <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0" style={{ borderColor: 'var(--bdr)' }}>
         <Metric label="Active" value={fmtNum(preflight.total_active)} />
         <Metric label="Usable" value={fmtNum(usable)} strong />
         <Metric label="Missing" value={fmtNum(missing)} />
         <Metric label="Est. Time" value={estimated} />
       </div>
       {channel === 'email' && (
-        <div className="grid grid-cols-2 md:grid-cols-3 border-t border-slate-100 divide-x divide-slate-100">
+        <div className="grid grid-cols-2 md:grid-cols-3 border-t divide-x" style={{ borderColor: 'var(--bdr)' }}>
           <Metric label="Suppressed" value={fmtNum(preflight.suppressed_email)} />
           <Metric label="Duplicate Rows" value={fmtNum(preflight.duplicate_email_rows)} />
           <Metric label="Invalid" value={fmtNum(preflight.invalid_email ?? 0)} />
@@ -895,13 +897,13 @@ function PreflightCard({ preflight, loading, channel, compact = false }: { prefl
         </div>
       )}
       {!compact && preflight.sample?.length > 0 && (
-        <div className="border-t border-slate-100 px-4 py-3">
-          <p className="text-[11px] font-bold uppercase text-slate-400 mb-2">Sample recipients</p>
-          <div className="max-h-36 overflow-y-auto divide-y divide-slate-100">
+        <div className="border-t px-4 py-3" style={{ borderColor: 'var(--bdr)' }}>
+          <p className="text-[11px] font-bold uppercase mb-2" style={{ color: 'var(--txt2)' }}>Sample recipients</p>
+          <div className="max-h-36 overflow-y-auto divide-y" style={{ borderColor: 'var(--bdr)' }}>
             {preflight.sample.slice(0, 8).map((r, i) => (
               <div key={i} className="flex items-center justify-between gap-3 py-1.5 text-[12px]">
-                <span className="font-medium text-slate-700 truncate">{[r.first_name, r.last_name].filter(Boolean).join(' ') || 'Contact'}</span>
-                <span className="text-slate-400 truncate">{channel === 'email' ? r.email : r.phone}</span>
+                <span className="font-medium truncate" style={{ color: 'var(--txt)' }}>{[r.first_name, r.last_name].filter(Boolean).join(' ') || 'Contact'}</span>
+                <span className="truncate" style={{ color: 'var(--txt2)' }}>{channel === 'email' ? r.email : r.phone}</span>
               </div>
             ))}
           </div>
@@ -914,8 +916,8 @@ function PreflightCard({ preflight, loading, channel, compact = false }: { prefl
 function Metric({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
   return (
     <div className="px-4 py-3">
-      <p className="text-[11px] font-bold uppercase text-slate-400 mb-0.5">{label}</p>
-      <p className={`text-[15px] ${strong ? 'font-bold text-slate-900' : 'font-semibold text-slate-700'}`}>{value}</p>
+      <p className="text-[11px] font-bold uppercase mb-0.5" style={{ color: 'var(--txt2)' }}>{label}</p>
+      <p className="text-[15px]" style={{ fontWeight: strong ? 700 : 600, color: strong ? 'var(--txt)' : 'var(--txt)' }}>{value}</p>
     </div>
   )
 }
@@ -933,7 +935,7 @@ function formatDuration(seconds: number) {
 function ActionBtn({ icon, label, onClick, color }: { icon: string; label: string; onClick: () => void; color: string }) {
   return (
     <button onClick={onClick} title={label} aria-label={label}
-      className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded transition-colors hover:bg-slate-100" style={{ color }}>
+      className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded transition-colors hover:bg-[var(--chip-bg)]" style={{ color }}>
       <span className="material-symbols-rounded text-[15px]">{icon}</span>
     </button>
   )
@@ -949,9 +951,9 @@ function CampaignProgress({ campaign }: { campaign: Campaign }) {
   const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0
   return (
     <div className="min-w-[170px]">
-      <div className="flex justify-between text-[11px] text-slate-500 mb-1"><span>{fmtNum(done)}/{fmtNum(total)}</span><span>{pct}%</span></div>
-      <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} /></div>
-      <p className="mt-1 text-[11px] text-slate-400">Pending {fmtNum(pending)} · Sending {fmtNum(sending)} · Skipped {fmtNum(skipped)} · Failed {fmtNum(failed)}</p>
+      <div className="flex justify-between text-[11px] mb-1" style={{ color: 'var(--txt2)' }}><span>{fmtNum(done)}/{fmtNum(total)}</span><span>{pct}%</span></div>
+      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--chip-bg)' }}><div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} /></div>
+      <p className="mt-1 text-[11px]" style={{ color: 'var(--txt2)' }}>Pending {fmtNum(pending)} · Sending {fmtNum(sending)} · Skipped {fmtNum(skipped)} · Failed {fmtNum(failed)}</p>
     </div>
   )
 }

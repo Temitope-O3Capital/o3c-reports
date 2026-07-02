@@ -64,11 +64,11 @@ export default function MailDrafts() {
     <div className="flex h-full">
       {/* List pane */}
       <div className="w-[320px] flex-shrink-0 border-r overflow-y-auto"
-        style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
-        <div className="px-4 py-3 border-b flex items-center justify-between sticky top-0 bg-white z-10"
-          style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
-          <h2 className="text-[14px] font-bold text-slate-800">Drafts</h2>
-          <span className="text-[11px] text-slate-400">{drafts.length}</span>
+        style={{ borderColor: 'var(--bdr)' }}>
+        <div className="px-4 py-3 border-b flex items-center justify-between sticky top-0 bg-[var(--card)] z-10"
+          style={{ borderColor: 'var(--bdr)' }}>
+          <h2 className="text-[14px] font-bold text-[color:var(--txt)]">Drafts</h2>
+          <span className="text-[11px] text-[color:var(--txt2)]">{drafts.length}</span>
         </div>
 
         <ErrBanner msg={err} />
@@ -80,7 +80,7 @@ export default function MailDrafts() {
         )}
 
         {!loading && drafts.length === 0 && !err && (
-          <div className="flex flex-col items-center py-16 gap-3 text-slate-400">
+          <div className="flex flex-col items-center py-16 gap-3 text-[color:var(--txt2)]">
             <span className="material-symbols-rounded text-[40px]">draft</span>
             <p className="text-[13px]">No drafts</p>
           </div>
@@ -89,7 +89,7 @@ export default function MailDrafts() {
         {drafts.map(d => (
           <div key={d.id}
             onClick={() => setSelected(d)}
-            className={`px-4 py-3 cursor-pointer border-b transition-colors group relative ${selected?.id === d.id ? 'bg-slate-100' : 'hover:bg-slate-50'}`}
+            className={`px-4 py-3 cursor-pointer border-b transition-colors group relative ${selected?.id === d.id ? 'bg-[var(--chip-bg)]' : 'hover:bg-[var(--bg)]'}`}
             style={{ borderColor: 'rgba(15,23,42,0.06)' }}>
             <div className="flex items-start justify-between gap-2 mb-0.5">
               <p className="text-[13px] font-medium text-amber-700 truncate flex-1">
@@ -99,7 +99,7 @@ export default function MailDrafts() {
                 type="button"
                 onClick={e => deleteDraft(d.id, e)}
                 disabled={deleting === d.id}
-                className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-slate-400 hover:text-red-500 flex-shrink-0"
+                className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-[color:var(--txt2)] hover:text-red-500 flex-shrink-0"
                 title="Delete draft"
               >
                 {deleting === d.id
@@ -108,11 +108,11 @@ export default function MailDrafts() {
                 }
               </button>
             </div>
-            <p className="text-[11px] text-slate-400 truncate">To: {toLabel(d.to_addrs)}</p>
-            <p className="text-[11px] text-slate-300 mt-0.5 truncate">
+            <p className="text-[11px] text-[color:var(--txt2)] truncate">To: {toLabel(d.to_addrs)}</p>
+            <p className="text-[11px] text-[color:var(--txt3)] mt-0.5 truncate">
               {excerpt(d.html_body, d.text_body)}
             </p>
-            <p className="text-[11px] text-slate-400 mt-1">{fmtTs(d.updated_at)}</p>
+            <p className="text-[11px] text-[color:var(--txt2)] mt-1">{fmtTs(d.updated_at)}</p>
           </div>
         ))}
       </div>
@@ -120,14 +120,14 @@ export default function MailDrafts() {
       {/* Preview / edit pane */}
       <div className="flex-1 overflow-y-auto">
         {!selected ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400">
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-[color:var(--txt2)]">
             <span className="material-symbols-rounded text-[48px]">draft</span>
             <p className="text-[14px]">Select a draft to preview</p>
           </div>
         ) : (
           <div className="max-w-2xl mx-auto px-8 py-8">
             <div className="flex items-center gap-3 mb-5">
-              <h1 className="text-[20px] font-bold text-slate-900 flex-1">
+              <h1 className="text-[20px] font-bold text-[color:var(--txt)] flex-1">
                 {selected.subject || '(no subject)'}
               </h1>
               <button
@@ -144,27 +144,27 @@ export default function MailDrafts() {
             <div className="p-4 rounded-xl text-[12px] mb-5 space-y-2"
               style={{ background: 'rgba(14,40,65,0.04)' }}>
               <div className="flex gap-3">
-                <span className="text-slate-400 w-8">To</span>
-                <span className="text-slate-700 font-medium">{toLabel(selected.to_addrs)}</span>
+                <span className="text-[color:var(--txt2)] w-8">To</span>
+                <span className="text-[color:var(--txt)] font-medium">{toLabel(selected.to_addrs)}</span>
               </div>
               <div className="flex gap-3">
-                <span className="text-slate-400 w-8">Last saved</span>
-                <span className="text-slate-500">{fmtTs(selected.updated_at)}</span>
+                <span className="text-[color:var(--txt2)] w-8">Last saved</span>
+                <span className="text-[color:var(--txt2)]">{fmtTs(selected.updated_at)}</span>
               </div>
             </div>
 
             {selected.html_body ? (
               <div className="rounded-xl border px-6 py-5"
-                style={{ borderColor: 'rgba(15,23,42,0.08)', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.75 }}
+                style={{ borderColor: 'var(--bdr)', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.75 }}
                 dangerouslySetInnerHTML={{ __html: sanitizeHtml(selected.html_body) }}
               />
             ) : selected.text_body ? (
-              <div className="rounded-xl border px-6 py-5 text-[14px] text-slate-700 whitespace-pre-wrap leading-relaxed"
-                style={{ borderColor: 'rgba(15,23,42,0.08)', fontFamily: 'inherit' }}>
+              <div className="rounded-xl border px-6 py-5 text-[14px] text-[color:var(--txt)] whitespace-pre-wrap leading-relaxed"
+                style={{ borderColor: 'var(--bdr)', fontFamily: 'inherit' }}>
                 {selected.text_body}
               </div>
             ) : (
-              <p className="text-[13px] text-slate-400 italic">Empty draft</p>
+              <p className="text-[13px] text-[color:var(--txt2)] italic">Empty draft</p>
             )}
           </div>
         )}

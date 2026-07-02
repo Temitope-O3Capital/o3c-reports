@@ -26,7 +26,7 @@ export default function LoanDetail() {
     }).then(d => { if (d) setLoan(d) }).finally(() => setLoading(false))
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (loading) return <div style={{ padding: 32, color: 'var(--txt-2)' }}>Loading…</div>
+  if (loading) return <div style={{ padding: 32, color: 'var(--txt2)' }}>Loading…</div>
   if (!loan) return null
 
   const str = (k: string) => (loan[k] as string) ?? '—'
@@ -34,17 +34,17 @@ export default function LoanDetail() {
 
   return (
     <div style={{ padding: '24px 32px' }}>
-      <button onClick={() => nav('/active-loan-book')} style={{ background: 'none', border: 'none', color: 'var(--txt-2)', cursor: 'pointer', fontSize: 13, marginBottom: 16, padding: 0 }}>
+      <button onClick={() => nav('/active-loan-book')} style={{ background: 'none', border: 'none', color: 'var(--txt2)', cursor: 'pointer', fontSize: 13, marginBottom: 16, padding: 0 }}>
         ← Back to Loan Book
       </button>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', marginBottom: 4 }}>{str('applicant_name')}</h1>
-          <div style={{ fontSize: 13, color: 'var(--txt-2)', fontFamily: 'DM Mono, monospace' }}>{str('reference')}</div>
+          <div style={{ fontSize: 13, color: 'var(--txt2)', fontFamily: 'DM Mono, monospace' }}>{str('reference')}</div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 13, color: 'var(--txt-2)', marginBottom: 4 }}>DPD</div>
+          <div style={{ fontSize: 13, color: 'var(--txt2)', marginBottom: 4 }}>DPD</div>
           <div style={{ fontSize: 32, fontWeight: 800, fontFamily: 'DM Mono, monospace', color: dpdColor(loan.dpd) }}>{num('dpd')}</div>
         </div>
       </div>
@@ -66,7 +66,7 @@ export default function LoanDetail() {
             ['Loan Officer', str('officer_name')],
           ].map(([label, value]) => (
             <div key={label as string} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, fontSize: 13 }}>
-              <span style={{ color: 'var(--txt-2)' }}>{label}</span>
+              <span style={{ color: 'var(--txt2)' }}>{label}</span>
               <span style={{ color: 'var(--txt)', fontWeight: 500, fontFamily: (label as string).includes('Amount') || (label as string).includes('Repayment') || (label as string).includes('Outstanding') ? 'DM Mono, monospace' : undefined }}>{value}</span>
             </div>
           ))}
@@ -92,7 +92,7 @@ export default function LoanDetail() {
                 border: `1px solid ${active ? b.color : 'transparent'}`,
               }}>
                 <div style={{ width: 10, height: 10, borderRadius: '50%', background: b.color, flexShrink: 0 }} />
-                <span style={{ fontSize: 13, fontWeight: active ? 700 : 400, color: active ? b.color : 'var(--txt-2)' }}>{b.label}</span>
+                <span style={{ fontSize: 13, fontWeight: active ? 700 : 400, color: active ? b.color : 'var(--txt2)' }}>{b.label}</span>
                 {active && <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: b.color }}>● Current</span>}
               </div>
             )

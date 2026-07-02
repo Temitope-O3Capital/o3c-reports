@@ -105,8 +105,8 @@ export default function CSOverview() {
               </span>
             </div>
             <div>
-              <p className="text-[14px] font-semibold text-slate-800">Zoho Voice is configured and active</p>
-              <p className="text-[12px] text-slate-400 mt-0.5">
+              <p className="text-[14px] font-semibold text-[color:var(--txt)]">Zoho Voice is configured and active</p>
+              <p className="text-[12px] text-[color:var(--txt2)] mt-0.5">
                 Call logs are synced from Zoho Desk. Use the Call Log page to browse interactions and log manual calls.
               </p>
             </div>

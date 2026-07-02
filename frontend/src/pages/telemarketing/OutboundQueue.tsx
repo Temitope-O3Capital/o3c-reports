@@ -96,26 +96,26 @@ export default function OutboundQueue() {
       {/* Table */}
       <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead style={{ background: 'var(--bg)' }}>
+          <thead style={{ background: 'var(--th-bg)' }}>
             <tr>
               {['Customer', 'Phone', 'Employer', 'Score', 'Campaign', 'Last Outcome', 'Status', ''].map(h => (
-                <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontSize: 11, fontWeight: 700, color: 'var(--txt-2)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{h}</th>
+                <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={8} style={{ padding: 32, textAlign: 'center', color: 'var(--txt-2)' }}>Loading…</td></tr>
+              <tr><td colSpan={8} style={{ padding: 32, textAlign: 'center', color: 'var(--txt2)' }}>Loading…</td></tr>
             ) : leads.length === 0 ? (
-              <tr><td colSpan={8} style={{ padding: 32, textAlign: 'center', color: 'var(--txt-2)' }}>No leads found.</td></tr>
+              <tr><td colSpan={8} style={{ padding: 32, textAlign: 'center', color: 'var(--txt2)' }}>No leads found.</td></tr>
             ) : leads.map(l => (
               <tr key={l.id} style={{ borderTop: '1px solid var(--bdr)' }}>
                 <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--txt)' }}>{l.customer_name}</td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)', fontFamily: 'DM Mono, monospace' }}>{l.customer_phone ?? '—'}</td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)' }}>{l.employer ?? '—'}</td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)', fontFamily: 'DM Mono, monospace' }}>{l.lead_score}</td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)' }}>{l.campaign_name ?? '—'}</td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)' }}>{l.last_outcome ?? '—'}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)', fontFamily: 'DM Mono, monospace' }}>{l.customer_phone ?? '—'}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)' }}>{l.employer ?? '—'}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)', fontFamily: 'DM Mono, monospace' }}>{l.lead_score}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)' }}>{l.campaign_name ?? '—'}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)' }}>{l.last_outcome ?? '—'}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <span style={{
                     display: 'inline-block', padding: '2px 8px', borderRadius: 99,
@@ -144,7 +144,7 @@ export default function OutboundQueue() {
           <div style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
             <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 20, color: 'var(--txt)' }}>Log Disposition</h3>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-2)', display: 'block', marginBottom: 6 }}>Outcome *</label>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Outcome *</label>
               <select
                 value={dispOutcome}
                 onChange={e => setDispOutcome(e.target.value)}
@@ -155,7 +155,7 @@ export default function OutboundQueue() {
               </select>
             </div>
             <div style={{ marginBottom: 20 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-2)', display: 'block', marginBottom: 6 }}>Notes</label>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Notes</label>
               <textarea
                 value={dispNotes}
                 onChange={e => setDispNotes(e.target.value)}

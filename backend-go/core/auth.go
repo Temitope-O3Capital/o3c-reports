@@ -358,6 +358,7 @@ var RolePages = map[string][]string{
 		"los_finance", "customer360",
 		"cbn_reports", "audit_trail", "audit_export",
 		"kpi_dashboard", "reports", "statements",
+		"payroll", "payroll_manager",
 	},
 	"executive": {
 		"overview", "executive", "kpi_dashboard", "reports", "statements",
@@ -501,7 +502,7 @@ var RolePages = map[string][]string{
 		"recovery_assign", "recovery_write_off",
 		"kpi_dashboard", "reports", "statements", "admin_users", "admin_api_keys", "settings", "sync_status",
 		"active_loan_book", "telemarketing", "telemarketing_stats", "bd", "bd_employers", "bd_pipeline",
-		"helpdesk_kb",
+		"helpdesk_kb", "payroll", "payroll_manager",
 	},
 	"management": {
 		"overview", "executive", "transactions", "income", "eod", "uploads",
@@ -569,5 +570,13 @@ var RolePages = map[string][]string{
 	"bd_head": {
 		"overview", "bd", "bd_employers", "bd_pipeline", "customer360",
 		"crm_contacts", "kpi_dashboard", "statements",
+	},
+
+	// ── Payroll ───────────────────────────────────────────────────────────────
+	"payroll_officer": {
+		"overview", "payroll",
+	},
+	"payroll_manager": {
+		"overview", "payroll", "payroll_manager", "hr_employees", "kpi_dashboard",
 	},
 }

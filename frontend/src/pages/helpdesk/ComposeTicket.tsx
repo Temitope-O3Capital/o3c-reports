@@ -290,19 +290,19 @@ export default function ComposeTicket({
         onClick={e => e.stopPropagation()}
       >
         <div
-          className="bg-white rounded-2xl shadow-2xl w-full overflow-hidden flex flex-col"
-          style={{ maxWidth: 580, maxHeight: '92vh' }}
+          className="rounded-2xl shadow-2xl w-full overflow-hidden flex flex-col"
+          style={{ background: 'var(--card)', maxWidth: 580, maxHeight: '92vh' }}
         >
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 flex-shrink-0"
-            style={{ borderBottom: '1px solid rgba(15,23,42,0.09)' }}>
+            style={{ borderBottom: '1px solid var(--bdr)' }}>
             <div>
-              <h2 className="text-[16px] font-bold text-slate-900">New Ticket</h2>
-              <p className="text-[12px] text-slate-400 mt-0.5">
+              <h2 className="text-[16px] font-bold" style={{ color: 'var(--txt)' }}>New Ticket</h2>
+              <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>
                 Step {step} of 2
                 {step === 2 && ticketType && typeConfig && (
                   <span className="ml-2 text-[11px] font-semibold px-1.5 py-0.5 rounded-full"
-                    style={{ background: 'rgba(14,40,65,0.07)', color: NAVY }}>
+                    style={{ background: 'var(--chip-bg)', color: NAVY }}>
                     <span className="material-symbols-rounded text-[11px] align-[-1px] mr-0.5">{typeConfig.icon}</span>
                     {typeConfig.label}
                   </span>
@@ -311,14 +311,14 @@ export default function ComposeTicket({
             </div>
             <button
               onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors"
+              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--chip-bg)] transition-colors"
             >
-              <span className="material-symbols-rounded text-[18px] text-slate-500">close</span>
+              <span className="material-symbols-rounded text-[18px]" style={{ color: 'var(--txt2)' }}>close</span>
             </button>
           </div>
 
           {/* Progress bar */}
-          <div className="h-0.5 bg-slate-100 flex-shrink-0">
+          <div className="h-0.5 flex-shrink-0" style={{ background: 'var(--chip-bg)' }}>
             <div
               className="h-full transition-all duration-300"
               style={{ width: step === 1 ? '50%' : '100%', background: NAVY }}
@@ -329,7 +329,7 @@ export default function ComposeTicket({
           <div className="flex-1 overflow-y-auto px-6 py-5" ref={step1Ref}>
             {step === 1 ? (
               <div className="space-y-5">
-                <p className="text-[13px] font-semibold text-slate-700">Customer Lookup</p>
+                <p className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>Customer Lookup</p>
 
                 <FormField label="CIF Number (optional)">
                   <div className="flex gap-2">
@@ -347,15 +347,15 @@ export default function ComposeTicket({
                     <div className="mt-2 px-3 py-2 rounded-lg text-[12px]"
                       style={{ background: 'rgba(5,150,105,0.06)', border: '1px solid rgba(5,150,105,0.15)' }}>
                       <p className="font-semibold text-green-800">{manualName}</p>
-                      {manualEmail && <p className="text-slate-500 mt-0.5">{manualEmail}</p>}
+                      {manualEmail && <p className="mt-0.5" style={{ color: 'var(--txt2)' }}>{manualEmail}</p>}
                     </div>
                   )}
                 </FormField>
 
                 <div className="flex items-center gap-3">
-                  <div className="flex-1 h-px bg-slate-100" />
-                  <span className="text-[11px] text-slate-400 font-medium">OR ENTER MANUALLY</span>
-                  <div className="flex-1 h-px bg-slate-100" />
+                  <div className="flex-1 h-px" style={{ background: 'var(--bdr)' }} />
+                  <span className="text-[11px] font-medium" style={{ color: 'var(--txt2)' }}>OR ENTER MANUALLY</span>
+                  <div className="flex-1 h-px" style={{ background: 'var(--bdr)' }} />
                 </div>
 
                 <FormField label="Full Name">
@@ -404,9 +404,9 @@ export default function ComposeTicket({
                         onClick={() => applyTicketType(opt.value)}
                         className="flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl border text-center transition-all"
                         style={{
-                          borderColor: ticketType === opt.value ? NAVY : 'rgba(15,23,42,0.12)',
-                          background:  ticketType === opt.value ? 'rgba(14,40,65,0.06)' : 'white',
-                          color:       ticketType === opt.value ? NAVY : '#64748B',
+                          borderColor: ticketType === opt.value ? NAVY : 'var(--bdr)',
+                          background:  ticketType === opt.value ? 'var(--chip-bg)' : 'var(--card)',
+                          color:       ticketType === opt.value ? NAVY : 'var(--txt2)',
                         }}
                       >
                         <span className="material-symbols-rounded text-[20px]">{opt.icon}</span>
@@ -419,13 +419,13 @@ export default function ComposeTicket({
                 {/* Routing chip — shown after type is selected */}
                 {typeConfig && (
                   <div className="flex items-center gap-2 text-[11px]">
-                    <span className="text-slate-400">Routes to:</span>
+                    <span style={{ color: 'var(--txt2)' }}>Routes to:</span>
                     <span className="px-2 py-0.5 rounded-full font-semibold"
-                      style={{ background: 'rgba(14,40,65,0.07)', color: NAVY }}>
+                      style={{ background: 'var(--chip-bg)', color: NAVY }}>
                       {typeConfig.queue}
                     </span>
-                    <span className="text-slate-300">·</span>
-                    <span className="text-slate-500">{typeConfig.department}</span>
+                    <span style={{ color: 'var(--txt3)' }}>·</span>
+                    <span style={{ color: 'var(--txt2)' }}>{typeConfig.department}</span>
                   </div>
                 )}
 
@@ -468,7 +468,7 @@ export default function ComposeTicket({
                 {/* Dynamic custom fields */}
                 {extraFields.length > 0 && (
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--txt2)' }}>
                       Additional Details
                     </p>
                     <div className="space-y-3">
@@ -532,7 +532,7 @@ export default function ComposeTicket({
                       onChange={e => setSend(e.target.checked)}
                       className="w-4 h-4 rounded"
                     />
-                    <span className="text-[13px] text-slate-600">Also send to customer</span>
+                    <span className="text-[13px]" style={{ color: 'var(--txt)' }}>Also send to customer</span>
                   </label>
                 )}
 
@@ -543,18 +543,20 @@ export default function ComposeTicket({
 
           {/* Footer */}
           <div className="flex items-center justify-between px-6 py-4 flex-shrink-0"
-            style={{ borderTop: '1px solid rgba(15,23,42,0.09)' }}>
+            style={{ borderTop: '1px solid var(--bdr)' }}>
             {step === 2 ? (
               <button
                 onClick={() => setStep(1)}
-                className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+                className="px-4 py-2 rounded-lg text-[13px] font-semibold hover:bg-[var(--chip-bg)] transition-colors"
+                style={{ color: 'var(--txt)' }}
               >
                 Back
               </button>
             ) : (
               <button
                 onClick={onClose}
-                className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+                className="px-4 py-2 rounded-lg text-[13px] font-semibold hover:bg-[var(--chip-bg)] transition-colors"
+                style={{ color: 'var(--txt)' }}
               >
                 Cancel
               </button>
@@ -593,10 +595,10 @@ const inputStyle: React.CSSProperties = {
   width:        '100%',
   padding:      '8px 12px',
   borderRadius: 8,
-  border:       '1px solid rgba(15,23,42,0.15)',
+  border:       '1px solid var(--input-bdr)',
   fontSize:     13,
-  color:        '#334155',
-  background:   'white',
+  color:        'var(--txt)',
+  background:   'var(--input-bg)',
   outline:      'none',
   boxSizing:    'border-box',
 }
@@ -604,7 +606,7 @@ const inputStyle: React.CSSProperties = {
 function FormField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+      <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--txt2)' }}>
         {label}
       </label>
       {children}

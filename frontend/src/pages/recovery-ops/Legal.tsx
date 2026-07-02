@@ -141,9 +141,9 @@ export default function Legal() {
     { key: 'case_ref',        label: 'Case Ref',        render: r => <span className="font-mono text-[12px]">{r.case_ref}</span> },
     { key: 'proceeding_type', label: 'Type',            render: r => <span className="text-[13px]">{snake(r.proceeding_type)}</span> },
     { key: 'court_name',      label: 'Court' },
-    { key: 'case_number',     label: 'Case No.',        render: r => <span className="font-mono text-[12px] text-slate-500">#{r.case_number}</span> },
+    { key: 'case_number',     label: 'Case No.',        render: r => <span className="font-mono text-[12px]" style={{ color: 'var(--txt2)' }}>#{r.case_number}</span> },
     { key: 'filing_date',     label: 'Filed',           render: r => fmtDate(r.filing_date) },
-    { key: 'next_hearing_date', label: 'Next Hearing',  render: r => r.next_hearing_date ? fmtDate(r.next_hearing_date) : <span className="text-slate-400">—</span> },
+    { key: 'next_hearing_date', label: 'Next Hearing',  render: r => r.next_hearing_date ? fmtDate(r.next_hearing_date) : <span style={{ color: 'var(--txt2)' }}>—</span> },
     { key: 'status',          label: 'Status',          render: r => <StatusBadge status={r.status} /> },
     {
       key: '_action', label: '', sortable: false,
@@ -151,7 +151,7 @@ export default function Legal() {
         <button
           onClick={() => openUpdate(r)}
           className="px-2 py-1 rounded text-[11px] font-semibold"
-          style={{ background: 'rgba(14,40,65,0.08)', color: NAVY }}>
+          style={{ background: 'var(--chip-bg)', color: NAVY }}>
           Update Status
         </button>
       ),
@@ -167,14 +167,16 @@ export default function Legal() {
       <ErrBanner msg={error} />
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-4 mb-4">
+      <div className="rounded-2xl border border-black/[0.06] shadow-sm p-4 mb-4" style={{ background: 'var(--card)' }}>
         <div className="flex flex-wrap gap-3">
-          <select className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+          <select className="px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
             value={typeF} onChange={e => setTypeF(e.target.value)}>
             <option value="">All Proceeding Types</option>
             {PROCEEDING_TYPES.filter(Boolean).map(t => <option key={t} value={t}>{snake(t)}</option>)}
           </select>
-          <select className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+          <select className="px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
             value={statusF} onChange={e => setStatusF(e.target.value)}>
             <option value="">All Statuses</option>
             {LEGAL_STATUSES.filter(Boolean).map(s => <option key={s} value={s}>{snake(s)}</option>)}
@@ -198,36 +200,39 @@ export default function Legal() {
       {/* Update status modal */}
       {updateRow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+          <div className="rounded-2xl shadow-xl p-6 w-full max-w-sm" style={{ background: 'var(--card)' }}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-[15px] font-bold text-slate-800">Update Legal Status</h2>
-              <button onClick={() => setUpdateRow(null)} className="text-slate-400 hover:text-slate-700">
+              <h2 className="text-[15px] font-bold" style={{ color: 'var(--txt)' }}>Update Legal Status</h2>
+              <button onClick={() => setUpdateRow(null)} style={{ color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
             </div>
-            <p className="text-[12px] text-slate-500 mb-4">{updateRow.case_ref} · #{updateRow.case_number} · {updateRow.court_name}</p>
+            <p className="text-[12px] mb-4" style={{ color: 'var(--txt2)' }}>{updateRow.case_ref} · #{updateRow.case_number} · {updateRow.court_name}</p>
             <ErrBanner msg={updateErr} />
             <div className="space-y-3">
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">New Status</label>
-                <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>New Status</label>
+                <select className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                  style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={newStatus} onChange={e => setNewStatus(e.target.value)}>
                   {LEGAL_STATUSES.filter(Boolean).map(s => <option key={s} value={s}>{snake(s)}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Next Hearing Date</label>
-                <input type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Next Hearing Date</label>
+                <input type="date" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                  style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={nextHearing} onChange={e => setNextHearing(e.target.value)} />
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Notes</label>
-                <textarea rows={2} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none resize-none"
+                <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Notes</label>
+                <textarea rows={2} className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none resize-none"
+                  style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={updateNotes} onChange={e => setUpdateNotes(e.target.value)} />
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-5">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05]" onClick={() => setUpdateRow(null)}>Cancel</button>
+              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold bg-black/[0.05]" style={{ color: 'var(--txt)' }} onClick={() => setUpdateRow(null)}>Cancel</button>
               <button
                 className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
                 style={{ background: NAVY }}

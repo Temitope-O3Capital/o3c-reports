@@ -61,11 +61,11 @@ export default function Collections() {
   const logCols: ColDef<LogRow>[] = [
     {
       key: 'Date', label: 'Date', sortable: false,
-      render: r => <span className="text-xs text-slate-500 whitespace-nowrap">{r.Date ? fmtDate(r.Date) : '—'}</span>,
+      render: r => <span className="text-xs whitespace-nowrap" style={{ color: 'var(--txt2)' }}>{r.Date ? fmtDate(r.Date) : '—'}</span>,
     },
     {
       key: 'CIF', label: 'CIF', sortable: false,
-      render: r => <span className="font-mono text-xs text-slate-500">{r.CIF}</span>,
+      render: r => <span className="font-mono text-xs" style={{ color: 'var(--txt2)' }}>{r.CIF}</span>,
     },
     {
       key: 'First Name', label: 'Customer', sortable: false,
@@ -82,7 +82,7 @@ export default function Collections() {
     },
     {
       key: 'Payment Receipt', label: 'Receipt', sortable: false,
-      render: r => <span className="text-xs text-slate-400">{r['Payment Receipt'] || '—'}</span>,
+      render: r => <span className="text-xs" style={{ color: 'var(--txt2)' }}>{r['Payment Receipt'] || '—'}</span>,
     },
   ]
 
@@ -96,13 +96,13 @@ export default function Collections() {
             <select
               value={agent}
               onChange={e => setAgent(e.target.value)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-medium bg-white appearance-none pr-7 cursor-pointer"
-              style={{ borderColor: agent ? '#0E2841' : 'rgba(15,23,42,0.15)', color: '#334155' }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-medium appearance-none pr-7 cursor-pointer"
+              style={{ background: 'var(--card)', borderColor: agent ? '#0E2841' : 'var(--bdr)', color: 'var(--txt)' }}
             >
               <option value="">All Agents</option>
               {agentList.map(a => <option key={a} value={a}>{a}</option>)}
             </select>
-            <span className="material-symbols-rounded absolute right-2 top-1/2 -translate-y-1/2 text-[14px] text-slate-400 pointer-events-none">
+            <span className="material-symbols-rounded absolute right-2 top-1/2 -translate-y-1/2 text-[14px] text-[color:var(--txt2)] pointer-events-none">
               expand_more
             </span>
           </div>

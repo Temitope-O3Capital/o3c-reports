@@ -131,7 +131,7 @@ function fld(
 ) {
   return (
     <div>
-      <label className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">
+      <label className="block text-[12px] font-semibold mb-1.5 uppercase tracking-wide" style={{ color: 'var(--txt2)' }}>
         {label}
       </label>
       <input
@@ -139,7 +139,7 @@ function fld(
         value={(form[key] as string) ?? ''}
         onChange={e => set(key, e.target.value)}
         className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none transition-all"
-        style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+        style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}
         {...opts}
       />
     </div>
@@ -155,14 +155,14 @@ function sel(
 ) {
   return (
     <div>
-      <label className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">
+      <label className="block text-[12px] font-semibold mb-1.5 uppercase tracking-wide" style={{ color: 'var(--txt2)' }}>
         {label}
       </label>
       <select
         value={(form[key] as string) ?? ''}
         onChange={e => set(key, e.target.value)}
-        className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none bg-white"
-        style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+        className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
+        style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}
       >
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
@@ -173,8 +173,8 @@ function sel(
 function FormSection({ title }: { title: string }) {
   return (
     <div className="col-span-2 mt-4">
-      <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 pb-2"
-        style={{ borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
+      <p className="text-[11px] font-bold uppercase tracking-widest pb-2"
+        style={{ color: 'var(--txt2)', borderBottom: '1px solid var(--bdr)' }}>
         {title}
       </p>
     </div>
@@ -234,18 +234,18 @@ function AppDrawer({ initial, onClose, onSaved }: AppDrawerProps) {
 
   return (
     <div className="fixed inset-0 z-40" onClick={onClose} style={{ background: 'rgba(0,0,0,0.3)' }}>
-      <div className="absolute right-0 top-0 h-full w-[500px] bg-white shadow-2xl overflow-y-auto flex flex-col"
+      <div className="absolute right-0 top-0 h-full w-[500px] shadow-2xl overflow-y-auto flex flex-col" style={{ background: 'var(--card)' }}
         onClick={e => e.stopPropagation()}>
-        <div className="px-6 py-5 flex-shrink-0" style={{ borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
+        <div className="px-6 py-5 flex-shrink-0" style={{ borderBottom: '1px solid var(--bdr)' }}>
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-[15px] font-semibold text-slate-800">
+              <h3 className="text-[15px] font-semibold" style={{ color: 'var(--txt)' }}>
                 {initial?.id ? 'Edit Application' : 'Book New Application'}
               </h3>
-              <p className="text-[12px] text-slate-400 mt-0.5">Credit Portfolio</p>
+              <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>Credit Portfolio</p>
             </div>
             <button onClick={onClose}>
-              <span className="material-symbols-rounded text-[20px] text-slate-400">close</span>
+              <span className="material-symbols-rounded text-[20px]" style={{ color: 'var(--txt2)' }}>close</span>
             </button>
           </div>
         </div>
@@ -286,13 +286,13 @@ function AppDrawer({ initial, onClose, onSaved }: AppDrawerProps) {
             {fld('Maturity Date', 'maturity_date', form, set, 'date')}
 
             <div className="col-span-2 mt-2">
-              <label className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">Notes</label>
+              <label className="block text-[12px] font-semibold mb-1.5 uppercase tracking-wide" style={{ color: 'var(--txt2)' }}>Notes</label>
               <textarea
                 value={form.notes ?? ''}
                 onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
                 rows={3}
                 className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none resize-y"
-                style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}
               />
             </div>
           </div>
@@ -301,10 +301,10 @@ function AppDrawer({ initial, onClose, onSaved }: AppDrawerProps) {
         </form>
 
         <div className="flex-shrink-0 px-6 py-4 flex justify-end gap-3"
-          style={{ borderTop: '1px solid rgba(15,23,42,0.08)' }}>
+          style={{ borderTop: '1px solid var(--bdr)' }}>
           <button type="button" onClick={onClose}
-            className="px-4 py-2 text-[13px] font-medium text-slate-600 rounded-lg border"
-            style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+            className="px-4 py-2 text-[13px] font-medium rounded-lg border"
+            style={{ color: 'var(--txt2)', borderColor: 'var(--bdr)' }}>
             Cancel
           </button>
           <button onClick={handleSubmit} disabled={saving}
@@ -361,32 +361,32 @@ function RepaymentModal({ application, onClose, onSaved }: RepaymentModalProps) 
 
   const ifield = (label: string, key: string, type = 'text', opts: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
     <div>
-      <label className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">{label}</label>
+      <label className="block text-[12px] font-semibold mb-1.5 uppercase tracking-wide" style={{ color: 'var(--txt2)' }}>{label}</label>
       <input type={type} value={(form as Record<string, string>)[key]} onChange={e => setF(key, e.target.value)}
         className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
-        style={{ borderColor: 'rgba(15,23,42,0.15)' }} {...opts} />
+        style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} {...opts} />
     </div>
   )
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center"
       onClick={onClose} style={{ background: 'rgba(0,0,0,0.35)' }}>
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+      <div className="rounded-xl shadow-2xl w-full max-w-md p-6" style={{ background: 'var(--card)' }} onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
           <div>
-            <p className="text-[15px] font-semibold text-slate-800">Record Payment</p>
-            <p className="text-[12px] text-slate-400 mt-0.5">{application.customer_name}</p>
+            <p className="text-[15px] font-semibold" style={{ color: 'var(--txt)' }}>Record Payment</p>
+            <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>{application.customer_name}</p>
           </div>
           <button onClick={onClose}>
-            <span className="material-symbols-rounded text-[20px] text-slate-400">close</span>
+            <span className="material-symbols-rounded text-[20px]" style={{ color: 'var(--txt2)' }}>close</span>
           </button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">Payment Month</label>
+            <label className="block text-[12px] font-semibold mb-1.5 uppercase tracking-wide" style={{ color: 'var(--txt2)' }}>Payment Month</label>
             <select value={form.payment_month} onChange={e => setF('payment_month', e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none bg-white"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+              className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
+              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}>
               {MONTH_OPTIONS.map(m => <option key={m}>{m}</option>)}
             </select>
           </div>
@@ -397,10 +397,10 @@ function RepaymentModal({ application, onClose, onSaved }: RepaymentModalProps) 
           <div className="grid grid-cols-2 gap-3">
             {ifield('Payment Date', 'payment_date', 'date')}
             <div>
-              <label className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">Status</label>
+              <label className="block text-[12px] font-semibold mb-1.5 uppercase tracking-wide" style={{ color: 'var(--txt2)' }}>Status</label>
               <select value={form.payment_status} onChange={e => setF('payment_status', e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none bg-white"
-                style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+                className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
+                style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}>
                 {['pending', 'partial', 'paid', 'overdue'].map(s => (
                   <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
                 ))}
@@ -412,8 +412,8 @@ function RepaymentModal({ application, onClose, onSaved }: RepaymentModalProps) 
           {err && <ErrBanner msg={err} />}
           <div className="flex justify-end gap-3 pt-1">
             <button type="button" onClick={onClose}
-              className="px-4 py-2 text-[13px] font-medium text-slate-600 rounded-lg border"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+              className="px-4 py-2 text-[13px] font-medium rounded-lg border"
+              style={{ color: 'var(--txt2)', borderColor: 'var(--bdr)' }}>
               Cancel
             </button>
             <button type="submit" disabled={saving}
@@ -468,24 +468,24 @@ function CollateralDrawer({ applicationId, initial, onClose, onSaved }: Collater
 
   const cf = (label: string, key: string) => (
     <div>
-      <label className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">{label}</label>
+      <label className="block text-[12px] font-semibold mb-1.5 uppercase tracking-wide" style={{ color: 'var(--txt2)' }}>{label}</label>
       <input type="text" value={(form as Record<string, string>)[key] ?? ''} onChange={e => setF(key, e.target.value)}
         className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
-        style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+        style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
     </div>
   )
 
   return (
     <div className="fixed inset-0 z-40" onClick={onClose} style={{ background: 'rgba(0,0,0,0.3)' }}>
-      <div className="absolute right-0 top-0 h-full w-[420px] bg-white shadow-2xl overflow-y-auto flex flex-col"
+      <div className="absolute right-0 top-0 h-full w-[420px] shadow-2xl overflow-y-auto flex flex-col" style={{ background: 'var(--card)' }}
         onClick={e => e.stopPropagation()}>
-        <div className="px-6 py-5 flex-shrink-0" style={{ borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
+        <div className="px-6 py-5 flex-shrink-0" style={{ borderBottom: '1px solid var(--bdr)' }}>
           <div className="flex items-center justify-between">
-            <h3 className="text-[15px] font-semibold text-slate-800">
+            <h3 className="text-[15px] font-semibold" style={{ color: 'var(--txt)' }}>
               {initial?.id ? 'Edit Security' : 'Add Security / Collateral'}
             </h3>
             <button onClick={onClose}>
-              <span className="material-symbols-rounded text-[20px] text-slate-400">close</span>
+              <span className="material-symbols-rounded text-[20px]" style={{ color: 'var(--txt2)' }}>close</span>
             </button>
           </div>
         </div>
@@ -493,8 +493,8 @@ function CollateralDrawer({ applicationId, initial, onClose, onSaved }: Collater
           {cf('Security Type', 'security_type')}
           {cf('Vehicle Info', 'vehicle_info')}
           {cf('Last Location', 'last_location')}
-          <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 pt-2"
-            style={{ borderBottom: '1px solid rgba(15,23,42,0.08)', paddingBottom: 6 }}>
+          <p className="text-[11px] font-bold uppercase tracking-widest pt-2"
+            style={{ color: 'var(--txt2)', borderBottom: '1px solid var(--bdr)', paddingBottom: 6 }}>
             Guarantor
           </p>
           {cf('Guarantor Name', 'guarantor_name')}
@@ -502,16 +502,16 @@ function CollateralDrawer({ applicationId, initial, onClose, onSaved }: Collater
           {cf('Guarantor Email', 'guarantor_email')}
           {cf('Guarantor Address', 'guarantor_address')}
           <div>
-            <label className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">Notes</label>
+            <label className="block text-[12px] font-semibold mb-1.5 uppercase tracking-wide" style={{ color: 'var(--txt2)' }}>Notes</label>
             <textarea value={form.notes ?? ''} onChange={e => setF('notes', e.target.value)}
               rows={3} className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none resize-y"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
           </div>
           {err && <ErrBanner msg={err} />}
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={onClose}
-              className="px-4 py-2 text-[13px] font-medium text-slate-600 rounded-lg border"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+              className="px-4 py-2 text-[13px] font-medium rounded-lg border"
+              style={{ color: 'var(--txt2)', borderColor: 'var(--bdr)' }}>
               Cancel
             </button>
             <button type="submit" disabled={saving}
@@ -555,7 +555,7 @@ function DashboardTab({ dateFrom, dateTo }: { dateFrom: string; dateTo: string }
 
   useEffect(() => { load() }, [load])
 
-  if (loading) return <div className="flex items-center gap-3 text-slate-400 py-16"><Spinner />Loading dashboard…</div>
+  if (loading) return <div className="flex items-center gap-3 text-[color:var(--txt2)] py-16"><Spinner />Loading dashboard…</div>
 
   const s = summary
   const approvalRate = n(s?.approval_rate)
@@ -592,14 +592,14 @@ function DashboardTab({ dateFrom, dateTo }: { dateFrom: string; dateTo: string }
         <SectionCard title="Pipeline by Status" subtitle="Application funnel">
           <div className="px-5 py-4 space-y-3">
             {byStatusData.length === 0
-              ? <p className="text-[13px] text-slate-400 text-center py-6">No data in this period</p>
+              ? <p className="text-[13px] text-center py-6" style={{ color: 'var(--txt2)' }}>No data in this period</p>
               : byStatusData.map(p => (
                   <div key={p.status}>
                     <div className="flex justify-between mb-1.5">
                       <StatusBadge status={p.status} />
-                      <span className="text-[12px] font-semibold text-slate-700 tabular-nums">{fmtNum(p.count)}</span>
+                      <span className="text-[12px] font-semibold text-[color:var(--txt)] tabular-nums">{fmtNum(p.count)}</span>
                     </div>
-                    <div className="h-1.5 rounded-full" style={{ background: 'rgba(14,40,65,0.07)' }}>
+                    <div className="h-1.5 rounded-full" style={{ background: 'var(--chip-bg)' }}>
                       <div className="h-full rounded-full" style={{
                         width: `${totalApps > 0 ? (p.count / totalApps) * 100 : 0}%`,
                         background: NAVY,
@@ -666,34 +666,34 @@ function ApplicationsTab({ typeFilter, dateFrom, dateTo, label }: ApplicationsTa
   }
 
   const cols: ColDef<Application>[] = [
-    { key: 'date_received',  label: 'Date',      render: r => <span className="text-[12px] text-slate-500 whitespace-nowrap">{fmtDate(r.date_received)}</span> },
+    { key: 'date_received',  label: 'Date',      render: r => <span className="text-[12px] text-[color:var(--txt2)] whitespace-nowrap">{fmtDate(r.date_received)}</span> },
     { key: 'customer_name',  label: 'Customer',  render: r => (
       <div>
-        <p className="text-[13px] font-medium text-slate-800 max-w-[140px] truncate">{r.customer_name}</p>
-        {r.company && <p className="text-[11px] text-slate-400 truncate max-w-[140px]">{r.company}</p>}
+        <p className="text-[13px] font-medium text-[color:var(--txt)] max-w-[140px] truncate">{r.customer_name}</p>
+        {r.company && <p className="text-[11px] text-[color:var(--txt2)] truncate max-w-[140px]">{r.company}</p>}
       </div>
     )},
     { key: 'status',         label: 'Status',    render: r => <StatusBadge status={r.status} /> },
     { key: 'requested_amount', label: 'Requested', right: true, render: r => <span className="tabular-nums text-[13px]">{r.requested_amount ? fmt(r.requested_amount) : '—'}</span> },
     { key: 'approved_amount',  label: 'Approved',  right: true, render: r => <span className="tabular-nums text-[13px]" style={{ color: GREEN }}>{r.approved_amount ? fmt(r.approved_amount) : '—'}</span> },
     { key: 'disbursed_amount', label: 'Disbursed', right: true, render: r => <span className="tabular-nums text-[13px] font-semibold" style={{ color: BLUE }}>{r.disbursed_amount ? fmt(r.disbursed_amount) : '—'}</span> },
-    { key: 'account_officer',  label: 'Officer',   render: r => <span className="text-[12px] text-slate-500">{r.account_officer || '—'}</span> },
-    { key: 'location',         label: 'Location',  render: r => <span className="text-[12px] text-slate-500">{r.location || '—'}</span> },
-    { key: 'maturity_date',    label: 'Maturity',  render: r => <span className="text-[12px] text-slate-500 whitespace-nowrap">{r.maturity_date ? fmtDate(r.maturity_date) : '—'}</span> },
+    { key: 'account_officer',  label: 'Officer',   render: r => <span className="text-[12px] text-[color:var(--txt2)]">{r.account_officer || '—'}</span> },
+    { key: 'location',         label: 'Location',  render: r => <span className="text-[12px] text-[color:var(--txt2)]">{r.location || '—'}</span> },
+    { key: 'maturity_date',    label: 'Maturity',  render: r => <span className="text-[12px] text-[color:var(--txt2)] whitespace-nowrap">{r.maturity_date ? fmtDate(r.maturity_date) : '—'}</span> },
     { key: '_actions', label: '', sortable: false, render: r => (
       <div className="flex items-center gap-1">
         {(r.status === 'disbursed' || r.status === 'approved') && r.type === 'loan' && (
           <button onClick={() => setRepayApp(r)} title="Record payment"
-            className="p-1 rounded hover:bg-slate-100" style={{ color: GREEN }}>
+            className="p-1 rounded hover:bg-[var(--chip-bg)]" style={{ color: GREEN }}>
             <span className="material-symbols-rounded text-[16px]">payments</span>
           </button>
         )}
         <button onClick={() => { setEditApp(r); setDrawerOpen(true) }} title="Edit"
-          className="p-1 rounded hover:bg-slate-100 text-slate-500">
+          className="p-1 rounded hover:bg-[var(--chip-bg)] text-[color:var(--txt2)]">
           <span className="material-symbols-rounded text-[16px]">edit</span>
         </button>
         <button onClick={() => deleteApp(r.id)} title="Delete"
-          className="p-1 rounded hover:bg-slate-100" style={{ color: RED }}>
+          className="p-1 rounded hover:bg-[var(--chip-bg)]" style={{ color: RED }}>
           <span className="material-symbols-rounded text-[16px]">delete</span>
         </button>
       </div>
@@ -706,18 +706,18 @@ function ApplicationsTab({ typeFilter, dateFrom, dateTo, label }: ApplicationsTa
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div className="flex items-center gap-2 flex-wrap">
           <div className="relative">
-            <span className="material-symbols-rounded absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px] text-slate-400 pointer-events-none">search</span>
+            <span className="material-symbols-rounded absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px] text-[color:var(--txt2)] pointer-events-none">search</span>
             <input
               className="pl-8 pr-3 py-1.5 rounded-lg border text-[13px] outline-none w-52"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}
               placeholder="Customer, company, loan ID…"
               value={search}
               onChange={e => { setSearch(e.target.value); setOffset(0) }}
             />
           </div>
           <select value={status} onChange={e => { setStatus(e.target.value); setOffset(0) }}
-            className="px-3 py-1.5 rounded-lg border text-[13px] outline-none bg-white"
-            style={{ borderColor: 'rgba(15,23,42,0.15)', color: status ? NAVY : '#94A3B8' }}>
+            className="px-3 py-1.5 rounded-lg border text-[13px] outline-none"
+            style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: status ? NAVY : 'var(--txt2)' }}>
             <option value="">All Statuses</option>
             {APP_STATUSES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
           </select>
@@ -733,15 +733,15 @@ function ApplicationsTab({ typeFilter, dateFrom, dateTo, label }: ApplicationsTa
       <SectionCard title={`${total.toLocaleString()} records`}>
         <DataTable cols={cols} rows={apps} loading={loading} emptyIcon="folder_open" emptyMsg="No applications found" />
         {total > LIMIT && (
-          <div className="px-5 py-3 flex items-center justify-between" style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
-            <p className="text-[12px] text-slate-400">Showing {offset + 1}–{Math.min(offset + LIMIT, total)} of {total.toLocaleString()}</p>
+          <div className="px-5 py-3 flex items-center justify-between" style={{ borderTop: '1px solid var(--bdr)' }}>
+            <p className="text-[12px]" style={{ color: 'var(--txt2)' }}>Showing {offset + 1}–{Math.min(offset + LIMIT, total)} of {total.toLocaleString()}</p>
             <div className="flex gap-2">
               <button onClick={() => setOffset(o => Math.max(0, o - LIMIT))} disabled={offset === 0}
-                className="p-1.5 rounded-lg border disabled:opacity-40" style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+                className="p-1.5 rounded-lg border disabled:opacity-40" style={{ borderColor: 'var(--bdr)' }}>
                 <span className="material-symbols-rounded text-[16px]">chevron_left</span>
               </button>
               <button onClick={() => setOffset(o => o + LIMIT)} disabled={offset + LIMIT >= total}
-                className="p-1.5 rounded-lg border disabled:opacity-40" style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+                className="p-1.5 rounded-lg border disabled:opacity-40" style={{ borderColor: 'var(--bdr)' }}>
                 <span className="material-symbols-rounded text-[16px]">chevron_right</span>
               </button>
             </div>
@@ -806,15 +806,15 @@ function CollateralTab({ dateFrom, dateTo }: { dateFrom: string; dateTo: string 
   }
 
   const appCols: ColDef<Application>[] = [
-    { key: 'customer_name',  label: 'Customer',  render: r => <span className="font-medium text-slate-800">{r.customer_name}</span> },
+    { key: 'customer_name',  label: 'Customer',  render: r => <span className="font-medium text-[color:var(--txt)]">{r.customer_name}</span> },
     { key: 'disbursed_amount', label: 'Disbursed', right: true, render: r => <span className="font-semibold tabular-nums">{fmt(r.disbursed_amount)}</span> },
-    { key: 'maturity_date',  label: 'Maturity',  render: r => <span className="text-[12px] text-slate-500">{r.maturity_date ? fmtDate(r.maturity_date) : '—'}</span> },
-    { key: 'account_officer', label: 'Officer',  render: r => <span className="text-[12px] text-slate-500">{r.account_officer || '—'}</span> },
-    { key: 'loan_id',        label: 'Loan ID',   render: r => <span className="font-mono text-[12px] text-slate-400">{r.loan_id || '—'}</span> },
+    { key: 'maturity_date',  label: 'Maturity',  render: r => <span className="text-[12px] text-[color:var(--txt2)]">{r.maturity_date ? fmtDate(r.maturity_date) : '—'}</span> },
+    { key: 'account_officer', label: 'Officer',  render: r => <span className="text-[12px] text-[color:var(--txt2)]">{r.account_officer || '—'}</span> },
+    { key: 'loan_id',        label: 'Loan ID',   render: r => <span className="font-mono text-[12px] text-[color:var(--txt2)]">{r.loan_id || '—'}</span> },
     { key: '_view', label: '', sortable: false, render: r => (
       <button onClick={() => loadCollateral(r)}
         className="flex items-center gap-1 text-[12px] font-medium px-3 py-1 rounded-lg border"
-        style={{ borderColor: 'rgba(15,23,42,0.15)', color: NAVY }}>
+        style={{ borderColor: 'var(--bdr)', color: NAVY }}>
         <span className="material-symbols-rounded text-[14px]">security</span>
         Security
       </button>
@@ -823,16 +823,16 @@ function CollateralTab({ dateFrom, dateTo }: { dateFrom: string; dateTo: string 
 
   const colCols: ColDef<Collateral>[] = [
     { key: 'security_type',   label: 'Type',           render: r => <span className="text-[13px]">{r.security_type || '—'}</span> },
-    { key: 'vehicle_info',    label: 'Vehicle',         render: r => <span className="text-[12px] text-slate-500">{r.vehicle_info || '—'}</span> },
+    { key: 'vehicle_info',    label: 'Vehicle',         render: r => <span className="text-[12px] text-[color:var(--txt2)]">{r.vehicle_info || '—'}</span> },
     { key: 'guarantor_name',  label: 'Guarantor',       render: r => <span className="text-[13px]">{r.guarantor_name || '—'}</span> },
-    { key: 'guarantor_phone', label: 'Guarantor Phone', render: r => <span className="text-[12px] text-slate-500">{r.guarantor_phone || '—'}</span> },
-    { key: 'notes',           label: 'Notes',           render: r => <span className="text-[12px] text-slate-500">{r.notes || '—'}</span> },
+    { key: 'guarantor_phone', label: 'Guarantor Phone', render: r => <span className="text-[12px] text-[color:var(--txt2)]">{r.guarantor_phone || '—'}</span> },
+    { key: 'notes',           label: 'Notes',           render: r => <span className="text-[12px] text-[color:var(--txt2)]">{r.notes || '—'}</span> },
     { key: '_actions', label: '', sortable: false, render: r => (
       <div className="flex gap-1">
-        <button onClick={() => { setEditCol(r); setDrawerOpen(true) }} className="p-1 rounded hover:bg-slate-100 text-slate-500">
+        <button onClick={() => { setEditCol(r); setDrawerOpen(true) }} className="p-1 rounded hover:bg-[var(--chip-bg)] text-[color:var(--txt2)]">
           <span className="material-symbols-rounded text-[16px]">edit</span>
         </button>
-        <button onClick={() => deleteCollateral(r.id)} className="p-1 rounded hover:bg-slate-100" style={{ color: RED }}>
+        <button onClick={() => deleteCollateral(r.id)} className="p-1 rounded hover:bg-[var(--chip-bg)]" style={{ color: RED }}>
           <span className="material-symbols-rounded text-[16px]">delete</span>
         </button>
       </div>
@@ -859,7 +859,7 @@ function CollateralTab({ dateFrom, dateTo }: { dateFrom: string; dateTo: string 
           }
         >
           {colLoading
-            ? <div className="px-5 py-6 flex items-center gap-2 text-slate-400"><Spinner />Loading…</div>
+            ? <div className="px-5 py-6 flex items-center gap-2 text-[color:var(--txt2)]"><Spinner />Loading…</div>
             : <DataTable cols={colCols} rows={collateral} emptyIcon="lock" emptyMsg="No collateral records" />
           }
         </SectionCard>
@@ -900,11 +900,11 @@ function CollectionsTab() {
   const cols: ColDef<OverdueRow>[] = [
     { key: 'customer_name', label: 'Customer', render: r => (
       <div>
-        <p className="font-medium text-slate-800 text-[13px]">{r.customer_name}</p>
-        {r.account_officer && <p className="text-[11px] text-slate-400">{r.account_officer}</p>}
+        <p className="font-medium text-[color:var(--txt)] text-[13px]">{r.customer_name}</p>
+        {r.account_officer && <p className="text-[11px] text-[color:var(--txt2)]">{r.account_officer}</p>}
       </div>
     )},
-    { key: 'payment_month',   label: 'Month',    render: r => <span className="text-[12px] text-slate-500">{r.payment_month}</span> },
+    { key: 'payment_month',   label: 'Month',    render: r => <span className="text-[12px] text-[color:var(--txt2)]">{r.payment_month}</span> },
     { key: 'expected_amount', label: 'Expected',  right: true, render: r => <span className="tabular-nums text-[13px]">{fmt(r.expected_amount)}</span> },
     { key: 'paid_amount',     label: 'Paid',      right: true, render: r => (
       <span className="tabular-nums text-[13px] font-semibold"
@@ -919,8 +919,8 @@ function CollectionsTab() {
       </span>
     )},
     { key: 'payment_status', label: 'Status',  render: r => <StatusBadge status={r.payment_status} /> },
-    { key: 'comment',        label: 'Comment', render: r => <span className="text-[12px] text-slate-500">{r.comment || '—'}</span> },
-    { key: 'action_taken',   label: 'Action',  render: r => <span className="text-[12px] text-slate-500">{r.action_taken || '—'}</span> },
+    { key: 'comment',        label: 'Comment', render: r => <span className="text-[12px] text-[color:var(--txt2)]">{r.comment || '—'}</span> },
+    { key: 'action_taken',   label: 'Action',  render: r => <span className="text-[12px] text-[color:var(--txt2)]">{r.action_taken || '—'}</span> },
     { key: '_pay', label: '', sortable: false, render: r => (
       <button onClick={() => setRepayApp(r as unknown as Application)}
         className="flex items-center gap-1 text-[12px] font-medium px-2.5 py-1 rounded-lg"
@@ -970,13 +970,13 @@ export default function CreditPortfolio() {
       }
     >
       {/* Tab header */}
-      <div className="flex gap-0 mb-5 border-b" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+      <div className="flex gap-0 mb-5 border-b" style={{ borderColor: 'var(--bdr)' }}>
         {TABS.map((t, i) => (
           <button key={t} onClick={() => setTab(i)}
             className="px-4 py-2.5 text-[13px] font-medium transition-colors"
             style={{
               borderBottom: tab === i ? `2px solid ${NAVY}` : '2px solid transparent',
-              color: tab === i ? NAVY : '#64748B',
+              color: tab === i ? NAVY : 'var(--txt2)',
               marginBottom: '-1px',
             }}>
             {t}

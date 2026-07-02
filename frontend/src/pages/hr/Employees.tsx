@@ -142,14 +142,14 @@ export default function Employees() {
         {/* Table section */}
         <div className="flex-1 min-w-0">
           <FilterBar>
-            <input className="w-full max-w-xs px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+            <input className="w-full max-w-xs px-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               placeholder="Search by name or staff ID…" value={search} onChange={e => { setSearch(e.target.value); setPage(0) }} />
-            <select className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+            <select className="px-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               value={deptF} onChange={e => setDeptF(e.target.value)}>
               <option value="">All Departments</option>
               {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
-            <select className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+            <select className="px-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               value={statusF} onChange={e => { setStatusF(e.target.value); setPage(0) }}>
               <option value="active">Active</option>
               <option value="">All</option>
@@ -163,26 +163,26 @@ export default function Employees() {
               <div className="overflow-x-auto">
                 <table className="w-full text-[13px]">
                   <thead>
-                    <tr style={{ background: 'rgba(14,40,65,0.04)', borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
+                    <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
                       {['Staff ID','Name','Department','Job Title','Grade','Status','Start Date',''].map(h => (
-                        <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">{h}</th>
+                        <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: 'var(--txt2)', fontFamily: "'Inter', ui-sans-serif, sans-serif", fontSize: 10 }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {filtered.length === 0 ? (
-                      <tr><td colSpan={8} className="px-4 py-14 text-center text-slate-400 text-[13px]">No employees found</td></tr>
+                      <tr><td colSpan={8} className="px-4 py-14 text-center text-[13px]" style={{ color: 'var(--txt2)' }}>No employees found</td></tr>
                     ) : filtered.map(emp => (
-                      <tr key={emp.id} className="border-b border-slate-100 hover:bg-slate-50/60 cursor-pointer" onClick={() => selectEmployee(emp)}>
-                        <td className="px-4 py-3 font-mono text-[12px] text-slate-600">{emp.staff_id}</td>
-                        <td className="px-4 py-3 font-semibold text-slate-800">{emp.first_name} {emp.last_name}</td>
-                        <td className="px-4 py-3 text-slate-600">{emp.department_name ?? '—'}</td>
-                        <td className="px-4 py-3 text-slate-600">{emp.job_title ?? '—'}</td>
-                        <td className="px-4 py-3 text-slate-500">{emp.grade ?? '—'}</td>
+                      <tr key={emp.id} className="cursor-pointer" style={{ borderBottom: '1px solid var(--bdr)', transition: 'background .1s' }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = ''} onClick={() => selectEmployee(emp)}>
+                        <td className="px-4 py-3 font-mono text-[12px]" style={{ color: 'var(--txt2)' }}>{emp.staff_id}</td>
+                        <td className="px-4 py-3 font-semibold" style={{ color: 'var(--txt)' }}>{emp.first_name} {emp.last_name}</td>
+                        <td className="px-4 py-3" style={{ color: 'var(--txt2)' }}>{emp.department_name ?? '—'}</td>
+                        <td className="px-4 py-3" style={{ color: 'var(--txt2)' }}>{emp.job_title ?? '—'}</td>
+                        <td className="px-4 py-3" style={{ color: 'var(--txt2)' }}>{emp.grade ?? '—'}</td>
                         <td className="px-4 py-3"><StatusBadge status={emp.status} /></td>
-                        <td className="px-4 py-3 text-slate-500">{fmtDate(emp.employment_date)}</td>
+                        <td className="px-4 py-3" style={{ color: 'var(--txt2)' }}>{fmtDate(emp.employment_date)}</td>
                         <td className="px-4 py-3">
-                          <button className="text-slate-400 hover:text-slate-700"><span className="material-symbols-rounded text-[18px]">chevron_right</span></button>
+                          <button style={{ color: 'var(--txt2)' }}><span className="material-symbols-rounded text-[18px]">chevron_right</span></button>
                         </td>
                       </tr>
                     ))}
@@ -203,8 +203,8 @@ export default function Employees() {
                   {selected.first_name.charAt(0)}
                 </div>
                 <div>
-                  <p className="text-[14px] font-bold text-slate-800">{selected.first_name} {selected.last_name}</p>
-                  <p className="text-[11px] font-mono text-slate-400">{selected.staff_id}</p>
+                  <p className="text-[14px] font-bold" style={{ color: 'var(--txt)' }}>{selected.first_name} {selected.last_name}</p>
+                  <p className="text-[11px] font-mono" style={{ color: 'var(--txt2)' }}>{selected.staff_id}</p>
                 </div>
               </div>
               <div className="space-y-2">
@@ -218,24 +218,24 @@ export default function Employees() {
                   ['Salary', selected.salary_kobo ? fmt(selected.salary_kobo / 100) + '/mo' : '—'],
                 ].map(([k, v]) => (
                   <div key={k} className="flex justify-between">
-                    <span className="text-[11px] text-slate-400">{k}</span>
-                    <span className="text-[12px] text-slate-700 text-right max-w-[60%] truncate">{v}</span>
+                    <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{k}</span>
+                    <span className="text-[12px] text-right max-w-[60%] truncate" style={{ color: 'var(--txt)' }}>{v}</span>
                   </div>
                 ))}
               </div>
             </div>
             {/* Leave balance */}
             <div className="card p-4">
-              <p className="text-[12px] font-semibold text-slate-400 uppercase tracking-wider mb-3">Leave Balance</p>
+              <p className="text-[12px] font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--txt2)' }}>Leave Balance</p>
               {lbLoading ? <Spinner size={20} /> : leaveBalance.length === 0 ? (
-                <p className="text-[12px] text-slate-400">No leave data</p>
+                <p className="text-[12px]" style={{ color: 'var(--txt2)' }}>No leave data</p>
               ) : leaveBalance.map((lb, i) => (
                 <div key={i} className="mb-3">
                   <div className="flex justify-between mb-1">
-                    <span className="text-[12px] text-slate-600">{lb.leave_type}</span>
-                    <span className="text-[12px] font-semibold text-slate-700">{lb.remaining} / {lb.total_days} days</span>
+                    <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{lb.leave_type}</span>
+                    <span className="text-[12px] font-semibold" style={{ color: 'var(--txt)' }}>{lb.remaining} / {lb.total_days} days</span>
                   </div>
-                  <div className="h-1.5 rounded-full" style={{ background: 'rgba(14,40,65,0.07)' }}>
+                  <div className="h-1.5 rounded-full" style={{ background: 'var(--chip-bg)' }}>
                     <div className="h-full rounded-full" style={{ width: `${lb.total_days > 0 ? (lb.used_days / lb.total_days) * 100 : 0}%`, background: NAVY }} />
                   </div>
                 </div>
@@ -249,10 +249,10 @@ export default function Employees() {
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={e => { if (e.target === e.currentTarget) setShowAdd(false) }}>
           <div role="dialog" aria-modal="true" aria-labelledby="add-emp-title"
-            className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            className="rounded-2xl shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto" style={{ background: 'var(--card)' }}>
             <div className="flex items-center justify-between mb-5">
-              <h2 id="add-emp-title" className="text-[16px] font-bold text-slate-800">Add Employee</h2>
-              <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-slate-700" aria-label="Close">
+              <h2 id="add-emp-title" className="text-[16px] font-bold" style={{ color: 'var(--txt)' }}>Add Employee</h2>
+              <button onClick={() => setShowAdd(false)} style={{ color: 'var(--txt2)' }} aria-label="Close">
                 <span className="material-symbols-rounded text-[20px]" aria-hidden="true">close</span>
               </button>
             </div>
@@ -269,30 +269,30 @@ export default function Employees() {
                 ['Monthly Salary (₦)', 'salary_kobo', 'number', ''],
               ].map(([label, key, type, placeholder]) => (
                 <div key={key}>
-                  <label htmlFor={`emp-${key}`} className="block text-[12px] font-semibold text-slate-500 mb-1">{label}</label>
+                  <label htmlFor={`emp-${key}`} className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>{label}</label>
                   <input id={`emp-${key}`} type={type as string} placeholder={placeholder as string}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                    className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                     value={(addForm as any)[key]} onChange={e => setAdd(key as keyof AddForm, e.target.value)} />
                 </div>
               ))}
               <div>
-                <label htmlFor="emp-department_id" className="block text-[12px] font-semibold text-slate-500 mb-1">Department</label>
-                <select id="emp-department_id" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                <label htmlFor="emp-department_id" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Department</label>
+                <select id="emp-department_id" className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={addForm.department_id} onChange={e => setAdd('department_id', e.target.value)}>
                   <option value="">Select…</option>
                   {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </div>
               <div>
-                <label htmlFor="emp-employment_type" className="block text-[12px] font-semibold text-slate-500 mb-1">Employment Type</label>
-                <select id="emp-employment_type" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                <label htmlFor="emp-employment_type" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Employment Type</label>
+                <select id="emp-employment_type" className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={addForm.employment_type} onChange={e => setAdd('employment_type', e.target.value)}>
                   {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{snake(t)}</option>)}
                 </select>
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-6">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setShowAdd(false)}>Cancel</button>
+              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setShowAdd(false)}>Cancel</button>
               <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60" style={{ background: NAVY }} disabled={adding || !addForm.staff_id || !addForm.first_name || !addForm.last_name} onClick={submitAdd}>
                 {adding ? 'Adding…' : 'Add Employee'}
               </button>

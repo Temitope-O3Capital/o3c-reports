@@ -106,8 +106,8 @@ export default function Leave() {
   const declined = rows.filter(r => r.status === 'declined').length
 
   const cols: ColDef<LeaveRow>[] = [
-    { key: 'staff_id',       label: 'Staff ID',    render: r => <span className="font-mono text-[12px] text-slate-500">{r.staff_id}</span> },
-    { key: 'name',           label: 'Employee',    render: r => <span className="font-semibold text-slate-800">{r.first_name} {r.last_name}</span> },
+    { key: 'staff_id',       label: 'Staff ID',    render: r => <span className="font-mono text-[12px]" style={{ color: 'var(--txt2)' }}>{r.staff_id}</span> },
+    { key: 'name',           label: 'Employee',    render: r => <span className="font-semibold" style={{ color: 'var(--txt)' }}>{r.first_name} {r.last_name}</span> },
     { key: 'leave_type_name',label: 'Type' },
     { key: 'start_date',     label: 'From',        render: r => fmtDate(r.start_date) },
     { key: 'end_date',       label: 'To',          render: r => fmtDate(r.end_date) },
@@ -157,7 +157,7 @@ export default function Leave() {
       <SectionCard
         title="Leave Requests"
         actions={
-          <select className="px-3 py-1.5 rounded-lg border border-slate-200 text-[12px] focus:outline-none"
+          <select className="px-3 py-1.5 rounded-lg text-[12px] focus:outline-none" style={{ border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
             value={statusF} onChange={e => setStatusF(e.target.value)}>
             <option value="">All Statuses</option>
             <option value="pending">Pending</option>
@@ -172,27 +172,27 @@ export default function Leave() {
       {/* Approve / decline modal */}
       {action && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setAction(null)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="leave-action-title" className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-labelledby="leave-action-title" className="rounded-2xl shadow-xl p-6 w-full max-w-md" style={{ background: 'var(--card)' }} onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 id="leave-action-title" className="text-[16px] font-bold text-slate-800 capitalize">{action.type} Leave Request</h2>
-              <button onClick={() => setAction(null)} className="text-slate-400 hover:text-slate-700">
+              <h2 id="leave-action-title" className="text-[16px] font-bold capitalize" style={{ color: 'var(--txt)' }}>{action.type} Leave Request</h2>
+              <button onClick={() => setAction(null)} style={{ color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
             </div>
-            <p className="text-[13px] text-slate-600 mb-1">
+            <p className="text-[13px] mb-1" style={{ color: 'var(--txt)' }}>
               <span className="font-semibold">{action.row.first_name} {action.row.last_name}</span> — {action.row.leave_type_name}
             </p>
-            <p className="text-[12px] text-slate-400 mb-4">
+            <p className="text-[12px] mb-4" style={{ color: 'var(--txt2)' }}>
               {fmtDate(action.row.start_date)} to {fmtDate(action.row.end_date)} ({action.row.days_requested} days)
             </p>
             <ErrBanner msg={actionErr} />
             <div className="mb-4">
-              <label htmlFor="leave-notes" className="block text-[12px] font-semibold text-slate-500 mb-1">Notes (optional)</label>
-              <textarea id="leave-notes" rows={3} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+              <label htmlFor="leave-notes" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Notes (optional)</label>
+              <textarea id="leave-notes" rows={3} className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={actionForm.notes} onChange={e => setActionForm({ notes: e.target.value })} />
             </div>
             <div className="flex justify-end gap-2">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setAction(null)}>Cancel</button>
+              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setAction(null)}>Cancel</button>
               <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
                 style={{ background: action.type === 'approve' ? GREEN : RED }}
                 disabled={actioning} onClick={submitAction}>
@@ -206,10 +206,10 @@ export default function Leave() {
       {/* Add leave request modal */}
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div role="dialog" aria-modal="true" aria-labelledby="leave-add-title" className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg">
+          <div role="dialog" aria-modal="true" aria-labelledby="leave-add-title" className="rounded-2xl shadow-xl p-6 w-full max-w-lg" style={{ background: 'var(--card)' }}>
             <div className="flex items-center justify-between mb-5">
-              <h2 id="leave-add-title" className="text-[16px] font-bold text-slate-800">New Leave Request</h2>
-              <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-slate-700">
+              <h2 id="leave-add-title" className="text-[16px] font-bold" style={{ color: 'var(--txt)' }}>New Leave Request</h2>
+              <button onClick={() => setShowAdd(false)} style={{ color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
             </div>
@@ -222,15 +222,15 @@ export default function Leave() {
                 ['Days *',        'days_requested', 'number', ''],
               ].map(([label, key, type, ph]) => (
                 <div key={key}>
-                  <label htmlFor={`leave-add-${key}`} className="block text-[12px] font-semibold text-slate-500 mb-1">{label}</label>
+                  <label htmlFor={`leave-add-${key}`} className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>{label}</label>
                   <input id={`leave-add-${key}`} type={type as string} placeholder={ph as string}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                    className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                     value={(addForm as any)[key]} onChange={e => setAddForm(f => ({ ...f, [key]: e.target.value }))} />
                 </div>
               ))}
               <div>
-                <label htmlFor="leave-add-type" className="block text-[12px] font-semibold text-slate-500 mb-1">Leave Type *</label>
-                <select id="leave-add-type" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                <label htmlFor="leave-add-type" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Leave Type *</label>
+                <select id="leave-add-type" className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={addForm.leave_type_id} onChange={e => setAddForm(f => ({ ...f, leave_type_id: e.target.value }))}>
                   <option value="">Select type…</option>
                   {leaveTypes.map(t => (
@@ -239,13 +239,13 @@ export default function Leave() {
                 </select>
               </div>
               <div>
-                <label htmlFor="leave-add-reason" className="block text-[12px] font-semibold text-slate-500 mb-1">Reason</label>
-                <textarea id="leave-add-reason" rows={3} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+                <label htmlFor="leave-add-reason" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Reason</label>
+                <textarea id="leave-add-reason" rows={3} className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={addForm.reason} onChange={e => setAddForm(f => ({ ...f, reason: e.target.value }))} />
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-5">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setShowAdd(false)}>Cancel</button>
+              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setShowAdd(false)}>Cancel</button>
               <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60" style={{ background: NAVY }}
                 disabled={adding || !addForm.employee_id || !addForm.leave_type_id || !addForm.start_date || !addForm.end_date || !addForm.days_requested}
                 onClick={submitAdd}>

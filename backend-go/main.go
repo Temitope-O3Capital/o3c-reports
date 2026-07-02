@@ -329,6 +329,9 @@ func main() {
 		r.Route("/api/bd", func(r chi.Router) {
 			handlers.RegisterBusinessDev(r, db)
 		})
+		r.Route("/api/payroll", func(r chi.Router) {
+			handlers.RegisterPayroll(r, db)
+		})
 
 	})
 

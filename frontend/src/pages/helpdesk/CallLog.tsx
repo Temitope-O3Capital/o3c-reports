@@ -84,14 +84,14 @@ const OUTCOME_META: Record<string, { color: string; label: string; icon: string 
   resolved:    { color: GREEN,      label: 'Resolved',          icon: 'check_circle' },
   escalated:   { color: AMBER,      label: 'Escalated',         icon: 'arrow_upward' },
   callback:    { color: BLUE,       label: 'Callback Required', icon: 'call_missed_outgoing' },
-  no_answer:   { color: '#94A3B8',  label: 'No Answer',         icon: 'phone_missed' },
-  voicemail:   { color: '#94A3B8',  label: 'Voicemail',         icon: 'voicemail' },
+  no_answer:   { color: 'var(--txt2)',  label: 'No Answer',         icon: 'phone_missed' },
+  voicemail:   { color: 'var(--txt2)',  label: 'Voicemail',         icon: 'voicemail' },
   transferred: { color: NAVY,       label: 'Transferred',       icon: 'call_split' },
 }
 const OUTCOME_COLORS = [GREEN, AMBER, BLUE, '#94A3B8', '#94A3B8', NAVY, RED, '#8B5CF6']
 
 function OutcomePill({ outcome }: { outcome: string }) {
-  const m = OUTCOME_META[outcome] ?? { color: '#64748B', label: outcome.replace(/_/g, ' '), icon: 'call' }
+  const m = OUTCOME_META[outcome] ?? { color: 'var(--txt2)', label: outcome.replace(/_/g, ' '), icon: 'call' }
   return (
     <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full capitalize"
       style={{ background: m.color + '1A', color: m.color }}>
@@ -140,21 +140,21 @@ function LogCallModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
     finally { setSaving(false) }
   }
 
-  const INPUT = 'w-full rounded-xl border px-3 py-2.5 text-[13px] outline-none bg-white transition-colors focus:border-navy'
-  const IBRD  = { borderColor: 'rgba(15,23,42,0.15)' }
-  const LABEL = 'block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1.5'
+  const INPUT = 'w-full rounded-xl border px-3 py-2.5 text-[13px] outline-none transition-colors focus:border-navy'
+  const IBRD  = { background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }
+  const LABEL = 'block text-[11px] font-bold text-[color:var(--txt2)] uppercase tracking-wide mb-1.5'
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+      <div className="rounded-2xl shadow-2xl w-full max-w-md" style={{ background: 'var(--card)' }} onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 pt-5 pb-4"
-          style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
+          style={{ borderBottom: '1px solid var(--bdr)' }}>
           <div>
-            <h3 className="text-[15px] font-bold text-slate-800">Log a Call</h3>
-            <p className="text-[12px] text-slate-400 mt-0.5">Record a customer call manually</p>
+            <h3 className="text-[15px] font-bold" style={{ color: 'var(--txt)' }}>Log a Call</h3>
+            <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>Record a customer call manually</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
-            <span className="material-symbols-rounded text-[18px] text-slate-400">close</span>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[var(--chip-bg)] transition-colors">
+            <span className="material-symbols-rounded text-[18px]" style={{ color: 'var(--txt2)' }}>close</span>
           </button>
         </div>
         <form onSubmit={save} className="px-6 py-5 space-y-4">
@@ -211,8 +211,8 @@ function LogCallModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
           </div>
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold border text-slate-600 hover:bg-slate-50 transition-colors"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }}>Cancel</button>
+              className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold border transition-colors"
+              style={{ borderColor: 'var(--bdr)', color: 'var(--txt)' }}>Cancel</button>
             <button type="submit" disabled={saving}
               className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold text-white disabled:opacity-60 transition-opacity"
               style={{ background: NAVY }}>
@@ -229,14 +229,14 @@ function LogCallModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
-    <div className="bg-white rounded-xl border shadow-xl px-3 py-2.5 text-[12px]"
-      style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
-      {label && <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">{label}</p>}
+    <div className="rounded-xl border shadow-xl px-3 py-2.5 text-[12px]"
+      style={{ background: 'var(--card)', borderColor: 'var(--bdr)' }}>
+      {label && <p className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--txt2)' }}>{label}</p>}
       {payload.map((p: any) => (
         <div key={p.name} className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-sm" style={{ background: p.color ?? p.fill }} />
-          <span className="text-slate-500 capitalize">{p.name}:</span>
-          <span className="font-bold text-slate-800">{p.value}</span>
+          <span className="capitalize" style={{ color: 'var(--txt2)' }}>{p.name}:</span>
+          <span className="font-bold" style={{ color: 'var(--txt)' }}>{p.value}</span>
         </div>
       ))}
     </div>
@@ -329,7 +329,7 @@ export default function CallLog() {
     { key: 'all',      label: 'All Calls',  color: NAVY,       count: sm?.total    ?? 0 },
     { key: 'inbound',  label: 'Inbound',    color: GREEN,      count: sm?.inbound  ?? 0 },
     { key: 'outbound', label: 'Outbound',   color: BLUE,       count: sm?.outbound ?? 0 },
-    { key: 'missed',   label: 'Missed',     color: '#94A3B8',  count: sm?.missed   ?? 0 },
+    { key: 'missed',   label: 'Missed',     color: 'var(--txt2)',  count: sm?.missed   ?? 0 },
   ]
 
   return (
@@ -366,7 +366,7 @@ export default function CallLog() {
         <KpiCard loading={loading} label="Total Calls"   value={String(sm?.total    ?? 0)} icon="call"              accent={NAVY}  />
         <KpiCard loading={loading} label="Inbound"       value={String(sm?.inbound  ?? 0)} icon="call_received"     accent={GREEN} />
         <KpiCard loading={loading} label="Outbound"      value={String(sm?.outbound ?? 0)} icon="call_made"         accent={BLUE}  />
-        <KpiCard loading={loading} label="Missed"        value={String(sm?.missed   ?? 0)} icon="phone_missed"      accent={'#94A3B8'} />
+        <KpiCard loading={loading} label="Missed"        value={String(sm?.missed   ?? 0)} icon="phone_missed"      accent={'var(--txt3)'} />
         <KpiCard loading={loading} label="Resolution"    value={`${resolutionRate}%`}       icon="check_circle"     accent={GREEN} />
         <KpiCard loading={loading} label="Avg Duration"  value={fmtDur(sm?.avg_duration_sec ?? null)} icon="timer"  accent={AMBER} />
       </div>
@@ -380,7 +380,7 @@ export default function CallLog() {
             {loading ? (
               <div className="flex items-center justify-center h-48"><Spinner size={24} /></div>
             ) : byDay.length === 0 ? (
-              <div className="flex items-center justify-center h-48 text-slate-400 text-[13px]">No data for this period</div>
+              <div className="flex items-center justify-center h-48 text-[13px]" style={{ color: 'var(--txt2)' }}>No data for this period</div>
             ) : (
               <div style={{ height: 200 }}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -405,7 +405,7 @@ export default function CallLog() {
             {loading ? (
               <div className="flex items-center justify-center h-48"><Spinner size={24} /></div>
             ) : byOutcome.length === 0 ? (
-              <div className="flex items-center justify-center h-48 text-slate-400 text-[13px]">No data</div>
+              <div className="flex items-center justify-center h-48 text-[13px]" style={{ color: 'var(--txt2)' }}>No data</div>
             ) : (
               <>
                 <div style={{ height: 130 }}>
@@ -426,12 +426,12 @@ export default function CallLog() {
                     <div key={i} className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-sm" style={{ background: d.color ?? OUTCOME_COLORS[i % OUTCOME_COLORS.length] }} />
-                        <span className="text-[11px] text-slate-500 capitalize">{d.name}</span>
+                        <span className="text-[11px] capitalize" style={{ color: 'var(--txt2)' }}>{d.name}</span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] font-bold text-slate-700">{d.value}</span>
+                        <span className="text-[11px] font-bold" style={{ color: 'var(--txt)' }}>{d.value}</span>
                         {(sm?.total ?? 0) > 0 && (
-                          <span className="text-[11px] text-slate-400">
+                          <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>
                             ({Math.round((d.value / (sm?.total ?? 1)) * 100)}%)
                           </span>
                         )}
@@ -451,9 +451,10 @@ export default function CallLog() {
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
-                <tr style={{ background: '#F8FAFC', borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
+                <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
                   {['#', 'Agent', 'Total', 'Inbound', 'Outbound', 'Resolved', 'Avg Duration'].map(h => (
-                    <th key={h} className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap">
+                    <th key={h} style={{ background: 'var(--th-bg)', color: 'var(--txt2)', fontFamily: "'Inter', ui-sans-serif, sans-serif", fontSize: 10 }}
+                      className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap">
                       {h}
                     </th>
                   ))}
@@ -464,35 +465,36 @@ export default function CallLog() {
                   const maxTotal = Math.max(...(stats?.by_agent ?? []).map(x => x.total), 1)
                   const pct = Math.round((a.total / maxTotal) * 100)
                   return (
-                    <tr key={a.agent_name} style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 text-[13px] font-bold text-slate-400 w-8">
+                    <tr key={a.agent_name} style={{ borderTop: '1px solid var(--bdr)' }}
+                      className="hover:bg-[var(--row-hvr)]">
+                      <td className="px-4 py-3 text-[13px] font-bold w-8" style={{ color: 'var(--txt2)' }}>
                         {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <Avatar name={a.agent_name} />
                           <div>
-                            <p className="font-semibold text-slate-800">{a.agent_name}</p>
-                            <div className="mt-1 h-1 rounded-full bg-slate-100 w-24">
+                            <p className="font-semibold" style={{ color: 'var(--txt)' }}>{a.agent_name}</p>
+                            <div className="mt-1 h-1 rounded-full w-24" style={{ background: 'var(--chip-bg)' }}>
                               <div className="h-1 rounded-full" style={{ width: `${pct}%`, background: NAVY }} />
                             </div>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-bold text-slate-800 font-mono">{a.total}</td>
+                      <td className="px-4 py-3 font-bold font-mono" style={{ color: 'var(--txt)' }}>{a.total}</td>
                       <td className="px-4 py-3 font-mono" style={{ color: GREEN }}>{a.inbound}</td>
                       <td className="px-4 py-3 font-mono" style={{ color: BLUE }}>{a.outbound}</td>
                       <td className="px-4 py-3">
-                        <span className="font-semibold" style={{ color: a.resolved > 0 ? GREEN : '#94A3B8' }}>
+                        <span className="font-semibold" style={{ color: a.resolved > 0 ? GREEN : 'var(--txt3)' }}>
                           {a.resolved}
                           {a.total > 0 && (
-                            <span className="text-[11px] text-slate-400 font-normal ml-1">
+                            <span className="text-[11px] font-normal ml-1" style={{ color: 'var(--txt2)' }}>
                               ({Math.round((a.resolved / a.total) * 100)}%)
                             </span>
                           )}
                         </span>
                       </td>
-                      <td className="px-4 py-3 font-mono text-slate-600">{fmtDur(a.avg_duration_sec)}</td>
+                      <td className="px-4 py-3 font-mono" style={{ color: 'var(--txt)' }}>{fmtDur(a.avg_duration_sec)}</td>
                     </tr>
                   )
                 })}
@@ -506,7 +508,7 @@ export default function CallLog() {
       <SectionCard title="Call Log">
         {/* Tabs + Search */}
         <div className="flex items-center gap-2 px-5 pt-3 pb-0 flex-wrap"
-          style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
+          style={{ borderBottom: '1px solid var(--bdr)' }}>
           <div className="flex items-center gap-1">
             {TABS.map(t => (
               <button
@@ -515,26 +517,26 @@ export default function CallLog() {
                 className="flex items-center gap-1.5 px-3 py-2 text-[12px] font-semibold transition-all border-b-2"
                 style={{
                   borderColor: tab === t.key ? t.color : 'transparent',
-                  color: tab === t.key ? t.color : '#94A3B8',
+                  color: tab === t.key ? t.color : 'var(--txt2)',
                   background: 'none',
                 }}
               >
                 {t.label}
                 <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full"
-                  style={{ background: tab === t.key ? t.color + '1A' : 'transparent', color: tab === t.key ? t.color : '#94A3B8' }}>
+                  style={{ background: tab === t.key ? t.color + '1A' : 'transparent', color: tab === t.key ? t.color : 'var(--txt2)' }}>
                   {t.count}
                 </span>
               </button>
             ))}
           </div>
           <div className="ml-auto relative mb-1" style={{ minWidth: 200 }}>
-            <span className="material-symbols-rounded text-[15px] absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">search</span>
+            <span className="material-symbols-rounded text-[15px] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--txt2)' }}>search</span>
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search calls…"
-              className="pl-8 pr-3 py-1.5 rounded-lg border text-[12px] outline-none bg-white w-full"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+              className="pl-8 pr-3 py-1.5 rounded-lg border text-[12px] outline-none w-full"
+              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}
             />
           </div>
         </div>
@@ -543,29 +545,30 @@ export default function CallLog() {
           <div className="flex items-center justify-center py-16"><Spinner size={28} /></div>
         ) : filtered.length === 0 ? (
           <div className="py-16 text-center">
-            <span className="material-symbols-rounded text-[40px] text-slate-300 block mb-2">call_end</span>
-            <p className="text-[13px] text-slate-400 font-medium">No calls found</p>
-            <p className="text-[12px] text-slate-400 mt-1">Try adjusting your date range or filter</p>
+            <span className="material-symbols-rounded text-[40px] block mb-2" style={{ color: 'var(--txt3)' }}>call_end</span>
+            <p className="text-[13px] font-medium" style={{ color: 'var(--txt2)' }}>No calls found</p>
+            <p className="text-[12px] mt-1" style={{ color: 'var(--txt2)' }}>Try adjusting your date range or filter</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
-                <tr style={{ background: '#F8FAFC', borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
+                <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
                   {['Time', 'Direction', 'Agent', 'Customer', 'Duration', 'Outcome', 'Notes', 'Ticket'].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap">{h}</th>
+                    <th key={h} style={{ background: 'var(--th-bg)', color: 'var(--txt2)', fontFamily: "'Inter', ui-sans-serif, sans-serif", fontSize: 10 }}
+                      className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(c => (
-                  <tr key={c.id} style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}
-                    className="hover:bg-slate-50 transition-colors">
+                  <tr key={c.id} style={{ borderTop: '1px solid var(--bdr)' }}
+                    className="hover:bg-[var(--bg)] transition-colors">
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <p className="text-[12px] font-medium text-slate-700">
+                      <p className="text-[12px] font-medium" style={{ color: 'var(--txt)' }}>
                         {new Date(c.started_at).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}
                       </p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">{relativeTime(c.started_at)}</p>
+                      <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{relativeTime(c.started_at)}</p>
                     </td>
                     <td className="px-4 py-3">
                       <span className="flex items-center gap-1.5 text-[12px] font-semibold"
@@ -579,24 +582,24 @@ export default function CallLog() {
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <Avatar name={c.agent_name} />
-                        <span className="font-medium text-slate-800 text-[12px]">{c.agent_name}</span>
+                        <span className="font-medium text-[12px]" style={{ color: 'var(--txt)' }}>{c.agent_name}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <p className="font-medium text-slate-800">{c.customer_name}</p>
+                      <p className="font-medium" style={{ color: 'var(--txt)' }}>{c.customer_name}</p>
                       {c.customer_phone && (
-                        <p className="text-[11px] text-slate-400 font-mono mt-0.5">{c.customer_phone}</p>
+                        <p className="text-[11px] font-mono mt-0.5" style={{ color: 'var(--txt2)' }}>{c.customer_phone}</p>
                       )}
                     </td>
-                    <td className="px-4 py-3 font-mono text-slate-600 whitespace-nowrap text-[12px]">
+                    <td className="px-4 py-3 font-mono whitespace-nowrap text-[12px]" style={{ color: 'var(--txt)' }}>
                       {fmtDurShort(c.duration_sec)}
                     </td>
                     <td className="px-4 py-3"><OutcomePill outcome={c.outcome} /></td>
                     <td className="px-4 py-3 max-w-[200px]">
                       {c.notes ? (
-                        <p className="text-[12px] text-slate-500 truncate" title={c.notes}>{c.notes}</p>
+                        <p className="text-[12px] truncate" title={c.notes} style={{ color: 'var(--txt2)' }}>{c.notes}</p>
                       ) : (
-                        <span className="text-slate-300 text-[12px]">—</span>
+                        <span className="text-[12px]" style={{ color: 'var(--txt3)' }}>—</span>
                       )}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
@@ -608,7 +611,7 @@ export default function CallLog() {
                           {c.ticket_ref}
                         </a>
                       ) : (
-                        <span className="text-slate-300">—</span>
+                        <span style={{ color: 'var(--txt3)' }}>—</span>
                       )}
                     </td>
                   </tr>
@@ -619,8 +622,8 @@ export default function CallLog() {
         )}
 
         {!loading && filtered.length > 0 && (
-          <div className="px-5 py-2.5 text-[11px] text-slate-400"
-            style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }}>
+          <div className="px-5 py-2.5 text-[11px]"
+            style={{ borderTop: '1px solid var(--bdr)', color: 'var(--txt2)' }}>
             Showing {filtered.length} of {calls.length} calls
           </div>
         )}

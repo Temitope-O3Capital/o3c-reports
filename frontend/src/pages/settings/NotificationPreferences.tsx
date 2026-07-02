@@ -104,7 +104,7 @@ export default function NotificationPreferences() {
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: NAVY }}>
           Notification Preferences
         </h1>
-        <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: 14 }}>
+        <p style={{ margin: '6px 0 0', color: 'var(--txt2)', fontSize: 14 }}>
           Choose how you want to be notified for each event. Channel defaults are set by your
           administrator — your choices here override those defaults.
         </p>
@@ -114,24 +114,24 @@ export default function NotificationPreferences() {
         <div key={cat} style={{ marginBottom: 32 }}>
           <h2 style={{
             fontSize: 13, fontWeight: 700, textTransform: 'uppercase',
-            letterSpacing: '0.08em', color: '#94a3b8', margin: '0 0 12px',
+            letterSpacing: '0.08em', color: 'var(--txt2)', margin: '0 0 12px',
           }}>
             {categoryLabel(cat)}
           </h2>
           <div style={{
-            background: '#fff', borderRadius: 8,
-            border: '1px solid #e2e8f0', overflow: 'hidden',
+            background: 'var(--card)', borderRadius: 8,
+            border: '1px solid var(--bdr)', overflow: 'hidden',
           }}>
             {/* header row */}
             <div style={{
               display: 'grid', gridTemplateColumns: '1fr repeat(4, 80px)',
-              padding: '10px 20px', background: '#F4F6F8',
-              borderBottom: '1px solid #e2e8f0',
+              padding: '10px 20px', background: 'var(--bg)',
+              borderBottom: '1px solid var(--bdr)',
             }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Event</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)' }}>Event</span>
               {CHANNELS.map(ch => (
                 <span key={ch} style={{
-                  fontSize: 11, fontWeight: 600, color: '#64748b',
+                  fontSize: 11, fontWeight: 600, color: 'var(--txt2)',
                   textAlign: 'center',
                 }}>
                   {CHANNEL_LABELS[ch]}
@@ -142,13 +142,13 @@ export default function NotificationPreferences() {
               <div key={evt} style={{
                 display: 'grid', gridTemplateColumns: '1fr repeat(4, 80px)',
                 padding: '14px 20px', alignItems: 'center',
-                borderBottom: i < (eventsByCategory[cat].length - 1) ? '1px solid #f1f5f9' : 'none',
+                borderBottom: i < (eventsByCategory[cat].length - 1) ? '1px solid var(--bdr)' : 'none',
               }}>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 500, color: '#1e293b' }}>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--txt)' }}>
                     {labelFor(evt)}
                   </div>
-                  <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+                  <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 2 }}>
                     {descFor(evt)}
                   </div>
                 </div>
@@ -161,7 +161,7 @@ export default function NotificationPreferences() {
                         style={{
                           width: 40, height: 22, borderRadius: 11, border: 'none',
                           cursor: 'pointer', transition: 'background 0.2s',
-                          background: on ? NAVY : '#e2e8f0',
+                          background: on ? NAVY : 'var(--bdr)',
                           position: 'relative',
                         }}
                         title={on ? 'Enabled' : 'Disabled'}
@@ -170,7 +170,7 @@ export default function NotificationPreferences() {
                           position: 'absolute', top: 3,
                           left: on ? 21 : 3,
                           width: 16, height: 16, borderRadius: '50%',
-                          background: '#fff',
+                          background: 'var(--card)',
                           transition: 'left 0.2s',
                           display: 'block',
                           boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
@@ -187,7 +187,7 @@ export default function NotificationPreferences() {
 
       {rows.length === 0 && (
         <div style={{
-          textAlign: 'center', padding: '48px 0', color: '#94a3b8', fontSize: 14,
+          textAlign: 'center', padding: '48px 0', color: 'var(--txt2)', fontSize: 14,
         }}>
           Loading preferences...
         </div>

@@ -65,37 +65,37 @@ function StageColumn({ stage, deals, onClick }: { stage: Stage; deals: Deal[]; o
       <div className="flex items-center justify-between mb-2 px-1">
         <div className="flex items-center gap-2">
           <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: stage.color || NAVY }} />
-          <span className="text-[12px] font-semibold text-slate-700">{stage.name}</span>
+          <span className="text-[12px] font-semibold" style={{ color: 'var(--txt)' }}>{stage.name}</span>
           <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full"
-            style={{ background: 'rgba(14,40,65,0.07)', color: '#475569' }}>
+            style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>
             {deals.length}
           </span>
         </div>
-        <span className="text-[11px] font-mono text-slate-400">{fmt(totalValue)}</span>
+        <span className="text-[11px] font-mono" style={{ color: 'var(--txt2)' }}>{fmt(totalValue)}</span>
       </div>
       <div className="space-y-2">
         {deals.length === 0 ? (
           <div className="rounded-xl border-2 border-dashed p-4 text-center"
-            style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
-            <p className="text-[12px] text-slate-300">No deals</p>
+            style={{ borderColor: 'var(--bdr)' }}>
+            <p className="text-[12px]" style={{ color: 'var(--txt3)' }}>No deals</p>
           </div>
         ) : deals.map(d => (
           <button key={d.id} onClick={() => onClick(d)}
             className="w-full card p-3 text-left hover:shadow-md transition-all"
             style={{ borderLeft: `3px solid ${stage.color || NAVY}` }}>
-            <p className="text-[12px] font-semibold text-slate-800 truncate mb-1">{d.title}</p>
-            <p className="text-[11px] text-slate-500 mb-2">{d.first_name} {d.last_name}</p>
+            <p className="text-[12px] font-semibold truncate mb-1" style={{ color: 'var(--txt)' }}>{d.title}</p>
+            <p className="text-[11px] mb-2" style={{ color: 'var(--txt2)' }}>{d.first_name} {d.last_name}</p>
             <div className="flex items-center justify-between">
               {d.expected_value != null
-                ? <span className="text-[12px] font-mono font-semibold text-slate-700">{fmt(d.expected_value)}</span>
-                : <span className="text-[11px] text-slate-300">—</span>}
+                ? <span className="text-[12px] font-mono font-semibold" style={{ color: 'var(--txt)' }}>{fmt(d.expected_value)}</span>
+                : <span className="text-[11px]" style={{ color: 'var(--txt3)' }}>—</span>}
               <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded"
-                style={{ background: 'rgba(14,40,65,0.05)', color: '#94A3B8' }}>
+                style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>
                 {d.probability}%
               </span>
             </div>
             {d.assigned_name && (
-              <p className="text-[11px] text-slate-400 mt-1.5">{d.assigned_name}</p>
+              <p className="text-[11px] mt-1.5" style={{ color: 'var(--txt2)' }}>{d.assigned_name}</p>
             )}
           </button>
         ))}
@@ -140,11 +140,11 @@ function DealDrawer({ deal, stages, onClose, onUpdated }: {
   return (
     <div className="fixed inset-0 z-50 flex" style={{ background: 'rgba(0,0,0,0.3)' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="ml-auto w-full max-w-sm bg-white shadow-2xl h-full overflow-auto flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
-          <h3 className="text-[14px] font-semibold text-slate-800 truncate">{deal.title}</h3>
-          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100">
-            <span className="material-symbols-rounded text-[18px] text-slate-500">close</span>
+      <div className="ml-auto w-full max-w-sm shadow-2xl h-full overflow-auto flex flex-col" style={{ background: 'var(--card)' }}>
+        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--bdr)' }}>
+          <h3 className="text-[14px] font-semibold truncate" style={{ color: 'var(--txt)' }}>{deal.title}</h3>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg" style={{ color: 'var(--txt2)' }}>
+            <span className="material-symbols-rounded text-[18px]">close</span>
           </button>
         </div>
 
@@ -152,15 +152,15 @@ function DealDrawer({ deal, stages, onClose, onUpdated }: {
           <ErrBanner msg={err} />
 
           <div>
-            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Contact</p>
-            <p className="text-[13px] font-semibold text-slate-800">{deal.first_name} {deal.last_name}</p>
-            {deal.phone && <p className="text-[12px] text-slate-500">{deal.phone}</p>}
+            <p className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--txt2)' }}>Contact</p>
+            <p className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>{deal.first_name} {deal.last_name}</p>
+            {deal.phone && <p className="text-[12px]" style={{ color: 'var(--txt2)' }}>{deal.phone}</p>}
           </div>
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Stage</label>
-            <select className="w-full px-3 py-2 rounded-lg border text-[13px] bg-white outline-none"
-              style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+            <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--txt2)' }}>Stage</label>
+            <select className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
+              style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               value={form.stage_id} onChange={e => setForm(f => ({ ...f, stage_id: e.target.value }))}>
               {stages.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
@@ -168,33 +168,33 @@ function DealDrawer({ deal, stages, onClose, onUpdated }: {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Value (₦)</label>
+              <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--txt2)' }}>Value (₦)</label>
               <input type="number" className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={form.expected_value} onChange={e => setForm(f => ({ ...f, expected_value: e.target.value }))} />
             </div>
             <div>
-              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Probability %</label>
+              <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--txt2)' }}>Probability %</label>
               <input type="number" min={0} max={100} className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={form.probability} onChange={e => setForm(f => ({ ...f, probability: e.target.value }))} />
             </div>
           </div>
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Expected Close</label>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--txt2)' }}>Expected Close</label>
             <input type="date" className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
-              style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+              style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               value={form.expected_close_date} onChange={e => setForm(f => ({ ...f, expected_close_date: e.target.value }))} />
           </div>
 
           <div className="pt-1">
-            <p className="text-[11px] text-slate-400">Assigned to: <span className="text-slate-600">{deal.assigned_name ?? '—'}</span></p>
-            <p className="text-[11px] text-slate-400 mt-1">Last updated: <span className="text-slate-600">{fmtDate(deal.updated_at)}</span></p>
+            <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>Assigned to: <span style={{ color: 'var(--txt2)' }}>{deal.assigned_name ?? '—'}</span></p>
+            <p className="text-[11px] mt-1" style={{ color: 'var(--txt2)' }}>Last updated: <span style={{ color: 'var(--txt2)' }}>{fmtDate(deal.updated_at)}</span></p>
           </div>
         </div>
 
-        <div className="p-5 border-t flex items-center justify-between" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+        <div className="p-5 border-t flex items-center justify-between" style={{ borderColor: 'var(--bdr)' }}>
           <button onClick={remove} className="text-[12px] text-red-500 hover:text-red-700 transition-colors font-medium">
             Delete deal
           </button>
@@ -248,56 +248,62 @@ function CreateDealModal({ stages, onClose, onCreated }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+      <div className="rounded-2xl shadow-xl p-6 w-full max-w-md" style={{ background: 'var(--card)' }}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-[15px] font-bold text-slate-800">New Deal</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
+          <h2 className="text-[15px] font-bold" style={{ color: 'var(--txt)' }}>New Deal</h2>
+          <button onClick={onClose} style={{ color: 'var(--txt2)' }}>
             <span className="material-symbols-rounded text-[20px]">close</span>
           </button>
         </div>
         <ErrBanner msg={err} />
         <div className="space-y-3">
           <div>
-            <label className="block text-[12px] font-semibold text-slate-500 mb-1">Deal Title *</label>
-            <input className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+            <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Deal Title *</label>
+            <input className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+              style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
               placeholder="e.g. SME Loan — Adeola Bakeries" />
           </div>
           <div>
-            <label className="block text-[12px] font-semibold text-slate-500 mb-1">Contact *</label>
-            <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+            <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Contact *</label>
+            <select className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+              style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               value={form.contact_id} onChange={e => setForm(f => ({ ...f, contact_id: e.target.value }))}>
               <option value="">— Select contact —</option>
               {contacts.map(c => <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-[12px] font-semibold text-slate-500 mb-1">Stage</label>
-            <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+            <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Stage</label>
+            <select className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+              style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               value={form.stage_id} onChange={e => setForm(f => ({ ...f, stage_id: e.target.value }))}>
               {stages.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[12px] font-semibold text-slate-500 mb-1">Value (₦)</label>
-              <input type="number" min="0" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+              <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Value (₦)</label>
+              <input type="number" min="0" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 placeholder="0" value={form.expected_value} onChange={e => setForm(f => ({ ...f, expected_value: e.target.value }))} />
             </div>
             <div>
-              <label className="block text-[12px] font-semibold text-slate-500 mb-1">Probability %</label>
-              <input type="number" min="0" max="100" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+              <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Probability %</label>
+              <input type="number" min="0" max="100" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={form.probability} onChange={e => setForm(f => ({ ...f, probability: e.target.value }))} />
             </div>
           </div>
           <div>
-            <label className="block text-[12px] font-semibold text-slate-500 mb-1">Expected Close</label>
-            <input type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+            <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Expected Close</label>
+            <input type="date" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+              style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               value={form.expected_close_date} onChange={e => setForm(f => ({ ...f, expected_close_date: e.target.value }))} />
           </div>
         </div>
         <div className="flex justify-end gap-2 mt-5">
-          <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05]" onClick={onClose}>Cancel</button>
+          <button className="px-4 py-2 rounded-lg text-[13px] font-semibold bg-black/[0.05]" style={{ color: 'var(--txt)' }} onClick={onClose}>Cancel</button>
           <button
             className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
             style={{ background: NAVY }}
@@ -347,8 +353,8 @@ export default function Pipeline() {
       key: 'title', label: 'Deal',
       render: d => (
         <div>
-          <p className="font-semibold text-slate-800 text-[13px]">{d.title}</p>
-          <p className="text-[11px] text-slate-400">{d.first_name} {d.last_name}</p>
+          <p className="font-semibold text-[13px]" style={{ color: 'var(--txt)' }}>{d.title}</p>
+          <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>{d.first_name} {d.last_name}</p>
         </div>
       ),
     },
@@ -362,14 +368,14 @@ export default function Pipeline() {
       ),
     },
     { key: 'expected_value', label: 'Value', right: true, render: d => <span className="kpi-number text-[12px]">{d.expected_value != null ? fmt(d.expected_value) : '—'}</span> },
-    { key: 'probability', label: 'Prob.', right: true, render: d => <span className="text-slate-600 text-[12px]">{d.probability}%</span> },
-    { key: 'assigned_name', label: 'Assigned To', render: d => <span className="text-slate-500">{d.assigned_name ?? '—'}</span> },
-    { key: 'expected_close_date', label: 'Close Date', render: d => <span className="text-slate-400 text-[12px]">{fmtDate(d.expected_close_date)}</span> },
+    { key: 'probability', label: 'Prob.', right: true, render: d => <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{d.probability}%</span> },
+    { key: 'assigned_name', label: 'Assigned To', render: d => <span style={{ color: 'var(--txt2)' }}>{d.assigned_name ?? '—'}</span> },
+    { key: 'expected_close_date', label: 'Close Date', render: d => <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{fmtDate(d.expected_close_date)}</span> },
     {
       key: '_action', label: '', sortable: false,
       render: d => (
         <button onClick={() => setSelectedDeal(d)}
-          className="text-[11px] text-slate-400 hover:text-slate-700 transition-colors font-medium">
+          className="text-[11px] transition-colors font-medium" style={{ color: 'var(--txt2)' }}>
           Edit
         </button>
       ),
@@ -403,13 +409,13 @@ export default function Pipeline() {
       {/* Stage summary bar */}
       {!loading && stages.length > 0 && (
         <div className="card p-4 mb-5">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Stage distribution</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--txt2)' }}>Stage distribution</p>
           <SummaryBar stages={stages} deals={dealMap} />
           <div className="flex flex-wrap gap-3 mt-3">
             {stages.map(s => (
               <div key={s.id} className="flex items-center gap-1.5">
                 <div className="w-2 h-2 rounded-sm" style={{ background: s.color || NAVY }} />
-                <span className="text-[11px] text-slate-500">{s.name} <span className="font-semibold text-slate-700">{(dealMap[String(s.id)] ?? []).length}</span></span>
+                <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{s.name} <span className="font-semibold" style={{ color: 'var(--txt)' }}>{(dealMap[String(s.id)] ?? []).length}</span></span>
               </div>
             ))}
           </div>
@@ -418,12 +424,12 @@ export default function Pipeline() {
 
       {/* View toggle */}
       <div className="flex items-center justify-between mb-4">
-        <p className="text-[13px] text-slate-500">{allDeals.length} total deals</p>
-        <div className="flex rounded-lg border overflow-hidden" style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+        <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>{allDeals.length} total deals</p>
+        <div className="flex rounded-lg border overflow-hidden" style={{ borderColor: 'var(--bdr)' }}>
           {(['kanban', 'table'] as const).map(v => (
             <button key={v} onClick={() => setView(v)}
               className="px-3 py-1.5 text-[12px] font-medium transition-all flex items-center gap-1.5"
-              style={{ background: view === v ? NAVY : 'white', color: view === v ? '#fff' : '#475569' }}>
+              style={{ background: view === v ? NAVY : 'var(--card)', color: view === v ? '#fff' : 'var(--txt2)' }}>
               <span className="material-symbols-rounded text-[14px]">
                 {v === 'kanban' ? 'view_kanban' : 'table_rows'}
               </span>

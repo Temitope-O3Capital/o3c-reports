@@ -38,8 +38,15 @@ export default function Income() {
   const [accLoading, setAccLoading] = useState(false)
   const [error, setError]         = useState('')
   const [exporting, setExporting] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [tab, setTab]             = useState(0)
+  const [uploading,     setUploading]     = useState(false)
+  const [tab, setTab]                    = useState(0)
+  const [cycleSortKey,  setCycleSortKey] = useState<string | null>(null)
+  const [cycleSortDir,  setCycleSortDir] = useState<'asc' | 'desc'>('asc')
+
+  const toggleCycleSort = (key: string) => {
+    if (cycleSortKey === key) setCycleSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setCycleSortKey(key); setCycleSortDir('asc') }
+  }
   const fileRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
@@ -146,7 +153,7 @@ export default function Income() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-0 mb-5 border-b" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+      <div className="flex gap-0 mb-5 border-b" style={{ borderColor: 'var(--bdr)' }}>
         {TABS.map((t, i) => (
           <button key={t} onClick={() => setTab(i)}
             className="px-4 py-2.5 text-[13px] font-medium transition-colors"
@@ -174,7 +181,7 @@ export default function Income() {
           actions={
             <button onClick={() => fileRef.current?.click()} disabled={uploading}
               className="flex items-center gap-1 text-[12px] font-medium px-2.5 py-1.5 rounded-lg"
-              style={{ background: 'rgba(14,40,65,0.06)', color: NAVY }}>
+              style={{ background: 'var(--chip-bg)', color: NAVY }}>
               <span className="material-symbols-rounded text-[14px]">upload</span>Upload
             </button>
           }>
@@ -182,46 +189,59 @@ export default function Income() {
             <div className="p-5 space-y-3">{[...Array(4)].map((_, i) => <Sk key={i} />)}</div>
           ) : cycles.length === 0 ? (
             <div className="py-14 text-center">
-              <span className="material-symbols-rounded text-[36px] text-slate-300 block mb-2">upload_file</span>
-              <p className="text-[13px] text-slate-400">No cycles uploaded yet. Click Upload Cycles to get started.</p>
+              <span className="material-symbols-rounded text-[36px] block mb-2" style={{ color: 'var(--txt3)' }}>upload_file</span>
+              <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>No cycles uploaded yet. Click Upload Cycles to get started.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr style={{ background: NAVY }}>
-                    {['Report Date', 'Types', 'Rows', 'Uploaded', 'By', ''].map(h => (
+                  <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
+                    {([['Report Date','report_date'],['Types',null],['Rows','row_count'],['Uploaded','uploaded_at'],['By','uploaded_by'],['',null]] as [string,string|null][]).map(([h, k]) => (
                       <th key={h} className="px-5 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.07em]"
-                        style={{ color: 'rgba(255,255,255,0.6)' }}>{h}</th>
+                        style={{ color: cycleSortKey === k ? 'var(--txt)' : 'var(--txt2)', cursor: k ? 'pointer' : undefined }}
+                        onClick={k ? () => toggleCycleSort(k) : undefined}>
+                        {h}{k && <span style={{ marginLeft: 3, color: '#C00000', opacity: cycleSortKey === k ? 1 : 0.3 }}>{cycleSortKey === k ? (cycleSortDir === 'asc' ? '↑' : '↓') : '↕'}</span>}
+                      </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {cycles.map(c => (
-                    <tr key={c.id} className="hover:bg-slate-50 transition-colors"
+                  {(() => {
+                    const sortedCycles = cycleSortKey
+                      ? [...cycles].sort((a, b) => {
+                          const va = (a as any)[cycleSortKey] ?? ''
+                          const vb = (b as any)[cycleSortKey] ?? ''
+                          const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))
+                          return cycleSortDir === 'asc' ? cmp : -cmp
+                        })
+                      : cycles
+                    return sortedCycles.map(c => (
+                    <tr key={c.id} className="hover:bg-[var(--row-hvr)] transition-colors"
                       style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
                       <td className="px-5 py-3 font-mono text-[12px]">{fmtDate(c.report_date)}</td>
                       <td className="px-5 py-3">
                         <div className="flex gap-1 flex-wrap">
                           {(c.types || []).map(t => (
                             <span key={t} className="text-[11px] font-semibold px-1.5 py-0.5 rounded"
-                              style={{ background: 'rgba(14,40,65,0.07)', color: '#475569' }}>
+                              style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>
                               {t}
                             </span>
                           ))}
                         </div>
                       </td>
                       <td className="px-5 py-3 font-mono text-right">{fmtNum(c.row_count)}</td>
-                      <td className="px-5 py-3 text-slate-500">{fmtDate(c.uploaded_at)}</td>
-                      <td className="px-5 py-3 text-slate-500">{c.uploaded_by}</td>
+                      <td className="px-5 py-3" style={{ color: 'var(--txt2)' }}>{fmtDate(c.uploaded_at)}</td>
+                      <td className="px-5 py-3" style={{ color: 'var(--txt2)' }}>{c.uploaded_by}</td>
                       <td className="px-5 py-3">
                         <button onClick={() => deleteCycle(c.id)}
-                          className="text-slate-400 hover:text-red-600 transition-colors p-1 rounded">
+                          className="hover:text-red-600 transition-colors p-1 rounded" style={{ color: 'var(--txt3)' }}>
                           <span className="material-symbols-rounded text-[16px]">delete</span>
                         </button>
                       </td>
                     </tr>
-                  ))}
+                    ))
+                  })()}
                 </tbody>
               </table>
             </div>

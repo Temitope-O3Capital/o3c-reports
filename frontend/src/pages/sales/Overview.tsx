@@ -38,7 +38,7 @@ function LifecycleFunnel({ data, loading }: { data: Record<string, number> | nul
                   <div key={stage.key}>
                     {dropOff != null && dropOff > 0 && (
                       <div className="flex items-center gap-2 ml-10 mb-1.5 -mt-1">
-                        <div className="w-px h-3 bg-slate-200 ml-3" />
+                        <div className="w-px h-3 bg-[var(--bdr)] ml-3" />
                         <span className="text-[11px] font-medium" style={{ color: RED }}>
                           −{fmtNum(dropOff)} dropped
                         </span>
@@ -52,8 +52,8 @@ function LifecycleFunnel({ data, loading }: { data: Record<string, number> | nul
                       <div className="flex-1">
                         <div className="flex items-center justify-between mb-1.5">
                           <div>
-                            <span className="text-[13px] font-semibold text-slate-700">{stage.label}</span>
-                            <span className="text-[11px] text-slate-400 ml-2">{stage.desc}</span>
+                            <span className="text-[13px] font-semibold text-[color:var(--txt)]">{stage.label}</span>
+                            <span className="text-[11px] text-[color:var(--txt2)] ml-2">{stage.desc}</span>
                           </div>
                           <div className="flex items-center gap-3 flex-shrink-0">
                             <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full"
@@ -63,7 +63,7 @@ function LifecycleFunnel({ data, loading }: { data: Record<string, number> | nul
                               }}>
                               {convRate.toFixed(1)}%
                             </span>
-                            <span className="kpi-number text-[14px] font-bold text-slate-800 w-16 text-right">
+                            <span className="kpi-number text-[14px] font-bold text-[color:var(--txt)] w-16 text-right">
                               {fmtNum(value)}
                             </span>
                           </div>
@@ -87,7 +87,7 @@ function LifecycleFunnel({ data, loading }: { data: Record<string, number> | nul
 function ManagerLeaderboard({ data, loading }: { data: any[] | null; loading: boolean }) {
   const MEDAL = [
     { icon: 'workspace_premium', cls: 'text-amber-400' },
-    { icon: 'military_tech',     cls: 'text-slate-400' },
+    { icon: 'military_tech',     cls: 'text-[color:var(--txt2)]' },
     { icon: 'emoji_events',      cls: 'text-amber-700' },
   ]
   function initials(name: string) {
@@ -99,7 +99,7 @@ function ManagerLeaderboard({ data, loading }: { data: any[] | null; loading: bo
         ? <div className="px-5 py-4 space-y-3">{Array.from({ length: 5 }).map((_, i) => <Sk key={i} />)}</div>
         : !data?.length
         ? (
-          <div className="flex flex-col items-center justify-center py-14 gap-3 text-slate-400">
+          <div className="flex flex-col items-center justify-center py-14 gap-3 text-[color:var(--txt2)]">
             <span className="material-symbols-rounded text-[36px]">leaderboard</span>
             <p className="text-[13px]">No manager data</p>
           </div>
@@ -109,23 +109,23 @@ function ManagerLeaderboard({ data, loading }: { data: any[] | null; loading: bo
             {data.map((mgr, i) => {
               const rate = Number(mgr.activation_rate || 0)
               return (
-                <div key={i} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors"
+                <div key={i} className="flex items-center gap-3 px-5 py-3 hover:bg-[var(--bg)] transition-colors"
                   style={{ borderTop: i > 0 ? '1px solid rgba(15,23,42,0.05)' : undefined }}>
                   <div className="w-6 flex-shrink-0 flex items-center justify-center">
                     {i < 3
                       ? <span className={`material-symbols-rounded text-[20px] ${MEDAL[i].cls}`}>{MEDAL[i].icon}</span>
-                      : <span className="text-[11px] font-semibold text-slate-400">{i + 1}</span>}
+                      : <span className="text-[11px] font-semibold text-[color:var(--txt2)]">{i + 1}</span>}
                   </div>
                   <div className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
                     style={{ background: `hsl(${(i * 47) % 360} 55% 45%)` }}>
                     {initials(mgr['Account Manager'] || '')}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-semibold text-slate-800 truncate">{mgr['Account Manager'] || '—'}</p>
-                    <p className="text-[11px] text-slate-400">{fmtNum(mgr.active_accounts)} active</p>
+                    <p className="text-[13px] font-semibold text-[color:var(--txt)] truncate">{mgr['Account Manager'] || '—'}</p>
+                    <p className="text-[11px] text-[color:var(--txt2)]">{fmtNum(mgr.active_accounts)} active</p>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <p className="kpi-number text-[15px] font-bold text-slate-800">{fmtNum(mgr.total_accounts)}</p>
+                    <p className="kpi-number text-[15px] font-bold text-[color:var(--txt)]">{fmtNum(mgr.total_accounts)}</p>
                     <span className="text-[11px] font-semibold"
                       style={{ color: rate >= 70 ? GREEN : rate >= 40 ? AMBER : RED }}>
                       {rate.toFixed(0)}% activated
@@ -160,12 +160,12 @@ function ProductMix({ data, loading }: { data: any[] | null; loading: boolean })
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color }} />
-                      <span className="text-[13px] font-semibold text-slate-700">{row['Product Name'] || '—'}</span>
+                      <span className="text-[13px] font-semibold text-[color:var(--txt)]">{row['Product Name'] || '—'}</span>
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-[11px] font-medium" style={{ color: GREEN }}>{actRate.toFixed(0)}% active</span>
-                      <span className="kpi-number text-[13px] font-bold text-slate-800">{fmtNum(totalN)}</span>
-                      <span className="text-[11px] text-slate-400 w-8 text-right">{share.toFixed(1)}%</span>
+                      <span className="kpi-number text-[13px] font-bold text-[color:var(--txt)]">{fmtNum(totalN)}</span>
+                      <span className="text-[11px] text-[color:var(--txt2)] w-8 text-right">{share.toFixed(1)}%</span>
                     </div>
                   </div>
                   <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(15,23,42,0.06)' }}>
@@ -176,10 +176,10 @@ function ProductMix({ data, loading }: { data: any[] | null; loading: boolean })
               )
             })}
         {!loading && data && (
-          <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2"
+          <div className="flex items-center justify-between text-[11px] text-[color:var(--txt2)] pt-2"
             style={{ borderTop: '1px solid rgba(15,23,42,0.06)' }}>
             <span>Total issued</span>
-            <span className="font-semibold text-slate-600 kpi-number">{fmtNum(total)}</span>
+            <span className="font-semibold text-[color:var(--txt2)] kpi-number">{fmtNum(total)}</span>
           </div>
         )}
       </div>

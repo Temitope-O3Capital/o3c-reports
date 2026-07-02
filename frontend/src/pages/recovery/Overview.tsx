@@ -36,7 +36,7 @@ const STAGE_COLORS: Record<string, string> = {
   hearing:         '#C00000',
   garnishee:       '#7C3AED',
   judgment:        '#7F1D1D',
-  closed:          '#94A3B8',
+  closed:          'var(--txt3)',
 }
 
 /* ── Quick-link button ── */
@@ -45,8 +45,8 @@ function QuickLink({ label, to, icon }: { label: string; to: string; icon: strin
   return (
     <button
       onClick={() => nav(to)}
-      className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[13px] font-semibold transition-all hover:shadow-sm bg-white"
-      style={{ borderColor: 'rgba(15,23,42,0.12)', color: NAVY }}>
+      className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[13px] font-semibold transition-all hover:shadow-sm"
+      style={{ background: 'var(--card)', borderColor: 'rgba(15,23,42,0.12)', color: NAVY }}>
       <span className="material-symbols-rounded text-[17px]">{icon}</span>
       {label}
     </button>
@@ -77,28 +77,28 @@ function CasePipeline({ cases, loading }: { cases: RecoveryCase[]; loading: bool
             ))
           : stages.length === 0
           ? (
-            <div className="flex flex-col items-center py-10 gap-2 text-slate-400">
+            <div className="flex flex-col items-center py-10 gap-2" style={{ color: 'var(--txt2)' }}>
               <span className="material-symbols-rounded text-[36px]">gavel</span>
               <p className="text-[13px]">No case pipeline data</p>
             </div>
           )
           : stages.map(([stage, v], i) => {
               const share = totalCases > 0 ? (v.count / totalCases) * 100 : 0
-              const color = STAGE_COLORS[stage] ?? '#94A3B8'
+              const color = STAGE_COLORS[stage] ?? 'var(--txt3)'
               const label = snake(stage)
               return (
                 <div key={i}>
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
-                      <span className="text-[12px] font-semibold text-slate-700">{label}</span>
+                      <span className="text-[12px] font-semibold" style={{ color: 'var(--txt)' }}>{label}</span>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="text-[11px] text-slate-400">{fmt(v.outstanding / 100)}</span>
-                      <span className="kpi-number text-[13px] font-bold text-slate-800">
+                      <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{fmt(v.outstanding / 100)}</span>
+                      <span className="kpi-number text-[13px] font-bold" style={{ color: 'var(--txt)' }}>
                         {v.count.toLocaleString()}
                       </span>
-                      <span className="text-[11px] text-slate-400 w-8 text-right">{share.toFixed(1)}%</span>
+                      <span className="text-[11px] w-8 text-right" style={{ color: 'var(--txt2)' }}>{share.toFixed(1)}%</span>
                     </div>
                   </div>
                   <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(15,23,42,0.06)' }}>
@@ -132,29 +132,29 @@ function RecentActivity({ cases, loading }: { cases: RecoveryCase[]; loading: bo
             ))
           : recent.length === 0
           ? (
-            <div className="flex flex-col items-center py-10 gap-2 text-slate-400">
+            <div className="flex flex-col items-center py-10 gap-2" style={{ color: 'var(--txt2)' }}>
               <span className="material-symbols-rounded text-[36px]">folder_open</span>
               <p className="text-[13px]">No recent cases</p>
             </div>
           )
           : recent.map((c, i) => (
-              <div key={c.id} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors"
+              <div key={c.id} className="flex items-center gap-3 px-5 py-3 transition-colors"
                 style={{ borderTop: i > 0 ? '1px solid rgba(15,23,42,0.05)' : undefined }}>
                 <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-                  style={{ background: 'rgba(14,40,65,0.07)' }}>
+                  style={{ background: 'var(--chip-bg)' }}>
                   <span className="material-symbols-rounded text-[16px]" style={{ color: NAVY }}>folder</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-semibold text-slate-800 truncate">
+                  <p className="text-[13px] font-semibold truncate" style={{ color: 'var(--txt)' }}>
                     {c.case_ref || c.account_cif}
                   </p>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>
                     {fmtDate(c.opened_at)}
                     {c.agent_name ? ` · ${c.agent_name}` : ''}
                   </p>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className="kpi-number text-[13px] font-semibold text-slate-800">
+                  <p className="kpi-number text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>
                     {fmt(n(c.outstanding_kobo) / 100)}
                   </p>
                   <StatusBadge status={c.status} />

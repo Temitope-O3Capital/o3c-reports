@@ -120,7 +120,7 @@ export default function Promises() {
   }
 
   const cols: ColDef<PromiseRow>[] = [
-    { key: 'account_cif',   label: 'CIF',     render: r => <span className="font-mono text-[12px] text-slate-500">{r.account_cif}</span> },
+    { key: 'account_cif',   label: 'CIF',     render: r => <span className="font-mono text-[12px] text-[color:var(--txt2)]">{r.account_cif}</span> },
     { key: 'agent_name',    label: 'Agent' },
     { key: 'promise_date',  label: 'Promise Date', render: r => {
       const overdue = r.status === 'pending' && r.promise_date < todayIso

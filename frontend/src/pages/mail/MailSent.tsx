@@ -99,11 +99,11 @@ export default function MailSent() {
     <div className="flex h-full">
       {/* List pane */}
       <div className="w-[320px] flex-shrink-0 border-r overflow-y-auto"
-        style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
-        <div className="px-4 py-3 border-b flex items-center justify-between sticky top-0 bg-white z-10"
-          style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
-          <h2 className="text-[14px] font-bold text-slate-800">Sent</h2>
-          <span className="text-[11px] text-slate-400">{messages.length}</span>
+        style={{ borderColor: 'var(--bdr)' }}>
+        <div className="px-4 py-3 border-b flex items-center justify-between sticky top-0 bg-[var(--card)] z-10"
+          style={{ borderColor: 'var(--bdr)' }}>
+          <h2 className="text-[14px] font-bold text-[color:var(--txt)]">Sent</h2>
+          <span className="text-[11px] text-[color:var(--txt2)]">{messages.length}</span>
         </div>
 
         <ErrBanner msg={err} />
@@ -115,7 +115,7 @@ export default function MailSent() {
         )}
 
         {!loading && messages.length === 0 && !err && (
-          <div className="flex flex-col items-center py-16 gap-3 text-slate-400">
+          <div className="flex flex-col items-center py-16 gap-3 text-[color:var(--txt2)]">
             <span className="material-symbols-rounded text-[40px]">send</span>
             <p className="text-[13px]">No sent mail yet</p>
           </div>
@@ -124,16 +124,16 @@ export default function MailSent() {
         {messages.map(m => (
           <div key={m.id}
             onClick={() => selectMessage(m)}
-            className={`px-4 py-3 cursor-pointer border-b transition-colors ${selected?.id === m.id ? 'bg-slate-100' : 'hover:bg-slate-50'}`}
+            className={`px-4 py-3 cursor-pointer border-b transition-colors ${selected?.id === m.id ? 'bg-[var(--chip-bg)]' : 'hover:bg-[var(--bg)]'}`}
             style={{ borderColor: 'rgba(15,23,42,0.06)' }}>
             <div className="flex items-start justify-between gap-2 mb-0.5">
-              <p className="text-[13px] font-medium text-slate-800 truncate flex-1">
+              <p className="text-[13px] font-medium text-[color:var(--txt)] truncate flex-1">
                 {m.subject || '(no subject)'}
               </p>
               <StatusPill status={m.status} />
             </div>
-            <p className="text-[11px] text-slate-400 truncate">To: {toList(m.recipients)}</p>
-            <p className="text-[11px] text-slate-400 mt-0.5">{fmtTs(m.created_at)}</p>
+            <p className="text-[11px] text-[color:var(--txt2)] truncate">To: {toList(m.recipients)}</p>
+            <p className="text-[11px] text-[color:var(--txt2)] mt-0.5">{fmtTs(m.created_at)}</p>
           </div>
         ))}
       </div>
@@ -141,7 +141,7 @@ export default function MailSent() {
       {/* Detail pane */}
       <div className="flex-1 overflow-y-auto">
         {!selected ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400">
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-[color:var(--txt2)]">
             <span className="material-symbols-rounded text-[48px]">outgoing_mail</span>
             <p className="text-[14px]">Select a message to view</p>
           </div>
@@ -152,8 +152,8 @@ export default function MailSent() {
               <button
                 type="button"
                 onClick={() => navigate(`/mail/compose?reply_to=${selected.id}`)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-600 hover:bg-slate-100 transition-colors border"
-                style={{ borderColor: 'rgba(15,23,42,0.1)' }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-medium text-[color:var(--txt2)] hover:bg-[var(--chip-bg)] transition-colors border"
+                style={{ borderColor: 'var(--bdr)' }}
               >
                 <span className="material-symbols-rounded text-[15px]">reply</span>
                 Reply
@@ -161,8 +161,8 @@ export default function MailSent() {
               <button
                 type="button"
                 onClick={() => navigate(`/mail/compose?forward=${selected.id}`)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-600 hover:bg-slate-100 transition-colors border"
-                style={{ borderColor: 'rgba(15,23,42,0.1)' }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-medium text-[color:var(--txt2)] hover:bg-[var(--chip-bg)] transition-colors border"
+                style={{ borderColor: 'var(--bdr)' }}
               >
                 <span className="material-symbols-rounded text-[15px]">forward</span>
                 Forward
@@ -172,7 +172,7 @@ export default function MailSent() {
             </div>
 
             {/* Subject */}
-            <h1 className="text-[20px] font-bold text-slate-900 mb-4">
+            <h1 className="text-[20px] font-bold text-[color:var(--txt)] mb-4">
               {selected.subject || '(no subject)'}
             </h1>
 
@@ -180,33 +180,33 @@ export default function MailSent() {
             <div className="grid grid-cols-2 gap-4 mb-6 p-4 rounded-xl text-[12px]"
               style={{ background: 'rgba(14,40,65,0.04)' }}>
               <div>
-                <span className="text-slate-400">From</span>
-                <p className="font-medium text-slate-700 mt-0.5">
+                <span className="text-[color:var(--txt2)]">From</span>
+                <p className="font-medium text-[color:var(--txt)] mt-0.5">
                   {selected.from_name ? `${selected.from_name} <${selected.from_email}>` : selected.from_email}
                 </p>
               </div>
               <div>
-                <span className="text-slate-400">To</span>
-                <p className="font-medium text-slate-700 mt-0.5">{toList(selected.recipients)}</p>
+                <span className="text-[color:var(--txt2)]">To</span>
+                <p className="font-medium text-[color:var(--txt)] mt-0.5">{toList(selected.recipients)}</p>
               </div>
               <div>
-                <span className="text-slate-400">Sent</span>
-                <p className="font-medium text-slate-700 mt-0.5">{fmtTs(selected.created_at)}</p>
+                <span className="text-[color:var(--txt2)]">Sent</span>
+                <p className="font-medium text-[color:var(--txt)] mt-0.5">{fmtTs(selected.created_at)}</p>
               </div>
               <div>
-                <span className="text-slate-400">Delivered</span>
+                <span className="text-[color:var(--txt2)]">Delivered</span>
                 <p className="font-medium mt-0.5" style={{ color: selected.delivered_at ? GREEN : '#94a3b8' }}>
                   {fmtTs(selected.delivered_at)}
                 </p>
               </div>
               <div>
-                <span className="text-slate-400">Opened</span>
+                <span className="text-[color:var(--txt2)]">Opened</span>
                 <p className="font-medium mt-0.5" style={{ color: selected.opened_at ? '#2563EB' : '#94a3b8' }}>
                   {fmtTs(selected.opened_at)}
                 </p>
               </div>
               <div>
-                <span className="text-slate-400">Clicked</span>
+                <span className="text-[color:var(--txt2)]">Clicked</span>
                 <p className="font-medium mt-0.5" style={{ color: selected.clicked_at ? '#7C3AED' : '#94a3b8' }}>
                   {fmtTs(selected.clicked_at)}
                 </p>
@@ -228,21 +228,21 @@ export default function MailSent() {
             ) : selected.html_body ? (
               <div
                 className="rounded-xl border overflow-hidden"
-                style={{ borderColor: 'rgba(15,23,42,0.08)' }}
+                style={{ borderColor: 'var(--bdr)' }}
               >
                 <div
-                  className="px-6 py-5 prose prose-sm max-w-none text-slate-800"
+                  className="px-6 py-5 prose prose-sm max-w-none text-[color:var(--txt)]"
                   style={{ fontFamily: 'inherit', fontSize: 14, lineHeight: 1.75 }}
                   dangerouslySetInnerHTML={{ __html: sanitizeHtml(selected.html_body) }}
                 />
               </div>
             ) : selected.text_body ? (
-              <div className="rounded-xl border px-6 py-5 text-[14px] text-slate-700 whitespace-pre-wrap leading-relaxed"
-                style={{ borderColor: 'rgba(15,23,42,0.08)', fontFamily: 'inherit' }}>
+              <div className="rounded-xl border px-6 py-5 text-[14px] text-[color:var(--txt)] whitespace-pre-wrap leading-relaxed"
+                style={{ borderColor: 'var(--bdr)', fontFamily: 'inherit' }}>
                 {selected.text_body}
               </div>
             ) : (
-              <p className="text-[12px] text-slate-400 italic">
+              <p className="text-[12px] text-[color:var(--txt2)] italic">
                 Message body not available — only delivery metadata is tracked.
               </p>
             )}

@@ -37,6 +37,9 @@ export default function BDPipeline() {
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ title: '', stage: 'prospect', lead_type: '', company_name: '', contact_name: '', contact_phone: '' })
   const [saving, setSaving] = useState(false)
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = (q = search, s = stageFilter) => {
@@ -87,6 +90,18 @@ export default function BDPipeline() {
 
   const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
 
+  const toggleSort = (key: string) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
+  const sorted = [...leads].sort((a, b) => {
+    if (!sortKey) return 0
+    const va = (a as any)[sortKey] ?? ''
+    const vb = (b as any)[sortKey] ?? ''
+    const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))
+    return sortDir === 'asc' ? cmp : -cmp
+  })
+
   return (
     <div style={{ padding: '24px 32px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
@@ -114,39 +129,59 @@ export default function BDPipeline() {
         style={{ marginBottom: 16, width: 280, padding: '8px 12px', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }} />
 
       <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, overflow: 'auto' }}>
+        {selectedIds.size > 0 && (
+          <div style={{ padding: '10px 14px', background: '#F0F4FF', borderBottom: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#0E2841' }}>{selectedIds.size} selected</span>
+            <button style={{ padding: '5px 12px', border: '1px solid var(--bdr)', borderRadius: 7, fontSize: 12, fontWeight: 600, background: '#fff', color: '#0E2841', cursor: 'pointer' }}>Export</button>
+            <button onClick={() => setSelectedIds(new Set())} style={{ marginLeft: 'auto', padding: '5px 12px', border: '1px solid var(--bdr)', borderRadius: 7, fontSize: 12, background: 'transparent', color: 'var(--txt2)', cursor: 'pointer' }}>Clear</button>
+          </div>
+        )}
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead style={{ background: 'var(--bg)' }}>
+          <thead style={{ background: 'var(--th-bg)' }}>
             <tr>
-              {['Title', 'Company', 'Type', 'Value', 'Assigned To', 'Stage', 'Close Date', 'Updated', ''].map(h => (
-                <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontSize: 11, fontWeight: 700, color: 'var(--txt-2)', textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap' }}>{h}</th>
+              <th style={{ width: 40, padding: '10px 14px' }}>
+                <input type="checkbox" checked={selectedIds.size === sorted.length && sorted.length > 0}
+                  onChange={e => setSelectedIds(e.target.checked ? new Set(sorted.map(x => x.id)) : new Set())}
+                  style={{ cursor: 'pointer' }} />
+              </th>
+              {([['Title','title'],['Company','company_name'],['Type','lead_type'],['Value','potential_value_kobo'],['Assigned To','assigned_name'],['Stage','stage'],['Close Date','expected_close_date'],['Updated','updated_at'],['',null]] as [string, string|null][]).map(([h, k]) => (
+                <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontSize: 11, fontWeight: 700, color: sortKey === k ? 'var(--txt)' : 'var(--txt2)', textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap', cursor: k ? 'pointer' : undefined }}
+                  onClick={k ? () => toggleSort(k) : undefined}>
+                  {h}{k && <span style={{ marginLeft: 3, color: '#C00000', opacity: sortKey === k ? 1 : 0.3 }}>{sortKey === k ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9} style={{ padding: 32, textAlign: 'center', color: 'var(--txt-2)' }}>Loading…</td></tr>
-            ) : leads.length === 0 ? (
-              <tr><td colSpan={9} style={{ padding: 32, textAlign: 'center', color: 'var(--txt-2)' }}>No leads found.</td></tr>
-            ) : leads.map(l => (
-              <tr key={l.id} style={{ borderTop: '1px solid var(--bdr)' }}>
+              <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: 'var(--txt2)' }}>Loading…</td></tr>
+            ) : sorted.length === 0 ? (
+              <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: 'var(--txt2)' }}>No leads found.</td></tr>
+            ) : sorted.map(l => (
+              <tr key={l.id} style={{ borderTop: '1px solid var(--bdr)', background: selectedIds.has(l.id) ? 'var(--row-sel)' : undefined }}>
+                <td style={{ padding: '10px 14px' }} onClick={ev => ev.stopPropagation()}>
+                  <input type="checkbox" checked={selectedIds.has(l.id)}
+                    onChange={() => setSelectedIds(s => { const n = new Set(s); n.has(l.id) ? n.delete(l.id) : n.add(l.id); return n })}
+                    style={{ cursor: 'pointer' }} />
+                </td>
                 <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--txt)', cursor: 'pointer' }}
                   onClick={() => nav(`/bd/leads/${l.id}`)}>{l.title}</td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)' }}>{l.employer_name ?? l.company_name ?? '—'}</td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)' }}>{l.lead_type ?? '—'}</td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)', fontFamily: 'DM Mono, monospace', whiteSpace: 'nowrap' }}>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)' }}>{l.employer_name ?? l.company_name ?? '—'}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)' }}>{l.lead_type ?? '—'}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)', fontFamily: 'DM Mono, monospace', whiteSpace: 'nowrap' }}>
                   {l.potential_value_kobo ? fmtKobo(l.potential_value_kobo) : '—'}
                 </td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)' }}>{l.assigned_name ?? '—'}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)' }}>{l.assigned_name ?? '—'}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <select value={l.stage} onChange={e => moveStage(l.id, e.target.value)}
                     style={{ padding: '3px 8px', borderRadius: 6, border: `1px solid ${STAGE_COLORS[l.stage]}66`, fontSize: 11, fontWeight: 600, background: STAGE_COLORS[l.stage] + '18', color: STAGE_COLORS[l.stage], cursor: 'pointer' }}>
                     {STAGES.map(s => <option key={s} value={s}>{STAGE_LABELS[s]}</option>)}
                   </select>
                 </td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)', whiteSpace: 'nowrap' }}>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)', whiteSpace: 'nowrap' }}>
                   {l.expected_close_date ? fmtDate(l.expected_close_date) : '—'}
                 </td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-2)', whiteSpace: 'nowrap' }}>{fmtDate(l.updated_at)}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--txt2)', whiteSpace: 'nowrap' }}>{fmtDate(l.updated_at)}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <button onClick={() => nav(`/bd/leads/${l.id}`)} style={{ padding: '4px 10px', border: '1px solid var(--bdr)', borderRadius: 6, background: 'var(--bg)', color: 'var(--txt)', fontSize: 11, cursor: 'pointer' }}>View</button>
                 </td>
@@ -168,21 +203,21 @@ export default function BDPipeline() {
                 { k: 'contact_phone', label: 'Contact Phone' },
               ] as const).map(f => (
                 <div key={f.k}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-2)', display: 'block', marginBottom: 4 }}>{f.label}</label>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>{f.label}</label>
                   <input value={form[f.k]} onChange={e => setForm(p => ({ ...p, [f.k]: e.target.value }))}
                     style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, background: 'var(--bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
                 </div>
               ))}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-2)', display: 'block', marginBottom: 4 }}>Stage</label>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Stage</label>
                   <select value={form.stage} onChange={e => setForm(p => ({ ...p, stage: e.target.value }))}
                     style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, background: 'var(--bg)', color: 'var(--txt)' }}>
                     {STAGES.map(s => <option key={s} value={s}>{STAGE_LABELS[s]}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-2)', display: 'block', marginBottom: 4 }}>Lead Type</label>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Lead Type</label>
                   <select value={form.lead_type} onChange={e => setForm(p => ({ ...p, lead_type: e.target.value }))}
                     style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, background: 'var(--bg)', color: 'var(--txt)' }}>
                     <option value="">— Select —</option>

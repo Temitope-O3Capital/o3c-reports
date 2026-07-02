@@ -418,25 +418,26 @@ export default function TicketDetail() {
   const tags = normalizeTags(ticket.tags)
 
   return (
-    <div className="flex flex-col h-full" style={{ minHeight: '100vh', background: '#F4F6F8' }}>
+    <div className="flex flex-col h-full" style={{ minHeight: '100vh', background: 'var(--bg)' }}>
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 py-3 bg-white"
-        style={{ borderBottom: '1px solid rgba(15,23,42,0.09)' }}>
+      <div className="flex items-center gap-3 px-6 py-3"
+        style={{ background: 'var(--card)', borderBottom: '1px solid var(--bdr)' }}>
         <button
           onClick={() => navigate('/helpdesk')}
-          className="flex items-center gap-1 text-[12px] font-medium text-slate-400 hover:text-slate-700 transition-colors flex-shrink-0"
+          className="flex items-center gap-1 text-[12px] font-medium transition-colors flex-shrink-0"
+          style={{ color: 'var(--txt2)' }}
         >
           <span className="material-symbols-rounded text-[16px]">arrow_back</span>
         </button>
         <span className="font-mono text-[12px] px-2 py-0.5 rounded-md font-semibold flex-shrink-0"
-          style={{ background: 'rgba(14,40,65,0.07)', color: NAVY }}>
+          style={{ background: 'var(--chip-bg)', color: NAVY }}>
           {ticket.ticket_ref}
         </span>
-        <span className="font-semibold text-slate-800 text-[14px] truncate min-w-0">
+        <span className="font-semibold text-[14px] truncate min-w-0" style={{ color: 'var(--txt)' }}>
           {ticket.subject}
         </span>
         <div className="flex items-center gap-2 ml-auto flex-shrink-0">
-          <span className="flex items-center gap-1 text-[12px] text-slate-400">
+          <span className="flex items-center gap-1 text-[12px]" style={{ color: 'var(--txt2)' }}>
             <span className="material-symbols-rounded text-[14px]">
               {CHANNEL_ICON[ticket.channel?.toLowerCase()] ?? 'chat'}
             </span>
@@ -456,8 +457,8 @@ export default function TicketDetail() {
       {/* Body: three columns */}
       <div className="flex flex-1 overflow-hidden">
         {/* LEFT SIDEBAR */}
-        <aside className="w-64 bg-white border-r flex-shrink-0 overflow-y-auto"
-          style={{ borderColor: 'rgba(15,23,42,0.09)' }}>
+        <aside className="w-64 border-r flex-shrink-0 overflow-y-auto"
+          style={{ background: 'var(--card)', borderColor: 'var(--bdr)' }}>
           <div className="p-4 space-y-4">
             {/* Status */}
             <SideField label="Status">
@@ -471,8 +472,8 @@ export default function TicketDetail() {
                     patchTicket('status', v)
                   }
                 }}
-                className="w-full px-2 py-1.5 rounded-lg border text-[12px] font-medium bg-white outline-none appearance-none"
-                style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}
+                className="w-full px-2 py-1.5 rounded-lg border text-[12px] font-medium outline-none appearance-none"
+                style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}
               >
                 {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
@@ -483,8 +484,8 @@ export default function TicketDetail() {
               <select
                 value={ticket.priority.toLowerCase()}
                 onChange={e => patchTicket('priority', e.target.value)}
-                className="w-full px-2 py-1.5 rounded-lg border text-[12px] font-medium bg-white outline-none appearance-none"
-                style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}
+                className="w-full px-2 py-1.5 rounded-lg border text-[12px] font-medium outline-none appearance-none"
+                style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}
               >
                 {PRIORITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
@@ -492,7 +493,7 @@ export default function TicketDetail() {
 
             {/* Channel (display only) */}
             <SideField label="Channel">
-              <span className="flex items-center gap-1 text-[12px] text-slate-600">
+              <span className="flex items-center gap-1 text-[12px] text-[color:var(--txt2)]">
                 <span className="material-symbols-rounded text-[14px]">
                   {CHANNEL_ICON[ticket.channel?.toLowerCase()] ?? 'chat'}
                 </span>
@@ -503,16 +504,16 @@ export default function TicketDetail() {
             {/* Department */}
             <SideField label="Department">
               {ticket.zoho_department_name && !DEPT_OPTIONS.find(o => o.value === ticket.department?.toLowerCase().replace(/\s+/g, '_')) ? (
-                <p className="text-[12px] font-medium px-2 py-1.5 rounded-lg border bg-white"
-                  style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}>
+                <p className="text-[12px] font-medium px-2 py-1.5 rounded-lg border"
+                  style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}>
                   {ticket.zoho_department_name}
                 </p>
               ) : (
                 <select
                   value={ticket.department?.toLowerCase().replace(/\s+/g, '_') ?? 'general'}
                   onChange={e => patchTicket('department', e.target.value)}
-                  className="w-full px-2 py-1.5 rounded-lg border text-[12px] font-medium bg-white outline-none appearance-none"
-                  style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}
+                  className="w-full px-2 py-1.5 rounded-lg border text-[12px] font-medium bg-[var(--card)] outline-none appearance-none"
+                  style={{ borderColor: 'var(--bdr)', color: 'var(--txt)' }}
                 >
                   {DEPT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
@@ -525,7 +526,7 @@ export default function TicketDetail() {
                 {tags.map(tag => (
                   <span key={tag}
                     className="inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded-full font-medium"
-                    style={{ background: 'rgba(14,40,65,0.08)', color: NAVY }}>
+                    style={{ background: 'var(--chip-bg)', color: NAVY }}>
                     {tag}
                     <button onClick={() => removeTag(tag)}
                       className="ml-0.5 hover:text-red-600 transition-colors">
@@ -548,7 +549,7 @@ export default function TicketDetail() {
                 ) : (
                   <button
                     onClick={() => setShowTagInput(true)}
-                    className="text-[11px] px-1.5 py-0.5 rounded-full font-medium text-slate-400 hover:text-slate-600 transition-colors"
+                    className="text-[11px] px-1.5 py-0.5 rounded-full font-medium text-[color:var(--txt2)] hover:text-[color:var(--txt2)] transition-colors"
                     style={{ border: '1px dashed rgba(15,23,42,0.2)' }}>
                     + add
                   </button>
@@ -562,8 +563,8 @@ export default function TicketDetail() {
                 <select
                   value={ticket.assigned_to_id ?? (ticket as any).assigned_to ?? ''}
                   onChange={e => patchTicket('assigned_to', e.target.value)}
-                  className="w-full px-2 py-1.5 rounded-lg border text-[12px] font-medium bg-white outline-none appearance-none"
-                  style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}
+                  className="w-full px-2 py-1.5 rounded-lg border text-[12px] font-medium bg-[var(--card)] outline-none appearance-none"
+                  style={{ borderColor: 'var(--bdr)', color: 'var(--txt)' }}
                 >
                   <option value="">Unassigned</option>
                   {agents.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
@@ -573,8 +574,8 @@ export default function TicketDetail() {
                   defaultValue={ticket.assigned_to_name ?? ''}
                   onBlur={e => patchTicket('assigned_to_name', e.target.value)}
                   placeholder="Enter name…"
-                  className="w-full px-2 py-1.5 rounded-lg border text-[12px] font-medium bg-white outline-none"
-                  style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#334155' }}
+                  className="w-full px-2 py-1.5 rounded-lg border text-[12px] font-medium outline-none"
+                  style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}
                 />
               )}
             </SideField>
@@ -582,7 +583,7 @@ export default function TicketDetail() {
             {/* SLA */}
             <SideField label="SLA">
               <SLACountdown dueAt={ticket.sla_due_at} />
-              {!ticket.sla_due_at && <span className="text-[12px] text-slate-400">No SLA set</span>}
+              {!ticket.sla_due_at && <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>No SLA set</span>}
             </SideField>
 
             {/* CSAT — shown when Zoho has a rating */}
@@ -591,45 +592,45 @@ export default function TicketDetail() {
                 <div className="flex items-center gap-1">
                   {[1,2,3,4,5].map(n => (
                     <span key={n} className="text-[16px]"
-                      style={{ color: n <= (ticket.csat_score ?? 0) ? '#F59E0B' : '#CBD5E1' }}>
+                      style={{ color: n <= (ticket.csat_score ?? 0) ? '#F59E0B' : 'var(--txt3)' }}>
                       ★
                     </span>
                   ))}
-                  <span className="text-[12px] text-slate-500 ml-1">{ticket.csat_score}/5</span>
+                  <span className="text-[12px] ml-1" style={{ color: 'var(--txt2)' }}>{ticket.csat_score}/5</span>
                 </div>
               </SideField>
             )}
 
-            <div className="pt-1" style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }}>
-              <p className="text-[11px] text-slate-400 mb-0.5">Created</p>
-              <p className="text-[12px] text-slate-600">{fmtDate(ticket.created_at)}</p>
+            <div className="pt-1" style={{ borderTop: '1px solid var(--bdr)' }}>
+              <p className="text-[11px] mb-0.5" style={{ color: 'var(--txt2)' }}>Created</p>
+              <p className="text-[12px]" style={{ color: 'var(--txt)' }}>{fmtDate(ticket.created_at)}</p>
             </div>
           </div>
         </aside>
 
         {/* MIDDLE: Messages + Reply */}
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5" style={{ background: '#F8FAFC' }}>
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5" style={{ background: 'var(--bg)' }}>
 
             {/* Description bubble — shown when ticket has a description but no thread messages yet */}
             {ticket.description && messages.length === 0 && (
               <div className="flex items-end gap-2.5">
-                <MsgAvatar name={ticket.customer_name || 'Customer'} color="#64748B" />
+                <MsgAvatar name={ticket.customer_name || 'Customer'} color="var(--txt2)" />
                 <div className="max-w-[78%]">
-                  <p className="text-[11px] font-semibold text-slate-400 mb-1 ml-1">
+                  <p className="text-[11px] font-semibold mb-1 ml-1" style={{ color: 'var(--txt2)' }}>
                     {ticket.customer_name || 'Customer'} · {fmtDate(ticket.created_at)} · Original message
                   </p>
-                  <div className="bg-white rounded-2xl rounded-bl-md px-4 py-3 shadow-sm border"
-                    style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
-                    <p className="text-[13px] text-slate-700 leading-relaxed whitespace-pre-wrap">{ticket.description}</p>
+                  <div className="rounded-2xl rounded-bl-md px-4 py-3 shadow-sm border"
+                    style={{ background: 'var(--card)', borderColor: 'var(--bdr)' }}>
+                    <p className="text-[13px] leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--txt)' }}>{ticket.description}</p>
                   </div>
                 </div>
               </div>
             )}
 
             {messages.length === 0 && events.length === 0 && !ticket.description && (
-              <div className="flex flex-col items-center justify-center py-12 text-slate-400">
-                <span className="material-symbols-rounded text-[40px] mb-2 text-slate-300">chat</span>
+              <div className="flex flex-col items-center justify-center py-12" style={{ color: 'var(--txt2)' }}>
+                <span className="material-symbols-rounded text-[40px] mb-2" style={{ color: 'var(--txt3)' }}>chat</span>
                 <p className="text-[13px]">No messages yet</p>
                 <p className="text-[12px] mt-1">Send the first reply below</p>
               </div>
@@ -642,18 +643,18 @@ export default function TicketDetail() {
               <div className="space-y-1">
                 <div className="flex items-center gap-2 py-2">
                   <div className="flex-1 h-px" style={{ background: 'rgba(15,23,42,0.08)' }} />
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Activity</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--txt2)' }}>Activity</span>
                   <div className="flex-1 h-px" style={{ background: 'rgba(15,23,42,0.08)' }} />
                 </div>
                 {events.map(ev => (
                   <div key={ev.id} className="flex items-center gap-2 py-1">
-                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: '#CBD5E1' }} />
-                    <span className="text-[11px] text-slate-400 flex-1">
+                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: 'var(--bdr)' }} />
+                    <span className="text-[11px] flex-1" style={{ color: 'var(--txt2)' }}>
                       {ev.event_type === 'created'
                         ? 'Ticket created'
                         : `${ev.event_type.replace(/_/g, ' ')}: ${ev.old_value ?? '—'} → ${ev.new_value ?? '—'}`}
                     </span>
-                    <span className="text-[11px] text-slate-400 whitespace-nowrap">
+                    <span className="text-[11px] whitespace-nowrap" style={{ color: 'var(--txt2)' }}>
                       {new Date(ev.ts).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
@@ -663,8 +664,8 @@ export default function TicketDetail() {
           </div>
 
           {/* Reply box */}
-          <div className="bg-white border-t flex-shrink-0"
-            style={{ borderColor: 'rgba(15,23,42,0.09)' }}>
+          <div className="border-t flex-shrink-0"
+            style={{ background: 'var(--card)', borderColor: 'var(--bdr)' }}>
             {/* Tab row */}
             <div className="flex items-center gap-1 px-5 pt-3 pb-0">
               <TabBtn active={replyMode === 'reply'} onClick={() => setReplyMode('reply')} label="Reply" />
@@ -699,14 +700,14 @@ export default function TicketDetail() {
                 style={{
                   borderColor: replyMode === 'note' ? '#FDE68A' : 'rgba(15,23,42,0.15)',
                   background: replyMode === 'note' ? '#FFFBEB' : 'white',
-                  color: '#334155',
+                  color: 'var(--txt)',
                 }}
               />
               <div className="flex items-center justify-between mt-1">
                 {sendErr
                   ? <p className="text-[12px] text-red-600">{sendErr}</p>
                   : <span />}
-                <span className="text-[11px] text-slate-400">{body.length} chars</span>
+                <span className="text-[11px] text-[color:var(--txt2)]">{body.length} chars</span>
               </div>
             </div>
 
@@ -744,27 +745,27 @@ export default function TicketDetail() {
         </main>
 
         {/* RIGHT: Customer 360 + Actions */}
-        <aside className="w-64 bg-white border-l flex-shrink-0 flex flex-col overflow-hidden"
+        <aside className="w-64 bg-[var(--card)] border-l flex-shrink-0 flex flex-col overflow-hidden"
           style={{ borderColor: 'rgba(15,23,42,0.09)' }}>
 
           {/* Customer header — always visible */}
           <div className="px-4 pt-4 pb-3 flex-shrink-0" style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
-            <p className="font-semibold text-slate-800 text-[14px] leading-snug">
+            <p className="font-semibold text-[color:var(--txt)] text-[14px] leading-snug">
               {ticket.customer_name}
             </p>
             {ticket.customer_cif && (
-              <span className="text-[11px] font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded mt-1 inline-block">
+              <span className="text-[11px] font-mono bg-[var(--chip-bg)] text-[color:var(--txt2)] px-1.5 py-0.5 rounded mt-1 inline-block">
                 CIF: {ticket.customer_cif}
               </span>
             )}
             {ticket.customer_email && (
-              <div className="flex items-center gap-1.5 text-[12px] text-slate-500 mt-1.5">
+              <div className="flex items-center gap-1.5 text-[12px] text-[color:var(--txt2)] mt-1.5">
                 <span className="material-symbols-rounded text-[13px]">email</span>
                 <span className="truncate">{ticket.customer_email}</span>
               </div>
             )}
             {ticket.customer_phone && (
-              <div className="flex items-center gap-1.5 text-[12px] text-slate-500 mt-1">
+              <div className="flex items-center gap-1.5 text-[12px] text-[color:var(--txt2)] mt-1">
                 <span className="material-symbols-rounded text-[13px]">phone</span>
                 <span>{ticket.customer_phone}</span>
               </div>
@@ -779,7 +780,7 @@ export default function TicketDetail() {
                 onClick={() => setRightTab(tab)}
                 className="flex-1 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors"
                 style={{
-                  color: rightTab === tab ? NAVY : '#94A3B8',
+                  color: rightTab === tab ? NAVY : 'var(--txt2)',
                   borderBottom: rightTab === tab ? `2px solid ${NAVY}` : '2px solid transparent',
                   background: 'transparent',
                 }}
@@ -796,12 +797,12 @@ export default function TicketDetail() {
             {rightTab === 'context' && (
               <div className="p-4 space-y-4">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Phone</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[color:var(--txt2)] mb-2">Phone</p>
                   <ZohoDialer ticket={ticket} />
                 </div>
 
                 <div style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }} className="pt-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[color:var(--txt2)] mb-2">
                     Financial Summary
                   </p>
                   {c360Loading ? (
@@ -825,23 +826,23 @@ export default function TicketDetail() {
                       <Ctx360Item label="Open Tickets"   value={String(ctx.open_tickets ?? 0)} />
                     </div>
                   ) : (
-                    <p className="text-[12px] text-slate-400">No financial data</p>
+                    <p className="text-[12px] text-[color:var(--txt2)]">No financial data</p>
                   )}
                 </div>
 
                 {/* Products */}
                 {(c360?.products as any[])?.length > 0 && (
                   <div style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }} className="pt-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Products</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[color:var(--txt2)] mb-2">Products</p>
                     <div className="space-y-1.5">
                       {(c360.products as any[]).slice(0, 3).map((p: any, i: number) => (
                         <div key={i} className="flex items-center justify-between gap-1">
-                          <span className="text-[12px] text-slate-600 truncate">
+                          <span className="text-[12px] text-[color:var(--txt2)] truncate">
                             {p['Product Name'] ?? p.Product_Name ?? '—'}
                           </span>
                           <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0 ${
                             (p['Account Status'] ?? p.Account_Status ?? '').toLowerCase().includes('active')
-                              ? 'bg-green-50 text-green-700' : 'bg-slate-100 text-slate-500'
+                              ? 'bg-green-50 text-green-700' : 'bg-[var(--chip-bg)] text-[color:var(--txt2)]'
                           }`}>
                             {(p['Account Status'] ?? p.Account_Status ?? '—').slice(0, 8)}
                           </span>
@@ -854,15 +855,15 @@ export default function TicketDetail() {
                 {/* Recent Loan Apps */}
                 {(c360?.loan_apps as any[])?.length > 0 && (
                   <div style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }} className="pt-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Loans</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[color:var(--txt2)] mb-2">Loans</p>
                     <div className="space-y-2">
                       {(c360.loan_apps as any[]).slice(0, 2).map((la: any) => (
                         <div key={la.id} className="rounded-lg p-2" style={{ background: 'rgba(14,40,65,0.04)' }}>
                           <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-mono text-slate-500 truncate">{la.reference ?? '—'}</span>
-                            <span className="text-[10px] font-semibold text-slate-500 ml-1">{la.stage ?? la.status ?? '—'}</span>
+                            <span className="text-[11px] font-mono text-[color:var(--txt2)] truncate">{la.reference ?? '—'}</span>
+                            <span className="text-[10px] font-semibold text-[color:var(--txt2)] ml-1">{la.stage ?? la.status ?? '—'}</span>
                           </div>
-                          <p className="text-[12px] font-semibold text-slate-700 mt-0.5">
+                          <p className="text-[12px] font-semibold text-[color:var(--txt)] mt-0.5">
                             {fmtKobo(la.amount_approved_kobo ?? la.amount_requested_kobo)}
                           </p>
                         </div>
@@ -874,21 +875,21 @@ export default function TicketDetail() {
                 {/* Recent Transactions */}
                 {(c360?.transactions as any[])?.length > 0 && (
                   <div style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }} className="pt-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[color:var(--txt2)] mb-2">
                       Recent Transactions
                     </p>
                     <div className="space-y-2">
                       {(c360.transactions as any[]).slice(0, 3).map((tx: any, i: number) => (
                         <div key={i} className="flex items-start justify-between gap-1">
                           <div className="min-w-0">
-                            <p className="text-[11px] text-slate-600 truncate">
+                            <p className="text-[11px] text-[color:var(--txt2)] truncate">
                               {tx.Description ?? tx['Description'] ?? '—'}
                             </p>
-                            <p className="text-[10px] text-slate-400">
+                            <p className="text-[10px] text-[color:var(--txt2)]">
                               {tx['Transaction Date'] ?? tx.Transaction_Date ?? ''}
                             </p>
                           </div>
-                          <span className="text-[11px] font-semibold text-slate-700 whitespace-nowrap">
+                          <span className="text-[11px] font-semibold text-[color:var(--txt)] whitespace-nowrap">
                             {tx.Amount ?? tx['Amount'] ?? '—'}
                           </span>
                         </div>
@@ -928,24 +929,24 @@ export default function TicketDetail() {
                         <p className="text-[11px] text-amber-600">No active collection case found for this CIF.</p>
                       )}
                       <label className="block">
-                        <span className="text-[11px] text-slate-400">Amount (₦)</span>
+                        <span className="text-[11px] text-[color:var(--txt2)]">Amount (₦)</span>
                         <input
                           type="number" min="0"
                           value={ptpAmount}
                           onChange={e => setPtpAmount(e.target.value)}
                           placeholder="0.00"
                           className="w-full mt-0.5 px-2 py-1.5 rounded-lg border text-[12px] outline-none"
-                          style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                          style={{ borderColor: 'var(--bdr)' }}
                         />
                       </label>
                       <label className="block">
-                        <span className="text-[11px] text-slate-400">Promise Date</span>
+                        <span className="text-[11px] text-[color:var(--txt2)]">Promise Date</span>
                         <input
                           type="date"
                           value={ptpDate}
                           onChange={e => setPtpDate(e.target.value)}
                           className="w-full mt-0.5 px-2 py-1.5 rounded-lg border text-[12px] outline-none"
-                          style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                          style={{ borderColor: 'var(--bdr)' }}
                         />
                       </label>
                       <div className="flex gap-2">
@@ -959,7 +960,7 @@ export default function TicketDetail() {
                         </button>
                         <button
                           onClick={() => { setPtpOpen(false); setPtpAmount(''); setPtpDate('') }}
-                          className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 hover:bg-slate-100"
+                          className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-[color:var(--txt2)] hover:bg-[var(--chip-bg)]"
                         >
                           Cancel
                         </button>
@@ -1014,23 +1015,23 @@ export default function TicketDetail() {
                         <p className="text-[11px] text-amber-600">No email address on this ticket.</p>
                       )}
                       <label className="block">
-                        <span className="text-[11px] text-slate-400">From</span>
+                        <span className="text-[11px] text-[color:var(--txt2)]">From</span>
                         <input
                           type="date"
                           value={stmtFrom}
                           onChange={e => setStmtFrom(e.target.value)}
                           className="w-full mt-0.5 px-2 py-1.5 rounded-lg border text-[12px] outline-none"
-                          style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                          style={{ borderColor: 'var(--bdr)' }}
                         />
                       </label>
                       <label className="block">
-                        <span className="text-[11px] text-slate-400">To</span>
+                        <span className="text-[11px] text-[color:var(--txt2)]">To</span>
                         <input
                           type="date"
                           value={stmtTo}
                           onChange={e => setStmtTo(e.target.value)}
                           className="w-full mt-0.5 px-2 py-1.5 rounded-lg border text-[12px] outline-none"
-                          style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                          style={{ borderColor: 'var(--bdr)' }}
                         />
                       </label>
                       <div className="flex gap-2">
@@ -1044,7 +1045,7 @@ export default function TicketDetail() {
                         </button>
                         <button
                           onClick={() => { setStmtOpen(false); setStmtFrom(''); setStmtTo('') }}
-                          className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 hover:bg-slate-100"
+                          className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-[color:var(--txt2)] hover:bg-[var(--chip-bg)]"
                         >
                           Cancel
                         </button>
@@ -1064,7 +1065,7 @@ export default function TicketDetail() {
                   />
                 </ActionSection>
 
-                <p className="text-[11px] text-slate-400 text-center pt-1">
+                <p className="text-[11px] text-[color:var(--txt2)] text-center pt-1">
                   All actions are logged internally.
                 </p>
               </div>
@@ -1187,7 +1188,7 @@ function ZohoDialer({ ticket }: { ticket: Ticket }) {
             onChange={e => setLogDur(e.target.value)}
             placeholder="Duration (secs)"
             className="w-full px-2.5 py-1.5 rounded-lg border text-[12px] outline-none"
-            style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+            style={{ borderColor: 'var(--bdr)' }}
           />
           <textarea
             rows={2}
@@ -1195,7 +1196,7 @@ function ZohoDialer({ ticket }: { ticket: Ticket }) {
             onChange={e => setLogNote(e.target.value)}
             placeholder="Call notes…"
             className="w-full px-2.5 py-1.5 rounded-lg border text-[12px] outline-none resize-none"
-            style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+            style={{ borderColor: 'var(--bdr)' }}
           />
           <div className="flex gap-2">
             <button type="submit" disabled={logSaving || !logNote.trim()}
@@ -1204,7 +1205,7 @@ function ZohoDialer({ ticket }: { ticket: Ticket }) {
               {logSaving ? 'Saving…' : 'Save Log'}
             </button>
             <button type="button" onClick={() => setLogOpen(false)}
-              className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 hover:bg-slate-100">
+              className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-[color:var(--txt2)] hover:bg-[var(--chip-bg)]">
               Cancel
             </button>
           </div>
@@ -1218,7 +1219,7 @@ function ZohoDialer({ ticket }: { ticket: Ticket }) {
 function SideField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">{label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-[color:var(--txt2)] mb-1.5">{label}</p>
       {children}
     </div>
   )
@@ -1227,8 +1228,8 @@ function SideField({ label, children }: { label: string; children: React.ReactNo
 function Ctx360Item({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-[12px] text-slate-400">{label}</span>
-      <span className="text-[12px] font-semibold text-slate-700">{value}</span>
+      <span className="text-[12px] text-[color:var(--txt2)]">{label}</span>
+      <span className="text-[12px] font-semibold text-[color:var(--txt)]">{value}</span>
     </div>
   )
 }
@@ -1240,7 +1241,7 @@ function TabBtn({ active, onClick, label }: { active: boolean; onClick: () => vo
       className="px-3 py-1.5 rounded-t-lg text-[12px] font-semibold transition-colors"
       style={{
         background: active ? 'rgba(14,40,65,0.07)' : 'transparent',
-        color: active ? NAVY : '#64748B',
+        color: active ? NAVY : 'var(--txt2)',
         borderBottom: active ? `2px solid ${NAVY}` : '2px solid transparent',
       }}
     >
@@ -1255,7 +1256,7 @@ function SendBtn({
   label: string; icon: string; onClick: () => void; disabled: boolean; primary?: boolean; amber?: boolean
 }) {
   const bg = amber ? AMBER : (primary ? NAVY : 'white')
-  const color = (primary || amber) ? 'white' : '#475569'
+  const color = (primary || amber) ? 'white' : 'var(--txt2)'
   const border = (primary || amber) ? 'transparent' : 'rgba(15,23,42,0.15)'
   return (
     <button
@@ -1305,14 +1306,14 @@ function MessageBubble({ msg }: { msg: Message }) {
   if (isInbound) {
     return (
       <div className="flex items-end gap-2.5 max-w-[85%]">
-        <MsgAvatar name={name} color="#475569" />
+        <MsgAvatar name={name} color="var(--txt2)" />
         <div>
           <div className="flex items-center gap-1.5 mb-1">
-            <span className="text-[11px] font-semibold text-slate-600">{name}</span>
-            <span className="text-[11px] text-slate-400">{time}</span>
+            <span className="text-[11px] font-semibold text-[color:var(--txt2)]">{name}</span>
+            <span className="text-[11px] text-[color:var(--txt2)]">{time}</span>
           </div>
           <div className="rounded-2xl rounded-bl-md px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap"
-            style={{ background: 'white', border: '1px solid rgba(15,23,42,0.12)', color: '#334155' }}>
+            style={{ background: 'var(--card)', border: '1px solid rgba(15,23,42,0.12)', color: 'var(--txt)' }}>
             {msg.body_text || (msg.body_html ? <span dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.body_html) }} /> : '—')}
           </div>
         </div>
@@ -1325,8 +1326,8 @@ function MessageBubble({ msg }: { msg: Message }) {
       <MsgAvatar name={name} color={NAVY} />
       <div className="flex flex-col items-end">
         <div className="flex items-center gap-1.5 mb-1">
-          <span className="text-[11px] text-slate-400">{time}</span>
-          <span className="text-[11px] font-semibold text-slate-600">{name}</span>
+          <span className="text-[11px] text-[color:var(--txt2)]">{time}</span>
+          <span className="text-[11px] font-semibold text-[color:var(--txt2)]">{name}</span>
         </div>
         <div className="rounded-2xl rounded-br-md px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap text-white"
           style={{ background: NAVY }}>
@@ -1339,7 +1340,7 @@ function MessageBubble({ msg }: { msg: Message }) {
 
 function ActionSection({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-xl overflow-hidden border" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+    <div className="rounded-xl overflow-hidden border" style={{ borderColor: 'var(--bdr)' }}>
       <div className="p-2.5">{children}</div>
     </div>
   )
@@ -1390,8 +1391,8 @@ function CannedPicker({
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1 px-3 py-1.5 rounded-lg border text-[12px] font-medium bg-white transition-all"
-        style={{ borderColor: open ? NAVY : 'rgba(15,23,42,0.15)', color: '#475569' }}
+        className="flex items-center gap-1 px-3 py-1.5 rounded-lg border text-[12px] font-medium bg-[var(--card)] transition-all"
+        style={{ borderColor: open ? NAVY : 'rgba(15,23,42,0.15)', color: 'var(--txt2)' }}
       >
         <span className="material-symbols-rounded text-[14px]">quickreply</span>
         Canned
@@ -1399,18 +1400,18 @@ function CannedPicker({
       </button>
       {open && (
         <div
-          className="absolute bottom-full right-0 mb-1.5 z-[400] bg-white rounded-xl border shadow-xl overflow-hidden"
-          style={{ minWidth: 240, maxHeight: 280, overflowY: 'auto', borderColor: 'rgba(15,23,42,0.1)' }}
+          className="absolute bottom-full right-0 mb-1.5 z-[400] bg-[var(--card)] rounded-xl border shadow-xl overflow-hidden"
+          style={{ minWidth: 240, maxHeight: 280, overflowY: 'auto', borderColor: 'var(--bdr)' }}
         >
           {filtered.map(r => (
             <button
               key={r.id}
               onClick={() => { onSelect(r.body_text); setOpen(false) }}
-              className="w-full text-left px-4 py-2.5 hover:bg-slate-50 transition-colors"
+              className="w-full text-left px-4 py-2.5 hover:bg-[var(--bg)] transition-colors"
               style={{ borderBottom: '1px solid rgba(15,23,42,0.05)' }}
             >
-              <p className="text-[12px] font-semibold text-slate-700">{r.name}</p>
-              {r.category && <p className="text-[11px] text-slate-400 mt-0.5">{r.category}</p>}
+              <p className="text-[12px] font-semibold text-[color:var(--txt)]">{r.name}</p>
+              {r.category && <p className="text-[11px] text-[color:var(--txt2)] mt-0.5">{r.category}</p>}
             </button>
           ))}
         </div>

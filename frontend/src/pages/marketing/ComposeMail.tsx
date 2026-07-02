@@ -63,7 +63,7 @@ function RecipientRows({
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <label className="block text-[12px] font-semibold text-slate-600">{label}</label>
+        <label className="block text-[12px] font-semibold text-[color:var(--txt2)]">{label}</label>
         <button
           type="button"
           onClick={() => setRecipients([...recipients, emptyRecipient()])}
@@ -83,23 +83,23 @@ function RecipientRows({
               onChange={e => update(index, { email: e.target.value })}
               placeholder="email@company.com"
               className="px-3 py-2 rounded-lg border text-[13px] outline-none"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+              style={{ borderColor: 'var(--bdr)' }}
             />
             <input
               value={recipient.name}
               onChange={e => update(index, { name: e.target.value })}
               placeholder="Name"
               className="px-3 py-2 rounded-lg border text-[13px] outline-none"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+              style={{ borderColor: 'var(--bdr)' }}
             />
             <button
               type="button"
               onClick={() => remove(index)}
               disabled={recipients.length === 1}
-              className="w-9 h-9 rounded-lg flex items-center justify-center disabled:opacity-30 hover:bg-slate-100"
+              className="w-9 h-9 rounded-lg flex items-center justify-center disabled:opacity-30 hover:bg-[var(--chip-bg)]"
               title="Remove recipient"
             >
-              <span className="material-symbols-rounded text-[17px] text-slate-500">close</span>
+              <span className="material-symbols-rounded text-[17px] text-[color:var(--txt2)]">close</span>
             </button>
           </div>
         ))}
@@ -210,32 +210,32 @@ export default function ComposeMail() {
             <RecipientRows label="BCC" recipients={bcc.length ? bcc : []} setRecipients={setBcc} />
 
             <div>
-              <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">Subject</label>
+              <label className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1.5">Subject</label>
               <input
                 value={subject}
                 onChange={e => setSubject(e.target.value)}
                 placeholder="Subject line"
                 className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                style={{ borderColor: 'var(--bdr)' }}
               />
             </div>
 
             <div>
-              <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">Body</label>
+              <label className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1.5">Body</label>
               <textarea
                 value={body}
                 onChange={e => setBody(e.target.value)}
                 rows={12}
                 placeholder="Write your email..."
                 className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none resize-y"
-                style={{ borderColor: 'rgba(15,23,42,0.15)', minHeight: 260 }}
+                style={{ borderColor: 'var(--bdr)', minHeight: 260 }}
               />
             </div>
 
             <div>
-              <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">Attachments</label>
+              <label className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1.5">Attachments</label>
               <label
-                className="flex items-center justify-center gap-2 px-3 py-3 rounded-lg border border-dashed text-[13px] font-semibold cursor-pointer hover:bg-slate-50"
+                className="flex items-center justify-center gap-2 px-3 py-3 rounded-lg border border-dashed text-[13px] font-semibold cursor-pointer hover:bg-[var(--bg)]"
                 style={{ borderColor: 'rgba(15,23,42,0.2)', color: NAVY }}
               >
                 <span className="material-symbols-rounded text-[18px]">attach_file</span>
@@ -253,21 +253,21 @@ export default function ComposeMail() {
               {attachments.length > 0 && (
                 <div className="mt-2 space-y-2">
                   {attachments.map((file, index) => (
-                    <div key={`${file.filename}-${index}`} className="flex items-center gap-3 rounded-lg border px-3 py-2" style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
-                      <span className="material-symbols-rounded text-[17px] text-slate-500">
+                    <div key={`${file.filename}-${index}`} className="flex items-center gap-3 rounded-lg border px-3 py-2" style={{ borderColor: 'var(--bdr)' }}>
+                      <span className="material-symbols-rounded text-[17px] text-[color:var(--txt2)]">
                         {file.content_type.startsWith('image/') ? 'image' : 'description'}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] font-semibold text-slate-700">{file.filename}</div>
-                        <div className="text-[11px] text-slate-400">{formatBytes(file.size)}</div>
+                        <div className="truncate text-[13px] font-semibold text-[color:var(--txt)]">{file.filename}</div>
+                        <div className="text-[11px] text-[color:var(--txt2)]">{formatBytes(file.size)}</div>
                       </div>
                       <button
                         type="button"
                         onClick={() => setAttachments(attachments.filter((_, i) => i !== index))}
-                        className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-slate-100"
+                        className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--chip-bg)]"
                         title="Remove attachment"
                       >
-                        <span className="material-symbols-rounded text-[16px] text-slate-500">close</span>
+                        <span className="material-symbols-rounded text-[16px] text-[color:var(--txt2)]">close</span>
                       </button>
                     </div>
                   ))}
@@ -287,14 +287,14 @@ export default function ComposeMail() {
                 className="mt-1"
               />
               <span>
-                <span className="block text-[13px] font-semibold text-slate-700">Keep a copy</span>
-                <span className="block text-[12px] text-slate-400 mt-0.5">
+                <span className="block text-[13px] font-semibold text-[color:var(--txt)]">Keep a copy</span>
+                <span className="block text-[12px] text-[color:var(--txt2)] mt-0.5">
                   Graph saves to Sent Items when configured; SendGrid sends you a copy.
                 </span>
               </span>
             </label>
 
-            <div className="rounded-lg px-3 py-3 text-[12px] text-slate-500" style={{ background: 'rgba(14,40,65,0.05)' }}>
+            <div className="rounded-lg px-3 py-3 text-[12px] text-[color:var(--txt2)]" style={{ background: 'rgba(14,40,65,0.05)' }}>
               Messages are tracked in Mail Health. Suppressed recipients are blocked automatically.
             </div>
 

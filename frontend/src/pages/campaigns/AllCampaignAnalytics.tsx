@@ -69,15 +69,15 @@ function BarTip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
     <div
-      className="bg-white rounded-lg border px-3 py-2.5 shadow-lg"
-      style={{ borderColor: 'rgba(15,23,42,0.1)', fontSize: 12 }}
+      className="rounded-lg border px-3 py-2.5 shadow-lg"
+      style={{ borderColor: 'var(--bdr)', fontSize: 12, background: 'var(--card)' }}
     >
-      <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider mb-1.5">{label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--txt2)' }}>{label}</p>
       {payload.map((p: any, i: number) => (
         <div key={i} className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: p.fill }} />
-          <span className="text-slate-500 text-[11px] capitalize">{p.name}</span>
-          <span className="font-semibold font-mono text-slate-800 ml-auto pl-3">{fmtNum(p.value)}</span>
+          <span className="text-[11px] capitalize" style={{ color: 'var(--txt2)' }}>{p.name}</span>
+          <span className="font-semibold font-mono ml-auto pl-3" style={{ color: 'var(--txt)' }}>{fmtNum(p.value)}</span>
         </div>
       ))}
     </div>
@@ -92,15 +92,15 @@ function PieTip({ active, payload }: any) {
   const total = payload[0]?.payload?.total ?? 1
   return (
     <div
-      className="bg-white rounded-lg border px-3 py-2.5 shadow-lg"
-      style={{ borderColor: 'rgba(15,23,42,0.1)', fontSize: 12 }}
+      className="rounded-lg border px-3 py-2.5 shadow-lg"
+      style={{ borderColor: 'var(--bdr)', fontSize: 12, background: 'var(--card)' }}
     >
       <div className="flex items-center gap-2">
         <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: p.payload.fill }} />
-        <span className="text-slate-700 font-semibold capitalize">{p.name}</span>
+        <span className="font-semibold capitalize" style={{ color: 'var(--txt)' }}>{p.name}</span>
       </div>
-      <p className="font-mono font-bold text-slate-900 mt-1">{fmtNum(p.value)}</p>
-      <p className="text-[11px] text-slate-400">{((p.value / total) * 100).toFixed(1)}% of total</p>
+      <p className="font-mono font-bold mt-1" style={{ color: 'var(--txt)' }}>{fmtNum(p.value)}</p>
+      <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>{((p.value / total) * 100).toFixed(1)}% of total</p>
     </div>
   )
 }
@@ -135,7 +135,7 @@ export default function AllCampaignAnalytics() {
   const topCols: ColDef<TopCampaign>[] = [
     { key: '_rank', label: '#', sortable: false,
       render: (_, i?: number) => (
-        <span className="text-[12px] font-semibold text-slate-400">{(i ?? 0) + 1}</span>
+        <span className="text-[12px] font-semibold text-[color:var(--txt2)]">{(i ?? 0) + 1}</span>
       ),
     },
     { key: 'name', label: 'Campaign' },
@@ -195,7 +195,7 @@ export default function AllCampaignAnalytics() {
                 ))}
               </div>
             ) : (data?.monthly_volume ?? []).length === 0 ? (
-              <div className="flex items-center justify-center h-48 text-slate-400 text-[13px]">
+              <div className="flex items-center justify-center h-48 text-[color:var(--txt2)] text-[13px]">
                 No monthly data available
               </div>
             ) : (
@@ -228,7 +228,7 @@ export default function AllCampaignAnalytics() {
                 </div>
               </div>
             ) : channelSplitWithTotal.length === 0 ? (
-              <div className="flex items-center justify-center h-48 text-slate-400 text-[13px]">
+              <div className="flex items-center justify-center h-48 text-[color:var(--txt2)] text-[13px]">
                 No channel data
               </div>
             ) : (
@@ -258,12 +258,12 @@ export default function AllCampaignAnalytics() {
                       <div key={i} className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: d.fill }} />
-                          <span className="text-[12px] text-slate-500 capitalize">{d.channel}</span>
+                          <span className="text-[12px] capitalize" style={{ color: 'var(--txt2)' }}>{d.channel}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[12px] font-semibold font-mono text-slate-800">{fmtNum(d.count)}</span>
+                          <span className="text-[12px] font-semibold font-mono" style={{ color: 'var(--txt)' }}>{fmtNum(d.count)}</span>
                           {total > 0 && (
-                            <span className="text-[11px] text-slate-400">({((d.count / total) * 100).toFixed(0)}%)</span>
+                            <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>({((d.count / total) * 100).toFixed(0)}%)</span>
                           )}
                         </div>
                       </div>

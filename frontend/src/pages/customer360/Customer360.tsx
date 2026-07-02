@@ -54,6 +54,13 @@ export default function Customer360() {
   const [txPage, setTxPage]         = useState(0)
   const [transactions, setTx]       = useState<Transaction[]>([])
   const [txLoading, setTxLoading]   = useState(false)
+  const [txSortKey, setTxSortKey]   = useState<string | null>(null)
+  const [txSortDir, setTxSortDir]   = useState<'asc' | 'desc'>('asc')
+
+  const toggleTxSort = (key: string) => {
+    if (txSortKey === key) setTxSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setTxSortKey(key); setTxSortDir('asc') }
+  }
   const [collections, setCollections] = useState<Collection[]>([])
   const [collectionsLoading, setCollectionsLoading] = useState(false)
   const limit = 50
@@ -129,7 +136,7 @@ export default function Customer360() {
           <div className="relative flex-1">
             <span className="material-symbols-rounded absolute left-3 top-1/2 -translate-y-1/2 text-[18px]" style={{ color: 'var(--txt2)' }}>search</span>
             <input
-              className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-slate-200 text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+              className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-[var(--bdr)] text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
               placeholder="Search by name, CIF number, or phone…"
               value={query}
               onChange={e => setQuery(e.target.value)}
@@ -328,15 +335,28 @@ export default function Customer360() {
                           <table className="w-full text-[13px]">
                             <thead>
                               <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
-                                {['Date','Description','Amount','Type'].map(h => (
-                                  <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: 'var(--txt2)' }}>{h}</th>
+                                {([['Date','transaction_date'],['Description',null],['Amount','amount'],['Type','type']] as [string, string|null][]).map(([h, k]) => (
+                                  <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em]"
+                                    style={{ color: txSortKey === k ? 'var(--txt)' : 'var(--txt2)', cursor: k ? 'pointer' : undefined }}
+                                    onClick={k ? () => toggleTxSort(k) : undefined}>
+                                    {h}{k && <span style={{ marginLeft: 3, color: '#C00000', opacity: txSortKey === k ? 1 : 0.3 }}>{txSortKey === k ? (txSortDir === 'asc' ? '↑' : '↓') : '↕'}</span>}
+                                  </th>
                                 ))}
                               </tr>
                             </thead>
                             <tbody>
-                              {transactions.length === 0 ? (
-                                <tr><td colSpan={4} className="px-4 py-10 text-center text-[13px]" style={{ color: 'var(--txt2)' }}>No transactions</td></tr>
-                              ) : transactions.map((t, i) => (
+                              {(() => {
+                                const sortedTx = txSortKey
+                                  ? [...transactions].sort((a, b) => {
+                                      const va = (a as any)[txSortKey] ?? ''
+                                      const vb = (b as any)[txSortKey] ?? ''
+                                      const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))
+                                      return txSortDir === 'asc' ? cmp : -cmp
+                                    })
+                                  : transactions
+                                return sortedTx.length === 0 ? (
+                                  <tr><td colSpan={4} className="px-4 py-10 text-center text-[13px]" style={{ color: 'var(--txt2)' }}>No transactions</td></tr>
+                                ) : sortedTx.map((t, i) => (
                                 <tr key={i} className="tbl-row" style={{ borderBottom: '1px solid var(--bdr)' }}>
                                   <td className="px-4 py-3" style={{ color: 'var(--txt2)' }}>{fmtDate(t.transaction_date)}</td>
                                   <td className="px-4 py-3" style={{ color: 'var(--txt)' }}>{t.description ?? t.merchant_name ?? '—'}</td>
@@ -346,15 +366,16 @@ export default function Customer360() {
                                   </td>
                                   <td className="px-4 py-3 capitalize" style={{ color: 'var(--txt2)' }}>{t.type ?? '—'}</td>
                                 </tr>
-                              ))}
+                                ))
+                              })()}
                             </tbody>
                           </table>
                         </div>
                         <div className="flex justify-between items-center px-4 py-3" style={{ borderTop: '1px solid var(--bdr)' }}>
                           <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>Page {txPage + 1}</span>
                           <div className="flex gap-2">
-                            <button disabled={txPage === 0} onClick={() => setTxPage(p => p - 1)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40">Prev</button>
-                            <button disabled={transactions.length < limit} onClick={() => setTxPage(p => p + 1)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40">Next</button>
+                            <button disabled={txPage === 0} onClick={() => setTxPage(p => p - 1)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40">Prev</button>
+                            <button disabled={transactions.length < limit} onClick={() => setTxPage(p => p + 1)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40">Next</button>
                           </div>
                         </div>
                       </>

@@ -39,7 +39,7 @@ function StatusDot({ ok, label }: { ok: boolean | undefined; label: string }) {
   return (
     <div className="flex items-center gap-2">
       <span className="material-symbols-rounded text-[16px]" style={{ color }}>{icon}</span>
-      <span className="text-[13px] text-slate-700">{label}</span>
+      <span className="text-[13px]" style={{ color: 'var(--txt)' }}>{label}</span>
     </div>
   )
 }
@@ -47,10 +47,10 @@ function StatusDot({ ok, label }: { ok: boolean | undefined; label: string }) {
 function CredRow({ label, set, envKey }: { label: string; set: boolean; envKey: string }) {
   return (
     <div className="flex items-center justify-between py-2.5 border-b last:border-0"
-      style={{ borderColor: 'rgba(15,23,42,0.06)' }}>
+      style={{ borderColor: 'var(--bdr)' }}>
       <div>
-        <p className="text-[13px] font-medium text-slate-800">{label}</p>
-        <p className="text-[11px] text-slate-400 font-mono">{envKey}</p>
+        <p className="text-[13px] font-medium" style={{ color: 'var(--txt)' }}>{label}</p>
+        <p className="text-[11px] font-mono" style={{ color: 'var(--txt2)' }}>{envKey}</p>
       </div>
       <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${set ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'}`}>
         {set ? 'Set' : 'Not set'}
@@ -191,22 +191,22 @@ export default function ZohoIntegration() {
             <SectionCard title="Zoho Desk">
               <div className="px-6 py-5">
                 {/* Status banner */}
-                <div className={`flex items-center gap-3 p-4 rounded-xl mb-6 ${status?.connected ? 'bg-green-50' : 'bg-slate-50'}`}>
+                <div className="flex items-center gap-3 p-4 rounded-xl mb-6" style={{ background: status?.connected ? 'rgba(5,150,105,0.06)' : 'var(--bg)' }}>
                   <span className="material-symbols-rounded text-[28px]"
                     style={{ color: status?.connected ? GREEN : '#94a3b8' }}>
                     {status?.connected ? 'check_circle' : 'link_off'}
                   </span>
                   <div>
-                    <p className="text-[14px] font-semibold text-slate-800">
+                    <p className="text-[14px] font-semibold" style={{ color: 'var(--txt)' }}>
                       {status?.connected ? 'Connected to Zoho Desk' : 'Not connected'}
                     </p>
                     {status?.connected && status.org_id && (
-                      <p className="text-[12px] text-slate-500">
+                      <p className="text-[12px]" style={{ color: 'var(--txt2)' }}>
                         Org ID: <span className="font-mono">{status.org_id}</span> · DC: <span className="font-mono">{status.data_centre}</span>
                       </p>
                     )}
                     {!status?.connected && (
-                      <p className="text-[12px] text-slate-500">
+                      <p className="text-[12px]" style={{ color: 'var(--txt2)' }}>
                         Connect to sync helpdesk tickets bidirectionally with Zoho Desk
                       </p>
                     )}
@@ -215,8 +215,8 @@ export default function ZohoIntegration() {
                     {status?.connected ? (
                       <div className="flex items-center gap-2 flex-wrap justify-end">
                         <button onClick={importFromZoho} disabled={importing}
-                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-semibold border transition-colors hover:bg-white disabled:opacity-60"
-                          style={{ borderColor: 'rgba(15,23,42,0.15)', color: NAVY }}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-semibold border transition-colors disabled:opacity-60"
+                          style={{ borderColor: 'var(--bdr)', color: NAVY }}
                           title="Pull all existing tickets from Zoho Desk into O3C">
                           <span className={`material-symbols-rounded text-[14px] ${importing ? 'animate-spin' : ''}`}>
                             {importing ? 'progress_activity' : 'download'}
@@ -224,8 +224,8 @@ export default function ZohoIntegration() {
                           {importing ? 'Importing…' : 'Import from Zoho'}
                         </button>
                         <button onClick={syncNow} disabled={syncing}
-                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-semibold border transition-colors hover:bg-white disabled:opacity-60"
-                          style={{ borderColor: 'rgba(15,23,42,0.15)', color: NAVY }}>
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-semibold border transition-colors disabled:opacity-60"
+                          style={{ borderColor: 'var(--bdr)', color: NAVY }}>
                           <span className="material-symbols-rounded text-[14px]">sync</span>
                           {syncing ? 'Syncing…' : 'Sync Now'}
                         </button>
@@ -276,7 +276,7 @@ export default function ZohoIntegration() {
                         onChange={e => setOrgIdInput(e.target.value)}
                         placeholder="Paste your Zoho Org ID…"
                         className="flex-1 px-3 py-1.5 rounded-lg border text-[12px] font-mono outline-none"
-                        style={{ borderColor: 'rgba(15,23,42,0.2)' }}
+                        style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}
                       />
                       <button onClick={saveOrgId} disabled={savingOrgId || !orgIdInput.trim()}
                         className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white disabled:opacity-50"
@@ -286,7 +286,7 @@ export default function ZohoIntegration() {
                     </div>
                   )}
                   {!status?.org_id && (
-                    <p className="ml-6 text-[11px] text-slate-400">
+                    <p className="ml-6 text-[11px]" style={{ color: 'var(--txt2)' }}>
                       Find it in Zoho Desk → Settings → Company Settings → your Org ID, or in your Zoho Desk URL after <code className="font-mono">/support/</code>
                     </p>
                   )}
@@ -302,27 +302,27 @@ export default function ZohoIntegration() {
 
             {/* Sync behaviour */}
             <SectionCard title="Sync Behaviour">
-              <div className="px-6 py-4 space-y-4 text-[13px] text-slate-600">
+              <div className="px-6 py-4 space-y-4 text-[13px]" style={{ color: 'var(--txt2)' }}>
                 <div className="flex gap-3">
                   <span className="material-symbols-rounded text-[18px] text-blue-500 flex-shrink-0 mt-0.5">arrow_forward</span>
                   <div>
-                    <p className="font-semibold text-slate-800 mb-0.5">O3C → Zoho Desk (push)</p>
+                    <p className="font-semibold mb-0.5" style={{ color: 'var(--txt)' }}>O3C → Zoho Desk (push)</p>
                     <p>When a ticket is created or updated here, it is pushed to Zoho Desk automatically. Open tickets without a Zoho ID are synced hourly. Use "Sync Now" to force an immediate push.</p>
                   </div>
                 </div>
                 <div className="flex gap-3">
                   <span className="material-symbols-rounded text-[18px] text-green-600 flex-shrink-0 mt-0.5">arrow_back</span>
                   <div>
-                    <p className="font-semibold text-slate-800 mb-0.5">Zoho Desk → O3C (webhook)</p>
+                    <p className="font-semibold mb-0.5" style={{ color: 'var(--txt)' }}>Zoho Desk → O3C (webhook)</p>
                     <p>Register this webhook URL in <strong>Zoho Desk → Settings → Automations → Notifications</strong>:</p>
-                    <code className="block mt-1.5 bg-slate-50 rounded-lg px-3 py-2 text-[12px] font-mono select-all break-all"
-                      style={{ border: '1px solid rgba(15,23,42,0.08)' }}>
+                    <code className="block mt-1.5 rounded-lg px-3 py-2 text-[12px] font-mono select-all break-all"
+                      style={{ background: 'var(--bg)', border: '1px solid var(--bdr)', color: 'var(--txt)' }}>
                       {API}/api/zoho/webhooks/desk
                     </code>
-                    <p className="mt-1 text-[11px] text-slate-400">
+                    <p className="mt-1 text-[11px]" style={{ color: 'var(--txt2)' }}>
                       Add header <code className="font-mono">X-O3C-Webhook-Secret</code> with your <code className="font-mono">ZOHO_WEBHOOK_SECRET</code>. If Zoho only allows URL parameters, append <code className="font-mono">?secret=YOUR_SECRET</code>.
                     </p>
-                    <p className="mt-1 text-[11px] text-slate-400">Trigger events: Ticket Created, Ticket Updated, Ticket Status Changed, Ticket Comment/Reply Added, Call Added.</p>
+                    <p className="mt-1 text-[11px]" style={{ color: 'var(--txt2)' }}>Trigger events: Ticket Created, Ticket Updated, Ticket Status Changed, Ticket Comment/Reply Added, Call Added.</p>
                   </div>
                 </div>
               </div>
@@ -334,7 +334,7 @@ export default function ZohoIntegration() {
                 <div className="flex justify-end mb-3">
                   <button onClick={loadWebhookEvents} disabled={loadingWebhooks}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold border disabled:opacity-50"
-                    style={{ borderColor: 'rgba(15,23,42,0.12)', color: NAVY }}>
+                    style={{ borderColor: 'var(--bdr)', color: NAVY }}>
                     <span className={`material-symbols-rounded text-[14px] ${loadingWebhooks ? 'animate-spin' : ''}`}>
                       {loadingWebhooks ? 'progress_activity' : 'refresh'}
                     </span>
@@ -342,14 +342,14 @@ export default function ZohoIntegration() {
                   </button>
                 </div>
                 {webhookEvents.length === 0 ? (
-                  <div className="py-8 text-center text-[13px] text-slate-400">
+                  <div className="py-8 text-center text-[13px]" style={{ color: 'var(--txt2)' }}>
                     No Zoho webhook deliveries recorded yet.
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-[12px]">
                       <thead>
-                        <tr className="text-left text-[11px] uppercase tracking-wide text-slate-400 border-b">
+                        <tr className="text-left text-[11px] uppercase tracking-wide border-b" style={{ background: 'var(--th-bg)', color: 'var(--txt2)', borderColor: 'var(--bdr)' }}>
                           <th className="py-2 pr-3">Time</th>
                           <th className="py-2 pr-3">Event</th>
                           <th className="py-2 pr-3">Action</th>
@@ -360,21 +360,21 @@ export default function ZohoIntegration() {
                       <tbody>
                         {webhookEvents.map(ev => (
                           <tr key={ev.id} className="border-b last:border-0">
-                            <td className="py-2 pr-3 whitespace-nowrap text-slate-500">
+                            <td className="py-2 pr-3 whitespace-nowrap" style={{ color: 'var(--txt2)' }}>
                               {new Date(ev.created_at).toLocaleString('en-NG', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                             </td>
-                            <td className="py-2 pr-3 font-mono text-slate-700">{ev.event_type || 'unknown'}</td>
-                            <td className="py-2 pr-3 text-slate-700">{ev.action || 'ignored'}</td>
+                            <td className="py-2 pr-3 font-mono" style={{ color: 'var(--txt)' }}>{ev.event_type || 'unknown'}</td>
+                            <td className="py-2 pr-3" style={{ color: 'var(--txt)' }}>{ev.action || 'ignored'}</td>
                             <td className="py-2 pr-3">
                               <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
                                 ev.status === 'ok' ? 'bg-green-50 text-green-700' :
                                 ev.status === 'failed' ? 'bg-red-50 text-red-600' :
-                                'bg-slate-100 text-slate-500'
+                                'bg-[var(--chip-bg)] text-[color:var(--txt2)]'
                               }`}>
                                 {ev.status}
                               </span>
                             </td>
-                            <td className="py-2 pr-3 text-slate-500 max-w-[320px] truncate" title={ev.detail}>{ev.detail}</td>
+                            <td className="py-2 pr-3 max-w-[320px] truncate" style={{ color: 'var(--txt2)' }} title={ev.detail}>{ev.detail}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -393,21 +393,21 @@ export default function ZohoIntegration() {
                     <span className="material-symbols-rounded text-[20px]" style={{ color: GREEN }}>call</span>
                   </div>
                   <div className="flex-1">
-                    <p className="text-[14px] font-semibold text-slate-800 mb-1">Click-to-call from any ticket</p>
-                    <p className="text-[13px] text-slate-500 mb-4">
+                    <p className="text-[14px] font-semibold mb-1" style={{ color: 'var(--txt)' }}>Click-to-call from any ticket</p>
+                    <p className="text-[13px] mb-4" style={{ color: 'var(--txt2)' }}>
                       When Zoho Desk is connected, agents can click "Call via Zoho" inside any helpdesk ticket to initiate an outbound call through Zoho Voice. The call is automatically logged to the call log with duration and outcome.
                     </p>
                     <div className="rounded-xl p-4 space-y-2 text-[12px]"
                       style={{ background: 'rgba(14,40,65,0.04)' }}>
-                      <p className="font-semibold text-slate-700">To enable Zoho Voice PhoneBridge (optional)</p>
-                      <p className="text-slate-500">
-                        Add the PhoneBridge SDK to <code className="font-mono bg-white px-1 rounded">frontend/index.html</code> once your Zoho Voice account is set up:
+                      <p className="font-semibold" style={{ color: 'var(--txt)' }}>To enable Zoho Voice PhoneBridge (optional)</p>
+                      <p style={{ color: 'var(--txt2)' }}>
+                        Add the PhoneBridge SDK to <code className="font-mono px-1 rounded" style={{ background: 'var(--chip-bg)' }}>frontend/index.html</code> once your Zoho Voice account is set up:
                       </p>
-                      <code className="block bg-white rounded-lg p-2 font-mono select-all break-all border"
-                        style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+                      <code className="block rounded-lg p-2 font-mono select-all break-all border"
+                        style={{ background: 'var(--card)', borderColor: 'var(--bdr)', color: 'var(--txt)' }}>
                         {`<script src="https://phonebridges.zoho.com/assets/js/zoho-phonebridgesdk.js"></script>`}
                       </code>
-                      <p className="text-slate-400 text-[11px]">This enables the in-browser soft phone. Without it, calls are initiated via the Zoho Desk REST API instead.</p>
+                      <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>This enables the in-browser soft phone. Without it, calls are initiated via the Zoho Desk REST API instead.</p>
                     </div>
                   </div>
                 </div>
@@ -444,7 +444,7 @@ export default function ZohoIntegration() {
                 <CredRow label="Org ID" set={!!(status?.org_id)} envKey="ZOHO_ORG_ID" />
                 <CredRow label="Refresh Token" set={status?.connected ?? false} envKey="ZOHO_REFRESH_TOKEN" />
                 <div className="mt-3">
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>
                     <span className="font-semibold">ZOHO_DC</span> — set to <code className="font-mono">eu</code>, <code className="font-mono">in</code>, or <code className="font-mono">com.au</code> if your Zoho account is not US-based. Defaults to <code className="font-mono">com</code>.
                   </p>
                 </div>
@@ -461,13 +461,13 @@ function SetupStep({ n, done, title, detail }: { n: number; done: boolean | unde
   return (
     <div className="flex gap-3">
       <div className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-[11px] font-bold mt-0.5
-        ${done ? 'text-white' : 'text-slate-400 border-2 border-slate-200'}`}
-        style={done ? { background: GREEN } : {}}>
+        ${done ? 'text-white' : 'border-2'}`}
+        style={done ? { background: GREEN } : { borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
         {done ? <span className="material-symbols-rounded text-[13px]">check</span> : n}
       </div>
       <div>
-        <p className={`text-[13px] font-semibold ${done ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{title}</p>
-        <p className="text-[12px] text-slate-500 mt-0.5">{detail}</p>
+        <p className={`text-[13px] font-semibold ${done ? 'line-through' : ''}`} style={{ color: done ? 'var(--txt2)' : 'var(--txt)' }}>{title}</p>
+        <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>{detail}</p>
       </div>
     </div>
   )

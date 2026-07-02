@@ -228,6 +228,11 @@ const SECTIONS: NavSection[] = [
           { label: 'Training',     to: '/hr/training' },
         ],
       },
+      {
+        id: 'payroll', label: 'Payroll', icon: 'payments', roles: ['payroll_officer', 'payroll_manager', 'cfo', 'head_hr', 'md', 'coo', 'admin'],
+        primary: '/payroll',
+        items: [],
+      },
     ],
   },
   {

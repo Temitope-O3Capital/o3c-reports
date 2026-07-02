@@ -64,7 +64,7 @@ function SummaryChip({
     <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
       style={{ background: `${color}10`, border: `1px solid ${color}25` }}>
       <span className="material-symbols-rounded text-[15px]" style={{ color }}>{icon}</span>
-      <span className="text-[12px] font-semibold" style={{ color: '#334155' }}>{label}</span>
+      <span className="text-[12px] font-semibold" style={{ color: 'var(--txt)' }}>{label}</span>
       <span className="text-[12px] font-bold tabular-nums" style={{ color }}>{count}</span>
     </div>
   )
@@ -117,14 +117,14 @@ function ApprovalCard({ item, onActioned }: { item: ApprovalItem; onActioned?: (
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
           <ModuleBadge module={item.module} />
-          <span className="text-[11px] font-mono text-slate-400">{item.reference}</span>
-          <span className="text-[11px] text-slate-300">·</span>
-          <span className="text-[11px] text-slate-400">{item.stage}</span>
+          <span className="text-[11px] font-mono" style={{ color: 'var(--txt2)' }}>{item.reference}</span>
+          <span className="text-[11px]" style={{ color: 'var(--txt3)' }}>·</span>
+          <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{item.stage}</span>
         </div>
-        <p className="text-[14px] font-semibold text-slate-800 leading-snug truncate">{item.title}</p>
-        <p className="text-[12px] text-slate-500 mt-0.5 line-clamp-2">{item.description}</p>
-        <p className="text-[11px] text-slate-400 mt-1.5">
-          Requested by <span className="font-medium text-slate-600">{item.requested_by}</span>
+        <p className="text-[14px] font-semibold leading-snug truncate" style={{ color: 'var(--txt)' }}>{item.title}</p>
+        <p className="text-[12px] mt-0.5 line-clamp-2" style={{ color: 'var(--txt2)' }}>{item.description}</p>
+        <p className="text-[11px] mt-1.5" style={{ color: 'var(--txt2)' }}>
+          Requested by <span className="font-medium" style={{ color: 'var(--txt)' }}>{item.requested_by}</span>
         </p>
         {actErr && <p className="text-[11px] text-red-500 mt-1">{actErr}</p>}
       </div>
@@ -133,15 +133,15 @@ function ApprovalCard({ item, onActioned }: { item: ApprovalItem; onActioned?: (
       <div className="flex flex-col items-end gap-2 shrink-0">
         <PriorityBadge priority={item.priority} />
         <span className="text-[11px] font-medium"
-          style={{ color: item.waiting_days >= 7 ? '#C00000' : item.waiting_days >= 3 ? '#D97706' : '#64748B' }}>
+          style={{ color: item.waiting_days >= 7 ? '#C00000' : item.waiting_days >= 3 ? '#D97706' : 'var(--txt2)' }}>
           <span className="material-symbols-rounded text-[13px] align-middle mr-0.5"
-            style={{ color: item.waiting_days >= 7 ? '#C00000' : item.waiting_days >= 3 ? '#D97706' : '#94A3B8' }}>
+            style={{ color: item.waiting_days >= 7 ? '#C00000' : item.waiting_days >= 3 ? '#D97706' : 'var(--txt2)' }}>
             {item.waiting_days >= 7 ? 'warning' : 'schedule'}
           </span>
           {item.waiting_days}d waiting
         </span>
         {hasAmount && (
-          <span className="text-[12px] font-semibold font-mono text-slate-700">
+          <span className="text-[12px] font-semibold font-mono" style={{ color: 'var(--txt)' }}>
             {fmt((item.amount_kobo as number) / 100)}
           </span>
         )}
@@ -186,9 +186,9 @@ function ApprovalCard({ item, onActioned }: { item: ApprovalItem; onActioned?: (
 function EmptyState() {
   return (
     <div className="card flex flex-col items-center justify-center py-20 text-center">
-      <span className="material-symbols-rounded text-[52px] text-slate-200 mb-3">task_alt</span>
-      <p className="text-[15px] font-semibold text-slate-600">No pending approvals</p>
-      <p className="text-[13px] text-slate-400 mt-1">All caught up!</p>
+      <span className="material-symbols-rounded text-[52px] mb-3" style={{ color: 'var(--txt3)' }}>task_alt</span>
+      <p className="text-[15px] font-semibold" style={{ color: 'var(--txt2)' }}>No pending approvals</p>
+      <p className="text-[13px] mt-1" style={{ color: 'var(--txt2)' }}>All caught up!</p>
     </div>
   )
 }
@@ -251,7 +251,7 @@ export default function Approvals() {
 
         {!loading && total > 0 && (
           <div className="ml-auto flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold"
-            style={{ background: 'rgba(14,40,65,0.07)', color: NAVY }}>
+            style={{ background: 'var(--chip-bg)', color: NAVY }}>
             <span className="material-symbols-rounded text-[14px]">pending_actions</span>
             {total} total pending
           </div>
@@ -259,7 +259,7 @@ export default function Approvals() {
       </div>
 
       {/* Module filter tabs */}
-      <div className="flex gap-1 mb-5 border-b" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+      <div className="flex gap-1 mb-5 border-b" style={{ borderColor: 'var(--bdr)' }}>
         {MODULES.map(tab => {
           const active = filter === tab
           return (
@@ -267,7 +267,7 @@ export default function Approvals() {
               key={tab}
               onClick={() => setFilter(tab)}
               className="px-4 py-2 text-[12px] font-semibold relative transition-colors"
-              style={{ color: active ? NAVY : '#94A3B8' }}>
+              style={{ color: active ? NAVY : 'var(--txt2)' }}>
               {tab}
               {active && (
                 <span className="absolute bottom-0 left-0 right-0 h-[2px] rounded-t"

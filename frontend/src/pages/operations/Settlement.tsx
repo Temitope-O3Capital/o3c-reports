@@ -114,7 +114,7 @@ export default function Settlement() {
                 ))}
               </div>
             ) : data.length === 0 ? (
-              <p className="text-[13px] text-slate-400 py-16 text-center">No settlement data for this period</p>
+              <p className="text-[13px] py-16 text-center" style={{ color: 'var(--txt2)' }}>No settlement data for this period</p>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={data} margin={{ top: 20, right: 12, left: 0, bottom: 4 }} barSize={14}>
@@ -127,14 +127,14 @@ export default function Settlement() {
                     content={({ active, payload, label }) => {
                       if (!active || !payload?.length) return null
                       return (
-                        <div className="bg-white rounded-lg border px-3 py-2.5 shadow-lg"
-                          style={{ borderColor: 'rgba(15,23,42,0.1)', fontSize: 12 }}>
-                          <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider mb-1.5">{label}</p>
+                        <div className="rounded-lg border px-3 py-2.5 shadow-lg"
+                          style={{ background: 'var(--card)', borderColor: 'var(--bdr)', fontSize: 12 }}>
+                          <p className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--txt2)' }}>{label}</p>
                           {payload.map((p: any, i: number) => (
                             <div key={i} className="flex items-center gap-2">
                               <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: p.fill }} />
-                              <span className="text-slate-600">{p.name}:</span>
-                              <span className="font-semibold font-mono text-slate-800">{fmt(p.value)}</span>
+                              <span style={{ color: 'var(--txt2)' }}>{p.name}:</span>
+                              <span className="font-semibold font-mono" style={{ color: 'var(--txt)' }}>{fmt(p.value)}</span>
                             </div>
                           ))}
                         </div>

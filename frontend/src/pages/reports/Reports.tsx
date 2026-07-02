@@ -107,21 +107,21 @@ const GROUPS: { label: string; icon: string; accent: string; reports: ReportDef[
 ]
 
 const FREQ_STYLE: Record<string, { bg: string; color: string }> = {
-  Monthly:    { bg: 'rgba(14,40,65,0.07)',    color: '#475569' },
+  Monthly:    { bg: 'rgba(14,40,65,0.07)',    color: 'var(--txt2)' },
   Quarterly:  { bg: 'rgba(37,99,235,0.08)',   color: '#2563EB' },
   'On-demand':{ bg: 'rgba(217,119,6,0.08)',   color: '#D97706' },
 }
 
 /* ── Preview table ──────────────────────────────────────────────── */
 function PreviewTable({ rows }: { rows: any[] }) {
-  if (!rows.length) return <p className="text-[13px] text-slate-400 py-4 text-center">No data returned.</p>
+  if (!rows.length) return <p className="text-[13px] py-4 text-center" style={{ color: 'var(--txt2)' }}>No data returned.</p>
   const keys = Object.keys(rows[0])
   const cols: ColDef<any>[] = keys.map(k => ({
     key: k,
     label: snake(k),
   }))
   return (
-    <div className="mt-4 rounded-xl overflow-hidden border" style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
+    <div className="mt-4 rounded-xl overflow-hidden border" style={{ borderColor: 'var(--bdr)' }}>
       <DataTable cols={cols} rows={rows} emptyMsg="Empty result" />
     </div>
   )
@@ -207,22 +207,22 @@ function GenerateModal({ report, onClose }: { report: ReportDef; onClose: () => 
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-12 px-4"
       style={{ background: 'rgba(0,0,0,0.35)' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[88vh] overflow-y-auto"
+      <div className="rounded-2xl shadow-2xl w-full max-w-4xl max-h-[88vh] overflow-y-auto" style={{ background: 'var(--card)' }}
         onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'var(--bdr)' }}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center"
-              style={{ background: 'rgba(14,40,65,0.07)' }}>
+              style={{ background: 'var(--chip-bg)' }}>
               <span className="material-symbols-rounded text-[18px]" style={{ color: NAVY }}>{report.icon}</span>
             </div>
             <div>
-              <h3 className="text-[15px] font-semibold text-slate-800">{report.name}</h3>
-              <p className="text-[12px] text-slate-400">{report.desc}</p>
+              <h3 className="text-[15px] font-semibold" style={{ color: 'var(--txt)' }}>{report.name}</h3>
+              <p className="text-[12px]" style={{ color: 'var(--txt2)' }}>{report.desc}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 transition-colors">
-            <span className="material-symbols-rounded text-[20px] text-slate-400">close</span>
+          <button onClick={onClose} className="p-1 rounded-lg transition-colors">
+            <span className="material-symbols-rounded text-[20px]" style={{ color: 'var(--txt2)' }}>close</span>
           </button>
         </div>
 
@@ -231,33 +231,33 @@ function GenerateModal({ report, onClose }: { report: ReportDef; onClose: () => 
           <ErrBanner msg={error} />
 
           <div>
-            <label className="block text-[12px] font-semibold text-slate-600 mb-2">Date Range</label>
+            <label className="block text-[12px] font-semibold mb-2" style={{ color: 'var(--txt2)' }}>Date Range</label>
             <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
           </div>
 
           {report.hasCif && (
             <div>
-              <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">CIF Number</label>
+              <label className="block text-[12px] font-semibold mb-1.5" style={{ color: 'var(--txt2)' }}>CIF Number</label>
               <input
                 value={cif}
                 onChange={e => setCif(e.target.value)}
                 placeholder="e.g. 0001234"
-                className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none focus:border-slate-400 transition-colors"
-                style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none transition-colors"
+                style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               />
             </div>
           )}
 
           {!report.csvOnly && (
             <div>
-              <label className="block text-[12px] font-semibold text-slate-600 mb-2">Output Format</label>
-              <div className="inline-flex rounded-lg border overflow-hidden" style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+              <label className="block text-[12px] font-semibold mb-2" style={{ color: 'var(--txt2)' }}>Output Format</label>
+              <div className="inline-flex rounded-lg border overflow-hidden" style={{ borderColor: 'var(--bdr)' }}>
                 {(['json', 'csv'] as const).map(f => (
                   <button key={f} onClick={() => setFormat(f)}
                     className="px-4 py-1.5 text-[12px] font-semibold transition-colors"
                     style={{
                       background: format === f ? NAVY : 'transparent',
-                      color:      format === f ? '#fff' : '#64748B',
+                      color:      format === f ? '#fff' : 'var(--txt2)',
                     }}>
                     {f === 'json' ? 'JSON Preview' : 'CSV Download'}
                   </button>
@@ -280,11 +280,11 @@ function GenerateModal({ report, onClose }: { report: ReportDef; onClose: () => 
           </button>
 
           {isStatement && (
-            <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'rgba(15,23,42,0.1)', background: 'rgba(15,23,42,0.02)' }}>
+            <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'var(--bdr)', background: 'rgba(15,23,42,0.02)' }}>
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-[13px] font-semibold text-slate-800">Email PDF Statement</p>
-                  <p className="text-[12px] text-slate-400">Sends a transactional PDF attachment and records delivery/open/bounce status.</p>
+                  <p className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>Email PDF Statement</p>
+                  <p className="text-[12px]" style={{ color: 'var(--txt2)' }}>Sends a transactional PDF attachment and records delivery/open/bounce status.</p>
                 </div>
                 <button
                   onClick={sendStatement}
@@ -297,50 +297,53 @@ function GenerateModal({ report, onClose }: { report: ReportDef; onClose: () => 
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <label className="block">
-                  <span className="block text-[11px] font-bold uppercase text-slate-500 mb-1">Recipient Email</span>
+                  <span className="block text-[11px] font-bold uppercase mb-1" style={{ color: 'var(--txt2)' }}>Recipient Email</span>
                   <input value={recipient} onChange={e => setRecipient(e.target.value)} type="email" placeholder="customer@email.com"
-                    className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+                    className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
                 </label>
                 <label className="block">
-                  <span className="block text-[11px] font-bold uppercase text-slate-500 mb-1">Subject</span>
+                  <span className="block text-[11px] font-bold uppercase mb-1" style={{ color: 'var(--txt2)' }}>Subject</span>
                   <input value={subject} onChange={e => setSubject(e.target.value)} placeholder={`Your O3 Cards statement: ${from} to ${to}`}
-                    className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+                    className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
                 </label>
               </div>
               <label className="block">
-                <span className="block text-[11px] font-bold uppercase text-slate-500 mb-1">Message</span>
+                <span className="block text-[11px] font-bold uppercase mb-1" style={{ color: 'var(--txt2)' }}>Message</span>
                 <textarea value={message} onChange={e => setMessage(e.target.value)} rows={3}
-                  className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none resize-y" style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+                  className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none resize-y" style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
               </label>
               <label className="block">
-                <span className="block text-[11px] font-bold uppercase text-slate-500 mb-1">Password Hint</span>
+                <span className="block text-[11px] font-bold uppercase mb-1" style={{ color: 'var(--txt2)' }}>Password Hint</span>
                 <input value={passwordHint} onChange={e => setPasswordHint(e.target.value)} placeholder="Optional. Do not put the actual password here."
-                  className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+                  className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
               </label>
             </div>
           )}
 
           {previewRows !== null && (
             <div>
-              <p className="text-[12px] font-semibold text-slate-500 mb-1">{previewRows.length} row(s) returned</p>
+              <p className="text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>{previewRows.length} row(s) returned</p>
               <PreviewTable rows={previewRows} />
             </div>
           )}
 
           {isStatement && logs.length > 0 && (
             <div>
-              <p className="text-[12px] font-semibold text-slate-500 mb-2">Recent statement emails</p>
-              <div className="rounded-xl border divide-y divide-slate-100 overflow-hidden" style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
+              <p className="text-[12px] font-semibold mb-2" style={{ color: 'var(--txt2)' }}>Recent statement emails</p>
+              <div className="rounded-xl border divide-y divide-[var(--bdr)] overflow-hidden" style={{ borderColor: 'var(--bdr)' }}>
                 {logs.map(log => (
                   <div key={log.id} className="px-4 py-3 flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-[12px] font-semibold text-slate-800 truncate">{log.recipient_email}</p>
-                      <p className="text-[11px] text-slate-400 truncate">{log.cif_number} · {log.date_from} to {log.date_to} · {fmtDate(log.created_at)}</p>
+                      <p className="text-[12px] font-semibold truncate" style={{ color: 'var(--txt)' }}>{log.recipient_email}</p>
+                      <p className="text-[11px] truncate" style={{ color: 'var(--txt2)' }}>{log.cif_number} · {log.date_from} to {log.date_to} · {fmtDate(log.created_at)}</p>
                       {log.last_error && <p className="text-[11px] text-red-600 truncate">{log.last_error}</p>}
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold ${log.status === 'delivered' || log.status === 'opened' ? 'bg-green-50 text-green-700' : log.status === 'failed' || log.status === 'bounced' ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-500'}`}>{log.status}</span>
-                      <p className="text-[11px] text-slate-400 mt-1">{log.opened_at ? 'Opened' : log.delivered_at ? 'Delivered' : log.bounced_at ? 'Bounced' : 'Tracking pending'}</p>
+                      <span
+                        className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold ${log.status === 'delivered' || log.status === 'opened' ? 'bg-green-50 text-green-700' : log.status === 'failed' || log.status === 'bounced' ? 'bg-red-50 text-red-700' : ''}`}
+                        style={log.status !== 'delivered' && log.status !== 'opened' && log.status !== 'failed' && log.status !== 'bounced' ? { background: 'var(--chip-bg)', color: 'var(--txt2)' } : undefined}
+                      >{log.status}</span>
+                      <p className="text-[11px] mt-1" style={{ color: 'var(--txt2)' }}>{log.opened_at ? 'Opened' : log.delivered_at ? 'Delivered' : log.bounced_at ? 'Bounced' : 'Tracking pending'}</p>
                     </div>
                   </div>
                 ))}
@@ -357,11 +360,11 @@ function GenerateModal({ report, onClose }: { report: ReportDef; onClose: () => 
 function ReportCard({ report, onGenerate }: { report: ReportDef; onGenerate: () => void }) {
   const freqStyle = FREQ_STYLE[report.freq] ?? FREQ_STYLE.Monthly
   return (
-    <div className="flex flex-col gap-3 p-4 rounded-xl border transition-all hover:shadow-md bg-white"
-      style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
+    <div className="flex flex-col gap-3 p-4 rounded-xl border transition-all hover:shadow-md"
+      style={{ background: 'var(--card)', borderColor: 'var(--bdr)' }}>
       <div className="flex items-start justify-between">
         <div className="w-9 h-9 rounded-xl flex items-center justify-center"
-          style={{ background: 'rgba(14,40,65,0.07)' }}>
+          style={{ background: 'var(--chip-bg)' }}>
           <span className="material-symbols-rounded text-[18px]" style={{ color: NAVY }}>{report.icon}</span>
         </div>
         <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full"
@@ -370,13 +373,13 @@ function ReportCard({ report, onGenerate }: { report: ReportDef; onGenerate: () 
         </span>
       </div>
       <div className="flex-1">
-        <p className="text-[13px] font-semibold text-slate-800 leading-snug">{report.name}</p>
-        <p className="text-[12px] text-slate-400 mt-1 leading-relaxed">{report.desc}</p>
+        <p className="text-[13px] font-semibold leading-snug" style={{ color: 'var(--txt)' }}>{report.name}</p>
+        <p className="text-[12px] mt-1 leading-relaxed" style={{ color: 'var(--txt2)' }}>{report.desc}</p>
       </div>
       <button
         onClick={onGenerate}
         className="flex items-center justify-center gap-1.5 w-full py-2 rounded-lg text-[12px] font-semibold transition-colors"
-        style={{ background: 'rgba(14,40,65,0.06)', color: NAVY }}
+        style={{ background: 'var(--chip-bg)', color: NAVY }}
         onMouseEnter={e => (e.currentTarget.style.background = 'rgba(14,40,65,0.12)')}
         onMouseLeave={e => (e.currentTarget.style.background = 'rgba(14,40,65,0.06)')}>
         <span className="material-symbols-rounded text-[14px]">play_arrow</span>

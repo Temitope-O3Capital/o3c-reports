@@ -103,13 +103,13 @@ function KpiCard({ label, value, icon, accent, sub, large }: {
   return (
     <div className="card p-5 flex flex-col gap-2" style={{ borderTop: `3px solid ${accent}` }}>
       <div className="flex items-center justify-between">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-slate-400">{label}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.07em]" style={{ color: 'var(--txt2)' }}>{label}</p>
         <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: `${accent}18` }}>
           <span className="material-symbols-rounded text-[15px]" style={{ color: accent }}>{icon}</span>
         </div>
       </div>
-      <p className={`kpi-number leading-none text-slate-900 ${large ? 'text-[28px]' : 'text-[22px]'}`}>{value}</p>
-      {sub && <p className="text-[11px] text-slate-400">{sub}</p>}
+      <p className={`kpi-number leading-none ${large ? 'text-[28px]' : 'text-[22px]'}`} style={{ color: 'var(--txt)' }}>{value}</p>
+      {sub && <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>{sub}</p>}
     </div>
   )
 }
@@ -142,22 +142,22 @@ function ComparePanel({ ps, eod }: { ps: PsSummary | null; eod: EodSummary | nul
   return (
     <div className="card overflow-hidden mb-5">
       <div className="px-5 py-3.5" style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
-        <p className="text-[14px] font-semibold text-slate-800">Processor vs Ledger Reconciliation</p>
-        <p className="text-[12px] text-slate-400 mt-0.5">Paystack API totals vs internal EOD ledger</p>
+        <p className="text-[14px] font-semibold" style={{ color: 'var(--txt)' }}>Processor vs Ledger Reconciliation</p>
+        <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>Paystack API totals vs internal EOD ledger</p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-[13px]">
           <thead>
-            <tr style={{ background: NAVY }}>
+            <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
               {['Metric', 'Paystack (Source)', 'EOD Ledger', 'Delta'].map((h, i) => (
                 <th key={h} className={`px-5 py-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] ${i > 0 ? 'text-right' : 'text-left'}`}
-                  style={{ color: 'rgba(255,255,255,0.7)' }}>{h}</th>
+                  style={{ color: 'var(--txt2)' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             <tr style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
-              <td className="px-5 py-4 font-semibold text-slate-800">Transaction Count</td>
+              <td className="px-5 py-4 font-semibold" style={{ color: 'var(--txt)' }}>Transaction Count</td>
               <td className="px-5 py-4 text-right font-mono font-bold">{fmtNum(n(ps?.total_count))}</td>
               <td className="px-5 py-4 text-right font-mono font-bold">{fmtNum(n(eod?.txn_count))}</td>
               <td className="px-5 py-4 text-right">
@@ -165,7 +165,7 @@ function ComparePanel({ ps, eod }: { ps: PsSummary | null; eod: EodSummary | nul
               </td>
             </tr>
             <tr style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
-              <td className="px-5 py-4 font-semibold text-slate-800">Total Volume (NGN)</td>
+              <td className="px-5 py-4 font-semibold" style={{ color: 'var(--txt)' }}>Total Volume (NGN)</td>
               <td className="px-5 py-4 text-right font-mono font-bold">{fmtExact(n(ps?.total_volume_ngn))}</td>
               <td className="px-5 py-4 text-right font-mono font-bold">{fmtExact(n(eod?.total_vol_ngn))}</td>
               <td className="px-5 py-4 text-right">
@@ -188,16 +188,16 @@ function Pager({ page, total, perPage, onChange }: {
   return (
     <div className="px-5 py-3 flex items-center justify-between"
       style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
-      <p className="text-xs text-slate-400">Page {page} of {pages} · {fmtNum(total)} total</p>
+      <p className="text-xs" style={{ color: 'var(--txt2)' }}>Page {page} of {pages} · {fmtNum(total)} total</p>
       <div className="flex gap-2">
         <button onClick={() => onChange(Math.max(1, page - 1))} disabled={page === 1}
-          className="w-8 h-8 flex items-center justify-center rounded-lg border text-slate-500 disabled:opacity-40 hover:bg-slate-50"
-          style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+          className="w-8 h-8 flex items-center justify-center rounded-lg border disabled:opacity-40"
+          style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)', background: 'var(--card)' }}>
           <span className="material-symbols-rounded text-[17px]">chevron_left</span>
         </button>
         <button onClick={() => onChange(Math.min(pages, page + 1))} disabled={page >= pages}
-          className="w-8 h-8 flex items-center justify-center rounded-lg border text-slate-500 disabled:opacity-40 hover:bg-slate-50"
-          style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+          className="w-8 h-8 flex items-center justify-center rounded-lg border disabled:opacity-40"
+          style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)', background: 'var(--card)' }}>
           <span className="material-symbols-rounded text-[17px]">chevron_right</span>
         </button>
       </div>
@@ -209,10 +209,10 @@ function Pager({ page, total, perPage, onChange }: {
 function THead({ cols }: { cols: string[] }) {
   return (
     <thead>
-      <tr style={{ background: NAVY }}>
+      <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
         {cols.map(h => (
           <th key={h} className="px-4 py-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-left whitespace-nowrap"
-            style={{ color: 'rgba(255,255,255,0.7)' }}>{h}</th>
+            style={{ color: 'var(--txt2)' }}>{h}</th>
         ))}
       </tr>
     </thead>
@@ -222,15 +222,15 @@ function THead({ cols }: { cols: string[] }) {
 function Empty({ icon, msg, cols }: { icon: string; msg: string; cols: number }) {
   return (
     <tr><td colSpan={cols} className="px-5 py-14 text-center">
-      <span className="material-symbols-rounded text-[40px] text-slate-300 block mb-2">{icon}</span>
-      <p className="text-[13px] text-slate-400">{msg}</p>
+      <span className="material-symbols-rounded text-[40px] block mb-2" style={{ color: 'var(--txt3)' }}>{icon}</span>
+      <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>{msg}</p>
     </td></tr>
   )
 }
 
 function Loading({ cols }: { cols: number }) {
   return (
-    <tr><td colSpan={cols} className="px-5 py-10 text-center text-slate-400">
+    <tr><td colSpan={cols} className="px-5 py-10 text-center" style={{ color: 'var(--txt2)' }}>
       <div className="flex items-center justify-center gap-2"><Spinner />Loading…</div>
     </td></tr>
   )
@@ -241,13 +241,13 @@ function FilterPills<T extends string>({ value, options, onChange }: {
   value: T; options: { label: string; value: T }[]; onChange: (v: T) => void
 }) {
   return (
-    <div className="flex gap-1 p-1 rounded-lg bg-slate-100" style={{ display: 'inline-flex' }}>
+    <div className="flex gap-1 p-1 rounded-lg" style={{ display: 'inline-flex', background: 'var(--chip-bg)' }}>
       {options.map(o => (
         <button key={o.value} onClick={() => onChange(o.value)}
           className="px-3 py-1 rounded-md text-[12px] font-semibold transition-all"
           style={{
-            background: value === o.value ? '#fff' : 'transparent',
-            color: value === o.value ? NAVY : '#64748B',
+            background: value === o.value ? 'var(--card)' : 'transparent',
+            color: value === o.value ? NAVY : 'var(--txt2)',
             boxShadow: value === o.value ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
           }}>
           {o.label}
@@ -353,9 +353,9 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   const configured = summary?.configured !== false
   if (summary && !configured) {
     return (
-      <div className="card p-12 flex flex-col items-center text-slate-400 gap-3">
+      <div className="card p-12 flex flex-col items-center gap-3" style={{ color: 'var(--txt2)' }}>
         <span className="material-symbols-rounded text-[48px] opacity-25">payments</span>
-        <p className="font-semibold text-slate-600">Paystack not configured</p>
+        <p className="font-semibold" style={{ color: 'var(--txt)' }}>Paystack not configured</p>
         <p className="text-sm">{summary.message || 'Set PAYSTACK_SECRET_KEY in backend environment'}</p>
       </div>
     )
@@ -364,13 +364,13 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   return (
     <div>
       {/* ── sub-tab bar ── */}
-      <div className="flex flex-wrap gap-1 mb-5 p-1 rounded-xl bg-slate-100" style={{ display: 'inline-flex' }}>
+      <div className="flex flex-wrap gap-1 mb-5 p-1 rounded-xl" style={{ display: 'inline-flex', background: 'var(--chip-bg)' }}>
         {PS_SUB_TABS.map(t => (
           <button key={t.key} onClick={() => setSub(t.key)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all"
             style={{
-              background: sub === t.key ? '#fff' : 'transparent',
-              color: sub === t.key ? NAVY : '#64748B',
+              background: sub === t.key ? 'var(--card)' : 'transparent',
+              color: sub === t.key ? NAVY : 'var(--txt2)',
               boxShadow: sub === t.key ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
             }}>
             <span className="material-symbols-rounded text-[14px]">{t.icon}</span>
@@ -382,7 +382,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
       {/* ══ SUMMARY ══ */}
       {sub === 'summary' && (
         loadingSum
-          ? <div className="flex items-center gap-3 py-10 text-slate-400"><Spinner />Loading…</div>
+          ? <div className="flex items-center gap-3 py-10" style={{ color: 'var(--txt2)' }}><Spinner />Loading…</div>
           : <>
             {/* Top: live balance banner */}
             <div className="card p-5 mb-5 flex items-center gap-5"
@@ -435,8 +435,8 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
           <div className="px-5 py-3.5 flex items-center justify-between flex-wrap gap-3"
             style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
             <div>
-              <p className="text-[14px] font-semibold text-slate-800">Incoming Transactions</p>
-              <p className="text-[12px] text-slate-400 mt-0.5">
+              <p className="text-[14px] font-semibold" style={{ color: 'var(--txt)' }}>Incoming Transactions</p>
+              <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>
                 Money received <strong>from customers</strong> via Paystack · {fmtDate(from)} – {fmtDate(to)}
               </p>
             </div>
@@ -453,10 +453,10 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
           </div>
           {/* Fee legend */}
           <div className="px-5 py-2.5 flex items-center gap-4 text-[11px]"
-            style={{ background: '#F8FAFC', borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
-            <span className="text-slate-400">How to read fee columns:</span>
-            <span className="flex items-center gap-1 text-slate-600 font-medium">
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: '#64748B', display: 'inline-block' }} />
+            style={{ background: 'var(--bg)', borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
+            <span style={{ color: 'var(--txt2)' }}>How to read fee columns:</span>
+            <span className="flex items-center gap-1 font-medium" style={{ color: 'var(--txt2)' }}>
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--txt2)', display: 'inline-block' }} />
               Gross = customer paid
             </span>
             <span className="flex items-center gap-1 font-medium" style={{ color: RED }}>
@@ -486,18 +486,18 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                       ? `${auth.card_type || 'Card'} ····${auth.last4}${auth.bank ? ` · ${auth.bank}` : ''}`
                       : null
                     return (
-                      <tr key={i} className="hover:bg-slate-50 transition-colors"
+                      <tr key={i} className="hover:bg-black/[0.02] transition-colors"
                         style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
                         <td className="px-4 py-3.5">
-                          <p className="font-mono text-[11px] text-slate-500">{t.reference}</p>
-                          <p className="text-[11px] text-slate-400 mt-0.5">{fmtTs(t.paid_at || t.created_at)}</p>
+                          <p className="font-mono text-[11px]" style={{ color: 'var(--txt2)' }}>{t.reference}</p>
+                          <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{fmtTs(t.paid_at || t.created_at)}</p>
                         </td>
                         <td className="px-4 py-3.5">
-                          {custName && <p className="text-[12px] font-semibold text-slate-700">{custName}</p>}
-                          <p className="text-[11px] text-slate-500">{cust.email || '—'}</p>
-                          {cardInfo && <p className="text-[11px] text-slate-400 mt-0.5">{cardInfo}</p>}
+                          {custName && <p className="text-[12px] font-semibold" style={{ color: 'var(--txt)' }}>{custName}</p>}
+                          <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>{cust.email || '—'}</p>
+                          {cardInfo && <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{cardInfo}</p>}
                         </td>
-                        <td className="px-4 py-3.5 font-mono font-bold text-[14px] text-slate-700">
+                        <td className="px-4 py-3.5 font-mono font-bold text-[14px]" style={{ color: 'var(--txt)' }}>
                           {kobo(gross)}
                         </td>
                         <td className="px-4 py-3.5 font-mono font-semibold text-[13px]"
@@ -529,8 +529,8 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
       {sub === 'settlements' && (
         <div className="card overflow-hidden">
           <div className="px-5 py-3.5" style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
-            <p className="text-[14px] font-semibold text-slate-800">Paystack Settlements</p>
-            <p className="text-[12px] text-slate-400 mt-0.5">
+            <p className="text-[14px] font-semibold" style={{ color: 'var(--txt)' }}>Paystack Settlements</p>
+            <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>
               Daily net amounts disbursed to your bank account by Paystack · {fmtDate(from)} – {fmtDate(to)}
             </p>
           </div>
@@ -542,12 +542,12 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                   : !(settleData?.data?.length)
                   ? <Empty icon="account_balance" msg="No settlements in this period" cols={5} />
                   : settleData.data.map((s, i) => (
-                    <tr key={i} className="hover:bg-slate-50 transition-colors"
+                    <tr key={i} className="hover:bg-black/[0.02] transition-colors"
                       style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
-                      <td className="px-4 py-3.5 text-[12px] text-slate-700 whitespace-nowrap font-medium">
+                      <td className="px-4 py-3.5 text-[12px] whitespace-nowrap font-medium" style={{ color: 'var(--txt)' }}>
                         {fmtTs(s.settlement_date || s.createdAt)}
                       </td>
-                      <td className="px-4 py-3.5 font-mono font-semibold text-slate-700">{kobo(s.total_processed)}</td>
+                      <td className="px-4 py-3.5 font-mono font-semibold" style={{ color: 'var(--txt)' }}>{kobo(s.total_processed)}</td>
                       <td className="px-4 py-3.5 font-mono text-[12px]" style={{ color: RED }}>{kobo(s.total_fees)}</td>
                       <td className="px-4 py-3.5 font-mono font-bold text-[14px]" style={{ color: GREEN }}>
                         {kobo(s.effective_amount ?? s.total_amount)}
@@ -569,8 +569,8 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
           <div className="px-5 py-3.5 flex items-center justify-between flex-wrap gap-3"
             style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
             <div>
-              <p className="text-[14px] font-semibold text-slate-800">Outbound Transfers</p>
-              <p className="text-[12px] text-slate-400 mt-0.5">
+              <p className="text-[14px] font-semibold" style={{ color: 'var(--txt)' }}>Outbound Transfers</p>
+              <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>
                 Money sent <strong>from your Paystack wallet</strong> to external bank accounts · {fmtDate(from)} – {fmtDate(to)}
               </p>
             </div>
@@ -608,28 +608,28 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                     const isEst     = !actual && feeActual === 0 && t.status === 'success'
                     const net       = amt + fee   // wallet debited = transfer amount + fees on top
                     return (
-                      <tr key={i} className="hover:bg-slate-50 transition-colors"
+                      <tr key={i} className="hover:bg-black/[0.02] transition-colors"
                         style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
                         <td className="px-4 py-3.5">
-                          <p className="font-mono text-[11px] text-slate-500">{t.reference}</p>
-                          <p className="text-[11px] text-slate-400 mt-0.5">{fmtTs(t.transferred_at || t.createdAt)}</p>
+                          <p className="font-mono text-[11px]" style={{ color: 'var(--txt2)' }}>{t.reference}</p>
+                          <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{fmtTs(t.transferred_at || t.createdAt)}</p>
                         </td>
                         <td className="px-4 py-3.5">
-                          <p className="text-[12px] font-semibold text-slate-700">{details.account_name || recip.name || '—'}</p>
-                          <p className="text-[11px] text-slate-400 mt-0.5">{recip.type ? `${recip.type}` : ''}</p>
+                          <p className="text-[12px] font-semibold" style={{ color: 'var(--txt)' }}>{details.account_name || recip.name || '—'}</p>
+                          <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{recip.type ? `${recip.type}` : ''}</p>
                         </td>
                         <td className="px-4 py-3.5">
-                          <p className="text-[12px] text-slate-600">{details.bank_name || '—'}</p>
-                          <p className="font-mono text-[11px] text-slate-400 mt-0.5">{details.account_number || '—'}</p>
+                          <p className="text-[12px]" style={{ color: 'var(--txt2)' }}>{details.bank_name || '—'}</p>
+                          <p className="font-mono text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{details.account_number || '—'}</p>
                         </td>
-                        <td className="px-4 py-3.5 font-mono font-bold text-[14px] text-slate-700">{kobo(amt)}</td>
+                        <td className="px-4 py-3.5 font-mono font-bold text-[14px]" style={{ color: 'var(--txt)' }}>{kobo(amt)}</td>
                         <td className="px-4 py-3.5 font-mono font-semibold text-[13px]" style={{ color: fee > 0 ? RED : '#94A3B8' }}>
                           {fee > 0 ? (
                             <span title={actual
                               ? `Transfer fee: ₦${(n(actual.transfer_fee)).toFixed(2)} · Stamp duty: ₦${(n(actual.stamp_duty)).toFixed(2)}`
                               : `Estimated: transfer fee + ${amt >= 1000000 ? '₦50 stamp duty' : 'no stamp duty'}`}>
                               {kobo(fee)}
-                              {isEst && <span className="text-[11px] text-slate-400 ml-1">est.</span>}
+                              {isEst && <span className="text-[11px] ml-1" style={{ color: 'var(--txt2)' }}>est.</span>}
                             </span>
                           ) : '—'}
                         </td>
@@ -637,7 +637,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                           {t.status === 'success' ? kobo(net) : '—'}
                         </td>
                         <td className="px-4 py-3.5"><StatusBadge status={t.status || 'pending'} /></td>
-                        <td className="px-4 py-3.5 text-[11px] text-slate-500 max-w-[140px] truncate">{t.reason || '—'}</td>
+                        <td className="px-4 py-3.5 text-[11px] max-w-[140px] truncate" style={{ color: 'var(--txt2)' }}>{t.reason || '—'}</td>
                       </tr>
                     )
                   })
@@ -646,7 +646,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
             </table>
           </div>
           <Pager page={xfrPage} total={n(xfrData?.meta?.total)} perPage={PER_PAGE} onChange={setXfrPage} />
-          <p className="text-[11px] text-slate-400 px-4 pb-3">
+          <p className="text-[11px] text-[color:var(--txt2)] px-4 pb-3">
             * Paystack does not return per-transfer fees via API — fees marked <em>est.</em> are calculated from the standard schedule (₦10 / ₦25 / ₦50) and deducted from your Paystack balance, not from the transfer amount.
           </p>
         </div>
@@ -681,8 +681,8 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
             <div className="px-5 py-3.5 flex items-center justify-between flex-wrap gap-3"
               style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
               <div>
-                <p className="text-[14px] font-semibold text-slate-800">Balance Ledger (Funding Log)</p>
-                <p className="text-[12px] text-slate-400 mt-0.5">Every debit and credit to your Paystack wallet with running balance</p>
+                <p className="text-[14px] font-semibold text-[color:var(--txt)]">Balance Ledger (Funding Log)</p>
+                <p className="text-[12px] text-[color:var(--txt2)] mt-0.5">Every debit and credit to your Paystack wallet with running balance</p>
               </div>
               <FilterPills
                 value={ledgerDir}
@@ -715,7 +715,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                       const typeLabel = typeMap[row.model_responsible] || row.model_responsible || '—'
                       const isCharge = row.model_responsible?.includes('Charge')
                       return (
-                        <tr key={i} className="hover:bg-slate-50 transition-colors"
+                        <tr key={i} className="hover:bg-[var(--bg)] transition-colors"
                           style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
                           <td className="px-4 py-3">
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold"
@@ -726,15 +726,15 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                               {typeLabel}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-[11px] text-slate-500 max-w-[220px] truncate">{row.reason || '—'}</td>
+                          <td className="px-4 py-3 text-[11px] text-[color:var(--txt2)] max-w-[220px] truncate">{row.reason || '—'}</td>
                           <td className="px-4 py-3 font-mono font-semibold text-[12px]"
                             style={{ color: diff > 0 ? GREEN : diff < 0 ? RED : '#94A3B8' }}>
                             {diff !== 0 ? `${diff > 0 ? '+' : ''}${fmtExact(diff / 100)}` : '—'}
                           </td>
-                          <td className="px-4 py-3 font-mono text-[12px] font-semibold text-slate-700">
+                          <td className="px-4 py-3 font-mono text-[12px] font-semibold text-[color:var(--txt)]">
                             {fmtExact(n(row.balance) / 100)}
                           </td>
-                          <td className="px-4 py-3 text-[11px] text-slate-500 whitespace-nowrap">
+                          <td className="px-4 py-3 text-[11px] text-[color:var(--txt2)] whitespace-nowrap">
                             {fmtTs(row.createdAt)}
                           </td>
                         </tr>
@@ -753,28 +753,28 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
       {sub === 'refunds' && (
         <div className="card overflow-hidden">
           <div className="px-5 py-3.5" style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
-            <p className="text-[14px] font-semibold text-slate-800">Refunds</p>
-            <p className="text-[12px] text-slate-400 mt-0.5">Transactions reversed back to customers · {fmtNum(n(refundData?.meta?.total))} total</p>
+            <p className="text-[14px] font-semibold text-[color:var(--txt)]">Refunds</p>
+            <p className="text-[12px] text-[color:var(--txt2)] mt-0.5">Transactions reversed back to customers · {fmtNum(n(refundData?.meta?.total))} total</p>
           </div>
 
           {loadingRef
-            ? <div className="flex items-center justify-center gap-2 py-12 text-slate-400"><Spinner />Loading…</div>
+            ? <div className="flex items-center justify-center gap-2 py-12 text-[color:var(--txt2)]"><Spinner />Loading…</div>
             : !(refundData?.data?.length)
             ? <div className="py-14 text-center">
-                <span className="material-symbols-rounded text-[40px] text-slate-300 block mb-2">undo</span>
-                <p className="text-[13px] text-slate-400">No refunds found</p>
+                <span className="material-symbols-rounded text-[40px] text-[color:var(--txt3)] block mb-2">undo</span>
+                <p className="text-[13px] text-[color:var(--txt2)]">No refunds found</p>
               </div>
             : refundData!.data.map((rf, i) => {
               const cust = rf.customer || {}
               const custName = [cust.first_name, cust.last_name].filter(Boolean).join(' ') || cust.email || '—'
               return (
-                <div key={i} className="px-5 py-4 hover:bg-slate-50 transition-colors"
+                <div key={i} className="px-5 py-4 hover:bg-[var(--bg)] transition-colors"
                   style={{ borderBottom: '1px solid rgba(15,23,42,0.06)' }}>
                   {/* Header row */}
                   <div className="flex items-start justify-between mb-3">
                     <div>
                       <p className="kpi-number text-[22px]" style={{ color: RED }}>{kobo(rf.amount)}</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">Refunded to customer</p>
+                      <p className="text-[11px] text-[color:var(--txt2)] mt-0.5">Refunded to customer</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <ChannelBadge channel={rf.refund_channel || rf.refund_type} />
@@ -784,19 +784,19 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                   {/* Detail grid — 2 columns, no horizontal scroll */}
                   <div className="grid grid-cols-2 gap-x-8 gap-y-2">
                     <div>
-                      <p className="text-[11px] uppercase tracking-wider text-slate-400 mb-0.5">Customer</p>
-                      <p className="text-[12px] font-semibold text-slate-700">{custName}</p>
+                      <p className="text-[11px] uppercase tracking-wider text-[color:var(--txt2)] mb-0.5">Customer</p>
+                      <p className="text-[12px] font-semibold text-[color:var(--txt)]">{custName}</p>
                       {cust.email && custName !== cust.email && (
-                        <p className="text-[11px] text-slate-400">{cust.email}</p>
+                        <p className="text-[11px] text-[color:var(--txt2)]">{cust.email}</p>
                       )}
                     </div>
                     <div>
-                      <p className="text-[11px] uppercase tracking-wider text-slate-400 mb-0.5">Transaction Reference</p>
-                      <p className="font-mono text-[11px] text-slate-600">{rf.transaction_reference || rf.bank_reference || '—'}</p>
+                      <p className="text-[11px] uppercase tracking-wider text-[color:var(--txt2)] mb-0.5">Transaction Reference</p>
+                      <p className="font-mono text-[11px] text-[color:var(--txt2)]">{rf.transaction_reference || rf.bank_reference || '—'}</p>
                     </div>
                     <div>
-                      <p className="text-[11px] uppercase tracking-wider text-slate-400 mb-0.5">Deducted from Wallet</p>
-                      <p className="font-mono text-[12px] font-semibold text-slate-700">
+                      <p className="text-[11px] uppercase tracking-wider text-[color:var(--txt2)] mb-0.5">Deducted from Wallet</p>
+                      <p className="font-mono text-[12px] font-semibold text-[color:var(--txt)]">
                         {rf.deducted_amount != null ? kobo(rf.deducted_amount) : '—'}
                         {rf.fully_deducted === false && (
                           <span className="ml-1.5 text-[11px] font-normal px-1.5 py-0.5 rounded"
@@ -805,13 +805,13 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                       </p>
                     </div>
                     <div>
-                      <p className="text-[11px] uppercase tracking-wider text-slate-400 mb-0.5">Date</p>
-                      <p className="text-[12px] text-slate-600">{fmtTs(rf.refunded_at || rf.createdAt)}</p>
+                      <p className="text-[11px] uppercase tracking-wider text-[color:var(--txt2)] mb-0.5">Date</p>
+                      <p className="text-[12px] text-[color:var(--txt2)]">{fmtTs(rf.refunded_at || rf.createdAt)}</p>
                     </div>
                     {(rf.customer_note || rf.merchant_note) && (
                       <div className="col-span-2">
-                        <p className="text-[11px] uppercase tracking-wider text-slate-400 mb-0.5">Note</p>
-                        <p className="text-[12px] text-slate-600">{rf.customer_note || rf.merchant_note}</p>
+                        <p className="text-[11px] uppercase tracking-wider text-[color:var(--txt2)] mb-0.5">Note</p>
+                        <p className="text-[12px] text-[color:var(--txt2)]">{rf.customer_note || rf.merchant_note}</p>
                       </div>
                     )}
                   </div>
@@ -827,8 +827,8 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
       {sub === 'disputes' && (
         <div className="card overflow-hidden">
           <div className="px-5 py-3.5" style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
-            <p className="text-[14px] font-semibold text-slate-800">Disputes & Chargebacks</p>
-            <p className="text-[12px] text-slate-400 mt-0.5">Transactions disputed by customers or issuing banks</p>
+            <p className="text-[14px] font-semibold text-[color:var(--txt)]">Disputes & Chargebacks</p>
+            <p className="text-[12px] text-[color:var(--txt2)] mt-0.5">Transactions disputed by customers or issuing banks</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
@@ -840,18 +840,18 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                   : disputeData!.data.map((d, i) => {
                     const cust = d.customer || {}
                     return (
-                      <tr key={i} className="hover:bg-slate-50 transition-colors"
+                      <tr key={i} className="hover:bg-[var(--bg)] transition-colors"
                         style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
-                        <td className="px-4 py-3 font-mono text-[11px] text-slate-400">{d.transaction_reference || '—'}</td>
+                        <td className="px-4 py-3 font-mono text-[11px] text-[color:var(--txt2)]">{d.transaction_reference || '—'}</td>
                         <td className="px-4 py-3">
-                          <p className="text-[12px] font-semibold text-slate-700">{cust.email || '—'}</p>
+                          <p className="text-[12px] font-semibold text-[color:var(--txt)]">{cust.email || '—'}</p>
                         </td>
                         <td className="px-4 py-3 font-mono font-semibold" style={{ color: RED }}>{kobo(d.refund_amount)}</td>
-                        <td className="px-4 py-3 text-[11px] capitalize text-slate-600">{(d.category || '—').replace(/_/g, ' ')}</td>
+                        <td className="px-4 py-3 text-[11px] capitalize text-[color:var(--txt2)]">{(d.category || '—').replace(/_/g, ' ')}</td>
                         <td className="px-4 py-3"><StatusBadge status={d.status || 'pending'} /></td>
-                        <td className="px-4 py-3 text-[11px] capitalize text-slate-600">{(d.resolution || '—').replace(/-/g, ' ')}</td>
-                        <td className="px-4 py-3 text-[11px] text-slate-500 whitespace-nowrap">{fmtTs(d.dueAt)}</td>
-                        <td className="px-4 py-3 text-[11px] text-slate-500 whitespace-nowrap">{fmtTs(d.resolvedAt)}</td>
+                        <td className="px-4 py-3 text-[11px] capitalize text-[color:var(--txt2)]">{(d.resolution || '—').replace(/-/g, ' ')}</td>
+                        <td className="px-4 py-3 text-[11px] text-[color:var(--txt2)] whitespace-nowrap">{fmtTs(d.dueAt)}</td>
+                        <td className="px-4 py-3 text-[11px] text-[color:var(--txt2)] whitespace-nowrap">{fmtTs(d.resolvedAt)}</td>
                       </tr>
                     )
                   })
@@ -919,8 +919,8 @@ function InterspwitchTab() {
       </div>
 
       {/* What you'll get */}
-      <div className="px-8 py-5" style={{ borderBottom: '1px solid rgba(15,23,42,0.07)', background: '#F8FAFC' }}>
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 mb-3">Once connected, this tab will show</p>
+      <div className="px-8 py-5" style={{ borderBottom: '1px solid rgba(15,23,42,0.07)', background: 'var(--bg)' }}>
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-[color:var(--txt2)] mb-3">Once connected, this tab will show</p>
         <div className="flex flex-wrap gap-2">
           {[
             { icon: 'globe', label: 'Web card transactions' },
@@ -930,8 +930,8 @@ function InterspwitchTab() {
             { icon: 'balance', label: 'Processor vs ledger reconciliation' },
             { icon: 'price_change', label: 'Interchange fees breakdown' },
           ].map(({ icon, label }) => (
-            <span key={label} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium text-slate-600"
-              style={{ background: '#fff', border: '1px solid rgba(15,23,42,0.1)' }}>
+            <span key={label} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium text-[color:var(--txt2)]"
+              style={{ background: 'var(--card)', border: '1px solid var(--bdr)' }}>
               <span className="material-symbols-rounded text-[14px]" style={{ color: NAVY }}>{icon}</span>
               {label}
             </span>
@@ -941,7 +941,7 @@ function InterspwitchTab() {
 
       {/* Steps */}
       <div className="px-8 py-6">
-        <p className="text-[13px] font-semibold text-slate-700 mb-5">How to activate</p>
+        <p className="text-[13px] font-semibold text-[color:var(--txt)] mb-5">How to activate</p>
         <div className="flex flex-col gap-0">
           {steps.map((s, i) => (
             <div key={i} className="flex gap-4">
@@ -957,8 +957,8 @@ function InterspwitchTab() {
               </div>
               {/* Content */}
               <div className={`pb-6 ${i === steps.length - 1 ? '' : ''}`}>
-                <p className="text-[13px] font-semibold text-slate-800 mt-1.5">{s.title}</p>
-                <p className="text-[12px] text-slate-500 mt-1 leading-relaxed">{s.detail}</p>
+                <p className="text-[13px] font-semibold text-[color:var(--txt)] mt-1.5">{s.title}</p>
+                <p className="text-[12px] text-[color:var(--txt2)] mt-1 leading-relaxed">{s.detail}</p>
               </div>
             </div>
           ))}
@@ -969,8 +969,8 @@ function InterspwitchTab() {
           style={{ background: 'rgba(14,40,65,0.04)', border: '1px solid rgba(14,40,65,0.1)' }}>
           <span className="material-symbols-rounded text-[22px]" style={{ color: NAVY }}>support_agent</span>
           <div>
-            <p className="text-[12px] font-semibold text-slate-700">Interswitch Merchant Support</p>
-            <p className="text-[11px] text-slate-500 mt-0.5">
+            <p className="text-[12px] font-semibold text-[color:var(--txt)]">Interswitch Merchant Support</p>
+            <p className="text-[11px] text-[color:var(--txt2)] mt-0.5">
               01-2715555 &nbsp;·&nbsp; merchantsupport@interswitchgroup.com
             </p>
           </div>
@@ -1008,7 +1008,7 @@ export default function Reconciliation() {
       subtitle="Match processor settlements against internal EOD ledger"
       actions={<DateFilter from={from} to={to} onChange={handleDateChange} />}>
 
-      <div className="flex gap-0 mb-6 border-b-2" style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
+      <div className="flex gap-0 mb-6 border-b-2" style={{ borderColor: 'var(--bdr)' }}>
         {TABS.map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
             className="inline-flex items-center gap-1.5 px-5 py-2.5 text-[13px] font-semibold transition-all"

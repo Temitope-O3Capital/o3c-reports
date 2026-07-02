@@ -158,20 +158,20 @@ export default function Performance() {
             {cyclesLoading ? (
               <div className="flex items-center justify-center py-10"><Spinner size={24} /></div>
             ) : cycles.length === 0 ? (
-              <p className="text-[13px] text-slate-400 px-5 py-8 text-center">No review cycles yet</p>
+              <p className="text-[13px] text-[color:var(--txt2)] px-5 py-8 text-center">No review cycles yet</p>
             ) : (
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-[var(--bdr)]">
                 {cycles.map(c => (
                   <button
                     key={c.id}
                     onClick={() => setSelectedCycle(c)}
-                    className="w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors"
-                    style={{ background: selectedCycle?.id === c.id ? 'rgba(14,40,65,0.04)' : undefined }}>
+                    className="w-full text-left px-4 py-3 transition-colors"
+                    style={{ background: selectedCycle?.id === c.id ? 'var(--chip-bg)' : undefined }}>
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-[13px] font-semibold text-slate-800 truncate max-w-[70%]">{c.name}</span>
+                      <span className="text-[13px] font-semibold truncate max-w-[70%]" style={{ color: 'var(--txt)' }}>{c.name}</span>
                       <StatusBadge status={c.status} />
                     </div>
-                    <p className="text-[11px] text-slate-400">
+                    <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>
                       {fmtDate(c.period_start)} – {fmtDate(c.period_end)}
                     </p>
                   </button>
@@ -184,16 +184,16 @@ export default function Performance() {
         {/* Right: Appraisals */}
         <div className="flex-1 min-w-0">
           {!selectedCycle ? (
-            <div className="flex flex-col items-center justify-center h-64 bg-white rounded-2xl border border-black/[0.06] shadow-sm">
-              <span className="material-symbols-rounded text-[40px] text-slate-300 mb-3">grading</span>
-              <p className="text-[13px] text-slate-400">Select a review cycle to view appraisals</p>
+            <div className="flex flex-col items-center justify-center h-64 rounded-2xl border shadow-sm" style={{ background: 'var(--card)', borderColor: 'var(--bdr)' }}>
+              <span className="material-symbols-rounded text-[40px] mb-3" style={{ color: 'var(--txt3)' }}>grading</span>
+              <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>Select a review cycle to view appraisals</p>
             </div>
           ) : (
             <SectionCard
               title={`Appraisals — ${selectedCycle.name}`}
               badge={appraisals.length}
               actions={
-                <select className="px-2 py-1 rounded border border-slate-200 text-[12px] focus:outline-none"
+                <select className="px-2 py-1 rounded text-[12px] focus:outline-none" style={{ border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={statusF} onChange={e => setStatusF(e.target.value)}>
                   <option value="">All Statuses</option>
                   {['pending', 'in_progress', 'completed', 'approved'].map(s => (
@@ -207,8 +207,8 @@ export default function Performance() {
                 <div className="flex items-center justify-center py-20"><Spinner size={32} /></div>
               ) : appraisals.length === 0 ? (
                 <div className="flex flex-col items-center py-16">
-                  <span className="material-symbols-rounded text-[36px] text-slate-300 mb-2">person_search</span>
-                  <p className="text-[13px] text-slate-400">No appraisals for this cycle</p>
+                  <span className="material-symbols-rounded text-[36px] mb-2" style={{ color: 'var(--txt3)' }}>person_search</span>
+                  <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>No appraisals for this cycle</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -218,7 +218,7 @@ export default function Performance() {
                         {['Employee', 'Staff ID', 'Department', 'Score', 'Status', ''].map(h => (
                           <th key={h}
                             className="px-5 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.07em]"
-                            style={{ background: NAVY, color: 'rgba(255,255,255,0.6)' }}>
+                            style={{ background: 'var(--th-bg)', color: 'var(--txt2)', fontFamily: "'Inter', ui-sans-serif, sans-serif", fontSize: 10 }}>
                             {h}
                           </th>
                         ))}
@@ -227,12 +227,14 @@ export default function Performance() {
                     <tbody>
                       {appraisals.map((a, i) => (
                         <tr key={a.id}
-                          className="hover:bg-slate-50 cursor-pointer transition-colors"
-                          style={{ borderTop: i > 0 ? '1px solid rgba(15,23,42,0.05)' : undefined }}
+                          className="cursor-pointer transition-colors"
+                          style={{ borderTop: i > 0 ? '1px solid var(--bdr)' : undefined, transition: 'background .1s' }}
+                          onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)'}
+                          onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = ''}
                           onClick={() => openDetail(a.id)}>
-                          <td className="px-5 py-3 font-semibold text-slate-800">{a.first_name} {a.last_name}</td>
-                          <td className="px-5 py-3 font-mono text-[12px] text-slate-500">{a.staff_id}</td>
-                          <td className="px-5 py-3 text-slate-600">{a.department_name ?? '—'}</td>
+                          <td className="px-5 py-3 font-semibold" style={{ color: 'var(--txt)' }}>{a.first_name} {a.last_name}</td>
+                          <td className="px-5 py-3 font-mono text-[12px]" style={{ color: 'var(--txt2)' }}>{a.staff_id}</td>
+                          <td className="px-5 py-3" style={{ color: 'var(--txt2)' }}>{a.department_name ?? '—'}</td>
                           <td className="px-5 py-3">
                             {a.overall_score != null ? (
                               <span className="font-mono font-semibold text-[13px]"
@@ -240,12 +242,12 @@ export default function Performance() {
                                 {a.overall_score}
                               </span>
                             ) : (
-                              <span className="text-slate-400">—</span>
+                              <span className="text-[color:var(--txt2)]">—</span>
                             )}
                           </td>
                           <td className="px-5 py-3"><StatusBadge status={a.status} /></td>
                           <td className="px-5 py-3">
-                            <span className="material-symbols-rounded text-[18px] text-slate-400">chevron_right</span>
+                            <span className="material-symbols-rounded text-[18px] text-[color:var(--txt2)]">chevron_right</span>
                           </td>
                         </tr>
                       ))}
@@ -261,12 +263,12 @@ export default function Performance() {
       {/* Detail modal */}
       {detailId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-xl max-h-[85vh] overflow-y-auto">
+          <div className="bg-[var(--card)] rounded-2xl shadow-xl p-6 w-full max-w-xl max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-[16px] font-bold text-slate-800">
+              <h2 className="text-[16px] font-bold text-[color:var(--txt)]">
                 {detail ? `${detail.appraisal.first_name} ${detail.appraisal.last_name}` : 'Loading…'}
               </h2>
-              <button onClick={() => { setDetailId(null); setDetail(null) }} className="text-slate-400 hover:text-slate-700">
+              <button onClick={() => { setDetailId(null); setDetail(null) }} className="text-[color:var(--txt2)] hover:text-[color:var(--txt)]">
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
             </div>
@@ -282,35 +284,35 @@ export default function Performance() {
                     ['Status', detail.appraisal.status],
                     ['Overall Score', detail.appraisal.overall_score != null ? String(detail.appraisal.overall_score) : '—'],
                   ].map(([k, v]) => (
-                    <div key={k} className="bg-slate-50 rounded-lg px-3 py-2">
-                      <p className="text-[11px] text-slate-400 mb-0.5">{k}</p>
-                      <p className="font-semibold text-slate-800">{v}</p>
+                    <div key={k} className="bg-[var(--bg)] rounded-lg px-3 py-2">
+                      <p className="text-[11px] text-[color:var(--txt2)] mb-0.5">{k}</p>
+                      <p className="font-semibold text-[color:var(--txt)]">{v}</p>
                     </div>
                   ))}
                 </div>
 
-                <p className="text-[12px] font-semibold uppercase tracking-wider text-slate-400 mb-3">Competency Scores</p>
+                <p className="text-[12px] font-semibold uppercase tracking-wider text-[color:var(--txt2)] mb-3">Competency Scores</p>
                 {detail.items.length === 0 ? (
-                  <p className="text-[13px] text-slate-400">No competency items recorded</p>
+                  <p className="text-[13px] text-[color:var(--txt2)]">No competency items recorded</p>
                 ) : (
                   <div className="space-y-3">
                     {detail.items.map(item => (
-                      <div key={item.id} className="border border-slate-100 rounded-xl p-3">
+                      <div key={item.id} className="border border-[var(--bdr)] rounded-xl p-3">
                         <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-[13px] font-semibold text-slate-800">{item.competency}</span>
+                          <span className="text-[13px] font-semibold text-[color:var(--txt)]">{item.competency}</span>
                           <span className="font-mono text-[13px] font-bold"
                             style={{ color: scoreColor(item.score, item.max_score) }}>
                             {item.score} / {item.max_score}
                           </span>
                         </div>
-                        <div className="h-1.5 rounded-full mb-2" style={{ background: 'rgba(14,40,65,0.07)' }}>
+                        <div className="h-1.5 rounded-full mb-2" style={{ background: 'var(--chip-bg)' }}>
                           <div className="h-full rounded-full"
                             style={{
                               width: `${item.max_score > 0 ? (item.score / item.max_score) * 100 : 0}%`,
                               background: scoreColor(item.score, item.max_score),
                             }} />
                         </div>
-                        {item.comments && <p className="text-[12px] text-slate-500">{item.comments}</p>}
+                        {item.comments && <p className="text-[12px] text-[color:var(--txt2)]">{item.comments}</p>}
                       </div>
                     ))}
                   </div>
@@ -324,34 +326,34 @@ export default function Performance() {
       {/* Create cycle modal */}
       {showCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowCreate(false)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="perf-create-title" className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-labelledby="perf-create-title" className="bg-[var(--card)] rounded-2xl shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 id="perf-create-title" className="text-[15px] font-bold text-slate-800">New Review Cycle</h2>
-              <button onClick={() => setShowCreate(false)} className="text-slate-400 hover:text-slate-700">
+              <h2 id="perf-create-title" className="text-[15px] font-bold text-[color:var(--txt)]">New Review Cycle</h2>
+              <button onClick={() => setShowCreate(false)} className="text-[color:var(--txt2)] hover:text-[color:var(--txt)]">
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
             </div>
             <ErrBanner msg={createErr} />
             <div className="space-y-3">
               <div>
-                <label htmlFor="perf-cycle-name" className="block text-[12px] font-semibold text-slate-500 mb-1">Cycle Name *</label>
-                <input id="perf-cycle-name" type="text" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="perf-cycle-name" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">Cycle Name *</label>
+                <input id="perf-cycle-name" type="text" className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none"
                   placeholder="e.g. H1 2026"
                   value={cycleName} onChange={e => setCycleName(e.target.value)} />
               </div>
               <div>
-                <label htmlFor="perf-cycle-start" className="block text-[12px] font-semibold text-slate-500 mb-1">Period Start *</label>
-                <input id="perf-cycle-start" type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="perf-cycle-start" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">Period Start *</label>
+                <input id="perf-cycle-start" type="date" className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none"
                   value={cycleStart} onChange={e => setCycleStart(e.target.value)} />
               </div>
               <div>
-                <label htmlFor="perf-cycle-end" className="block text-[12px] font-semibold text-slate-500 mb-1">Period End *</label>
-                <input id="perf-cycle-end" type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="perf-cycle-end" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">Period End *</label>
+                <input id="perf-cycle-end" type="date" className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none"
                   value={cycleEnd} onChange={e => setCycleEnd(e.target.value)} />
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-5">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05]" onClick={() => setShowCreate(false)}>Cancel</button>
+              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05]" onClick={() => setShowCreate(false)}>Cancel</button>
               <button
                 className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
                 style={{ background: NAVY }}

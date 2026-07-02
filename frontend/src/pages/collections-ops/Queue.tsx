@@ -39,7 +39,7 @@ const DPD_STYLE: Record<string, { bg: string; color: string }> = {
 }
 
 function DpdBadge({ bucket }: { bucket: string }) {
-  const s = DPD_STYLE[bucket] ?? { bg: 'rgba(14,40,65,0.07)', color: '#475569' }
+  const s = DPD_STYLE[bucket] ?? { bg: 'rgba(14,40,65,0.07)', color: 'var(--txt2)' }
   return (
     <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded whitespace-nowrap"
       style={{ background: s.bg, color: s.color }}>
@@ -190,7 +190,7 @@ export default function CollectionsQueue() {
   }
 
   function lastContactedCell(ts?: string) {
-    if (!ts) return <span className="text-[11px] text-slate-400">Never</span>
+    if (!ts) return <span className="text-[11px] text-[color:var(--txt2)]">Never</span>
     const days = Math.floor((Date.now() - new Date(ts).getTime()) / 86_400_000)
     const color = days >= 7 ? RED : days >= 3 ? AMBER : '#059669'
     return (
@@ -201,7 +201,7 @@ export default function CollectionsQueue() {
   }
 
   const cols: ColDef<QueueItem>[] = [
-    { key: 'account_cif', label: 'CIF', render: r => <span className="font-mono text-[12px] text-slate-500">{r.account_cif}</span> },
+    { key: 'account_cif', label: 'CIF', render: r => <span className="font-mono text-[12px] text-[color:var(--txt2)]">{r.account_cif}</span> },
     { key: 'agent_name', label: 'Agent' },
     { key: 'outstanding_kobo', label: 'Outstanding', right: true, render: r => <span className="font-mono font-semibold">{fmt(r.outstanding_kobo / 100)}</span> },
     { key: 'dpd_bucket', label: 'DPD', render: r => <DpdBadge bucket={r.dpd_bucket} /> },
@@ -221,7 +221,7 @@ export default function CollectionsQueue() {
           <button
             onClick={e => { e.stopPropagation(); setPromiseRow(r) }}
             className="px-2 py-1 rounded text-[11px] font-semibold"
-            style={{ background: 'rgba(14,40,65,0.08)', color: NAVY }}>
+            style={{ background: 'var(--chip-bg)', color: NAVY }}>
             Log Promise
           </button>
           <button
@@ -255,22 +255,25 @@ export default function CollectionsQueue() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-4 mb-4">
+      <div className="rounded-2xl border shadow-sm p-4 mb-4" style={{ background: 'var(--card)', borderColor: 'var(--bdr)' }}>
         <div className="flex flex-wrap gap-3">
           <input
-            className="w-full max-w-xs px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+            className="w-full max-w-xs px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+            style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
             placeholder="Search by CIF or agent…"
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(0) }}
           />
           <select
-            className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+            className="px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+            style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
             value={dpdF} onChange={e => { setDpdF(e.target.value); setPage(0) }}>
             <option value="">All DPD Buckets</option>
             {DPD_BUCKETS.filter(Boolean).map(b => <option key={b} value={b}>{b}</option>)}
           </select>
           <select
-            className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+            className="px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+            style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
             value={stageF} onChange={e => { setStageF(e.target.value); setPage(0) }}>
             <option value="">All Stages</option>
             {STAGES.filter(Boolean).map(s => <option key={s} value={s}>{snake(s)}</option>)}
@@ -280,11 +283,11 @@ export default function CollectionsQueue() {
 
       <SectionCard title="Queue" badge={queue.length}>
         <DataTable cols={cols} rows={queue} loading={loading} emptyIcon="assignment" emptyMsg="No items in queue" />
-        <div className="flex justify-between items-center px-5 py-3 border-t border-slate-100">
-          <span className="text-[12px] text-slate-400">Page {page + 1}</span>
+        <div className="flex justify-between items-center px-5 py-3 border-t" style={{ borderColor: 'var(--bdr)' }}>
+          <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>Page {page + 1}</span>
           <div className="flex gap-2">
-            <button disabled={page === 0} onClick={() => setPage(p => p - 1)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] disabled:opacity-40">Prev</button>
-            <button disabled={queue.length < limit} onClick={() => setPage(p => p + 1)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] disabled:opacity-40">Next</button>
+            <button disabled={page === 0} onClick={() => setPage(p => p - 1)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-black/[0.05] disabled:opacity-40" style={{ color: 'var(--txt)' }}>Prev</button>
+            <button disabled={queue.length < limit} onClick={() => setPage(p => p + 1)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-black/[0.05] disabled:opacity-40" style={{ color: 'var(--txt)' }}>Next</button>
           </div>
         </div>
       </SectionCard>
@@ -292,12 +295,12 @@ export default function CollectionsQueue() {
       {/* Log Contact / Promise combined modal */}
       {contactRow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+          <div className="rounded-2xl shadow-xl p-6 w-full max-w-md" style={{ background: 'var(--card)' }}>
             <div className="flex items-center justify-between mb-1">
-              <h2 className="text-[15px] font-bold text-slate-800">
+              <h2 className="text-[15px] font-bold" style={{ color: 'var(--txt)' }}>
                 {contactStep === 1 ? `Log Contact — ${contactRow.account_cif}` : `Log Promise — ${contactRow.account_cif}`}
               </h2>
-              <button onClick={resetContactModal} className="text-slate-400 hover:text-slate-700">
+              <button onClick={resetContactModal} style={{ color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
             </div>
@@ -307,7 +310,7 @@ export default function CollectionsQueue() {
                 style={{ background: contactStep === 1 ? NAVY : 'rgba(14,40,65,0.1)', color: contactStep === 1 ? '#fff' : '#64748b' }}>
                 1 Contact
               </span>
-              <span className="text-slate-300 text-[12px]">→</span>
+              <span className="text-[color:var(--txt3)] text-[12px]">→</span>
               <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
                 style={{ background: contactStep === 2 ? '#059669' : 'rgba(0,0,0,0.06)', color: contactStep === 2 ? '#fff' : '#94a3b8' }}>
                 2 Promise
@@ -318,26 +321,29 @@ export default function CollectionsQueue() {
             {contactStep === 1 ? (
               <div className="space-y-3">
                 <div>
-                  <label className="block text-[12px] font-semibold text-slate-500 mb-1">Contact Type</label>
-                  <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                  <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Contact Type</label>
+                  <select className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                    style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                     value={contactType} onChange={e => setContactType(e.target.value)}>
                     {CONTACT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[12px] font-semibold text-slate-500 mb-1">Outcome</label>
-                  <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                  <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Outcome</label>
+                  <select className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                    style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                     value={contactOutcome} onChange={e => setOutcome(e.target.value)}>
                     {OUTCOMES.map(o => <option key={o} value={o}>{snake(o)}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[12px] font-semibold text-slate-500 mb-1">Notes</label>
-                  <textarea rows={3} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none resize-none"
+                  <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Notes</label>
+                  <textarea rows={3} className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none resize-none"
+                    style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                     value={contactNotes} onChange={e => setContactNotes(e.target.value)} />
                 </div>
                 {contactOutcome === 'promised_payment' && (
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-[color:var(--txt2)]">
                     Outcome is "Promised Payment" — next step will capture promise details.
                   </p>
                 )}
@@ -346,13 +352,15 @@ export default function CollectionsQueue() {
               <div className="space-y-3">
                 <ErrBanner msg={promiseErr} />
                 <div>
-                  <label className="block text-[12px] font-semibold text-slate-500 mb-1">Promise Date</label>
-                  <input type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                  <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Promise Date</label>
+                  <input type="date" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                    style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                     value={promiseDate} onChange={e => setPromiseDate(e.target.value)} />
                 </div>
                 <div>
-                  <label className="block text-[12px] font-semibold text-slate-500 mb-1">Amount (₦)</label>
-                  <input type="number" min="0" step="0.01" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                  <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Amount (₦)</label>
+                  <input type="number" min="0" step="0.01" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                    style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                     placeholder="0.00"
                     value={promiseAmt} onChange={e => setPromiseAmt(e.target.value)} />
                 </div>
@@ -360,7 +368,7 @@ export default function CollectionsQueue() {
             )}
 
             <div className="flex justify-between gap-2 mt-5">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05]"
+              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold bg-black/[0.05]" style={{ color: 'var(--txt)' }}
                 onClick={contactStep === 2 ? () => setContactStep(1) : resetContactModal}>
                 {contactStep === 2 ? '← Back' : 'Cancel'}
               </button>
@@ -389,29 +397,31 @@ export default function CollectionsQueue() {
       {/* Log Promise modal */}
       {promiseRow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+          <div className="rounded-2xl shadow-xl p-6 w-full max-w-sm" style={{ background: 'var(--card)' }}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-[15px] font-bold text-slate-800">Log Promise — {promiseRow.account_cif}</h2>
-              <button onClick={() => setPromiseRow(null)} className="text-slate-400 hover:text-slate-700">
+              <h2 className="text-[15px] font-bold" style={{ color: 'var(--txt)' }}>Log Promise — {promiseRow.account_cif}</h2>
+              <button onClick={() => setPromiseRow(null)} style={{ color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
             </div>
             <ErrBanner msg={promiseErr} />
             <div className="space-y-3">
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Promise Date</label>
-                <input type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Promise Date</label>
+                <input type="date" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={promiseDate} onChange={e => setPromiseDate(e.target.value)} />
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Amount (₦)</label>
-                <input type="number" min="0" step="0.01" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Amount (₦)</label>
+                <input type="number" min="0" step="0.01" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   placeholder="0.00"
                   value={promiseAmt} onChange={e => setPromiseAmt(e.target.value)} />
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-5">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05]" onClick={() => setPromiseRow(null)}>Cancel</button>
+              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold bg-black/[0.05]" style={{ color: 'var(--txt)' }} onClick={() => setPromiseRow(null)}>Cancel</button>
               <button
                 className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
                 style={{ background: GREEN }}
@@ -427,31 +437,33 @@ export default function CollectionsQueue() {
       {/* Reassign modal */}
       {reassignRow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+          <div className="rounded-2xl shadow-xl p-6 w-full max-w-sm" style={{ background: 'var(--card)' }}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-[15px] font-bold text-slate-800">Reassign — {reassignRow.account_cif}</h2>
-              <button onClick={() => setReassignRow(null)} className="text-slate-400 hover:text-slate-700">
+              <h2 className="text-[15px] font-bold" style={{ color: 'var(--txt)' }}>Reassign — {reassignRow.account_cif}</h2>
+              <button onClick={() => setReassignRow(null)} style={{ color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
             </div>
             <ErrBanner msg={reassignErr} />
             <div className="space-y-3">
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Agent</label>
-                <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Agent</label>
+                <select className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={agentId} onChange={e => setAgentId(e.target.value)}>
                   <option value="">— Select agent —</option>
                   {agents.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Notes</label>
-                <textarea rows={2} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none resize-none"
+                <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Notes</label>
+                <textarea rows={2} className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none resize-none"
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={reassignNotes} onChange={e => setReassignNotes(e.target.value)} />
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-5">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05]" onClick={() => setReassignRow(null)}>Cancel</button>
+              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold bg-black/[0.05]" style={{ color: 'var(--txt)' }} onClick={() => setReassignRow(null)}>Cancel</button>
               <button
                 className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
                 style={{ background: NAVY }}

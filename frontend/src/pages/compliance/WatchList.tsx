@@ -69,37 +69,37 @@ export default function WatchList() {
 
   const cols: ColDef<WatchEntry>[] = [
     { key: 'entity_name', label: 'Entity Name', render: r => (
-      <span className="font-semibold text-slate-800">{r.entity_name}</span>
+      <span className="font-semibold" style={{ color: 'var(--txt)' }}>{r.entity_name}</span>
     )},
     { key: 'entity_type', label: 'Type', render: r => (
-      <span className="text-[12px] text-slate-500 capitalize">{r.entity_type}</span>
+      <span className="text-[12px] capitalize" style={{ color: 'var(--txt2)' }}>{r.entity_type}</span>
     )},
     { key: 'id_type', label: 'ID', render: r => (
       <span className="text-[12px]">
-        <span className="font-semibold text-slate-600">{r.id_type}</span>
-        <span className="text-slate-400 ml-1">{r.id_value}</span>
+        <span className="font-semibold" style={{ color: 'var(--txt2)' }}>{r.id_type}</span>
+        <span className="ml-1" style={{ color: 'var(--txt2)' }}>{r.id_value}</span>
       </span>
     )},
     { key: 'reason', label: 'Reason', render: r => (
-      <span className="text-[12px] text-slate-600 max-w-[200px] block truncate">{r.reason}</span>
+      <span className="text-[12px] max-w-[200px] block truncate" style={{ color: 'var(--txt2)' }}>{r.reason}</span>
     )},
     { key: 'source', label: 'Source', render: r => (
-      <span className="text-[12px] text-slate-400">{r.source || '—'}</span>
+      <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{r.source || '—'}</span>
     )},
     { key: 'is_active', label: 'Status', render: r => (
       <StatusBadge status={r.is_active ? 'active' : 'inactive'} />
     )},
     { key: 'added_by', label: 'Added By', render: r => (
-      <span className="text-[12px] text-slate-500">{r.added_by || '—'}</span>
+      <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{r.added_by || '—'}</span>
     )},
     { key: 'created_at', label: 'Date Added', render: r => (
-      <span className="text-[12px] text-slate-400 whitespace-nowrap">{fmtDate(r.created_at)}</span>
+      <span className="text-[12px] whitespace-nowrap" style={{ color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span>
     )},
     { key: 'actions', label: '', sortable: false, render: r => (
       r.is_active ? (
         confirmDeactivate === r.id ? (
           <span className="inline-flex items-center gap-1">
-            <span className="text-[11px] text-slate-500 mr-1">Sure?</span>
+            <span className="text-[11px] mr-1" style={{ color: 'var(--txt2)' }}>Sure?</span>
             <button onClick={() => deactivate(r.id)} disabled={saving}
               className="text-[11px] font-semibold px-2 py-1 rounded"
               style={{ background: 'rgba(192,0,0,0.10)', color: RED }}>
@@ -107,7 +107,7 @@ export default function WatchList() {
             </button>
             <button onClick={() => setConfirmDeactivate(null)}
               className="text-[11px] font-medium px-2 py-1 rounded"
-              style={{ background: 'rgba(15,23,42,0.06)', color: '#64748B' }}>
+              style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>
               Cancel
             </button>
           </span>
@@ -138,10 +138,10 @@ export default function WatchList() {
         <input type="search" placeholder="Search by name or ID…" value={q}
           onChange={e => setQ(e.target.value)}
           className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
-          style={{ borderColor: 'rgba(15,23,42,0.15)', minWidth: 220 }} />
+          style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)', minWidth: 220 }} />
         <select value={isActive} onChange={e => setIsActive(e.target.value)}
-          className="px-3 py-1.5 rounded-lg border text-[12px] outline-none bg-white"
-          style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+          className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
+          style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}>
           <option value="true">Active Only</option>
           <option value="false">Inactive Only</option>
           <option value="">All</option>
@@ -157,52 +157,52 @@ export default function WatchList() {
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[11px] font-semibold uppercase text-slate-400 block mb-1">Entity Type</label>
+                  <label className="text-[11px] font-semibold uppercase block mb-1" style={{ color: 'var(--txt2)' }}>Entity Type</label>
                   <select value={newForm.entity_type} onChange={e => setNewForm(f => ({ ...f, entity_type: e.target.value }))}
-                    className="w-full px-3 py-2 rounded border text-[13px] outline-none bg-white"
-                    style={{ borderColor: 'rgba(15,23,42,0.2)' }}>
+                    className="w-full px-3 py-2 rounded border text-[13px] outline-none"
+                    style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}>
                     <option value="individual">Individual</option>
                     <option value="business">Business</option>
                   </select>
                 </div>
                 <div>
-                  <label className="text-[11px] font-semibold uppercase text-slate-400 block mb-1">ID Type</label>
+                  <label className="text-[11px] font-semibold uppercase block mb-1" style={{ color: 'var(--txt2)' }}>ID Type</label>
                   <select value={newForm.id_type} onChange={e => setNewForm(f => ({ ...f, id_type: e.target.value }))}
-                    className="w-full px-3 py-2 rounded border text-[13px] outline-none bg-white"
-                    style={{ borderColor: 'rgba(15,23,42,0.2)' }}>
+                    className="w-full px-3 py-2 rounded border text-[13px] outline-none"
+                    style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}>
                     {['BVN','NIN','RC Number','Passport'].map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
               </div>
               <div>
-                <label className="text-[11px] font-semibold uppercase text-slate-400 block mb-1">Entity Name</label>
+                <label className="text-[11px] font-semibold uppercase block mb-1" style={{ color: 'var(--txt2)' }}>Entity Name</label>
                 <input value={newForm.entity_name} onChange={e => setNewForm(f => ({ ...f, entity_name: e.target.value }))}
                   className="w-full px-3 py-2 rounded border text-[13px] outline-none"
-                  style={{ borderColor: 'rgba(15,23,42,0.2)' }} />
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
               </div>
               <div>
-                <label className="text-[11px] font-semibold uppercase text-slate-400 block mb-1">ID Value</label>
+                <label className="text-[11px] font-semibold uppercase block mb-1" style={{ color: 'var(--txt2)' }}>ID Value</label>
                 <input value={newForm.id_value} onChange={e => setNewForm(f => ({ ...f, id_value: e.target.value }))}
                   className="w-full px-3 py-2 rounded border text-[13px] outline-none"
-                  style={{ borderColor: 'rgba(15,23,42,0.2)' }} />
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
               </div>
               <div>
-                <label className="text-[11px] font-semibold uppercase text-slate-400 block mb-1">Reason</label>
+                <label className="text-[11px] font-semibold uppercase block mb-1" style={{ color: 'var(--txt2)' }}>Reason</label>
                 <textarea value={newForm.reason} onChange={e => setNewForm(f => ({ ...f, reason: e.target.value }))}
                   className="w-full px-3 py-2 rounded border text-[13px] outline-none resize-none"
-                  style={{ borderColor: 'rgba(15,23,42,0.2)' }} rows={2} />
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} rows={2} />
               </div>
               <div>
-                <label className="text-[11px] font-semibold uppercase text-slate-400 block mb-1">Source</label>
+                <label className="text-[11px] font-semibold uppercase block mb-1" style={{ color: 'var(--txt2)' }}>Source</label>
                 <input value={newForm.source} onChange={e => setNewForm(f => ({ ...f, source: e.target.value }))}
                   placeholder="e.g. NFIU, Internal, CBN"
                   className="w-full px-3 py-2 rounded border text-[13px] outline-none"
-                  style={{ borderColor: 'rgba(15,23,42,0.2)' }} />
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-5">
               <button onClick={() => setShowNew(false)}
-                className="px-4 py-2 rounded text-[13px] font-medium" style={{ color: '#64748B' }}>Cancel</button>
+                className="px-4 py-2 rounded text-[13px] font-medium" style={{ color: 'var(--txt2)' }}>Cancel</button>
               <button onClick={addEntry}
                 disabled={saving || !newForm.entity_name || !newForm.id_value}
                 className="px-4 py-2 rounded text-[13px] font-semibold disabled:opacity-50"

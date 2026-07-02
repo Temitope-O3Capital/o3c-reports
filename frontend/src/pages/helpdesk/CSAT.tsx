@@ -58,7 +58,7 @@ export default function CSAT() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: 'var(--bg)' }}>
       {/* Brand header */}
       <div className="mb-8 text-center">
         <div
@@ -68,21 +68,21 @@ export default function CSAT() {
           <span className="material-symbols-rounded text-white text-[20px]">credit_card</span>
           <span className="text-white font-bold text-[15px] tracking-wide">O3 Capital</span>
         </div>
-        <p className="text-slate-400 text-[13px]">Customer Support</p>
+        <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>Customer Support</p>
       </div>
 
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border p-8" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+      <div className="w-full max-w-md rounded-2xl shadow-sm border p-8" style={{ background: 'var(--card)', borderColor: 'var(--bdr)' }}>
         {loading ? (
           <div className="py-12 text-center">
             <div className="w-8 h-8 border-2 rounded-full animate-spin mx-auto mb-3"
                  style={{ borderColor: `${NAVY}22`, borderTopColor: NAVY }} />
-            <p className="text-slate-400 text-[13px]">Loading…</p>
+            <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>Loading…</p>
           </div>
         ) : error ? (
           <div className="py-12 text-center">
-            <span className="material-symbols-rounded text-[40px] text-slate-300 mb-3 block">error_outline</span>
-            <p className="text-slate-600 font-medium mb-1">Link unavailable</p>
-            <p className="text-slate-400 text-[13px]">{error}</p>
+            <span className="material-symbols-rounded text-[40px] mb-3 block" style={{ color: 'var(--txt3)' }}>error_outline</span>
+            <p className="font-medium mb-1" style={{ color: 'var(--txt)' }}>Link unavailable</p>
+            <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>{error}</p>
           </div>
         ) : submitted ? (
           <div className="py-12 text-center">
@@ -92,21 +92,21 @@ export default function CSAT() {
             >
               <span className="material-symbols-rounded text-[32px]" style={{ color: '#166534' }}>check_circle</span>
             </div>
-            <h2 className="text-[18px] font-semibold text-slate-800 mb-2">Thank you!</h2>
-            <p className="text-slate-500 text-[14px]">Your feedback helps us serve you better.</p>
+            <h2 className="text-[18px] font-semibold mb-2" style={{ color: 'var(--txt)' }}>Thank you!</h2>
+            <p className="text-[14px]" style={{ color: 'var(--txt2)' }}>Your feedback helps us serve you better.</p>
           </div>
         ) : (
           <>
             <div className="mb-6">
-              <h2 className="text-[18px] font-semibold text-slate-800 mb-1">How did we do?</h2>
-              <p className="text-slate-500 text-[13px]">
+              <h2 className="text-[18px] font-semibold mb-1" style={{ color: 'var(--txt)' }}>How did we do?</h2>
+              <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>
                 Rate your experience with our support team
                 {survey?.ticket_ref && (
-                  <span className="ml-1 font-medium text-slate-600">({survey.ticket_ref})</span>
+                  <span className="ml-1 font-medium" style={{ color: 'var(--txt)' }}>({survey.ticket_ref})</span>
                 )}
               </p>
               {survey?.subject && (
-                <p className="text-slate-400 text-[12px] mt-1 truncate">{survey.subject}</p>
+                <p className="text-[12px] mt-1 truncate" style={{ color: 'var(--txt2)' }}>{survey.subject}</p>
               )}
             </div>
 
@@ -122,14 +122,14 @@ export default function CSAT() {
                 >
                   <span
                     className="material-symbols-rounded text-[40px]"
-                    style={{ color: s <= (hover || rating) ? '#F59E0B' : '#E2E8F0', fontVariationSettings: "'FILL' 1" }}
+                    style={{ color: s <= (hover || rating) ? '#F59E0B' : 'var(--txt3)', fontVariationSettings: "'FILL' 1" }}
                   >
                     star
                   </span>
                 </button>
               ))}
             </div>
-            <p className="text-center text-[13px] font-medium text-slate-500 mb-6 h-5">
+            <p className="text-center text-[13px] font-medium mb-6 h-5" style={{ color: 'var(--txt2)' }}>
               {STAR_LABELS[hover || rating]}
             </p>
 
@@ -139,8 +139,8 @@ export default function CSAT() {
               onChange={e => setComment(e.target.value)}
               rows={3}
               placeholder="Any additional comments? (optional)"
-              className="w-full px-3 py-2.5 rounded-xl border text-[13px] text-slate-700 placeholder-slate-300 focus:outline-none resize-none mb-4"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+              className="w-full px-3 py-2.5 rounded-xl border text-[13px] focus:outline-none resize-none mb-4"
+              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}
             />
 
             {error && (
@@ -151,7 +151,7 @@ export default function CSAT() {
               onClick={submit}
               disabled={rating === 0 || submitting}
               className="w-full py-3 rounded-xl text-[14px] font-semibold text-white transition-opacity disabled:opacity-40"
-              style={{ background: rating === 0 ? '#94A3B8' : NAVY }}
+              style={{ background: rating === 0 ? 'var(--txt3)' : NAVY }}
             >
               {submitting ? 'Submitting…' : 'Submit Feedback'}
             </button>
@@ -159,7 +159,7 @@ export default function CSAT() {
         )}
       </div>
 
-      <p className="mt-6 text-slate-300 text-[11px]">Powered by O3 Capital · Secure</p>
+      <p className="mt-6 text-[11px]" style={{ color: 'var(--txt3)' }}>Powered by O3 Capital · Secure</p>
     </div>
   )
 }

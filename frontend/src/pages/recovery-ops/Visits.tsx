@@ -31,17 +31,17 @@ export default function Visits() {
               directions_car
             </span>
           </div>
-          <h3 className="text-[16px] font-bold text-slate-800 mb-2">Global Visits List</h3>
-          <p className="text-[14px] text-slate-500 max-w-md mb-4">
+          <h3 className="text-[16px] font-bold text-[color:var(--txt)] mb-2">Global Visits List</h3>
+          <p className="text-[14px] text-[color:var(--txt2)] max-w-md mb-4">
             This view requires a dedicated backend endpoint —
-            <code className="mx-1 px-1.5 py-0.5 rounded bg-slate-100 text-[12px] font-mono text-slate-700">
+            <code className="mx-1 px-1.5 py-0.5 rounded bg-[var(--chip-bg)] text-[12px] font-mono text-[color:var(--txt)]">
               GET /api/recovery-ops/visits
             </code>
             — that returns all field visits across cases with filters for date range, visit type, and outcome.
           </p>
-          <p className="text-[13px] text-slate-400 max-w-md">
+          <p className="text-[13px] text-[color:var(--txt2)] max-w-md">
             Individual visits can be logged and viewed today via the
-            <strong className="text-slate-600 mx-1">Cases</strong>
+            <strong className="text-[color:var(--txt2)] mx-1">Cases</strong>
             page — open any case and switch to the <em>Visits</em> tab.
             Once the backend endpoint is available, this page will show the full filterable log.
           </p>

@@ -67,14 +67,14 @@ const PRIORITY_STYLE: Record<string, { bg: string; color: string; icon: string }
   urgent: { bg: 'rgba(192,0,0,0.08)',     color: RED,       icon: 'priority_high' },
   high:   { bg: 'rgba(220,38,38,0.07)',   color: '#C00000', icon: 'keyboard_arrow_up' },
   medium: { bg: 'rgba(217,119,6,0.08)',   color: AMBER,     icon: 'drag_handle' },
-  low:    { bg: 'rgba(100,116,139,0.07)', color: '#64748B', icon: 'keyboard_arrow_down' },
+  low:    { bg: 'rgba(100,116,139,0.07)', color: 'var(--txt2)', icon: 'keyboard_arrow_down' },
 }
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; colBg: string }> = {
   open:        { bg: 'rgba(14,40,65,0.07)',    color: NAVY,      colBg: 'rgba(14,40,65,0.04)' },
   in_progress: { bg: 'rgba(37,99,235,0.08)',   color: '#2563EB', colBg: 'rgba(37,99,235,0.03)' },
   done:        { bg: 'rgba(5,150,105,0.08)',   color: GREEN,     colBg: 'rgba(5,150,105,0.03)' },
-  cancelled:   { bg: 'rgba(100,116,139,0.08)', color: '#64748B', colBg: 'rgba(100,116,139,0.03)' },
+  cancelled:   { bg: 'rgba(100,116,139,0.08)', color: 'var(--txt2)', colBg: 'rgba(100,116,139,0.03)' },
   overdue:     { bg: 'rgba(192,0,0,0.08)',     color: RED,       colBg: 'rgba(192,0,0,0.03)' },
 }
 
@@ -92,7 +92,7 @@ function PriorityBadge({ priority }: { priority: string }) {
 
 /* ── Status badge ───────────────────────────────────────────────── */
 function TaskStatusBadge({ status }: { status: string }) {
-  const s = STATUS_STYLE[status] ?? { bg: 'rgba(14,40,65,0.06)', color: '#475569', colBg: '' }
+  const s = STATUS_STYLE[status] ?? { bg: 'rgba(14,40,65,0.06)', color: 'var(--txt2)', colBg: '' }
   return (
     <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded whitespace-nowrap"
       style={{ background: s.bg, color: s.color }}>
@@ -104,7 +104,7 @@ function TaskStatusBadge({ status }: { status: string }) {
 /* ── Assignee avatar ────────────────────────────────────────────── */
 function Avatar({ name, size = 24 }: { name: string | null; size?: number }) {
   if (!name) return (
-    <span className="flex-shrink-0 rounded-full bg-slate-200 flex items-center justify-center text-[11px] text-slate-400 font-semibold"
+    <span className="flex-shrink-0 rounded-full bg-[var(--bdr)] flex items-center justify-center text-[11px] text-[color:var(--txt2)] font-semibold"
       style={{ width: size, height: size }}>?</span>
   )
   const initials = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
@@ -171,13 +171,13 @@ function NewTaskModal({ users, defaultStatus = 'open', onClose, onSaved }: NewTa
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
-      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl">
+      <div className="rounded-2xl w-full max-w-lg shadow-2xl" style={{ background: 'var(--card)' }}>
         <div className="flex items-center justify-between px-5 py-4 border-b"
-          style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
-          <h2 className="text-[14px] font-semibold text-slate-900">New Task</h2>
+          style={{ borderColor: 'var(--bdr)' }}>
+          <h2 className="text-[14px] font-semibold" style={{ color: 'var(--txt)' }}>New Task</h2>
           <button onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100">
-            <span className="material-symbols-rounded text-[18px] text-slate-500">close</span>
+            className="w-7 h-7 flex items-center justify-center rounded-lg" style={{ color: 'var(--txt2)' }}>
+            <span className="material-symbols-rounded text-[18px]">close</span>
           </button>
         </div>
 
@@ -185,25 +185,25 @@ function NewTaskModal({ users, defaultStatus = 'open', onClose, onSaved }: NewTa
           <ErrBanner msg={err} />
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Title *</label>
-            <input className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none focus:border-slate-400 transition-colors"
-              style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+            <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Title *</label>
+            <input className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none transition-colors"
+              style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               value={form.title} onChange={set('title')} placeholder="Task title…" autoFocus />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[11px] font-semibold text-slate-500 mb-1">Priority</label>
-              <select className="w-full px-3 py-2 rounded-lg border text-[13px] bg-white outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+              <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Priority</label>
+              <select className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={form.priority} onChange={set('priority')}>
                 {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-[11px] font-semibold text-slate-500 mb-1">Status</label>
-              <select className="w-full px-3 py-2 rounded-lg border text-[13px] bg-white outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+              <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Status</label>
+              <select className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={form.status} onChange={set('status')}>
                 {STATUSES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
               </select>
@@ -212,16 +212,16 @@ function NewTaskModal({ users, defaultStatus = 'open', onClose, onSaved }: NewTa
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[11px] font-semibold text-slate-500 mb-1">Due Date</label>
+              <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Due Date</label>
               <input type="date"
                 className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={form.due_date} onChange={set('due_date')} />
             </div>
             <div>
-              <label className="block text-[11px] font-semibold text-slate-500 mb-1">Assign To</label>
-              <select className="w-full px-3 py-2 rounded-lg border text-[13px] bg-white outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+              <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Assign To</label>
+              <select className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={form.assigned_to} onChange={set('assigned_to')}>
                 <option value="">— Unassigned —</option>
                 {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
@@ -232,35 +232,35 @@ function NewTaskModal({ users, defaultStatus = 'open', onClose, onSaved }: NewTa
           {/* Linked entity */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[11px] font-semibold text-slate-500 mb-1">Link Type</label>
-              <select className="w-full px-3 py-2 rounded-lg border text-[13px] bg-white outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+              <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Link Type</label>
+              <select className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={form.linked_type} onChange={set('linked_type')}>
                 {LINKED_TYPES.map(t => <option key={t} value={t}>{LINKED_LABELS[t]}</option>)}
               </select>
             </div>
             {form.linked_type && (
               <div>
-                <label className="block text-[11px] font-semibold text-slate-500 mb-1">Reference ID</label>
+                <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Reference ID</label>
                 <input type="number"
                   className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
-                  style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={form.linked_id} onChange={set('linked_id')} placeholder="ID or ref…" />
               </div>
             )}
           </div>
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Description</label>
+            <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Description</label>
             <textarea className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none resize-none"
-              style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+              style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               rows={3} value={form.description} onChange={set('description')}
               placeholder="Optional details…" />
           </div>
 
           <div className="flex justify-end gap-2 pt-1">
             <button type="button" onClick={onClose}
-              className="px-4 py-2 rounded-lg text-[13px] font-medium text-slate-600 hover:bg-slate-100 transition-colors">
+              className="px-4 py-2 rounded-lg text-[13px] font-medium transition-colors" style={{ color: 'var(--txt2)' }}>
               Cancel
             </button>
             <button type="submit" disabled={saving}
@@ -371,59 +371,60 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
   return (
     <>
       <div className="fixed inset-0 z-40" style={{ background: 'rgba(0,0,0,0.25)' }} onClick={onClose} />
-      <div className="fixed right-0 top-0 bottom-0 z-50 flex flex-col bg-white shadow-2xl"
-        style={{ width: 480, borderLeft: '1px solid rgba(15,23,42,0.1)' }}>
+      <div className="fixed right-0 top-0 bottom-0 z-50 flex flex-col shadow-2xl"
+        style={{ width: 480, borderLeft: '1px solid var(--bdr)', background: 'var(--card)' }}>
 
         {/* Header */}
         <div className="flex items-start justify-between px-5 py-4 border-b flex-shrink-0"
-          style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+          style={{ borderColor: 'var(--bdr)' }}>
           <div className="flex-1 pr-3">
             <input
-              className="w-full text-[14px] font-semibold text-slate-800 outline-none border-b border-transparent focus:border-slate-300 transition-colors bg-transparent"
+              className="w-full text-[14px] font-semibold outline-none border-b border-transparent transition-colors bg-transparent"
+              style={{ color: 'var(--txt)' }}
               value={editing.title ?? ''}
               onChange={e => setEditing(f => ({ ...f, title: e.target.value }))}
             />
           </div>
           <button onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 flex-shrink-0">
-            <span className="material-symbols-rounded text-[18px] text-slate-500">close</span>
+            className="w-7 h-7 flex items-center justify-center rounded-lg flex-shrink-0" style={{ color: 'var(--txt2)' }}>
+            <span className="material-symbols-rounded text-[18px]">close</span>
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto">
           {/* Meta fields */}
           <div className="px-5 py-4 grid grid-cols-2 gap-3"
-            style={{ borderBottom: '1px solid rgba(15,23,42,0.06)' }}>
+            style={{ borderBottom: '1px solid var(--bdr)' }}>
             <div>
-              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Priority</label>
-              <select className="w-full px-2 py-1.5 rounded-lg border text-[12px] bg-white outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+              <label className="block text-[11px] font-semibold uppercase tracking-wide mb-1" style={{ color: 'var(--txt2)' }}>Priority</label>
+              <select className="w-full px-2 py-1.5 rounded-lg border text-[12px] outline-none"
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={editing.priority ?? 'medium'}
                 onChange={e => setEditing(f => ({ ...f, priority: e.target.value }))}>
                 {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Status</label>
-              <select className="w-full px-2 py-1.5 rounded-lg border text-[12px] bg-white outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+              <label className="block text-[11px] font-semibold uppercase tracking-wide mb-1" style={{ color: 'var(--txt2)' }}>Status</label>
+              <select className="w-full px-2 py-1.5 rounded-lg border text-[12px] outline-none"
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={editing.status ?? 'open'}
                 onChange={e => setEditing(f => ({ ...f, status: e.target.value }))}>
                 {STATUSES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Due Date</label>
+              <label className="block text-[11px] font-semibold uppercase tracking-wide mb-1" style={{ color: 'var(--txt2)' }}>Due Date</label>
               <input type="date"
                 className="w-full px-2 py-1.5 rounded-lg border text-[12px] outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={(editing.due_date ?? '').slice(0, 10)}
                 onChange={e => setEditing(f => ({ ...f, due_date: e.target.value || null }))} />
             </div>
             <div>
-              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Assignee</label>
-              <select className="w-full px-2 py-1.5 rounded-lg border text-[12px] bg-white outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+              <label className="block text-[11px] font-semibold uppercase tracking-wide mb-1" style={{ color: 'var(--txt2)' }}>Assignee</label>
+              <select className="w-full px-2 py-1.5 rounded-lg border text-[12px] outline-none"
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={editing.assigned_to ?? ''}
                 onChange={e => setEditing(f => ({ ...f, assigned_to: e.target.value ? Number(e.target.value) : null }))}>
                 <option value="">— Unassigned —</option>
@@ -434,11 +435,11 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
 
           {/* Linked entity */}
           <div className="px-5 py-4 grid grid-cols-2 gap-3"
-            style={{ borderBottom: '1px solid rgba(15,23,42,0.06)' }}>
+            style={{ borderBottom: '1px solid var(--bdr)' }}>
             <div>
-              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Link Type</label>
-              <select className="w-full px-2 py-1.5 rounded-lg border text-[12px] bg-white outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+              <label className="block text-[11px] font-semibold uppercase tracking-wide mb-1" style={{ color: 'var(--txt2)' }}>Link Type</label>
+              <select className="w-full px-2 py-1.5 rounded-lg border text-[12px] outline-none"
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={editing.linked_type ?? ''}
                 onChange={e => setEditing(f => ({ ...f, linked_type: e.target.value || null, linked_id: null }))}>
                 {LINKED_TYPES.map(t => <option key={t} value={t}>{LINKED_LABELS[t]}</option>)}
@@ -446,10 +447,10 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
             </div>
             {editing.linked_type && (
               <div>
-                <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Reference ID</label>
+                <label className="block text-[11px] font-semibold uppercase tracking-wide mb-1" style={{ color: 'var(--txt2)' }}>Reference ID</label>
                 <input type="number"
                   className="w-full px-2 py-1.5 rounded-lg border text-[12px] outline-none"
-                  style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={editing.linked_id ?? ''}
                   onChange={e => setEditing(f => ({ ...f, linked_id: e.target.value ? Number(e.target.value) : null }))} />
               </div>
@@ -457,20 +458,20 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
           </div>
 
           {/* Description */}
-          <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(15,23,42,0.06)' }}>
-            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Description</label>
+          <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--bdr)' }}>
+            <label className="block text-[11px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: 'var(--txt2)' }}>Description</label>
             <textarea
               className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none resize-none"
-              style={{ borderColor: 'rgba(15,23,42,0.18)' }}
+              style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               rows={3} value={descRest}
               onChange={e => setDescRest(e.target.value)}
               placeholder="Optional details…" />
           </div>
 
           {/* Checklist */}
-          <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(15,23,42,0.06)' }}>
+          <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--bdr)' }}>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">
+              <label className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--txt2)' }}>
                 Checklist
                 {checklist.length > 0 && (
                   <span className="ml-1.5 text-[11px] font-semibold"
@@ -486,7 +487,7 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
                   <div key={item.id} className="flex items-center gap-2 group">
                     <input type="checkbox" checked={item.done} onChange={() => toggleCheckItem(item.id)}
                       className="rounded cursor-pointer flex-shrink-0" />
-                    <span className={`flex-1 text-[12px] ${item.done ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+                    <span className={`flex-1 text-[12px] ${item.done ? 'line-through' : ''}`} style={{ color: item.done ? 'var(--txt2)' : 'var(--txt)' }}>
                       {item.text}
                     </span>
                     <button onClick={() => removeCheckItem(item.id)}
@@ -500,7 +501,7 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
             <div className="flex items-center gap-2">
               <input
                 className="flex-1 px-2 py-1.5 rounded-lg border text-[12px] outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 value={newItem} onChange={e => setNewItem(e.target.value)}
                 placeholder="Add subtask…"
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCheckItem() } }}
@@ -515,28 +516,28 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
 
           {/* Comments */}
           <div className="px-5 py-4">
-            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2">
+            <label className="block text-[11px] font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--txt2)' }}>
               Comments ({comments.length})
             </label>
             <div className="space-y-3 mb-3 max-h-48 overflow-y-auto">
               {loadingComments ? (
                 <div className="h-8 skeleton rounded" />
               ) : comments.length === 0 ? (
-                <p className="text-[12px] text-slate-400">No comments yet</p>
+                <p className="text-[12px]" style={{ color: 'var(--txt2)' }}>No comments yet</p>
               ) : comments.map(c => (
-                <div key={c.id} className="bg-slate-50 rounded-lg px-3 py-2">
+                <div key={c.id} className="rounded-lg px-3 py-2" style={{ background: 'var(--chip-bg)' }}>
                   <div className="flex items-center gap-1.5 mb-0.5">
-                    <span className="text-[11px] font-semibold text-slate-700">{c.author_name ?? 'Unknown'}</span>
-                    <span className="text-[11px] text-slate-400">{fmtDatetime(c.created_at)}</span>
+                    <span className="text-[11px] font-semibold" style={{ color: 'var(--txt)' }}>{c.author_name ?? 'Unknown'}</span>
+                    <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{fmtDatetime(c.created_at)}</span>
                   </div>
-                  <p className="text-[12px] text-slate-600 leading-relaxed">{c.body}</p>
+                  <p className="text-[12px] leading-relaxed" style={{ color: 'var(--txt2)' }}>{c.body}</p>
                 </div>
               ))}
             </div>
             <form onSubmit={submitComment} className="flex gap-2">
               <textarea
                 className="flex-1 px-2.5 py-2 rounded-lg border text-[12px] outline-none resize-none"
-                style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+                style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 rows={2} value={commentBody} onChange={e => setCommentBody(e.target.value)}
                 placeholder="Add a comment…" />
               <button type="submit" disabled={sendingComment || !commentBody.trim()}
@@ -550,11 +551,11 @@ function TaskDetailSlideover({ task, users, onClose, onSaved }: TaskDetailSlideo
 
         {/* Footer */}
         <div className="px-5 py-4 flex items-center justify-between border-t flex-shrink-0"
-          style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+          style={{ borderColor: 'var(--bdr)' }}>
           <ErrBanner msg={err} />
           <div className="flex gap-2 ml-auto">
             <button onClick={onClose}
-              className="px-4 py-2 rounded-lg text-[13px] font-medium text-slate-600 hover:bg-slate-100">
+              className="px-4 py-2 rounded-lg text-[13px] font-medium" style={{ color: 'var(--txt2)' }}>
               Cancel
             </button>
             <button onClick={save} disabled={saving}
@@ -575,9 +576,10 @@ function BoardCard({ task, onOpen }: { task: Task; onOpen: () => void }) {
   const isOverdue = task.is_overdue && task.status !== 'done' && task.status !== 'cancelled'
   return (
     <button onClick={onOpen}
-      className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md transition-shadow group"
+      className="w-full text-left rounded-xl p-3 shadow-sm hover:shadow-md transition-shadow group"
       style={{
-        border: isOverdue ? `1px solid ${RED}33` : '1px solid rgba(15,23,42,0.08)',
+        background: 'var(--card)',
+        border: isOverdue ? `1px solid ${RED}33` : '1px solid var(--bdr)',
         borderLeft: isOverdue ? `3px solid ${RED}` : undefined,
       }}>
       <div className="flex items-start justify-between gap-2 mb-2">
@@ -586,13 +588,14 @@ function BoardCard({ task, onOpen }: { task: Task; onOpen: () => void }) {
           <span className="material-symbols-rounded text-[14px]" style={{ color: RED }}>warning</span>
         )}
       </div>
-      <p className={`text-[13px] font-medium mb-2 leading-snug ${task.status === 'done' ? 'line-through text-slate-400' : 'text-slate-800'}`}>
+      <p className={`text-[13px] font-medium mb-2 leading-snug ${task.status === 'done' ? 'line-through' : ''}`}
+        style={{ color: task.status === 'done' ? 'var(--txt2)' : 'var(--txt)' }}>
         {task.title}
       </p>
       <div className="flex items-center gap-2">
         <Avatar name={task.assigned_name} size={20} />
         {task.due_date && (
-          <span className={`text-[11px] font-medium ml-auto ${isOverdue ? 'text-red-600 font-semibold' : 'text-slate-400'}`}>
+          <span className={`text-[11px] font-medium ml-auto ${isOverdue ? 'text-red-600 font-semibold' : 'text-[color:var(--txt2)]'}`}>
             {fmtDate(task.due_date)}
           </span>
         )}
@@ -625,14 +628,14 @@ function BoardColumn({
       <div className="flex items-center justify-between px-3 py-3"
         style={{ borderBottom: '1px solid rgba(15,23,42,0.06)' }}>
         <div className="flex items-center gap-2">
-          <span className="text-[12px] font-semibold text-slate-700">{LABELS[status] ?? snake(status)}</span>
+          <span className="text-[12px] font-semibold" style={{ color: 'var(--txt)' }}>{LABELS[status] ?? snake(status)}</span>
           <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full"
             style={{ background: s.bg, color: s.color }}>{tasks.length}</span>
         </div>
         <button onClick={onNew}
-          className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-white transition-colors"
+          className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-[var(--card)] transition-colors"
           title="New task">
-          <span className="material-symbols-rounded text-[15px] text-slate-400">add</span>
+          <span className="material-symbols-rounded text-[15px] text-[color:var(--txt2)]">add</span>
         </button>
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-2 max-h-[calc(100vh-300px)]">
@@ -640,7 +643,7 @@ function BoardColumn({
           <BoardCard key={t.id} task={t} onOpen={() => onOpen(t)} />
         ))}
         {tasks.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-8 text-slate-300">
+          <div className="flex flex-col items-center justify-center py-8 text-[color:var(--txt3)]">
             <span className="material-symbols-rounded text-[28px]">task_alt</span>
             <p className="text-[11px] mt-1">No tasks</p>
           </div>
@@ -663,14 +666,14 @@ function BulkActionBar({
   const [target, setTarget] = useState('')
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3
-                    bg-slate-900 text-white rounded-2xl px-5 py-3 shadow-2xl"
-      style={{ minWidth: 420 }}>
-      <span className="text-[13px] font-semibold">{count} selected</span>
-      <div className="w-px h-5 bg-slate-600 mx-1" />
+    <div className="flex items-center gap-3 px-4 py-2.5"
+      style={{ background: '#F0F4FF', borderBottom: '1px solid var(--bdr)' }}>
+      <span className="text-[13px] font-semibold" style={{ color: '#0E2841' }}>{count} selected</span>
+      <div className="w-px h-5 mx-1" style={{ background: 'var(--bdr)' }} />
 
       <select
-        className="px-3 py-1.5 rounded-lg text-[12px] bg-slate-700 border border-slate-600 text-white outline-none"
+        className="px-3 py-1.5 rounded-lg text-[12px] outline-none border"
+        style={{ borderColor: 'var(--bdr)', background: '#fff', color: '#0E2841' }}
         value={target} onChange={e => setTarget(e.target.value)}>
         <option value="">Assign to…</option>
         <option value="0">Unassign</option>
@@ -679,21 +682,23 @@ function BulkActionBar({
       <button
         disabled={target === ''}
         onClick={() => onAssign(target === '0' ? null : Number(target))}
-        className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-white text-slate-900 disabled:opacity-40 transition-opacity">
+        className="px-3 py-1.5 rounded-lg text-[12px] font-semibold disabled:opacity-40 transition-opacity border"
+        style={{ borderColor: 'var(--bdr)', background: '#fff', color: '#0E2841' }}>
         Apply
       </button>
 
-      <div className="w-px h-5 bg-slate-600 mx-1" />
+      <div className="w-px h-5 mx-1" style={{ background: 'var(--bdr)' }} />
       <button onClick={onMarkDone}
         className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-semibold"
-        style={{ background: 'rgba(5,150,105,0.25)', color: '#6EE7B7' }}>
+        style={{ background: 'rgba(5,150,105,0.12)', color: '#059669' }}>
         <span className="material-symbols-rounded text-[14px]">check_circle</span>
         Mark Done
       </button>
 
       <button onClick={onClear}
-        className="ml-2 w-6 h-6 flex items-center justify-center rounded-full hover:bg-slate-700 transition-colors">
-        <span className="material-symbols-rounded text-[15px] text-slate-400">close</span>
+        className="ml-auto w-7 h-7 flex items-center justify-center rounded-full transition-colors hover:bg-black/[0.06]"
+        style={{ color: 'var(--txt2)' }}>
+        <span className="material-symbols-rounded text-[15px]">close</span>
       </button>
     </div>
   )
@@ -721,6 +726,8 @@ export default function Tasks() {
   const [newDefaultStatus, setNewDefaultStatus] = useState('open')
   const [detailTask,     setDetailTask]     = useState<Task | null>(null)
   const [selectedIds,    setSelectedIds]    = useState<Set<number>>(new Set())
+  const [sortKey,        setSortKey]        = useState<string | null>(null)
+  const [sortDir,        setSortDir]        = useState<'asc' | 'desc'>('asc')
 
   const load = useCallback(async () => {
     setLoading(true); setErr('')
@@ -790,6 +797,19 @@ export default function Tasks() {
     await apiDelete(`/api/crm/tasks/${task.id}`); load()
   }
 
+  const toggleSort = (key: string) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
+
+  const sortedFiltered = [...filtered].sort((a, b) => {
+    if (!sortKey) return 0
+    const va = (a as any)[sortKey] ?? ''
+    const vb = (b as any)[sortKey] ?? ''
+    const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))
+    return sortDir === 'asc' ? cmp : -cmp
+  })
+
   function toggleSelect(id: number) {
     setSelectedIds(prev => {
       const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
@@ -812,13 +832,13 @@ export default function Tasks() {
       actions={
         <div className="flex items-center gap-2">
           {/* Board / List toggle */}
-          <div className="flex rounded-lg border overflow-hidden" style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+          <div className="flex rounded-lg border overflow-hidden" style={{ borderColor: 'var(--bdr)' }}>
             {(['board', 'list'] as const).map(mode => (
               <button key={mode} onClick={() => setLayoutMode(mode)}
                 className="w-8 h-8 flex items-center justify-center transition-colors"
-                style={{ background: layoutMode === mode ? NAVY : 'white' }}>
+                style={{ background: layoutMode === mode ? NAVY : 'var(--card)' }}>
                 <span className="material-symbols-rounded text-[17px]"
-                  style={{ color: layoutMode === mode ? 'white' : '#94A3B8' }}>
+                  style={{ color: layoutMode === mode ? 'white' : 'var(--txt2)' }}>
                   {mode === 'board' ? 'view_kanban' : 'format_list_bulleted'}
                 </span>
               </button>
@@ -844,15 +864,15 @@ export default function Tasks() {
           { label: 'Urgent',     value: urgent,   icon: 'priority_high', accent: RED },
           { label: 'Completed',  value: done,     icon: 'check_circle',  accent: GREEN },
         ].map(k => (
-          <div key={k.label} className="bg-white rounded-xl px-4 py-3 flex items-center gap-3"
-            style={{ border: '1px solid rgba(15,23,42,0.07)' }}>
+          <div key={k.label} className="rounded-xl px-4 py-3 flex items-center gap-3"
+            style={{ background: 'var(--card)', border: '1px solid var(--bdr)' }}>
             <span className="material-symbols-rounded text-[22px]"
               style={{ color: k.accent ?? NAVY }}>
               {k.icon}
             </span>
             <div>
-              <p className="text-[20px] font-bold text-slate-800 leading-tight">{k.value}</p>
-              <p className="text-[11px] text-slate-400">{k.label}</p>
+              <p className="text-[20px] font-bold leading-tight" style={{ color: 'var(--txt)' }}>{k.value}</p>
+              <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>{k.label}</p>
             </div>
           </div>
         ))}
@@ -866,8 +886,8 @@ export default function Tasks() {
             <button key={id} onClick={() => setViewMode(id)}
               className="px-4 py-2 transition-colors"
               style={{
-                background: viewMode === id ? NAVY : 'white',
-                color:      viewMode === id ? 'white' : '#64748B',
+                background: viewMode === id ? NAVY : 'var(--card)',
+                color:      viewMode === id ? 'white' : 'var(--txt2)',
                 borderRight: id !== 'all' ? '1px solid rgba(15,23,42,0.12)' : undefined,
               }}>
               {label}
@@ -879,28 +899,28 @@ export default function Tasks() {
       {/* Filters row */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="relative">
-          <span className="material-symbols-rounded text-[15px] absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">search</span>
+          <span className="material-symbols-rounded text-[15px] absolute left-2.5 top-1/2 -translate-y-1/2 text-[color:var(--txt2)] pointer-events-none">search</span>
           <input
-            className="pl-8 pr-3 py-2 rounded-lg border text-[12px] outline-none bg-white"
-            style={{ borderColor: 'rgba(15,23,42,0.15)', minWidth: 200 }}
+            className="pl-8 pr-3 py-2 rounded-lg border text-[12px] outline-none"
+            style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', minWidth: 200 }}
             value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tasks…" />
         </div>
-        <select className="px-3 py-2 rounded-lg border text-[12px] bg-white outline-none"
-          style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+        <select className="px-3 py-2 rounded-lg border text-[12px] outline-none"
+          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
           value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)}>
           <option value="">All priorities</option>
           {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
         {layoutMode === 'list' && (
-          <select className="px-3 py-2 rounded-lg border text-[12px] bg-white outline-none"
-            style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+          <select className="px-3 py-2 rounded-lg border text-[12px] outline-none"
+            style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
             value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="">All statuses</option>
             {STATUSES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
           </select>
         )}
-        <select className="px-3 py-2 rounded-lg border text-[12px] bg-white outline-none"
-          style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+        <select className="px-3 py-2 rounded-lg border text-[12px] outline-none"
+          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
           value={dueDateFilter} onChange={e => setDueDateFilter(e.target.value)}>
           <option value="">All due dates</option>
           <option value="overdue">Overdue</option>
@@ -910,11 +930,11 @@ export default function Tasks() {
         {(search || priorityFilter || statusFilter || dueDateFilter) && (
           <button
             onClick={() => { setSearch(''); setPriorityFilter(''); setStatusFilter(''); setDueDateFilter('') }}
-            className="text-[12px] text-slate-400 hover:text-slate-700 transition-colors">
+            className="text-[12px] text-[color:var(--txt2)] hover:text-[color:var(--txt)] transition-colors">
             Clear filters
           </button>
         )}
-        <p className="ml-auto text-[12px] text-slate-400">{filtered.length} tasks</p>
+        <p className="ml-auto text-[12px]" style={{ color: 'var(--txt2)' }}>{filtered.length} tasks</p>
       </div>
 
       {/* Board view */}
@@ -935,13 +955,21 @@ export default function Tasks() {
       {/* List view */}
       {layoutMode === 'list' && (
         <SectionCard title="Tasks" badge={filtered.length}>
+          {selectedIds.size > 0 && (
+            <BulkActionBar
+              count={selectedIds.size}
+              users={users}
+              onAssign={bulkAssign}
+              onMarkDone={bulkMarkDone}
+              onClear={() => setSelectedIds(new Set())} />
+          )}
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="w-7 h-7 border-2 rounded-full animate-spin"
                 style={{ borderColor: 'rgba(14,40,65,0.1)', borderTopColor: NAVY }} />
             </div>
           ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center py-16 gap-2 text-slate-400">
+            <div className="flex flex-col items-center py-16 gap-2 text-[color:var(--txt2)]">
               <span className="material-symbols-rounded text-[40px]">task_alt</span>
               <p className="text-[13px]">No tasks — create one to get started</p>
             </div>
@@ -949,28 +977,39 @@ export default function Tasks() {
             <div className="overflow-x-auto">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr style={{ background: '#F8FAFC', borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
+                  <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
                     <th className="px-4 py-3 w-10">
                       <input type="checkbox"
-                        checked={selectedIds.size === filtered.length && filtered.length > 0}
+                        checked={selectedIds.size === sortedFiltered.length && sortedFiltered.length > 0}
                         onChange={e => {
-                          setSelectedIds(e.target.checked ? new Set(filtered.map(t => t.id)) : new Set())
+                          setSelectedIds(e.target.checked ? new Set(sortedFiltered.map(t => t.id)) : new Set())
                         }}
                         className="rounded cursor-pointer" />
                     </th>
-                    {['PRIORITY', 'TITLE', 'ASSIGNEE', 'DUE DATE', 'STATUS', 'LINKED TO', ''].map(h => (
-                      <th key={h} className="px-4 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.07em] text-slate-400 whitespace-nowrap">
+                    {([
+                      ['PRIORITY', 'priority'],
+                      ['TITLE', 'title'],
+                      ['ASSIGNEE', 'assigned_name'],
+                      ['DUE DATE', 'due_date'],
+                      ['STATUS', 'status'],
+                      ['LINKED TO', null],
+                      ['', null],
+                    ] as [string, string | null][]).map(([h, k]) => (
+                      <th key={h} className="px-4 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.07em] whitespace-nowrap"
+                        style={{ color: sortKey === k ? 'var(--txt)' : 'var(--txt2)', fontFamily: "'Inter', ui-sans-serif, sans-serif", fontSize: 10, cursor: k ? 'pointer' : undefined }}
+                        onClick={k ? () => toggleSort(k) : undefined}>
                         {h}
+                        {k && <span style={{ marginLeft: 3, color: '#C00000', opacity: sortKey === k ? 1 : 0.3 }}>{sortKey === k ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(t => {
+                  {sortedFiltered.map(t => {
                     const isOverdue = t.is_overdue && t.status !== 'done' && t.status !== 'cancelled'
                     return (
                       <tr key={t.id}
-                        className="transition-colors hover:bg-slate-50 cursor-pointer"
+                        className="transition-colors cursor-pointer hover:bg-black/[0.02]"
                         style={{
                           borderTop: '1px solid rgba(15,23,42,0.05)',
                           borderLeft: isOverdue ? `3px solid ${RED}` : '3px solid transparent',
@@ -984,21 +1023,22 @@ export default function Tasks() {
                         </td>
                         <td className="px-4 py-3"><PriorityBadge priority={t.priority} /></td>
                         <td className="px-4 py-3 max-w-[260px]">
-                          <p className={`font-medium truncate ${t.status === 'done' ? 'line-through text-slate-400' : 'text-slate-800'}`}>
+                          <p className={`font-medium truncate ${t.status === 'done' ? 'line-through' : ''}`}
+                            style={{ color: t.status === 'done' ? 'var(--txt2)' : 'var(--txt)' }}>
                             {t.title}
                           </p>
                           {t.description && (
-                            <p className="text-[11px] text-slate-400 truncate">{t.description}</p>
+                            <p className="text-[11px] truncate" style={{ color: 'var(--txt2)' }}>{t.description}</p>
                           )}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <div className="flex items-center gap-2">
                             <Avatar name={t.assigned_name} size={22} />
-                            <span className="text-slate-500 text-[12px]">{t.assigned_name ?? '—'}</span>
+                            <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{t.assigned_name ?? '—'}</span>
                           </div>
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
-                          <span className={`text-[12px] ${isOverdue ? 'text-red-600 font-semibold' : 'text-slate-400'}`}>
+                          <span className={`text-[12px] ${isOverdue ? 'text-red-600 font-semibold' : 'text-[color:var(--txt2)]'}`}>
                             {isOverdue && (
                               <span className="material-symbols-rounded text-[13px] mr-0.5 align-middle">warning</span>
                             )}
@@ -1051,14 +1091,6 @@ export default function Tasks() {
           onSaved={() => { setDetailTask(null); load() }} />
       )}
 
-      {selectedIds.size > 0 && (
-        <BulkActionBar
-          count={selectedIds.size}
-          users={users}
-          onAssign={bulkAssign}
-          onMarkDone={bulkMarkDone}
-          onClear={() => setSelectedIds(new Set())} />
-      )}
     </Page>
   )
 }

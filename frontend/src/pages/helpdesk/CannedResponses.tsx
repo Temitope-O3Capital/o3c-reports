@@ -58,7 +58,7 @@ export default function CannedResponses() {
       key: 'name',
       label: 'Name',
       render: row => (
-        <span className="font-semibold text-slate-800">{row.name}</span>
+        <span className="font-semibold" style={{ color: 'var(--txt)' }}>{row.name}</span>
       ),
     },
     {
@@ -70,15 +70,15 @@ export default function CannedResponses() {
       key: 'category',
       label: 'Category',
       render: row => row.category
-        ? <span className="text-slate-600 text-[12px]">{row.category}</span>
-        : <span className="text-slate-300">—</span>,
+        ? <span className="text-[12px]" style={{ color: 'var(--txt)' }}>{row.category}</span>
+        : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
     {
       key: 'body_text',
       label: 'Preview',
       sortable: false,
       render: row => (
-        <span className="text-[12px] text-slate-500 truncate block max-w-[280px]">
+        <span className="text-[12px] truncate block max-w-[280px]" style={{ color: 'var(--txt2)' }}>
           {row.body_text?.slice(0, 80)}{(row.body_text?.length ?? 0) > 80 ? '…' : ''}
         </span>
       ),
@@ -91,7 +91,8 @@ export default function CannedResponses() {
         <div className="flex items-center gap-2 justify-end">
           <button
             onClick={() => { setEditing(row); setModal(true) }}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors text-slate-600 hover:bg-slate-100"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors hover:bg-[var(--chip-bg)]"
+            style={{ color: 'var(--txt)' }}
           >
             <span className="material-symbols-rounded text-[13px]">edit</span>
             Edit
@@ -165,9 +166,9 @@ function ChannelBadge({ channel }: { channel: string }) {
   const map: Record<string, { label: string; bg: string; color: string }> = {
     email: { label: 'Email', bg: 'rgba(37,99,235,0.1)',  color: '#2563EB' },
     sms:   { label: 'SMS',   bg: 'rgba(217,119,6,0.1)',  color: '#D97706' },
-    both:  { label: 'Both',  bg: 'rgba(14,40,65,0.08)', color: '#475569' },
+    both:  { label: 'Both',  bg: 'var(--chip-bg)',        color: 'var(--txt2)' },
   }
-  const s = map[channel?.toLowerCase()] ?? { label: channel, bg: 'rgba(14,40,65,0.06)', color: '#475569' }
+  const s = map[channel?.toLowerCase()] ?? { label: channel, bg: 'var(--chip-bg)', color: 'var(--txt2)' }
   return (
     <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full"
       style={{ background: s.bg, color: s.color }}>
@@ -236,16 +237,16 @@ function CannedModal({
     <>
       <div className="fixed inset-0 z-[290] bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
       <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl w-full overflow-hidden flex flex-col"
-          style={{ maxWidth: 540, maxHeight: '90vh' }}>
+        <div className="rounded-2xl shadow-2xl w-full overflow-hidden flex flex-col"
+          style={{ background: 'var(--card)', maxWidth: 540, maxHeight: '90vh' }}>
           <div className="flex items-center justify-between px-6 py-4"
-            style={{ borderBottom: '1px solid rgba(15,23,42,0.09)' }}>
-            <h2 className="text-[16px] font-bold text-slate-900">
+            style={{ borderBottom: '1px solid var(--bdr)' }}>
+            <h2 className="text-[16px] font-bold" style={{ color: 'var(--txt)' }}>
               {isEdit ? 'Edit Canned Response' : 'New Canned Response'}
             </h2>
             <button onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors">
-              <span className="material-symbols-rounded text-[18px] text-slate-500">close</span>
+              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--chip-bg)] transition-colors">
+              <span className="material-symbols-rounded text-[18px]" style={{ color: 'var(--txt2)' }}>close</span>
             </button>
           </div>
 
@@ -298,7 +299,7 @@ function CannedModal({
                   onChange={e => setAutoHtml(e.target.checked)}
                   className="w-4 h-4 rounded"
                 />
-                <span className="text-[13px] text-slate-600">Auto-generate HTML from plain text</span>
+                <span className="text-[13px]" style={{ color: 'var(--txt)' }}>Auto-generate HTML from plain text</span>
               </label>
 
               {!autoHtml && (
@@ -317,9 +318,10 @@ function CannedModal({
           </div>
 
           <div className="flex items-center justify-end gap-3 px-6 py-4"
-            style={{ borderTop: '1px solid rgba(15,23,42,0.09)' }}>
+            style={{ borderTop: '1px solid var(--bdr)' }}>
             <button onClick={onClose}
-              className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-600 hover:bg-slate-100 transition-colors">
+              className="px-4 py-2 rounded-lg text-[13px] font-semibold hover:bg-[var(--chip-bg)] transition-colors"
+              style={{ color: 'var(--txt)' }}>
               Cancel
             </button>
             <button onClick={handleSave} disabled={saving}
@@ -347,20 +349,21 @@ function DeleteConfirm({
     <>
       <div className="fixed inset-0 z-[390] bg-black/30 backdrop-blur-[2px]" onClick={onCancel} />
       <div className="fixed inset-0 z-[400] flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-6 w-full" style={{ maxWidth: 360 }}>
+        <div className="rounded-2xl shadow-2xl p-6 w-full" style={{ background: 'var(--card)', maxWidth: 360 }}>
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center"
               style={{ background: 'rgba(192,0,0,0.08)' }}>
               <span className="material-symbols-rounded text-red-600">delete</span>
             </div>
             <div>
-              <p className="font-semibold text-slate-800">Delete Canned Response</p>
-              <p className="text-[12px] text-slate-400 mt-0.5">This cannot be undone.</p>
+              <p className="font-semibold" style={{ color: 'var(--txt)' }}>Delete Canned Response</p>
+              <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>This cannot be undone.</p>
             </div>
           </div>
           <div className="flex gap-3 justify-end">
             <button onClick={onCancel}
-              className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-600 hover:bg-slate-100 transition-colors">
+              className="px-4 py-2 rounded-lg text-[13px] font-semibold hover:bg-[var(--chip-bg)] transition-colors"
+              style={{ color: 'var(--txt)' }}>
               Cancel
             </button>
             <button onClick={onConfirm} disabled={loading}
@@ -381,10 +384,10 @@ const inputStyle: React.CSSProperties = {
   width: '100%',
   padding: '8px 12px',
   borderRadius: 8,
-  border: '1px solid rgba(15,23,42,0.15)',
+  border: '1px solid var(--input-bdr)',
   fontSize: 13,
-  color: '#334155',
-  background: 'white',
+  color: 'var(--txt)',
+  background: 'var(--input-bg)',
   outline: 'none',
   boxSizing: 'border-box',
 }
@@ -392,7 +395,7 @@ const inputStyle: React.CSSProperties = {
 function ModalField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+      <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--txt2)' }}>
         {label}
       </label>
       {children}

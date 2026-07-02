@@ -128,7 +128,7 @@ export default function BlinkCard() {
                 </div>
               </div>
             ) : statusBreakdown.length === 0 ? (
-              <p className="text-[13px] text-slate-400 py-16 text-center">No status data available</p>
+              <p className="text-[13px] py-16 text-center" style={{ color: 'var(--txt2)' }}>No status data available</p>
             ) : (
               <>
                 <ResponsiveContainer width="100%" height={140}>
@@ -150,10 +150,10 @@ export default function BlinkCard() {
                         if (!active || !payload?.length) return null
                         const p = payload[0]
                         return (
-                          <div className="bg-white rounded-lg border px-3 py-2.5 shadow-lg"
-                            style={{ borderColor: 'rgba(15,23,42,0.1)', fontSize: 12 }}>
-                            <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider mb-1">{p.name}</p>
-                            <span className="font-semibold font-mono text-slate-800">{n(p.value).toLocaleString()}</span>
+                          <div className="rounded-lg border px-3 py-2.5 shadow-lg"
+                            style={{ background: 'var(--card)', borderColor: 'var(--bdr)', fontSize: 12 }}>
+                            <p className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--txt2)' }}>{p.name}</p>
+                            <span className="font-semibold font-mono" style={{ color: 'var(--txt)' }}>{n(p.value).toLocaleString()}</span>
                           </div>
                         )
                       }}
@@ -166,14 +166,14 @@ export default function BlinkCard() {
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-sm flex-shrink-0"
                           style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
-                        <span className="text-[12px] text-slate-500">{d.status}</span>
+                        <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{d.status}</span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[12px] font-semibold font-mono text-slate-800">
+                        <span className="text-[12px] font-semibold font-mono" style={{ color: 'var(--txt)' }}>
                           {n(d.count).toLocaleString()}
                         </span>
                         {totalCards > 0 && (
-                          <span className="text-[11px] text-slate-400">
+                          <span className="text-[11px]" style={{ color: 'var(--txt3)' }}>
                             ({((n(d.count) / totalCards) * 100).toFixed(0)}%)
                           </span>
                         )}

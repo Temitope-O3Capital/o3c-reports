@@ -42,7 +42,7 @@ const DEFAULT_MESSAGE = 'Please find your account statement attached to this ema
 function statusClass(status: string) {
   if (['delivered', 'opened', 'clicked'].includes(status)) return 'bg-green-50 text-green-700'
   if (['failed', 'bounced', 'dropped', 'spam_report'].includes(status)) return 'bg-red-50 text-red-700'
-  return 'bg-slate-100 text-slate-600'
+  return 'bg-[var(--chip-bg)] text-[color:var(--txt2)]'
 }
 
 export default function Statements() {
@@ -177,20 +177,20 @@ export default function Statements() {
   }
 
   const cols: ColDef<StatementLog>[] = [
-    { key: 'created_at', label: 'Sent', render: r => <span className="text-[11px] text-slate-500 whitespace-nowrap">{fmtDate(r.created_at)}</span> },
-    { key: 'customer', label: 'Customer', render: r => <div><p className="text-[12px] font-semibold text-slate-800">{r.customer_name || 'Customer'}</p><p className="font-mono text-[11px] text-slate-400">{r.cif_number}</p></div> },
-    { key: 'recipient_email', label: 'Recipient', render: r => <span className="text-[12px] text-slate-600">{r.recipient_email}</span> },
-    { key: 'period', label: 'Period', render: r => <span className="text-[12px] text-slate-500 whitespace-nowrap">{r.date_from} to {r.date_to}</span> },
+    { key: 'created_at', label: 'Sent', render: r => <span className="text-[11px] text-[color:var(--txt2)] whitespace-nowrap">{fmtDate(r.created_at)}</span> },
+    { key: 'customer', label: 'Customer', render: r => <div><p className="text-[12px] font-semibold text-[color:var(--txt)]">{r.customer_name || 'Customer'}</p><p className="font-mono text-[11px] text-[color:var(--txt2)]">{r.cif_number}</p></div> },
+    { key: 'recipient_email', label: 'Recipient', render: r => <span className="text-[12px] text-[color:var(--txt2)]">{r.recipient_email}</span> },
+    { key: 'period', label: 'Period', render: r => <span className="text-[12px] text-[color:var(--txt2)] whitespace-nowrap">{r.date_from} to {r.date_to}</span> },
     { key: 'status', label: 'Status', render: r => <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold ${statusClass(r.status)}`}>{r.status}</span> },
-    { key: 'tracking', label: 'Tracking', render: r => <span className="text-[11px] text-slate-400">{r.opened_at ? 'Opened' : r.delivered_at ? 'Delivered' : r.bounced_at ? 'Bounced' : r.last_error ? r.last_error : 'Pending'}</span> },
+    { key: 'tracking', label: 'Tracking', render: r => <span className="text-[11px] text-[color:var(--txt2)]">{r.opened_at ? 'Opened' : r.delivered_at ? 'Delivered' : r.bounced_at ? 'Bounced' : r.last_error ? r.last_error : 'Pending'}</span> },
   ]
 
   const runCols: ColDef<StatementRun>[] = [
-    { key: 'created_at', label: 'Started', render: r => <span className="text-[11px] text-slate-500 whitespace-nowrap">{fmtDate(r.created_at)}</span> },
-    { key: 'period', label: 'Period', render: r => <span className="text-[12px] text-slate-600 whitespace-nowrap">{r.date_from} to {r.date_to}</span> },
+    { key: 'created_at', label: 'Started', render: r => <span className="text-[11px] text-[color:var(--txt2)] whitespace-nowrap">{fmtDate(r.created_at)}</span> },
+    { key: 'period', label: 'Period', render: r => <span className="text-[12px] text-[color:var(--txt2)] whitespace-nowrap">{r.date_from} to {r.date_to}</span> },
     { key: 'status', label: 'Status', render: r => <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold ${statusClass(r.status)}`}>{r.status}</span> },
     { key: 'progress', label: 'Progress', render: r => <Progress sent={Number(r.sent_count || 0)} failed={Number(r.failed_count || 0)} total={Number(r.total_recipients || 0)} /> },
-    { key: 'last_error', label: 'Last Note', render: r => <span className="text-[11px] text-slate-400">{r.last_error || '—'}</span> },
+    { key: 'last_error', label: 'Last Note', render: r => <span className="text-[11px] text-[color:var(--txt2)]">{r.last_error || '—'}</span> },
     { key: 'actions', label: '', render: r => <div className="flex justify-end gap-1">
       {['queued', 'active'].includes(r.status) && <IconBtn icon="pause" label="Pause" onClick={() => runAction(r.id, 'pause')} />}
       {r.status === 'paused' && <IconBtn icon="play_arrow" label="Resume" onClick={() => runAction(r.id, 'resume')} />}
@@ -246,7 +246,7 @@ export default function Statements() {
               </button>
             </div>
             {preview && (
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] text-slate-600">
+              <div className="rounded-lg border border-[var(--bdr)] bg-[var(--bg)] px-4 py-3 text-[12px] text-[color:var(--txt2)]">
                 <strong>{preview.count ?? preview.total ?? 0}</strong> recipient(s) in scope. Sent: <strong>{preview.sent ?? 0}</strong>. Failed: <strong>{preview.failed ?? 0}</strong>.
                 {preview.eligible != null && <span> Eligible total: <strong>{preview.eligible}</strong>.</span>}
               </div>
@@ -281,16 +281,16 @@ function Progress({ sent, failed, total }: { sent: number; failed: number; total
   const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0
   return (
     <div className="min-w-[150px]">
-      <div className="flex justify-between text-[11px] text-slate-500 mb-1"><span>{done}/{total}</span><span>{pct}%</span></div>
-      <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} /></div>
-      <p className="mt-1 text-[11px] text-slate-400">Sent {sent} · Failed {failed}</p>
+      <div className="flex justify-between text-[11px] text-[color:var(--txt2)] mb-1"><span>{done}/{total}</span><span>{pct}%</span></div>
+      <div className="h-1.5 rounded-full bg-[var(--chip-bg)] overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} /></div>
+      <p className="mt-1 text-[11px] text-[color:var(--txt2)]">Sent {sent} · Failed {failed}</p>
     </div>
   )
 }
 
 function IconBtn({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
   return (
-    <button type="button" title={label} aria-label={label} onClick={onClick} className="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
+    <button type="button" title={label} aria-label={label} onClick={onClick} className="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-[var(--bdr)] text-[color:var(--txt2)] hover:bg-[var(--bg)]">
       <span className="material-symbols-rounded text-[17px]">{icon}</span>
     </button>
   )
@@ -299,8 +299,8 @@ function IconBtn({ icon, label, onClick }: { icon: string; label: string; onClic
 function Field({ label, value, onChange, placeholder = '', type = 'text' }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string }) {
   return (
     <label className="block">
-      <span className="block text-[11px] font-bold uppercase text-slate-500 mb-1">{label}</span>
-      <input value={value} onChange={e => onChange(e.target.value)} type={type} placeholder={placeholder} className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+      <span className="block text-[11px] font-bold uppercase text-[color:var(--txt2)] mb-1">{label}</span>
+      <input value={value} onChange={e => onChange(e.target.value)} type={type} placeholder={placeholder} className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none" style={{ borderColor: 'var(--bdr)' }} />
     </label>
   )
 }
@@ -308,8 +308,8 @@ function Field({ label, value, onChange, placeholder = '', type = 'text' }: { la
 function TextArea({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
     <label className="block">
-      <span className="block text-[11px] font-bold uppercase text-slate-500 mb-1">{label}</span>
-      <textarea value={value} onChange={e => onChange(e.target.value)} rows={4} className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none resize-y" style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+      <span className="block text-[11px] font-bold uppercase text-[color:var(--txt2)] mb-1">{label}</span>
+      <textarea value={value} onChange={e => onChange(e.target.value)} rows={4} className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none resize-y" style={{ borderColor: 'var(--bdr)' }} />
     </label>
   )
 }

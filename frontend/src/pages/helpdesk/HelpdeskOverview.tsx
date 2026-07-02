@@ -61,7 +61,7 @@ function slaCountdown(sla_due_at: string | null, sla_breached: boolean): { text:
   if (sla_breached || (sla_due_at && new Date(sla_due_at).getTime() < Date.now())) {
     return { text: 'BREACHED', color: RED }
   }
-  if (!sla_due_at) return { text: '', color: '#94A3B8' }
+  if (!sla_due_at) return { text: '', color: 'var(--txt2)' }
   const diff = new Date(sla_due_at).getTime() - Date.now()
   const h = Math.floor(diff / 3600000)
   const m = Math.floor((diff % 3600000) / 60000)
@@ -90,23 +90,23 @@ function TicketCard({
   const sla = slaCountdown(ticket.sla_due_at, ticket.sla_breached)
   return (
     <div
-      className="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-slate-50 group"
-      style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}
+      className="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-[var(--bg)] group"
+      style={{ borderTop: '1px solid var(--bdr)' }}
       onClick={() => onNavigate(ticket.id)}
     >
       <PriorityDot priority={ticket.priority} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <p className="text-[13px] font-semibold text-slate-800 truncate">{ticket.subject}</p>
+          <p className="text-[13px] font-semibold truncate" style={{ color: 'var(--txt)' }}>{ticket.subject}</p>
           <StatusPill status={ticket.status} />
         </div>
         <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-[11px] text-slate-400">{ticket.customer_name}</span>
-          <span className="text-[11px] text-slate-300">·</span>
-          <span className="text-[11px] text-slate-400">{relativeTime(ticket.last_message_at || ticket.created_at)}</span>
+          <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{ticket.customer_name}</span>
+          <span className="text-[11px]" style={{ color: 'var(--txt3)' }}>·</span>
+          <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{relativeTime(ticket.last_message_at || ticket.created_at)}</span>
           {sla.text && (
             <>
-              <span className="text-[11px] text-slate-300">·</span>
+              <span className="text-[11px]" style={{ color: 'var(--txt3)' }}>·</span>
               <span className="text-[11px] font-semibold" style={{ color: sla.color }}>
                 {sla.text === 'BREACHED' ? '⚠ SLA BREACHED' : `SLA: ${sla.text}`}
               </span>
@@ -116,7 +116,7 @@ function TicketCard({
       </div>
       <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
         {action}
-        <span className="material-symbols-rounded text-[16px] text-slate-300 group-hover:text-slate-500 transition-colors">
+        <span className="material-symbols-rounded text-[16px] transition-colors" style={{ color: 'var(--txt3)' }}>
           arrow_forward
         </span>
       </div>
@@ -134,8 +134,8 @@ function SLAWarningCard({ ticket, onNavigate }: { ticket: Ticket; onNavigate: (i
     >
       <span className="material-symbols-rounded text-[18px]" style={{ color: RED }}>alarm</span>
       <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-semibold text-slate-800 truncate">{ticket.subject}</p>
-        <p className="text-[11px] text-slate-500 mt-0.5">{ticket.customer_name} · {ticket.ticket_ref}</p>
+        <p className="text-[13px] font-semibold truncate" style={{ color: 'var(--txt)' }}>{ticket.subject}</p>
+        <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{ticket.customer_name} · {ticket.ticket_ref}</p>
       </div>
       <span className="text-[11px] font-bold px-2 py-0.5 rounded-full flex-shrink-0"
         style={{ background: 'rgba(192,0,0,0.1)', color: RED }}>
@@ -263,7 +263,7 @@ export default function HelpdeskOverview() {
           actions={
             <button
               onClick={() => navigate('/helpdesk/tickets?assigned_to=me')}
-              className="text-[12px] font-medium text-slate-400 hover:text-slate-700 transition-colors"
+              className="text-[12px] font-medium transition-colors" style={{ color: 'var(--txt2)' }}
             >
               View all
             </button>
@@ -273,8 +273,8 @@ export default function HelpdeskOverview() {
             <div className="flex items-center justify-center py-10"><Spinner size={24} /></div>
           ) : myQueue.length === 0 ? (
             <div className="py-10 text-center">
-              <span className="material-symbols-rounded text-[36px] text-slate-300 block mb-2">inbox</span>
-              <p className="text-[13px] text-slate-400">Your queue is empty</p>
+              <span className="material-symbols-rounded text-[36px] block mb-2" style={{ color: 'var(--txt3)' }}>inbox</span>
+              <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>Your queue is empty</p>
             </div>
           ) : (
             myQueue.map(t => (
@@ -295,7 +295,7 @@ export default function HelpdeskOverview() {
           actions={
             <button
               onClick={() => navigate('/helpdesk/tickets?assigned_to=unassigned')}
-              className="text-[12px] font-medium text-slate-400 hover:text-slate-700 transition-colors"
+              className="text-[12px] font-medium transition-colors" style={{ color: 'var(--txt2)' }}
             >
               View all
             </button>
@@ -305,8 +305,8 @@ export default function HelpdeskOverview() {
             <div className="flex items-center justify-center py-10"><Spinner size={24} /></div>
           ) : teamQueue.length === 0 ? (
             <div className="py-10 text-center">
-              <span className="material-symbols-rounded text-[36px] text-slate-300 block mb-2">group</span>
-              <p className="text-[13px] text-slate-400">No unassigned tickets</p>
+              <span className="material-symbols-rounded text-[36px] block mb-2" style={{ color: 'var(--txt3)' }}>group</span>
+              <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>No unassigned tickets</p>
             </div>
           ) : (
             teamQueue.map(t => (
@@ -319,7 +319,7 @@ export default function HelpdeskOverview() {
                     disabled={claiming === t.id}
                     onClick={e => { e.stopPropagation(); claimTicket(t.id) }}
                     className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all disabled:opacity-50"
-                    style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY, background: 'white' }}
+                    style={{ borderColor: 'rgba(14,40,65,0.2)', color: NAVY, background: 'var(--card)' }}
                   >
                     <span className="material-symbols-rounded text-[13px]">
                       {claiming === t.id ? 'progress_activity' : 'person_add'}
@@ -340,7 +340,7 @@ export default function HelpdeskOverview() {
         actions={
           <button
             onClick={() => navigate('/helpdesk/tickets')}
-            className="text-[12px] font-medium text-slate-400 hover:text-slate-700 transition-colors"
+            className="text-[12px] font-medium transition-colors" style={{ color: 'var(--txt2)' }}
           >
             All tickets
           </button>
@@ -350,8 +350,8 @@ export default function HelpdeskOverview() {
           <div className="flex items-center justify-center py-10"><Spinner size={24} /></div>
         ) : recent.length === 0 ? (
           <div className="py-10 text-center">
-            <span className="material-symbols-rounded text-[36px] text-slate-300 block mb-2">history</span>
-            <p className="text-[13px] text-slate-400">No recent activity</p>
+            <span className="material-symbols-rounded text-[36px] block mb-2" style={{ color: 'var(--txt3)' }}>history</span>
+            <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>No recent activity</p>
           </div>
         ) : (
           recent.map(t => (

@@ -63,7 +63,7 @@ function outcomeBadge(o: string) {
     escalated:  { bg: 'rgba(192,0,0,0.08)',    color: RED },
     callback:   { bg: 'rgba(217,119,6,0.1)',   color: AMBER },
   }
-  const s = colors[o?.toLowerCase()] ?? { bg: 'rgba(14,40,65,0.06)', color: '#475569' }
+  const s = colors[o?.toLowerCase()] ?? { bg: 'rgba(14,40,65,0.06)', color: 'var(--txt2)' }
   return (
     <span
       className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded capitalize"
@@ -151,7 +151,7 @@ export default function Calls() {
     },
     {
       key: 'agent_id', label: 'Agent', render: r => (
-        <span className="text-[12px] text-slate-600">{r.agent_id || '—'}</span>
+        <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{r.agent_id || '—'}</span>
       ),
     },
     {
@@ -159,7 +159,7 @@ export default function Calls() {
     },
     {
       key: 'duration_seconds', label: 'Duration', right: true, render: r => (
-        <span className="font-mono text-[12px] text-slate-700">{fmtDuration(r.duration_seconds)}</span>
+        <span className="font-mono text-[12px]" style={{ color: 'var(--txt)' }}>{fmtDuration(r.duration_seconds)}</span>
       ),
     },
     {
@@ -167,14 +167,14 @@ export default function Calls() {
     },
     {
       key: 'notes', label: 'Notes', render: r => (
-        <span className="text-[12px] text-slate-500 max-w-[200px] block truncate" title={r.notes}>
+        <span className="text-[12px] max-w-[200px] block truncate" style={{ color: 'var(--txt2)' }} title={r.notes}>
           {r.notes || '—'}
         </span>
       ),
     },
     {
       key: 'created_at', label: 'Date', render: r => (
-        <span className="text-[12px] text-slate-400 whitespace-nowrap">{fmtDate(r.created_at)}</span>
+        <span className="text-[12px] whitespace-nowrap" style={{ color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span>
       ),
     },
     {
@@ -204,13 +204,13 @@ export default function Calls() {
               onChange={e => setCifFilter(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && load(cifFilter)}
               placeholder="Filter by CIF…"
-              className="px-3 py-1.5 rounded-lg border text-[12px] outline-none bg-white"
-              style={{ borderColor: 'rgba(15,23,42,0.15)', width: 160 }}
+              className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
+              style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', width: 160 }}
             />
             <button
               onClick={() => load(cifFilter)}
-              className="px-3 py-1.5 rounded-lg border text-[12px] font-medium bg-white"
-              style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#475569' }}
+              className="px-3 py-1.5 rounded-lg border text-[12px] font-medium"
+              style={{ borderColor: 'var(--bdr)', background: 'var(--card)', color: 'var(--txt2)' }}
             >
               Search
             </button>
@@ -250,10 +250,10 @@ export default function Calls() {
         >
           <div className="card w-full max-w-md mx-4 p-6">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-[16px] font-bold text-slate-900">Log New Call</h2>
+              <h2 className="text-[16px] font-bold" style={{ color: 'var(--txt)' }}>Log New Call</h2>
               <button
                 onClick={() => setShowModal(false)}
-                className="text-slate-400 hover:text-slate-600"
+                style={{ color: 'var(--txt2)' }}
               >
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
@@ -263,29 +263,29 @@ export default function Calls() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">CIF Number *</label>
+                <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>CIF Number *</label>
                 <input
                   value={form.cif_number}
                   onChange={e => setF('cif_number', e.target.value)}
                   placeholder="e.g. 1234567"
                   className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
-                  style={{ borderColor: 'rgba(15,23,42,0.2)' }}
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 />
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Call Type</label>
+                <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Call Type</label>
                 <select
                   value={form.call_type}
                   onChange={e => setF('call_type', e.target.value as 'inbound' | 'outbound')}
-                  className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none bg-white"
-                  style={{ borderColor: 'rgba(15,23,42,0.2)' }}
+                  className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 >
                   <option value="inbound">Inbound</option>
                   <option value="outbound">Outbound</option>
                 </select>
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Duration (minutes)</label>
+                <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Duration (minutes)</label>
                 <input
                   type="number"
                   min="0"
@@ -294,16 +294,16 @@ export default function Calls() {
                   onChange={e => setF('duration_minutes', e.target.value)}
                   placeholder="e.g. 5"
                   className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
-                  style={{ borderColor: 'rgba(15,23,42,0.2)' }}
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 />
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Outcome</label>
+                <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Outcome</label>
                 <select
                   value={form.outcome}
                   onChange={e => setF('outcome', e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none bg-white"
-                  style={{ borderColor: 'rgba(15,23,42,0.2)' }}
+                  className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none"
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 >
                   <option value="resolved">Resolved</option>
                   <option value="escalated">Escalated</option>
@@ -311,14 +311,14 @@ export default function Calls() {
                 </select>
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-500 mb-1">Notes</label>
+                <label className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Notes</label>
                 <textarea
                   value={form.notes}
                   onChange={e => setF('notes', e.target.value)}
                   placeholder="Brief summary of the interaction…"
                   rows={3}
                   className="w-full px-3 py-2 rounded-lg border text-[13px] outline-none resize-none"
-                  style={{ borderColor: 'rgba(15,23,42,0.2)' }}
+                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                 />
               </div>
             </div>
@@ -327,7 +327,7 @@ export default function Calls() {
               <button
                 onClick={() => setShowModal(false)}
                 className="px-4 py-2 rounded-lg text-[13px] font-medium border"
-                style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#64748B' }}
+                style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}
               >
                 Cancel
               </button>

@@ -196,22 +196,24 @@ export function DataTable<T extends Record<string, any>>({
                   onChange={toggleAll} />
               </th>
             )}
-            {cols.map(c => (
-              <th key={c.key}
-                onClick={() => c.sortable !== false && toggleSort(c.key)}
-                className={`px-5 py-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] whitespace-nowrap select-none ${c.sortable !== false ? 'cursor-pointer' : ''} ${c.right ? 'text-right' : 'text-left'}`}
-                style={{ background: sortKey === c.key ? 'var(--bdr)' : 'var(--th-bg)', color: sortKey === c.key ? 'var(--txt)' : 'var(--txt2)' }}>
-                <span className={`inline-flex items-center gap-1 ${c.right ? 'flex-row-reverse' : ''}`}>
-                  {c.label}
-                  {c.sortable !== false && (
-                    <span className="material-symbols-rounded text-[13px]"
-                      style={{ color: sortKey === c.key ? 'var(--txt)' : 'var(--txt2)' }}>
-                      {sortKey === c.key ? (sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
-                    </span>
-                  )}
-                </span>
-              </th>
-            ))}
+            {cols.map(c => {
+              const isActive = sortKey === c.key
+              return (
+                <th key={c.key}
+                  onClick={() => c.sortable !== false && toggleSort(c.key)}
+                  className={`px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.07em] whitespace-nowrap select-none ${c.sortable !== false ? 'cursor-pointer' : ''} ${c.right ? 'text-right' : 'text-left'}`}
+                  style={{ background: 'var(--th-bg)', color: isActive ? 'var(--txt)' : 'var(--txt2)', fontFamily: "'Inter', ui-sans-serif, sans-serif", transition: 'color .12s' }}>
+                  <span className={`inline-flex items-center gap-1 ${c.right ? 'flex-row-reverse' : ''}`}>
+                    {c.label}
+                    {c.sortable !== false && (
+                      <span style={{ fontSize: 11, color: '#C00000', lineHeight: 1, opacity: isActive ? 1 : 0.3, transition: 'opacity .12s' }}>
+                        {isActive ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                      </span>
+                    )}
+                  </span>
+                </th>
+              )
+            })}
           </tr>
         </thead>
         <tbody>
@@ -235,7 +237,7 @@ export function DataTable<T extends Record<string, any>>({
                 <tr key={row.id ?? i}
                   onMouseEnter={() => setHoveredId(row.id ?? i)}
                   onMouseLeave={() => setHoveredId(null)}
-                  style={{ borderTop: '1px solid var(--bdr)', background: hoveredId === (row.id ?? i) ? 'var(--row-hvr)' : (rowBg?.(row) || undefined) }}>
+                  style={{ borderTop: '1px solid var(--bdr)', background: hoveredId === (row.id ?? i) ? 'var(--row-hvr)' : (rowBg?.(row) || undefined), transition: 'background .1s' }}>
                   {selectable && (
                     <td className="px-5 py-3 w-10">
                       <input type="checkbox"
@@ -548,11 +550,11 @@ export function DateFilter({
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all bg-white"
-        style={{ borderColor: open ? NAVY : 'rgba(15,23,42,0.15)', color: '#334155' }}>
-        <span className="material-symbols-rounded text-[15px] text-slate-400">calendar_month</span>
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all"
+        style={{ background: 'var(--card)', borderColor: open ? NAVY : 'var(--bdr)', color: 'var(--txt)' }}>
+        <span className="material-symbols-rounded text-[15px]" style={{ color: 'var(--txt2)' }}>calendar_month</span>
         {label}
-        <span className="material-symbols-rounded text-[15px] text-slate-400">{open ? 'expand_less' : 'expand_more'}</span>
+        <span className="material-symbols-rounded text-[15px]" style={{ color: 'var(--txt2)' }}>{open ? 'expand_less' : 'expand_more'}</span>
       </button>
       {open && (
         <div className="absolute top-full right-0 mt-1.5 z-[300] card p-4 shadow-xl"
@@ -566,26 +568,26 @@ export function DateFilter({
                   onClick={() => { onChange(f, t); setOpen(false) }}
                   className="w-full text-left px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors"
                   style={{
-                    background: active ? 'rgba(14,40,65,0.08)' : 'transparent',
-                    color: active ? NAVY : '#64748B',
+                    background: active ? 'var(--chip-bg)' : 'transparent',
+                    color: active ? 'var(--txt)' : 'var(--txt2)',
                   }}>
                   {p.label}
                 </button>
               )
             })}
           </div>
-          <div className="border-t pt-3" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Custom range</p>
+          <div className="border-t pt-3" style={{ borderColor: 'var(--bdr)' }}>
+            <p className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--txt2)' }}>Custom range</p>
             <div className="flex items-center gap-2">
               <input type="date" value={from}
                 onChange={e => onChange(e.target.value, to)}
                 className="flex-1 px-2 py-1.5 rounded border text-[12px] outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
-              <span className="text-slate-300 text-sm">–</span>
+                style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
+              <span style={{ color: 'var(--txt2)' }}>–</span>
               <input type="date" value={to}
                 onChange={e => onChange(from, e.target.value)}
                 className="flex-1 px-2 py-1.5 rounded border text-[12px] outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+                style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
             </div>
           </div>
         </div>
@@ -632,8 +634,8 @@ export function Page({
 export function ExportBtn({ onClick, loading }: { onClick: () => void; loading: boolean }) {
   return (
     <button onClick={onClick} disabled={loading}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all bg-white disabled:opacity-60"
-      style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#475569' }}>
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all disabled:opacity-60"
+      style={{ background: 'var(--card)', borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
       {loading
         ? <><div className="w-3.5 h-3.5 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />Exporting…</>
         : <><span className="material-symbols-rounded text-[15px]">download</span>Export CSV</>}
@@ -653,19 +655,20 @@ interface ConfirmModalProps {
 export function ConfirmModal({ title, message, confirmLabel = 'Confirm', danger = false, onConfirm, onCancel }: ConfirmModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+      <div className="rounded-2xl shadow-xl p-6 w-full max-w-sm" style={{ background: 'var(--card)' }}>
         <div className="flex items-start gap-3 mb-4">
           <span className="material-symbols-rounded text-[22px] mt-0.5" style={{ color: danger ? RED : NAVY }}>
             {danger ? 'warning' : 'help'}
           </span>
           <div>
-            <h2 className="text-[15px] font-bold text-slate-800">{title}</h2>
-            <p className="text-[13px] text-slate-500 mt-1">{message}</p>
+            <h2 className="text-[15px] font-bold" style={{ color: 'var(--txt)' }}>{title}</h2>
+            <p className="text-[13px] mt-1" style={{ color: 'var(--txt2)' }}>{message}</p>
           </div>
         </div>
         <div className="flex justify-end gap-2">
           <button
-            className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]"
+            className="px-4 py-2 rounded-lg text-[13px] font-semibold"
+            style={{ color: 'var(--txt)', background: 'var(--chip-bg)' }}
             onClick={onCancel}>
             Cancel
           </button>
@@ -687,9 +690,9 @@ export function EmptyState({ icon = 'inbox', message = 'No data', hint = 'Try ad
 }) {
   return (
     <div className="px-5 py-14 text-center">
-      <span className="material-symbols-rounded text-[36px] text-slate-300 block mb-2">{icon}</span>
-      <p className="text-[13px] text-slate-400">{message}</p>
-      {hint && <p className="text-[12px] text-slate-400 mt-1">{hint}</p>}
+      <span className="material-symbols-rounded text-[36px] block mb-2" style={{ color: 'var(--txt3)' }}>{icon}</span>
+      <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>{message}</p>
+      {hint && <p className="text-[12px] mt-1" style={{ color: 'var(--txt2)' }}>{hint}</p>}
     </div>
   )
 }
@@ -699,13 +702,14 @@ export function Tabs<T extends string>({
   tabs, active, onChange,
 }: { tabs: readonly T[]; active: T; onChange: (t: T) => void }) {
   return (
-    <div className="flex gap-0 border-b" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+    <div className="flex gap-0 border-b" style={{ borderColor: 'var(--bdr)' }}>
       {tabs.map(t => (
         <button key={t} onClick={() => onChange(t)}
-          className="px-4 py-2.5 text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap"
+          className="px-4 py-2.5 text-[13px] font-semibold border-b-2 whitespace-nowrap"
           style={{
-            borderColor: t === active ? NAVY : 'transparent',
-            color: t === active ? NAVY : '#94A3B8',
+            borderColor: t === active ? '#C00000' : 'transparent',
+            color: t === active ? 'var(--txt)' : 'var(--txt2)',
+            transition: 'color .15s, border-color .15s',
           }}>
           {t}
         </button>
@@ -731,7 +735,7 @@ export function Stepper({ steps, current }: { steps: string[]; current: number }
                 : i + 1}
             </div>
             <span className="text-[11px] font-semibold whitespace-nowrap"
-              style={{ color: i === current ? '#0F172A' : '#94A3B8' }}>
+              style={{ color: i === current ? 'var(--txt)' : 'var(--txt2)' }}>
               {label}
             </span>
           </div>
@@ -750,7 +754,7 @@ export function Toggle({ checked, onChange }: { checked: boolean; onChange: () =
   return (
     <button onClick={onChange} role="switch" aria-checked={checked}
       className="relative flex-shrink-0 w-10 h-5 rounded-full transition-colors focus:outline-none"
-      style={{ background: checked ? NAVY : '#CBD5E1' }}>
+      style={{ background: checked ? NAVY : 'var(--bdr)' }}>
       <span className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform"
         style={{ transform: checked ? 'translateX(20px)' : 'none' }} />
     </button>
@@ -776,8 +780,8 @@ export function Avatar({ name, size = 'md', color = NAVY }: {
 export function DetailField({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex justify-between gap-3">
-      <span className="text-[11px] text-slate-400 flex-shrink-0">{label}</span>
-      <span className="text-[12px] text-slate-700 text-right">{value ?? '—'}</span>
+      <span className="text-[11px] flex-shrink-0" style={{ color: 'var(--txt2)' }}>{label}</span>
+      <span className="text-[12px] text-right" style={{ color: 'var(--txt)' }}>{value ?? '—'}</span>
     </div>
   )
 }
@@ -806,34 +810,216 @@ export function SearchInput({ value, onChange, placeholder = 'Search…', classN
   value: string; onChange: (v: string) => void; placeholder?: string; className?: string
 }) {
   return (
-    <div className={`relative ${className}`}>
-      <span className="material-symbols-rounded absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px] text-slate-400 pointer-events-none">
-        search
-      </span>
+    <div className={`flex items-center gap-2 rounded-lg px-3 py-2 ${className}`}
+      style={{ background: 'var(--input-bg)', border: '1.5px solid var(--input-bdr)' }}>
+      <span className="material-symbols-rounded text-[15px] flex-shrink-0 pointer-events-none" style={{ color: 'var(--txt3)' }}>search</span>
       <input
         type="search"
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20"
+        className="bg-transparent text-[13px] focus:outline-none w-full"
+        style={{ color: 'var(--txt)' }}
       />
+      {value && (
+        <button onClick={() => onChange('')} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt3)', padding: 0, display: 'flex' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>
+        </button>
+      )}
     </div>
   )
 }
 
-/* ── Filter bar ──────────────────────────────────────────────────── */
-export function FilterBar({ children }: { children: ReactNode }) {
+/* ── Filter bar (approved DesignDemo spec) ───────────────────────── */
+export interface FilterGroup {
+  key: string
+  label: string
+  options: { value: string; label?: string; count?: number }[]
+}
+
+export function FilterBar({
+  search, onSearch, placeholder = 'Search…',
+  groups = [], active = {}, onToggle, onClear,
+  total, count,
+  children,
+}: {
+  search?: string
+  onSearch?: (v: string) => void
+  placeholder?: string
+  groups?: FilterGroup[]
+  active?: Record<string, Set<string>>
+  onToggle?: (group: string, value: string) => void
+  onClear?: () => void
+  total?: number
+  count?: number
+  children?: ReactNode
+}) {
+  const [panelOpen, setPanelOpen] = useState(false)
+
+  const totalActive = Object.values(active).reduce((s, set) => s + set.size, 0)
+
+  const chips: [string, string, string][] = Object.entries(active).flatMap(([gk, vals]) => {
+    const group = groups.find(g => g.key === gk)
+    return [...vals].map(v => {
+      const opt = group?.options.find(o => o.value === v)
+      return [gk, v, opt?.label ?? v] as [string, string, string]
+    })
+  })
+
+  const hasSearchActive = search && search.trim() !== ''
+  const hasActive = chips.length > 0 || !!hasSearchActive
+
+  const INTER = "'Inter', ui-sans-serif, sans-serif"
+
   return (
-    <div className="card p-4 mb-4">
-      <div className="flex flex-wrap gap-3 items-center">{children}</div>
-    </div>
+    <>
+      {/* ── Controls row ── */}
+      <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', gap: 8 }}>
+
+        {/* Search */}
+        {onSearch !== undefined && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--input-bg)', border: '1.5px solid var(--input-bdr)', borderRadius: 9, padding: '8px 11px', minWidth: 220, maxWidth: 300 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt3)', flexShrink: 0 }}>search</span>
+            <input value={search ?? ''} onChange={e => onSearch(e.target.value)} placeholder={placeholder}
+              style={{ border: 'none', background: 'transparent', fontSize: 12.5, color: 'var(--txt)', outline: 'none', width: '100%' }} />
+            {search && (
+              <button onClick={() => onSearch('')} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt3)', padding: 0, display: 'flex' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Filters toggle */}
+        {groups.length > 0 && (
+          <button onClick={() => setPanelOpen(o => !o)} style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '8px 13px', borderRadius: 9, cursor: 'pointer', fontSize: 12.5, fontWeight: 600,
+            background: panelOpen || totalActive > 0 ? 'rgba(192,0,0,0.06)' : 'var(--input-bg)',
+            border: `1.5px solid ${panelOpen || totalActive > 0 ? '#C00000' : 'var(--input-bdr)'}`,
+            color: panelOpen || totalActive > 0 ? '#C00000' : 'var(--txt2)',
+            transition: 'all .14s',
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>tune</span>
+            Filters
+            {totalActive > 0 && (
+              <span style={{ minWidth: 17, height: 17, borderRadius: 99, background: '#C00000', color: '#fff', fontSize: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontFamily: INTER }}>
+                {totalActive}
+              </span>
+            )}
+          </button>
+        )}
+
+        {/* Right side: count + clear + extra actions */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {total !== undefined && count !== undefined && (
+            <span style={{ fontSize: 11.5, color: 'var(--txt2)', fontFamily: INTER, fontVariantNumeric: 'tabular-nums' }}>
+              {count} of {total}
+            </span>
+          )}
+          {hasActive && onClear && (
+            <button onClick={() => { onClear(); setPanelOpen(false) }} style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1.5px solid var(--input-bdr)', background: 'transparent', borderRadius: 8, padding: '6px 11px', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>filter_alt_off</span>
+              Clear all
+            </button>
+          )}
+          {children}
+        </div>
+      </div>
+
+      {/* ── Expandable filter panel ── */}
+      {panelOpen && groups.length > 0 && (
+        <div style={{ borderBottom: '1px solid var(--bdr)', background: 'var(--fp-bg)', padding: '18px 20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(groups.length, 4)}, 1fr)`, gap: 24 }}>
+            {groups.map(group => {
+              const groupActive = active[group.key] ?? new Set<string>()
+              return (
+                <div key={group.key}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.7, textTransform: 'uppercase', color: 'var(--txt2)', fontFamily: INTER, marginBottom: 10 }}>
+                    {group.label}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {group.options.map(opt => {
+                      const checked = groupActive.has(opt.value)
+                      return (
+                        <label key={opt.value} onClick={() => onToggle?.(group.key, opt.value)} style={{
+                          display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer',
+                          padding: '5px 8px', borderRadius: 7,
+                          background: checked ? 'rgba(192,0,0,0.05)' : 'transparent',
+                          transition: 'background .12s',
+                        }}>
+                          <div style={{
+                            width: 16, height: 16, borderRadius: 4, flexShrink: 0,
+                            border: `1.5px solid ${checked ? '#C00000' : 'var(--input-bdr)'}`,
+                            background: checked ? '#C00000' : 'transparent',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            transition: 'all .12s',
+                          }}>
+                            {checked && <span className="material-symbols-rounded" style={{ fontSize: 12, color: '#fff', lineHeight: 1 }}>check</span>}
+                          </div>
+                          <span style={{ flex: 1, fontSize: 13, fontWeight: checked ? 600 : 400, color: checked ? '#C00000' : 'var(--txt)' }}>
+                            {opt.label ?? opt.value}
+                          </span>
+                          {opt.count !== undefined && (
+                            <span style={{ fontSize: 11, color: 'var(--txt2)', fontFamily: INTER, fontVariantNumeric: 'tabular-nums' }}>{opt.count}</span>
+                          )}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Panel footer: active chips + reset/apply */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--bdr)' }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {chips.length > 0 ? chips.map(([gk, val, lbl], i) => (
+                <div key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--chip-bg)', color: 'var(--chip-txt)', padding: '4px 10px', borderRadius: 99, fontSize: 11.5, fontWeight: 600, fontFamily: INTER }}>
+                  {lbl}
+                  <button onClick={e => { e.stopPropagation(); onToggle?.(gk, val) }} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'inherit', padding: 0, display: 'flex', lineHeight: 1 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: 13 }}>close</span>
+                  </button>
+                </div>
+              )) : (
+                <span style={{ fontSize: 12, color: 'var(--txt2)' }}>No filters applied</span>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+              {onClear && (
+                <button onClick={onClear} style={{ padding: '7px 14px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+                  Reset
+                </button>
+              )}
+              <button onClick={() => setPanelOpen(false)} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#0E2841', color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+                {count !== undefined ? `Apply · ${count}` : 'Apply'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Active chips row (panel closed, filters still active) ── */}
+      {!panelOpen && chips.length > 0 && (
+        <div style={{ padding: '8px 18px 0', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {chips.map(([gk, val, lbl], i) => (
+            <div key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--chip-bg)', color: 'var(--chip-txt)', padding: '4px 10px', borderRadius: 99, fontSize: 11.5, fontWeight: 600, fontFamily: INTER }}>
+              {lbl}
+              <button onClick={() => onToggle?.(gk, val)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'inherit', padding: 0, display: 'flex', lineHeight: 1 }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 13 }}>close</span>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   )
 }
 
 /* ── Section label ───────────────────────────────────────────────── */
 export function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-3">
+    <p className="text-[11px] font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--txt2)' }}>
       {children}
     </p>
   )
@@ -844,15 +1030,17 @@ export function Pagination({ page, hasMore, onPrev, onNext }: {
   page: number; hasMore: boolean; onPrev: () => void; onNext: () => void
 }) {
   return (
-    <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100">
-      <span className="text-[12px] text-slate-400">Page {page + 1}</span>
+    <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: '1px solid var(--bdr)' }}>
+      <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>Page {page + 1}</span>
       <div className="flex gap-2">
         <button disabled={page === 0} onClick={onPrev}
-          className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40">
+          className="px-3 py-1.5 rounded-lg text-[12px] font-semibold disabled:opacity-40"
+          style={{ color: 'var(--txt)', background: 'var(--chip-bg)' }}>
           Previous
         </button>
         <button disabled={!hasMore} onClick={onNext}
-          className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08] disabled:opacity-40">
+          className="px-3 py-1.5 rounded-lg text-[12px] font-semibold disabled:opacity-40"
+          style={{ color: 'var(--txt)', background: 'var(--chip-bg)' }}>
           Next
         </button>
       </div>

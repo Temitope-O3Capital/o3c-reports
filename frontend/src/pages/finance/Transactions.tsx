@@ -46,7 +46,7 @@ export default function Transactions() {
     {
       key: '#', label: '#', sortable: false,
       render: (_: any, i?: number) => (
-        <span className="text-slate-400 text-xs tabular-nums">{(i ?? 0) + 1}</span>
+        <span className="text-[color:var(--txt2)] text-xs tabular-nums">{(i ?? 0) + 1}</span>
       ),
     },
     { key: 'Merchant_Name', label: 'Merchant' },

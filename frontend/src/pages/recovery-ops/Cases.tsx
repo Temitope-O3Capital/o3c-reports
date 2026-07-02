@@ -256,7 +256,7 @@ export default function Cases() {
 
   const cols: ColDef<RecoveryCase>[] = [
     { key: 'case_ref',   label: 'Case Ref', render: r => <span className="font-mono text-[12px]">{r.case_ref}</span> },
-    { key: 'account_cif', label: 'CIF',    render: r => <span className="font-mono text-[12px] text-slate-500">{r.account_cif}</span> },
+    { key: 'account_cif', label: 'CIF',    render: r => <span className="font-mono text-[12px]" style={{ color: 'var(--txt2)' }}>{r.account_cif}</span> },
     { key: 'agent_name', label: 'Agent' },
     { key: 'legal_stage', label: 'Legal Stage', render: r => <StatusBadge status={r.legal_stage} /> },
     { key: 'outstanding_kobo', label: 'Outstanding', right: true, render: r => <span className="font-mono font-semibold">{fmt(r.outstanding_kobo / 100)}</span> },
@@ -267,7 +267,7 @@ export default function Cases() {
       key: '_expand', label: '', sortable: false,
       render: r => (
         <button onClick={e => { e.stopPropagation(); expandCase(r.id) }}
-          className="text-slate-400 hover:text-slate-700">
+          style={{ color: 'var(--txt2)' }}>
           <span className="material-symbols-rounded text-[18px]">
             {expanded === r.id ? 'expand_less' : 'expand_more'}
           </span>
@@ -294,18 +294,21 @@ export default function Cases() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-4 mb-4">
+      <div className="rounded-2xl border border-black/[0.06] shadow-sm p-4 mb-4" style={{ background: 'var(--card)' }}>
         <div className="flex flex-wrap gap-3">
           <input
-            className="w-full max-w-xs px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+            className="w-full max-w-xs px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
             placeholder="Search by CIF or case ref…"
             value={search} onChange={e => { setSearch(e.target.value); setPage(0) }} />
-          <select className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+          <select className="px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
             value={statusF} onChange={e => { setStatusF(e.target.value); setPage(0) }}>
             <option value="">All Statuses</option>
             {['open', 'closed', 'written_off', 'settled'].map(s => <option key={s} value={s}>{snake(s)}</option>)}
           </select>
-          <select className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+          <select className="px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
             value={legalF} onChange={e => { setLegalF(e.target.value); setPage(0) }}>
             <option value="">All Legal Stages</option>
             {LEGAL_STAGES.filter(Boolean).map(s => <option key={s} value={s}>{snake(s)}</option>)}
@@ -318,18 +321,18 @@ export default function Cases() {
 
         {/* Expandable drawer */}
         {expanded && (
-          <div className="border-t border-slate-200 bg-slate-50">
+          <div style={{ borderTop: '1px solid var(--bdr)', background: 'var(--bg)' }}>
             <div className="px-5 py-4">
               {detailL && <div className="flex items-center justify-center py-10"><Spinner size={28} /></div>}
               {!detailL && detail && (
                 <>
                   {/* Case summary bar */}
                   <div className="flex flex-wrap gap-4 mb-4 text-[13px]">
-                    <span><span className="text-slate-400">Case: </span><strong>{detail.case.case_ref}</strong></span>
-                    <span><span className="text-slate-400">CIF: </span><span className="font-mono">{detail.case.account_cif}</span></span>
-                    <span><span className="text-slate-400">Agent: </span>{detail.case.agent_name}</span>
-                    <span><span className="text-slate-400">Outstanding: </span><span className="font-semibold font-mono" style={{ color: RED }}>{fmt(detail.case.outstanding_kobo / 100)}</span></span>
-                    <span><span className="text-slate-400">Recovered: </span><span className="font-semibold font-mono" style={{ color: GREEN }}>{fmt(detail.case.recovered_kobo / 100)}</span></span>
+                    <span><span style={{ color: 'var(--txt2)' }}>Case: </span><strong>{detail.case.case_ref}</strong></span>
+                    <span><span style={{ color: 'var(--txt2)' }}>CIF: </span><span className="font-mono">{detail.case.account_cif}</span></span>
+                    <span><span style={{ color: 'var(--txt2)' }}>Agent: </span>{detail.case.agent_name}</span>
+                    <span><span style={{ color: 'var(--txt2)' }}>Outstanding: </span><span className="font-semibold font-mono" style={{ color: RED }}>{fmt(detail.case.outstanding_kobo / 100)}</span></span>
+                    <span><span style={{ color: 'var(--txt2)' }}>Recovered: </span><span className="font-semibold font-mono" style={{ color: GREEN }}>{fmt(detail.case.recovered_kobo / 100)}</span></span>
                   </div>
 
                   {/* Tabs */}
@@ -340,7 +343,7 @@ export default function Cases() {
                         className="px-3 py-1.5 rounded-lg text-[12px] font-semibold capitalize transition-colors"
                         style={{
                           background: tab === t ? NAVY : 'rgba(14,40,65,0.06)',
-                          color: tab === t ? '#fff' : '#475569',
+                          color: tab === t ? '#fff' : 'var(--txt2)',
                         }}>
                         {t}
                       </button>
@@ -351,40 +354,44 @@ export default function Cases() {
                   {tab === 'payments' && (
                     <div>
                       {detail.payments.length === 0
-                        ? <p className="text-[13px] text-slate-400 mb-4">No payments recorded</p>
+                        ? <p className="text-[13px] mb-4" style={{ color: 'var(--txt2)' }}>No payments recorded</p>
                         : (
                           <div className="space-y-2 mb-4">
                             {detail.payments.map((p: any, i: number) => (
-                              <div key={i} className="flex items-center justify-between bg-white rounded-lg px-4 py-2 border border-slate-100">
-                                <span className="text-[13px] text-slate-700">{fmtDate(p.payment_date)} · {p.payment_method} · {p.receipt_ref || '—'}</span>
+                              <div key={i} className="flex items-center justify-between rounded-lg px-4 py-2" style={{ background: 'var(--card)', border: '1px solid var(--bdr)' }}>
+                                <span className="text-[13px]" style={{ color: 'var(--txt)' }}>{fmtDate(p.payment_date)} · {p.payment_method} · {p.receipt_ref || '—'}</span>
                                 <span className="font-mono font-semibold text-[13px]" style={{ color: GREEN }}>{fmt(p.amount_kobo / 100)}</span>
                               </div>
                             ))}
                           </div>
                         )}
-                      <p className="text-[12px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Add Payment</p>
+                      <p className="text-[12px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--txt2)' }}>Add Payment</p>
                       <ErrBanner msg={payErr} />
                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                         <div>
-                          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Amount (₦)</label>
-                          <input type="number" min="0" step="0.01" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                          <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Amount (₦)</label>
+                          <input type="number" min="0" step="0.01" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                             value={payAmt} onChange={e => setPayAmt(e.target.value)} />
                         </div>
                         <div>
-                          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Date</label>
-                          <input type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                          <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Date</label>
+                          <input type="date" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                             value={payDate} onChange={e => setPayDate(e.target.value)} />
                         </div>
                         <div>
-                          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Method</label>
-                          <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                          <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Method</label>
+                          <select className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                             value={payMethod} onChange={e => setPayMethod(e.target.value)}>
                             {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
                           </select>
                         </div>
                         <div>
-                          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Receipt Ref</label>
-                          <input type="text" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                          <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Receipt Ref</label>
+                          <input type="text" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                             value={payRef} onChange={e => setPayRef(e.target.value)} />
                         </div>
                       </div>
@@ -402,54 +409,60 @@ export default function Cases() {
                   {tab === 'legal' && (
                     <div>
                       {detail.legal_proceedings.length === 0
-                        ? <p className="text-[13px] text-slate-400 mb-4">No legal proceedings recorded</p>
+                        ? <p className="text-[13px] mb-4" style={{ color: 'var(--txt2)' }}>No legal proceedings recorded</p>
                         : (
                           <div className="space-y-2 mb-4">
                             {detail.legal_proceedings.map((p: any, i: number) => (
-                              <div key={i} className="bg-white rounded-lg px-4 py-2.5 border border-slate-100">
+                              <div key={i} className="rounded-lg px-4 py-2.5" style={{ background: 'var(--card)', border: '1px solid var(--bdr)' }}>
                                 <div className="flex items-center justify-between">
-                                  <span className="text-[13px] font-semibold text-slate-700">{snake(p.proceeding_type)}</span>
+                                  <span className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>{snake(p.proceeding_type)}</span>
                                   <StatusBadge status={p.status ?? 'pending'} />
                                 </div>
-                                <p className="text-[12px] text-slate-500 mt-0.5">{p.court_name} · #{p.case_number} · Filed {fmtDate(p.filing_date)}</p>
-                                {p.next_hearing_date && <p className="text-[11px] text-slate-400 mt-0.5">Next hearing: {fmtDate(p.next_hearing_date)}</p>}
+                                <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>{p.court_name} · #{p.case_number} · Filed {fmtDate(p.filing_date)}</p>
+                                {p.next_hearing_date && <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>Next hearing: {fmtDate(p.next_hearing_date)}</p>}
                               </div>
                             ))}
                           </div>
                         )}
-                      <p className="text-[12px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Add Proceeding</p>
+                      <p className="text-[12px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--txt2)' }}>Add Proceeding</p>
                       <ErrBanner msg={legalErr} />
                       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                         <div>
-                          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Type</label>
-                          <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                          <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Type</label>
+                          <select className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                             value={legalType} onChange={e => setLegalType(e.target.value)}>
                             {PROCEEDING_TYPES.map(t => <option key={t} value={t}>{snake(t)}</option>)}
                           </select>
                         </div>
                         <div>
-                          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Court Name</label>
-                          <input type="text" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                          <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Court Name</label>
+                          <input type="text" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                             value={court} onChange={e => setCourt(e.target.value)} />
                         </div>
                         <div>
-                          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Case Number</label>
-                          <input type="text" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                          <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Case Number</label>
+                          <input type="text" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                             value={caseNum} onChange={e => setCaseNum(e.target.value)} />
                         </div>
                         <div>
-                          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Filing Date</label>
-                          <input type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                          <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Filing Date</label>
+                          <input type="date" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                             value={filingDate} onChange={e => setFilingDate(e.target.value)} />
                         </div>
                         <div>
-                          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Next Hearing Date</label>
-                          <input type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                          <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Next Hearing Date</label>
+                          <input type="date" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                             value={hearingDate} onChange={e => setHearingDate(e.target.value)} />
                         </div>
                         <div>
-                          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Notes</label>
-                          <input type="text" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                          <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Notes</label>
+                          <input type="text" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                             value={legalNotes} onChange={e => setLegalNotes(e.target.value)} />
                         </div>
                       </div>
@@ -467,44 +480,48 @@ export default function Cases() {
                   {tab === 'visits' && (
                     <div>
                       {detail.field_visits.length === 0
-                        ? <p className="text-[13px] text-slate-400 mb-4">No visits recorded</p>
+                        ? <p className="text-[13px] mb-4" style={{ color: 'var(--txt2)' }}>No visits recorded</p>
                         : (
                           <div className="space-y-2 mb-4">
                             {detail.field_visits.map((v: any, i: number) => (
-                              <div key={i} className="bg-white rounded-lg px-4 py-2.5 border border-slate-100">
+                              <div key={i} className="rounded-lg px-4 py-2.5" style={{ background: 'var(--card)', border: '1px solid var(--bdr)' }}>
                                 <div className="flex items-center justify-between">
-                                  <span className="text-[13px] font-semibold text-slate-700">{snake(v.visit_type)}</span>
-                                  <span className="text-[12px] text-slate-400">{fmtDate(v.visit_date)}</span>
+                                  <span className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>{snake(v.visit_type)}</span>
+                                  <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{fmtDate(v.visit_date)}</span>
                                 </div>
-                                <p className="text-[12px] text-slate-500 mt-0.5">Outcome: {snake(v.outcome) || '—'}</p>
-                                {v.notes && <p className="text-[11px] text-slate-400 mt-0.5">{v.notes}</p>}
+                                <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>Outcome: {snake(v.outcome) || '—'}</p>
+                                {v.notes && <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{v.notes}</p>}
                               </div>
                             ))}
                           </div>
                         )}
-                      <p className="text-[12px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Log Visit</p>
+                      <p className="text-[12px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--txt2)' }}>Log Visit</p>
                       <ErrBanner msg={visitErr} />
                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                         <div>
-                          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Visit Date</label>
-                          <input type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                          <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Visit Date</label>
+                          <input type="date" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                             value={visitDate} onChange={e => setVisitDate(e.target.value)} />
                         </div>
                         <div>
-                          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Visit Type</label>
-                          <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                          <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Visit Type</label>
+                          <select className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                             value={visitType} onChange={e => setVisitType(e.target.value)}>
                             {VISIT_TYPES.map(t => <option key={t} value={t}>{snake(t)}</option>)}
                           </select>
                         </div>
                         <div>
-                          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Outcome</label>
-                          <input type="text" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                          <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Outcome</label>
+                          <input type="text" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                             value={visitOutcome} onChange={e => setVisitOutcome(e.target.value)} />
                         </div>
                         <div>
-                          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Notes</label>
-                          <input type="text" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                          <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Notes</label>
+                          <input type="text" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                            style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                             value={visitNotes} onChange={e => setVisitNotes(e.target.value)} />
                         </div>
                       </div>
@@ -519,12 +536,12 @@ export default function Cases() {
                   )}
 
                   {/* Write-off section */}
-                  <div className="mt-5 pt-5 border-t border-slate-200">
-                    <p className="text-[12px] font-semibold text-slate-500 uppercase tracking-wider mb-3">Write-off</p>
+                  <div className="mt-5 pt-5" style={{ borderTop: '1px solid var(--bdr)' }}>
+                    <p className="text-[12px] font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--txt2)' }}>Write-off</p>
                     {detail.write_off ? (
-                      <div className="bg-white rounded-xl border border-slate-200 p-4">
+                      <div className="rounded-xl p-4" style={{ background: 'var(--card)', border: '1px solid var(--bdr)' }}>
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-[13px] font-semibold text-slate-800">
+                          <span className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>
                             {fmt(detail.write_off.amount_kobo / 100)} — {detail.write_off.reason}
                           </span>
                           <StatusBadge status={detail.write_off.status ?? 'pending'} />
@@ -533,7 +550,8 @@ export default function Cases() {
                           <>
                             <ErrBanner msg={woActErr} />
                             <div className="flex items-center gap-2 mt-2">
-                              <input type="text" className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-[12px] focus:outline-none"
+                              <input type="text" className="flex-1 px-3 py-1.5 rounded-lg border text-[12px] focus:outline-none"
+                                style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                                 placeholder="Approval notes (optional)"
                                 value={woApproveNotes} onChange={e => setWoApproveNotes(e.target.value)} />
                               <button
@@ -559,13 +577,15 @@ export default function Cases() {
                         <ErrBanner msg={woErr} />
                         <div className="flex items-end gap-3">
                           <div>
-                            <label className="block text-[11px] font-semibold text-slate-400 mb-1">Amount (₦)</label>
-                            <input type="number" min="0" step="0.01" className="px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none w-40"
+                            <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Amount (₦)</label>
+                            <input type="number" min="0" step="0.01" className="px-3 py-2 rounded-lg border text-[13px] focus:outline-none w-40"
+                              style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                               value={woAmt} onChange={e => setWoAmt(e.target.value)} />
                           </div>
                           <div className="flex-1">
-                            <label className="block text-[11px] font-semibold text-slate-400 mb-1">Reason</label>
-                            <input type="text" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                            <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Reason</label>
+                            <input type="text" className="w-full px-3 py-2 rounded-lg border text-[13px] focus:outline-none"
+                              style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                               value={woReason} onChange={e => setWoReason(e.target.value)} />
                           </div>
                           <button
@@ -585,11 +605,11 @@ export default function Cases() {
           </div>
         )}
 
-        <div className="flex justify-between items-center px-5 py-3 border-t border-slate-100">
-          <span className="text-[12px] text-slate-400">Page {page + 1}</span>
+        <div className="flex justify-between items-center px-5 py-3" style={{ borderTop: '1px solid var(--bdr)' }}>
+          <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>Page {page + 1}</span>
           <div className="flex gap-2">
-            <button disabled={page === 0} onClick={() => setPage(p => p - 1)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] disabled:opacity-40">Prev</button>
-            <button disabled={cases.length < limit} onClick={() => setPage(p => p + 1)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-black/[0.05] disabled:opacity-40">Next</button>
+            <button disabled={page === 0} onClick={() => setPage(p => p - 1)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-black/[0.05] disabled:opacity-40" style={{ color: 'var(--txt)' }}>Prev</button>
+            <button disabled={cases.length < limit} onClick={() => setPage(p => p + 1)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-black/[0.05] disabled:opacity-40" style={{ color: 'var(--txt)' }}>Next</button>
           </div>
         </div>
       </SectionCard>

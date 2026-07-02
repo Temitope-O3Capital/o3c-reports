@@ -112,14 +112,14 @@ export default function Disciplinary() {
   const closedCount = rows.filter(r => r.status === 'closed').length
 
   const cols: ColDef<DisciplinaryRow>[] = [
-    { key: 'case_ref',      label: 'Case Ref',  render: r => <span className="font-mono text-[12px] text-slate-500">{r.case_ref}</span> },
-    { key: 'name',          label: 'Employee',  render: r => <span className="font-semibold text-slate-800">{r.first_name} {r.last_name}</span> },
+    { key: 'case_ref',      label: 'Case Ref',  render: r => <span className="font-mono text-[12px]" style={{ color: 'var(--txt2)' }}>{r.case_ref}</span> },
+    { key: 'name',          label: 'Employee',  render: r => <span className="font-semibold" style={{ color: 'var(--txt)' }}>{r.first_name} {r.last_name}</span> },
     { key: 'incident_type', label: 'Incident' },
     {
       key: 'severity', label: 'Severity',
       render: r => (
         <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded whitespace-nowrap"
-          style={{ background: `${SEV_COLOR[r.severity] ?? '#64748B'}15`, color: SEV_COLOR[r.severity] ?? '#64748B' }}>
+          style={{ background: `${SEV_COLOR[r.severity] ?? '#64748B'}15`, color: SEV_COLOR[r.severity] ?? 'var(--txt2)' }}>
           {snake(r.severity)}
         </span>
       ),
@@ -132,11 +132,11 @@ export default function Disciplinary() {
       render: r => (
         <div className="flex gap-1.5">
           <button onClick={() => openDetail(r)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+            className="p-1.5 rounded-lg" style={{ color: 'var(--txt2)' }}>
             <span className="material-symbols-rounded text-[16px]">visibility</span>
           </button>
           <button onClick={() => { setUpdateTarget(r); setUpdateForm({ status: r.status, sanction: r.sanction ?? '', notes: '' }) }}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+            className="p-1.5 rounded-lg" style={{ color: 'var(--txt2)' }}>
             <span className="material-symbols-rounded text-[16px]">edit</span>
           </button>
         </div>
@@ -168,12 +168,12 @@ export default function Disciplinary() {
         title="Case Register"
         actions={
           <div className="flex gap-2">
-            <select className="px-3 py-1.5 rounded-lg border border-slate-200 text-[12px] focus:outline-none"
+            <select className="px-3 py-1.5 rounded-lg text-[12px] focus:outline-none" style={{ border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               value={statusF} onChange={e => setStatusF(e.target.value)}>
               <option value="">All Statuses</option>
               {STATUSES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
             </select>
-            <select className="px-3 py-1.5 rounded-lg border border-slate-200 text-[12px] focus:outline-none"
+            <select className="px-3 py-1.5 rounded-lg text-[12px] focus:outline-none" style={{ border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
               value={severityF} onChange={e => setSeverityF(e.target.value)}>
               <option value="">All Severities</option>
               {SEVERITIES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
@@ -187,10 +187,10 @@ export default function Disciplinary() {
       {/* Case detail drawer */}
       {(detail || detailLoading) && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
-          <div className="w-full max-w-md bg-white h-full overflow-y-auto shadow-2xl flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-              <h2 className="text-[15px] font-bold text-slate-800">Case Detail</h2>
-              <button onClick={() => setDetail(null)} className="text-slate-400 hover:text-slate-700">
+          <div className="w-full max-w-md h-full overflow-y-auto shadow-2xl flex flex-col" style={{ background: 'var(--card)' }}>
+            <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--bdr)' }}>
+              <h2 className="text-[15px] font-bold" style={{ color: 'var(--txt)' }}>Case Detail</h2>
+              <button onClick={() => setDetail(null)} style={{ color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
             </div>
@@ -210,25 +210,25 @@ export default function Disciplinary() {
                     ['Resolved',    detail.case.resolved_at ? fmtDate(detail.case.resolved_at) : '—'],
                   ].map(([k, v]) => (
                     <div key={k} className="flex justify-between">
-                      <span className="text-[11px] text-slate-400">{k}</span>
-                      <span className="text-[12px] text-slate-700 text-right max-w-[60%]">{v}</span>
+                      <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{k}</span>
+                      <span className="text-[12px] text-right max-w-[60%]" style={{ color: 'var(--txt)' }}>{v}</span>
                     </div>
                   ))}
                 </div>
                 <div>
-                  <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Description</p>
-                  <p className="text-[13px] text-slate-700">{detail.case.description}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--txt2)' }}>Description</p>
+                  <p className="text-[13px]" style={{ color: 'var(--txt)' }}>{detail.case.description}</p>
                 </div>
                 {detail.events.length > 0 && (
                   <div>
-                    <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Timeline</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--txt2)' }}>Timeline</p>
                     <div className="space-y-3">
                       {detail.events.map((ev, i) => (
                         <div key={i} className="flex gap-3">
                           <div className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style={{ background: NAVY }} />
                           <div>
-                            <p className="text-[12px] text-slate-600">{ev.notes ?? ev.event ?? JSON.stringify(ev)}</p>
-                            <p className="text-[11px] text-slate-400 mt-0.5">{fmtDate(ev.created_at)}</p>
+                            <p className="text-[12px]" style={{ color: 'var(--txt)' }}>{ev.notes ?? ev.event ?? JSON.stringify(ev)}</p>
+                            <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{fmtDate(ev.created_at)}</p>
                           </div>
                         </div>
                       ))}
@@ -244,36 +244,36 @@ export default function Disciplinary() {
       {/* Update status modal */}
       {updateTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setUpdateTarget(null)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="disc-update-title" className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-labelledby="disc-update-title" className="rounded-2xl shadow-xl p-6 w-full max-w-md" style={{ background: 'var(--card)' }} onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 id="disc-update-title" className="text-[16px] font-bold text-slate-800">Update Case Status</h2>
-              <button onClick={() => setUpdateTarget(null)} className="text-slate-400 hover:text-slate-700">
+              <h2 id="disc-update-title" className="text-[16px] font-bold" style={{ color: 'var(--txt)' }}>Update Case Status</h2>
+              <button onClick={() => setUpdateTarget(null)} style={{ color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
             </div>
-            <p className="text-[12px] text-slate-500 mb-4">{updateTarget.case_ref} — {updateTarget.first_name} {updateTarget.last_name}</p>
+            <p className="text-[12px] mb-4" style={{ color: 'var(--txt2)' }}>{updateTarget.case_ref} — {updateTarget.first_name} {updateTarget.last_name}</p>
             <ErrBanner msg={updateErr} />
             <div className="space-y-3">
               <div>
-                <label htmlFor="disc-status" className="block text-[12px] font-semibold text-slate-500 mb-1">Status</label>
-                <select id="disc-status" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="disc-status" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Status</label>
+                <select id="disc-status" className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={updateForm.status} onChange={e => setUpdateForm(f => ({ ...f, status: e.target.value }))}>
                   {STATUSES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
                 </select>
               </div>
               <div>
-                <label htmlFor="disc-sanction" className="block text-[12px] font-semibold text-slate-500 mb-1">Sanction</label>
-                <input id="disc-sanction" type="text" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="disc-sanction" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Sanction</label>
+                <input id="disc-sanction" type="text" className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={updateForm.sanction} onChange={e => setUpdateForm(f => ({ ...f, sanction: e.target.value }))} />
               </div>
               <div>
-                <label htmlFor="disc-notes" className="block text-[12px] font-semibold text-slate-500 mb-1">Notes</label>
-                <textarea id="disc-notes" rows={3} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="disc-notes" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Notes</label>
+                <textarea id="disc-notes" rows={3} className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={updateForm.notes} onChange={e => setUpdateForm(f => ({ ...f, notes: e.target.value }))} />
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-5">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setUpdateTarget(null)}>Cancel</button>
+              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setUpdateTarget(null)}>Cancel</button>
               <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60" style={{ background: NAVY }}
                 disabled={updating} onClick={submitUpdate}>
                 {updating ? 'Saving…' : 'Save Changes'}
@@ -286,52 +286,52 @@ export default function Disciplinary() {
       {/* New case modal */}
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowAdd(false)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="disc-add-title" className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-labelledby="disc-add-title" className="rounded-2xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto" style={{ background: 'var(--card)' }} onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
-              <h2 id="disc-add-title" className="text-[16px] font-bold text-slate-800">Open Disciplinary Case</h2>
-              <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-slate-700">
+              <h2 id="disc-add-title" className="text-[16px] font-bold" style={{ color: 'var(--txt)' }}>Open Disciplinary Case</h2>
+              <button onClick={() => setShowAdd(false)} style={{ color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded text-[20px]">close</span>
               </button>
             </div>
             <ErrBanner msg={addErr} />
             <div className="space-y-3">
               <div>
-                <label htmlFor="disc-emp-id" className="block text-[12px] font-semibold text-slate-500 mb-1">Employee ID *</label>
+                <label htmlFor="disc-emp-id" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Employee ID *</label>
                 <input id="disc-emp-id" type="text" placeholder="UUID"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                  className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={addForm.employee_id} onChange={e => setAddForm(f => ({ ...f, employee_id: e.target.value }))} />
               </div>
               <div>
-                <label htmlFor="disc-incident-type" className="block text-[12px] font-semibold text-slate-500 mb-1">Incident Type *</label>
+                <label htmlFor="disc-incident-type" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Incident Type *</label>
                 <input id="disc-incident-type" type="text" placeholder="e.g. Tardiness, Misconduct"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                  className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={addForm.incident_type} onChange={e => setAddForm(f => ({ ...f, incident_type: e.target.value }))} />
               </div>
               <div>
-                <label htmlFor="disc-severity" className="block text-[12px] font-semibold text-slate-500 mb-1">Severity *</label>
-                <select id="disc-severity" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="disc-severity" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Severity *</label>
+                <select id="disc-severity" className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={addForm.severity} onChange={e => setAddForm(f => ({ ...f, severity: e.target.value }))}>
                   {SEVERITIES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
                 </select>
               </div>
               <div>
-                <label htmlFor="disc-incident-date" className="block text-[12px] font-semibold text-slate-500 mb-1">Incident Date *</label>
-                <input id="disc-incident-date" type="date" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="disc-incident-date" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Incident Date *</label>
+                <input id="disc-incident-date" type="date" className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={addForm.incident_date} onChange={e => setAddForm(f => ({ ...f, incident_date: e.target.value }))} />
               </div>
               <div>
-                <label htmlFor="disc-description" className="block text-[12px] font-semibold text-slate-500 mb-1">Description *</label>
-                <textarea id="disc-description" rows={4} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="disc-description" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Description *</label>
+                <textarea id="disc-description" rows={4} className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={addForm.description} onChange={e => setAddForm(f => ({ ...f, description: e.target.value }))} />
               </div>
               <div>
-                <label htmlFor="disc-evidence" className="block text-[12px] font-semibold text-slate-500 mb-1">Evidence URLs (one per line)</label>
-                <textarea id="disc-evidence" rows={2} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[13px] focus:outline-none"
+                <label htmlFor="disc-evidence" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Evidence URLs (one per line)</label>
+                <textarea id="disc-evidence" rows={2} className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
                   value={addForm.evidence_urls} onChange={e => setAddForm(f => ({ ...f, evidence_urls: e.target.value }))} />
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-5">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setShowAdd(false)}>Cancel</button>
+              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setShowAdd(false)}>Cancel</button>
               <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60" style={{ background: NAVY }}
                 disabled={adding || !addForm.employee_id || !addForm.incident_type || !addForm.incident_date || !addForm.description}
                 onClick={submitAdd}>

@@ -78,7 +78,7 @@ export default function CardManagement() {
     { key: 'product',         label: 'Product' },
     { key: 'card_type',       label: 'Type',      render: r => (
         <span className="text-[12px] font-medium px-2 py-0.5 rounded"
-          style={{ background: 'rgba(14,40,65,0.06)', color: '#475569' }}>
+          style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>
           {r.card_type || '—'}
         </span>
       )},
@@ -110,14 +110,14 @@ export default function CardManagement() {
         actions={
           <div className="flex items-center gap-2">
             <div className="relative">
-              <span className="material-symbols-rounded absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px] text-slate-400">search</span>
+              <span className="material-symbols-rounded absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px]" style={{ color: 'var(--txt2)' }}>search</span>
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
                 className="pl-8 pr-3 py-1.5 rounded-lg border text-[12px] outline-none w-44"
-                style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
+                style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
             </div>
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
               className="px-2.5 py-1.5 rounded-lg border text-[12px] outline-none"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }}>
+              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}>
               {statusOptions.map(s => (
                 <option key={s} value={s}>{s === 'all' ? 'All Statuses' : s.charAt(0).toUpperCase() + s.slice(1)}</option>
               ))}

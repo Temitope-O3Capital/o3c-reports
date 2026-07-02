@@ -91,11 +91,11 @@ function MetricCard({
       className="card px-4 py-4 flex flex-col gap-1"
       style={{ borderLeft: `3px solid ${border}` }}
     >
-      <p className="text-[10.5px] font-semibold uppercase tracking-[0.07em] text-slate-400">{label}</p>
-      <p className="text-[24px] font-bold text-slate-900 leading-none kpi-number">
+      <p className="text-[10.5px] font-semibold uppercase tracking-[0.07em]" style={{ color: 'var(--txt2)' }}>{label}</p>
+      <p className="text-[24px] font-bold leading-none kpi-number" style={{ color: 'var(--txt)' }}>
         {value.toLocaleString()}
       </p>
-      <p className="text-[11px] text-slate-400 font-medium">{pct.toFixed(1)}%</p>
+      <p className="text-[11px] font-medium" style={{ color: 'var(--txt2)' }}>{pct.toFixed(1)}%</p>
       <div className="mt-1 h-1.5 rounded-full" style={{ background: barBg }}>
         <div
           className="h-full rounded-full transition-all"
@@ -111,13 +111,13 @@ function MetricCard({
 function FunnelBar({ label, value, pct, color }: { label: string; value: number; pct: number; color: string }) {
   return (
     <div className="flex items-center gap-3 mb-3">
-      <div className="w-24 text-[12px] text-slate-500 shrink-0">{label}</div>
-      <div className="flex-1 bg-slate-100 rounded-full h-3">
+      <div className="w-24 text-[12px] shrink-0" style={{ color: 'var(--txt2)' }}>{label}</div>
+      <div className="flex-1 rounded-full h-3" style={{ background: 'var(--chip-bg)' }}>
         <div className="h-3 rounded-full transition-all" style={{ width: `${Math.min(pct, 100)}%`, background: color }} />
       </div>
-      <div className="w-24 text-right text-[12px] font-semibold shrink-0">
+      <div className="w-24 text-right text-[12px] font-semibold shrink-0" style={{ color: 'var(--txt)' }}>
         {value.toLocaleString()}{' '}
-        <span className="text-slate-400">{pct.toFixed(1)}%</span>
+        <span style={{ color: 'var(--txt2)' }}>{pct.toFixed(1)}%</span>
       </div>
     </div>
   )
@@ -131,13 +131,13 @@ const EVENT_STYLES: Record<string, { bg: string; color: string }> = {
   clicked:   { bg: 'rgba(245,158,11,0.12)',  color: AMBER },
   bounced:   { bg: 'rgba(220,38,38,0.08)',   color: RED   },
   spam:      { bg: 'rgba(220,38,38,0.08)',   color: RED   },
-  sent:      { bg: 'rgba(14,40,65,0.06)',    color: '#475569' },
-  pending:   { bg: 'rgba(14,40,65,0.06)',    color: '#64748B' },
+  sent:      { bg: 'rgba(14,40,65,0.06)',    color: 'var(--txt2)' },
+  pending:   { bg: 'rgba(14,40,65,0.06)',    color: 'var(--txt2)' },
 }
 
 function EventBadge({ status }: { status: string | null | undefined }) {
   const key = (status || 'pending').toLowerCase()
-  const s = EVENT_STYLES[key] ?? { bg: 'rgba(14,40,65,0.06)', color: '#475569' }
+  const s = EVENT_STYLES[key] ?? { bg: 'rgba(14,40,65,0.06)', color: 'var(--txt2)' }
   return (
     <span
       className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full whitespace-nowrap"
@@ -174,15 +174,15 @@ function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
     <div
-      className="bg-white rounded-lg border px-3 py-2.5 shadow-lg"
-      style={{ borderColor: 'rgba(15,23,42,0.1)', fontSize: 12 }}
+      className="rounded-lg border px-3 py-2.5 shadow-lg"
+      style={{ borderColor: 'var(--bdr)', fontSize: 12, background: 'var(--card)' }}
     >
-      <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider mb-1.5">{label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--txt2)' }}>{label}</p>
       {payload.map((p: any, i: number) => (
         <div key={i} className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: p.color }} />
-          <span className="text-slate-500 text-[11px] capitalize">{p.name}</span>
-          <span className="font-semibold font-mono text-slate-800 ml-auto pl-3">{fmtNum(p.value)}</span>
+          <span className="text-[11px] capitalize" style={{ color: 'var(--txt2)' }}>{p.name}</span>
+          <span className="font-semibold font-mono ml-auto pl-3" style={{ color: 'var(--txt)' }}>{fmtNum(p.value)}</span>
         </div>
       ))}
     </div>
@@ -275,7 +275,7 @@ export default function CampaignReport() {
   const contactCols: ColDef<ContactRow>[] = [
     { key: 'name',         label: 'Name',         render: r => r.name || '—' },
     { key: 'cif_number',   label: 'CIF',          render: r => (
-        <span className="font-mono text-[12px] text-slate-500">{r.cif_number || '—'}</span>
+        <span className="font-mono text-[12px]" style={{ color: 'var(--txt2)' }}>{r.cif_number || '—'}</span>
       ),
     },
     { key: 'email',        label: 'Email',         render: r => r.email || '—' },
@@ -296,7 +296,7 @@ export default function CampaignReport() {
             {r.clicked_urls.length} link{r.clicked_urls.length !== 1 ? 's' : ''}
           </span>
         )
-        : <span className="text-slate-300 text-[11px]">—</span>
+        : <span className="text-[11px]" style={{ color: 'var(--txt3)' }}>—</span>
     },
   ]
 
@@ -309,8 +309,8 @@ export default function CampaignReport() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => nav('/campaigns')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium bg-white transition-colors hover:bg-slate-50"
-            style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#475569' }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-colors"
+            style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)', background: 'var(--card)' }}
           >
             <span className="material-symbols-rounded text-[14px]">arrow_back</span>
             Back
@@ -328,9 +328,9 @@ export default function CampaignReport() {
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-5">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="card px-4 py-4 animate-pulse">
-              <div className="h-3 bg-slate-200 rounded w-3/4 mb-2" />
-              <div className="h-7 bg-slate-200 rounded w-1/2 mb-1" />
-              <div className="h-2 bg-slate-100 rounded w-full mt-3" />
+              <div className="h-3 rounded w-3/4 mb-2" style={{ background: 'var(--chip-bg)' }} />
+              <div className="h-7 rounded w-1/2 mb-1" style={{ background: 'var(--chip-bg)' }} />
+              <div className="h-2 rounded w-full mt-3" style={{ background: 'var(--bg)' }} />
             </div>
           ))}
         </div>
@@ -355,7 +355,7 @@ export default function CampaignReport() {
               ))}
             </div>
           ) : timelineData.length === 0 ? (
-            <div className="flex items-center justify-center h-48 text-slate-400 text-[13px]">
+            <div className="flex items-center justify-center h-48 text-[13px]" style={{ color: 'var(--txt2)' }}>
               No timeline data yet
             </div>
           ) : (
@@ -407,20 +407,20 @@ export default function CampaignReport() {
                 </div>
               ))
             ) : (analytics?.top_links ?? []).length === 0 ? (
-              <p className="text-[13px] text-slate-400 py-4 text-center">No link clicks recorded yet</p>
+              <p className="text-[13px] py-4 text-center" style={{ color: 'var(--txt2)' }}>No link clicks recorded yet</p>
             ) : (
               (analytics?.top_links ?? []).map((link, i) => (
                 <div key={i} className="flex items-center gap-3">
                   <span
                     className="text-[11px] font-bold w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
-                    style={{ background: 'rgba(14,40,65,0.07)', color: '#475569' }}
+                    style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}
                   >
                     {i + 1}
                   </span>
-                  <span className="flex-1 text-[12px] text-slate-600 truncate" title={link.url}>{link.url}</span>
+                  <span className="flex-1 text-[12px] truncate" style={{ color: 'var(--txt2)' }} title={link.url}>{link.url}</span>
                   <span
                     className="text-[11px] font-semibold font-mono px-2 py-0.5 rounded"
-                    style={{ background: 'rgba(14,40,65,0.06)', color: NAVY }}
+                    style={{ background: 'var(--chip-bg)', color: NAVY }}
                   >
                     {fmtNum(link.clicks)}
                   </span>
@@ -442,7 +442,7 @@ export default function CampaignReport() {
               onChange={e => { setSearch(e.target.value); setPage(1) }}
               placeholder="Search contacts…"
               className="px-2.5 py-1.5 rounded-lg border text-[12px] outline-none"
-              style={{ borderColor: 'rgba(15,23,42,0.15)' }}
+              style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
             />
           </div>
         }
@@ -457,23 +457,23 @@ export default function CampaignReport() {
 
         {/* Pagination */}
         {contacts && contacts.total > 50 && (
-          <div className="flex items-center justify-between px-5 py-3 border-t" style={{ borderColor: 'rgba(15,23,42,0.07)' }}>
+          <div className="flex items-center justify-between px-5 py-3 border-t" style={{ borderColor: 'var(--bdr)' }}>
             <button
               disabled={page <= 1 || cLoading}
               onClick={() => setPage(p => p - 1)}
               className="px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-colors disabled:opacity-40"
-              style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#475569' }}
+              style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}
             >
               ← Prev
             </button>
-            <span className="text-[12px] text-slate-500">
+            <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>
               Page {page} of {totalPages}{cLoading && <Spinner size={14} />}
             </span>
             <button
               disabled={page >= totalPages || cLoading}
               onClick={() => setPage(p => p + 1)}
               className="px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-colors disabled:opacity-40"
-              style={{ borderColor: 'rgba(15,23,42,0.15)', color: '#475569' }}
+              style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}
             >
               Next →
             </button>
