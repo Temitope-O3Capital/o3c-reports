@@ -434,6 +434,7 @@ export default function Login({ onLogin }: LoginProps) {
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
   const [step,     setStep]     = useState<'credentials' | 'totp'>('credentials')
+  const [mfaToken, setMfaToken] = useState('')
   const [loading,  setLoading]  = useState(false)
   const [err,      setErr]      = useState('')
   const [shake,    setShake]    = useState(false)
@@ -472,14 +473,14 @@ export default function Login({ onLogin }: LoginProps) {
     if (!password)     { triggerErr('Please enter your password');   return }
     setLoading(true); setErr('')
     try {
-      const res  = await fetch(`${API}/api/auth/login`, {
+      const res  = await fetch(`${API}/api/auth/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password }),
       })
       const data = await res.json()
       if (!res.ok) { triggerErr(data.detail || 'Invalid credentials'); return }
-      if (data.totp_required) { setStep('totp'); return }
+      if (data.mfa_required) { setMfaToken(data.mfa_token); setStep('totp'); return }
       finalise(data)
     } catch {
       triggerErr('Network error — is the backend reachable?')
@@ -491,10 +492,10 @@ export default function Login({ onLogin }: LoginProps) {
   async function handleTotp(code: string) {
     setLoading(true); setErr('')
     try {
-      const res  = await fetch(`${API}/api/auth/totp-verify`, {
+      const res  = await fetch(`${API}/api/auth/totp/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, code }),
+        body: JSON.stringify({ mfa_token: mfaToken, code }),
       })
       const data = await res.json()
       if (!res.ok) { triggerErr(data.detail || 'Incorrect code — try again'); return }
