@@ -1,6 +1,6 @@
 // Shared design system — Editorial B
 // Source of truth for all token values, typography, and chart components.
-// Extract from DesignDemo.tsx; import this everywhere instead of duplicating.
+// Import this everywhere instead of duplicating.
 
 import type React from 'react'
 
@@ -22,10 +22,10 @@ export const BLUE   = '#2563EB'
 export const PURPLE = '#7C3AED'
 
 // ── Theme token type ─────────────────────────────────────────────────────────
-// Extends CSSProperties so it can be spread onto style props directly.
 export type ThemeVars = React.CSSProperties & {
   '--bg'?: string
   '--sb'?: string; '--sb-bdr'?: string
+  '--topbar-bg'?: string
   '--grp'?: string
   '--nav-txt'?: string; '--nav-act-txt'?: string; '--nav-act-bg'?: string
   '--nav-dot'?: string; '--nav-hvr-bg'?: string; '--nav-hvr-txt'?: string
@@ -41,11 +41,20 @@ export type ThemeVars = React.CSSProperties & {
 
 // ── Light theme ───────────────────────────────────────────────────────────────
 export const LIGHT: ThemeVars = {
-  '--bg': '#F5F6FA', '--sb': '#FFFFFF', '--sb-bdr': '#E8EBF2',
-  '--grp': '#B8BFCF',
-  '--nav-txt': '#9AA4B8', '--nav-act-txt': '#0F1623', '--nav-act-bg': '#EEF1F8',
-  '--nav-dot': '#C00000', '--nav-hvr-bg': '#F5F6FA', '--nav-hvr-txt': '#0F1623',
-  '--sub-txt': '#C0C8D8', '--sub-hvr': '#6B7590', '--sub-act': '#0F1623',
+  '--bg': '#F4F6FA',
+  '--sb': '#F8F9FB',         // sidebar: very subtle off-white (different from cards)
+  '--sb-bdr': '#EAECF3',
+  '--topbar-bg': '#FFFFFF',  // topbar: pure white — separates from sidebar surface
+  '--grp': '#B0B8CC',
+  '--nav-txt': '#9AA4B8',
+  '--nav-act-txt': '#0F1623',
+  '--nav-act-bg': 'rgba(192,0,0,0.06)',  // subtle red-tinted pill — O3 brand accent
+  '--nav-dot': '#C00000',
+  '--nav-hvr-bg': 'rgba(0,0,0,0.04)',
+  '--nav-hvr-txt': '#0F1623',
+  '--sub-txt': '#C0C8D8',
+  '--sub-hvr': '#6B7590',
+  '--sub-act': '#0F1623',
   '--card': '#FFFFFF', '--card-bdr': '#E8EBF2',
   '--card-shadow': '0 1px 2px rgba(0,0,0,0.04), 0 4px 18px rgba(0,0,0,0.05)',
   '--txt': '#0F1623', '--txt2': '#798094', '--txt3': '#C0C8D8',
@@ -58,11 +67,20 @@ export const LIGHT: ThemeVars = {
 
 // ── Dark theme ────────────────────────────────────────────────────────────────
 export const DARK: ThemeVars = {
-  '--bg': '#07090F', '--sb': '#04060C', '--sb-bdr': '#0F1626',
+  '--bg': '#07090F',
+  '--sb': '#04060C',
+  '--sb-bdr': '#0F1626',
+  '--topbar-bg': '#07090F',  // topbar: same as page bg in dark — unified dark shell
   '--grp': '#1C2438',
-  '--nav-txt': '#242E44', '--nav-act-txt': '#E2E8F5', '--nav-act-bg': '#0F1A30',
-  '--nav-dot': '#FF3333', '--nav-hvr-bg': '#0A0F1C', '--nav-hvr-txt': '#7888B0',
-  '--sub-txt': '#161E30', '--sub-hvr': '#485870', '--sub-act': '#BAC6E0',
+  '--nav-txt': '#2C3A55',
+  '--nav-act-txt': '#E2E8F5',
+  '--nav-act-bg': 'rgba(192,0,0,0.14)',
+  '--nav-dot': '#FF4444',
+  '--nav-hvr-bg': 'rgba(255,255,255,0.04)',
+  '--nav-hvr-txt': '#7888B0',
+  '--sub-txt': '#1A2438',
+  '--sub-hvr': '#485870',
+  '--sub-act': '#BAC6E0',
   '--card': '#0A0E1A', '--card-bdr': '#121C30',
   '--card-shadow': '0 1px 3px rgba(0,0,0,0.5), 0 8px 28px rgba(0,0,0,0.3)',
   '--txt': '#D5DDED', '--txt2': '#384A68', '--txt3': '#1C2438',

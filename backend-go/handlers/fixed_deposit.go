@@ -19,6 +19,13 @@ func RegisterFixedDeposit(r chi.Router, db *core.DB) {
 	r.With(access).Put("/transactions/{id}", fdUpdateTransaction(db))
 	r.With(access).Delete("/transactions/{id}", fdDeleteTransaction(db))
 
+	r.With(access).Post("/transactions/{id}/early-withdrawal-request", fdEarlyWithdrawalRequest(db))
+	r.With(access).Patch("/transactions/{id}/early-withdrawal/{req_id}/approve", fdEarlyWithdrawalApprove(db))
+	r.With(access).Patch("/transactions/{id}/early-withdrawal/{req_id}/reject",  fdEarlyWithdrawalReject(db))
+
+	r.With(access).Post("/transactions/{id}/rollover",  fdRollover(db))
+	r.With(access).Post("/transactions/{id}/liquidate", fdLiquidate(db))
+
 	r.With(access).Get("/summary",    fdSummary(db))
 	r.With(access).Get("/trend",      fdTrend(db))
 	r.With(access).Get("/by-location", fdByLocation(db))
@@ -328,5 +335,191 @@ func fdByOfficer(db *core.DB) http.HandlerFunc {
 			GROUP BY account_officer ORDER BY total_inflow DESC LIMIT 30`, where), args...)
 
 		jsonRows(w, rows)
+	}
+}
+
+/* ── Early Withdrawal ─────────────────────────────────────────────────────── */
+
+func fdEarlyWithdrawalRequest(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+
+		fdRows, err := db.PGQuery(ctx, `SELECT id, principal, maturity_date, rate, transaction_type FROM fd_transactions WHERE id=$1`, id)
+		if err != nil || len(fdRows) == 0 {
+			respondErr(w, 404, "FD not found"); return
+		}
+		fd := fdRows[0]
+		if str(fd["transaction_type"]) != "inflow" {
+			respondErr(w, 422, "Only active inflow FDs can be withdrawn early"); return
+		}
+
+		// Pending request check
+		existing, _ := db.PGQuery(ctx, `SELECT id FROM fd_early_withdrawal_requests WHERE fd_transaction_id=$1 AND status='pending'`, id)
+		if len(existing) > 0 {
+			respondErr(w, 422, "A pending withdrawal request already exists"); return
+		}
+
+		principal := int64(0)
+		if v, ok := fd["principal"].(float64); ok {
+			principal = int64(v * 100)
+		}
+		// Flat 10% penalty for early withdrawal
+		penalty := principal / 10
+		netPayout := principal - penalty
+
+		rows, err := db.PGQuery(ctx,
+			`INSERT INTO fd_early_withdrawal_requests
+			   (fd_transaction_id, requested_by, status, principal_kobo, penalty_kobo, net_payout_kobo)
+			 VALUES ($1,$2,'pending',$3,$4,$5) RETURNING *`,
+			id, user.ID, principal, penalty, netPayout)
+		if err != nil {
+			respondErr(w, 500, "Failed to create request"); return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+func fdEarlyWithdrawalApprove(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := chi.URLParam(r, "req_id")
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+
+		reqRows, err := db.PGQuery(ctx,
+			`SELECT id, fd_transaction_id, net_payout_kobo, status FROM fd_early_withdrawal_requests WHERE id=$1`, reqID)
+		if err != nil || len(reqRows) == 0 {
+			respondErr(w, 404, "Request not found"); return
+		}
+		req := reqRows[0]
+		if str(req["status"]) != "pending" {
+			respondErr(w, 422, "Request is not pending"); return
+		}
+
+		_, err = db.PGQuery(ctx,
+			`UPDATE fd_early_withdrawal_requests SET status='approved', approved_by=$1, approved_at=NOW(), updated_at=NOW() WHERE id=$2 RETURNING id`,
+			user.ID, reqID)
+		if err != nil {
+			respondErr(w, 500, "Approve failed"); return
+		}
+		// Mark the FD as liquidated
+		db.PGExec(ctx, `UPDATE fd_transactions SET transaction_type='liquidation', updated_at=NOW() WHERE id=$1`, req["fd_transaction_id"]) //nolint:errcheck
+
+		respond(w, map[string]any{"status": "approved", "net_payout_kobo": req["net_payout_kobo"]}, "json")
+	}
+}
+
+func fdEarlyWithdrawalReject(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Reason string `json:"reason"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := chi.URLParam(r, "req_id")
+		ctx := r.Context()
+		var b body
+		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
+
+		reqRows, err := db.PGQuery(ctx, `SELECT status FROM fd_early_withdrawal_requests WHERE id=$1`, reqID)
+		if err != nil || len(reqRows) == 0 {
+			respondErr(w, 404, "Request not found"); return
+		}
+		if str(reqRows[0]["status"]) != "pending" {
+			respondErr(w, 422, "Request is not pending"); return
+		}
+
+		db.PGExec(ctx, //nolint:errcheck
+			`UPDATE fd_early_withdrawal_requests SET status='rejected', rejection_reason=$1, updated_at=NOW() WHERE id=$2`,
+			b.Reason, reqID)
+
+		respond(w, map[string]any{"status": "rejected"}, "json")
+	}
+}
+
+/* ── Rollover ─────────────────────────────────────────────────────────────── */
+
+func fdRollover(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Rate      *float64 `json:"rate"`       // optional override; defaults to current rate
+		TenorDays *int     `json:"tenor_days"` // optional override; defaults to current tenor
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+
+		var b body
+		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
+
+		fdRows, err := db.PGQuery(ctx,
+			`SELECT * FROM fd_transactions WHERE id=$1`, id)
+		if err != nil || len(fdRows) == 0 {
+			respondErr(w, 404, "FD not found"); return
+		}
+		fd := fdRows[0]
+		if str(fd["transaction_type"]) != "inflow" {
+			respondErr(w, 422, "Only active inflow FDs can be rolled over"); return
+		}
+
+		rate := float64(0)
+		if v, ok := fd["rate"].(float64); ok { rate = v }
+		if b.Rate != nil { rate = *b.Rate }
+
+		tenor := 0
+		if v, ok := fd["tenor_days"].(float64); ok { tenor = int(v) }
+		if b.TenorDays != nil { tenor = *b.TenorDays }
+
+		principal := (*float64)(nil)
+		if v, ok := fd["principal"].(float64); ok { principal = &v }
+
+		// Mark old FD as rolled over
+		db.PGExec(ctx, `UPDATE fd_transactions SET transaction_type='rolled_over', updated_at=NOW() WHERE id=$1`, id) //nolint:errcheck
+
+		// Create new FD starting today
+		newRows, err := db.PGQuery(ctx, `
+			INSERT INTO fd_transactions
+			    (transaction_date, customer_name, transaction_type, principal, currency,
+			     location, account_officer, tenor_days, rate, maturity_date, ngn_amount, created_by)
+			VALUES
+			    (NOW()::date, $1, 'inflow', $2, $3, $4, $5, $6, $7,
+			     (NOW()::date + ($6 * INTERVAL '1 day'))::date, $2, $8)
+			RETURNING *`,
+			fd["customer_name"], principal, fd["currency"],
+			fd["location"], fd["account_officer"], tenor, rate, user.ID)
+		if err != nil {
+			respondErr(w, 500, "Rollover failed: "+err.Error()); return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(newRows[0]) //nolint:errcheck
+	}
+}
+
+/* ── Liquidate (matured FD) ──────────────────────────────────────────────── */
+
+func fdLiquidate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		ctx := r.Context()
+
+		fdRows, err := db.PGQuery(ctx,
+			`SELECT id, transaction_type FROM fd_transactions WHERE id=$1`, id)
+		if err != nil || len(fdRows) == 0 {
+			respondErr(w, 404, "FD not found"); return
+		}
+		if str(fdRows[0]["transaction_type"]) != "inflow" {
+			respondErr(w, 422, "FD is not active"); return
+		}
+
+		_, err = db.PGQuery(ctx,
+			`UPDATE fd_transactions SET transaction_type='liquidation', updated_at=NOW() WHERE id=$1 RETURNING id`, id)
+		if err != nil {
+			respondErr(w, 500, "Liquidation failed"); return
+		}
+
+		respond(w, map[string]any{"status": "liquidated"}, "json")
 	}
 }

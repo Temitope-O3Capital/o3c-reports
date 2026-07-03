@@ -265,8 +265,14 @@ func main() {
 		r.Route("/api/fixed-deposit", func(r chi.Router) {
 			handlers.RegisterFixedDeposit(r, db)
 		})
+		r.Route("/api/finance", func(r chi.Router) {
+			handlers.RegisterFinance(r, db)
+		})
 		r.Route("/api/settlement", func(r chi.Router) {
 			handlers.RegisterSettlement(r, db)
+		})
+		r.Route("/api/settlements", func(r chi.Router) {
+			handlers.RegisterSettlementOps(r, db)
 		})
 		r.Route("/api/mobile-app", func(r chi.Router) {
 			handlers.RegisterMobileApp(r, db)

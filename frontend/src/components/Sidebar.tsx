@@ -1,226 +1,226 @@
-import { useState } from 'react'
-import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { AuthUser, ROLE_PAGES } from '../hooks/useAuth'
+import { useState, useEffect } from 'react'
+import type { ReactNode } from 'react'
+import { useLocation, Link } from 'react-router-dom'
 import { roleLabel } from '../lib/roles'
+import { INTER } from '../lib/design'
+import type { AuthUser } from '../hooks/useAuth'
 
-// ── Access control ────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-const MGMT = ['md', 'coo', 'cfo', 'cmo', 'executive', 'admin', 'management', 'head_ops', 'head_it']
-
-function hasAccess(role: string, moduleRoles: string[]): boolean {
-  return MGMT.includes(role) || moduleRoles.includes(role)
-}
-
-const MODULE_PAGE_KEYS: Record<string, string[]> = {
-  overview:    ['overview'],
-  sales:       ['sales', 'crm_pipeline', 'crm_contacts', 'crm_tasks', 'crm_reports', 'los'],
-  risk:        ['credit_portfolio', 'los_all', 'los_risk_review', 'risk_all'],
-  finance:     ['income', 'transactions', 'fixed_deposit', 'eod', 'reconciliation', 'los_finance'],
-  collections: ['collections', 'collections_assign', 'collections_payment', 'collections_payment_approve'],
-  recovery:    ['recovery', 'recovery_assign', 'recovery_write_off'],
-  settlements: ['settlement', 'reconciliation'],
-  cards:       ['cards', 'card_trends', 'mobile_app', 'blink_card'],
-  helpdesk:    ['customer_service', 'call_center'],
-  compliance:  ['compliance_all', 'compliance_checklists', 'watch_list', 'sars', 'cbn_reports', 'audit_findings', 'audit_trail', 'audit_export'],
-  hr:          ['hr_employees', 'hr_leave', 'hr_performance', 'hr_disciplinary', 'hr_payroll', 'hr_training'],
-  campaigns:   ['campaigns', 'contact_lists', 'message_templates'],
-  statements:  ['statements'],
-  reports:     ['reports', 'kpi_dashboard'],
-  admin:       ['admin_users', 'admin_api_keys', 'settings', 'sync_status'],
-}
-
-function hasPageAccess(pages: Set<string>, moduleId: string): boolean {
-  const keys = MODULE_PAGE_KEYS[moduleId] ?? [moduleId]
-  return keys.some(k => pages.has(k))
-}
-
-// ── Nav types ─────────────────────────────────────────────────────────────────
-
-interface SubItem {
+interface SubItem { label: string; to: string }
+interface NavItem {
+  icon:  string
   label: string
   to:    string
+  subs?: SubItem[]
+  vis?:  string[] | 'all'
 }
+interface Section { key: string; header?: string; items: NavItem[] }
 
-interface NavModule {
-  id:      string
-  label:   string
-  icon:    string
-  roles:   string[]
-  primary: string          // route to navigate to on header click
-  items:   SubItem[]
-}
+// ── Canonical nav data (BUILD_GUIDE Part 5) ───────────────────────────────────
 
-interface NavSection {
-  label: string | null     // null = no section header
-  modules: NavModule[]
-}
-
-// ── Nav data ──────────────────────────────────────────────────────────────────
-
-const SECTIONS: NavSection[] = [
+const SECTIONS: Section[] = [
   {
-    label: null,
-    modules: [
-      { id: 'overview', label: 'Overview', icon: 'space_dashboard', roles: [], primary: '/', items: [] },
+    key: 'root',
+    items: [
+      { icon: 'space_dashboard', label: 'Overview', to: '/', vis: 'all' },
     ],
   },
   {
-    label: 'Lending',
-    modules: [
+    key: 'sales',
+    header: 'Sales & BD',
+    items: [
       {
-        id: 'sales', label: 'Sales', icon: 'trending_up', roles: ['sales_officer', 'sales_head'],
-        primary: '/sales',
-        items: [
-          { label: 'Customers',    to: '/sales/customers' },
-          { label: 'CRM Pipeline', to: '/sales/crm' },
-          { label: 'Applications', to: '/sales/applications' },
+        icon: 'corporate_fare', label: 'Business Dev', to: '/bd',
+        vis: ['sales_officer','sales_head','bd_officer','bd_head'],
+        subs: [
+          { label: 'All Leads',         to: '/bd/leads' },
+          { label: 'My Pipeline',       to: '/bd/pipeline' },
+          { label: 'Employer Register', to: '/bd/employers' },
+          { label: 'BD Analytics',      to: '/bd/analytics' },
         ],
       },
       {
-        id: 'risk', label: 'Risk & Credit', icon: 'shield', roles: ['risk_officer', 'risk_head'],
-        primary: '/risk',
-        items: [
-          { label: 'App Review', to: '/risk/applications' },
-          { label: 'Portfolio',  to: '/risk/portfolio' },
-        ],
-      },
-    ],
-  },
-  {
-    label: 'Operations',
-    modules: [
-      {
-        id: 'finance', label: 'Finance', icon: 'account_balance', roles: ['finance_officer', 'finance_head', 'cfo', 'head_of_reconciliation'],
-        primary: '/finance',
-        items: [
-          { label: 'Transactions',   to: '/finance/transactions' },
-          { label: 'Income',         to: '/finance/income' },
-          { label: 'Fixed Deposits', to: '/finance/fixed-deposit' },
-          { label: 'EOD / EOB',      to: '/finance/eod' },
+        icon: 'campaign', label: 'Campaigns', to: '/campaigns',
+        vis: ['sales_officer','sales_head','bd_officer','bd_head'],
+        subs: [
+          { label: 'All Campaigns', to: '/campaigns' },
+          { label: 'Templates',     to: '/campaigns/templates' },
+          { label: 'Contact Lists', to: '/campaigns/lists' },
+          { label: 'Analytics',     to: '/campaigns/analytics' },
         ],
       },
       {
-        id: 'cards', label: 'Cards & Channels', icon: 'credit_card', roles: ['cards_ops_officer', 'cards_ops_head'],
-        primary: '/cards',
-        items: [
-          { label: 'Trends',     to: '/cards/trends' },
-          { label: 'Management', to: '/cards/management' },
-          { label: 'Blink Card', to: '/cards/blink' },
-          { label: 'Mobile App', to: '/cards/mobile-app' },
+        icon: 'trending_up', label: 'Sales', to: '/sales',
+        vis: ['sales_officer','sales_head'],
+        subs: [
+          { label: 'Overview',        to: '/sales' },
+          { label: 'Cohort Analysis', to: '/sales/cohort' },
+          { label: 'Reports',         to: '/sales/reports' },
         ],
       },
       {
-        id: 'settlements', label: 'Settlements', icon: 'compare_arrows', roles: ['finance_head', 'cfo', 'head_of_reconciliation'],
-        primary: '/settlements',
-        items: [
-          { label: 'Settlement',     to: '/settlements' },
-          { label: 'Reconciliation', to: '/settlements/recon' },
+        icon: 'contacts', label: 'CRM', to: '/sales/crm',
+        vis: ['sales_officer','sales_head','bd_officer','bd_head'],
+        subs: [
+          { label: 'Contacts', to: '/sales/customers' },
+          { label: 'Pipeline', to: '/sales/crm' },
+          { label: 'Tasks',    to: '/sales/tasks' },
+        ],
+      },
+      {
+        icon: 'receipt_long', label: 'Loan Origination', to: '/sales/applications',
+        vis: ['sales_officer','sales_head','bd_officer','bd_head'],
+        subs: [
+          { label: 'My Queue', to: '/sales/applications' },
         ],
       },
     ],
   },
   {
-    label: 'Portfolio',
-    modules: [
+    key: 'contact',
+    header: 'Contact Centre',
+    items: [
       {
-        id: 'collections', label: 'Collections', icon: 'payments', roles: ['collections_agent', 'collections_head'],
-        primary: '/collections',
-        items: [
-          { label: 'Agent Queue',    to: '/collections/queue' },
-          { label: 'Targets',        to: '/collections/targets' },
-          { label: 'Promise-to-Pay', to: '/collections/promises' },
+        icon: 'call', label: 'Telemarketing', to: '/telemarketing',
+        vis: ['telemarketing_agent','telemarketing_head'],
+        subs: [
+          { label: 'Outbound Queue', to: '/telemarketing/queue' },
+          { label: 'DNC List',       to: '/telemarketing/dnc' },
+          { label: 'Performance',    to: '/telemarketing/performance' },
         ],
       },
       {
-        id: 'recovery', label: 'Recovery', icon: 'refresh', roles: ['recovery_agent', 'recovery_head'],
-        primary: '/recovery',
-        items: [
-          { label: 'Cases',        to: '/recovery/cases' },
-          { label: 'Legal',        to: '/recovery/legal' },
-          { label: 'Field Visits', to: '/recovery/visits' },
+        icon: 'support_agent', label: 'Customer Service', to: '/helpdesk',
+        vis: [
+          'call_center_agent','call_center_head',
+          'telemarketing_agent','telemarketing_head',
+          'sales_officer','sales_head','bd_officer','bd_head',
         ],
-      },
-    ],
-  },
-  {
-    label: 'Customer',
-    modules: [
-      {
-        id: 'helpdesk', label: 'Helpdesk', icon: 'support_agent',
-        roles: [
-          'call_center_agent', 'call_center_head', 'collections_agent', 'collections_head',
-          'recovery_agent', 'recovery_head', 'cards_ops_officer', 'cards_ops_head',
-          'sales_officer', 'sales_head', 'risk_officer', 'risk_head',
-          'finance_officer', 'finance_head', 'hr_officer', 'hr_manager',
-          'compliance_officer', 'compliance_head', 'it_admin', 'head_it',
-          'md', 'coo', 'cfo', 'cmo', 'management', 'admin',
-        ],
-        primary: '/helpdesk',
-        items: [
-          { label: 'Overview',         to: '/helpdesk' },
+        subs: [
           { label: 'All Tickets',      to: '/helpdesk/tickets' },
-          { label: 'New Ticket',       to: '/helpdesk/new' },
           { label: 'Call Log',         to: '/helpdesk/calls' },
           { label: 'Supervisor',       to: '/helpdesk/supervisor' },
           { label: 'Analytics',        to: '/helpdesk/stats' },
-          { label: 'Canned Responses', to: '/helpdesk/canned' },
           { label: 'Knowledge Base',   to: '/helpdesk/knowledge-base' },
+          { label: 'Canned Responses', to: '/helpdesk/canned' },
         ],
       },
     ],
   },
   {
-    label: 'Growth',
-    modules: [
+    key: 'cards',
+    header: 'Cards',
+    items: [
       {
-        id: 'telemarketing', label: 'Telemarketing', icon: 'call', roles: ['telemarketing_agent', 'telemarketing_head', 'md', 'coo', 'admin'],
-        primary: '/telemarketing',
-        items: [
-          { label: 'Overview',       to: '/telemarketing' },
-          { label: 'Outbound Queue', to: '/telemarketing/queue' },
-          { label: 'DNC List',       to: '/telemarketing/dnc' },
-        ],
-      },
-      {
-        id: 'bd', label: 'Business Dev', icon: 'handshake', roles: ['bd_officer', 'bd_head', 'sales_head', 'md', 'coo', 'admin'],
-        primary: '/bd',
-        items: [
-          { label: 'Overview',          to: '/bd' },
-          { label: 'Pipeline',          to: '/bd/pipeline' },
-          { label: 'Employer Register', to: '/bd/employers' },
+        icon: 'credit_card', label: 'Card Operations', to: '/cards',
+        vis: ['cards_ops_officer','cards_ops_head','risk_officer','risk_head'],
+        subs: [
+          { label: 'Overview',            to: '/cards' },
+          { label: 'Cardholder Mgmt',     to: '/cards/management' },
+          { label: 'Issuance Queue',      to: '/cards/issuance' },
+          { label: 'Disputes',            to: '/cards/disputes' },
+          { label: 'Credit Limit Review', to: '/cards/credit-limit' },
+          { label: 'Billing Cycles',      to: '/cards/billing' },
         ],
       },
     ],
   },
   {
-    label: 'Lending',
-    modules: [
+    key: 'operations',
+    header: 'Operations',
+    items: [
       {
-        id: 'active_loan_book', label: 'Loan Book', icon: 'account_balance', roles: ['md', 'coo', 'cfo', 'risk_head', 'collections_head', 'finance_head', 'admin'],
-        primary: '/active-loan-book',
-        items: [],
+        icon: 'shield', label: 'Risk', to: '/operations/risk',
+        vis: ['risk_officer','risk_head'],
+        subs: [
+          { label: 'App Review',       to: '/operations/risk/applications' },
+          { label: 'Portfolio Health', to: '/operations/risk/portfolio' },
+          { label: 'Eye Credit Score', to: '/operations/risk/eye' },
+          { label: 'Vintage Analysis', to: '/operations/risk/vintage' },
+        ],
+      },
+      {
+        icon: 'collections_bookmark', label: 'Collections', to: '/collections',
+        vis: ['collections_agent','collections_head'],
+        subs: [
+          { label: 'Overview',        to: '/collections' },
+          { label: 'Agent Queue',     to: '/collections/queue' },
+          { label: 'Promises to Pay', to: '/collections/promises' },
+          { label: 'Repayment Plans', to: '/collections/repayment-plans' },
+          { label: 'Write-off Queue', to: '/collections/writeoffs' },
+        ],
+      },
+      {
+        icon: 'gavel', label: 'Recovery', to: '/recovery',
+        vis: ['recovery_agent','recovery_head'],
+        subs: [
+          { label: 'Overview',       to: '/recovery' },
+          { label: 'Cases',          to: '/recovery/cases' },
+          { label: 'Legal Tracker',  to: '/recovery/legal' },
+          { label: 'TPA Management', to: '/recovery/tpa' },
+        ],
+      },
+      {
+        icon: 'compare_arrows', label: 'Settlements', to: '/settlements',
+        vis: ['settlement_officer'],
+        subs: [
+          { label: 'Batches',             to: '/settlements' },
+          { label: 'NIP Reconciliation',  to: '/settlements/nip' },
+          { label: 'Failed Transactions', to: '/settlements/failed' },
+          { label: 'Manual Postings',     to: '/settlements/manual-postings' },
+        ],
       },
     ],
   },
   {
-    label: 'Governance',
-    modules: [
+    key: 'finance',
+    header: 'Finance',
+    items: [
       {
-        id: 'compliance', label: 'Compliance', icon: 'policy', roles: ['compliance_officer', 'compliance_head', 'internal_control_head'],
-        primary: '/compliance',
-        items: [
-          { label: 'AML Watchlist', to: '/compliance/watchlist' },
-          { label: 'SAR Filing',   to: '/compliance/sars' },
-          { label: 'CBN Reports',  to: '/compliance/cbn-reports' },
-          { label: 'Findings',     to: '/compliance/findings' },
-          { label: 'Checklists',   to: '/compliance/checklists' },
-          { label: 'Audit Trail',  to: '/compliance/audit-trail' },
+        icon: 'account_balance', label: 'Finance', to: '/finance',
+        vis: ['finance_officer','finance_head'],
+        subs: [
+          { label: 'Overview',        to: '/finance' },
+          { label: 'Transactions',    to: '/finance/transactions' },
+          { label: 'Income',          to: '/finance/income' },
+          { label: 'Fixed Deposits',  to: '/finance/fixed-deposit' },
+          { label: 'EOD / EOB',       to: '/finance/eod' },
+          { label: 'P&L',             to: '/finance/pnl' },
+          { label: 'Manual Postings', to: '/finance/manual-postings' },
+          { label: 'Chart of Accounts', to: '/finance/gl-accounts' },
+          { label: 'FD Maturity',     to: '/finance/fd-maturity' },
+          { label: 'Cost Tracking',   to: '/finance/costs' },
+          { label: 'Budget',          to: '/finance/budget' },
         ],
       },
+    ],
+  },
+  {
+    key: 'compliance',
+    header: 'Compliance',
+    items: [
       {
-        id: 'hr', label: 'HR', icon: 'groups', roles: ['hr_officer', 'hr_manager'],
-        primary: '/hr',
-        items: [
+        icon: 'verified_user', label: 'Compliance', to: '/compliance',
+        vis: ['compliance_officer','compliance_head','internal_control_head'],
+        subs: [
+          { label: 'AML Watchlist',       to: '/compliance/watchlist' },
+          { label: 'Regulatory Calendar', to: '/compliance/regulatory' },
+          { label: 'Findings',            to: '/compliance/findings' },
+          { label: 'Checklists',          to: '/compliance/checklists' },
+          { label: 'Audit Trail',         to: '/compliance/audit-trail' },
+        ],
+      },
+    ],
+  },
+  {
+    key: 'people',
+    header: 'People',
+    items: [
+      {
+        icon: 'badge', label: 'HR', to: '/hr',
+        vis: ['hr_officer','hr_manager'],
+        subs: [
           { label: 'Employees',    to: '/hr/employees' },
           { label: 'Leave',        to: '/hr/leave' },
           { label: 'Performance',  to: '/hr/performance' },
@@ -229,490 +229,438 @@ const SECTIONS: NavSection[] = [
         ],
       },
       {
-        id: 'payroll', label: 'Payroll', icon: 'payments', roles: ['payroll_officer', 'payroll_manager', 'cfo', 'head_hr', 'md', 'coo', 'admin'],
-        primary: '/payroll',
-        items: [],
-      },
-    ],
-  },
-  {
-    label: 'Growth',
-    modules: [
-      {
-        id: 'campaigns', label: 'Campaigns', icon: 'campaign', roles: ['cmo', 'md', 'coo', 'management', 'admin'],
-        primary: '/campaigns',
-        items: [
-          { label: 'Overview',      to: '/campaigns/overview' },
-          { label: 'Campaigns',     to: '/campaigns' },
-          { label: 'Analytics',     to: '/campaigns/analytics' },
-          { label: 'Templates',     to: '/campaigns/templates' },
-          { label: 'Contact Lists', to: '/campaigns/lists' },
+        icon: 'payments', label: 'Payroll', to: '/payroll',
+        vis: ['hr_officer','hr_manager','payroll_officer','payroll_manager'],
+        subs: [
+          { label: 'Overview', to: '/payroll' },
         ],
       },
     ],
   },
   {
-    label: 'Intelligence',
-    modules: [
+    key: 'intelligence',
+    header: 'Intelligence',
+    items: [
       {
-        id: 'statements', label: 'Statements', icon: 'receipt_long',
-        roles: ['cmo', 'md', 'coo', 'cfo', 'finance_head', 'sales_head', 'call_center_head', 'management', 'admin'],
-        primary: '/statements',
-        items: [],
+        icon: 'bar_chart', label: 'Reports & BI', to: '/reports',
+        vis: ['bi_analyst','bi_head','internal_control_head'],
+        subs: [
+          { label: 'Cross-Module', to: '/reports' },
+          { label: 'KPI Tracker',  to: '/reports/kpi' },
+          { label: 'Data Export',  to: '/reports/export' },
+        ],
       },
       {
-        id: 'reports', label: 'Reports', icon: 'bar_chart',
-        roles: ['sales_head', 'risk_head', 'finance_head', 'collections_head', 'recovery_head', 'cards_ops_head', 'call_center_head', 'compliance_head', 'internal_control_head', 'hr_manager'],
-        primary: '/reports',
-        items: [],
+        icon: 'receipt_long', label: 'Statements', to: '/statements',
+        vis: ['bi_analyst','bi_head','internal_control_head','finance_officer','finance_head'],
       },
     ],
   },
   {
-    label: 'Admin',
-    modules: [
+    key: 'admin',
+    header: 'Admin',
+    items: [
       {
-        id: 'admin', label: 'Admin', icon: 'admin_panel_settings', roles: ['it_admin', 'head_it'],
-        primary: '/admin/overview',
-        items: [
-          { label: 'Overview',           to: '/admin/overview' },
-          { label: 'Users',              to: '/admin/users' },
-          { label: 'Roles',              to: '/admin/roles' },
-          { label: 'Email Senders',      to: '/admin/email-senders' },
-          { label: 'Mail Health',        to: '/admin/mail' },
-          { label: 'API Keys',           to: '/admin/api-keys' },
-          { label: 'Settings',           to: '/admin/settings' },
-          { label: 'Notif. Settings',    to: '/admin/notification-settings' },
-          { label: 'Integrations',       to: '/admin/integrations' },
-          { label: 'Audit Log',          to: '/admin/audit' },
-          { label: 'Sync Status',        to: '/admin/sync' },
-        ],
+        icon: 'admin_panel_settings', label: 'Admin', to: '/admin',
+        vis: ['it_admin'],
       },
     ],
   },
 ]
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Role visibility ───────────────────────────────────────────────────────────
 
-function initials(name: string): string {
-  return name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase()
+const MGMT = new Set([
+  'md','coo','cfo','cmo','executive','admin','management','head_ops','head_it','head_hr',
+])
+
+function canSee(vis: NavItem['vis'], role: string): boolean {
+  if (MGMT.has(role))  return true
+  if (vis === 'all')   return true
+  if (!vis)            return false
+  return (vis as string[]).includes(role)
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+function visibleSections(role: string): Section[] {
+  return SECTIONS
+    .map(s => ({ ...s, items: s.items.filter(item => canSee(item.vis, role)) }))
+    .filter(s => s.items.length > 0)
+}
 
-export default function Sidebar({ user, onLogout, onMobileClose }: { user: AuthUser; onLogout: () => void; onMobileClose?: () => void }) {
-  const location = useLocation()
-  const navigate  = useNavigate()
-  const role    = user.role as string
-  const pageList = user.pages?.length ? user.pages : (ROLE_PAGES[role] ?? [])
-  const pageSet  = new Set(pageList)
+// ── Sub-item ──────────────────────────────────────────────────────────────────
 
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
-    try { return localStorage.getItem('o3c_sidebar_collapsed') === '1' } catch { return false }
-  })
-
-  const [openId, setOpenId] = useState<string | null>(() => {
-    // Auto-open the section that contains the current route
-    for (const sec of SECTIONS) {
-      for (const mod of sec.modules) {
-        if (mod.items.some(i => location.pathname === i.to || location.pathname.startsWith(i.to + '/'))) {
-          return mod.id
-        }
-      }
-    }
-    return null
-  })
-
-  function toggleCollapse() {
-    const next = !collapsed
-    setCollapsed(next)
-    try { localStorage.setItem('o3c_sidebar_collapsed', next ? '1' : '0') } catch {}
-  }
-
-  function isModuleVisible(mod: NavModule): boolean {
-    if (pageSet.size > 0) return hasPageAccess(pageSet, mod.id)
-    if (mod.id === 'overview') return MGMT.includes(role)
-    return hasAccess(role, mod.roles)
-  }
-
-  function isModuleActive(mod: NavModule): boolean {
-    if (mod.items.length === 0) {
-      if (mod.primary === '/') return location.pathname === '/'
-      return location.pathname === mod.primary || location.pathname.startsWith(mod.primary + '/')
-    }
-    return mod.items.some(i =>
-      location.pathname === i.to || location.pathname.startsWith(i.to + '/')
-    )
-  }
-
-  function handleModuleClick(mod: NavModule) {
-    if (mod.items.length === 0) {
-      navigate(mod.primary)
-      onMobileClose?.()
-    } else {
-      setOpenId(openId === mod.id ? null : mod.id)
-      navigate(mod.primary)
-    }
-  }
-
-  const sidebarWidth = collapsed ? 64 : 236
-
+function SubLink({ sub, active }: { sub: SubItem; active: boolean }) {
   return (
-    <aside
+    <Link
+      to={sub.to}
       style={{
-        width: sidebarWidth,
-        minWidth: sidebarWidth,
-        background: 'var(--sb)',
-        borderRight: '1px solid var(--sb-bdr)',
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100vh',
-        overflow: 'hidden',
-        transition: 'width 200ms ease, min-width 200ms ease',
-        flexShrink: 0,
+        display: 'flex', alignItems: 'center', gap: 8,
+        height: 32, padding: '0 9px 0 10px',
+        margin: '2px 0', borderRadius: 6,
+        textDecoration: 'none',
+        color: active ? 'var(--sub-act)' : 'var(--sub-txt)',
+        fontSize: 13,
+        fontWeight: active ? 600 : 500,
+        background: active ? 'rgba(0,0,0,.02)' : 'transparent',
+        transition: 'color 120ms, background 120ms',
+      }}
+      onMouseEnter={e => {
+        const el = e.currentTarget as HTMLElement
+        if (!active) {
+          el.style.background = 'var(--nav-hvr-bg)'
+          el.style.color = 'var(--sub-hvr)'
+        }
+      }}
+      onMouseLeave={e => {
+        const el = e.currentTarget as HTMLElement
+        el.style.background = active ? 'rgba(0,0,0,.02)' : 'transparent'
+        el.style.color = active ? 'var(--sub-act)' : 'var(--sub-txt)'
       }}
     >
-      {/* ── Logo ── */}
+      {/* 1px vertical line indicator — matches demo */}
       <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: collapsed ? '18px 0' : '18px 16px 14px',
-        justifyContent: collapsed ? 'center' : 'flex-start',
-        flexShrink: 0,
-      }}>
+        width: 1, height: 14, flexShrink: 0, borderRadius: 1,
+        background: active ? 'var(--nav-dot)' : 'var(--bdr)',
+        transition: 'background 120ms',
+      }} />
+      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {sub.label}
+      </span>
+    </Link>
+  )
+}
+
+// ── Nav row ───────────────────────────────────────────────────────────────────
+
+function NavRow({
+  item, isActive, hasActiveSub, collapsed, open, onToggle,
+}: {
+  item: NavItem; isActive: boolean; hasActiveSub: boolean
+  collapsed: boolean; open: boolean; onToggle: () => void
+}) {
+  const hasSubs     = !!item.subs?.length
+  const highlighted = isActive || hasActiveSub
+  const { pathname } = useLocation()
+
+  return (
+    <div>
+      <Link
+        to={hasSubs ? '#' : item.to}
+        onClick={hasSubs ? (e) => { e.preventDefault(); onToggle() } : undefined}
+        title={collapsed ? item.label : undefined}
+        style={{
+          position: 'relative',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          height: 36,
+          margin: '2px 7px',
+          borderRadius: 8,
+          padding: collapsed ? '0' : '0 9px 0 12px',
+          justifyContent: collapsed ? 'center' : undefined,
+          textDecoration: 'none',
+          background: highlighted ? 'var(--nav-act-bg)' : 'transparent',
+          color: highlighted ? 'var(--nav-act-txt)' : 'var(--nav-txt)',
+          fontSize: 13.5,
+          fontWeight: highlighted ? 600 : 500,
+          transition: 'background 120ms, color 120ms',
+          userSelect: 'none',
+        }}
+        onMouseEnter={e => {
+          if (!highlighted) {
+            (e.currentTarget as HTMLElement).style.background = 'var(--nav-hvr-bg)'
+            ;(e.currentTarget as HTMLElement).style.color = 'var(--nav-hvr-txt)'
+          }
+        }}
+        onMouseLeave={e => {
+          if (!highlighted) {
+            (e.currentTarget as HTMLElement).style.background = 'transparent'
+            ;(e.currentTarget as HTMLElement).style.color = 'var(--nav-txt)'
+          }
+        }}
+      >
+        {/* Active indicator bar on left edge */}
+        {highlighted && (
+          <div style={{
+            position: 'absolute', left: -7, top: '50%', transform: 'translateY(-50%)',
+            width: 3, height: 16, background: 'var(--nav-dot)',
+            borderRadius: '0 3px 3px 0',
+          }} />
+        )}
+
+        <span
+          className="material-symbols-rounded"
+          style={{ fontSize: 18, flexShrink: 0 }}
+        >
+          {item.icon}
+        </span>
+
+        {!collapsed && (
+          <>
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {item.label}
+            </span>
+            {hasSubs && (
+              <span
+                className="material-symbols-rounded"
+                style={{
+                  fontSize: 13, flexShrink: 0,
+                  color: 'var(--grp)',
+                  transform: open ? 'rotate(180deg)' : 'none',
+                  transition: 'transform 200ms',
+                }}
+              >
+                expand_more
+              </span>
+            )}
+          </>
+        )}
+      </Link>
+
+      {/* Accordion sub-items */}
+      {hasSubs && !collapsed && (
         <div style={{
-          width: 28, height: 28, borderRadius: 7, flexShrink: 0,
+          overflow: 'hidden',
+          maxHeight: open ? `${item.subs!.length * 34 + 8}px` : 0,
+          transition: 'max-height 220ms ease',
+          padding: '0 7px 0 16px',
+        }}>
+          {item.subs!.map(sub => (
+            <SubLink key={sub.to} sub={sub} active={pathname === sub.to} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Section header ────────────────────────────────────────────────────────────
+
+function SectionHeader({ label, collapsed }: { label?: string; collapsed: boolean }) {
+  if (!label) return null
+  if (collapsed) return <div style={{ height: 8 }} />
+  return (
+    <div style={{
+      fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
+      letterSpacing: '1px', color: 'var(--grp)',
+      padding: '12px 14px 4px', fontFamily: INTER,
+    }}>
+      {label}
+    </div>
+  )
+}
+
+// ── Sidebar ───────────────────────────────────────────────────────────────────
+
+export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser; onLogout: () => void; utilities?: ReactNode }) {
+  const { pathname } = useLocation()
+
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('o3c_sb') === '1')
+
+  const [openKeys, setOpenKeys] = useState<Set<string>>(() => {
+    const open = new Set<string>()
+    SECTIONS.forEach(s =>
+      s.items.forEach(item => {
+        const subMatch = item.subs?.some(sub => sub.to !== '/' && pathname.startsWith(sub.to))
+        if (subMatch || (item.to !== '/' && pathname.startsWith(item.to))) open.add(item.to)
+      })
+    )
+    return open
+  })
+
+  useEffect(() => {
+    localStorage.setItem('o3c_sb', collapsed ? '1' : '0')
+  }, [collapsed])
+
+  const sections = visibleSections(user.role as string)
+
+  function toggleItem(to: string) {
+    setOpenKeys(prev => {
+      const next = new Set(prev)
+      next.has(to) ? next.delete(to) : next.add(to)
+      return next
+    })
+  }
+
+  const initials = user.name
+    .split(' ')
+    .map(w => w[0] ?? '')
+    .join('')
+    .slice(0, 2)
+    .toUpperCase()
+
+  const W = collapsed ? 60 : 252
+
+  return (
+    <aside style={{
+      width: W, minWidth: W,
+      display: 'flex', flexDirection: 'column',
+      height: '100vh', flexShrink: 0,
+      background: 'var(--sb)',
+      borderRight: '1px solid var(--sb-bdr)',
+      overflow: 'hidden',
+      transition: 'width 240ms cubic-bezier(0.4,0,0.2,1), min-width 240ms cubic-bezier(0.4,0,0.2,1)',
+      position: 'relative', zIndex: 10,
+    }}>
+
+      {/* ── Logo row ──────────────────────────────────────────────────────── */}
+      <div style={{
+        height: 50, flexShrink: 0,
+        display: 'flex', alignItems: 'center',
+        padding: collapsed ? '0 14px' : '0 14px',
+        gap: 9,
+        borderBottom: '1px solid var(--sb-bdr)',
+        justifyContent: collapsed ? 'center' : undefined,
+      }}>
+        {/* O3 box logo */}
+        <div style={{
+          width: 28, height: 28, borderRadius: 7,
           background: '#0E2841',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 11, fontWeight: 800, color: '#fff',
+          flexShrink: 0, fontFamily: INTER,
         }}>
-          <span style={{ color: '#fff', fontWeight: 800, fontSize: 11, letterSpacing: '-0.5px', fontFamily: "'Inter', sans-serif" }}>O3</span>
+          O3
         </div>
+
         {!collapsed && (
-          <div style={{ overflow: 'hidden', flex: 1 }}>
-            <div style={{ color: 'var(--txt)', fontWeight: 800, fontSize: 13.5, lineHeight: 1.2, letterSpacing: '-0.4px' }}>
+          <>
+            <div style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--txt)', letterSpacing: -0.4, whiteSpace: 'nowrap' }}>
               O3 <span style={{ color: '#C00000' }}>Capital</span>
             </div>
             <div style={{
-              display: 'inline-block', marginTop: 2,
-              fontSize: 8.5, fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase',
-              color: 'var(--chip-txt)', background: 'var(--chip-bg)',
-              padding: '1px 5px', borderRadius: 4,
+              marginLeft: 'auto', fontSize: 8.5, fontWeight: 700, letterSpacing: 0.5,
+              color: 'var(--txt2)', background: 'var(--chip-bg)',
+              padding: '2px 6px', borderRadius: 4, fontFamily: INTER, whiteSpace: 'nowrap',
             }}>
               WORKSPACE
             </div>
-          </div>
+          </>
         )}
       </div>
 
-      {/* ── Nav ── */}
-      <nav aria-label="Main navigation" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: collapsed ? '4px 8px' : '4px 10px' }}>
-        {SECTIONS.map((section, si) => {
-          const visibleMods = section.modules.filter(isModuleVisible)
-          if (visibleMods.length === 0) return null
-
-          return (
-            <div key={si} style={{ marginBottom: 4 }}>
-              {/* Section label */}
-              {section.label && !collapsed && (
-                <div style={{
-                  fontSize: 8.5,
-                  fontWeight: 700,
-                  letterSpacing: '1.3px',
-                  textTransform: 'uppercase',
-                  color: 'var(--grp)',
-                  padding: '10px 14px 3px',
-                }}>
-                  {section.label}
-                </div>
-              )}
-
-              {visibleMods.map(mod => {
-                const active   = isModuleActive(mod)
-                const hasSubs  = mod.items.length > 0
-                const isOpen   = openId === mod.id
-
-                /* ── Collapsed: icon only ── */
-                if (collapsed) {
-                  return (
-                    <button
-                      key={mod.id}
-                      onClick={() => handleModuleClick(mod)}
-                      title={mod.label}
-                      aria-label={mod.label}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: '100%',
-                        padding: '8px 0',
-                        borderRadius: 7,
-                        border: 'none',
-                        background: active ? 'var(--nav-act-bg)' : 'transparent',
-                        cursor: 'pointer',
-                        marginBottom: 1,
-                        transition: 'background 150ms',
-                        position: 'relative',
-                      }}
-                      onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--nav-hvr-bg)' }}
-                      onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
-                    >
-                      {active && (
-                        <div style={{
-                          position: 'absolute', left: -7, top: '50%',
-                          transform: 'translateY(-50%)', width: 3, height: 16,
-                          background: 'var(--nav-dot)', borderRadius: '0 3px 3px 0',
-                        }} />
-                      )}
-                      <span
-                        aria-hidden="true"
-                        className="material-symbols-rounded"
-                        style={{ fontSize: 18, color: active ? 'var(--nav-act-txt)' : 'var(--nav-txt)' }}
-                      >
-                        {mod.icon}
-                      </span>
-                    </button>
-                  )
-                }
-
-                /* ── Expanded: module row ── */
-                return (
-                  <div key={mod.id} style={{ margin: '1px 0' }}>
-                    <button
-                      onClick={() => handleModuleClick(mod)}
-                      aria-expanded={hasSubs ? isOpen : undefined}
-                      aria-controls={hasSubs ? `submenu-${mod.id}` : undefined}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 9,
-                        width: '100%',
-                        height: 32,
-                        padding: '0 9px 0 11px',
-                        borderRadius: 7,
-                        border: 'none',
-                        background: active ? 'var(--nav-act-bg)' : 'transparent',
-                        cursor: 'pointer',
-                        transition: 'background 150ms',
-                        position: 'relative',
-                      }}
-                      onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--nav-hvr-bg)' }}
-                      onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
-                    >
-                      {active && (
-                        <div style={{
-                          position: 'absolute', left: -7, top: '50%',
-                          transform: 'translateY(-50%)', width: 3, height: 16,
-                          background: 'var(--nav-dot)', borderRadius: '0 3px 3px 0',
-                        }} />
-                      )}
-                      <span
-                        aria-hidden="true"
-                        className="material-symbols-rounded"
-                        style={{ fontSize: 16, flexShrink: 0, color: active ? 'var(--nav-act-txt)' : 'var(--nav-txt)' }}
-                      >
-                        {mod.icon}
-                      </span>
-                      <span style={{
-                        flex: 1,
-                        textAlign: 'left',
-                        fontSize: 12.5,
-                        fontWeight: active ? 600 : 500,
-                        color: active ? 'var(--nav-act-txt)' : 'var(--nav-txt)',
-                        letterSpacing: '-0.1px',
-                        overflow: 'hidden',
-                        whiteSpace: 'nowrap',
-                        textOverflow: 'ellipsis',
-                      }}>
-                        {mod.label}
-                      </span>
-                      {hasSubs && (
-                        <span
-                          aria-hidden="true"
-                          className="material-symbols-rounded"
-                          style={{
-                            fontSize: 13,
-                            color: 'var(--grp)',
-                            transform: isOpen ? 'rotate(180deg)' : 'none',
-                            transition: 'transform .22s ease',
-                          }}
-                        >
-                          expand_more
-                        </span>
-                      )}
-                    </button>
-
-                    {/* Sub-items accordion */}
-                    {hasSubs && (
-                      <div id={`submenu-${mod.id}`} style={{
-                        overflow: 'hidden',
-                        maxHeight: isOpen ? `${mod.items.length * 30 + 8}px` : '0px',
-                        transition: 'max-height .22s ease',
-                        padding: '0 7px 0 14px',
-                      }}>
-                        {mod.items.map(item => (
-                          <NavLink
-                            key={item.to}
-                            to={item.to}
-                            end
-                            onClick={onMobileClose}
-                            style={({ isActive }) => ({
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 7,
-                              height: 28,
-                              padding: '0 8px 0 9px',
-                              margin: '1px 0',
-                              fontSize: 12.5,
-                              fontWeight: isActive ? 600 : 400,
-                              color: isActive ? 'var(--sub-act)' : 'var(--sub-txt)',
-                              borderRadius: 5,
-                              background: isActive ? 'var(--nav-act-bg)' : 'transparent',
-                              textDecoration: 'none',
-                              transition: 'color 120ms, background 120ms',
-                              cursor: 'pointer',
-                            })}
-                            onMouseEnter={e => {
-                              const el = e.currentTarget
-                              if (el.getAttribute('aria-current') !== 'page') {
-                                el.style.color = 'var(--sub-hvr)'
-                                el.style.background = 'var(--nav-hvr-bg)'
-                              }
-                            }}
-                            onMouseLeave={e => {
-                              const el = e.currentTarget
-                              if (el.getAttribute('aria-current') !== 'page') {
-                                el.style.color = 'var(--sub-txt)'
-                                el.style.background = 'transparent'
-                              }
-                            }}
-                          >
-                            {/* 1px × 14px vertical indicator line */}
-                            {({ isActive }: { isActive: boolean }) => (
-                              <>
-                                <div style={{
-                                  width: 1, height: 14, flexShrink: 0, borderRadius: 1,
-                                  background: isActive ? 'var(--nav-dot)' : 'var(--bdr)',
-                                  transition: 'background .12s',
-                                }} />
-                                {item.label}
-                              </>
-                            )}
-                          </NavLink>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )
-        })}
+      {/* ── Nav ────────────────────────────────────────────────────────────── */}
+      <nav style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '6px 0 12px' }}>
+        {sections.map((section, i) => (
+          <div key={section.key} style={{ marginBottom: 4 }}>
+            {(section.header || i > 0) && (
+              <SectionHeader label={section.header} collapsed={collapsed} />
+            )}
+            {section.items.map(item => (
+              <NavRow
+                key={item.to}
+                item={item}
+                isActive={item.to === '/' ? pathname === '/' : item.subs?.length ? pathname === item.to : pathname.startsWith(item.to)}
+                hasActiveSub={item.subs?.some(s => s.to !== '/' && pathname.startsWith(s.to)) ?? false}
+                collapsed={collapsed}
+                open={openKeys.has(item.to)}
+                onToggle={() => toggleItem(item.to)}
+              />
+            ))}
+          </div>
+        ))}
       </nav>
 
-      {/* ── Collapse toggle ── */}
-      <div style={{ flexShrink: 0, padding: '6px 10px', borderTop: '1px solid var(--sb-bdr)' }}>
-        <button
-          onClick={toggleCollapse}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: collapsed ? 'center' : 'flex-start',
-            gap: 8,
-            width: '100%',
-            padding: '6px 8px',
-            borderRadius: 6,
-            border: 'none',
-            background: 'transparent',
-            cursor: 'pointer',
-            color: 'var(--nav-txt)',
-            fontSize: 12,
-            fontWeight: 500,
-            transition: 'color 150ms, background 150ms',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'var(--nav-hvr-bg)'; e.currentTarget.style.color = 'var(--txt2)' }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--nav-txt)' }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>
-            {collapsed ? 'chevron_right' : 'chevron_left'}
-          </span>
-          {!collapsed && <span>Collapse</span>}
-        </button>
-      </div>
-
-      {/* ── User footer ── */}
+      {/* ── User footer ────────────────────────────────────────────────────── */}
       <div style={{
         flexShrink: 0,
-        padding: '8px 10px',
         borderTop: '1px solid var(--sb-bdr)',
+        padding: collapsed ? '8px 7px 6px' : '8px 7px 6px',
       }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 9,
-          justifyContent: collapsed ? 'center' : 'flex-start',
-        }}>
-          {/* Avatar — always navy, initials in white */}
+        {/* Utility buttons (C360, approvals, notifications, theme) */}
+        {utilities && (
           <div style={{
-            width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
-            background: 'linear-gradient(135deg, #0E2841 0%, #1A4068 100%)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 11, fontWeight: 700, color: '#fff',
-            letterSpacing: '-0.3px',
+            flexWrap: 'wrap', gap: 2, padding: '2px 2px 6px',
           }}>
-            {initials(user.name)}
+            {utilities}
+          </div>
+        )}
+        {/* Collapse / expand toggle */}
+        {!collapsed && (
+          <div
+            onClick={() => setCollapsed(true)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '7px 10px', borderRadius: 7,
+              color: 'var(--nav-txt)', fontSize: 12, fontWeight: 500,
+              cursor: 'pointer', marginBottom: 2,
+              transition: 'all 120ms',
+            }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLElement).style.background = 'var(--nav-hvr-bg)'
+              ;(e.currentTarget as HTMLElement).style.color = 'var(--nav-hvr-txt)'
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLElement).style.background = 'transparent'
+              ;(e.currentTarget as HTMLElement).style.color = 'var(--nav-txt)'
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>chevron_left</span>
+            <span style={{ flex: 1 }}>Collapse</span>
+          </div>
+        )}
+
+        {collapsed && (
+          <div
+            onClick={() => setCollapsed(false)}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '7px', borderRadius: 7, cursor: 'pointer', marginBottom: 2,
+              color: 'var(--nav-txt)', transition: 'all 120ms',
+            }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLElement).style.background = 'var(--nav-hvr-bg)'
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLElement).style.background = 'transparent'
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>chevron_right</span>
+          </div>
+        )}
+
+        {/* User row */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '8px 10px 2px',
+          borderTop: '1px solid var(--sb-bdr)', marginTop: 4,
+        }}>
+          <div style={{
+            width: 26, height: 26, borderRadius: '50%',
+            background: 'linear-gradient(135deg,#0E2841,#1a3a5c)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 10, fontWeight: 700, color: '#fff', flexShrink: 0, fontFamily: INTER,
+          }}>
+            {initials}
           </div>
 
           {!collapsed && (
             <>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{
-                  fontSize: 12.5, fontWeight: 600, color: 'var(--txt)',
-                  overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
-                  lineHeight: 1.25,
-                }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {user.name}
                 </div>
-                <div style={{ fontSize: 10.5, color: 'var(--txt2)', lineHeight: 1.3, marginTop: 1 }}>
-                  {roleLabel(role)}
+                <div style={{ fontSize: 9.5, color: 'var(--txt2)', fontFamily: INTER }}>
+                  {roleLabel(user.role as string)}
                 </div>
               </div>
+
               <button
                 onClick={onLogout}
                 title="Sign out"
                 style={{
+                  width: 24, height: 24, borderRadius: 6, border: 'none',
+                  background: 'transparent', cursor: 'pointer', flexShrink: 0,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  width: 28, height: 28, borderRadius: 6, border: 'none',
-                  background: 'transparent', cursor: 'pointer',
-                  color: 'var(--nav-txt)',
-                  transition: 'color 150ms, background 150ms',
-                  flexShrink: 0,
+                  color: 'var(--txt3)', transition: 'color 120ms',
                 }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'var(--nav-hvr-bg)'; e.currentTarget.style.color = 'var(--txt)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--nav-txt)' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--nav-dot)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--txt3)' }}
               >
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>logout</span>
+                <span className="material-symbols-rounded" style={{ fontSize: 17 }}>more_horiz</span>
               </button>
             </>
-          )}
-
-          {collapsed && (
-            <button
-              onClick={onLogout}
-              title="Sign out"
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                width: 28, height: 28, borderRadius: 6, border: 'none',
-                background: 'transparent', cursor: 'pointer',
-                color: 'var(--nav-txt)',
-                transition: 'color 150ms, background 150ms',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--nav-hvr-bg)'; e.currentTarget.style.color = 'var(--txt)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--nav-txt)' }}
-            >
-              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>logout</span>
-            </button>
           )}
         </div>
       </div>

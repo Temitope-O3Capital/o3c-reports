@@ -1,205 +1,162 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Page, SectionCard, DataTable, ErrBanner, SearchInput } from '../../components/UI'
+import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDate } from '../../lib/fmt'
-import { Page, SectionCard, ErrBanner, NAVY } from '../../components/UI'
+import { fmtDatetime } from '../../lib/fmt'
+import { RED, GREEN, AMBER, NAVY, INTER, SORA, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
 interface ApiKey {
-  key_name:       string
-  description:    string
-  category:       string
-  is_active:      boolean
-  is_secret:      boolean
-  has_value:      boolean
-  last_tested_at: string | null
-  test_status:    string | null
-  updated_at:     string | null
-}
-
-const CATEGORY_LABELS: Record<string, string> = {
-  messaging:  'Messaging (Email & SMS)',
-  payments:   'Payments',
-  telephony:  'Telephony / Call Centre',
-  general:    'General',
-}
-
-const CATEGORY_ICON: Record<string, string> = {
-  messaging:  'email',
-  payments:   'payments',
-  telephony:  'call',
-  general:    'settings',
-}
-
-function TestBadge({ status }: { status: string | null }) {
-  if (!status) return <span className="text-[11px] text-[color:var(--txt2)]">Not tested</span>
-  if (status === 'ok') return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
-      <span className="material-symbols-rounded text-[13px]">check_circle</span> OK
-    </span>
-  )
-  return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-red-700 bg-red-50 px-2 py-0.5 rounded-full">
-      <span className="material-symbols-rounded text-[13px]">error</span> Failed
-    </span>
-  )
-}
-
-function EditModal({
-  keyName, description, isSecret, onClose, onSave,
-}: {
-  keyName:     string
+  key_name: string
   description: string
-  isSecret:    boolean
-  onClose:     () => void
-  onSave:      () => void
-}) {
-  const [value,  setValue]  = useState('')
-  const [saving, setSaving] = useState(false)
-  const [show,   setShow]   = useState(!isSecret)
+  category: string
+  is_active: boolean
+  is_secret: boolean
+  has_value: boolean
+  last_tested_at?: string
+  test_status?: string
+  updated_at?: string
+  updated_by?: string
+}
 
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault()
-    if (!value.trim()) { toast.error('Enter a value'); return }
+// ── Status badge ──────────────────────────────────────────────────────────────
+
+function TestBadge({ status }: { status?: string }) {
+  if (!status) return <span style={{ color: 'var(--txt3)', fontSize: 12 }}>—</span>
+  const c = status === 'ok' ? GREEN : RED
+  return (
+    <span style={{ fontSize: 11.5, fontWeight: 600, background: `${c}18`, color: c, borderRadius: 10, padding: '2px 9px' }}>
+      {status === 'ok' ? '✓ OK' : `✗ ${status}`}
+    </span>
+  )
+}
+
+// ── Edit modal ────────────────────────────────────────────────────────────────
+
+function EditModal({ apiKey, onClose, onSaved }: { apiKey: ApiKey; onClose: () => void; onSaved: () => void }) {
+  const [value, setValue] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    if (!value.trim()) { toast.error('Value cannot be empty'); return }
     setSaving(true)
     try {
-      await apiFetch(`/api/admin/api-keys/${encodeURIComponent(keyName)}`, {
+      await apiFetch(`/api/admin/api-keys/${encodeURIComponent(apiKey.key_name)}`, {
         method: 'PUT',
         body: JSON.stringify({ value }),
       })
-      toast.success(isSecret ? 'Key saved. Use the Test button to verify it.' : 'Value saved.')
-      onSave()
+      toast.success(`${apiKey.key_name} updated`)
+      onSaved()
       onClose()
-    } catch (err: any) {
-      toast.error(err.message ?? 'Save failed')
+    } catch (e: any) {
+      toast.error(e.message)
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 50,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: '100%', maxWidth: 440,
-        boxShadow: '0 20px 60px rgba(0,0,0,.18)' }}>
-        <h3 className="text-[15px] font-bold mb-1" style={{ color: 'var(--txt)' }}>
-          {isSecret ? 'Update API Key' : 'Update Setting'}
-        </h3>
-        <p className="text-[12px] mb-5" style={{ color: 'var(--txt2)' }}>{description}</p>
-        <p className="text-[11px] font-mono mb-4 px-2 py-1 rounded"
-          style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>{keyName}</p>
-        <form onSubmit={handleSave} className="space-y-4">
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: 480, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wide mb-1.5" style={{ color: 'var(--txt2)' }}>
-              {isSecret ? 'New Value' : 'Value'}
-            </label>
-            <div className="relative">
-              <input
-                type={show ? 'text' : 'password'}
-                required
-                autoComplete="off"
-                placeholder={isSecret ? 'Paste key value here…' : 'Enter value…'}
-                value={value}
-                onChange={e => setValue(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2.5 text-[13px] outline-none pr-10"
-                style={{
-                  background: 'var(--input-bg)',
-                  borderColor: 'var(--input-bdr)',
-                  color: 'var(--txt)',
-                  fontFamily: isSecret ? 'monospace' : 'inherit',
-                }}
-              />
-              {isSecret && (
-                <button
-                  type="button"
-                  onClick={() => setShow(s => !s)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--txt2)] hover:text-[color:var(--txt2)]"
-                  tabIndex={-1}>
-                  <span className="material-symbols-rounded text-[18px]">
-                    {show ? 'visibility_off' : 'visibility'}
-                  </span>
-                </button>
-              )}
-            </div>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>Update API Key</h3>
+            <div style={{ fontSize: 12.5, color: 'var(--txt2)', marginTop: 4, fontFamily: 'monospace' }}>{apiKey.key_name}</div>
           </div>
-          <div className="flex gap-2 pt-1">
-            <button type="button" onClick={onClose}
-              className="flex-1 py-2 rounded-lg text-[13px] font-semibold border"
-              style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
-              Cancel
-            </button>
-            <button type="submit" disabled={saving}
-              className="flex-1 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
-              style={{ background: NAVY }}>
-              {saving ? 'Saving…' : isSecret ? 'Save Key' : 'Save'}
-            </button>
-          </div>
-        </form>
+          <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)' }}>
+            <span className="material-symbols-rounded">close</span>
+          </button>
+        </div>
+        {apiKey.description && (
+          <div style={{ fontSize: 13, color: 'var(--txt2)', marginBottom: 16, background: 'var(--input-bg)', borderRadius: 8, padding: '10px 12px' }}>{apiKey.description}</div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 14, color: AMBER }}>lock</span>
+          <span style={{ fontSize: 12, color: AMBER, fontWeight: 600 }}>Value is encrypted at rest with AES-256-GCM</span>
+        </div>
+        <input
+          autoFocus
+          type="password"
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') save() }}
+          placeholder={apiKey.has_value ? 'Enter new value to replace current…' : 'Enter value…'}
+          style={{ display: 'block', width: '100%', padding: '9px 12px', borderRadius: 9, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 13, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none', marginBottom: 18 }}
+        />
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 9, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: INTER }}>Cancel</button>
+          <button onClick={save} disabled={saving} style={{ padding: '9px 20px', borderRadius: 9, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER }}>
+            {saving ? 'Saving…' : 'Save Key'}
+          </button>
+        </div>
       </div>
     </div>
   )
 }
 
-function LogoUpload({ onDone }: { onDone: () => void }) {
-  const inputRef  = useRef<HTMLInputElement>(null)
-  const [uploading, setUploading] = useState(false)
+// ── Row actions ───────────────────────────────────────────────────────────────
 
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setUploading(true)
+function RowActions({ apiKey, onEdit, onReload }: { apiKey: ApiKey; onEdit: () => void; onReload: () => void }) {
+  const [testing, setTesting] = useState(false)
+
+  async function test() {
+    if (!apiKey.has_value) { toast.error('No value stored — save a value first'); return }
+    setTesting(true)
     try {
-      const fd = new FormData()
-      fd.append('logo', file)
-      const res = await fetch('/api/admin/upload-logo', {
-        method: 'POST',
-        credentials: 'include',
-        body: fd,
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        toast.error((err as any).error ?? 'Upload failed')
-        return
+      const res = await apiFetch<{ status: string; detail: string }>(
+        `/api/admin/api-keys/${encodeURIComponent(apiKey.key_name)}/test`,
+        { method: 'POST' }
+      )
+      if (res.status === 'ok') {
+        toast.success(`${apiKey.key_name}: ${res.detail}`)
+      } else {
+        toast.error(`${apiKey.key_name}: ${res.detail}`)
       }
-      toast.success('Logo uploaded — it will appear in all future notification emails')
-      onDone()
-    } catch {
-      toast.error('Upload failed')
+      onReload()
+    } catch (e: any) {
+      toast.error(e.message)
     } finally {
-      setUploading(false)
-      if (inputRef.current) inputRef.current.value = ''
+      setTesting(false)
     }
   }
 
   return (
-    <>
-      <input ref={inputRef} type="file" accept=".png,.jpg,.jpeg,.svg,.gif,.webp"
-        className="hidden" onChange={handleFile} />
-      <button
-        onClick={() => inputRef.current?.click()}
-        disabled={uploading}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold border transition-all disabled:opacity-50"
-        style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
-        <span className="material-symbols-rounded text-[13px]">
-          {uploading ? 'hourglass_empty' : 'upload'}
-        </span>
-        {uploading ? 'Uploading…' : 'Upload'}
+    <div style={{ display: 'flex', gap: 6 }}>
+      <button onClick={e => { e.stopPropagation(); test() }} disabled={testing} style={{
+        padding: '3px 10px', borderRadius: 6, border: '1.5px solid var(--bdr)', background: 'transparent',
+        color: 'var(--txt2)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
+      }}>
+        {testing ? '…' : 'Test'}
       </button>
-    </>
+      <button onClick={e => { e.stopPropagation(); onEdit() }} style={{
+        padding: '3px 10px', borderRadius: 6, border: 'none', background: `${NAVY}12`,
+        color: NAVY, fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
+      }}>
+        Edit
+      </button>
+    </div>
   )
 }
 
-export default function ApiKeys() {
-  const [keys,    setKeys]    = useState<ApiKey[]>([])
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+export default function AdminApiKeys() {
+  const [rows,    setRows]    = useState<ApiKey[]>([])
   const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState('')
+  const [error,   setError]   = useState<string | null>(null)
   const [editing, setEditing] = useState<ApiKey | null>(null)
-  const [testing, setTesting] = useState<string | null>(null)
+  const [search,  setSearch]  = useState('')
+  const [catFilter, setCatFilter] = useState('')
 
   const load = useCallback(async () => {
-    setLoading(true); setError('')
+    setLoading(true)
+    setError(null)
     try {
-      const res = await apiFetch('/api/admin/api-keys')
-      setKeys((res.data ?? res) as ApiKey[])
+      const data = await apiFetch<ApiKey[]>('/api/admin/api-keys')
+      setRows(Array.isArray(data) ? data : [])
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -209,147 +166,91 @@ export default function ApiKeys() {
 
   useEffect(() => { load() }, [load])
 
-  async function handleTest(keyName: string) {
-    setTesting(keyName)
-    try {
-      const res = await apiFetch(`/api/admin/api-keys/${encodeURIComponent(keyName)}/test`, {
-        method: 'POST',
-      })
-      const status = (res as any).status ?? 'ok'
-      if (status === 'ok' || status === 'connected') {
-        toast.success(`${keyName} — connection OK`)
-      } else if (status === 'test_not_implemented') {
-        toast.info(`${keyName} — no automated test for this key`)
-      } else {
-        toast.error(`${keyName} — test failed: ${status}`)
-      }
-      await load()
-    } catch (e: any) {
-      toast.error(`Test failed: ${e.message}`)
-    } finally {
-      setTesting(null)
-    }
-  }
+  const categories = [...new Set(rows.map(r => r.category))].sort()
 
-  const grouped = Object.entries(CATEGORY_LABELS).map(([cat, label]) => ({
-    cat,
-    label,
-    icon:  CATEGORY_ICON[cat] ?? 'settings',
-    items: keys.filter(k => k.category === cat),
-  })).filter(g => g.items.length > 0)
+  const displayed = useMemo(() => {
+    return rows.filter(r => {
+      if (catFilter && r.category !== catFilter) return false
+      if (search) {
+        const q = search.toLowerCase()
+        return r.key_name.toLowerCase().includes(q) || (r.description ?? '').toLowerCase().includes(q)
+      }
+      return true
+    })
+  }, [rows, search, catFilter])
+
+  const missingCount = rows.filter(r => !r.has_value).length
+  const failedCount  = rows.filter(r => r.test_status && r.test_status !== 'ok').length
+
+  const COLS: TableCol<ApiKey>[] = [
+    { key: 'key_name', label: 'Key Name',
+      render: r => (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {r.is_secret && <span className="material-symbols-rounded" style={{ fontSize: 14, color: AMBER }}>lock</span>}
+            <span style={{ fontFamily: 'monospace', fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.key_name}</span>
+          </div>
+          {r.description && <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 2 }}>{r.description}</div>}
+        </div>
+      ),
+    },
+    { key: 'category', label: 'Category',
+      render: r => <span style={{ fontSize: 12, background: 'var(--chip-bg)', color: 'var(--chip-txt)', borderRadius: 6, padding: '2px 9px', fontWeight: 600 }}>{r.category}</span> },
+    { key: 'has_value', label: 'Value',
+      render: r => (
+        <span style={{ fontSize: 11.5, fontWeight: 600, color: r.has_value ? GREEN : RED }}>
+          {r.has_value ? '✓ Set' : '✗ Missing'}
+        </span>
+      ),
+    },
+    { key: 'test_status', label: 'Last Test', render: r => <TestBadge status={r.test_status} /> },
+    { key: 'updated_at', label: 'Updated', width: 145,
+      render: r => <span style={{ ...NUM, fontSize: 11.5, color: 'var(--txt3)' }}>{r.updated_at ? fmtDatetime(r.updated_at) : '—'}</span> },
+    { key: '_actions', label: '',
+      render: r => <RowActions apiKey={r} onEdit={() => setEditing(r)} onReload={load} /> },
+  ]
 
   return (
-    <Page
-      dept="Admin"
-      title="API Credentials"
-      subtitle="Manage external service API keys — stored encrypted">
+    <Page back={{ label: 'Admin', to: '/admin' }} title="API Keys" subtitle="Encrypted external service credentials">
+      <ErrBanner error={error} onRetry={load} />
 
-      {/* Warning banner */}
-      <div className="rounded-xl p-4 mb-2 flex items-start gap-3"
-        style={{ background: '#FFFBEB', border: '1px solid #FDE68A' }}>
-        <span className="material-symbols-rounded text-[20px] text-amber-500 flex-shrink-0 mt-0.5">warning</span>
-        <p className="text-[13px] text-amber-800 leading-relaxed">
-          API keys are encrypted before storage. Never share them in chats or emails.
-          Use the <strong>Test</strong> button after saving each key to verify it's working.
-        </p>
+      {(missingCount > 0 || failedCount > 0) && (
+        <div style={{ background: 'rgba(192,0,0,.07)', border: '1px solid rgba(192,0,0,.2)', borderRadius: 10, padding: '12px 16px', marginBottom: 20, display: 'flex', gap: 10, alignItems: 'center' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 18, color: RED }}>warning</span>
+          <span style={{ fontSize: 13, color: RED, fontWeight: 600 }}>
+            {[missingCount > 0 && `${missingCount} keys missing values`, failedCount > 0 && `${failedCount} keys failing health check`].filter(Boolean).join(' · ')}
+          </span>
+        </div>
+      )}
+
+      {/* Summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginBottom: 20 }}>
+        {[
+          { label: 'Total Keys',    value: rows.length,  color: 'var(--txt)' },
+          { label: 'Missing Value', value: missingCount, color: missingCount > 0 ? RED : GREEN },
+          { label: 'Failed Tests',  value: failedCount,  color: failedCount > 0 ? RED : GREEN },
+        ].map(({ label, value, color }) => (
+          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '14px 16px' }}>
+            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 6 }}>{label}</div>
+            <div style={{ ...NUM, fontSize: 20, fontWeight: 700, color }}>{value}</div>
+          </div>
+        ))}
       </div>
 
-      <ErrBanner msg={error} />
-
-      {loading && (
-        <div className="flex items-center justify-center py-20">
-          <div className="w-7 h-7 border-2 rounded-full animate-spin"
-            style={{ borderColor: 'rgba(14,40,65,0.1)', borderTopColor: NAVY }} />
+      <SectionCard title="API Credentials" badge={displayed.length} padding={false}>
+        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 10, alignItems: 'center' }}>
+          <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
+          <select value={catFilter} onChange={e => setCatFilter(e.target.value)}
+            style={{ padding: '7px 12px', borderRadius: 9, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}>
+            <option value="">All categories</option>
+            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>{displayed.length} keys</span>
         </div>
-      )}
+        <DataTable cols={COLS} rows={displayed} keyFn={r => r.key_name} loading={loading} emptyText="No API keys configured" />
+      </SectionCard>
 
-      {!loading && grouped.length === 0 && !error && (
-        <div className="flex flex-col items-center py-20 gap-3 text-[color:var(--txt2)]">
-          <span className="material-symbols-rounded text-[48px]">key_off</span>
-          <p className="text-[14px]">No API credentials configured yet.</p>
-          <p className="text-[12px]">Run migration 012_api_credentials.sql to seed the key names.</p>
-        </div>
-      )}
-
-      {grouped.map(({ cat, label, icon, items }) => (
-        <SectionCard
-          key={cat}
-          title={label}
-          subtitle={`${items.length} credential${items.length !== 1 ? 's' : ''}`}>
-          <div className="divide-y" style={{ borderColor: 'rgba(15,23,42,0.06)' }}>
-            {items.map(key => (
-              <div key={key.key_name}
-                className="flex items-center gap-4 px-5 py-3.5 transition-colors" style={{ background: 'var(--card)' }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'var(--card)')}>
-                {/* Status dot */}
-                <span className="w-2 h-2 rounded-full flex-shrink-0 mt-0.5"
-                  style={{ background: key.has_value ? '#22C55E' : '#94A3B8' }} />
-
-                {/* Key info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[12px] font-mono font-semibold" style={{ color: 'var(--txt)' }}>{key.key_name}</p>
-                    {!key.is_secret && (
-                      <span className="text-[11px] font-medium px-1.5 py-0.5 rounded"
-                        style={{ background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
-                        config
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{key.description}</p>
-                </div>
-
-                {/* Test status + last tested */}
-                <div className="hidden sm:flex flex-col items-end gap-0.5 flex-shrink-0">
-                  <TestBadge status={key.test_status} />
-                  {key.last_tested_at && (
-                    <span className="text-[11px]" style={{ color: 'var(--txt3)' }}>
-                      Tested {fmtDate(key.last_tested_at)}
-                    </span>
-                  )}
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {key.is_secret && (
-                    <button
-                      onClick={() => handleTest(key.key_name)}
-                      disabled={testing === key.key_name}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold border transition-all disabled:opacity-50"
-                      style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
-                      <span className="material-symbols-rounded text-[13px]">
-                        {testing === key.key_name ? 'hourglass_empty' : 'wifi_tethering'}
-                      </span>
-                      {testing === key.key_name ? 'Testing…' : 'Test'}
-                    </button>
-                  )}
-                  {key.key_name === 'EMAIL_LOGO_URL' && (
-                    <LogoUpload onDone={load} />
-                  )}
-                  <button
-                    onClick={() => setEditing(key)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white"
-                    style={{ background: NAVY }}>
-                    <span className="material-symbols-rounded text-[13px]">edit</span>
-                    {key.is_secret ? 'Set Key' : 'Edit'}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </SectionCard>
-      ))}
-
-      {editing && (
-        <EditModal
-          keyName={editing.key_name}
-          description={editing.description}
-          isSecret={editing.is_secret}
-          onClose={() => setEditing(null)}
-          onSave={load}
-        />
-      )}
+      {editing && <EditModal apiKey={editing} onClose={() => setEditing(null)} onSaved={load} />}
     </Page>
   )
 }

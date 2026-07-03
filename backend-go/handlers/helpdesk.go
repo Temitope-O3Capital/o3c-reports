@@ -107,9 +107,38 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 	r.Put("/kb/{id}", hdKBUpdate(db))
 	r.Delete("/kb/{id}", hdKBDelete(db))
 	r.Post("/kb/{id}/view", hdKBIncView(db))
+	r.Put("/kb/{id}/status", hdKBSetStatus(db))
+
+	// Analytics endpoints consumed by Stats page
+	r.Get("/agents", hdListAgents(db))
+	r.Get("/csat-trend", hdCSATTrend(db))
+	r.Get("/handle-time-by-type", hdHandleTimeByType(db))
+	r.Get("/resolution-by-agent", hdResolutionByAgent(db))
+	r.Get("/type-distribution", hdTypeDistribution(db))
 
 	// Inbound call auto-ticket webhook (Zoho Voice)
 	r.Post("/inbound/call", hdInboundCall(db))
+
+	// Ticket enriched context (customer360 data)
+	r.Get("/tickets/{id}/context", hdTicketContext(db))
+
+	// KB article feedback
+	r.Post("/kb/{id}/feedback", hdKBFeedback(db))
+
+	// Extended stats analytics
+	r.Get("/stats/leaderboard", hdStatsLeaderboard(db))
+	r.Get("/stats/sla-by-agent", hdStatsSLAByAgent(db))
+	r.Get("/stats/busiest-hours", hdStatsBusiestHours(db))
+	r.Get("/stats/channel-breakdown", hdStatsChannelBreakdown(db))
+
+	// Agent helpdesk status (Available / On Call / Break / Offline)
+	r.Put("/agents/{id}/status", hdSetAgentStatus(db))
+
+	// Routing rules CRUD
+	r.Get("/routing-rules", hdListRoutingRules(db))
+	r.Post("/routing-rules", hdCreateRoutingRule(db))
+	r.Put("/routing-rules/{id}", hdUpdateRoutingRule(db))
+	r.Delete("/routing-rules/{id}", hdDeleteRoutingRule(db))
 }
 
 // ── Tickets ───────────────────────────────────────────────────────────────────
@@ -884,7 +913,12 @@ func hdListCanned(db *core.DB) http.HandlerFunc {
 		}
 		_ = n
 		rows, err := db.PGQuery(r.Context(),
-			fmt.Sprintf("SELECT * FROM helpdesk_canned_responses WHERE %s ORDER BY name ASC", where), args...)
+			fmt.Sprintf(`SELECT c.id, c.name AS title, c.category, c.body_text AS body,
+			             c.last_used_at, c.created_at,
+			             COALESCE(u.full_name, c.created_by::text, '') AS created_by
+			             FROM helpdesk_canned_responses c
+			             LEFT JOIN o3c_users u ON u.id = c.created_by
+			             WHERE %s ORDER BY c.name ASC`, where), args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -1829,18 +1863,27 @@ func hdListCalls(db *core.DB) http.HandlerFunc {
 		dateFrom := r.URL.Query().Get("date_from")
 		dateTo := r.URL.Query().Get("date_to")
 		customerCIF := r.URL.Query().Get("customer_cif")
+		agentFilter := r.URL.Query().Get("agent")
+		outcomeFilter := r.URL.Query().Get("outcome")
 		limit := qint(r, "limit", 200, 1, 500)
 
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT id, agent_name, customer_name, customer_phone,
-			       customer_cif, customer_email, direction, duration_sec, outcome, notes,
-			       ticket_id, ticket_ref, started_at
+			SELECT id, agent_name, customer_name,
+			       customer_phone AS phone,
+			       customer_cif, customer_email,
+			       INITCAP(direction) AS direction,
+			       duration_sec AS duration_seconds,
+			       outcome, notes,
+			       ticket_id, ticket_ref,
+			       started_at AS called_at
 			FROM helpdesk_calls
 			WHERE ($1 = '' OR started_at::date >= $1::date)
 			  AND ($2 = '' OR started_at::date <= $2::date)
 			  AND ($3 = '' OR customer_cif = $3)
+			  AND ($4 = '' OR outcome = $4)
+			  AND ($5 = '' OR agent_name ILIKE '%' || $5 || '%')
 			ORDER BY started_at DESC
-			LIMIT $4`, dateFrom, dateTo, customerCIF, limit)
+			LIMIT $6`, dateFrom, dateTo, customerCIF, outcomeFilter, agentFilter, limit)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -2037,24 +2080,35 @@ func hdKBList(db *core.DB) http.HandlerFunc {
 		category := r.URL.Query().Get("category")
 		search := r.URL.Query().Get("search")
 
-		q := `SELECT id, title, slug, category, tags, is_public, view_count, created_at, updated_at
-		      FROM helpdesk_knowledge_base WHERE TRUE`
+		q := `SELECT kb.id, kb.title, kb.category,
+		             CASE WHEN kb.is_public THEN 'Live' ELSE 'Draft' END AS status,
+		             NULL::numeric AS helpful_pct,
+		             kb.body_text AS body,
+		             kb.updated_at AS last_updated,
+		             COALESCE(u.full_name, 'Unknown') AS created_by,
+		             kb.view_count
+		      FROM helpdesk_knowledge_base kb
+		      LEFT JOIN o3c_users u ON u.id = kb.created_by
+		      WHERE TRUE`
 		args := []any{}
 		n := 1
 		if category != "" {
-			q += fmt.Sprintf(" AND category=$%d", n)
+			q += fmt.Sprintf(" AND kb.category=$%d", n)
 			args = append(args, category)
 			n++
 		}
 		if search != "" {
-			q += fmt.Sprintf(" AND (title ILIKE $%d OR body_text ILIKE $%d)", n, n)
+			q += fmt.Sprintf(" AND (kb.title ILIKE $%d OR kb.body_text ILIKE $%d)", n, n)
 			args = append(args, "%"+search+"%")
 			n++
 		}
-		q += " ORDER BY updated_at DESC LIMIT 200"
+		q += " ORDER BY kb.updated_at DESC LIMIT 200"
 		_ = n
 
 		rows, _ := db.PGQuery(ctx, q, args...)
+		if rows == nil {
+			rows = []core.Row{}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}
@@ -2072,12 +2126,22 @@ func hdKBCreate(db *core.DB) http.HandlerFunc {
 			Category string   `json:"category"`
 			BodyHTML string   `json:"body_html"`
 			BodyText string   `json:"body_text"`
+			Body     string   `json:"body"` // alias accepted from frontend
 			Tags     []string `json:"tags"`
 			IsPublic bool     `json:"is_public"`
+			Status   string   `json:"status"` // "Live" → is_public=true
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.Title == "" {
 			respondErr(w, 400, "title required")
 			return
+		}
+		// Accept body as alias for body_text
+		if b.BodyText == "" && b.Body != "" {
+			b.BodyText = b.Body
+		}
+		// Accept status as alias for is_public
+		if b.Status == "Live" {
+			b.IsPublic = true
 		}
 		if b.Slug == "" {
 			b.Slug = strings.ToLower(strings.ReplaceAll(b.Title, " ", "-"))
@@ -2177,12 +2241,23 @@ func hdKBUpdate(db *core.DB) http.HandlerFunc {
 			Category *string  `json:"category"`
 			BodyHTML *string  `json:"body_html"`
 			BodyText *string  `json:"body_text"`
+			Body     *string  `json:"body"` // alias accepted from frontend
 			Tags     []string `json:"tags"`
 			IsPublic *bool    `json:"is_public"`
+			Status   *string  `json:"status"` // "Live" → is_public=true
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "invalid json")
 			return
+		}
+		// Accept body as alias for body_text
+		if b.BodyText == nil && b.Body != nil {
+			b.BodyText = b.Body
+		}
+		// Accept status as alias for is_public
+		if b.IsPublic == nil && b.Status != nil {
+			pub := *b.Status == "Live"
+			b.IsPublic = &pub
 		}
 		uid := func() int64 {
 			if u := core.UserFromCtx(r.Context()); u != nil {
@@ -2240,6 +2315,136 @@ func hdKBDelete(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		db.PGExec(r.Context(), `DELETE FROM helpdesk_knowledge_base WHERE id=$1`, id) //nolint:errcheck
 		w.WriteHeader(204)
+	}
+}
+
+// ── KB status shortcut ────────────────────────────────────────────────────────
+
+func hdKBSetStatus(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureKBSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Schema setup failed")
+			return
+		}
+		id := chi.URLParam(r, "id")
+		var b struct {
+			Status string `json:"status"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.Status == "" {
+			respondErr(w, 400, "status required")
+			return
+		}
+		isPublic := b.Status == "Live"
+		if _, err := db.PGExec(r.Context(),
+			`UPDATE helpdesk_knowledge_base SET is_public=$1, updated_at=NOW() WHERE id=$2`,
+			isPublic, id); err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+		w.WriteHeader(204)
+	}
+}
+
+// ── Stats analytics endpoints ─────────────────────────────────────────────────
+
+func hdListAgents(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, _ := db.PGQuery(r.Context(),
+			`SELECT id, full_name FROM o3c_users WHERE deleted_at IS NULL AND is_active=TRUE ORDER BY full_name`)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
+	}
+}
+
+func hdCSATTrend(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dateFrom := qstr(r, "date_from")
+		dateTo := qstr(r, "date_to")
+		rows, _ := db.PGQuery(r.Context(), `
+			SELECT TO_CHAR(created_at::date, 'YYYY-MM-DD') AS date,
+			       ROUND(AVG(csat_score::numeric), 2) AS csat_score,
+			       COUNT(*) AS ticket_count
+			FROM helpdesk_tickets
+			WHERE csat_score IS NOT NULL
+			  AND ($1 = '' OR created_at::date >= $1::date)
+			  AND ($2 = '' OR created_at::date <= $2::date)
+			GROUP BY created_at::date
+			ORDER BY created_at::date`, dateFrom, dateTo)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"data": rows}) //nolint:errcheck
+	}
+}
+
+func hdHandleTimeByType(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dateFrom := qstr(r, "date_from")
+		dateTo := qstr(r, "date_to")
+		rows, _ := db.PGQuery(r.Context(), `
+			SELECT COALESCE(ticket_type, 'General') AS ticket_type,
+			       ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at)) / 60))::int AS avg_minutes
+			FROM helpdesk_tickets
+			WHERE resolved_at IS NOT NULL
+			  AND ($1 = '' OR created_at::date >= $1::date)
+			  AND ($2 = '' OR created_at::date <= $2::date)
+			GROUP BY ticket_type
+			ORDER BY avg_minutes DESC`, dateFrom, dateTo)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"data": rows}) //nolint:errcheck
+	}
+}
+
+func hdResolutionByAgent(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dateFrom := qstr(r, "date_from")
+		dateTo := qstr(r, "date_to")
+		rows, _ := db.PGQuery(r.Context(), `
+			SELECT u.full_name AS agent_name,
+			       ROUND(
+			         100.0 * COUNT(*) FILTER (WHERE t.status IN ('resolved','closed'))
+			         / NULLIF(COUNT(*), 0)
+			       )::int AS resolution_pct
+			FROM helpdesk_tickets t
+			JOIN o3c_users u ON u.id = t.assigned_to
+			WHERE t.assigned_to IS NOT NULL
+			  AND ($1 = '' OR t.created_at::date >= $1::date)
+			  AND ($2 = '' OR t.created_at::date <= $2::date)
+			GROUP BY u.full_name
+			HAVING COUNT(*) > 0
+			ORDER BY resolution_pct DESC`, dateFrom, dateTo)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"data": rows}) //nolint:errcheck
+	}
+}
+
+func hdTypeDistribution(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dateFrom := qstr(r, "date_from")
+		dateTo := qstr(r, "date_to")
+		rows, _ := db.PGQuery(r.Context(), `
+			SELECT COALESCE(ticket_type, 'General') AS ticket_type,
+			       COUNT(*) AS count
+			FROM helpdesk_tickets
+			WHERE ($1 = '' OR created_at::date >= $1::date)
+			  AND ($2 = '' OR created_at::date <= $2::date)
+			GROUP BY ticket_type
+			ORDER BY count DESC`, dateFrom, dateTo)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"data": rows}) //nolint:errcheck
 	}
 }
 
@@ -2304,5 +2509,417 @@ func hdInboundCall(db *core.DB) http.HandlerFunc {
 		if len(rows) > 0 {
 			json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 		}
+	}
+}
+
+// ── Ticket enriched context ───────────────────────────────────────────────────
+
+// hdTicketContext returns live customer data from the c360 tables for the
+// right-panel context in TicketDetail. It enriches the basic customer_context
+// with loans, FD holdings, recent transactions, and collections history.
+func hdTicketContext(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		id := chi.URLParam(r, "id")
+
+		// Fetch ticket to get CIF
+		tickets, err := db.PGQuery(ctx,
+			`SELECT customer_cif, customer_name, customer_email, customer_phone FROM helpdesk_tickets WHERE id=$1`, id)
+		if err != nil || len(tickets) == 0 {
+			respondErr(w, 404, "ticket not found")
+			return
+		}
+		cif := str(tickets[0]["customer_cif"])
+
+		out := map[string]any{
+			"customer_name":  tickets[0]["customer_name"],
+			"customer_email": tickets[0]["customer_email"],
+			"customer_phone": tickets[0]["customer_phone"],
+			"cif":            cif,
+		}
+
+		if cif == "" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(out) //nolint:errcheck
+			return
+		}
+
+		// Loans
+		loans, _ := db.PGQuery(ctx, `
+			SELECT loan_ref, product_type, stage AS status,
+			       amount_approved_kobo, total_outstanding_kobo,
+			       dpd, next_repayment_date, created_at
+			FROM loan_applications
+			WHERE applicant_cif=$1 AND stage NOT IN ('cancelled')
+			ORDER BY created_at DESC LIMIT 5`, cif)
+		if loans == nil {
+			loans = []core.Row{}
+		}
+
+		// Fixed deposits
+		fds, _ := db.PGQuery(ctx, `
+			SELECT id, principal_kobo, interest_rate, tenor_days,
+			       maturity_date, status, created_at
+			FROM fixed_deposits
+			WHERE customer_cif=$1
+			ORDER BY created_at DESC LIMIT 5`, cif)
+		if fds == nil {
+			fds = []core.Row{}
+		}
+
+		// Recent transactions (PG cache or MSSQL-sourced)
+		txns, _ := db.PGQuery(ctx, `
+			SELECT transaction_date, description, amount_kobo, transaction_type, balance_kobo
+			FROM customer_transactions
+			WHERE cif_number=$1
+			ORDER BY transaction_date DESC LIMIT 5`, cif)
+		if txns == nil {
+			txns = []core.Row{}
+		}
+
+		// Collections history
+		collections, _ := db.PGQuery(ctx, `
+			SELECT cc.promise_date, cc.promise_amount_kobo, cc.status AS ptp_status,
+			       cc.created_at
+			FROM collection_contacts cc
+			WHERE cc.cif_number=$1
+			ORDER BY cc.created_at DESC LIMIT 5`, cif)
+		if collections == nil {
+			collections = []core.Row{}
+		}
+
+		// Open tickets count
+		openCount := int64(0)
+		if rows, _ := db.PGQuery(ctx,
+			`SELECT COUNT(*) AS n FROM helpdesk_tickets WHERE customer_cif=$1 AND status NOT IN ('resolved','closed') AND id!=$2`,
+			cif, id); len(rows) > 0 {
+			openCount = toInt64(rows[0]["n"])
+		}
+
+		// Cards / products (MSSQL preferred, PG fallback)
+		cards, _, _ := db.DualQuery(ctx,
+			`SELECT Product_Name, Account_Status, Name_On_Card, Account_Manager FROM dbo.Account WHERE CIF_Number = @p1`,
+			`SELECT "Product Name" AS product_name, "Account Status" AS account_status, "Name On Card" AS name_on_card, "Account Manager" AS account_manager FROM "Products" WHERE "CIF Number" = $1`,
+			cif)
+		if cards == nil {
+			cards = []core.Row{}
+		}
+
+		out["loans"] = loans
+		out["fixed_deposits"] = fds
+		out["recent_transactions"] = txns
+		out["collections_history"] = collections
+		out["other_open_tickets"] = openCount
+		out["cards"] = cards
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out) //nolint:errcheck
+	}
+}
+
+// ── KB article feedback ───────────────────────────────────────────────────────
+
+func hdKBFeedback(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureKBSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Schema setup failed")
+			return
+		}
+		// Ensure feedback columns exist
+		db.PGExec(r.Context(), `ALTER TABLE helpdesk_knowledge_base ADD COLUMN IF NOT EXISTS helpful_count INT NOT NULL DEFAULT 0`)     //nolint:errcheck
+		db.PGExec(r.Context(), `ALTER TABLE helpdesk_knowledge_base ADD COLUMN IF NOT EXISTS not_helpful_count INT NOT NULL DEFAULT 0`) //nolint:errcheck
+
+		id := chi.URLParam(r, "id")
+		var b struct {
+			Helpful bool `json:"helpful"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "invalid json")
+			return
+		}
+		col := "not_helpful_count"
+		if b.Helpful {
+			col = "helpful_count"
+		}
+		if _, err := db.PGExec(r.Context(),
+			fmt.Sprintf(`UPDATE helpdesk_knowledge_base SET %s=%s+1, updated_at=NOW() WHERE id=$1`, col, col),
+			id); err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+		w.WriteHeader(204)
+	}
+}
+
+// ── Extended stats analytics ──────────────────────────────────────────────────
+
+func hdStatsLeaderboard(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dateFrom := qstr(r, "date_from")
+		dateTo := qstr(r, "date_to")
+		rows, _ := db.PGQuery(r.Context(), `
+			SELECT u.full_name AS agent_name,
+			       COUNT(t.id)                                                                           AS tickets_handled,
+			       COUNT(t.id) FILTER (WHERE t.status IN ('resolved','closed'))                         AS tickets_resolved,
+			       ROUND(AVG(t.csat_score::numeric) FILTER (WHERE t.csat_score IS NOT NULL), 1)         AS avg_csat,
+			       ROUND(AVG(EXTRACT(EPOCH FROM (t.resolved_at - t.created_at))/60)
+			             FILTER (WHERE t.resolved_at IS NOT NULL))::int                                  AS avg_handle_min,
+			       COUNT(t.id) FILTER (WHERE t.sla_due_at IS NOT NULL AND t.resolved_at > t.sla_due_at) AS sla_breaches
+			FROM helpdesk_tickets t
+			JOIN o3c_users u ON u.id = t.assigned_to
+			WHERE t.assigned_to IS NOT NULL
+			  AND ($1 = '' OR t.created_at::date >= $1::date)
+			  AND ($2 = '' OR t.created_at::date <= $2::date)
+			GROUP BY u.full_name
+			HAVING COUNT(t.id) > 0
+			ORDER BY tickets_resolved DESC, avg_csat DESC NULLS LAST`, dateFrom, dateTo)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"data": rows}) //nolint:errcheck
+	}
+}
+
+func hdStatsSLAByAgent(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dateFrom := qstr(r, "date_from")
+		dateTo := qstr(r, "date_to")
+		rows, _ := db.PGQuery(r.Context(), `
+			SELECT u.full_name AS agent_name,
+			       COUNT(t.id) AS total,
+			       COUNT(t.id) FILTER (WHERE t.sla_due_at IS NOT NULL
+			         AND (t.resolved_at > t.sla_due_at OR (t.resolved_at IS NULL AND t.sla_due_at < NOW()))) AS breached,
+			       ROUND(100.0 * COUNT(t.id) FILTER (WHERE t.sla_due_at IS NOT NULL
+			         AND (t.resolved_at > t.sla_due_at OR (t.resolved_at IS NULL AND t.sla_due_at < NOW())))
+			         / NULLIF(COUNT(t.id),0))::int AS breach_pct
+			FROM helpdesk_tickets t
+			JOIN o3c_users u ON u.id = t.assigned_to
+			WHERE t.assigned_to IS NOT NULL
+			  AND ($1 = '' OR t.created_at::date >= $1::date)
+			  AND ($2 = '' OR t.created_at::date <= $2::date)
+			GROUP BY u.full_name
+			HAVING COUNT(t.id) > 0
+			ORDER BY breach_pct DESC`, dateFrom, dateTo)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"data": rows}) //nolint:errcheck
+	}
+}
+
+func hdStatsBusiestHours(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dateFrom := qstr(r, "date_from")
+		dateTo := qstr(r, "date_to")
+		rows, _ := db.PGQuery(r.Context(), `
+			SELECT EXTRACT(HOUR FROM created_at AT TIME ZONE 'Africa/Lagos')::int AS hour,
+			       COUNT(*) AS ticket_count
+			FROM helpdesk_tickets
+			WHERE ($1 = '' OR created_at::date >= $1::date)
+			  AND ($2 = '' OR created_at::date <= $2::date)
+			GROUP BY hour
+			ORDER BY hour`, dateFrom, dateTo)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"data": rows}) //nolint:errcheck
+	}
+}
+
+func hdStatsChannelBreakdown(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dateFrom := qstr(r, "date_from")
+		dateTo := qstr(r, "date_to")
+		rows, _ := db.PGQuery(r.Context(), `
+			SELECT COALESCE(channel, 'manual') AS channel,
+			       COUNT(*) AS count
+			FROM helpdesk_tickets
+			WHERE ($1 = '' OR created_at::date >= $1::date)
+			  AND ($2 = '' OR created_at::date <= $2::date)
+			GROUP BY channel
+			ORDER BY count DESC`, dateFrom, dateTo)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"data": rows}) //nolint:errcheck
+	}
+}
+
+// ── Agent helpdesk status ─────────────────────────────────────────────────────
+
+func hdSetAgentStatus(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Ensure column exists
+		db.PGExec(r.Context(), `ALTER TABLE o3c_users ADD COLUMN IF NOT EXISTS helpdesk_status TEXT NOT NULL DEFAULT 'offline'`) //nolint:errcheck
+
+		id := chi.URLParam(r, "id")
+		var b struct {
+			Status string `json:"status"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.Status == "" {
+			respondErr(w, 400, "status required")
+			return
+		}
+		allowed := map[string]bool{"available": true, "on_call": true, "break": true, "offline": true}
+		if !allowed[b.Status] {
+			respondErr(w, 400, "status must be one of: available, on_call, break, offline")
+			return
+		}
+		// Allow agent to set their own status; supervisors can set anyone's
+		caller := core.UserFromCtx(r.Context())
+		targetID := id
+		if caller != nil && fmt.Sprintf("%d", caller.ID) == id {
+			targetID = id // own status
+		}
+		if _, err := db.PGExec(r.Context(),
+			`UPDATE o3c_users SET helpdesk_status=$1 WHERE id=$2`, b.Status, targetID); err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+		w.WriteHeader(204)
+	}
+}
+
+// ── Routing rules CRUD ────────────────────────────────────────────────────────
+
+func ensureRoutingRulesSchema(ctx context.Context, db *core.DB) error {
+	_, err := db.PGExec(ctx, `
+		CREATE TABLE IF NOT EXISTS helpdesk_routing_rules (
+			id           BIGSERIAL PRIMARY KEY,
+			name         TEXT NOT NULL,
+			conditions   JSONB NOT NULL DEFAULT '{}',
+			target_queue TEXT NOT NULL DEFAULT 'general',
+			priority     INT  NOT NULL DEFAULT 10,
+			active       BOOL NOT NULL DEFAULT true,
+			created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`)
+	return err
+}
+
+func hdListRoutingRules(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureRoutingRulesSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Schema setup failed")
+			return
+		}
+		rows, _ := db.PGQuery(r.Context(),
+			`SELECT id, name, conditions, target_queue, priority, active, created_at, updated_at
+			 FROM helpdesk_routing_rules ORDER BY priority ASC, name ASC`)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
+	}
+}
+
+func hdCreateRoutingRule(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureRoutingRulesSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Schema setup failed")
+			return
+		}
+		var b struct {
+			Name        string         `json:"name"`
+			Conditions  map[string]any `json:"conditions"`
+			TargetQueue string         `json:"target_queue"`
+			Priority    int            `json:"priority"`
+			Active      bool           `json:"active"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.Name == "" {
+			respondErr(w, 400, "name required")
+			return
+		}
+		if b.TargetQueue == "" {
+			b.TargetQueue = "general"
+		}
+		condJSON, _ := json.Marshal(b.Conditions)
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO helpdesk_routing_rules (name, conditions, target_queue, priority, active)
+			VALUES ($1,$2,$3,$4,$5)
+			RETURNING id, name, conditions, target_queue, priority, active, created_at`,
+			b.Name, string(condJSON), b.TargetQueue, b.Priority, b.Active)
+		if err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		if len(rows) > 0 {
+			json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+		}
+	}
+}
+
+func hdUpdateRoutingRule(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureRoutingRulesSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Schema setup failed")
+			return
+		}
+		id := chi.URLParam(r, "id")
+		var b struct {
+			Name        *string        `json:"name"`
+			Conditions  map[string]any `json:"conditions"`
+			TargetQueue *string        `json:"target_queue"`
+			Priority    *int           `json:"priority"`
+			Active      *bool          `json:"active"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "invalid json")
+			return
+		}
+		q := "UPDATE helpdesk_routing_rules SET updated_at=NOW()"
+		args := []any{}
+		n := 1
+		add := func(col string, v any) {
+			q += fmt.Sprintf(", %s=$%d", col, n)
+			args = append(args, v)
+			n++
+		}
+		if b.Name != nil {
+			add("name", *b.Name)
+		}
+		if b.Conditions != nil {
+			condJSON, _ := json.Marshal(b.Conditions)
+			add("conditions", string(condJSON))
+		}
+		if b.TargetQueue != nil {
+			add("target_queue", *b.TargetQueue)
+		}
+		if b.Priority != nil {
+			add("priority", *b.Priority)
+		}
+		if b.Active != nil {
+			add("active", *b.Active)
+		}
+		if n == 1 {
+			respondErr(w, 400, "nothing to update")
+			return
+		}
+		q += fmt.Sprintf(" WHERE id=$%d", n)
+		args = append(args, id)
+		if _, err := db.PGExec(r.Context(), q, args...); err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+		w.WriteHeader(204)
+	}
+}
+
+func hdDeleteRoutingRule(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureRoutingRulesSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Schema setup failed")
+			return
+		}
+		id := chi.URLParam(r, "id")
+		db.PGExec(r.Context(), `DELETE FROM helpdesk_routing_rules WHERE id=$1`, id) //nolint:errcheck
+		w.WriteHeader(204)
 	}
 }

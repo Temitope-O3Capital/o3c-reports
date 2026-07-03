@@ -31,6 +31,7 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	r.With(base).Put("/{id}/conditions/{cid}", losMarkConditionMet(db))
 	r.With(base).Post("/{id}/notes", losAddNote(db))
 	r.With(base).Get("/{id}/events", losGetEvents(db))
+	r.With(base).Put("/{id}/credit-assessment", losSaveCreditAssessment(db))
 }
 
 // allowedTransitions maps from_stage → []to_stage
@@ -736,6 +737,44 @@ func losFunnel(db *core.DB) http.HandlerFunc {
 			rows = []core.Row{}
 		}
 		respond(w, rows, "pg")
+	}
+}
+
+func losSaveCreditAssessment(db *core.DB) http.HandlerFunc {
+	type body struct {
+		EyeScore               *int     `json:"eye_score"`
+		EyeRating              string   `json:"eye_rating"`
+		BureauSummary          string   `json:"bureau_summary"`
+		DtiPct                 *float64 `json:"dti_pct"`
+		MonthlyIncomeKobo      *int64   `json:"monthly_income_kobo"`
+		MonthlyObligationKobo  *int64   `json:"monthly_obligation_kobo"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := losParseID(r)
+		if err != nil {
+			respondErr(w, 400, "Invalid application ID"); return
+		}
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		ns := func(s string) any {
+			if s == "" { return nil }
+			return s
+		}
+		ctx := r.Context()
+		rows, err := db.PGQuery(ctx,
+			`UPDATE loan_applications
+			 SET eye_score=$1, eye_rating=$2, bureau_summary=$3, dti_pct=$4,
+			     monthly_income_kobo=$5, monthly_obligation_kobo=$6, updated_at=NOW()
+			 WHERE id=$7 RETURNING id, eye_score, eye_rating, bureau_summary, dti_pct,
+			     monthly_income_kobo, monthly_obligation_kobo`,
+			b.EyeScore, ns(b.EyeRating), ns(b.BureauSummary),
+			b.DtiPct, b.MonthlyIncomeKobo, b.MonthlyObligationKobo, id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 500, "Update failed"); return
+		}
+		respond(w, rows[0], "json")
 	}
 }
 

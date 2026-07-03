@@ -368,12 +368,14 @@ var RolePages = map[string][]string{
 	"sales_officer": {
 		"overview", "sales", "uploads", "loans", "credit_portfolio",
 		"los", "customer360",
+		"bd", "bd_employers", "bd_pipeline",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
 		"campaigns", "contact_lists", "message_templates", "statements",
 	},
 	"sales_head": {
 		"overview", "sales", "executive", "uploads", "loans", "credit_portfolio",
 		"los", "los_all", "los_assign", "customer360",
+		"bd", "bd_employers", "bd_pipeline",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
 		"campaigns", "contact_lists", "message_templates", "statements",
 		"kpi_dashboard",

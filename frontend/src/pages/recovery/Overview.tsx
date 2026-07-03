@@ -1,294 +1,305 @@
-import { snake } from '../../lib/labels'
-import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { apiFetch } from '../../lib/api'
-import { fmt, fmtNum, fmtPct, fmtDate, n, today, monthStart } from '../../lib/fmt'
+import { useEffect, useState, useCallback } from 'react'
 import {
-  Page, KpiCard, SectionCard, ErrBanner, StatusBadge, DateFilter,
-  NAVY, RED, GREEN, AMBER, BLUE,
-} from '../../components/UI'
+  ResponsiveContainer, AreaChart, Area,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+} from 'recharts'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner } from '../../components/UI'
+import type { TableCol } from '../../components/UI'
+import { apiFetch } from '../../lib/api'
+import { fmtKobo, fmtPct, fmtNum, fmtDate } from '../../lib/fmt'
+import { GREEN, NUM, INTER } from '../../lib/design'
 
-/* ── Types ── */
-interface RecoveryKpi {
-  active_cases: number
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface RecoveryKPIs {
+  total_in_recovery_kobo: number
   recovered_mtd_kobo: number
-  recovery_rate_pct: number
-  legal_cases: number
+  success_rate_pct: number
+  avg_days_in_recovery: number
 }
 
-interface RecoveryCase {
-  id: string
-  case_ref: string
-  account_cif: string
-  agent_name?: string
-  legal_stage?: string
-  outstanding_kobo: number
+interface MonthlyPoint {
+  month: string
+  amount_kobo: number
+}
+
+interface ChannelRow {
+  channel: string
+  amount_kobo: number
+  pct: number
+}
+
+interface AgentRow {
+  agent_name: string
+  case_count: number
   recovered_kobo: number
-  status: string
-  opened_at: string
+  success_rate_pct: number
 }
 
-/* ── Stage pipeline colours ── */
-const STAGE_COLORS: Record<string, string> = {
-  pre_legal:       AMBER,
-  letter_of_demand: '#EA580C',
-  court_filing:    RED,
-  hearing:         '#C00000',
-  garnishee:       '#7C3AED',
-  judgment:        '#7F1D1D',
-  closed:          'var(--txt3)',
-}
+// ── Custom dark tooltip ───────────────────────────────────────────────────────
 
-/* ── Quick-link button ── */
-function QuickLink({ label, to, icon }: { label: string; to: string; icon: string }) {
-  const nav = useNavigate()
+function Tip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
   return (
-    <button
-      onClick={() => nav(to)}
-      className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[13px] font-semibold transition-all hover:shadow-sm"
-      style={{ background: 'var(--card)', borderColor: 'rgba(15,23,42,0.12)', color: NAVY }}>
-      <span className="material-symbols-rounded text-[17px]">{icon}</span>
-      {label}
-    </button>
+    <div style={{
+      background: '#0E2841', borderRadius: 10, padding: '10px 14px',
+      boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)',
+    }}>
+      {label && (
+        <div style={{
+          fontSize: 9.5, fontWeight: 600, color: 'rgba(255,255,255,.4)', fontFamily: INTER,
+          marginBottom: 7, letterSpacing: .5, textTransform: 'uppercase',
+        }}>
+          {label}
+        </div>
+      )}
+      {payload.map((p: any, i: number) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: i > 0 ? 5 : 0 }}>
+          <div style={{ width: 7, height: 7, borderRadius: '50%', background: p.color ?? '#fff', flexShrink: 0 }} />
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: INTER, ...NUM }}>
+            {fmtKobo(p.value)}
+          </span>
+        </div>
+      ))}
+    </div>
   )
 }
 
-/* ── Case Pipeline (stage breakdown) ── */
-function CasePipeline({ cases, loading }: { cases: RecoveryCase[]; loading: boolean }) {
-  const stageMap: Record<string, { count: number; outstanding: number }> = {}
-  cases.forEach(c => {
-    const s = c.legal_stage ?? 'pre_legal'
-    if (!stageMap[s]) stageMap[s] = { count: 0, outstanding: 0 }
-    stageMap[s].count++
-    stageMap[s].outstanding += n(c.outstanding_kobo)
-  })
-  const stages = Object.entries(stageMap).sort((a, b) => b[1].count - a[1].count)
-  const totalCases = stages.reduce((s, [, v]) => s + v.count, 0)
+// ── Channel progress bars ─────────────────────────────────────────────────────
 
-  return (
-    <SectionCard title="Case Pipeline" subtitle="Active cases by legal stage">
-      <div className="px-5 py-4 space-y-3">
-        {loading
-          ? Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="space-y-1.5">
-                <div className="h-3 skeleton w-32 rounded" />
-                <div className="h-2 skeleton w-full rounded-full" />
-              </div>
-            ))
-          : stages.length === 0
-          ? (
-            <div className="flex flex-col items-center py-10 gap-2" style={{ color: 'var(--txt2)' }}>
-              <span className="material-symbols-rounded text-[36px]">gavel</span>
-              <p className="text-[13px]">No case pipeline data</p>
-            </div>
-          )
-          : stages.map(([stage, v], i) => {
-              const share = totalCases > 0 ? (v.count / totalCases) * 100 : 0
-              const color = STAGE_COLORS[stage] ?? 'var(--txt3)'
-              const label = snake(stage)
-              return (
-                <div key={i}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
-                      <span className="text-[12px] font-semibold" style={{ color: 'var(--txt)' }}>{label}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{fmt(v.outstanding / 100)}</span>
-                      <span className="kpi-number text-[13px] font-bold" style={{ color: 'var(--txt)' }}>
-                        {v.count.toLocaleString()}
-                      </span>
-                      <span className="text-[11px] w-8 text-right" style={{ color: 'var(--txt2)' }}>{share.toFixed(1)}%</span>
-                    </div>
-                  </div>
-                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(15,23,42,0.06)' }}>
-                    <div className="h-full rounded-full transition-all duration-700"
-                      style={{ width: `${share}%`, background: color }} />
-                  </div>
-                </div>
-              )
-            })}
+const CHANNEL_COLORS: Record<string, string> = {
+  TPA:        '#2563EB',
+  'Field Visit': '#D97706',
+  Legal:      '#C00000',
+  'Self-Cure': '#16A34A',
+}
+
+function ChannelBars({ data }: { data: ChannelRow[] }) {
+  if (!data.length) {
+    return (
+      <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>
+        No channel data available
       </div>
-    </SectionCard>
-  )
-}
-
-/* ── Recent Activity (latest 5 cases) ── */
-function RecentActivity({ cases, loading }: { cases: RecoveryCase[]; loading: boolean }) {
-  const recent = cases.slice(0, 5)
+    )
+  }
+  const maxKobo = Math.max(...data.map(d => d.amount_kobo), 1)
   return (
-    <SectionCard title="Recent Activity" subtitle="Latest 5 cases">
-      <div>
-        {loading
-          ? Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-3 px-5 py-3"
-                style={{ borderTop: i > 0 ? '1px solid rgba(15,23,42,0.05)' : undefined }}>
-                <div className="flex-1 space-y-1.5">
-                  <div className="h-3 skeleton w-24 rounded" />
-                  <div className="h-2.5 skeleton w-40 rounded" />
-                </div>
-                <div className="h-5 skeleton w-16 rounded" />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '4px 0' }}>
+      {data.map(d => {
+        const barPct = (d.amount_kobo / maxKobo) * 100
+        const color = CHANNEL_COLORS[d.channel] ?? '#6B7280'
+        return (
+          <div key={d.channel}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', width: 90, flexShrink: 0 }}>
+                {d.channel}
+              </span>
+              <div style={{ flex: 1, height: 6, background: 'var(--bdr)', borderRadius: 99, overflow: 'hidden' }}>
+                <div style={{
+                  width: `${barPct}%`, height: '100%',
+                  background: color, borderRadius: 99, transition: 'width 0.4s',
+                }} />
               </div>
-            ))
-          : recent.length === 0
-          ? (
-            <div className="flex flex-col items-center py-10 gap-2" style={{ color: 'var(--txt2)' }}>
-              <span className="material-symbols-rounded text-[36px]">folder_open</span>
-              <p className="text-[13px]">No recent cases</p>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: 130, flexShrink: 0, justifyContent: 'flex-end' }}>
+                <span style={{ ...NUM, fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>
+                  {fmtKobo(d.amount_kobo)}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--txt2)', fontFamily: INTER }}>
+                  {fmtPct(d.pct)}
+                </span>
+              </div>
             </div>
-          )
-          : recent.map((c, i) => (
-              <div key={c.id} className="flex items-center gap-3 px-5 py-3 transition-colors"
-                style={{ borderTop: i > 0 ? '1px solid rgba(15,23,42,0.05)' : undefined }}>
-                <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-                  style={{ background: 'var(--chip-bg)' }}>
-                  <span className="material-symbols-rounded text-[16px]" style={{ color: NAVY }}>folder</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-semibold truncate" style={{ color: 'var(--txt)' }}>
-                    {c.case_ref || c.account_cif}
-                  </p>
-                  <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>
-                    {fmtDate(c.opened_at)}
-                    {c.agent_name ? ` · ${c.agent_name}` : ''}
-                  </p>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="kpi-number text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>
-                    {fmt(n(c.outstanding_kobo) / 100)}
-                  </p>
-                  <StatusBadge status={c.status} />
-                </div>
-              </div>
-            ))}
-      </div>
-    </SectionCard>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
-/* ── Main Page ── */
+// ── Agent performance table columns ──────────────────────────────────────────
+
+const AGENT_COLS: TableCol<AgentRow>[] = [
+  {
+    key: 'agent_name',
+    label: 'Agent',
+    sortable: true,
+    render: r => <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{r.agent_name || '—'}</span>,
+  },
+  {
+    key: 'case_count',
+    label: 'Cases Assigned',
+    sortable: true,
+    align: 'right',
+    render: r => <span style={{ ...NUM, fontSize: 13 }}>{fmtNum(r.case_count)}</span>,
+  },
+  {
+    key: 'recovered_kobo',
+    label: 'Recovered ₦',
+    sortable: true,
+    align: 'right',
+    render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.recovered_kobo)}</span>,
+  },
+  {
+    key: 'success_rate_pct',
+    label: 'Success Rate %',
+    sortable: true,
+    align: 'right',
+    render: r => {
+      const col = r.success_rate_pct >= 60 ? '#16A34A' : r.success_rate_pct >= 30 ? '#D97706' : '#C00000'
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+          <div style={{ width: 52, height: 4, background: 'var(--bdr)', borderRadius: 99, overflow: 'hidden' }}>
+            <div style={{ width: `${Math.min(r.success_rate_pct, 100)}%`, height: '100%', background: col, borderRadius: 99 }} />
+          </div>
+          <span style={{ ...NUM, fontSize: 12, fontWeight: 600, color: col, width: 36, textAlign: 'right' }}>
+            {fmtPct(r.success_rate_pct)}
+          </span>
+        </div>
+      )
+    },
+  },
+]
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export default function RecoveryOverview() {
-  const [kpis,    setKpis]    = useState<RecoveryKpi | null>(null)
-  const [cases,   setCases]   = useState<RecoveryCase[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState('')
-  const [from,    setFrom]    = useState(monthStart())
-  const [to,      setTo]      = useState(today())
+  const [kpis, setKpis]           = useState<RecoveryKPIs | null>(null)
+  const [trend, setTrend]         = useState<MonthlyPoint[]>([])
+  const [channels, setChannels]   = useState<ChannelRow[]>([])
+  const [agents, setAgents]       = useState<AgentRow[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [err, setErr]             = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true); setError('')
-    const qs = `date_from=${from}&date_to=${to}`
+    setLoading(true)
+    setErr(null)
     try {
-      // Load cases first — always available
-      const casesRes = await apiFetch(`/api/recovery-ops/cases?limit=200&${qs}`)
-      const caseList: RecoveryCase[] = casesRes.data ?? casesRes ?? []
-      setCases(caseList)
-
-      // Try the dashboard endpoint; if absent, compute from cases
-      try {
-        const kRes = await apiFetch(`/api/recovery-ops/dashboard?${qs}`)
-        const dv = kRes.data ?? kRes
-        // Map dashboard fields: total_open_cases, total_recovered_kobo, pending_write_offs, visits_this_month
-        const activeCases   = n(dv.total_open_cases ?? 0)
-        const totalRec      = n(dv.total_recovered_kobo ?? 0)
-        const totalOut      = n(dv.total_outstanding_kobo ?? 0)
-        const totalExp      = totalRec + totalOut
-        const recoveryRate  = totalExp > 0 ? (totalRec / totalExp) * 100 : 0
-        setKpis({
-          active_cases:        activeCases,
-          recovered_mtd_kobo:  totalRec,
-          recovery_rate_pct:   recoveryRate,
-          legal_cases:         n(dv.pending_write_offs ?? 0),
-        })
-      } catch {
-        // Compute KPIs client-side from case list
-        const activeCases = caseList.filter(c => c.status !== 'closed').length
-        const legalCases  = caseList.filter(c =>
-          c.legal_stage && !['pre_legal', 'closed'].includes(c.legal_stage)
-        ).length
-        const now = new Date()
-        const mtdStart = new Date(now.getFullYear(), now.getMonth(), 1)
-        const recoveredMtd = caseList
-          .filter(c => c.opened_at && new Date(c.opened_at) >= mtdStart)
-          .reduce((s, c) => s + n(c.recovered_kobo), 0)
-        const totalOutstanding = caseList.reduce((s, c) => s + n(c.outstanding_kobo), 0)
-        const totalRecovered   = caseList.reduce((s, c) => s + n(c.recovered_kobo), 0)
-        const totalExposure    = totalOutstanding + totalRecovered
-        const recoveryRate     = totalExposure > 0 ? (totalRecovered / totalExposure) * 100 : 0
-
-        setKpis({
-          active_cases:        activeCases,
-          recovered_mtd_kobo:  recoveredMtd,
-          recovery_rate_pct:   recoveryRate,
-          legal_cases:         legalCases,
-        })
-      }
+      const [kpisRes, trendRes, channelRes, agentRes] = await Promise.all([
+        apiFetch<{ data: RecoveryKPIs }>('/api/recovery/kpis'),
+        apiFetch<{ data: MonthlyPoint[] }>('/api/recovery/monthly-trend'),
+        apiFetch<{ data: ChannelRow[] }>('/api/recovery/by-channel'),
+        apiFetch<{ data: AgentRow[] }>('/api/recovery/by-agent'),
+      ])
+      setKpis(kpisRes.data)
+      setTrend(trendRes.data ?? [])
+      setChannels(channelRes.data ?? [])
+      setAgents(agentRes.data ?? [])
     } catch (e: any) {
-      setError(e.message)
+      setErr(e.message ?? 'Failed to load recovery data')
     } finally {
       setLoading(false)
     }
-  }, [from, to])
+  }, [])
 
   useEffect(() => { load() }, [load])
 
-  const d = kpis ?? {} as Partial<RecoveryKpi>
-  const rateColor = n(d.recovery_rate_pct) >= 70 ? GREEN : n(d.recovery_rate_pct) >= 40 ? AMBER : RED
+  const kpiLoading = loading && !kpis
 
   return (
     <Page
-      dept="Recovery"
       title="Recovery Overview"
-      subtitle="Case management and recovery performance"
-      actions={<DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />}
+      subtitle="Recovery performance, channel analysis, and agent activity"
     >
-      <ErrBanner msg={error} />
+      <ErrBanner error={err} onRetry={load} />
 
-      {/* KPI row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard
-          label="Active Cases"
-          value={fmtNum(d.active_cases)}
-          icon="folder_open"
-          accent={NAVY}
-          loading={loading}
+          label="Total in Recovery"
+          value={fmtKobo(kpis?.total_in_recovery_kobo)}
+          sub="active recovery accounts"
+          icon="gavel"
+          loading={kpiLoading}
         />
         <KpiCard
           label="Recovered MTD"
-          value={fmt(n(d.recovered_mtd_kobo) / 100)}
+          value={fmtKobo(kpis?.recovered_mtd_kobo)}
+          sub="month to date"
           icon="payments"
           accent={GREEN}
-          loading={loading}
+          loading={kpiLoading}
         />
         <KpiCard
-          label="Recovery Rate"
-          value={fmtPct(d.recovery_rate_pct)}
-          icon="trending_up"
-          accent={rateColor}
-          sub="total recovered / exposure"
-          loading={loading}
+          label="Success Rate"
+          value={fmtPct(kpis?.success_rate_pct)}
+          sub="cases resolved"
+          icon="check_circle"
+          accent={GREEN}
+          loading={kpiLoading}
         />
         <KpiCard
-          label="Legal Cases"
-          value={fmtNum(d.legal_cases)}
-          icon="gavel"
-          accent={RED}
-          loading={loading}
+          label="Avg Days in Recovery"
+          value={kpis ? `${Math.round(kpis.avg_days_in_recovery)} days` : '—'}
+          sub="average case age"
+          icon="schedule"
+          loading={kpiLoading}
         />
       </div>
 
-      {/* Case Pipeline + Recent Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-        <CasePipeline cases={cases} loading={loading} />
-        <RecentActivity cases={cases} loading={loading} />
+      {/* Chart row */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+        {/* Left: Area chart — monthly recovery trend */}
+        <SectionCard title="Monthly Recovery Trend" subtitle="12-month recovery amounts" padding={false}>
+          <div style={{ padding: '16px 18px' }}>
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
+                <defs>
+                  <linearGradient id="recoveryGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#16A34A" stopOpacity={0.22} />
+                    <stop offset="100%" stopColor="#16A34A" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#E8EBF2" strokeDasharray="0" vertical={false} strokeWidth={1} />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }}
+                  axisLine={false} tickLine={false}
+                />
+                <YAxis
+                  tickFormatter={v => fmtKobo(v)}
+                  tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }}
+                  axisLine={false} tickLine={false}
+                />
+                <Tooltip content={(p: any) => <Tip {...p} />} />
+                <Area
+                  type="monotone"
+                  dataKey="amount_kobo"
+                  stroke="#16A34A"
+                  strokeWidth={2.2}
+                  fill="url(#recoveryGrad)"
+                  dot={{ r: 3, fill: '#16A34A', strokeWidth: 0 }}
+                  activeDot={{ r: 5, fill: '#16A34A', stroke: '#fff', strokeWidth: 2 }}
+                  name="Recovered"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+
+        {/* Right: recovery by channel */}
+        <SectionCard title="Recovery by Channel" subtitle="Amount recovered per channel" padding={false}>
+          <div style={{ padding: '16px 18px' }}>
+            <ChannelBars data={channels} />
+          </div>
+        </SectionCard>
       </div>
 
-      {/* Quick links */}
-      <div className="mt-4 flex flex-wrap gap-3">
-        <QuickLink label="Case Manager"       to="/recovery/cases"   icon="folder_open" />
-        <QuickLink label="Legal Proceedings"  to="/recovery/legal"   icon="gavel" />
-        <QuickLink label="Field Visits"       to="/recovery/visits"  icon="directions_car" />
-      </div>
+      {/* Agent performance table */}
+      <SectionCard
+        title="Agent Performance"
+        badge={agents.length}
+        subtitle="Sorted by recovered amount"
+        padding={false}
+      >
+        <DataTable
+          cols={AGENT_COLS}
+          rows={agents}
+          keyFn={(r, i) => r.agent_name ?? i}
+          loading={loading}
+          skeletonRows={8}
+          emptyText="No agent data found"
+        />
+      </SectionCard>
     </Page>
   )
 }

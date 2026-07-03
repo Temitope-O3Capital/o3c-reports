@@ -212,9 +212,9 @@ func bdListLeads(db *core.DB) http.HandlerFunc {
 		search := qstr(r, "search")
 		limit := qint(r, "limit", 100, 1, 500)
 
-		q := `SELECT l.id, l.title, l.company_name, l.employer_id, l.stage,
-		             l.potential_value_kobo, l.lead_type, l.contact_name,
-		             l.contact_phone, l.contact_email, l.assigned_to,
+		q := `SELECT l.id, l.title, l.entity_type, l.company_name, l.employer_id, l.stage,
+		             l.potential_value_kobo, l.lead_type, l.lead_score,
+		             l.contact_name, l.contact_phone, l.contact_email, l.assigned_to,
 		             l.expected_close_date, l.notes, l.created_at, l.updated_at,
 		             u.full_name AS assigned_name,
 		             e.name AS employer_name
@@ -255,7 +255,9 @@ func bdListLeads(db *core.DB) http.HandlerFunc {
 func bdCreateLead(db *core.DB) http.HandlerFunc {
 	type body struct {
 		Title              string  `json:"title"`
+		EntityType         string  `json:"entity_type"`
 		CompanyName        *string `json:"company_name"`
+		EmployerName       *string `json:"employer_name"`
 		EmployerID         *int64  `json:"employer_id"`
 		Stage              string  `json:"stage"`
 		PotentialValueKobo *int64  `json:"potential_value_kobo"`
@@ -276,13 +278,17 @@ func bdCreateLead(db *core.DB) http.HandlerFunc {
 		if b.Stage == "" {
 			b.Stage = "prospect"
 		}
+		if b.EntityType == "" {
+			b.EntityType = "company"
+		}
 		user := core.UserFromCtx(r.Context())
 		rows, err := db.PGQuery(r.Context(),
 			`INSERT INTO bd_leads
-			 (title, company_name, employer_id, stage, potential_value_kobo, lead_type,
-			  contact_name, contact_phone, contact_email, assigned_to, expected_close_date, notes, created_by)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
-			b.Title, b.CompanyName, b.EmployerID, b.Stage,
+			 (title, entity_type, company_name, employer_id, stage, potential_value_kobo,
+			  lead_type, contact_name, contact_phone, contact_email,
+			  assigned_to, expected_close_date, notes, created_by)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+			b.Title, b.EntityType, b.CompanyName, b.EmployerID, b.Stage,
 			b.PotentialValueKobo, b.LeadType,
 			b.ContactName, b.ContactPhone, b.ContactEmail,
 			b.AssignedTo, b.ExpectedCloseDate, b.Notes, user.ID)

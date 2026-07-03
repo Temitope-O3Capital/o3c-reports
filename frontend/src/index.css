@@ -2,95 +2,58 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  html {
-    font-family: 'Sora', ui-sans-serif, system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    background-color: #F4F6F8;
-    color: #0F172A;
-  }
-  /* html.dark removed — no dark mode in O3C design system */
-  * { box-sizing: border-box; }
-  ::-webkit-scrollbar { width: 4px; height: 4px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 9999px; }
+*, *::before, *::after { box-sizing: border-box; }
 
-  /* Global keyboard focus ring — covers all interactive elements that strip the browser outline.
-     :focus-visible fires only for keyboard navigation (not mouse/touch), so it never adds visual
-     noise for pointer users. This single rule fixes ~225 outline-none instances across the app. */
-  :focus-visible {
-    outline: 2px solid rgba(14,40,65,0.45) !important;
-    outline-offset: 2px;
-  }
-  /* Inputs/selects already have a border; use inset ring instead of outline */
-  input:focus-visible,
-  select:focus-visible,
-  textarea:focus-visible {
-    outline: none !important;
-    box-shadow: 0 0 0 2px rgba(14,40,65,0.25);
-  }
+body {
+  font-family: 'Sora', ui-sans-serif, sans-serif;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-@layer components {
-  .card {
-    background: var(--card, #fff);
-    border-radius: 14px;
-    border: 1px solid var(--card-bdr, rgba(15,23,42,0.08));
-    box-shadow: var(--card-shadow, 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.03));
-  }
-  .skeleton {
-    background: linear-gradient(90deg, var(--th-bg, #F1F5F9) 25%, var(--bdr, #E2E8F0) 50%, var(--th-bg, #F1F5F9) 75%);
-    background-size: 200% 100%;
-    animation: skeleton-wave 1.5s ease-in-out infinite;
-    border-radius: 6px;
-  }
-  .nav-item {
-    @apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 cursor-pointer w-full;
-    color: rgba(255,255,255,0.6);
-  }
-  .nav-item:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.9); }
-  .nav-item.active {
-    background: rgba(192,0,0,0.12);
-    color: #fff;
-    border-left: 2px solid #C00000;
-    padding-left: calc(0.75rem - 2px);
-  }
-  .nav-item.active .nav-icon { color: #C00000; }
-  .btn-primary {
-    @apply inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-lg transition-all;
-    background: #0E2841;
-  }
-  .btn-primary:hover { background: #16374F; }
-  .btn-ghost {
-    @apply inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-all;
-    color: #64748B;
-  }
-  .btn-ghost:hover { background: rgba(15,23,42,0.05); color: #0F172A; }
-  .divide-theme > * + * { border-top: 1px solid var(--bdr, rgba(15,23,42,0.07)); }
-  .tbl-row:hover { background: var(--row-hvr, rgba(15,23,42,0.03)) !important; }
+/* Material Symbols — variable font settings */
+.material-symbols-rounded {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  flex-shrink: 0;
+}
+.icon-fill { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+
+/* Thin scrollbars */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bdr); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--txt3); }
+
+/* Keyboard focus ring */
+:focus-visible {
+  outline: 2px solid rgba(14, 40, 65, 0.4) !important;
+  outline-offset: 2px;
+}
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(14, 40, 65, 0.2);
 }
 
-@keyframes skeleton-wave {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+/* Page fade-in on route change */
+@keyframes pageFadeIn {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
+.page-fade { animation: pageFadeIn 160ms ease forwards; }
 
-.material-symbols-rounded { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20; }
-.fill-icon { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20; }
-
-/* DM Mono — reporting number settings */
-.font-mono {
-  font-family: 'DM Mono', ui-monospace, SFMono-Regular, monospace;
-  font-variant-numeric: tabular-nums lining-nums;
-  font-feature-settings: 'tnum' 1, 'lnum' 1, 'zero' 1;
-  letter-spacing: -0.01em;
+/* Skeleton pulse */
+@keyframes skPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
 }
-
-/* Large headline KPI numbers — DM Mono for tabular alignment */
-.kpi-number {
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-variant-numeric: tabular-nums lining-nums;
-  font-feature-settings: 'tnum' 1, 'lnum' 1;
-  font-weight: 700;
-  letter-spacing: -0.025em;
+.sk {
+  animation: skPulse 1.6s ease-in-out infinite;
+  background: var(--th-bg);
+  border-radius: 4px;
+  display: block;
 }

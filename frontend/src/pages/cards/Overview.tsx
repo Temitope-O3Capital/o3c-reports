@@ -1,312 +1,225 @@
-import { useState, useEffect } from 'react'
-import { apiFetch } from '../../lib/api'
-import { fmt, fmtNum, fmtPct, n, today, monthStart } from '../../lib/fmt'
+import { useEffect, useState, useCallback } from 'react'
 import {
-  Page, KpiCard, SectionCard, DateFilter,
-  BarChartCard, DonutCard, StatusBadge,
-  ErrBanner, ExportBtn, Sk, NAVY, RED, GREEN, AMBER, BLUE,
-} from '../../components/UI'
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  PieChart, Pie, Cell, Legend,
+} from 'recharts'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner } from '../../components/UI'
+import type { TableCol } from '../../components/UI'
+import { apiFetch } from '../../lib/api'
+import { fmtNum, fmtPct } from '../../lib/fmt'
+import { RED, GREEN, AMBER, BLUE, NAVY, NUM } from '../../lib/design'
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface KPIs {
+  total_issued: number
+  active: number
+  inactive: number
+  activation_rate: number
+  unique_merchants: number
+}
+
+interface ProductRow { Product_Name?: string; product_name?: string; count: number }
+interface StatusRow  { Status?: string; Account_Status?: string; status?: string; count: number }
+interface VolumeRow  {
+  Product_Name?: string; product_name?: string
+  volume: number; txn_count: number
+}
+
+// ── Chart colours ──────────────────────────────────────────────────────────────
 
 const PRODUCT_COLORS: Record<string, string> = {
-  'PREP':             NAVY,
-  'Amex Naira':       RED,
-  'Amex USD':         AMBER,
-  'Classic Accounts': '#6366F1',
+  'PREP': NAVY,
+  'Amex Naira': RED,
+  'Amex USD': BLUE,
+  'Classic Accounts': GREEN,
 }
 
-const STATUS_TRACK: Record<string, { color: string; bg: string }> = {
-  open:         { color: GREEN,    bg: 'rgba(5,150,105,0.08)' },
-  active:       { color: GREEN,    bg: 'rgba(5,150,105,0.08)' },
-  terminated:   { color: RED,      bg: 'rgba(192,0,0,0.07)' },
-  'legal acti': { color: '#7C3AED', bg: 'rgba(139,92,246,0.08)' },
-  suspended:    { color: AMBER,    bg: 'rgba(217,119,6,0.08)' },
-  inactive:     { color: 'var(--txt2)', bg: 'rgba(100,116,139,0.08)' },
-  closed:       { color: 'var(--txt2)', bg: 'rgba(71,85,105,0.07)' },
-}
-function statusStyle(s: string) {
-  return STATUS_TRACK[(s || '').toLowerCase()] ?? { color: 'var(--txt2)', bg: 'rgba(15,23,42,0.06)' }
+const STATUS_COLORS: Record<string, string> = {
+  'Open': GREEN, 'Active': GREEN,
+  'Inactive': AMBER, 'Closed': '#9CA3AF', 'Terminated': RED,
+  'Legal Suspended': '#7C3AED',
 }
 
-/* ── Portfolio health grid ───────────────────────────────────── */
-function PortfolioHealthGrid({ data, loading }: { data: any[]; loading: boolean }) {
-  const total = data.reduce((s, r) => s + n(r.count), 0)
+const PIE_FALLBACK = [RED, BLUE, GREEN, AMBER, NAVY, '#7C3AED']
+
+// ── Custom tooltip ─────────────────────────────────────────────────────────────
+
+function VolumeTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
   return (
-    <SectionCard title="Portfolio by Status" subtitle="Full status breakdown of all issued cards">
-      <div className="px-5 py-4 space-y-3">
-        {loading
-          ? Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="space-y-1.5"><Sk w="w-28" /><Sk h="h-2" /></div>
-            ))
-          : data.length === 0
-          ? <p className="text-[13px] py-8 text-center" style={{ color: 'var(--txt2)' }}>No data</p>
-          : data.map((row, i) => {
-              const status = row['Account Status'] || row.status || ''
-              const count  = n(row.count)
-              const share  = total > 0 ? (count / total) * 100 : 0
-              const sty    = statusStyle(status)
+    <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
+      <div style={{ fontWeight: 600, marginBottom: 4, color: 'var(--txt)' }}>{label}</div>
+      <div style={{ color: NAVY }}>Volume: ₦{fmtNum(payload[0]?.value / 100)}</div>
+      <div style={{ color: 'var(--txt2)' }}>Txns: {fmtNum(payload[1]?.value ?? 0)}</div>
+    </div>
+  )
+}
+
+// ── Product table ──────────────────────────────────────────────────────────────
+
+const PRODUCT_COLS: TableCol<ProductRow>[] = [
+  { key: 'Product_Name', label: 'Product',
+    render: r => {
+      const name = r.Product_Name ?? r.product_name ?? '—'
+      const c = PRODUCT_COLORS[name] ?? '#6B7280'
+      return (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: c, flexShrink: 0, display: 'inline-block' }} />
+          <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{name}</span>
+        </span>
+      )
+    },
+  },
+  { key: 'count', label: 'Cards', align: 'right',
+    render: r => <span style={{ ...NUM, fontWeight: 700 }}>{fmtNum(r.count)}</span> },
+]
+
+// ── Main page ──────────────────────────────────────────────────────────────────
+
+export default function CardsOverview() {
+  const [kpis, setKpis]       = useState<KPIs | null>(null)
+  const [products, setProducts] = useState<ProductRow[]>([])
+  const [statuses, setStatuses] = useState<StatusRow[]>([])
+  const [volume, setVolume]     = useState<VolumeRow[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [error, setError]       = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const [k, p, s, v] = await Promise.all([
+        apiFetch<KPIs>('/api/cards/kpis'),
+        apiFetch<ProductRow[]>('/api/cards/by-product'),
+        apiFetch<StatusRow[]>('/api/cards/by-status'),
+        apiFetch<VolumeRow[]>('/api/cards/volume-by-type'),
+      ])
+      setKpis(k)
+      setProducts(Array.isArray(p) ? p : [])
+      setStatuses(Array.isArray(s) ? s : [])
+      setVolume(Array.isArray(v) ? v : [])
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const volumeData = volume.map(r => ({
+    name: r.Product_Name ?? r.product_name ?? '?',
+    volume: r.volume,
+    txns: r.txn_count,
+  }))
+
+  const pieData = products.map((r, i) => {
+    const name = r.Product_Name ?? r.product_name ?? '?'
+    return { name, value: r.count, color: PRODUCT_COLORS[name] ?? PIE_FALLBACK[i % PIE_FALLBACK.length] }
+  })
+
+  return (
+    <Page title="Cards Overview" subtitle="Card portfolio health and transaction activity">
+      <ErrBanner error={error} onRetry={load} />
+
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
+        <KpiCard label="Total Issued" value={fmtNum(kpis?.total_issued ?? 0)} loading={loading} />
+        <KpiCard label="Active Cards" value={fmtNum(kpis?.active ?? 0)} loading={loading}
+          sub={kpis ? `${fmtPct(kpis.activation_rate)} activation rate` : undefined} />
+        <KpiCard label="Inactive" value={fmtNum(kpis?.inactive ?? 0)} loading={loading} />
+        <KpiCard label="Unique Merchants" value={fmtNum(kpis?.unique_merchants ?? 0)} loading={loading} />
+      </div>
+
+      {/* Charts row */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 16, marginBottom: 20 }}>
+
+        {/* Bar: volume by product */}
+        <SectionCard title="Transaction Volume by Product">
+          {volumeData.length === 0 && !loading ? (
+            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: 13 }}>
+              No transaction data for current period
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={volumeData} margin={{ top: 4, right: 16, bottom: 0, left: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--txt2)' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: 'var(--txt2)' }} axisLine={false} tickLine={false}
+                  tickFormatter={v => `₦${fmtNum(v / 100)}`} width={70} />
+                <Tooltip content={<VolumeTooltip />} cursor={{ fill: 'rgba(14,40,65,.05)' }} />
+                <Bar dataKey="volume" radius={[4, 4, 0, 0]}>
+                  {volumeData.map((d, i) => (
+                    <Cell key={i} fill={PRODUCT_COLORS[d.name] ?? PIE_FALLBACK[i % PIE_FALLBACK.length]} />
+                  ))}
+                </Bar>
+                <Bar dataKey="txns" radius={[4, 4, 0, 0]} fill="rgba(14,40,65,.15)" />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </SectionCard>
+
+        {/* Donut: card type mix */}
+        <SectionCard title="Card Type Mix">
+          {pieData.length === 0 && !loading ? (
+            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: 13 }}>
+              No product data
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={pieData} cx="50%" cy="48%" innerRadius={60} outerRadius={88}
+                  dataKey="value" paddingAngle={2}>
+                  {pieData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                </Pie>
+                <Tooltip formatter={(v: number, name: string) => [fmtNum(v), name]} />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11.5 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </SectionCard>
+      </div>
+
+      {/* Status distribution */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+
+        <SectionCard title="By Product" badge={products.length} padding={false}>
+          <DataTable
+            cols={PRODUCT_COLS}
+            rows={products}
+            keyFn={(r, i) => i}
+            loading={loading}
+            emptyText="No product data"
+          />
+        </SectionCard>
+
+        <SectionCard title="By Status">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {statuses.map((r, i) => {
+              const name = r.Status ?? r['Account_Status' as keyof StatusRow] as string ?? r.status ?? '?'
+              const c = STATUS_COLORS[name] ?? '#9CA3AF'
+              const total = statuses.reduce((s, x) => s + x.count, 0) || 1
+              const pct = (r.count / total) * 100
               return (
                 <div key={i}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: sty.color }} />
-                      <span className="text-[12px] font-semibold capitalize" style={{ color: 'var(--txt)' }}>
-                        {status || 'Unknown'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] kpi-number" style={{ color: 'var(--txt2)' }}>{share.toFixed(1)}%</span>
-                      <span className="kpi-number text-[14px] font-bold" style={{ color: 'var(--txt)' }}>{count.toLocaleString()}</span>
-                    </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12.5 }}>
+                    <span style={{ color: 'var(--txt)', fontWeight: 500 }}>{name}</span>
+                    <span style={{ ...NUM, color: 'var(--txt2)' }}>{fmtNum(r.count)} ({pct.toFixed(1)}%)</span>
                   </div>
-                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(15,23,42,0.06)' }}>
-                    <div className="h-full rounded-full transition-all duration-700"
-                      style={{ width: `${share}%`, background: sty.color }} />
+                  <div style={{ height: 6, borderRadius: 3, background: 'var(--bdr)' }}>
+                    <div style={{ height: '100%', borderRadius: 3, background: c, width: `${pct}%`, transition: 'width .4s' }} />
                   </div>
                 </div>
               )
             })}
-        {!loading && total > 0 && (
-          <div className="flex items-center justify-between text-[11px] pt-2" style={{ color: 'var(--txt2)', borderTop: '1px solid var(--bdr)' }}>
-            <span>Total cards</span>
-            <span className="kpi-number font-semibold" style={{ color: 'var(--txt2)' }}>{total.toLocaleString()}</span>
+            {statuses.length === 0 && !loading && (
+              <div style={{ textAlign: 'center', color: 'var(--txt3)', fontSize: 13, padding: '24px 0' }}>No status data</div>
+            )}
           </div>
-        )}
+        </SectionCard>
+
       </div>
-    </SectionCard>
-  )
-}
-
-/* ── Product mix grid ────────────────────────────────────────── */
-function ProductGrid({ data, loading }: { data: any[]; loading: boolean }) {
-  const total = data.reduce((s, r) => s + n(r.count), 0)
-  const COLORS = [NAVY, RED, AMBER, '#6366F1', BLUE, GREEN]
-  return (
-    <SectionCard title="Cards by Product" subtitle="All-time issuance per product">
-      <div className="px-5 py-4">
-        {loading
-          ? <div className="space-y-3">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="space-y-2"><Sk w="w-32" /><Sk h="h-2" /></div>)}</div>
-          : (
-            <>
-              {/* Visual breakdown */}
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                {data.map((row, i) => {
-                  const name  = row['Product Name'] || '—'
-                  const count = n(row.count)
-                  const share = total > 0 ? (count / total) * 100 : 0
-                  const color = PRODUCT_COLORS[name] || COLORS[i % COLORS.length]
-                  return (
-                    <div key={i} className="rounded-xl p-3" style={{ background: `${color}08` }}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
-                        <span className="text-[11px] font-semibold truncate" style={{ color: 'var(--txt2)' }}>{name}</span>
-                      </div>
-                      <p className="kpi-number text-[20px] font-bold" style={{ color: 'var(--txt)' }}>{fmtNum(count)}</p>
-                      <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>{share.toFixed(1)}% of total</p>
-                    </div>
-                  )
-                })}
-              </div>
-              {/* Total */}
-              <div className="flex items-center justify-between text-[11px] pt-3" style={{ color: 'var(--txt2)', borderTop: '1px solid var(--bdr)' }}>
-                <span>Total issued</span>
-                <span className="kpi-number font-semibold" style={{ color: 'var(--txt2)' }}>{fmtNum(total)}</span>
-              </div>
-            </>
-          )}
-      </div>
-    </SectionCard>
-  )
-}
-
-/* ── Main Page ───────────────────────────────────────────────── */
-export default function CardsOverview() {
-  const [from,      setFrom]      = useState(monthStart())
-  const [to,        setTo]        = useState(today())
-
-  const [kpis,      setKpis]      = useState<any>(null)
-  const [byStatus,  setByStatus]  = useState<any[]>([])
-  const [byProd,    setByProd]    = useState<any[]>([])
-  const [volByType, setVolByType] = useState<any[]>([])
-  const [loading,   setLoading]   = useState(true)
-  const [error,     setError]     = useState('')
-  const [exporting,   setExporting]   = useState(false)
-  const [volSortKey,  setVolSortKey]  = useState<string | null>(null)
-  const [volSortDir,  setVolSortDir]  = useState<'asc' | 'desc'>('asc')
-
-  const toggleVolSort = (key: string) => {
-    if (volSortKey === key) setVolSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setVolSortKey(key); setVolSortDir('asc') }
-  }
-
-  useEffect(() => {
-    let active = true
-    setLoading(true); setError('')
-    async function load() {
-      try {
-        const qs = `?date_from=${from}&date_to=${to}`
-        const [rK, rBs, rBp, rVt] = await Promise.allSettled([
-          apiFetch(`/api/cards/kpis${qs}`),
-          apiFetch('/api/cards/by-status'),
-          apiFetch('/api/cards/by-product'),
-          apiFetch(`/api/cards/volume-by-type${qs}`),
-        ])
-        if (!active) return
-        if (rK.status === 'fulfilled') setKpis(rK.value.data || {})
-        if (rBs.status === 'fulfilled') setByStatus(rBs.value.data || [])
-        if (rBp.status === 'fulfilled') setByProd(rBp.value.data || [])
-        if (rVt.status === 'fulfilled') setVolByType(rVt.value.data || [])
-        if ([rK, rBs, rBp, rVt].every(r => r.status === 'rejected')) {
-          setError((rK as PromiseRejectedResult).reason?.message ?? 'Failed to load')
-        }
-      } catch (e: any) { if (active) setError(e.message) }
-      finally { if (active) setLoading(false) }
-    }
-    load()
-    return () => { active = false }
-  }, [from, to])
-
-  const d = kpis || {}
-
-  const donutData = byStatus
-    .filter(r => n(r.count) > 0)
-    .map(r => ({
-      name: r['Account Status'] || r.status || 'Unknown',
-      value: n(r.count),
-    }))
-
-  async function doExport() {
-    setExporting(true)
-    try {
-      const { apiExport } = await import('../../lib/api')
-      await apiExport(`/api/cards/volume-by-type?date_from=${from}&date_to=${to}`, 'cards_overview')
-    } finally { setExporting(false) }
-  }
-
-  return (
-    <Page dept="Cards & Ops" title="Cards Overview"
-      subtitle="Portfolio health, product mix, and transaction volume"
-      actions={
-        <div className="flex items-center gap-2">
-          <ExportBtn onClick={doExport} loading={exporting} />
-          <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
-        </div>
-      }>
-      <ErrBanner msg={error} />
-
-      {/* Primary KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard label="Total Issued"     value={fmtNum(d.total_issued)}    icon="credit_card"  accent={NAVY}  loading={loading} />
-        <KpiCard label="Active Cards"     value={fmtNum(d.active)}          icon="check_circle" accent={GREEN}
-          sub={`${fmtPct(d.activation_rate)} activation`} loading={loading} />
-        <KpiCard label="Inactive Cards"   value={fmtNum(d.inactive)}        icon="cancel"       accent={RED}   loading={loading} />
-        <KpiCard label="Unique Merchants" value={fmtNum(d.unique_merchants)} icon="storefront"  accent={AMBER} loading={loading} />
-      </div>
-
-      {/* Product KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
-        <KpiCard label="PREP"          value={fmtNum(d.prep)}             icon="wallet"      accent={NAVY}    loading={loading} />
-        <KpiCard label="Amex Naira"    value={fmtNum(d.amex_naira)}       icon="payments"    accent={RED}     loading={loading} />
-        <KpiCard label="Amex USD"      value={fmtNum(d.amex_usd)}         icon="language"    accent={AMBER}   loading={loading} />
-        <KpiCard label="Classic"       value={fmtNum(d.classic_accounts)} icon="credit_card" accent="#6366F1" loading={loading} />
-      </div>
-
-      {/* Status breakdown + Product breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-        <PortfolioHealthGrid data={byStatus} loading={loading} />
-        <ProductGrid data={byProd} loading={loading} />
-      </div>
-
-      {/* Donut + Volume Bar */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-        <DonutCard
-          title="Status Distribution"
-          subtitle="Portfolio composition by account status"
-          data={donutData}
-          nameKey="name"
-          valueKey="value"
-          colors={[GREEN, RED, AMBER, '#7C3AED', '#94A3B8', '#475569']}
-          loading={loading}
-        />
-        <BarChartCard
-          title="Transaction Volume by Card Type"
-          subtitle={`${from} – ${to}`}
-          data={volByType}
-          xKey="Product Name"
-          barKey="volume"
-          color={NAVY}
-          currency
-          height={240}
-          loading={loading}
-        />
-      </div>
-
-      {/* Volume summary table */}
-      {(volByType.length > 0 || loading) && (
-        <div className="mt-4">
-          <SectionCard title="Spend by Card Type" subtitle={`Transaction volume ${from} – ${to}`}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-[13px]">
-                <thead>
-                  <tr>
-                    {([['Card Type', 'Product Name', 'left'], ['Transactions', 'txn_count', 'right'], ['Volume', 'volume', 'right'], ['Share', null, 'right']] as [string, string|null, string][]).map(([col, k, align]) => (
-                      <th key={col}
-                        className={`px-5 py-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] whitespace-nowrap text-${align}`}
-                        style={{ background: 'var(--th-bg)', color: volSortKey === k ? 'var(--txt)' : 'var(--txt2)', cursor: k ? 'pointer' : undefined }}
-                        onClick={k ? () => toggleVolSort(k) : undefined}>
-                        {col}{k && <span style={{ marginLeft: 3, color: '#C00000', opacity: volSortKey === k ? 1 : 0.3 }}>{volSortKey === k ? (volSortDir === 'asc' ? '↑' : '↓') : '↕'}</span>}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading
-                    ? Array.from({ length: 4 }).map((_, i) => (
-                        <tr key={i} style={{ borderTop: '1px solid var(--bdr)' }}>
-                          {Array.from({ length: 4 }).map((_, j) => (
-                            <td key={j} className="px-5 py-3.5"><Sk /></td>
-                          ))}
-                        </tr>
-                      ))
-                    : (() => {
-                        const volTotal = volByType.reduce((s, r) => s + n(r.volume), 0)
-                        const sortedVol = volSortKey
-                          ? [...volByType].sort((a, b) => {
-                              const va = (a as any)[volSortKey] ?? ''
-                              const vb = (b as any)[volSortKey] ?? ''
-                              const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))
-                              return volSortDir === 'asc' ? cmp : -cmp
-                            })
-                          : volByType
-                        return sortedVol.map((row, i) => {
-                          const share = volTotal > 0 ? (n(row.volume) / volTotal * 100).toFixed(1) : '0.0'
-                          return (
-                            <tr key={i} className="transition-colors hover:bg-[var(--row-hvr)]"
-                              style={{ borderTop: '1px solid var(--bdr)' }}>
-                              <td className="px-5 py-3 font-semibold" style={{ color: 'var(--txt)' }}>
-                                {row['Product Name'] || '—'}
-                              </td>
-                              <td className="px-5 py-3 text-right kpi-number" style={{ color: 'var(--txt2)' }}>
-                                {n(row.txn_count).toLocaleString()}
-                              </td>
-                              <td className="px-5 py-3 text-right kpi-number font-semibold" style={{ color: 'var(--txt)' }}>
-                                {fmt(row.volume)}
-                              </td>
-                              <td className="px-5 py-3 text-right">
-                                <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded"
-                                  style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>
-                                  {share}%
-                                </span>
-                              </td>
-                            </tr>
-                          )
-                        })
-                      })()}
-                </tbody>
-              </table>
-            </div>
-          </SectionCard>
-        </div>
-      )}
     </Page>
   )
 }

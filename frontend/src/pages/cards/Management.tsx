@@ -1,131 +1,432 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Page, SectionCard, DataTable, ErrBanner, SearchInput, Modal } from '../../components/UI'
+import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtNum, fmtDate, today, monthStart } from '../../lib/fmt'
-import {
-  Page, KpiCard, SectionCard, DataTable, ColDef,
-  DateFilter, DonutCard, BarChartCard,
-  ErrBanner, StatusBadge, NAVY, RED, GREEN,
-} from '../../components/UI'
+import { fmtDate, fmtDatetime } from '../../lib/fmt'
+import { RED, GREEN, AMBER, NAVY, INTER, SORA, NUM } from '../../lib/design'
+import { toast } from 'sonner'
 
-interface CardRow {
-  cif: string
-  name: string
-  product: string
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface Cardholder {
+  cif_number: string
+  product_name: string
   status: string
-  card_type: string
-  account_manager: string
-  created_date: string
-  state: string
+  card_product: string
+  created_at: string
 }
 
-export default function CardManagement() {
-  const [from, setFrom]           = useState(monthStart())
-  const [to, setTo]               = useState(today())
-  const [kpis, setKpis]           = useState<any>(null)
-  const [byProduct, setByProduct] = useState<any[]>([])
-  const [byStatus, setByStatus]   = useState<any[]>([])
-  const [byType, setByType]       = useState<any[]>([])
-  const [cards, setCards]         = useState<CardRow[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [error, setError]         = useState('')
-  const [search, setSearch]       = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
+interface ListResp { data: Cardholder[]; total: number }
 
-  useEffect(() => {
-    let active = true
-    setLoading(true); setError('')
-    async function load() {
-      try {
-        const qs = new URLSearchParams({ date_from: from, date_to: to }).toString()
-        const [k, bp, bs, vt] = await Promise.allSettled([
-          apiFetch(`/api/cards/kpis?${qs}`),
-          apiFetch(`/api/cards/by-product?${qs}`),
-          apiFetch(`/api/cards/by-status?${qs}`),
-          apiFetch(`/api/cards/volume-by-type?${qs}`),
-        ])
-        if (k.status === 'fulfilled') { if (active) setKpis(k.value.data ?? k.value) }
-        if (bp.status === 'fulfilled') { if (active) setByProduct(bp.value.data ?? []) }
-        if (bs.status === 'fulfilled') { if (active) setByStatus(bs.value.data ?? []) }
-        if (vt.status === 'fulfilled') { if (active) setByType(vt.value.data ?? []) }
-        if ([k, bp, bs, vt].every(r => r.status === 'rejected')) {
-          if (active) setError((k as PromiseRejectedResult).reason?.message ?? 'Failed to load')
-        }
-        const salesCards = await apiFetch(`/api/sales/cards?${qs}&limit=500`).catch(() => ({ data: [] }))
-        if (active) setCards(salesCards.data ?? [])
-      } catch (e: any) { if (active) setError(e.message) }
-      finally { if (active) setLoading(false) }
+// ── Status colours ─────────────────────────────────────────────────────────────
+
+const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
+  Open:             { bg: 'rgba(22,163,74,.1)',   txt: GREEN },
+  Active:           { bg: 'rgba(22,163,74,.1)',   txt: GREEN },
+  Inactive:         { bg: 'rgba(217,119,6,.12)',  txt: AMBER },
+  Closed:           { bg: 'rgba(107,114,128,.1)', txt: '#6B7280' },
+  Terminated:       { bg: 'rgba(192,0,0,.1)',     txt: RED },
+  'Legal Suspended':{ bg: 'rgba(124,58,237,.1)',  txt: '#7C3AED' },
+}
+
+function StatusPill({ status }: { status: string }) {
+  const c = STATUS_COLORS[status] ?? { bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
+  return (
+    <span style={{
+      fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20,
+      background: c.bg, color: c.txt, whiteSpace: 'nowrap',
+    }}>{status || '—'}</span>
+  )
+}
+
+
+function PageBtn({ children, active, disabled, onClick, icon }: {
+  children?: React.ReactNode; active?: boolean; disabled?: boolean
+  onClick?: () => void; icon?: string
+}) {
+  return (
+    <button onClick={onClick} disabled={disabled} style={{
+      width: 28, height: 28, borderRadius: 6,
+      border: active ? 'none' : '1.5px solid var(--input-bdr)',
+      background: active ? NAVY : 'transparent',
+      color: active ? '#fff' : disabled ? 'var(--txt3)' : 'var(--txt2)',
+      fontSize: 12, fontWeight: 600, cursor: disabled ? 'default' : 'pointer',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: INTER,
+    }}>
+      {icon ? <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{icon}</span> : children}
+    </button>
+  )
+}
+
+// ── Block log types ───────────────────────────────────────────────────────────
+
+interface BlockLogEntry {
+  id:              number
+  cif_number:      string
+  reason:          string
+  is_blocked:      boolean
+  created_at:      string
+  unblocked_at:    string | null
+  blocked_by_name: string | null
+}
+
+// ── Block / Unblock action ────────────────────────────────────────────────────
+
+function ActionCell({ row, onDone }: { row: Cardholder; onDone: () => void }) {
+  const [busy,        setBusy]        = useState(false)
+  const [showBlock,   setShowBlock]   = useState(false)
+  const [showLog,     setShowLog]     = useState(false)
+  const [reason,      setReason]      = useState('')
+  const [log,         setLog]         = useState<BlockLogEntry[]>([])
+  const [logLoading,  setLogLoading]  = useState(false)
+
+  const isActive = row.status === 'Open' || row.status === 'Active'
+
+  async function doBlock() {
+    if (!reason.trim()) { toast.error('Enter a block reason'); return }
+    setBusy(true)
+    try {
+      await apiFetch(`/api/cards/cardholders/${row.cif_number}/block`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason.trim() }),
+      })
+      toast.success('Card blocked')
+      setShowBlock(false)
+      setReason('')
+      onDone()
+    } catch (e: any) {
+      toast.error(e.message)
     }
-    load()
-    return () => { active = false }
-  }, [from, to])
+    setBusy(false)
+  }
 
-  const k = kpis ?? {}
+  async function doUnblock() {
+    setBusy(true)
+    try {
+      await apiFetch(`/api/cards/cardholders/${row.cif_number}/unblock`, { method: 'POST' })
+      toast.success('Card unblocked')
+      onDone()
+    } catch (e: any) {
+      toast.error(e.message)
+    }
+    setBusy(false)
+  }
 
-  const filtered = cards.filter(c => {
-    const matchSearch = !search ||
-      c.name?.toLowerCase().includes(search.toLowerCase()) ||
-      c.cif?.toLowerCase().includes(search.toLowerCase()) ||
-      c.account_manager?.toLowerCase().includes(search.toLowerCase())
-    const matchStatus = statusFilter === 'all' || c.status?.toLowerCase() === statusFilter
-    return matchSearch && matchStatus
-  })
-
-  const statusOptions = ['all', ...Array.from(new Set(cards.map(c => (c.status || '').toLowerCase()).filter(Boolean)))]
-
-  const cols: ColDef<CardRow>[] = [
-    { key: 'cif',             label: 'CIF',       sortable: false },
-    { key: 'name',            label: 'Customer' },
-    { key: 'product',         label: 'Product' },
-    { key: 'card_type',       label: 'Type',      render: r => (
-        <span className="text-[12px] font-medium px-2 py-0.5 rounded"
-          style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>
-          {r.card_type || '—'}
-        </span>
-      )},
-    { key: 'status',          label: 'Status',    render: r => <StatusBadge status={r.status || 'inactive'} /> },
-    { key: 'account_manager', label: 'Officer' },
-    { key: 'state',           label: 'State' },
-    { key: 'created_date',    label: 'Issued',    render: r => fmtDate(r.created_date) },
-  ]
+  async function openLog() {
+    setShowLog(true)
+    setLogLoading(true)
+    try {
+      const res = await apiFetch<{ data: BlockLogEntry[] }>(`/api/cards/cardholders/${row.cif_number}/block-log`)
+      setLog(res.data ?? [])
+    } catch {
+      setLog([])
+    }
+    setLogLoading(false)
+  }
 
   return (
-    <Page dept="Cards & Ops" title="Card Management" subtitle="Full card portfolio view"
-      actions={<DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />}>
-      <ErrBanner msg={error} />
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-        <KpiCard loading={loading} label="Total Cards"    value={fmtNum(k.total_cards)}    icon="credit_card"  accent={NAVY}    />
-        <KpiCard loading={loading} label="Active"         value={fmtNum(k.active_cards)}   icon="check_circle" accent={GREEN}   />
-        <KpiCard loading={loading} label="Inactive"       value={fmtNum(k.inactive_cards)} icon="cancel"       accent="#64748B" />
-        <KpiCard loading={loading} label="New This Period" value={fmtNum(k.new_cards)}     icon="add_card"     accent={RED}     />
+    <>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button
+          onClick={e => { e.stopPropagation(); isActive ? setShowBlock(true) : doUnblock() }}
+          disabled={busy}
+          style={{
+            padding: '3px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 600,
+            background: isActive ? 'rgba(192,0,0,.08)' : 'rgba(22,163,74,.1)',
+            color: isActive ? RED : GREEN,
+          }}
+        >
+          {busy ? '…' : isActive ? 'Block' : 'Unblock'}
+        </button>
+        <button
+          onClick={e => { e.stopPropagation(); openLog() }}
+          style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'transparent', cursor: 'pointer', fontSize: 11.5, color: 'var(--txt2)' }}
+          title="Block history"
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 13, verticalAlign: 'middle' }}>history</span>
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
-        <DonutCard title="By Product"  data={byProduct} nameKey="product" valueKey="count" loading={loading} />
-        <DonutCard title="By Status"   data={byStatus}  nameKey="status"  valueKey="count" loading={loading} />
-        <BarChartCard title="Volume by Card Type" data={byType} xKey="type" barKey="count" height={180} loading={loading} />
-      </div>
-
-      <SectionCard title="Card Portfolio" badge={filtered.length}
-        actions={
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <span className="material-symbols-rounded absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px]" style={{ color: 'var(--txt2)' }}>search</span>
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
-                className="pl-8 pr-3 py-1.5 rounded-lg border text-[12px] outline-none w-44"
-                style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
+      {/* Block reason modal */}
+      {showBlock && (
+        <Modal open={showBlock} title={`Block card — ${row.cif_number}`} onClose={() => { setShowBlock(false); setReason('') }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--txt2)' }}>
+              This will block all card activity for <strong>{row.cif_number}</strong>. Provide a reason for audit.
+            </p>
+            <label style={{ fontSize: 12, color: 'var(--txt2)' }}>
+              Reason <span style={{ color: RED }}>*</span>
+              <textarea
+                rows={3}
+                value={reason}
+                autoFocus
+                onChange={e => setReason(e.target.value)}
+                placeholder="e.g. Suspected fraud, Customer request…"
+                style={{ display: 'block', width: '100%', marginTop: 6, padding: '8px 10px', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }}
+              />
+            </label>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => { setShowBlock(false); setReason('') }}
+                style={{ padding: '7px 16px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'transparent', cursor: 'pointer', fontSize: 13 }}>
+                Cancel
+              </button>
+              <button onClick={doBlock} disabled={busy || !reason.trim()}
+                style={{ padding: '7px 16px', borderRadius: 6, border: 'none', cursor: (busy || !reason.trim()) ? 'not-allowed' : 'pointer', background: RED, color: '#fff', fontSize: 13, fontWeight: 600, opacity: (busy || !reason.trim()) ? 0.6 : 1 }}>
+                {busy ? 'Blocking…' : 'Confirm Block'}
+              </button>
             </div>
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg border text-[12px] outline-none"
-              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}>
-              {statusOptions.map(s => (
-                <option key={s} value={s}>{s === 'all' ? 'All Statuses' : s.charAt(0).toUpperCase() + s.slice(1)}</option>
-              ))}
-            </select>
           </div>
-        }>
-        <DataTable cols={cols} rows={filtered} loading={loading}
-          emptyMsg="No cards found" emptyIcon="credit_card_off" />
+        </Modal>
+      )}
+
+      {/* Block log modal */}
+      {showLog && (
+        <Modal open={showLog} title={`Block history — ${row.cif_number}`} onClose={() => setShowLog(false)}>
+          {logLoading ? (
+            <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--txt2)', fontSize: 13 }}>Loading…</div>
+          ) : log.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--txt2)', fontSize: 13 }}>No block history for this card</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+              {log.map(entry => (
+                <div key={entry.id} style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '12px 0', borderBottom: '1px solid var(--bdr)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{
+                      fontSize: 11, fontWeight: 700, padding: '1px 8px', borderRadius: 20,
+                      background: entry.is_blocked ? 'rgba(192,0,0,.1)' : 'rgba(22,163,74,.1)',
+                      color: entry.is_blocked ? RED : GREEN,
+                    }}>{entry.is_blocked ? 'Blocked' : 'Unblocked'}</span>
+                    <span style={{ fontSize: 11.5, color: 'var(--txt2)' }}>{fmtDatetime(entry.created_at)}</span>
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--txt)' }}>{entry.reason || '—'}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--txt2)' }}>
+                    By {entry.blocked_by_name ?? 'System'}
+                    {entry.unblocked_at && <> · Unblocked {fmtDatetime(entry.unblocked_at)}</>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Modal>
+      )}
+    </>
+  )
+}
+
+// ── Columns ───────────────────────────────────────────────────────────────────
+
+function makeCols(onDone: () => void): TableCol<Cardholder>[] {
+  return [
+    { key: 'cif_number', label: 'CIF Number',
+      render: r => <span style={{ ...NUM, fontSize: 12.5, fontWeight: 600, color: NAVY }}>{r.cif_number}</span> },
+    { key: 'product_name', label: 'Product',
+      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA }}>{r.product_name || '—'}</span> },
+    { key: 'card_product', label: 'Card Programme',
+      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)', fontFamily: SORA }}>{r.card_product || '—'}</span> },
+    { key: 'status', label: 'Status', render: r => <StatusPill status={r.status} /> },
+    { key: 'created_at', label: 'Issued Date', sortable: true,
+      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span> },
+    { key: '_actions', label: '', render: r => <ActionCell row={r} onDone={onDone} /> },
+  ]
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 50
+const STATUSES = ['Open', 'Active', 'Inactive', 'Closed', 'Terminated', 'Legal Suspended']
+const PRODUCTS = ['PREP', 'Amex Naira', 'Amex USD', 'Classic Accounts']
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+export default function CardsManagement() {
+  const [rows, setRows]       = useState<Cardholder[]>([])
+  const [total, setTotal]     = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState<string | null>(null)
+
+  const [filterOpen,   setFilterOpen]   = useState(false)
+  const [search,       setSearch]       = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [productFilter, setProductFilter] = useState('')
+  const [page, setPage] = useState(1)
+
+  const load = useCallback(async (pg = 1) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const p = new URLSearchParams()
+      p.set('limit',  String(PAGE_SIZE))
+      p.set('offset', String((pg - 1) * PAGE_SIZE))
+      if (statusFilter)  p.set('status',    statusFilter)
+      if (productFilter) p.set('card_type', productFilter)
+      const res = await apiFetch<ListResp>(`/api/cards/cardholders?${p}`)
+      setRows(res?.data ?? [])
+      setTotal(res?.total ?? 0)
+      setPage(pg)
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [statusFilter, productFilter])
+
+  useEffect(() => { load(1) }, [load])
+
+  const displayed = useMemo(() => {
+    if (!search) return rows
+    const q = search.toLowerCase()
+    return rows.filter(r => r.cif_number.toLowerCase().includes(q))
+  }, [rows, search])
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const showStart  = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+  const showEnd    = Math.min(page * PAGE_SIZE, total)
+
+  const activeFilterCount = (statusFilter ? 1 : 0) + (productFilter ? 1 : 0)
+
+  function apply() {
+    setFilterOpen(false)
+    load(1)
+  }
+
+  function clearFilters() {
+    setStatusFilter('')
+    setProductFilter('')
+  }
+
+  return (
+    <Page title="Cardholder Management" subtitle="View and manage all issued cards">
+
+      <ErrBanner error={error} onRetry={() => load(page)} />
+
+      <SectionCard title="Cardholders" badge={total} padding={false}>
+
+        {/* Toolbar */}
+        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 10, alignItems: 'center' }}>
+          <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
+          <button
+            onClick={() => setFilterOpen(o => !o)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 9,
+              border: `1.5px solid ${filterOpen || activeFilterCount > 0 ? NAVY : 'var(--input-bdr)'}`,
+              background: filterOpen ? `${NAVY}10` : 'transparent',
+              color: filterOpen || activeFilterCount > 0 ? NAVY : 'var(--txt2)',
+              fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: INTER,
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>tune</span>
+            Filters
+            {activeFilterCount > 0 && (
+              <span style={{ background: NAVY, color: '#fff', borderRadius: 10, fontSize: 10.5, fontWeight: 700, padding: '1px 6px', lineHeight: '16px' }}>
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+          <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+            {total.toLocaleString()} total
+          </span>
+        </div>
+
+        {/* Filter panel */}
+        {filterOpen && (
+          <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--bdr)', background: '#F0F4FF' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
+
+              {/* Status */}
+              <div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Status</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 12.5 }}>
+                    <input type="radio" checked={statusFilter === ''} onChange={() => setStatusFilter('')} /> All statuses
+                  </label>
+                  {STATUSES.map(s => (
+                    <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 12.5 }}>
+                      <input type="radio" checked={statusFilter === s} onChange={() => setStatusFilter(s)} />
+                      <span style={{ color: STATUS_COLORS[s]?.txt ?? 'var(--txt)' }}>{s}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Product */}
+              <div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Product</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 12.5 }}>
+                    <input type="radio" checked={productFilter === ''} onChange={() => setProductFilter('')} /> All products
+                  </label>
+                  {PRODUCTS.map(p => (
+                    <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 12.5 }}>
+                      <input type="radio" checked={productFilter === p} onChange={() => setProductFilter(p)} />
+                      {p}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Apply */}
+              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 8 }}>
+                <button onClick={apply} style={{
+                  padding: '9px 0', borderRadius: 9, border: 'none', background: NAVY, color: '#fff',
+                  fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER,
+                }}>Apply Filters</button>
+                {activeFilterCount > 0 && (
+                  <button onClick={() => { clearFilters(); setFilterOpen(false) }} style={{
+                    padding: '7px 0', borderRadius: 9, border: '1.5px solid var(--bdr)', background: 'transparent',
+                    color: 'var(--txt2)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: INTER,
+                  }}>Clear All</button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Active chips */}
+        {activeFilterCount > 0 && (
+          <div style={{ padding: '8px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {statusFilter && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, background: `${NAVY}12`, color: NAVY, borderRadius: 16, padding: '3px 10px', fontSize: 11.5, fontWeight: 600 }}>
+                Status: {statusFilter}
+                <button onClick={() => { setStatusFilter(''); load(1) }} style={{ border: 'none', background: 'none', cursor: 'pointer', color: NAVY, display: 'flex', padding: 0 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 13 }}>close</span>
+                </button>
+              </span>
+            )}
+            {productFilter && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, background: `${NAVY}12`, color: NAVY, borderRadius: 16, padding: '3px 10px', fontSize: 11.5, fontWeight: 600 }}>
+                Product: {productFilter}
+                <button onClick={() => { setProductFilter(''); load(1) }} style={{ border: 'none', background: 'none', cursor: 'pointer', color: NAVY, display: 'flex', padding: 0 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 13 }}>close</span>
+                </button>
+              </span>
+            )}
+          </div>
+        )}
+
+        <DataTable cols={makeCols(() => load(page))} rows={displayed} keyFn={r => r.cif_number} loading={loading} emptyText="No cardholders found" />
+
+        {/* Pagination */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderTop: '1px solid var(--bdr)' }}>
+          <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+            {total === 0 ? 'No records' : `Showing ${showStart}–${showEnd} of ${total.toLocaleString()}`}
+          </span>
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', gap: 4 }}>
+              <PageBtn icon="chevron_left" disabled={page === 1} onClick={() => load(page - 1)} />
+              {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                let pg: number
+                if (totalPages <= 7) pg = i + 1
+                else if (page <= 4) pg = i + 1
+                else if (page >= totalPages - 3) pg = totalPages - 6 + i
+                else pg = page - 3 + i
+                return <PageBtn key={pg} active={pg === page} onClick={() => load(pg)}>{pg}</PageBtn>
+              })}
+              <PageBtn icon="chevron_right" disabled={page === totalPages} onClick={() => load(page + 1)} />
+            </div>
+          )}
+        </div>
+
       </SectionCard>
     </Page>
   )

@@ -11,6 +11,10 @@ import (
 func RegisterSales(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("sales"))
 	r.Get("/kpis", salesKPIs(db))
+	r.Get("/loan-kpis",            salesLoanKPIs(db))            // loan-platform KPIs for Sales Overview
+	r.Get("/monthly-disbursements", salesMonthlyDisbursements(db)) // 12-month disbursements trend
+	r.Get("/recent-applications",   salesRecentApplications(db))   // recent LOS applications
+	r.Get("/top-performers",        salesTopPerformers(db))         // top officers by disbursements
 	r.Get("/funnel", salesFunnel(db))
 	r.Get("/accounts-trend", salesAccountsTrend(db))
 	r.Get("/by-state", salesByState(db))
@@ -18,6 +22,119 @@ func RegisterSales(r chi.Router, db *core.DB) {
 	r.Get("/manager-performance", salesManagerPerformance(db))
 	r.Get("/product-mix", salesProductMix(db))
 	r.Get("/customers", salesCustomers(db))
+}
+
+// salesLoanKPIs returns LOS-based KPIs for the Sales Overview page.
+func salesLoanKPIs(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+				COUNT(CASE WHEN DATE_TRUNC('month', created_at) = DATE_TRUNC('month', NOW())
+				           THEN 1 END)                                    AS submitted_mtd,
+				COALESCE(SUM(
+					CASE WHEN stage = 'active'
+					     AND DATE_TRUNC('month', updated_at) = DATE_TRUNC('month', NOW())
+					THEN amount_approved_kobo END
+				), 0)                                                     AS disbursed_mtd_kobo,
+				COALESCE(SUM(
+					CASE WHEN stage NOT IN ('active','declined','closed')
+					THEN amount_requested_kobo END
+				), 0)                                                     AS pipeline_kobo,
+				CASE WHEN (COUNT(CASE WHEN stage = 'active'  THEN 1 END)
+				         + COUNT(CASE WHEN stage = 'declined' THEN 1 END)) = 0
+				     THEN 0::numeric
+				     ELSE ROUND(
+				       COUNT(CASE WHEN stage = 'active' THEN 1 END)::numeric
+				       / (COUNT(CASE WHEN stage = 'active'  THEN 1 END)
+				        + COUNT(CASE WHEN stage = 'declined' THEN 1 END))::numeric * 100, 1
+				     )
+				END                                                       AS win_rate_pct
+			FROM loan_applications`)
+		if err != nil || len(rows) == 0 {
+			respond(w, map[string]any{
+				"submitted_mtd": int64(0), "disbursed_mtd_kobo": int64(0),
+				"pipeline_kobo": int64(0), "win_rate_pct": 0.0,
+			}, "pg")
+			return
+		}
+		respond(w, rows[0], "pg")
+	}
+}
+
+// salesMonthlyDisbursements returns 12 months of disbursement data.
+func salesMonthlyDisbursements(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			WITH months AS (
+				SELECT generate_series(
+					DATE_TRUNC('month', NOW() - INTERVAL '11 months'),
+					DATE_TRUNC('month', NOW()),
+					'1 month'::interval
+				) AS m
+			)
+			SELECT TO_CHAR(m.m, 'Mon YY') AS month, m.m AS month_sort,
+			       COALESCE(SUM(la.amount_approved_kobo), 0) AS disbursements_kobo,
+			       COUNT(la.id) AS count
+			FROM months m
+			LEFT JOIN loan_applications la
+				ON la.stage = 'active'
+				AND DATE_TRUNC('month', la.updated_at) = m.m
+			GROUP BY m.m ORDER BY m.m`)
+		if err != nil {
+			respond(w, []any{}, "pg")
+			return
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+// salesRecentApplications returns the 20 most-recently-updated applications.
+func salesRecentApplications(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		q := `SELECT la.id, la.stage, la.status, la.amount_requested_kobo,
+		             la.amount_approved_kobo, la.created_at, la.updated_at,
+		             la.officer_id, u.name AS officer_name
+		      FROM loan_applications la
+		      LEFT JOIN users u ON u.id = la.officer_id
+		      WHERE 1=1`
+		args := []any{}
+		n := 1
+		if !user.HasPage("los_all") {
+			q += fmt.Sprintf(" AND la.officer_id = $%d", n)
+			args = append(args, user.ID)
+			n++
+		}
+		q += " ORDER BY la.updated_at DESC LIMIT 20"
+		_ = n
+		rows, err := db.PGQuery(r.Context(), q, args...)
+		if err != nil {
+			respond(w, []any{}, "pg")
+			return
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+// salesTopPerformers returns top 10 officers by disbursements this month.
+func salesTopPerformers(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT u.name, u.role,
+			       COALESCE(SUM(la.amount_approved_kobo), 0) AS amount_kobo,
+			       COUNT(la.id) AS count
+			FROM loan_applications la
+			JOIN users u ON u.id = la.officer_id
+			WHERE la.stage = 'active'
+			  AND DATE_TRUNC('month', la.updated_at) = DATE_TRUNC('month', NOW())
+			GROUP BY u.id, u.name, u.role
+			ORDER BY amount_kobo DESC LIMIT 10`)
+		if err != nil {
+			respond(w, []any{}, "pg")
+			return
+		}
+		respond(w, rows, "pg")
+	}
 }
 
 func salesKPIs(db *core.DB) http.HandlerFunc {

@@ -1,370 +1,239 @@
-import { snake } from '../../lib/labels'
 import { useState, useEffect, useCallback } from 'react'
+import {
+  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Modal, ErrBanner, Spinner, StatusBadge, btnPrimary,
+} from '../../components/UI'
+import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
+import { NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { toast } from 'sonner'
+import type { AuthUser } from '../../hooks/useAuth'
 import {
-  Spinner, ErrBanner, StatusBadge, Page, SectionCard, NAVY, RED, GREEN, AMBER,
-} from '../../components/UI'
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+} from 'recharts'
 
-// ── Types ──────────────────────────────────────────────────────────
-interface ReviewCycle {
-  id: string
-  name: string
-  period_start: string
-  period_end: string
-  status: string
-  created_at: string
-}
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Appraisal {
-  id: string
-  cycle_id: string
-  employee_id: string
-  first_name: string
-  last_name: string
-  staff_id: string
-  department_name: string
-  overall_score: number | null
-  status: string
-  reviewer_id: string | null
-  created_at: string
-}
-
-interface AppraisalItem {
-  id: string
-  competency: string
+  id: number
+  employee_name: string
+  department?: string
+  period: string
   score: number
-  max_score: number
-  comments: string
+  rating?: string
+  reviewer_name?: string
+  status: string
+  created_at: string
+  notes?: string
 }
 
-interface AppraisalDetail {
-  appraisal: Appraisal
-  items: AppraisalItem[]
+interface ReviewCycle {
+  id: number
+  name: string
+  start_date: string
+  end_date: string
+  status: string
 }
+
+// ── Rating pill ────────────────────────────────────────────────────────────────
+
+function ratingColor(score: number) {
+  if (score >= 4.5) return GREEN
+  if (score >= 3.5) return BLUE
+  if (score >= 2.5) return AMBER
+  return RED
+}
+
+function RatingPill({ score }: { score: number }) {
+  const color = ratingColor(score)
+  const label = score >= 4.5 ? 'Outstanding' : score >= 3.5 ? 'Good' : score >= 2.5 ? 'Satisfactory' : 'Needs Improvement'
+  return (
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${color}14`, color }}>
+      ★ {score.toFixed(1)} · {label}
+    </span>
+  )
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
+
+const BLANK = { employee_id: '', period: '', score: 3, notes: '' }
 
 export default function Performance() {
-  // Cycles
-  const [cycles, setCycles]         = useState<ReviewCycle[]>([])
-  const [cyclesLoading, setCyclesL] = useState(true)
-  const [cyclesErr, setCyclesErr]   = useState('')
+  const storedUser = localStorage.getItem('auth_user')
+  const userRole = storedUser ? (JSON.parse(storedUser) as AuthUser).role : ''
+  const canCreate = ['hr_manager', 'head_hr', 'admin'].includes(userRole)
 
-  // Selected cycle
-  const [selectedCycle, setSelectedCycle] = useState<ReviewCycle | null>(null)
+  const [appraisals, setAppraisals]     = useState<Appraisal[]>([])
+  const [cycles, setCycles]             = useState<ReviewCycle[]>([])
+  const [loading, setLoading]           = useState(true)
+  const [err, setErr]                   = useState<string | null>(null)
+  const [periodFilter, setPeriodFilter] = useState('')
+  const [deptFilter, setDeptFilter]     = useState('')
 
-  // Appraisals
-  const [appraisals, setAppraisals] = useState<Appraisal[]>([])
-  const [apprLoading, setApprL]     = useState(false)
-  const [apprErr, setApprErr]       = useState('')
-  const [statusF, setStatusF]       = useState('')
+  const [newOpen, setNewOpen] = useState(false)
+  const [form, setForm]       = useState(BLANK)
+  const [saving, setSaving]   = useState(false)
 
-  // Detail modal
-  const [detailId, setDetailId]       = useState<string | null>(null)
-  const [detail, setDetail]           = useState<AppraisalDetail | null>(null)
-  const [detailLoading, setDetailL]   = useState(false)
-
-  // Create cycle modal
-  const [showCreate, setShowCreate]   = useState(false)
-  const [cycleName, setCycleName]     = useState('')
-  const [cycleStart, setCycleStart]   = useState('')
-  const [cycleEnd, setCycleEnd]       = useState('')
-  const [creating, setCreating]       = useState(false)
-  const [createErr, setCreateErr]     = useState('')
-
-  const loadCycles = useCallback(async () => {
-    setCyclesL(true); setCyclesErr('')
+  const load = useCallback(async () => {
+    setLoading(true); setErr(null)
     try {
-      const res = await apiFetch<{ data: ReviewCycle[] } | ReviewCycle[]>('/api/hr/review-cycles')
-      setCycles(Array.isArray(res) ? res : (res.data ?? []))
-    } catch (e: any) {
-      setCyclesErr(e.message)
-    } finally {
-      setCyclesL(false)
-    }
-  }, [])
+      const p = new URLSearchParams()
+      if (periodFilter) p.set('period', periodFilter)
+      if (deptFilter)   p.set('department', deptFilter)
+      const [apps, cs] = await Promise.all([
+        apiFetch<Appraisal[]>(`/api/hr/appraisals?${p}`),
+        apiFetch<ReviewCycle[]>('/api/hr/review-cycles'),
+      ])
+      setAppraisals(Array.isArray(apps) ? apps : [])
+      setCycles(Array.isArray(cs) ? cs : [])
+    } catch (e: any) { setErr(e.message) }
+    finally { setLoading(false) }
+  }, [periodFilter, deptFilter])
 
-  useEffect(() => { loadCycles() }, [loadCycles])
+  useEffect(() => { load() }, [load])
 
-  const loadAppraisals = useCallback(async (cycleId: string) => {
-    setApprL(true); setApprErr('')
+  async function handleCreate() {
+    if (!form.period || !form.employee_id) { toast.error('Employee and period are required'); return }
+    setSaving(true)
     try {
-      const params = new URLSearchParams({ cycle_id: cycleId, ...(statusF ? { status: statusF } : {}) })
-      const res = await apiFetch<{ data: Appraisal[] } | Appraisal[]>(`/api/hr/appraisals?${params}`)
-      setAppraisals(Array.isArray(res) ? res : (res.data ?? []))
-    } catch (e: any) {
-      setApprErr(e.message)
-    } finally {
-      setApprL(false)
-    }
-  }, [statusF])
-
-  useEffect(() => {
-    if (selectedCycle) loadAppraisals(selectedCycle.id)
-  }, [selectedCycle, loadAppraisals])
-
-  async function openDetail(id: string) {
-    setDetailId(id); setDetail(null); setDetailL(true)
-    try {
-      const res = await apiFetch<AppraisalDetail>(`/api/hr/appraisals/${id}`)
-      setDetail(res)
-    } finally {
-      setDetailL(false)
-    }
+      await apiPost('/api/hr/appraisals', form)
+      toast.success('Appraisal recorded')
+      setNewOpen(false); setForm(BLANK); load()
+    } catch (e: any) { toast.error(e.message) }
+    finally { setSaving(false) }
   }
 
-  async function createCycle() {
-    setCreating(true); setCreateErr('')
-    try {
-      await apiPost('/api/hr/review-cycles', { name: cycleName, period_start: cycleStart, period_end: cycleEnd })
-      setShowCreate(false); setCycleName(''); setCycleStart(''); setCycleEnd('')
-      loadCycles()
-    } catch (e: any) {
-      setCreateErr(e.message)
-    } finally {
-      setCreating(false)
-    }
+  // Build dept score chart data
+  const deptScores = Object.entries(
+    appraisals.reduce<Record<string, number[]>>((acc, a) => {
+      const d = a.department ?? 'Unknown'
+      acc[d] = [...(acc[d] ?? []), a.score]
+      return acc
+    }, {})
+  ).map(([dept, scores]) => ({ dept, avg: +(scores.reduce((s, v) => s + v, 0) / scores.length).toFixed(2) }))
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
+    fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
   }
 
-  function scoreColor(score: number | null, max = 100): string {
-    if (score == null) return '#94A3B8'
-    const pct = score / max
-    if (pct >= 0.8) return GREEN
-    if (pct >= 0.6) return AMBER
-    return RED
-  }
+  const cols: TableCol<Appraisal>[] = [
+    {
+      key: 'employee_name', label: 'Employee',
+      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.employee_name}</span>,
+    },
+    {
+      key: 'department', label: 'Department',
+      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.department ?? '—'}</span>,
+    },
+    {
+      key: 'period', label: 'Period',
+      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{r.period}</span>,
+    },
+    {
+      key: 'score', label: 'Rating',
+      render: r => <RatingPill score={r.score} />,
+    },
+    {
+      key: 'reviewer_name', label: 'Reviewer',
+      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.reviewer_name ?? '—'}</span>,
+    },
+    {
+      key: 'status', label: 'Status',
+      render: r => <StatusBadge status={r.status} size="sm" />,
+    },
+  ]
+
+  const periods = [...new Set(appraisals.map(a => a.period))].filter(Boolean)
 
   return (
     <Page
-      dept="HR"
-      title="Performance Appraisals"
-      subtitle="Review cycles and employee appraisals"
+      title="Performance"
+      subtitle="Employee appraisals and review cycles"
+      actions={
+        canCreate ? (
+          <button onClick={() => { setForm(BLANK); setNewOpen(true) }} style={btnPrimary}>
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+            New Review
+          </button>
+        ) : undefined
+      }
     >
-      <div className="flex gap-5">
-        {/* Left: Cycles list */}
-        <div className="w-72 flex-shrink-0 space-y-3">
-          <SectionCard
-            title="Review Cycles"
-            actions={
-              <button
-                onClick={() => setShowCreate(true)}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white"
-                style={{ background: NAVY }}>
-                <span className="material-symbols-rounded text-[13px]">add</span>
-                New Cycle
-              </button>
-            }
-          >
-            <ErrBanner msg={cyclesErr} />
-            {cyclesLoading ? (
-              <div className="flex items-center justify-center py-10"><Spinner size={24} /></div>
-            ) : cycles.length === 0 ? (
-              <p className="text-[13px] text-[color:var(--txt2)] px-5 py-8 text-center">No review cycles yet</p>
-            ) : (
-              <div className="divide-y divide-[var(--bdr)]">
-                {cycles.map(c => (
-                  <button
-                    key={c.id}
-                    onClick={() => setSelectedCycle(c)}
-                    className="w-full text-left px-4 py-3 transition-colors"
-                    style={{ background: selectedCycle?.id === c.id ? 'var(--chip-bg)' : undefined }}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[13px] font-semibold truncate max-w-[70%]" style={{ color: 'var(--txt)' }}>{c.name}</span>
-                      <StatusBadge status={c.status} />
-                    </div>
-                    <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>
-                      {fmtDate(c.period_start)} – {fmtDate(c.period_end)}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            )}
-          </SectionCard>
-        </div>
+      <ErrBanner error={err} onRetry={load} />
 
-        {/* Right: Appraisals */}
-        <div className="flex-1 min-w-0">
-          {!selectedCycle ? (
-            <div className="flex flex-col items-center justify-center h-64 rounded-2xl border shadow-sm" style={{ background: 'var(--card)', borderColor: 'var(--bdr)' }}>
-              <span className="material-symbols-rounded text-[40px] mb-3" style={{ color: 'var(--txt3)' }}>grading</span>
-              <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>Select a review cycle to view appraisals</p>
-            </div>
-          ) : (
-            <SectionCard
-              title={`Appraisals — ${selectedCycle.name}`}
-              badge={appraisals.length}
-              actions={
-                <select className="px-2 py-1 rounded text-[12px] focus:outline-none" style={{ border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-                  value={statusF} onChange={e => setStatusF(e.target.value)}>
-                  <option value="">All Statuses</option>
-                  {['pending', 'in_progress', 'completed', 'approved'].map(s => (
-                    <option key={s} value={s}>{snake(s)}</option>
-                  ))}
-                </select>
-              }
-            >
-              <ErrBanner msg={apprErr} />
-              {apprLoading ? (
-                <div className="flex items-center justify-center py-20"><Spinner size={32} /></div>
-              ) : appraisals.length === 0 ? (
-                <div className="flex flex-col items-center py-16">
-                  <span className="material-symbols-rounded text-[36px] mb-2" style={{ color: 'var(--txt3)' }}>person_search</span>
-                  <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>No appraisals for this cycle</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-[13px]">
-                    <thead>
-                      <tr>
-                        {['Employee', 'Staff ID', 'Department', 'Score', 'Status', ''].map(h => (
-                          <th key={h}
-                            className="px-5 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.07em]"
-                            style={{ background: 'var(--th-bg)', color: 'var(--txt2)', fontFamily: "'Inter', ui-sans-serif, sans-serif", fontSize: 10 }}>
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {appraisals.map((a, i) => (
-                        <tr key={a.id}
-                          className="cursor-pointer transition-colors"
-                          style={{ borderTop: i > 0 ? '1px solid var(--bdr)' : undefined, transition: 'background .1s' }}
-                          onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)'}
-                          onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = ''}
-                          onClick={() => openDetail(a.id)}>
-                          <td className="px-5 py-3 font-semibold" style={{ color: 'var(--txt)' }}>{a.first_name} {a.last_name}</td>
-                          <td className="px-5 py-3 font-mono text-[12px]" style={{ color: 'var(--txt2)' }}>{a.staff_id}</td>
-                          <td className="px-5 py-3" style={{ color: 'var(--txt2)' }}>{a.department_name ?? '—'}</td>
-                          <td className="px-5 py-3">
-                            {a.overall_score != null ? (
-                              <span className="font-mono font-semibold text-[13px]"
-                                style={{ color: scoreColor(a.overall_score) }}>
-                                {a.overall_score}
-                              </span>
-                            ) : (
-                              <span className="text-[color:var(--txt2)]">—</span>
-                            )}
-                          </td>
-                          <td className="px-5 py-3"><StatusBadge status={a.status} /></td>
-                          <td className="px-5 py-3">
-                            <span className="material-symbols-rounded text-[18px] text-[color:var(--txt2)]">chevron_right</span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </SectionCard>
-          )}
-        </div>
-      </div>
+      <FilterBar onReset={() => { setPeriodFilter(''); setDeptFilter('') }}>
+        <select value={periodFilter} onChange={e => setPeriodFilter(e.target.value)} style={filterInputStyle}>
+          <option value="">All Periods</option>
+          {periods.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+      </FilterBar>
 
-      {/* Detail modal */}
-      {detailId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-[var(--card)] rounded-2xl shadow-xl p-6 w-full max-w-xl max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-[16px] font-bold text-[color:var(--txt)]">
-                {detail ? `${detail.appraisal.first_name} ${detail.appraisal.last_name}` : 'Loading…'}
-              </h2>
-              <button onClick={() => { setDetailId(null); setDetail(null) }} className="text-[color:var(--txt2)] hover:text-[color:var(--txt)]">
-                <span className="material-symbols-rounded text-[20px]">close</span>
-              </button>
-            </div>
-
-            {detailLoading ? (
-              <div className="flex items-center justify-center py-12"><Spinner size={32} /></div>
-            ) : detail ? (
-              <>
-                <div className="grid grid-cols-2 gap-3 mb-5 text-[13px]">
-                  {[
-                    ['Staff ID', detail.appraisal.staff_id],
-                    ['Department', detail.appraisal.department_name],
-                    ['Status', detail.appraisal.status],
-                    ['Overall Score', detail.appraisal.overall_score != null ? String(detail.appraisal.overall_score) : '—'],
-                  ].map(([k, v]) => (
-                    <div key={k} className="bg-[var(--bg)] rounded-lg px-3 py-2">
-                      <p className="text-[11px] text-[color:var(--txt2)] mb-0.5">{k}</p>
-                      <p className="font-semibold text-[color:var(--txt)]">{v}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <p className="text-[12px] font-semibold uppercase tracking-wider text-[color:var(--txt2)] mb-3">Competency Scores</p>
-                {detail.items.length === 0 ? (
-                  <p className="text-[13px] text-[color:var(--txt2)]">No competency items recorded</p>
-                ) : (
-                  <div className="space-y-3">
-                    {detail.items.map(item => (
-                      <div key={item.id} className="border border-[var(--bdr)] rounded-xl p-3">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-[13px] font-semibold text-[color:var(--txt)]">{item.competency}</span>
-                          <span className="font-mono text-[13px] font-bold"
-                            style={{ color: scoreColor(item.score, item.max_score) }}>
-                            {item.score} / {item.max_score}
-                          </span>
-                        </div>
-                        <div className="h-1.5 rounded-full mb-2" style={{ background: 'var(--chip-bg)' }}>
-                          <div className="h-full rounded-full"
-                            style={{
-                              width: `${item.max_score > 0 ? (item.score / item.max_score) * 100 : 0}%`,
-                              background: scoreColor(item.score, item.max_score),
-                            }} />
-                        </div>
-                        {item.comments && <p className="text-[12px] text-[color:var(--txt2)]">{item.comments}</p>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : null}
-          </div>
-        </div>
+      {/* Score distribution chart */}
+      {deptScores.length > 0 && (
+        <SectionCard title="Avg Score by Department" subtitle="0–5 scale">
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={deptScores} margin={{ top: 4, right: 8, bottom: 30, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
+              <XAxis dataKey="dept" tick={{ fontSize: 11, fill: 'var(--txt2)' }} angle={-30} textAnchor="end" interval={0} />
+              <YAxis domain={[0, 5]} tick={{ fontSize: 11, fill: 'var(--txt2)' }} />
+              <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
+              <Bar dataKey="avg" fill={NAVY} radius={[4, 4, 0, 0]} name="Avg Score" />
+            </BarChart>
+          </ResponsiveContainer>
+        </SectionCard>
       )}
 
-      {/* Create cycle modal */}
-      {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowCreate(false)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="perf-create-title" className="bg-[var(--card)] rounded-2xl shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 id="perf-create-title" className="text-[15px] font-bold text-[color:var(--txt)]">New Review Cycle</h2>
-              <button onClick={() => setShowCreate(false)} className="text-[color:var(--txt2)] hover:text-[color:var(--txt)]">
-                <span className="material-symbols-rounded text-[20px]">close</span>
-              </button>
-            </div>
-            <ErrBanner msg={createErr} />
-            <div className="space-y-3">
-              <div>
-                <label htmlFor="perf-cycle-name" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">Cycle Name *</label>
-                <input id="perf-cycle-name" type="text" className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none"
-                  placeholder="e.g. H1 2026"
-                  value={cycleName} onChange={e => setCycleName(e.target.value)} />
-              </div>
-              <div>
-                <label htmlFor="perf-cycle-start" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">Period Start *</label>
-                <input id="perf-cycle-start" type="date" className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none"
-                  value={cycleStart} onChange={e => setCycleStart(e.target.value)} />
-              </div>
-              <div>
-                <label htmlFor="perf-cycle-end" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">Period End *</label>
-                <input id="perf-cycle-end" type="date" className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none"
-                  value={cycleEnd} onChange={e => setCycleEnd(e.target.value)} />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-5">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05]" onClick={() => setShowCreate(false)}>Cancel</button>
-              <button
-                className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
-                style={{ background: NAVY }}
-                disabled={creating || !cycleName || !cycleStart || !cycleEnd}
-                onClick={createCycle}>
-                {creating ? 'Creating…' : 'Create'}
-              </button>
+      <SectionCard title="Appraisals" badge={appraisals.length} padding={false}>
+        <DataTable<Appraisal>
+          cols={cols}
+          rows={appraisals}
+          keyFn={r => r.id}
+          emptyText="No appraisals found."
+          skeletonRows={loading ? 6 : 0}
+        />
+      </SectionCard>
+
+      <Modal open={newOpen} onClose={() => setNewOpen(false)} title="Record Appraisal" width={440}
+        footer={
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => setNewOpen(false)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={handleCreate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {saving && <Spinner size={14} color="#fff" />}
+              Save
+            </button>
+          </div>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Employee ID *</label>
+            <input value={form.employee_id} onChange={e => setForm(f => ({ ...f, employee_id: e.target.value }))}
+              placeholder="Enter employee ID" style={inputStyle} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Period *</label>
+            <input value={form.period} onChange={e => setForm(f => ({ ...f, period: e.target.value }))}
+              placeholder="e.g. Q2 2025" style={inputStyle} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+              Score: {form.score} / 5
+            </label>
+            <input type="range" min={1} max={5} step={0.5} value={form.score}
+              onChange={e => setForm(f => ({ ...f, score: Number(e.target.value) }))}
+              style={{ width: '100%' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--txt3)', marginTop: 2 }}>
+              <span>1 – Poor</span><span>3 – Average</span><span>5 – Excellent</span>
             </div>
           </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Notes</label>
+            <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+              rows={3} placeholder="Review notes…" style={{ ...inputStyle, resize: 'vertical' }} />
+          </div>
         </div>
-      )}
+      </Modal>
     </Page>
   )
 }

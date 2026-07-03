@@ -1,17 +1,17 @@
-import { useState, useEffect, useCallback } from 'react'
-import { API } from '../lib/api'
-
 export type Role =
   | 'md' | 'coo' | 'cfo' | 'head_it' | 'head_hr' | 'cmo'
-  | 'head_ops' | 'head_sales' | 'head_collections' | 'head_recovery'
+  | 'head_ops' | 'head_sales' | 'head_collections' | 'head_recovery' | 'head_of_reconciliation'
   | 'admin' | 'management' | 'sales' | 'collections' | 'recovery'
   | 'cards_ops' | 'call_centre'
-  // Canonical 24 roles
+  // Canonical roles
   | 'executive' | 'sales_officer' | 'sales_head' | 'risk_officer' | 'risk_head'
   | 'finance_officer' | 'finance_head' | 'cards_ops_officer' | 'cards_ops_head'
   | 'collections_agent' | 'collections_head' | 'recovery_agent' | 'recovery_head'
   | 'call_center_agent' | 'call_center_head' | 'hr_officer' | 'hr_manager'
   | 'compliance_officer' | 'compliance_head' | 'internal_control_head' | 'it_admin'
+  | 'telemarketing_agent' | 'telemarketing_head'
+  | 'bd_officer' | 'bd_head'
+  | 'payroll_officer' | 'payroll_manager'
 
 export interface AuthUser {
   id:                  number
@@ -28,15 +28,15 @@ const CAMPAIGNS  = ['campaigns','campaign_analytics','contact_lists','message_te
 const HELPDESK   = ['helpdesk','helpdesk_stats','helpdesk_canned']
 const OPERATIONS = ['credit_portfolio','fixed_deposit','settlement','mobile_app','blink_card']
 
-const FINANCE_PAGES   = ['income','transactions','fixed_deposit','eod']
+const FINANCE_PAGES     = ['income','transactions','fixed_deposit','eod']
 const COLLECTIONS_PAGES = ['collections','recovery','credit_portfolio']
-const RECOVERY_PAGES  = ['recovery','collections','credit_portfolio']
-const HR_PAGES        = ['hr_employees','hr_leave','hr_performance','hr_disciplinary','hr_training']
-const COMPLIANCE_PAGES = ['compliance_checklists','watch_list','sars','cbn_reports','audit_findings','audit_trail']
-const ADMIN_PAGES     = ['admin_users','admin_api_keys','settings','sync_status']
+const RECOVERY_PAGES    = ['recovery','collections','credit_portfolio']
+const HR_PAGES          = ['hr_employees','hr_leave','hr_performance','hr_disciplinary','hr_training']
+const COMPLIANCE_PAGES  = ['compliance_checklists','watch_list','sars','cbn_reports','audit_findings','audit_trail']
+const ADMIN_PAGES       = ['admin_users','admin_api_keys','settings','sync_status']
 
 export const ROLE_PAGES: Record<string, string[]> = {
-  // ── Legacy roles (backwards compatibility) ────────────────────────────────
+  // Legacy roles
   md:               ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS, ...HELPDESK],
   coo:              ['overview','transactions','collections','recovery','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center','loans',          ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS, ...HELPDESK],
   cfo:              ['overview','income','collections','recovery','executive','transactions','eod','uploads','reconciliation','loans','credit_portfolio','fixed_deposit','settlement','statements', ...FINANCE_PAGES],
@@ -49,174 +49,56 @@ export const ROLE_PAGES: Record<string, string[]> = {
   head_recovery:    ['recovery','collections','overview','eod','uploads','executive','loans','credit_portfolio', ...CRM, ...HELPDESK],
   admin:            ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','admin','executive','income','eod','uploads','reconciliation','call_center','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS, ...ADMIN_PAGES, ...HELPDESK],
   management:       ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center',                 ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS, ...HELPDESK],
-  sales:            ['sales','overview','uploads','loans','credit_portfolio',                                                                                                 ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
-  collections:      ['collections','recovery','eod','uploads','reconciliation','credit_portfolio',                                                                            ...CRM, ...HELPDESK],
-  recovery:         ['recovery','collections','eod','uploads','loans','credit_portfolio',                                                                                     ...CRM, ...HELPDESK],
+  sales:            ['sales','overview','uploads','loans','credit_portfolio',                                                                                                                       ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
+  collections:      ['collections','recovery','eod','uploads','reconciliation','credit_portfolio',                                                                                                  ...CRM, ...HELPDESK],
+  recovery:         ['recovery','collections','eod','uploads','loans','credit_portfolio',                                                                                                           ...CRM, ...HELPDESK],
   cards_ops:        ['cards','card_trends','transactions','overview','eod','uploads','blink_card', ...HELPDESK],
   call_centre:      ['overview','transactions','call_center','crm_requests','crm_contacts','uploads', ...HELPDESK],
 
-  // ── Canonical 24 roles ────────────────────────────────────────────────────
-  // Executive / C-suite — full read access
+  // Canonical roles
   executive:             ['overview','income','transactions','credit_portfolio','fixed_deposit','eod', ...FINANCE_PAGES],
-  // Sales
-  sales_officer:         ['sales','overview','loans','credit_portfolio', ...CRM, ...CRM_REPORT],
-  sales_head:            ['sales','overview','loans','credit_portfolio','reports','statements', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
-  // Risk & Credit
+  sales_officer:         ['sales','overview','loans','credit_portfolio','bd','bd_employers','bd_pipeline', ...CRM, ...CRM_REPORT],
+  sales_head:            ['sales','overview','loans','credit_portfolio','reports','statements','bd','bd_employers','bd_pipeline', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
   risk_officer:          ['credit_portfolio','los_all','income'],
   risk_head:             ['credit_portfolio','los_all','income','reports','statements'],
-  // Finance
   finance_officer:       [...FINANCE_PAGES, 'overview'],
   finance_head:          [...FINANCE_PAGES, 'overview','reports','statements','settlement','reconciliation','credit_portfolio','fixed_deposit'],
-  // Cards & Channels
   cards_ops_officer:     ['cards','card_trends','transactions','overview','eod','blink_card','mobile_app', ...HELPDESK],
   cards_ops_head:        ['cards','card_trends','transactions','overview','eod','blink_card','mobile_app','reports','statements', ...HELPDESK],
-  // Collections
   collections_agent:     [...COLLECTIONS_PAGES, 'eod','uploads', ...HELPDESK],
   collections_head:      [...COLLECTIONS_PAGES, 'eod','uploads','reports','statements','reconciliation', ...HELPDESK],
-  // Recovery
   recovery_agent:        [...RECOVERY_PAGES, 'eod','uploads', ...HELPDESK],
   recovery_head:         [...RECOVERY_PAGES, 'eod','uploads','reports','statements', ...HELPDESK],
-  // Customer Service
   call_center_agent:     ['call_center','overview','transactions','crm_requests','crm_contacts', ...HELPDESK],
   call_center_head:      ['call_center','overview','transactions','crm_requests','crm_contacts','reports','statements', ...HELPDESK],
-  // HR
   hr_officer:            [...HR_PAGES],
   hr_manager:            [...HR_PAGES, 'reports','statements'],
-  // Compliance
   compliance_officer:    [...COMPLIANCE_PAGES],
   compliance_head:       [...COMPLIANCE_PAGES, 'reports','statements'],
-  // Internal Control
   internal_control_head: [...COMPLIANCE_PAGES, 'reports','statements','audit_trail'],
-  // IT Admin
   it_admin:              [...ADMIN_PAGES, 'overview', ...HELPDESK],
+
+  // Telemarketing
+  telemarketing_agent:   ['overview','telemarketing','customer360'],
+  telemarketing_head:    ['overview','telemarketing','telemarketing_stats','customer360','kpi_dashboard'],
+
+  // Business Development
+  bd_officer:            ['overview','bd','bd_employers','bd_pipeline','customer360','crm_contacts'],
+  bd_head:               ['overview','bd','bd_employers','bd_pipeline','customer360','crm_contacts','kpi_dashboard','statements'],
+
+  // Payroll
+  payroll_officer:       ['overview','payroll'],
+  payroll_manager:       ['overview','payroll','payroll_manager','hr_employees','kpi_dashboard'],
+
+  // Finance ops
+  head_of_reconciliation: ['overview','income','eod','transactions','uploads','reconciliation','credit_portfolio','fixed_deposit','settlement','kpi_dashboard','reports','statements'],
 }
 
-export function parseToken(token: string): { exp: number; [key: string]: any } | null {
+export function parseToken(token: string): { exp: number; [key: string]: unknown } | null {
   try {
-    const b64 = token.split('.')[1]
-      .replace(/-/g, '+')
-      .replace(/_/g, '/')
+    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
     return JSON.parse(atob(b64))
   } catch {
     return null
   }
-}
-
-export function useAuth() {
-  const [user, setUser]       = useState<AuthUser | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    const token = localStorage.getItem('o3c_token')
-    if (!token) { setLoading(false); return }
-    // Validate token server-side on every load — catches revoked tokens and syncs pages.
-    fetch(`${API}/api/auth/me`, {
-      credentials: 'include',
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(r => r.ok ? r.json() : null)
-      .then(claims => {
-        if (!claims) {
-          localStorage.removeItem('o3c_token')
-          localStorage.removeItem('o3c_user')
-        } else {
-          // Merge pages from server response into the stored user object.
-          const stored = localStorage.getItem('o3c_user')
-          const base: AuthUser = stored ? JSON.parse(stored) : {}
-          const u: AuthUser = { ...base, pages: claims.pages ?? base.pages }
-          localStorage.setItem('o3c_user', JSON.stringify(u))
-          setUser(u)
-        }
-      })
-      .catch(() => {
-        // Network error — fall back to cached user so offline doesn't log everyone out.
-        const stored = localStorage.getItem('o3c_user')
-        if (stored) {
-          try { setUser(JSON.parse(stored)) } catch { localStorage.removeItem('o3c_user') }
-        }
-      })
-      .finally(() => setLoading(false))
-  }, [])
-
-  // Silent token refresh: check every 60 s, refresh when < 30 min to expiry
-  useEffect(() => {
-    const tick = async () => {
-      const token = localStorage.getItem('o3c_token')
-      if (!token) return
-      const payload = parseToken(token)
-      if (!payload?.exp) return
-      const secsLeft = payload.exp - Math.floor(Date.now() / 1000)
-      if (secsLeft > 30 * 60) return  // more than 30 min left — no action
-      try {
-        const res = await fetch(`${API}/api/auth/refresh`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        })
-        if (!res.ok) return
-        const data = await res.json()
-        if (data.access_token) {
-          localStorage.setItem('o3c_token', data.access_token)
-        }
-      } catch {
-        // Network hiccup — ignore; next tick will retry
-      }
-    }
-    tick() // run immediately on mount too
-    const id = setInterval(tick, 60_000)
-    return () => clearInterval(id)
-  }, [])
-
-  const login = useCallback(async (email: string, password: string): Promise<AuthUser> => {
-    const res = await fetch(`${API}/api/auth/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ username: email, password }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error((err as any).detail || 'Login failed')
-    }
-    const data = await res.json()
-    localStorage.setItem('o3c_token', data.access_token)
-    localStorage.setItem('o3c_user', JSON.stringify(data.user))
-    setUser(data.user)
-    return data.user
-  }, [])
-
-  const logout = useCallback(async () => {
-    const token = localStorage.getItem('o3c_token')
-    if (token) {
-      // Revoke the token server-side so it cannot be replayed
-      fetch(`${API}/api/auth/logout`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => {}) // fire-and-forget; clear locally regardless
-    }
-    localStorage.removeItem('o3c_token')
-    localStorage.removeItem('o3c_user')
-    setUser(null)
-  }, [])
-
-  const canAccess = useCallback((page: string): boolean => {
-    if (!user) return false
-    // Server-authorised pages only — backend embeds these in the token at login.
-    // Local ROLE_PAGES is kept as a reference but never used for auth decisions.
-    if (user.pages && user.pages.length > 0) {
-      return user.pages.includes(page)
-    }
-    // No pages in token → session predates page-embedding; deny and force re-login.
-    return false
-  }, [user])
-
-  const clearMustChangePassword = useCallback(() => {
-    setUser(u => {
-      if (!u) return u
-      const updated = { ...u, must_change_password: false }
-      localStorage.setItem('o3c_user', JSON.stringify(updated))
-      return updated
-    })
-  }, [])
-
-  return { user, loading, login, logout, canAccess, clearMustChangePassword }
 }

@@ -5,6 +5,28 @@ this project so you can continue development without asking Temitope to re-expla
 
 ---
 
+## Key Reference Documents
+
+**Always read these before doing any frontend work:**
+
+| Document | Location | Purpose |
+|---|---|---|
+| **Build Guide** | `frontend/BUILD_GUIDE.md` | Canonical source of truth — sidebar structure, all page specs, build order, architecture rules. Read this first every session. |
+| **Design System** | `frontend/DESIGN_SYSTEM.md` | Component patterns, CSS token usage, typography, chart rules, table rules |
+| **Master Product Spec** | `docs/O3C_WORKSPACE_MASTER_SPEC.md` | Full product specification — all modules, roles, workflows, business rules |
+| **Deployment** | `docs/DEPLOYMENT.md` | Railway + Cloudflare Pages deploy steps |
+| **Cloudflare Tunnel** | `docs/CLOUDFLARE_TUNNEL.md` | MSSQL on-site access via Cloudflare Tunnel |
+
+**Archived (do not use for new work):**
+
+| Document | Location | Note |
+|---|---|---|
+| Design Brief v1 | `docs/archived/DESIGN_BRIEF.md` | Old DM Sans/DM Mono spec — superseded by Editorial B (Sora + Inter) |
+| Platform Audit | `docs/archived/O3C_MASTER_AUDIT.md` | Point-in-time audit from 2026-06-21 |
+| Original SQL schema | `docs/archived/schema_credit_fd_original.sql` | Pre-migration one-off script — superseded by numbered migrations |
+
+---
+
 ## What This Project Is
 
 A full-stack B2B operations platform for **O3 Capital** — a Nigerian fintech company

@@ -1,463 +1,243 @@
-import { useState, useEffect, useCallback } from 'react'
-import { apiFetch, apiExport } from '../../lib/api'
-import { fmt, fmtNum, fmtExact, fmtDate, n, today, monthStart } from '../../lib/fmt'
-import {
-  Page, SectionCard, DateFilter, AreaChartCard, ProgressList, Spinner, ErrBanner, ExportBtn,
-  NAVY, RED, GREEN, AMBER,
-} from '../../components/UI'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, FilterBar, filterInputStyle } from '../../components/UI'
+import type { TableCol } from '../../components/UI'
+import { apiFetch } from '../../lib/api'
+import { fmtKobo, fmtNum, fmtDate, fmtDatetime, today, monthStart } from '../../lib/fmt'
+import { NAVY, GREEN, RED, AMBER, NUM } from '../../lib/design'
+import { toast } from 'sonner'
 
-/* ── Transaction category colors ── */
-const TXN_COLORS: Record<string, string> = {
-  'Transfer Out': RED,
-  'Transfer In': GREEN,
-  'Purchase': '#3B82F6',
-  'Utility Payment': '#8B5CF6',
-  'Cash Advance': AMBER,
-  'Bank Payment': '#0891B2',
-  'Purchase Reversal': '#94A3B8',
-  'Cash Advance Reversal': '#94A3B8',
-  'Bank Payment Reversal': '#94A3B8',
-  'Account Fee': '#94A3B8',
-  'Other': '#64748B',
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface EODUpload {
+  id: number
+  upload_date: string
+  filename: string
+  loaded_at: string
+  loaded_by_name: string
+  row_count: number
+  status: string
 }
-function txnColor(cat: string) { return TXN_COLORS[cat] ?? '#64748B' }
 
-/* ── Branch card ── */
-function BranchCard({ branches, loading }: { branches: any[]; loading: boolean }) {
+interface EODSummary {
+  txn_count: number
+  days_covered: number
+  active_accounts: number
+  active_cifs: number
+  total_dr: number
+  total_cr: number
+  total_volume: number
+  avg_txn_value: number
+  net_movement: number
+  branches: number
+  products: number
+}
+
+interface ByProductRow {
+  product_code: string
+  product_name: string
+  volume: number
+  count: number
+  dr: number
+  cr: number
+}
+
+interface ByBranchRow {
+  branch_code: string
+  branch_name: string
+  volume: number
+  count: number
+  active_accounts: number
+}
+
+// ── Table columns ─────────────────────────────────────────────────────────────
+
+const UPLOAD_COLS: TableCol<EODUpload>[] = [
+  { key: 'upload_date', label: 'Date', sortable: true, width: 110,
+    render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.upload_date)}</span> },
+  { key: 'filename', label: 'File',
+    render: r => <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260, fontSize: 12.5, fontWeight: 500 }}>{r.filename}</span> },
+  { key: 'row_count', label: 'Rows', align: 'right', sortable: true,
+    render: r => <span style={NUM}>{r.row_count?.toLocaleString()}</span> },
+  { key: 'loaded_by_name', label: 'Uploaded by',
+    render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.loaded_by_name || '—'}</span> },
+  { key: 'loaded_at', label: 'Loaded at',
+    render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDatetime(r.loaded_at)}</span> },
+]
+
+const PRODUCT_COLS: TableCol<ByProductRow>[] = [
+  { key: 'product_code', label: 'Code', render: r => <span style={NUM}>{r.product_code}</span> },
+  { key: 'product_name', label: 'Product', sortable: true },
+  { key: 'count', label: 'Txns', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtNum(r.count)}</span> },
+  { key: 'cr', label: 'Credits ₦', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: GREEN, fontWeight: 600 }}>{fmtKobo(r.cr)}</span> },
+  { key: 'dr', label: 'Debits ₦', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: RED, fontWeight: 600 }}>{fmtKobo(r.dr)}</span> },
+  { key: 'volume', label: 'Volume ₦', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.volume)}</span> },
+]
+
+const BRANCH_COLS: TableCol<ByBranchRow>[] = [
+  { key: 'branch_code', label: 'Code', render: r => <span style={NUM}>{r.branch_code}</span> },
+  { key: 'branch_name', label: 'Branch', sortable: true },
+  { key: 'active_accounts', label: 'Accounts', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtNum(r.active_accounts)}</span> },
+  { key: 'count', label: 'Txns', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtNum(r.count)}</span> },
+  { key: 'volume', label: 'Volume ₦', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.volume)}</span> },
+]
+
+// ── Upload button ─────────────────────────────────────────────────────────────
+
+function UploadButton({ onUploaded }: { onUploaded: () => void }) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    const form = new FormData()
+    form.append('file', file)
+    try {
+      const token = localStorage.getItem('o3c_token') ?? ''
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/eod/upload`, {
+        method: 'POST', body: form, headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error(`Upload failed (${res.status})`)
+      toast.success('EOD file uploaded successfully')
+      onUploaded()
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setUploading(false)
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }
+
   return (
-    <SectionCard title="By Branch" subtitle="DR/CR split">
-      <div className="px-5 py-4 space-y-4">
-        {loading
-          ? Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="space-y-1.5">
-                <div className="skeleton h-3 w-32 rounded" />
-                <div className="skeleton h-1.5 rounded-full" />
-              </div>
-            ))
-          : branches.length === 0
-          ? <p className="text-sm text-[color:var(--txt2)] py-4 text-center">No branch data</p>
-          : branches.map((b: any, i: number) => {
-            const net = n(b.total_cr) - n(b.total_dr)
-            const isPos = net >= 0
-            const pctDr = n(b.total_dr) + n(b.total_cr) > 0
-              ? (n(b.total_dr) / (n(b.total_dr) + n(b.total_cr))) * 100
-              : 50
-            return (
-              <div key={i}>
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <p className="text-[13px] font-semibold text-[color:var(--txt)] leading-snug">{b.branch_name}</p>
-                    <p className="text-[11px] text-[color:var(--txt2)] mt-0.5">
-                      {fmtNum(b.txn_count)} txns · {fmtNum(b.accounts)} accounts
-                    </p>
-                  </div>
-                  <span className="text-[13px] font-bold tabular-nums" style={{ color: isPos ? GREEN : RED }}>
-                    {isPos ? '+' : ''}{fmt(net)}
-                  </span>
-                </div>
-                <div className="h-1.5 rounded-full overflow-hidden flex" style={{ background: 'var(--chip-bg)' }}>
-                  <div style={{ width: `${pctDr}%`, background: RED, opacity: 0.7 }} />
-                  <div style={{ flex: 1, background: GREEN, opacity: 0.7 }} />
-                </div>
-                <div className="flex justify-between mt-1">
-                  <span className="text-[11px] tabular-nums" style={{ color: RED }}>DR {fmt(b.total_dr)}</span>
-                  <span className="text-[11px] tabular-nums" style={{ color: GREEN }}>CR {fmt(b.total_cr)}</span>
-                </div>
-              </div>
-            )
-          })
-        }
-      </div>
-    </SectionCard>
+    <>
+      <input ref={inputRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleFile} style={{ display: 'none' }} />
+      <button onClick={() => inputRef.current?.click()} disabled={uploading} style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '6px 14px', borderRadius: 8, border: 'none',
+        background: NAVY, color: '#fff', fontSize: 12.5, fontWeight: 600,
+        cursor: uploading ? 'not-allowed' : 'pointer', opacity: uploading ? 0.7 : 1,
+      }}>
+        <span className="material-symbols-rounded" style={{ fontSize: 15 }}>upload</span>
+        {uploading ? 'Uploading…' : 'Upload EOD'}
+      </button>
+    </>
   )
 }
 
-const PAGE_SIZE = 200
+// ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function Eod() {
-  const [uploads, setUploads] = useState<any[]>([])
-  const [from, setFrom] = useState(monthStart())
-  const [to, setTo] = useState(today())
+export default function FinanceEOD() {
+  const [tab, setTab] = useState<'uploads' | 'product' | 'branch'>('uploads')
+  const [uploads, setUploads] = useState<EODUpload[]>([])
+  const [summary, setSummary] = useState<EODSummary | null>(null)
+  const [byProduct, setByProduct] = useState<ByProductRow[]>([])
+  const [byBranch, setByBranch] = useState<ByBranchRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo, setDateTo] = useState(today())
 
-  const [summary, setSummary] = useState<any>(null)
-  const [byProduct, setByProduct] = useState<any[]>([])
-  const [byType, setByType] = useState<any[]>([])
-  const [byBranch, setByBranch] = useState<any[]>([])
-  const [trend, setTrend] = useState<any[]>([])
-  const [txns, setTxns] = useState<any[]>([])
-  const [totalRows, setTotalRows] = useState(0)
-  const [page, setPage] = useState(0)
-
-  // Filters
-  const [branch, setBranch] = useState('')
-  const [product, setProduct] = useState('')
-  const [txnType, setTxnType] = useState('')
-  const [sign, setSign] = useState('')
-  const [search, setSearch] = useState('')
-
-  const [loadingUploads, setLoadingUploads] = useState(true)
-  const [loading, setLoading] = useState(false)
-  const [loadingTbl, setLoadingTbl] = useState(false)
-  const [exporting, setExporting] = useState(false)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    setLoadingUploads(true)
-    apiFetch('/api/eod/uploads')
-      .then((data: any[]) => { setUploads(data) })
-      .catch(() => {})
-      .finally(() => setLoadingUploads(false))
-  }, [])
-
-  const loadSummary = useCallback(async () => {
-    if (!from || !to) return
-    setLoading(true); setError('')
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    const qs = `date_from=${dateFrom}&date_to=${dateTo}`
     try {
-      const p = new URLSearchParams({ date_from: from, date_to: to })
-      if (branch) p.set('branch', branch)
-      if (product) p.set('product', product)
-      if (txnType) p.set('txn_type', txnType)
-      if (sign) p.set('sign', sign)
-      const [rSum, rProd, rTyp, rBr, rTr] = await Promise.allSettled([
-        apiFetch(`/api/eod/summary?${p}`),
-        apiFetch(`/api/eod/by-product?date_from=${from}&date_to=${to}${branch ? `&branch=${branch}` : ''}${txnType ? `&txn_type=${txnType}` : ''}${sign ? `&sign=${sign}` : ''}`),
-        apiFetch(`/api/eod/by-type?date_from=${from}&date_to=${to}${branch ? `&branch=${branch}` : ''}${product ? `&product=${product}` : ''}${sign ? `&sign=${sign}` : ''}`),
-        apiFetch(`/api/eod/by-branch?date_from=${from}&date_to=${to}`),
-        apiFetch(`/api/eod/trend?date_from=${from}&date_to=${to}`),
+      const [uploadsRes, sumRes, prodRes, branchRes] = await Promise.allSettled([
+        apiFetch<EODUpload[]>('/api/eod/uploads'),
+        apiFetch<EODSummary>(`/api/eod/summary?${qs}`),
+        apiFetch<ByProductRow[]>(`/api/eod/by-product?${qs}`),
+        apiFetch<ByBranchRow[]>(`/api/eod/by-branch?${qs}`),
       ])
-      if (rSum.status === 'fulfilled') setSummary(rSum.value)
-      if (rProd.status === 'fulfilled') setByProduct(rProd.value)
-      if (rTyp.status === 'fulfilled') setByType(rTyp.value)
-      if (rBr.status === 'fulfilled') setByBranch(rBr.value)
-      if (rTr.status === 'fulfilled') setTrend(rTr.value)
-      if ([rSum, rProd, rTyp, rBr, rTr].every(r => r.status === 'rejected')) setError('Failed to load')
-    } catch (e: any) { setError(e.message) }
-    finally { setLoading(false) }
-  }, [from, to, branch, product, txnType, sign])
+      if (uploadsRes.status === 'fulfilled') setUploads(uploadsRes.value ?? [])
+      if (sumRes.status === 'fulfilled') setSummary(sumRes.value)
+      if (prodRes.status === 'fulfilled') setByProduct(prodRes.value ?? [])
+      if (branchRes.status === 'fulfilled') setByBranch(branchRes.value ?? [])
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [dateFrom, dateTo])
 
-  const loadTxns = useCallback(async () => {
-    if (!from || !to) return
-    setLoadingTbl(true)
-    try {
-      const p = new URLSearchParams({ date_from: from, date_to: to, limit: String(PAGE_SIZE), offset: String(page * PAGE_SIZE) })
-      if (branch) p.set('branch', branch)
-      if (product) p.set('product', product)
-      if (txnType) p.set('txn_type', txnType)
-      if (sign) p.set('sign', sign)
-      if (search) p.set('q', search)
-      const res = await apiFetch(`/api/eod/transactions?${p}`)
-      setTxns(res.data || []); setTotalRows(res.total || 0)
-    } finally { setLoadingTbl(false) }
-  }, [from, to, branch, product, txnType, sign, search, page])
-
-  useEffect(() => { loadSummary() }, [loadSummary])
-  useEffect(() => { loadTxns() }, [loadTxns])
-
-  function resetFilters() { setBranch(''); setProduct(''); setTxnType(''); setSign(''); setSearch(''); setPage(0) }
-
-  const s = summary || {}
-  const net = n(s.net_movement)
-  const netPos = net >= 0
-  const activeFilters = [branch, product, txnType, sign].filter(Boolean).length
-  const allCategories = [...new Set(byType.map((r: any) => r.txn_category))]
-
-  if (loadingUploads) {
-    return (
-      <Page dept="Finance" title="EOD Report" subtitle="Daily financial card account transactions">
-        <div className="card p-12 flex flex-col items-center gap-3 text-[color:var(--txt2)]">
-          <Spinner size={28} /><p className="text-sm">Loading…</p>
-        </div>
-      </Page>
-    )
-  }
-
-  if (uploads.length === 0) {
-    return (
-      <Page dept="Finance" title="EOD Report" subtitle="Daily financial card account transactions">
-        <div className="card p-12 flex flex-col items-center text-[color:var(--txt2)] gap-3">
-          <span className="material-symbols-rounded text-[48px] opacity-25">receipt_long</span>
-          <p className="font-semibold text-[color:var(--txt)]">No EOD files loaded yet</p>
-          <p className="text-sm">Upload EODTXN files to generate this report.</p>
-          <a href="/uploads"
-            className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white"
-            style={{ background: NAVY }}>
-            <span className="material-symbols-rounded text-[17px]">upload_file</span>
-            Go to Data Uploads
-          </a>
-        </div>
-      </Page>
-    )
-  }
+  useEffect(() => { load() }, [load])
 
   return (
-    <Page dept="Finance" title="EOD Report"
-      subtitle="Daily financial card account transactions"
-      actions={
-        <div className="flex items-center gap-2">
-          <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); setPage(0) }} />
-          <ExportBtn
-            onClick={async () => {
-              setExporting(true)
-              const p = new URLSearchParams({ date_from: from, date_to: to })
-              if (branch) p.set('branch', branch)
-              if (product) p.set('product', product)
-              if (txnType) p.set('txn_type', txnType)
-              if (sign) p.set('sign', sign)
-              if (search) p.set('q', search)
-              await apiExport(`/api/eod/transactions/export?${p}`, `eod_${from}_${to}`)
-              setExporting(false)
-            }}
-            loading={exporting}
-          />
-        </div>
-      }>
+    <Page
+      title="EOD / EOB"
+      subtitle={summary ? `${fmtNum(summary.active_accounts)} accounts · ${fmtNum(summary.txn_count)} transactions · ${summary.days_covered} days` : undefined}
+      actions={<UploadButton onUploaded={load} />}
+    >
+      <ErrBanner error={error} onRetry={load} />
 
-      <ErrBanner msg={error} />
-
-      {/* ── Filter chips ── */}
-      <div className="mb-5">
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Branch */}
-          <select value={branch} onChange={e => { setBranch(e.target.value); setPage(0) }}
-            className="px-3 py-1.5 rounded-lg border text-[12px] font-medium"
-            style={{ borderColor: branch ? NAVY : 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}>
-            <option value="">All Branches</option>
-            {(s.branches || []).map((b: any) => (
-              <option key={b.branch_code} value={b.branch_code}>{b.branch_name}</option>
-            ))}
-          </select>
-
-          {/* Product */}
-          <select value={product} onChange={e => { setProduct(e.target.value); setPage(0) }}
-            className="px-3 py-1.5 rounded-lg border text-[12px] font-medium"
-            style={{ borderColor: product ? NAVY : 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}>
-            <option value="">All Products</option>
-            {(s.products || []).map((p: any) => (
-              <option key={p.product_code} value={p.product_code}>{p.product_name}</option>
-            ))}
-          </select>
-
-          {/* Type */}
-          <select value={txnType} onChange={e => { setTxnType(e.target.value); setPage(0) }}
-            className="px-3 py-1.5 rounded-lg border text-[12px] font-medium"
-            style={{ borderColor: txnType ? NAVY : 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}>
-            <option value="">All Types</option>
-            {allCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-          </select>
-
-          {/* DR / CR toggles */}
-          <button
-            onClick={() => { setSign(sign === 'DR' ? '' : 'DR'); setPage(0) }}
-            className="px-3 py-1.5 rounded-lg border text-[12px] font-semibold transition-all"
-            style={{
-              background: sign === 'DR' ? 'rgba(192,0,0,0.06)' : 'var(--card)',
-              borderColor: sign === 'DR' ? RED : 'var(--bdr)',
-              color: sign === 'DR' ? RED : 'var(--txt2)',
-            }}>
-            ↑ Debits only
-          </button>
-          <button
-            onClick={() => { setSign(sign === 'CR' ? '' : 'CR'); setPage(0) }}
-            className="px-3 py-1.5 rounded-lg border text-[12px] font-semibold transition-all"
-            style={{
-              background: sign === 'CR' ? 'rgba(5,150,105,0.06)' : 'var(--card)',
-              borderColor: sign === 'CR' ? GREEN : 'var(--bdr)',
-              color: sign === 'CR' ? GREEN : 'var(--txt2)',
-            }}>
-            ↓ Credits only
-          </button>
-
-          {/* Search */}
-          <div className="relative ml-auto">
-            <span className="material-symbols-rounded absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px] text-[color:var(--txt2)] pointer-events-none">
-              search
-            </span>
-            <input
-              value={search}
-              onChange={e => { setSearch(e.target.value); setPage(0) }}
-              placeholder="CIF, account, customer…"
-              className="pl-8 pr-3 py-1.5 rounded-lg border text-[12px] w-52 outline-none"
-              style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-            />
-          </div>
-
-          {(activeFilters > 0 || search) && (
-            <button onClick={resetFilters}
-              className="text-[12px] font-medium text-[color:var(--txt2)] hover:text-red-500 flex items-center gap-1 transition-colors">
-              <span className="material-symbols-rounded text-[14px]">filter_alt_off</span>
-              Clear filters
-            </button>
-          )}
-        </div>
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
+        <KpiCard label="Total Volume" value={fmtKobo(summary?.total_volume ?? 0)} icon="swap_horiz" accent={NAVY} loading={loading} />
+        <KpiCard label="Total Credits" value={fmtKobo(summary?.total_cr ?? 0)} icon="south_east" accent={GREEN} loading={loading} />
+        <KpiCard label="Total Debits" value={fmtKobo(summary?.total_dr ?? 0)} icon="north_west" accent={RED} loading={loading} />
+        <KpiCard label="Net Movement" value={fmtKobo(summary?.net_movement ?? 0)} icon="trending_up"
+          accent={(summary?.net_movement ?? 0) >= 0 ? GREEN : RED} loading={loading} />
       </div>
 
-      {loading
-        ? <div className="flex items-center gap-3 py-10 text-[color:var(--txt2)]"><Spinner />Loading report…</div>
-        : (
-          <>
-            {/* KPI Row */}
-            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-5">
-              {[
-                { label: 'Total Volume', value: fmt(s.total_volume), icon: 'payments', accent: NAVY },
-                { label: 'Net Movement', value: (netPos ? '+' : '') + fmt(net), icon: 'swap_vert', accent: netPos ? GREEN : RED, valueColor: netPos ? GREEN : RED },
-                { label: 'Total Debits', value: fmt(s.total_dr), icon: 'arrow_upward', accent: RED },
-                { label: 'Total Credits', value: fmt(s.total_cr), icon: 'arrow_downward', accent: GREEN },
-                { label: 'Transactions', value: fmtNum(s.txn_count), icon: 'receipt_long', accent: '#8B5CF6', sub: s.days_covered > 1 ? `${s.days_covered} days` : undefined },
-                { label: 'Active Accounts', value: fmtNum(s.active_accounts), icon: 'credit_card', accent: '#0891B2', sub: `${fmtNum(s.active_cifs)} customers` },
-              ].map(({ label, value, icon, accent, valueColor, sub }: any) => (
-                <div key={label} className="card p-5">
-                  <div className="flex items-start justify-between mb-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-[color:var(--txt2)]">{label}</p>
-                    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${accent}12` }}>
-                      <span className="material-symbols-rounded text-[16px]" style={{ color: accent }}>{icon}</span>
-                    </div>
-                  </div>
-                  <p className="kpi-number text-[22px] leading-none" style={{ color: valueColor || 'var(--txt)' }}>{value}</p>
-                  {sub && <p className="text-[11px] text-[color:var(--txt2)] mt-2">{sub}</p>}
-                </div>
-              ))}
-            </div>
+      {/* Date filter */}
+      <FilterBar onReset={() => { setDateFrom(monthStart()); setDateTo(today()) }}>
+        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={filterInputStyle} />
+        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={filterInputStyle} />
+        <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Apply</button>
+      </FilterBar>
 
-            {/* Charts row */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
-              <ProgressList
-                title="Transaction Types"
-                data={byType.map((r: any) => ({ label: r.txn_category, value: n(r.total_volume) }))}
-                nameKey="label"
-                valueKey="value"
-                currency
-                loading={false}
-              />
-              <ProgressList
-                title="By Product"
-                data={byProduct.map((r: any) => ({ label: r.product_name || r.product_code, value: n(r.total_volume) }))}
-                nameKey="label"
-                valueKey="value"
-                currency
-                loading={false}
-              />
-              <BranchCard branches={byBranch} loading={false} />
-            </div>
+      {/* Tab bar */}
+      <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--bdr)', marginBottom: 16 }}>
+        {(['uploads', 'product', 'branch'] as const).map(t => {
+          const labels: Record<string, string> = { uploads: 'Upload History', product: 'By Product', branch: 'By Branch' }
+          const active = tab === t
+          return (
+            <button key={t} onClick={() => setTab(t)} style={{
+              padding: '8px 14px', fontSize: 13, fontWeight: active ? 600 : 500,
+              color: active ? 'var(--txt)' : 'var(--txt2)',
+              background: 'none', border: 'none', cursor: 'pointer',
+              borderBottom: active ? `2px solid ${RED}` : '2px solid transparent',
+              marginBottom: -1,
+            }}>{labels[t]}</button>
+          )
+        })}
+      </div>
 
-            {trend.length > 1 && (
-              <div className="mb-5">
-                <AreaChartCard
-                  title="Daily Volume"
-                  subtitle="Credits vs Debits"
-                  data={trend}
-                  xKey="label"
-                  areaKey="total_volume"
-                  color={NAVY}
-                  currency
-                  height={200}
-                  loading={false}
-                />
-              </div>
-            )}
+      {tab === 'uploads' && (
+        <SectionCard padding={false}>
+          <DataTable
+            cols={UPLOAD_COLS}
+            rows={uploads}
+            keyFn={r => r.id}
+            loading={loading}
+            emptyText="No EOD files uploaded yet"
+          />
+        </SectionCard>
+      )}
 
-            {/* Transaction table */}
-            <div className="card overflow-hidden">
-              <div className="px-5 py-3.5 flex items-center justify-between"
-                style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
-                <div>
-                  <p className="text-[14px] font-semibold text-[color:var(--txt)]">Transactions</p>
-                  <p className="text-[12px] text-[color:var(--txt2)] mt-0.5">{fmtDate(from)} – {fmtDate(to)}</p>
-                </div>
-                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
-                  style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>
-                  {totalRows.toLocaleString()} rows
-                </span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-[13px]">
-                  <thead>
-                    <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
-                      {['Date', 'Customer', 'Account', 'Product', 'Type', 'Card', 'Merchant', 'Description', 'Amount', 'DR/CR', 'Balance', 'Trace #']
-                        .map((h, i) => (
-                          <th key={h} className={`px-4 py-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] whitespace-nowrap ${i >= 8 ? 'text-right' : 'text-left'}`}
-                            style={{ color: 'var(--txt2)' }}>{h}</th>
-                        ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loadingTbl
-                      ? <tr><td colSpan={12} className="px-5 py-10 text-center text-[color:var(--txt2)]">
-                          <div className="flex items-center justify-center gap-2"><Spinner />Loading…</div>
-                        </td></tr>
-                      : txns.length === 0
-                      ? <tr><td colSpan={12} className="px-5 py-14 text-center">
-                          <span className="material-symbols-rounded text-[36px] text-[color:var(--txt3)] block mb-2">receipt_long</span>
-                          <p className="text-[13px] text-[color:var(--txt2)]">No transactions for this period or filter combination</p>
-                        </td></tr>
-                      : txns.map((t: any, i: number) => {
-                        const isDr = t.sign === 'DR'
-                        return (
-                          <tr key={i} className="hover:bg-black/[0.02] transition-colors"
-                            style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
-                            <td className="px-4 py-3 text-xs whitespace-nowrap" style={{ color: 'var(--txt2)' }}>{fmtDate(t.txn_date)}</td>
-                            <td className="px-4 py-3">
-                              <p className="text-[13px] font-medium truncate max-w-[120px]" style={{ color: 'var(--txt)' }}>{t.customer || <span style={{ color: 'var(--txt3)' }}>—</span>}</p>
-                              <p className="text-[11px] font-mono" style={{ color: 'var(--txt2)' }}>{t.cif}</p>
-                            </td>
-                            <td className="px-4 py-3 font-mono text-xs" style={{ color: 'var(--txt2)' }}>{t.account_no}</td>
-                            <td className="px-4 py-3 text-xs max-w-[80px] truncate" style={{ color: 'var(--txt2)' }} title={t.product_name}>{t.product_name}</td>
-                            <td className="px-4 py-3">
-                              <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap"
-                                style={{ background: txnColor(t.txn_category) + '15', color: txnColor(t.txn_category) }}>
-                                <span style={{ width: 5, height: 5, borderRadius: '50%', background: txnColor(t.txn_category), flexShrink: 0, display: 'inline-block' }} />
-                                {t.txn_category}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 font-mono text-xs" style={{ color: 'var(--txt2)' }}>{t.card_num || '—'}</td>
-                            <td className="px-4 py-3 text-xs max-w-[100px] truncate" style={{ color: 'var(--txt2)' }} title={t.merchant_name}>{t.merchant_name || '—'}</td>
-                            <td className="px-4 py-3 text-xs" style={{ color: 'var(--txt2)' }}>{t.description}</td>
-                            <td className="px-4 py-3 text-right">
-                              <span className="font-mono font-semibold text-[13px]" style={{ color: isDr ? RED : GREEN }}>
-                                {fmtExact(t.amount)}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-right">
-                              <span className="text-[11px] font-bold px-2 py-0.5 rounded"
-                                style={{ background: isDr ? 'rgba(192,0,0,0.08)' : 'rgba(5,150,105,0.08)', color: isDr ? RED : GREEN }}>
-                                {isDr ? '↑ DR' : '↓ CR'}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-right text-xs tabular-nums"
-                              style={{ color: n(t.balance) < 0 ? RED : '#475569' }}>
-                              {fmtExact(t.balance)}
-                            </td>
-                            <td className="px-4 py-3 font-mono text-xs text-[color:var(--txt2)]">{t.trace_num}</td>
-                          </tr>
-                        )
-                      })
-                    }
-                  </tbody>
-                </table>
-              </div>
-              {totalRows > PAGE_SIZE && (
-                <div className="px-5 py-3 flex items-center justify-between"
-                  style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
-                  <p className="text-xs text-[color:var(--txt2)]">
-                    Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, totalRows)} of {totalRows.toLocaleString()}
-                  </p>
-                  <div className="flex gap-2">
-                    <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
-                      className="w-8 h-8 flex items-center justify-center rounded-lg border text-[color:var(--txt2)] disabled:opacity-40"
-                      style={{ borderColor: 'var(--bdr)' }}>
-                      <span className="material-symbols-rounded text-[17px]">chevron_left</span>
-                    </button>
-                    <button onClick={() => setPage(p => p + 1)} disabled={(page + 1) * PAGE_SIZE >= totalRows}
-                      className="w-8 h-8 flex items-center justify-center rounded-lg border text-[color:var(--txt2)] disabled:opacity-40"
-                      style={{ borderColor: 'var(--bdr)' }}>
-                      <span className="material-symbols-rounded text-[17px]">chevron_right</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </>
-        )
-      }
+      {tab === 'product' && (
+        <SectionCard padding={false}>
+          <DataTable
+            cols={PRODUCT_COLS}
+            rows={byProduct}
+            keyFn={(r, i) => r.product_code ?? i}
+            loading={loading}
+            emptyText="No product breakdown available"
+          />
+        </SectionCard>
+      )}
+
+      {tab === 'branch' && (
+        <SectionCard padding={false}>
+          <DataTable
+            cols={BRANCH_COLS}
+            rows={byBranch}
+            keyFn={(r, i) => r.branch_code ?? i}
+            loading={loading}
+            emptyText="No branch breakdown available"
+          />
+        </SectionCard>
+      )}
     </Page>
   )
 }

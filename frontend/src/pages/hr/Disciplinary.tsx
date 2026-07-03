@@ -1,346 +1,260 @@
-import { snake } from '../../lib/labels'
 import { useState, useEffect, useCallback } from 'react'
-import { apiFetch, apiPost } from '../../lib/api'
-import { apiPut } from '../../lib/api'
+import {
+  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Modal, ErrBanner, Spinner, StatusBadge, btnPrimary,
+} from '../../components/UI'
+import type { TableCol } from '../../components/UI'
+import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { Spinner, ErrBanner, StatusBadge, KpiCard, Page, SectionCard, DataTable, NAVY, RED, GREEN, AMBER } from '../../components/UI'
-import type { ColDef } from '../../components/UI'
+import { NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { toast } from 'sonner'
+import type { AuthUser } from '../../hooks/useAuth'
 
-interface DisciplinaryRow {
-  id: string; employee_id: string; first_name: string; last_name: string; staff_id: string
-  case_ref: string; incident_type: string; severity: string; incident_date: string
-  description: string; status: string; sanction: string | null; resolved_at: string | null; created_at: string
-}
-interface CaseDetail { case: DisciplinaryRow; events: any[] }
-interface AddForm {
-  employee_id: string; incident_type: string; severity: string
-  incident_date: string; description: string; evidence_urls: string
-}
-interface UpdateForm { status: string; sanction: string; notes: string }
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-const SEVERITIES = ['verbal_warning', 'written_warning', 'suspension', 'termination']
-const STATUSES   = ['open', 'under_review', 'closed']
-const EMPTY_ADD: AddForm = { employee_id: '', incident_type: '', severity: 'verbal_warning', incident_date: '', description: '', evidence_urls: '' }
-const EMPTY_UPD: UpdateForm = { status: 'under_review', sanction: '', notes: '' }
-
-const SEV_COLOR: Record<string, string> = {
-  verbal_warning:  AMBER,
-  written_warning: '#D97706',
-  suspension:      RED,
-  termination:     '#7F1D1D',
+interface DisciplinaryCase {
+  id: number
+  employee_name: string
+  case_type: string
+  incident_date: string
+  outcome?: string
+  status: string
+  issued_by_name?: string
+  description?: string
+  created_at: string
 }
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+const TYPE_COLORS: Record<string, { color: string; bg: string }> = {
+  Warning:     { color: AMBER,  bg: `${AMBER}18` },
+  Suspension:  { color: RED,    bg: `${RED}12` },
+  Termination: { color: '#fff', bg: RED },
+  Query:       { color: NAVY,   bg: 'rgba(14,40,65,.1)' },
+  Counseling:  { color: BLUE,   bg: `${BLUE}12` },
+}
+
+function TypePill({ type }: { type: string }) {
+  const s = TYPE_COLORS[type] ?? TYPE_COLORS.Query
+  return (
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color }}>
+      {type}
+    </span>
+  )
+}
+
+const OUTCOME_STYLE: Record<string, { color: string; bg: string }> = {
+  resolved:   { color: GREEN,  bg: 'rgba(22,163,74,.12)' },
+  dismissed:  { color: '#6B7280', bg: 'rgba(75,85,99,.1)' },
+  escalated:  { color: AMBER,  bg: `${AMBER}18` },
+  terminated: { color: RED,    bg: `${RED}12` },
+}
+
+function OutcomePill({ outcome }: { outcome?: string }) {
+  if (!outcome) return <span style={{ color: 'var(--txt3)' }}>—</span>
+  const s = OUTCOME_STYLE[outcome?.toLowerCase()] ?? { color: 'var(--txt2)', bg: 'var(--chip-bg)' }
+  return (
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color }}>
+      {outcome}
+    </span>
+  )
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
+
+const BLANK = { employee_id: '', case_type: 'Warning', incident_date: '', description: '', outcome: '' }
 
 export default function Disciplinary() {
-  const [rows, setRows]         = useState<DisciplinaryRow[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [error, setError]       = useState('')
-  const [statusF, setStatusF]   = useState('')
-  const [severityF, setSeverityF] = useState('')
+  const storedUser = localStorage.getItem('auth_user')
+  const userRole = storedUser ? (JSON.parse(storedUser) as AuthUser).role : ''
+  const canManage = ['hr_manager', 'head_hr', 'admin', 'coo'].includes(userRole)
 
-  const [detail, setDetail]     = useState<CaseDetail | null>(null)
-  const [detailLoading, setDetailLoading] = useState(false)
+  const [cases, setCases]           = useState<DisciplinaryCase[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [err, setErr]               = useState<string | null>(null)
+  const [typeFilter, setTypeFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
 
-  const [showAdd, setShowAdd]   = useState(false)
-  const [addForm, setAddForm]   = useState<AddForm>(EMPTY_ADD)
-  const [adding, setAdding]     = useState(false)
-  const [addErr, setAddErr]     = useState('')
+  const [newOpen, setNewOpen] = useState(false)
+  const [form, setForm]       = useState(BLANK)
+  const [saving, setSaving]   = useState(false)
 
-  const [updateTarget, setUpdateTarget] = useState<DisciplinaryRow | null>(null)
-  const [updateForm, setUpdateForm]     = useState<UpdateForm>(EMPTY_UPD)
-  const [updating, setUpdating]         = useState(false)
-  const [updateErr, setUpdateErr]       = useState('')
+  const [detail, setDetail] = useState<DisciplinaryCase | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true); setError('')
+    setLoading(true); setErr(null)
     try {
-      const params = new URLSearchParams({ limit: '100' })
-      if (statusF)   params.set('status', statusF)
-      if (severityF) params.set('severity', severityF)
-      const res = await apiFetch<{ data: DisciplinaryRow[] }>(`/api/hr/disciplinary?${params}`)
-      setRows(res.data ?? [])
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
-  }, [statusF, severityF])
+      const p = new URLSearchParams()
+      if (typeFilter)   p.set('case_type', typeFilter)
+      if (statusFilter) p.set('status', statusFilter)
+      const data = await apiFetch<DisciplinaryCase[]>(`/api/hr/disciplinary?${p}`)
+      setCases(Array.isArray(data) ? data : [])
+    } catch (e: any) { setErr(e.message) }
+    finally { setLoading(false) }
+  }, [typeFilter, statusFilter])
 
   useEffect(() => { load() }, [load])
 
-  async function openDetail(row: DisciplinaryRow) {
-    setDetailLoading(true)
+  async function handleCreate() {
+    if (!form.employee_id || !form.incident_date || !form.case_type) { toast.error('Required fields missing'); return }
+    setSaving(true)
     try {
-      const res = await apiFetch<CaseDetail>(`/api/hr/disciplinary/${row.id}`)
-      setDetail(res)
-    } catch { setDetail({ case: row, events: [] }) }
-    finally { setDetailLoading(false) }
+      await apiPost('/api/hr/disciplinary', form)
+      toast.success('Case created')
+      setNewOpen(false); setForm(BLANK); load()
+    } catch (e: any) { toast.error(e.message) }
+    finally { setSaving(false) }
   }
 
-  async function submitAdd() {
-    setAdding(true); setAddErr('')
+  async function openDetail(c: DisciplinaryCase) {
     try {
-      const evidence_urls = addForm.evidence_urls
-        ? addForm.evidence_urls.split('\n').map(s => s.trim()).filter(Boolean)
-        : []
-      await apiPost('/api/hr/disciplinary', { ...addForm, evidence_urls })
-      setShowAdd(false)
-      setAddForm(EMPTY_ADD)
-      load()
-    } catch (e: any) {
-      setAddErr(e.message)
-    } finally {
-      setAdding(false)
-    }
+      const full = await apiFetch<DisciplinaryCase>(`/api/hr/disciplinary/${c.id}`)
+      setDetail(full)
+    } catch { setDetail(c) }
   }
 
-  async function submitUpdate() {
-    if (!updateTarget) return
-    setUpdating(true); setUpdateErr('')
-    try {
-      await apiPut(`/api/hr/disciplinary/${updateTarget.id}/status`, updateForm)
-      setUpdateTarget(null)
-      load()
-    } catch (e: any) {
-      setUpdateErr(e.message)
-    } finally {
-      setUpdating(false)
-    }
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
+    fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
   }
 
-  const openCount   = rows.filter(r => r.status === 'open').length
-  const reviewCount = rows.filter(r => r.status === 'under_review').length
-  const closedCount = rows.filter(r => r.status === 'closed').length
-
-  const cols: ColDef<DisciplinaryRow>[] = [
-    { key: 'case_ref',      label: 'Case Ref',  render: r => <span className="font-mono text-[12px]" style={{ color: 'var(--txt2)' }}>{r.case_ref}</span> },
-    { key: 'name',          label: 'Employee',  render: r => <span className="font-semibold" style={{ color: 'var(--txt)' }}>{r.first_name} {r.last_name}</span> },
-    { key: 'incident_type', label: 'Incident' },
+  const cols: TableCol<DisciplinaryCase>[] = [
     {
-      key: 'severity', label: 'Severity',
-      render: r => (
-        <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded whitespace-nowrap"
-          style={{ background: `${SEV_COLOR[r.severity] ?? '#64748B'}15`, color: SEV_COLOR[r.severity] ?? 'var(--txt2)' }}>
-          {snake(r.severity)}
-        </span>
-      ),
+      key: 'employee_name', label: 'Employee',
+      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.employee_name}</span>,
     },
-    { key: 'incident_date', label: 'Date',       render: r => fmtDate(r.incident_date) },
-    { key: 'status',        label: 'Status',     render: r => <StatusBadge status={r.status} /> },
-    { key: 'sanction',      label: 'Sanction',   render: r => r.sanction ?? '—' },
     {
-      key: 'actions', label: '', sortable: false,
-      render: r => (
-        <div className="flex gap-1.5">
-          <button onClick={() => openDetail(r)}
-            className="p-1.5 rounded-lg" style={{ color: 'var(--txt2)' }}>
-            <span className="material-symbols-rounded text-[16px]">visibility</span>
-          </button>
-          <button onClick={() => { setUpdateTarget(r); setUpdateForm({ status: r.status, sanction: r.sanction ?? '', notes: '' }) }}
-            className="p-1.5 rounded-lg" style={{ color: 'var(--txt2)' }}>
-            <span className="material-symbols-rounded text-[16px]">edit</span>
-          </button>
-        </div>
-      ),
+      key: 'case_type', label: 'Type',
+      render: r => <TypePill type={r.case_type} />,
+    },
+    {
+      key: 'incident_date', label: 'Date',
+      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{fmtDate(r.incident_date)}</span>,
+    },
+    {
+      key: 'outcome', label: 'Outcome',
+      render: r => <OutcomePill outcome={r.outcome} />,
+    },
+    {
+      key: 'issued_by_name', label: 'Issued By',
+      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.issued_by_name ?? '—'}</span>,
+    },
+    {
+      key: 'status', label: 'Status',
+      render: r => <StatusBadge status={r.status} size="sm" />,
     },
   ]
 
+  const CASE_TYPES = ['Warning', 'Query', 'Suspension', 'Counseling', 'Termination']
+  const OUTCOMES   = ['resolved', 'dismissed', 'escalated', 'terminated']
+
   return (
     <Page
-      dept="HR"
-      title="Disciplinary Cases"
+      title="Disciplinary"
+      subtitle="Disciplinary cases and outcomes"
       actions={
-        <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white" style={{ background: NAVY }}
-          onClick={() => { setShowAdd(true); setAddForm(EMPTY_ADD) }}>
-          <span className="material-symbols-rounded text-[15px] align-middle mr-1">add</span>
-          New Case
-        </button>
+        canManage ? (
+          <button onClick={() => { setForm(BLANK); setNewOpen(true) }} style={btnPrimary}>
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+            New Case
+          </button>
+        ) : undefined
       }
     >
-      <ErrBanner msg={error} />
+      <ErrBanner error={err} onRetry={load} />
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <KpiCard label="Open Cases"       value={String(openCount)}   icon="gavel"            accent={RED}   loading={loading && !rows.length} />
-        <KpiCard label="Under Review"     value={String(reviewCount)} icon="manage_search"    accent={AMBER} loading={loading && !rows.length} />
-        <KpiCard label="Closed"           value={String(closedCount)} icon="task_alt"         accent={GREEN} loading={loading && !rows.length} />
-      </div>
+      <FilterBar onReset={() => { setTypeFilter(''); setStatusFilter('') }}>
+        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={filterInputStyle}>
+          <option value="">All Types</option>
+          {CASE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
+          <option value="">All Statuses</option>
+          <option value="open">Open</option>
+          <option value="closed">Closed</option>
+        </select>
+      </FilterBar>
 
-      <SectionCard
-        title="Case Register"
-        actions={
-          <div className="flex gap-2">
-            <select className="px-3 py-1.5 rounded-lg text-[12px] focus:outline-none" style={{ border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-              value={statusF} onChange={e => setStatusF(e.target.value)}>
-              <option value="">All Statuses</option>
-              {STATUSES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
-            </select>
-            <select className="px-3 py-1.5 rounded-lg text-[12px] focus:outline-none" style={{ border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-              value={severityF} onChange={e => setSeverityF(e.target.value)}>
-              <option value="">All Severities</option>
-              {SEVERITIES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
-            </select>
+      <SectionCard title="Cases" badge={cases.length} padding={false}>
+        <DataTable<DisciplinaryCase>
+          cols={cols}
+          rows={cases}
+          keyFn={r => r.id}
+          onRowClick={openDetail}
+          emptyText="No disciplinary cases found."
+          skeletonRows={loading ? 5 : 0}
+        />
+      </SectionCard>
+
+      {/* New Case modal */}
+      <Modal open={newOpen} onClose={() => setNewOpen(false)} title="New Disciplinary Case" width={460}
+        footer={
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => setNewOpen(false)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={handleCreate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {saving && <Spinner size={14} color="#fff" />}
+              Create Case
+            </button>
           </div>
         }
       >
-        <DataTable cols={cols} rows={rows} loading={loading} emptyIcon="gavel" emptyMsg="No disciplinary cases found" />
-      </SectionCard>
-
-      {/* Case detail drawer */}
-      {(detail || detailLoading) && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
-          <div className="w-full max-w-md h-full overflow-y-auto shadow-2xl flex flex-col" style={{ background: 'var(--card)' }}>
-            <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--bdr)' }}>
-              <h2 className="text-[15px] font-bold" style={{ color: 'var(--txt)' }}>Case Detail</h2>
-              <button onClick={() => setDetail(null)} style={{ color: 'var(--txt2)' }}>
-                <span className="material-symbols-rounded text-[20px]">close</span>
-              </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Employee ID *</label>
+            <input value={form.employee_id} onChange={e => setForm(f => ({ ...f, employee_id: e.target.value }))} style={inputStyle} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Type *</label>
+              <select value={form.case_type} onChange={e => setForm(f => ({ ...f, case_type: e.target.value }))}
+                style={{ ...inputStyle, height: 36, padding: '0 10px' }}>
+                {CASE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
             </div>
-            {detailLoading ? (
-              <div className="flex items-center justify-center flex-1"><Spinner size={32} /></div>
-            ) : detail && (
-              <div className="p-5 space-y-5">
-                <div className="space-y-2">
-                  {[
-                    ['Case Ref',    detail.case.case_ref],
-                    ['Employee',    `${detail.case.first_name} ${detail.case.last_name} (${detail.case.staff_id})`],
-                    ['Incident',    detail.case.incident_type],
-                    ['Severity',    snake(detail.case.severity)],
-                    ['Date',        fmtDate(detail.case.incident_date)],
-                    ['Status',      detail.case.status],
-                    ['Sanction',    detail.case.sanction ?? '—'],
-                    ['Resolved',    detail.case.resolved_at ? fmtDate(detail.case.resolved_at) : '—'],
-                  ].map(([k, v]) => (
-                    <div key={k} className="flex justify-between">
-                      <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{k}</span>
-                      <span className="text-[12px] text-right max-w-[60%]" style={{ color: 'var(--txt)' }}>{v}</span>
-                    </div>
-                  ))}
-                </div>
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--txt2)' }}>Description</p>
-                  <p className="text-[13px]" style={{ color: 'var(--txt)' }}>{detail.case.description}</p>
-                </div>
-                {detail.events.length > 0 && (
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--txt2)' }}>Timeline</p>
-                    <div className="space-y-3">
-                      {detail.events.map((ev, i) => (
-                        <div key={i} className="flex gap-3">
-                          <div className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style={{ background: NAVY }} />
-                          <div>
-                            <p className="text-[12px]" style={{ color: 'var(--txt)' }}>{ev.notes ?? ev.event ?? JSON.stringify(ev)}</p>
-                            <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{fmtDate(ev.created_at)}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Incident Date *</label>
+              <input type="date" value={form.incident_date} onChange={e => setForm(f => ({ ...f, incident_date: e.target.value }))} style={{ ...inputStyle, height: 36 }} />
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Outcome</label>
+            <select value={form.outcome} onChange={e => setForm(f => ({ ...f, outcome: e.target.value }))}
+              style={{ ...inputStyle, height: 36, padding: '0 10px' }}>
+              <option value="">— Pending —</option>
+              {OUTCOMES.map(o => <option key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Description</label>
+            <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+              rows={4} placeholder="Describe the incident…" style={{ ...inputStyle, resize: 'vertical' }} />
+          </div>
+        </div>
+      </Modal>
+
+      {/* Detail modal */}
+      <Modal open={!!detail} onClose={() => setDetail(null)} title="Case Detail" width={500}>
+        {detail && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <TypePill type={detail.case_type} />
+              <OutcomePill outcome={detail.outcome} />
+              <StatusBadge status={detail.status} size="sm" />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
+              <div><span style={{ color: 'var(--txt2)' }}>Employee:</span> <strong>{detail.employee_name}</strong></div>
+              <div><span style={{ color: 'var(--txt2)' }}>Date:</span> <strong>{fmtDate(detail.incident_date)}</strong></div>
+              <div><span style={{ color: 'var(--txt2)' }}>Issued By:</span> <strong>{detail.issued_by_name ?? '—'}</strong></div>
+              <div><span style={{ color: 'var(--txt2)' }}>Created:</span> <strong>{fmtDate(detail.created_at)}</strong></div>
+            </div>
+            {detail.description && (
+              <div style={{ padding: '12px 14px', background: 'var(--th-bg)', borderRadius: 8, fontSize: 13, color: 'var(--txt)', lineHeight: 1.6 }}>
+                {detail.description}
               </div>
             )}
           </div>
-        </div>
-      )}
-
-      {/* Update status modal */}
-      {updateTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setUpdateTarget(null)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="disc-update-title" className="rounded-2xl shadow-xl p-6 w-full max-w-md" style={{ background: 'var(--card)' }} onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 id="disc-update-title" className="text-[16px] font-bold" style={{ color: 'var(--txt)' }}>Update Case Status</h2>
-              <button onClick={() => setUpdateTarget(null)} style={{ color: 'var(--txt2)' }}>
-                <span className="material-symbols-rounded text-[20px]">close</span>
-              </button>
-            </div>
-            <p className="text-[12px] mb-4" style={{ color: 'var(--txt2)' }}>{updateTarget.case_ref} — {updateTarget.first_name} {updateTarget.last_name}</p>
-            <ErrBanner msg={updateErr} />
-            <div className="space-y-3">
-              <div>
-                <label htmlFor="disc-status" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Status</label>
-                <select id="disc-status" className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-                  value={updateForm.status} onChange={e => setUpdateForm(f => ({ ...f, status: e.target.value }))}>
-                  {STATUSES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="disc-sanction" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Sanction</label>
-                <input id="disc-sanction" type="text" className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-                  value={updateForm.sanction} onChange={e => setUpdateForm(f => ({ ...f, sanction: e.target.value }))} />
-              </div>
-              <div>
-                <label htmlFor="disc-notes" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Notes</label>
-                <textarea id="disc-notes" rows={3} className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-                  value={updateForm.notes} onChange={e => setUpdateForm(f => ({ ...f, notes: e.target.value }))} />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-5">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setUpdateTarget(null)}>Cancel</button>
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60" style={{ background: NAVY }}
-                disabled={updating} onClick={submitUpdate}>
-                {updating ? 'Saving…' : 'Save Changes'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* New case modal */}
-      {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowAdd(false)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="disc-add-title" className="rounded-2xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto" style={{ background: 'var(--card)' }} onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
-              <h2 id="disc-add-title" className="text-[16px] font-bold" style={{ color: 'var(--txt)' }}>Open Disciplinary Case</h2>
-              <button onClick={() => setShowAdd(false)} style={{ color: 'var(--txt2)' }}>
-                <span className="material-symbols-rounded text-[20px]">close</span>
-              </button>
-            </div>
-            <ErrBanner msg={addErr} />
-            <div className="space-y-3">
-              <div>
-                <label htmlFor="disc-emp-id" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Employee ID *</label>
-                <input id="disc-emp-id" type="text" placeholder="UUID"
-                  className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-                  value={addForm.employee_id} onChange={e => setAddForm(f => ({ ...f, employee_id: e.target.value }))} />
-              </div>
-              <div>
-                <label htmlFor="disc-incident-type" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Incident Type *</label>
-                <input id="disc-incident-type" type="text" placeholder="e.g. Tardiness, Misconduct"
-                  className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-                  value={addForm.incident_type} onChange={e => setAddForm(f => ({ ...f, incident_type: e.target.value }))} />
-              </div>
-              <div>
-                <label htmlFor="disc-severity" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Severity *</label>
-                <select id="disc-severity" className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-                  value={addForm.severity} onChange={e => setAddForm(f => ({ ...f, severity: e.target.value }))}>
-                  {SEVERITIES.map(s => <option key={s} value={s}>{snake(s)}</option>)}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="disc-incident-date" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Incident Date *</label>
-                <input id="disc-incident-date" type="date" className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-                  value={addForm.incident_date} onChange={e => setAddForm(f => ({ ...f, incident_date: e.target.value }))} />
-              </div>
-              <div>
-                <label htmlFor="disc-description" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Description *</label>
-                <textarea id="disc-description" rows={4} className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-                  value={addForm.description} onChange={e => setAddForm(f => ({ ...f, description: e.target.value }))} />
-              </div>
-              <div>
-                <label htmlFor="disc-evidence" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Evidence URLs (one per line)</label>
-                <textarea id="disc-evidence" rows={2} className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-                  value={addForm.evidence_urls} onChange={e => setAddForm(f => ({ ...f, evidence_urls: e.target.value }))} />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-5">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setShowAdd(false)}>Cancel</button>
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60" style={{ background: NAVY }}
-                disabled={adding || !addForm.employee_id || !addForm.incident_type || !addForm.incident_date || !addForm.description}
-                onClick={submitAdd}>
-                {adding ? 'Opening…' : 'Open Case'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </Modal>
     </Page>
   )
 }

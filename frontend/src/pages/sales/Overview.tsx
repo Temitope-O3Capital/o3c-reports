@@ -1,320 +1,271 @@
-import { useState, useEffect } from 'react'
-import { apiFetch } from '../../lib/api'
-import { fmt, fmtNum, fmtDate, fmtPct, n, today, monthStart } from '../../lib/fmt'
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
-  Page, KpiCard, SectionCard, DataTable, DateFilter,
-  AreaChartCard, BarChartCard, ProgressList, ChangeBadge,
-  ErrBanner, ExportBtn, Sk, NAVY, RED, GREEN, AMBER, BLUE,
-} from '../../components/UI'
+  ResponsiveContainer, AreaChart, Area, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+} from 'recharts'
+import { Page, KpiCard, SectionCard, DataTable, StatusBadge } from '../../components/UI'
+import type { TableCol } from '../../components/UI'
+import { apiFetch } from '../../lib/api'
+import { fmtKobo, fmtPct, fmtNum, fmtDatetime } from '../../lib/fmt'
+import { RED, GREEN, BLUE, AMBER, NAVY, NUM } from '../../lib/design'
 
-/* ── Lifecycle funnel stages ─────────────────────────────────── */
-const FUNNEL_STAGES = [
-  { key: 'registered',  label: 'Registered',  icon: 'person_add',   desc: 'Created account', color: NAVY },
-  { key: 'card_issued', label: 'Card Issued',  icon: 'credit_card',  desc: 'Received a card', color: BLUE },
-  { key: 'card_active', label: 'Activated',    icon: 'check_circle', desc: 'Card Open status', color: GREEN },
-  { key: 'transacting', label: 'Transacting',  icon: 'payments',     desc: 'Made ≥1 txn',    color: '#0891B2' },
-]
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-/* ── LifecycleFunnel ─────────────────────────────────────────── */
-function LifecycleFunnel({ data, loading }: { data: Record<string, number> | null; loading: boolean }) {
+interface LoanKPIs {
+  submitted_mtd: number
+  disbursed_mtd_kobo: number
+  pipeline_kobo: number
+  win_rate_pct: number
+}
+
+interface MonthlyPoint { month: string; disbursements_kobo: number; count: number }
+interface TopPerformer  { name: string; role: string; amount_kobo: number; count: number }
+
+interface RecentApp {
+  id: number
+  stage: string
+  status: string
+  amount_requested_kobo: number
+  amount_approved_kobo: number
+  created_at: string
+  updated_at: string
+  officer_name: string
+  applicant_name?: string | null
+  product_type?: string | null
+}
+
+// ── Stage pill ────────────────────────────────────────────────────────────────
+
+const STAGE_COLORS: Record<string, { bg: string; txt: string }> = {
+  draft:               { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280' },
+  submitted:           { bg: 'rgba(37,99,235,.1)',   txt: '#2563EB' },
+  document_collection: { bg: 'rgba(217,119,6,.1)',   txt: '#D97706' },
+  risk_review:         { bg: 'rgba(124,58,237,.1)',  txt: '#7C3AED' },
+  risk_head_review:    { bg: 'rgba(124,58,237,.1)',  txt: '#7C3AED' },
+  pending_conditions:  { bg: 'rgba(217,119,6,.1)',   txt: '#D97706' },
+  finance_approval:    { bg: 'rgba(37,99,235,.1)',   txt: '#2563EB' },
+  booking:             { bg: 'rgba(14,40,65,.1)',    txt: '#0E2841' },
+  active:              { bg: 'rgba(22,163,74,.1)',   txt: '#16A34A' },
+  declined:            { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
+}
+
+function StagePill({ stage }: { stage: string }) {
+  const c = STAGE_COLORS[stage] ?? { bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
   return (
-    <SectionCard title="Customer Lifecycle Funnel" subtitle="Acquisition → activation pipeline">
-      <div className="px-5 py-4 space-y-4">
-        {loading || !data
-          ? Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="space-y-2">
-                <Sk w="w-36" />
-                <Sk h="h-8" w={`w-${['full', '4/5', '3/5', '2/5'][i]}`} />
-              </div>
-            ))
-          : (() => {
-              const top = n(data[FUNNEL_STAGES[0].key]) || 1
-              return FUNNEL_STAGES.map((stage, i) => {
-                const value = n(data[stage.key])
-                const widthPct = (value / top) * 100
-                const convRate = i === 0 ? 100 : (value / top) * 100
-                const dropOff  = i === 0 ? null : n(data[FUNNEL_STAGES[i - 1].key]) - value
-                return (
-                  <div key={stage.key}>
-                    {dropOff != null && dropOff > 0 && (
-                      <div className="flex items-center gap-2 ml-10 mb-1.5 -mt-1">
-                        <div className="w-px h-3 bg-[var(--bdr)] ml-3" />
-                        <span className="text-[11px] font-medium" style={{ color: RED }}>
-                          −{fmtNum(dropOff)} dropped
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-3">
-                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0"
-                        style={{ background: stage.color }}>
-                        {i + 1}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <div>
-                            <span className="text-[13px] font-semibold text-[color:var(--txt)]">{stage.label}</span>
-                            <span className="text-[11px] text-[color:var(--txt2)] ml-2">{stage.desc}</span>
-                          </div>
-                          <div className="flex items-center gap-3 flex-shrink-0">
-                            <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full"
-                              style={{
-                                background: i === 0 ? `${NAVY}10` : convRate >= 70 ? 'rgba(5,150,105,0.08)' : 'rgba(245,158,11,0.10)',
-                                color: i === 0 ? NAVY : convRate >= 70 ? GREEN : AMBER,
-                              }}>
-                              {convRate.toFixed(1)}%
-                            </span>
-                            <span className="kpi-number text-[14px] font-bold text-[color:var(--txt)] w-16 text-right">
-                              {fmtNum(value)}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="h-2.5 rounded-full overflow-hidden" style={{ background: 'rgba(15,23,42,0.06)' }}>
-                          <div className="h-full rounded-full transition-all duration-700"
-                            style={{ width: `${widthPct}%`, background: stage.color }} />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })
-            })()}
-      </div>
-    </SectionCard>
+    <span style={{
+      fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20,
+      background: c.bg, color: c.txt, whiteSpace: 'nowrap', textTransform: 'capitalize',
+    }}>
+      {stage.replace(/_/g, ' ')}
+    </span>
   )
 }
 
-/* ── Manager Leaderboard ─────────────────────────────────────── */
-function ManagerLeaderboard({ data, loading }: { data: any[] | null; loading: boolean }) {
-  const MEDAL = [
-    { icon: 'workspace_premium', cls: 'text-amber-400' },
-    { icon: 'military_tech',     cls: 'text-[color:var(--txt2)]' },
-    { icon: 'emoji_events',      cls: 'text-amber-700' },
-  ]
-  function initials(name: string) {
-    return (name || '?').split(' ').slice(0, 2).map((w: string) => w[0]?.toUpperCase()).join('')
-  }
+// ── Chart tooltip ─────────────────────────────────────────────────────────────
+
+function ChartTooltip({ active, payload, label, kobo }: {
+  active?: boolean; payload?: any[]; label?: string; kobo?: boolean
+}) {
+  if (!active || !payload?.length) return null
   return (
-    <SectionCard title="Manager Leaderboard" subtitle="Ranked by total accounts issued">
-      {loading
-        ? <div className="px-5 py-4 space-y-3">{Array.from({ length: 5 }).map((_, i) => <Sk key={i} />)}</div>
-        : !data?.length
-        ? (
-          <div className="flex flex-col items-center justify-center py-14 gap-3 text-[color:var(--txt2)]">
-            <span className="material-symbols-rounded text-[36px]">leaderboard</span>
-            <p className="text-[13px]">No manager data</p>
-          </div>
-        )
-        : (
-          <div>
-            {data.map((mgr, i) => {
-              const rate = Number(mgr.activation_rate || 0)
-              return (
-                <div key={i} className="flex items-center gap-3 px-5 py-3 hover:bg-[var(--bg)] transition-colors"
-                  style={{ borderTop: i > 0 ? '1px solid rgba(15,23,42,0.05)' : undefined }}>
-                  <div className="w-6 flex-shrink-0 flex items-center justify-center">
-                    {i < 3
-                      ? <span className={`material-symbols-rounded text-[20px] ${MEDAL[i].cls}`}>{MEDAL[i].icon}</span>
-                      : <span className="text-[11px] font-semibold text-[color:var(--txt2)]">{i + 1}</span>}
-                  </div>
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
-                    style={{ background: `hsl(${(i * 47) % 360} 55% 45%)` }}>
-                    {initials(mgr['Account Manager'] || '')}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-semibold text-[color:var(--txt)] truncate">{mgr['Account Manager'] || '—'}</p>
-                    <p className="text-[11px] text-[color:var(--txt2)]">{fmtNum(mgr.active_accounts)} active</p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="kpi-number text-[15px] font-bold text-[color:var(--txt)]">{fmtNum(mgr.total_accounts)}</p>
-                    <span className="text-[11px] font-semibold"
-                      style={{ color: rate >= 70 ? GREEN : rate >= 40 ? AMBER : RED }}>
-                      {rate.toFixed(0)}% activated
-                    </span>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-    </SectionCard>
+    <div style={{
+      background: 'var(--card)', border: '1px solid var(--bdr)',
+      borderRadius: 8, padding: '8px 12px', fontSize: 12,
+      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+    }}>
+      <p style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 4 }}>{label}</p>
+      {payload.map((p: any, i: number) => (
+        <p key={i} style={{ color: p.color, marginBottom: 2 }}>
+          {p.name}: {kobo ? fmtKobo(p.value) : p.value}
+        </p>
+      ))}
+    </div>
   )
 }
 
-/* ── Product Mix ─────────────────────────────────────────────── */
-function ProductMix({ data, loading }: { data: any[] | null; loading: boolean }) {
-  const COLORS = [NAVY, RED, BLUE, GREEN, AMBER, '#8B5CF6']
-  const total = (data || []).reduce((s, r) => s + Number(r.total || 0), 0)
-  return (
-    <SectionCard title="Product Mix" subtitle="All-time issuance by product">
-      <div className="px-5 py-4 space-y-4">
-        {loading || !data
-          ? Array.from({ length: 4 }).map((_, i) => <div key={i} className="space-y-2"><Sk w="w-32" /><Sk h="h-2" /></div>)
-          : data.map((row, i) => {
-              const totalN  = Number(row.total || 0)
-              const activeN = Number(row.active || 0)
-              const share   = total > 0 ? (totalN / total) * 100 : 0
-              const actRate = totalN > 0 ? (activeN / totalN) * 100 : 0
-              const color   = COLORS[i % COLORS.length]
-              return (
-                <div key={i}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color }} />
-                      <span className="text-[13px] font-semibold text-[color:var(--txt)]">{row['Product Name'] || '—'}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-[11px] font-medium" style={{ color: GREEN }}>{actRate.toFixed(0)}% active</span>
-                      <span className="kpi-number text-[13px] font-bold text-[color:var(--txt)]">{fmtNum(totalN)}</span>
-                      <span className="text-[11px] text-[color:var(--txt2)] w-8 text-right">{share.toFixed(1)}%</span>
-                    </div>
-                  </div>
-                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(15,23,42,0.06)' }}>
-                    <div className="h-full rounded-full transition-all duration-700"
-                      style={{ width: `${share}%`, background: color }} />
-                  </div>
-                </div>
-              )
-            })}
-        {!loading && data && (
-          <div className="flex items-center justify-between text-[11px] text-[color:var(--txt2)] pt-2"
-            style={{ borderTop: '1px solid rgba(15,23,42,0.06)' }}>
-            <span>Total issued</span>
-            <span className="font-semibold text-[color:var(--txt2)] kpi-number">{fmtNum(total)}</span>
-          </div>
-        )}
-      </div>
-    </SectionCard>
-  )
-}
+// ── Page ──────────────────────────────────────────────────────────────────────
 
-/* ── Main Page ───────────────────────────────────────────────── */
 export default function SalesOverview() {
-  const [from, setFrom] = useState(monthStart())
-  const [to,   setTo]   = useState(today())
+  const navigate = useNavigate()
+  const [kpis,     setKpis]     = useState<LoanKPIs | null>(null)
+  const [monthly,  setMonthly]  = useState<MonthlyPoint[]>([])
+  const [perfs,    setPerfs]    = useState<TopPerformer[]>([])
+  const [apps,     setApps]     = useState<RecentApp[]>([])
+  const [loading,  setLoading]  = useState(true)
 
-  const [kpis,      setKpis]      = useState<any>(null)
-  const [funnel,    setFunnel]    = useState<any>(null)
-  const [trend,     setTrend]     = useState<any[]>([])
-  const [managers,  setManagers]  = useState<any[] | null>(null)
-  const [states,    setStates]    = useState<any[]>([])
-  const [products,  setProducts]  = useState<any[] | null>(null)
-  const [loading,   setLoading]   = useState(true)
-  const [error,     setError]     = useState('')
-  const [exporting, setExporting] = useState(false)
-
-  useEffect(() => {
-    let active = true
-    setLoading(true); setError('')
-    async function load() {
-      try {
-        const [rK, rFn, rTr, rMg, rSt, rPr] = await Promise.allSettled([
-          apiFetch('/api/sales/kpis'),
-          apiFetch('/api/sales/funnel'),
-          apiFetch('/api/sales/accounts-trend'),
-          apiFetch('/api/sales/manager-performance'),
-          apiFetch('/api/sales/by-state'),
-          apiFetch('/api/sales/product-mix'),
-        ])
-        if (!active) return
-        if (rK.status === 'fulfilled') setKpis(rK.value.data || {})
-        if (rFn.status === 'fulfilled') setFunnel(rFn.value.data || null)
-        if (rTr.status === 'fulfilled') setTrend(rTr.value.data || [])
-        if (rMg.status === 'fulfilled') setManagers(rMg.value.data || [])
-        if (rSt.status === 'fulfilled') setStates(rSt.value.data || [])
-        if (rPr.status === 'fulfilled') setProducts(rPr.value.data || [])
-        if ([rK, rFn, rTr, rMg, rSt, rPr].every(r => r.status === 'rejected')) {
-          setError((rK as PromiseRejectedResult).reason?.message ?? 'Failed to load')
-        }
-      } catch (e: any) { if (active) setError(e.message) }
-      finally { if (active) setLoading(false) }
-    }
-    load()
-    return () => { active = false }
-  }, [])
-
-  const d = kpis || {}
-
-  async function doExport() {
-    setExporting(true)
+  async function load() {
+    setLoading(true)
     try {
-      const { apiExport } = await import('../../lib/api')
-      await apiExport('/api/sales/customers?limit=500', 'sales_customers')
-    } finally { setExporting(false) }
+      const [k, m, p, a] = await Promise.all([
+        apiFetch<{data: LoanKPIs}>('/api/sales/loan-kpis'),
+        apiFetch<{data: MonthlyPoint[]}>('/api/sales/monthly-disbursements'),
+        apiFetch<{data: TopPerformer[]}>('/api/sales/top-performers'),
+        apiFetch<{data: RecentApp[]}>('/api/sales/recent-applications'),
+      ])
+      setKpis(k.data)
+      setMonthly(m.data ?? [])
+      setPerfs(p.data ?? [])
+      setApps(a.data ?? [])
+    } finally {
+      setLoading(false)
+    }
   }
 
-  /* MoM change from trend data */
-  function momFromTrend() {
-    if (trend.length < 2) return null
-    const prev = n(trend[trend.length - 2]?.new_accounts)
-    const curr = n(trend[trend.length - 1]?.new_accounts)
-    if (prev === 0) return null
-    return ((curr - prev) / prev) * 100
-  }
+  useEffect(() => { load() }, [])
+
+  const appCols: TableCol<RecentApp>[] = [
+    {
+      key: 'id', label: 'App#', sortable: false, width: 80,
+      render: row => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>APP-{row.id}</span>,
+    },
+    {
+      key: 'applicant_name', label: 'Applicant', sortable: true,
+      render: row => <span style={{ fontSize: 13, color: 'var(--txt)' }}>{row.applicant_name ?? '—'}</span>,
+    },
+    {
+      key: 'stage', label: 'Stage', sortable: true,
+      render: row => <StagePill stage={row.stage} />,
+    },
+    {
+      key: 'product_type', label: 'Product', sortable: true,
+      render: row => row.product_type
+        ? <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'var(--chip-bg)', color: 'var(--chip-txt)', whiteSpace: 'nowrap' }}>{row.product_type}</span>
+        : <span style={{ color: 'var(--txt3)', fontSize: 12 }}>—</span>,
+    },
+    {
+      key: 'amount_requested_kobo', label: 'Amount', sortable: true, align: 'right',
+      render: row => <span style={NUM}>{fmtKobo(row.amount_requested_kobo)}</span>,
+    },
+    {
+      key: 'officer_name', label: 'Officer', sortable: true,
+      render: row => <span style={{ color: 'var(--txt2)' }}>{row.officer_name ?? '—'}</span>,
+    },
+    {
+      key: 'updated_at', label: 'Last Updated', sortable: true,
+      render: row => <span style={{ color: 'var(--txt2)', fontSize: 12 }}>{fmtDatetime(row.updated_at)}</span>,
+    },
+  ]
+
+  const perfCols: TableCol<TopPerformer>[] = [
+    {
+      key: 'name', label: 'Officer', sortable: true,
+      render: row => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+            background: `${NAVY}14`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 10, fontWeight: 700, color: NAVY,
+          }}>
+            {(row.name ?? '?').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+          </div>
+          <span style={{ fontSize: 13 }}>{row.name}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'amount_kobo', label: 'Disbursed MTD', sortable: true, align: 'right',
+      render: row => <span style={NUM}>{fmtKobo(row.amount_kobo)}</span>,
+    },
+    {
+      key: 'count', label: 'Loans', sortable: true, align: 'right',
+      render: row => <span style={NUM}>{row.count}</span>,
+    },
+  ]
 
   return (
-    <Page dept="Sales" title="Sales Overview"
-      subtitle="Customer acquisition, team performance, and market penetration"
+    <Page
+      title="Sales Overview"
+      subtitle="Loan origination performance"
       actions={
-        <div className="flex items-center gap-2">
-          <ExportBtn onClick={doExport} loading={exporting} />
-          <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
-        </div>
-      }>
-      <ErrBanner msg={error} />
-
-      {/* KPI Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <KpiCard label="Total Customers" value={fmtNum(d.total_customers)} icon="groups"
-          accent={NAVY} loading={loading} change={momFromTrend()} />
-        <KpiCard label="New This Month" value={fmtNum(d.new_mtd)} icon="person_add"
-          accent={RED} sub={`${fmtNum(d.prev_month)} last month`} loading={loading} />
-        <KpiCard label="MoM Growth"
-          value={d.mom_growth != null ? `${d.mom_growth >= 0 ? '+' : ''}${d.mom_growth}%` : '—'}
-          icon="trending_up" accent={n(d.mom_growth) >= 0 ? GREEN : RED}
-          sub="vs previous month" loading={loading} />
-        <KpiCard label="YTD New Accounts" value={fmtNum(d.ytd_new)} icon="calendar_today"
-          accent={NAVY} loading={loading} />
-        <KpiCard label="Activation Rate" value={fmtPct(d.activation_rate)}
-          icon="check_circle" accent={n(d.activation_rate) >= 70 ? GREEN : AMBER}
-          sub={`${fmtNum(d.active_cards)} active cards`} loading={loading} />
-        <KpiCard label="States Reached" value={fmtNum(d.states_reached)} icon="location_on"
-          accent={BLUE} sub="active regions" loading={loading} />
+        <button
+          onClick={() => navigate('/sales/applications/new')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+            border: 'none', background: RED, color: '#fff', cursor: 'pointer',
+          }}
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+          New Application
+        </button>
+      }
+    >
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 16 }}>
+        <KpiCard label="Submitted MTD"   value={kpis ? fmtNum(kpis.submitted_mtd) : '—'}         icon="description"       accent={BLUE}  loading={loading} />
+        <KpiCard label="Disbursed MTD"   value={kpis ? fmtKobo(kpis.disbursed_mtd_kobo) : '—'}   icon="payments"          accent={RED}   loading={loading} />
+        <KpiCard label="Pipeline Value"  value={kpis ? fmtKobo(kpis.pipeline_kobo) : '—'}        icon="account_balance"   accent={NAVY}  loading={loading} />
+        <KpiCard label="Win Rate"        value={kpis ? fmtPct(kpis.win_rate_pct) : '—'}          icon="trophy"            accent={GREEN} loading={loading} />
       </div>
 
-      {/* Lifecycle Funnel */}
-      <div className="mt-4">
-        <LifecycleFunnel data={funnel} loading={loading} />
+      {/* Charts row */}
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
+        <SectionCard title="Monthly Disbursements" subtitle="Last 12 months">
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart data={monthly} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor={RED} stopOpacity={0.16} />
+                  <stop offset="95%" stopColor={RED} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
+              <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} width={72} />
+              <Tooltip content={<ChartTooltip kobo />} />
+              <Area type="monotone" dataKey="disbursements_kobo" name="Disbursements"
+                stroke={RED} strokeWidth={2} fill="url(#salesGrad)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </SectionCard>
+
+        <SectionCard title="Top Performers" subtitle="Disbursements MTD">
+          {perfs.length === 0 ? (
+            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: 13 }}>No data</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={perfs} layout="vertical" margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" horizontal={false} />
+                <XAxis type="number" tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} width={80} />
+                <Tooltip content={<ChartTooltip kobo />} />
+                <Bar dataKey="amount_kobo" name="Disbursed" fill={AMBER} radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </SectionCard>
       </div>
 
-      {/* Acquisition Trend + Product Mix */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-        <div className="lg:col-span-2">
-          <AreaChartCard
-            title="Monthly Acquisition Trend"
-            subtitle="New customer accounts over time"
-            data={trend}
-            xKey="month"
-            areaKey="new_accounts"
-            color={RED}
-            height={260}
-            loading={loading}
-          />
-        </div>
-        <ProductMix data={products} loading={loading} />
-      </div>
-
-      {/* Manager Leaderboard + Geographic */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-        <ManagerLeaderboard data={managers} loading={loading} />
-        <ProgressList
-          title="Top States by Customers"
-          subtitle="Geographic market penetration"
-          data={states.slice(0, 10)}
-          nameKey="State"
-          valueKey="count"
+      {/* Recent applications table */}
+      <SectionCard
+        title="Recent Applications"
+        subtitle="Latest activity"
+        actions={
+          <button
+            onClick={() => navigate('/sales/applications')}
+            style={{
+              fontSize: 12, fontWeight: 500, color: RED,
+              background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px',
+              display: 'flex', alignItems: 'center', gap: 4,
+            }}
+          >
+            View all
+            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>arrow_forward</span>
+          </button>
+        }
+      >
+        <DataTable<RecentApp>
+          cols={appCols}
+          rows={apps}
           loading={loading}
+          skeletonRows={5}
+          emptyText="No applications yet"
+          keyFn={(r) => r.id}
+          onRowClick={(row) => navigate(`/sales/applications/${row.id}`)}
         />
-      </div>
+      </SectionCard>
     </Page>
   )
 }

@@ -11,12 +11,80 @@ import (
 func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("collections"))
 	r.Get("/kpis", collectionsKPIs(db))
+	r.Get("/portfolio-kpis", collectionsPortfolioKPIs(db)) // loan-platform DPD KPIs
+	r.Get("/dpd-trend",      collectionsDPDTrend(db))      // 6-month PAR trend from collection_assignments
 	r.Get("/by-agent", collectionsByAgent(db))
 	r.Get("/by-mode", collectionsByMode(db))
 	r.Get("/monthly-trend", collectionsMonthlyTrend(db))
 	r.Get("/roll-rate", collectionsRollRate(db))
 	r.Get("/log", collectionsLog(db))
 	r.Get("/export", collectionsExport(db))
+}
+
+// collectionsPortfolioKPIs returns PAR-based KPIs from collection_assignments.
+func collectionsPortfolioKPIs(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+				COALESCE(SUM(CASE WHEN dpd_bucket = '1-30'
+				                  THEN outstanding_kobo END), 0)                 AS par30_kobo,
+				COALESCE(SUM(CASE WHEN dpd_bucket IN ('31-60','61-90')
+				                  THEN outstanding_kobo END), 0)                 AS par60_kobo,
+				COALESCE(SUM(CASE WHEN dpd_bucket IN ('91-180','181-360')
+				                  THEN outstanding_kobo END), 0)                 AS par90_kobo,
+				COALESCE(SUM(outstanding_kobo), 0)                              AS total_outstanding_kobo,
+				COUNT(*)                                                         AS total_accounts,
+				COUNT(CASE WHEN dpd_bucket != '0' THEN 1 END)                   AS delinquent_accounts,
+				CASE WHEN COUNT(*) = 0 THEN 0::numeric
+				     ELSE ROUND(
+				       COUNT(CASE WHEN dpd_bucket = '0' THEN 1 END)::numeric
+				       / COUNT(*)::numeric * 100, 1
+				     )
+				END                                                              AS current_rate_pct
+			FROM collection_assignments`)
+		if err != nil || len(rows) == 0 {
+			respond(w, map[string]any{
+				"par30_kobo": int64(0), "par60_kobo": int64(0), "par90_kobo": int64(0),
+				"total_outstanding_kobo": int64(0), "total_accounts": int64(0),
+				"delinquent_accounts": int64(0), "current_rate_pct": 0.0,
+			}, "pg")
+			return
+		}
+		respond(w, rows[0], "pg")
+	}
+}
+
+// collectionsDPDTrend returns 6-month PAR trend from collection_assignments.
+func collectionsDPDTrend(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			WITH months AS (
+				SELECT generate_series(
+					DATE_TRUNC('month', NOW() - INTERVAL '5 months'),
+					DATE_TRUNC('month', NOW()),
+					'1 month'::interval
+				) AS m
+			)
+			SELECT
+				TO_CHAR(m.m, 'Mon YY') AS month,
+				m.m                    AS month_sort,
+				COALESCE(SUM(CASE WHEN ca.dpd_bucket = '1-30'
+				              THEN ca.outstanding_kobo END), 0)            AS par30_kobo,
+				COALESCE(SUM(CASE WHEN ca.dpd_bucket IN ('31-60','61-90')
+				              THEN ca.outstanding_kobo END), 0)            AS par60_kobo,
+				COALESCE(SUM(CASE WHEN ca.dpd_bucket IN ('91-180','181-360')
+				              THEN ca.outstanding_kobo END), 0)            AS par90_kobo
+			FROM months m
+			LEFT JOIN collection_assignments ca
+				ON DATE_TRUNC('month', ca.updated_at) = m.m
+			GROUP BY m.m
+			ORDER BY m.m`)
+		if err != nil {
+			respond(w, []any{}, "pg")
+			return
+		}
+		respond(w, rows, "pg")
+	}
 }
 
 // collectionsRollRate returns DPD bucket distribution and MoM transition counts.

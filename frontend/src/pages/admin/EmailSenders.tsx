@@ -1,266 +1,228 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
+import { Page, SectionCard, DataTable, ErrBanner } from '../../components/UI'
+import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { Page, SectionCard, ErrBanner, NAVY } from '../../components/UI'
+import { GREEN, AMBER, RED, NAVY, INTER, SORA } from '../../lib/design'
 import { toast } from 'sonner'
 
-const RED = '#C00000'
-
-const PURPOSE_LABELS: Record<string, string> = {
-  promo:         'Promotions',
-  internal:      'Internal / Staff',
-  helpdesk:      'Customer Support',
-  transactional: 'Transactional',
-  general:       'General',
-}
-const PURPOSES = Object.keys(PURPOSE_LABELS)
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Sender {
-  id:         number
-  address:    string
-  name:       string
-  label:      string
-  purpose:    string
+  id: string
+  address: string
+  name: string
+  label: string
+  purpose: string
   is_default: boolean
-  is_active:  boolean
+  is_active: boolean
+  created_at: string
 }
 
-function SenderModal({
-  sender, onClose, onSave,
-}: {
-  sender: Partial<Sender> | null
-  onClose: () => void
-  onSave:  () => void
-}) {
-  const isEdit = !!sender?.id
-  const [address,   setAddress]   = useState(sender?.address ?? '')
-  const [name,      setName]      = useState(sender?.name ?? '')
-  const [label,     setLabel]     = useState(sender?.label ?? '')
-  const [purpose,   setPurpose]   = useState(sender?.purpose ?? 'general')
-  const [isDefault, setIsDefault] = useState(sender?.is_default ?? false)
-  const [saving,    setSaving]    = useState(false)
+const PURPOSES = ['general','campaigns','helpdesk','notifications','statements']
 
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault()
-    if (!address.includes('@')) { toast.error('Enter a valid email address'); return }
+// ── Modal ─────────────────────────────────────────────────────────────────────
+
+function SenderModal({ sender, onClose, onSaved }: {
+  sender: Partial<Sender> | null; onClose: () => void; onSaved: () => void
+}) {
+  const isNew = !sender?.id
+  const [form, setForm] = useState({
+    address:    sender?.address    ?? '',
+    name:       sender?.name       ?? '',
+    label:      sender?.label      ?? '',
+    purpose:    sender?.purpose    ?? 'general',
+    is_default: sender?.is_default ?? false,
+  })
+  const [saving, setSaving] = useState(false)
+
+  function field(k: keyof typeof form, v: string | boolean) {
+    setForm(f => ({ ...f, [k]: v }))
+  }
+
+  async function save() {
+    if (!form.address || !form.name || !form.label) {
+      toast.error('Address, name, and label are required')
+      return
+    }
     setSaving(true)
     try {
-      if (isEdit) {
-        await apiFetch(`/api/admin/email-senders/${sender!.id}`, {
-          method: 'PUT',
-          body: JSON.stringify({ address, name, label, purpose, is_default: isDefault }),
-        })
+      if (isNew) {
+        await apiFetch('/api/admin/email-senders', { method: 'POST', body: JSON.stringify(form) })
+        toast.success('Sender added')
       } else {
-        await apiFetch('/api/admin/email-senders', {
-          method: 'POST',
-          body: JSON.stringify({ address, name, label, purpose, is_default: isDefault }),
-        })
+        await apiFetch(`/api/admin/email-senders/${sender!.id}`, { method: 'PUT', body: JSON.stringify(form) })
+        toast.success('Sender updated')
       }
-      toast.success(isEdit ? 'Sender updated' : 'Sender added')
-      onSave(); onClose()
-    } catch (err: any) {
-      toast.error(err.message ?? 'Save failed')
+      onSaved()
+      onClose()
+    } catch (e: any) {
+      toast.error(e.message)
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 50,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: '100%', maxWidth: 460,
-        boxShadow: '0 20px 60px rgba(0,0,0,.18)' }}>
-        <h3 className="text-[15px] font-bold mb-5" style={{ color: 'var(--txt)' }}>
-          {isEdit ? 'Edit Sender' : 'Add Sender'}
-        </h3>
-        <form onSubmit={handleSave} className="space-y-4">
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: 480, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{isNew ? 'Add Email Sender' : 'Edit Sender'}</h3>
+          <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)' }}>
+            <span className="material-symbols-rounded">close</span>
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {[
+            { label: 'Email Address *', key: 'address' as const, placeholder: 'sender@yourdomain.com', type: 'email' },
+            { label: 'Display Name *',  key: 'name'    as const, placeholder: 'O3 Capital', type: 'text' },
+            { label: 'Label *',         key: 'label'   as const, placeholder: 'Main transactional sender', type: 'text' },
+          ].map(({ label, key, placeholder, type }) => (
+            <div key={key}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
+              <input
+                type={type} value={form[key] as string} onChange={e => field(key, e.target.value)}
+                placeholder={placeholder}
+                style={{ display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 13, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+              />
+            </div>
+          ))}
+
           <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wide mb-1.5" style={{ color: 'var(--txt2)' }}>
-              Email Address <span className="text-red-500">*</span>
-            </label>
-            <input type="email" required value={address} onChange={e => setAddress(e.target.value)}
-              placeholder="promo@o3cards.com"
-              className="w-full rounded-lg border px-3 py-2.5 text-[13px] outline-none"
-              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
-            <p className="text-[11px] mt-1" style={{ color: 'var(--txt2)' }}>Must be on an authenticated domain (e.g. @o3cards.com)</p>
-          </div>
-          <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wide mb-1.5" style={{ color: 'var(--txt2)' }}>
-              Display Name <span className="text-red-500">*</span>
-            </label>
-            <input type="text" required value={name} onChange={e => setName(e.target.value)}
-              placeholder="O3 Capital Offers"
-              className="w-full rounded-lg border px-3 py-2.5 text-[13px] outline-none"
-              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
-            <p className="text-[11px] mt-1" style={{ color: 'var(--txt2)' }}>What recipients see in their inbox as the sender name</p>
-          </div>
-          <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wide mb-1.5" style={{ color: 'var(--txt2)' }}>
-              Label <span className="text-red-500">*</span>
-            </label>
-            <input type="text" required value={label} onChange={e => setLabel(e.target.value)}
-              placeholder="Promotions Team"
-              className="w-full rounded-lg border px-3 py-2.5 text-[13px] outline-none"
-              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }} />
-            <p className="text-[11px] mt-1" style={{ color: 'var(--txt2)' }}>Internal label shown in dropdowns</p>
-          </div>
-          <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wide mb-1.5" style={{ color: 'var(--txt2)' }}>
-              Purpose
-            </label>
-            <select value={purpose} onChange={e => setPurpose(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2.5 text-[13px] outline-none"
-              style={{ background: 'var(--input-bg)', borderColor: 'var(--input-bdr)', color: 'var(--txt)' }}>
-              {PURPOSES.map(p => (
-                <option key={p} value={p}>{PURPOSE_LABELS[p]}</option>
-              ))}
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Purpose</div>
+            <select value={form.purpose} onChange={e => field('purpose', e.target.value)}
+              style={{ display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 13, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}>
+              {PURPOSES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
             </select>
           </div>
-          <label className="flex items-center gap-2.5 cursor-pointer select-none">
-            <input type="checkbox" checked={isDefault} onChange={e => setIsDefault(e.target.checked)}
-              className="w-4 h-4 rounded" />
-            <span className="text-[13px]" style={{ color: 'var(--txt)' }}>
-              Set as default for <strong>{PURPOSE_LABELS[purpose]}</strong> emails
-            </span>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+            <input type="checkbox" checked={form.is_default} onChange={e => field('is_default', e.target.checked)} />
+            Set as default for this purpose
           </label>
-          <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onClose}
-              className="flex-1 py-2 rounded-lg text-[13px] font-semibold border"
-              style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
-              Cancel
-            </button>
-            <button type="submit" disabled={saving}
-              className="flex-1 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60"
-              style={{ background: NAVY }}>
-              {saving ? 'Saving…' : isEdit ? 'Update' : 'Add Sender'}
-            </button>
-          </div>
-        </form>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 9, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: INTER }}>Cancel</button>
+          <button onClick={save} disabled={saving} style={{ padding: '9px 20px', borderRadius: 9, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER }}>
+            {saving ? 'Saving…' : isNew ? 'Add Sender' : 'Save Changes'}
+          </button>
+        </div>
       </div>
     </div>
   )
 }
 
-export default function EmailSenders() {
-  const [senders, setSenders] = useState<Sender[]>([])
+// ── Columns ───────────────────────────────────────────────────────────────────
+
+export default function AdminEmailSenders() {
+  const [rows,    setRows]    = useState<Sender[]>([])
   const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState('')
-  const [modal,   setModal]   = useState<Partial<Sender> | null | 'new'>('new' as any)
+  const [error,   setError]   = useState<string | null>(null)
+  const [editing, setEditing] = useState<Partial<Sender> | null | false>(false)
 
   const load = useCallback(async () => {
-    setLoading(true); setError('')
+    setLoading(true)
+    setError(null)
     try {
-      const data = await apiFetch('/api/admin/email-senders')
-      setSenders((data ?? []) as Sender[])
-    } catch (e: any) { setError(e.message) }
-    finally { setLoading(false) }
+      const data = await apiFetch<Sender[]>('/api/admin/email-senders')
+      setRows(Array.isArray(data) ? data : [])
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => { load() }, [load])
-  // reset modal to null after initial load
-  useEffect(() => { setModal(null) }, [])
 
-  async function handleSetDefault(s: Sender) {
-    await apiFetch(`/api/admin/email-senders/${s.id}/set-default`, { method: 'POST' })
-    toast.success(`${s.label} set as default for ${PURPOSE_LABELS[s.purpose]}`)
-    load()
+  async function setDefault(id: string) {
+    try {
+      await apiFetch(`/api/admin/email-senders/${id}/set-default`, { method: 'POST' })
+      toast.success('Default sender updated')
+      load()
+    } catch (e: any) {
+      toast.error(e.message)
+    }
   }
 
-  async function handleDelete(s: Sender) {
-    await apiFetch(`/api/admin/email-senders/${s.id}`, { method: 'DELETE' })
-    toast.success('Sender removed')
-    load()
+  async function deleteSender(id: string, label: string) {
+    if (!confirm(`Deactivate "${label}"?`)) return
+    try {
+      await apiFetch(`/api/admin/email-senders/${id}`, { method: 'DELETE' })
+      toast.success('Sender deactivated')
+      load()
+    } catch (e: any) {
+      toast.error(e.message)
+    }
   }
 
-  const grouped = PURPOSES.map(p => ({
-    purpose: p,
-    label:   PURPOSE_LABELS[p],
-    items:   senders.filter(s => s.purpose === p && s.is_active),
-  })).filter(g => g.items.length > 0)
+  const COLS: TableCol<Sender>[] = [
+    { key: 'address', label: 'Address',
+      render: r => (
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', fontFamily: 'monospace' }}>{r.address}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{r.name}</div>
+        </div>
+      ),
+    },
+    { key: 'label', label: 'Label', render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.label}</span> },
+    { key: 'purpose', label: 'Purpose',
+      render: r => <span style={{ fontSize: 12, background: 'var(--chip-bg)', color: 'var(--chip-txt)', borderRadius: 6, padding: '2px 9px', fontWeight: 600, textTransform: 'capitalize' }}>{r.purpose}</span> },
+    { key: 'is_default', label: 'Default',
+      render: r => r.is_default
+        ? <span style={{ fontSize: 11.5, fontWeight: 700, color: GREEN }}>✓ Default</span>
+        : <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>—</span> },
+    { key: 'is_active', label: 'Status',
+      render: r => (
+        <span style={{ fontSize: 11.5, fontWeight: 600, color: r.is_active ? GREEN : 'var(--txt3)' }}>
+          {r.is_active ? 'Active' : 'Inactive'}
+        </span>
+      ),
+    },
+    { key: '_actions', label: '',
+      render: r => (
+        <div style={{ display: 'flex', gap: 6 }}>
+          {!r.is_default && (
+            <button onClick={e => { e.stopPropagation(); setDefault(r.id) }} style={{ padding: '3px 8px', borderRadius: 6, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 11, cursor: 'pointer' }}>
+              Set default
+            </button>
+          )}
+          <button onClick={e => { e.stopPropagation(); setEditing(r) }} style={{ padding: '3px 8px', borderRadius: 6, border: 'none', background: `${NAVY}12`, color: NAVY, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>Edit</button>
+          {!r.is_default && (
+            <button onClick={e => { e.stopPropagation(); deleteSender(r.id, r.label) }} style={{ padding: '3px 8px', borderRadius: 6, border: 'none', background: 'rgba(192,0,0,.08)', color: RED, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>Deactivate</button>
+          )}
+        </div>
+      ),
+    },
+  ]
 
   return (
-    <Page dept="Admin" title="Email Senders"
-      subtitle="Configure sender identities for each email type. The default is pre-selected in compose forms.">
-
-      <ErrBanner msg={error} />
-
-      <div className="flex justify-end mb-4">
-        <button onClick={() => setModal({})}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold text-white"
-          style={{ background: NAVY }}>
-          <span className="material-symbols-rounded text-[16px]">add</span>
+    <Page
+      back={{ label: 'Admin', to: '/admin' }}
+      title="Email Senders"
+      subtitle="Verified sender identities for transactional and campaign emails"
+      actions={
+        <button onClick={() => setEditing({})} style={{
+          display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 9,
+          border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER,
+        }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
           Add Sender
         </button>
-      </div>
+      }
+    >
+      <ErrBanner error={error} onRetry={load} />
 
-      {loading && (
-        <div className="flex items-center justify-center py-20">
-          <div className="w-7 h-7 border-2 rounded-full animate-spin"
-            style={{ borderColor: 'rgba(14,40,65,0.1)', borderTopColor: NAVY }} />
-        </div>
-      )}
+      <SectionCard title="Configured Senders" badge={rows.length} padding={false}>
+        <DataTable cols={COLS} rows={rows} keyFn={r => r.id} loading={loading} emptyText="No email senders configured" />
+      </SectionCard>
 
-      {!loading && grouped.length === 0 && !error && (
-        <div className="flex flex-col items-center py-20 gap-3 text-[color:var(--txt2)]">
-          <span className="material-symbols-rounded text-[48px]">alternate_email</span>
-          <p className="text-[14px]">No senders configured yet. Add one above.</p>
-        </div>
-      )}
-
-      {grouped.map(({ purpose, label, items }) => (
-        <SectionCard key={purpose} title={label}
-          subtitle={`${items.length} sender${items.length !== 1 ? 's' : ''}`}>
-          <div className="divide-y" style={{ borderColor: 'rgba(15,23,42,0.06)' }}>
-            {items.map(s => (
-              <div key={s.id}
-                className="flex items-center gap-4 px-5 py-3.5 transition-colors" style={{ background: 'var(--card)' }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'var(--card)')}>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>{s.name}</p>
-                    {s.is_default && (
-                      <span className="text-[11px] font-bold px-1.5 py-0.5 rounded text-white"
-                        style={{ background: NAVY }}>DEFAULT</span>
-                    )}
-                  </div>
-                  <p className="text-[12px] mt-0.5" style={{ color: 'var(--txt2)' }}>{s.address}</p>
-                  <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt2)' }}>{s.label}</p>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {!s.is_default && (
-                    <button onClick={() => handleSetDefault(s)}
-                      className="px-3 py-1.5 rounded-lg text-[11px] font-semibold border transition-all"
-                      style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)' }}>
-                      Set default
-                    </button>
-                  )}
-                  <button onClick={() => setModal(s)}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white"
-                    style={{ background: NAVY }}>
-                    <span className="material-symbols-rounded text-[13px]">edit</span>
-                    Edit
-                  </button>
-                  {!s.is_default && (
-                    <button onClick={() => handleDelete(s)}
-                      className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold border transition-all"
-                      style={{ borderColor: 'rgba(192,0,0,0.2)', color: RED }}>
-                      <span className="material-symbols-rounded text-[13px]">delete</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </SectionCard>
-      ))}
-
-      {modal !== null && modal !== 'new' && (
-        <SenderModal
-          sender={modal as Partial<Sender>}
-          onClose={() => setModal(null)}
-          onSave={load}
-        />
+      {editing !== false && (
+        <SenderModal sender={editing} onClose={() => setEditing(false)} onSaved={load} />
       )}
     </Page>
   )
 }
+
+void AMBER

@@ -1,124 +1,394 @@
-import { useState, useEffect, useCallback } from 'react'
-import { apiFetch, apiExport } from '../../lib/api'
-import { fmt, fmtNum, n, today, monthStart } from '../../lib/fmt'
-import {
-  Page, KpiCard, SectionCard, DataTable, DateFilter,
-  AreaChartCard, ProgressList,
-  ErrBanner, ExportBtn, NAVY, RED, GREEN, AMBER,
-} from '../../components/UI'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { Page, SectionCard, DataTable, ErrBanner, filterInputStyle, SearchInput } from '../../components/UI'
+import type { TableCol } from '../../components/UI'
+import { apiFetch, API } from '../../lib/api'
+import { fmtKobo, fmtDate, fmtDatetime, today, monthStart } from '../../lib/fmt'
+import { GREEN, RED, NAVY, INTER, SORA, NUM } from '../../lib/design'
+import { toast } from 'sonner'
 
-export default function Transactions() {
-  const [from, setFrom] = useState(monthStart())
-  const [to, setTo] = useState(today())
-  const [kpis, setKpis] = useState<any>(null)
-  const [trend, setTrend] = useState<any[]>([])
-  const [merchants, setMerchants] = useState<any[]>([])
-  const [byType, setByType] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [exporting, setExporting] = useState(false)
+interface TxnRow {
+  id: number
+  txn_date: string
+  account_no: string
+  customer: string
+  cif: string
+  txn_category: string
+  txn_code: string
+  amount: number
+  balance: number
+  sign: string
+  description: string
+  branch_name: string
+  product_name: string
+  currency: string
+  merchant_name: string
+}
 
-  const load = useCallback(async () => {
-    setLoading(true); setError('')
+interface TxnResponse { data: TxnRow[]; total: number }
+
+const COLS: TableCol<TxnRow>[] = [
+  { key: 'txn_date', label: 'Date', width: 110,
+    render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.txn_date)}</span> },
+  { key: 'account_no', label: 'Ref', width: 130,
+    render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)', fontWeight: 500 }}>{r.account_no}</span> },
+  { key: 'customer', label: 'Customer', render: r => (
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{r.customer || '—'}</div>
+      {r.cif && <div style={{ fontSize: 10.5, color: 'var(--txt2)' }}>{r.cif}</div>}
+    </div>
+  )},
+  { key: 'txn_category', label: 'Type', render: r => (
+    <span style={{ ...NUM, fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+      background: 'var(--chip-bg)', color: 'var(--chip-txt)', whiteSpace: 'nowrap' }}>
+      {r.txn_category || r.description || '—'}
+    </span>
+  )},
+  { key: 'amount', label: 'Amount ₦', align: 'right',
+    render: r => <span style={{ ...NUM, fontWeight: 600, color: r.sign === 'CR' ? GREEN : RED }}>{fmtKobo(r.amount)}</span> },
+  { key: 'balance', label: 'Balance ₦', align: 'right',
+    render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{fmtKobo(r.balance)}</span> },
+  { key: 'sign', label: 'Channel', render: r => (
+    <span style={{ ...NUM, fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+      background: r.sign === 'CR' ? 'rgba(22,163,74,.1)' : 'rgba(192,0,0,.08)',
+      color: r.sign === 'CR' ? GREEN : RED }}>
+      {r.sign}
+    </span>
+  )},
+  { key: 'branch_name', label: 'Branch',
+    render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.branch_name || '—'}</span> },
+  { key: 'txn_date', label: 'Time',
+    render: r => <span style={{ fontSize: 11, color: 'var(--txt3)' }}>{fmtDatetime(r.txn_date)}</span> },
+]
+
+
+function PageBtn({ children, active, disabled, onClick, icon }: {
+  children?: React.ReactNode; active?: boolean; disabled?: boolean
+  onClick?: () => void; icon?: string
+}) {
+  return (
+    <button onClick={onClick} disabled={disabled} style={{
+      width: 28, height: 28, borderRadius: 6,
+      border: active ? 'none' : '1.5px solid var(--input-bdr)',
+      background: active ? RED : 'transparent',
+      color: active ? '#fff' : disabled ? 'var(--txt3)' : 'var(--txt2)',
+      fontSize: 12, fontWeight: 600, cursor: disabled ? 'default' : 'pointer',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: INTER,
+    }}>
+      {icon ? <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{icon}</span> : children}
+    </button>
+  )
+}
+
+const PAGE_SIZE = 50
+
+export default function FinanceTransactions() {
+  const [rows,       setRows]       = useState<TxnRow[]>([])
+  const [total,      setTotal]      = useState(0)
+  const [offset,     setOffset]     = useState(0)
+  const [loading,    setLoading]    = useState(true)
+  const [error,      setError]      = useState<string | null>(null)
+  const [exporting,  setExporting]  = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
+
+  const [search,     setSearch]     = useState('')
+  const [sign,       setSign]       = useState('')
+  const [branch,     setBranch]     = useState('')
+  const [dateFrom,   setDateFrom]   = useState(monthStart())
+  const [dateTo,     setDateTo]     = useState(today())
+  const [amountMin,  setAmountMin]  = useState('')
+  const [amountMax,  setAmountMax]  = useState('')
+
+  const abortRef = useRef<AbortController | null>(null)
+
+  const buildQS = useCallback((off = 0) => {
+    const p = new URLSearchParams()
+    p.set('limit', String(PAGE_SIZE))
+    p.set('offset', String(off))
+    p.set('date_from', dateFrom)
+    p.set('date_to', dateTo)
+    if (search)    p.set('q', search)
+    if (sign)      p.set('sign', sign)
+    if (branch)    p.set('branch', branch)
+    if (amountMin) p.set('amount_min', String(Math.round(parseFloat(amountMin) * 100)))
+    if (amountMax) p.set('amount_max', String(Math.round(parseFloat(amountMax) * 100)))
+    return p.toString()
+  }, [dateFrom, dateTo, search, sign, branch, amountMin, amountMax])
+
+  const load = useCallback(async (off = 0) => {
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
+    setLoading(true); setError(null)
     try {
-      const qs = new URLSearchParams({ date_from: from, date_to: to }).toString()
-      const [rK, rTr, rMe, rBt] = await Promise.allSettled([
-        apiFetch(`/api/transactions/kpis?${qs}`),
-        apiFetch('/api/transactions/monthly-trend'),
-        apiFetch(`/api/transactions/top-merchants?${qs}`),
-        apiFetch(`/api/transactions/by-type?${qs}`),
-      ])
-      const asArr = (v: any): any[] => Array.isArray(v) ? v : Array.isArray(v?.data) ? v.data : []
-      if (rK.status === 'fulfilled') setKpis(rK.value.data ?? rK.value)
-      if (rTr.status === 'fulfilled') setTrend(asArr(rTr.value))
-      if (rMe.status === 'fulfilled') setMerchants(asArr(rMe.value))
-      if (rBt.status === 'fulfilled') setByType(asArr(rBt.value))
-      if ([rK, rTr, rMe, rBt].every(r => r.status === 'rejected')) setError((rK as PromiseRejectedResult).reason?.message ?? 'Failed to load')
-    } catch (e: any) { setError(e.message) }
-    finally { setLoading(false) }
-  }, [from, to])
+      const res = await apiFetch<TxnResponse>(`/api/eod/transactions?${buildQS(off)}`, { signal: abortRef.current.signal })
+      setRows(res.data ?? [])
+      setTotal(res.total ?? 0)
+      setOffset(off)
+    } catch (e: any) {
+      if (e.name !== 'AbortError') setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [buildQS])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(0) }, [load])
 
-  const d = kpis || {}
+  function handleReset() {
+    setSearch(''); setSign(''); setBranch('')
+    setDateFrom(monthStart()); setDateTo(today())
+    setAmountMin(''); setAmountMax('')
+  }
 
-  const merchantCols = [
-    {
-      key: '#', label: '#', sortable: false,
-      render: (_: any, i?: number) => (
-        <span className="text-[color:var(--txt2)] text-xs tabular-nums">{(i ?? 0) + 1}</span>
-      ),
-    },
-    { key: 'Merchant_Name', label: 'Merchant' },
-    {
-      key: 'volume', label: 'Volume', right: true,
-      render: (r: any) => <span className="font-mono font-semibold">{fmt(r.volume)}</span>,
-    },
-    {
-      key: 'count', label: 'Transactions', right: true,
-      render: (r: any) => fmtNum(r.count),
-    },
-  ]
+  async function handleExport() {
+    setExporting(true)
+    try {
+      const token = localStorage.getItem('o3c_token') ?? ''
+      const res = await fetch(`${API}/api/eod/transactions/export?${buildQS(0)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error('Export failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = `transactions_${dateFrom}_${dateTo}.csv`
+      a.click(); URL.revokeObjectURL(url)
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const totalPages   = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const currentPage  = Math.floor(offset / PAGE_SIZE) + 1
+  const showStart    = total === 0 ? 0 : offset + 1
+  const showEnd      = Math.min(offset + PAGE_SIZE, total)
+
+  const activeFilterCount = useMemo(
+    () => (sign ? 1 : 0) + (branch ? 1 : 0) + (dateFrom !== monthStart() ? 1 : 0) + (dateTo !== today() ? 1 : 0) + (amountMin ? 1 : 0) + (amountMax ? 1 : 0),
+    [sign, branch, dateFrom, dateTo, amountMin, amountMax]
+  )
 
   return (
-    <Page dept="Finance" title="Transactions"
-      subtitle="Volume, trends, and merchant breakdown"
+    <Page
+      title="Transactions"
+      subtitle={total > 0 ? `${total.toLocaleString()} transactions` : undefined}
       actions={
-        <div className="flex items-center gap-2">
-          <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
-          <ExportBtn
-            onClick={async () => {
-              setExporting(true)
-              await apiExport(`/api/transactions/export?date_from=${from}&date_to=${to}`, `transactions_${from}_${to}`)
-              setExporting(false)
+        <button onClick={handleExport} disabled={exporting} style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '6px 14px', borderRadius: 8, border: '1px solid var(--bdr)',
+          background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600,
+          cursor: exporting ? 'not-allowed' : 'pointer', opacity: exporting ? 0.6 : 1,
+        }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
+          {exporting ? 'Exporting…' : 'Export CSV'}
+        </button>
+      }
+    >
+      <ErrBanner error={error} onRetry={() => load(0)} />
+
+      <SectionCard title="Transactions" badge={total} padding={false}>
+
+        {/* Filter bar */}
+        <div style={{
+          padding: '12px 18px',
+          borderBottom: filterOpen ? 'none' : '1px solid var(--bdr)',
+          display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+        }}>
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            onSearch={() => load(0)}
+            onClear={() => { setSearch(''); }}
+            style={{ maxWidth: 280 }}
+          />
+
+          <button
+            onClick={() => setFilterOpen(o => !o)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 600,
+              border: `1.5px solid ${activeFilterCount > 0 ? RED : 'var(--input-bdr)'}`,
+              background: 'transparent',
+              color: activeFilterCount > 0 ? RED : 'var(--txt2)',
+              cursor: 'pointer', fontFamily: SORA, position: 'relative',
             }}
-            loading={exporting}
-          />
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>tune</span>
+            Filters
+            {activeFilterCount > 0 && (
+              <span style={{
+                position: 'absolute', top: -6, right: -6,
+                width: 16, height: 16, borderRadius: '50%',
+                background: RED, color: '#fff',
+                fontSize: 9, fontWeight: 700, fontFamily: INTER,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>{activeFilterCount}</span>
+            )}
+          </button>
+
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+              {total.toLocaleString()} records
+            </span>
+          </div>
         </div>
-      }>
 
-      <ErrBanner msg={error} />
+        {/* Expandable filter panel */}
+        {filterOpen && (
+          <div style={{ borderBottom: '1px solid var(--bdr)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', padding: '20px 20px 0' }}>
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-5">
-        <KpiCard loading={loading} label="Total Volume" value={fmt(d.total_volume)} icon="payments" accent={RED} />
-        <KpiCard loading={loading} label="Txn Count" value={fmtNum(d.transaction_count)} icon="receipt_long" accent={NAVY} />
-        <KpiCard loading={loading} label="Volume MTD" value={fmt(d.volume_mtd)} icon="calendar_month" accent={GREEN} />
-        <KpiCard loading={loading} label="Avg Txn Value" value={fmt(d.avg_txn_value)} icon="calculate" accent={AMBER} />
-        <KpiCard loading={loading} label="Unique Merchants" value={fmtNum(d.unique_merchants)} icon="storefront" accent={NAVY} />
-      </div>
+              {/* Channel (sign) */}
+              <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>CHANNEL</div>
+                {[
+                  { value: '',   label: 'All channels' },
+                  { value: 'CR', label: 'Credit (CR)' },
+                  { value: 'DR', label: 'Debit (DR)' },
+                ].map(opt => (
+                  <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
+                    <input type="radio" name="sign" value={opt.value} checked={sign === opt.value} onChange={() => setSign(opt.value)}
+                      style={{ accentColor: opt.value === 'CR' ? '#16A34A' : opt.value === 'DR' ? RED : NAVY, width: 14, height: 14, cursor: 'pointer' }} />
+                    <span style={{ fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA }}>{opt.label}</span>
+                  </label>
+                ))}
+              </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
-        <div className="lg:col-span-2">
-          <AreaChartCard
-            title="Monthly Volume Trend"
-            subtitle="All time — last 12 months"
-            data={trend}
-            xKey="month"
-            areaKey="volume"
-            color={RED}
-            currency
-            height={240}
-            loading={loading}
-          />
+              {/* Branch */}
+              <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>BRANCH</div>
+                <input
+                  type="text"
+                  value={branch}
+                  onChange={e => setBranch(e.target.value)}
+                  placeholder="Filter by branch name…"
+                  style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              {/* Date range */}
+              <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>DATE RANGE</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>From</label>
+                    <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>To</label>
+                    <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Amount range */}
+              <div style={{ paddingLeft: 20 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>AMOUNT (₦)</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>Min</label>
+                    <input type="number" min="0" placeholder="e.g. 10000" value={amountMin} onChange={e => setAmountMin(e.target.value)}
+                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>Max</label>
+                    <input type="number" min="0" placeholder="e.g. 500000" value={amountMax} onChange={e => setAmountMax(e.target.value)}
+                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <div style={{
+              padding: '14px 20px', borderTop: '1px solid var(--bdr)', marginTop: 16,
+              display: 'flex', alignItems: 'center', gap: 12,
+            }}>
+              <span style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>
+                {activeFilterCount === 0
+                  ? 'No filters active — showing all results'
+                  : `${activeFilterCount} filter${activeFilterCount !== 1 ? 's' : ''} active`}
+              </span>
+              <button onClick={handleReset} style={{
+                padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+                border: '1.5px solid var(--input-bdr)', background: 'transparent',
+                color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA,
+              }}>Reset</button>
+              <button onClick={() => { load(0); setFilterOpen(false) }} style={{
+                marginLeft: 'auto', padding: '5px 16px', borderRadius: 7,
+                fontSize: 12, fontWeight: 600, border: 'none', background: RED, color: '#fff',
+                cursor: 'pointer', fontFamily: SORA,
+              }}>Apply</button>
+            </div>
+          </div>
+        )}
+
+        {/* Active chips */}
+        {!filterOpen && activeFilterCount > 0 && (
+          <div style={{
+            padding: '8px 18px', borderBottom: '1px solid var(--bdr)',
+            display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
+          }}>
+            {sign && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: sign === 'CR' ? 'rgba(22,163,74,.12)' : 'rgba(192,0,0,.08)', color: sign === 'CR' ? '#16A34A' : RED }}>
+                {sign === 'CR' ? 'Credit only' : 'Debit only'}
+                <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => { setSign(''); load(0) }}>close</span>
+              </span>
+            )}
+            {branch && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
+                Branch: {branch}
+                <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => { setBranch(''); load(0) }}>close</span>
+              </span>
+            )}
+            {(dateFrom !== monthStart() || dateTo !== today()) && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
+                {dateFrom} → {dateTo}
+                <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => { setDateFrom(monthStart()); setDateTo(today()); load(0) }}>close</span>
+              </span>
+            )}
+            {(amountMin || amountMax) && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
+                ₦{amountMin || '0'} – ₦{amountMax || '∞'}
+                <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => { setAmountMin(''); setAmountMax(''); load(0) }}>close</span>
+              </span>
+            )}
+            <button onClick={() => { handleReset(); load(0) }} style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--txt3)', padding: 0, fontFamily: SORA }}>Clear all</button>
+          </div>
+        )}
+
+        <DataTable cols={COLS} rows={rows} keyFn={(r, i) => r.id ?? i} loading={loading} emptyText="No transactions found" />
+
+        {/* Pagination footer */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 18px', borderTop: '1px solid var(--bdr)',
+        }}>
+          <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+            {total === 0
+              ? 'No transactions'
+              : `Showing ${showStart.toLocaleString()}–${showEnd.toLocaleString()} of ${total.toLocaleString()}`}
+          </span>
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <PageBtn icon="chevron_left" disabled={offset === 0} onClick={() => load(Math.max(0, offset - PAGE_SIZE))} />
+              {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                let pg: number
+                if (totalPages <= 7) pg = i + 1
+                else if (currentPage <= 4) pg = i + 1
+                else if (currentPage >= totalPages - 3) pg = totalPages - 6 + i
+                else pg = currentPage - 3 + i
+                return (
+                  <PageBtn key={pg} active={pg === currentPage} onClick={() => load((pg - 1) * PAGE_SIZE)}>{pg}</PageBtn>
+                )
+              })}
+              <PageBtn icon="chevron_right" disabled={currentPage >= totalPages} onClick={() => load(offset + PAGE_SIZE)} />
+            </div>
+          )}
         </div>
-        <ProgressList
-          title="Transaction Types"
-          subtitle="By count in period"
-          data={byType.slice(0, 8).map((r: any) => ({ label: r.Description, count: n(r.count) }))}
-          nameKey="label"
-          valueKey="count"
-          loading={loading}
-        />
-      </div>
 
-      <SectionCard title="Top Merchants by Volume" badge={merchants.length}>
-        <DataTable
-          cols={merchantCols}
-          rows={merchants}
-          loading={loading}
-          emptyIcon="storefront"
-          emptyMsg="No merchant data for this period"
-        />
       </SectionCard>
     </Page>
   )

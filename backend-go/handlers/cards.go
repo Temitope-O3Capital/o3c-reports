@@ -14,6 +14,27 @@ func RegisterCards(r chi.Router, db *core.DB) {
 	r.Get("/by-product", cardsByProduct(db))
 	r.Get("/by-status", cardsByStatus(db))
 	r.Get("/volume-by-type", cardsVolumeByType(db))
+	r.Get("/cardholders", cardsCardholders(db))
+	r.Post("/cardholders/{cif}/block", cardBlockCardholder(db))
+	r.Post("/cardholders/{cif}/unblock", cardUnblockCardholder(db))
+	r.Get("/cardholders/{cif}/block-log", cardBlockLog(db))
+	r.Get("/issuance", cardListIssuance(db))
+	r.Post("/issuance", cardCreateIssuance(db))
+	r.Patch("/issuance/{id}/status", cardAdvanceIssuance(db))
+	r.Get("/disputes", cardListDisputes(db))
+	r.Post("/disputes", cardCreateDispute(db))
+	r.Patch("/disputes/{id}/status", cardAdvanceDispute(db))
+	r.Get("/credit-limits", cardListCreditLimits(db))
+	r.Post("/credit-limits", cardCreateCreditLimit(db))
+	r.Patch("/credit-limits/{id}/decide", cardDecideCreditLimit(db))
+	r.Get("/billing", cardListBilling(db))
+	r.Post("/billing/generate", cardGenerateBilling(db))
+
+	// Cycle data feed
+	r.Get("/products",          cardProducts(db))
+	r.Get("/cycle-dates",       cardCycleDates(db))
+	r.Get("/cycle-data",        cardCycleData(db))
+	r.Get("/cycle-summary",     cardCycleSummary(db))
 }
 
 func cardsKPIs(db *core.DB) http.HandlerFunc {
@@ -153,6 +174,49 @@ func cardsVolumeByType(db *core.DB) http.HandlerFunc {
 			return
 		}
 		respond(w, data, src)
+	}
+}
+
+func cardsCardholders(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		status   := qstr(r, "status")
+		cardType := qstr(r, "card_type")
+		limit    := qint(r, "limit",  50, 1, 200)
+		offset   := qint(r, "offset", 0,  0, 1<<30)
+
+		var f Filter
+		f.Eq(" AND Status=?", ` AND "Account Status"=?`, status)
+		f.Eq(" AND Product_Name=?", ` AND "Product Name"=?`, cardType)
+
+		total, _, _ := db.DualScalar(r.Context(), "val",
+			fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Account WHERE 1=1%s", f.MS()),
+			fmt.Sprintf(`SELECT COUNT(*) AS val FROM "Products" WHERE 1=1%s`, f.PG()),
+			f.Args()...)
+
+		data, src, err := db.DualQuery(r.Context(),
+			fmt.Sprintf(`SELECT CIF_Number AS cif_number,
+				ISNULL(Product_Name,'') AS product_name,
+				ISNULL(Status,'') AS status,
+				ISNULL(Card_Product,'') AS card_product,
+				CONVERT(varchar(10), Account_Created_Date, 23) AS created_at
+			FROM dbo.Account WHERE 1=1%s
+			ORDER BY Account_Created_Date DESC
+			OFFSET %d ROWS FETCH NEXT %d ROWS ONLY`, f.MS(), offset, limit),
+			fmt.Sprintf(`SELECT "CIF Number" AS cif_number,
+				COALESCE("Product Name",'') AS product_name,
+				COALESCE("Account Status",'') AS status,
+				COALESCE("Card Product",'') AS card_product,
+				TO_CHAR("Account Created Date",'YYYY-MM-DD') AS created_at
+			FROM "Products" WHERE 1=1%s
+			ORDER BY "Account Created Date" DESC
+			LIMIT %d OFFSET %d`, f.PG(), limit, offset),
+			f.Args()...)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+
+		respond(w, map[string]any{"data": data, "total": total}, src)
 	}
 }
 

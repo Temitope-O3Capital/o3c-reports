@@ -1,180 +1,200 @@
 import { useState, useEffect, useCallback } from 'react'
+import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner } from '../../components/UI'
+import type { TableCol } from '../../components/UI'
 import { apiFetch, apiExport } from '../../lib/api'
-import { fmtDate, today, monthStart } from '../../lib/fmt'
-import {
-  Page, SectionCard, DataTable, ErrBanner, ColDef, NAVY,
-} from '../../components/UI'
+import { fmtDatetime } from '../../lib/fmt'
+import { NAVY, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
-interface AuditRow {
-  id: string
-  actor_name: string
-  actor_role: string
-  action: string
-  entity_type: string
-  entity_id: string
-  ip_address: string
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface AuditLog {
+  id: number
   created_at: string
+  user_name?: string
+  action: string
+  module: string
+  resource_type?: string
+  resource_id?: string
+  old_value?: string
+  new_value?: string
+  ip_address?: string
 }
 
-const PAGE_SIZE = 50
+// ── Main component ─────────────────────────────────────────────────────────────
 
 export default function AuditTrail() {
-  // raw inputs (immediate)
-  const [entityTypeRaw, setEntityTypeRaw] = useState('')
-  const [actionRaw, setActionRaw] = useState('')
-  // debounced values (used for API calls)
-  const [entityType, setEntityType] = useState('')
-  const [action, setAction] = useState('')
-  const [actorId, setActorId] = useState('')
-  const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo, setDateTo] = useState(today())
-  const [rows, setRows] = useState<AuditRow[]>([])
-  const [offset, setOffset] = useState(0)
+  const [logs, setLogs] = useState<AuditLog[]>([])
+  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [actors, setActors] = useState<{ id: string; full_name: string }[]>([])
+  const [err, setErr] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
 
-  // Load actor list for filter dropdown
-  useEffect(() => {
-    apiFetch<{ id: string; full_name: string }[]>('/api/admin/users')
-      .then(r => setActors(Array.isArray(r) ? r : []))
-      .catch(() => {})
-  }, [])
+  // Filters
+  const [moduleFilter, setModuleFilter] = useState('')
+  const [actionFilter, setActionFilter] = useState('')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 50
 
-  // Debounce text inputs
-  useEffect(() => {
-    const t = setTimeout(() => setAction(actionRaw), 400)
-    return () => clearTimeout(t)
-  }, [actionRaw])
-
-  useEffect(() => {
-    const t = setTimeout(() => setEntityType(entityTypeRaw), 400)
-    return () => clearTimeout(t)
-  }, [entityTypeRaw])
-
-  const buildQs = useCallback((off = offset) => {
-    const p = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(off) })
-    if (entityType) p.set('entity_type', entityType)
-    if (action) p.set('action', action)
-    if (actorId) p.set('actor_id', actorId)
-    if (dateFrom) p.set('date_from', dateFrom)
-    if (dateTo) p.set('date_to', dateTo)
-    return p.toString()
-  }, [entityType, action, actorId, dateFrom, dateTo, offset])
-
-  const load = useCallback(async (off = 0) => {
-    setLoading(true); setError('')
+  const load = useCallback(async () => {
+    setLoading(true); setErr(null)
     try {
-      const res = await apiFetch(`/api/compliance/audit-log?${buildQs(off)}`)
-      setRows(res.data ?? res)
-      setOffset(off)
-    } catch (e: any) { setError(e.message) }
+      const p = new URLSearchParams()
+      if (moduleFilter) p.set('module', moduleFilter)
+      if (actionFilter) p.set('action', actionFilter)
+      if (from) p.set('from', from)
+      if (to)   p.set('to', to)
+      p.set('limit', String(PAGE_SIZE))
+      p.set('offset', String((page - 1) * PAGE_SIZE))
+      const data = await apiFetch<{ logs: AuditLog[]; total: number } | AuditLog[]>(`/api/compliance/audit-log?${p}`)
+      if (Array.isArray(data)) {
+        setLogs(data)
+        setTotal(data.length)
+      } else {
+        setLogs(data.logs ?? [])
+        setTotal(data.total ?? 0)
+      }
+    } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [buildQs])
+  }, [moduleFilter, actionFilter, from, to, page])
 
-  useEffect(() => { load(0) }, [entityType, action, actorId, dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [load])
 
-  async function doExport() {
-    const p = new URLSearchParams()
-    if (entityType) p.set('entity_type', entityType)
-    if (action) p.set('action', action)
-    if (actorId) p.set('actor_id', actorId)
-    if (dateFrom) p.set('date_from', dateFrom)
-    if (dateTo) p.set('date_to', dateTo)
+  async function handleExport() {
+    setExporting(true)
     try {
-      await apiExport(`/api/compliance/audit-log/export?${p.toString()}`, `audit-trail-${dateFrom}-${dateTo}`)
+      const p = new URLSearchParams()
+      if (moduleFilter) p.set('module', moduleFilter)
+      if (actionFilter) p.set('action', actionFilter)
+      if (from) p.set('from', from)
+      if (to)   p.set('to', to)
+      await apiExport(`/api/compliance/audit-log/export?${p}`, 'audit-trail.csv')
     } catch (e: any) {
       toast.error(e.message)
-    }
+    } finally { setExporting(false) }
   }
 
-  const cols: ColDef<AuditRow>[] = [
-    { key: 'actor_name', label: 'Actor', render: r => (
-      <span>
-        <span className="font-medium" style={{ color: 'var(--txt)' }}>{r.actor_name || '—'}</span>
-        <span className="ml-1.5 text-[11px]" style={{ color: 'var(--txt2)' }}>{r.actor_role}</span>
-      </span>
-    )},
-    { key: 'action', label: 'Action', render: r => (
-      <span className="font-mono text-[12px]" style={{ color: 'var(--txt)' }}>{r.action}</span>
-    )},
-    { key: 'entity_type', label: 'Entity Type', render: r => (
-      <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{r.entity_type}</span>
-    )},
-    { key: 'entity_id', label: 'Entity ID', render: r => (
-      <span className="font-mono text-[11px] truncate max-w-[120px] block" style={{ color: 'var(--txt2)' }}>{r.entity_id || '—'}</span>
-    )},
-    { key: 'ip_address', label: 'IP Address', render: r => (
-      <span className="font-mono text-[12px]" style={{ color: 'var(--txt2)' }}>{r.ip_address || '—'}</span>
-    )},
-    { key: 'created_at', label: 'Time', render: r => (
-      <span className="text-[12px] whitespace-nowrap" style={{ color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span>
-    )},
+  const cols: TableCol<AuditLog>[] = [
+    {
+      key: 'created_at', label: 'Timestamp',
+      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: 'Inter, monospace', whiteSpace: 'nowrap' }}>{fmtDatetime(r.created_at)}</span>,
+    },
+    {
+      key: 'user_name', label: 'User',
+      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.user_name ?? 'System'}</span>,
+    },
+    {
+      key: 'action', label: 'Action',
+      render: r => (
+        <span style={{
+          ...NUM, display: 'inline-flex', alignItems: 'center',
+          fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+          background: r.action?.includes('delete') || r.action?.includes('remove') ? 'rgba(192,0,0,.1)' : 'rgba(14,40,65,.08)',
+          color: r.action?.includes('delete') || r.action?.includes('remove') ? '#C00000' : NAVY,
+        }}>
+          {r.action}
+        </span>
+      ),
+    },
+    {
+      key: 'module', label: 'Module',
+      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.module}</span>,
+    },
+    {
+      key: 'resource_type', label: 'Resource',
+      render: r => (
+        <span style={{ fontSize: 12.5, color: 'var(--txt2)', fontFamily: 'Inter, monospace' }}>
+          {r.resource_type ?? '—'}{r.resource_id ? ` #${r.resource_id}` : ''}
+        </span>
+      ),
+    },
+    {
+      key: 'old_value', label: 'Old Value',
+      render: r => r.old_value ? (
+        <span style={{ fontSize: 11.5, color: '#C00000', fontFamily: 'Inter, monospace', maxWidth: 120, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {r.old_value}
+        </span>
+      ) : <span style={{ color: 'var(--txt3)' }}>—</span>,
+    },
+    {
+      key: 'new_value', label: 'New Value',
+      render: r => r.new_value ? (
+        <span style={{ fontSize: 11.5, color: '#16A34A', fontFamily: 'Inter, monospace', maxWidth: 120, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {r.new_value}
+        </span>
+      ) : <span style={{ color: 'var(--txt3)' }}>—</span>,
+    },
+    {
+      key: 'ip_address', label: 'IP',
+      render: r => <span style={{ fontSize: 11.5, color: 'var(--txt3)', fontFamily: 'Inter, monospace' }}>{r.ip_address ?? '—'}</span>,
+    },
   ]
 
+  const totalPages = Math.ceil(total / PAGE_SIZE)
+
   return (
-    <Page dept="Compliance" title="Audit Trail"
-      subtitle="Full log of all user actions across the platform"
+    <Page
+      title="Audit Trail"
+      subtitle="Read-only log of all system actions"
       actions={
-        <button onClick={doExport}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium"
-          style={{ borderColor: 'var(--bdr)', color: 'var(--txt2)', background: 'var(--card)' }}>
-          <span className="material-symbols-rounded text-[15px]">download</span>
+        <button
+          onClick={handleExport}
+          disabled={exporting}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: '1px solid var(--bdr)', borderRadius: 8, background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer', opacity: exporting ? 0.7 : 1 }}
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>download</span>
           Export CSV
         </button>
-      }>
+      }
+    >
+      <ErrBanner error={err} onRetry={load} />
 
-      <div className="flex flex-wrap gap-2 mb-4">
-        <input
-          type="text" placeholder="Filter by action…" value={actionRaw}
-          onChange={e => setActionRaw(e.target.value)}
-          className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
-          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', minWidth: 180 }} />
-        <input
-          type="text" placeholder="Entity type…" value={entityTypeRaw}
-          onChange={e => setEntityTypeRaw(e.target.value)}
-          className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
-          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', minWidth: 150 }} />
-        <select
-          value={actorId} onChange={e => setActorId(e.target.value)}
-          className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
-          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', minWidth: 160 }}>
-          <option value="">All actors</option>
-          {actors.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
-        </select>
-        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-          className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
-          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
-        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-          className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
-          style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
-      </div>
+      <FilterBar onReset={() => { setModuleFilter(''); setActionFilter(''); setFrom(''); setTo(''); setPage(1) }}>
+        <input placeholder="Module…" value={moduleFilter} onChange={e => { setModuleFilter(e.target.value); setPage(1) }}
+          style={{ ...filterInputStyle, width: 140 }} />
+        <input placeholder="Action…" value={actionFilter} onChange={e => { setActionFilter(e.target.value); setPage(1) }}
+          style={{ ...filterInputStyle, width: 140 }} />
+        <input type="date" value={from} onChange={e => { setFrom(e.target.value); setPage(1) }}
+          style={{ ...filterInputStyle, width: 140 }} />
+        <input type="date" value={to} onChange={e => { setTo(e.target.value); setPage(1) }}
+          style={{ ...filterInputStyle, width: 140 }} />
+      </FilterBar>
 
-      <ErrBanner msg={error} />
-
-      <SectionCard title="Audit Log" badge={rows.length}>
-        <DataTable cols={cols} rows={rows} loading={loading} emptyIcon="history" emptyMsg="No audit entries found" />
-        <div className="flex items-center justify-between px-5 py-3"
-          style={{ borderTop: '1px solid var(--bdr)' }}>
-          <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>
-            Showing {offset + 1}–{offset + rows.length}
-          </span>
-          <div className="flex gap-2">
-            <button disabled={offset === 0}
-              onClick={() => load(Math.max(0, offset - PAGE_SIZE))}
-              className="px-3 py-1 rounded border text-[12px] disabled:opacity-40"
-              style={{ borderColor: 'var(--bdr)', color: NAVY }}>
-              Previous
+      <SectionCard
+        title="Audit Log"
+        badge={total}
+        subtitle="Sorted by most recent · Read only"
+        padding={false}
+      >
+        <DataTable<AuditLog>
+          cols={cols}
+          rows={logs}
+          keyFn={r => r.id}
+          emptyText="No audit log entries found."
+          skeletonRows={loading ? 10 : 0}
+        />
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 0', borderTop: '1px solid var(--bdr)' }}>
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+              style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: page === 1 ? 'not-allowed' : 'pointer', opacity: page === 1 ? 0.4 : 1 }}
+            >
+              ←
             </button>
-            <button disabled={rows.length < PAGE_SIZE}
-              onClick={() => load(offset + PAGE_SIZE)}
-              className="px-3 py-1 rounded border text-[12px] disabled:opacity-40"
-              style={{ borderColor: 'var(--bdr)', color: NAVY }}>
-              Next
+            <span style={{ fontSize: 13, color: 'var(--txt2)' }}>Page {page} of {totalPages}</span>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: page === totalPages ? 'not-allowed' : 'pointer', opacity: page === totalPages ? 0.4 : 1 }}
+            >
+              →
             </button>
           </div>
-        </div>
+        )}
       </SectionCard>
     </Page>
   )

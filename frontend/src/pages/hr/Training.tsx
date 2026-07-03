@@ -1,208 +1,260 @@
 import { useState, useEffect, useCallback } from 'react'
+import {
+  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Modal, ErrBanner, Spinner, StatusBadge, btnPrimary,
+} from '../../components/UI'
+import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { apiPut } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { ErrBanner, StatusBadge, KpiCard, Page, SectionCard, DataTable, NAVY, RED, GREEN, AMBER } from '../../components/UI'
-import type { ColDef } from '../../components/UI'
+import { NAVY, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { toast } from 'sonner'
+import type { AuthUser } from '../../hooks/useAuth'
 
-interface TrainingRow {
-  id: string; training_ref: string; title: string; description: string; trainer: string
-  training_date: string; duration_hours: number; department: string
-  max_participants: number; enrolled_count: number; status: string; created_at: string
-}
-interface AddForm {
-  title: string; description: string; trainer: string; training_date: string
-  duration_hours: string; department: string; max_participants: string
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface Training {
+  id: number
+  name: string
+  training_type?: string
+  training_date?: string
+  description?: string
+  trainer?: string
+  status: string
+  attendee_count?: number
+  attendees?: Attendee[]
 }
 
-const EMPTY_ADD: AddForm = {
-  title: '', description: '', trainer: '', training_date: '',
-  duration_hours: '', department: '', max_participants: '',
+interface Attendee {
+  id: number
+  employee_name: string
+  attended: boolean
+  completed_at?: string
 }
+
+// ── Type pill ──────────────────────────────────────────────────────────────────
+
+const TYPE_COLORS: Record<string, string> = {
+  'Compliance': AMBER, 'Technical': BLUE, 'Leadership': NAVY, 'Soft Skills': GREEN, 'Onboarding': '#7C3AED',
+}
+
+function TypePill({ type }: { type?: string }) {
+  if (!type) return null
+  const color = TYPE_COLORS[type] ?? NAVY
+  return (
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${color}14`, color }}>
+      {type}
+    </span>
+  )
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
+
+const BLANK = { name: '', training_type: 'Technical', training_date: '', description: '', trainer: '' }
 
 export default function Training() {
-  const [rows, setRows]         = useState<TrainingRow[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [error, setError]       = useState('')
-  const [statusF, setStatusF]   = useState('')
-  const [deptF, setDeptF]       = useState('')
+  const storedUser = localStorage.getItem('auth_user')
+  const userRole = storedUser ? (JSON.parse(storedUser) as AuthUser).role : ''
+  const canManage = ['hr_manager', 'head_hr', 'admin'].includes(userRole)
 
-  const [showAdd, setShowAdd]   = useState(false)
-  const [addForm, setAddForm]   = useState<AddForm>(EMPTY_ADD)
-  const [adding, setAdding]     = useState(false)
-  const [addErr, setAddErr]     = useState('')
+  const [trainings, setTrainings]       = useState<Training[]>([])
+  const [loading, setLoading]           = useState(true)
+  const [err, setErr]                   = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState('')
 
-  const [attending, setAttending] = useState<string | null>(null)
+  const [newOpen, setNewOpen] = useState(false)
+  const [form, setForm]       = useState(BLANK)
+  const [saving, setSaving]   = useState(false)
+
+  const [detail, setDetail]         = useState<Training | null>(null)
+  const [loadingDetail, setLoadingDetail] = useState(false)
 
   const load = useCallback(async () => {
-    setLoading(true); setError('')
+    setLoading(true); setErr(null)
     try {
-      const params = new URLSearchParams({ limit: '100' })
-      if (statusF) params.set('status', statusF)
-      if (deptF)   params.set('dept', deptF)
-      const res = await apiFetch<{ data: TrainingRow[] }>(`/api/hr/training?${params}`)
-      setRows(res.data ?? [])
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
-  }, [statusF, deptF])
+      const p = new URLSearchParams()
+      if (statusFilter) p.set('status', statusFilter)
+      const data = await apiFetch<Training[]>(`/api/hr/training?${p}`)
+      setTrainings(Array.isArray(data) ? data : [])
+    } catch (e: any) { setErr(e.message) }
+    finally { setLoading(false) }
+  }, [statusFilter])
 
   useEffect(() => { load() }, [load])
 
-  async function markAttend(id: string) {
-    setAttending(id)
+  async function handleCreate() {
+    if (!form.name) { toast.error('Training name is required'); return }
+    setSaving(true)
     try {
-      await apiPut(`/api/hr/training/${id}/attend`, {})
-      load()
-    } catch {}
-    finally { setAttending(null) }
+      await apiPost('/api/hr/training', form)
+      toast.success('Training created')
+      setNewOpen(false); setForm(BLANK); load()
+    } catch (e: any) { toast.error(e.message) }
+    finally { setSaving(false) }
   }
 
-  async function submitAdd() {
-    setAdding(true); setAddErr('')
-    try {
-      await apiPost('/api/hr/training', {
-        ...addForm,
-        duration_hours:   Number(addForm.duration_hours),
-        max_participants: Number(addForm.max_participants),
-      })
-      setShowAdd(false)
-      setAddForm(EMPTY_ADD)
-      load()
-    } catch (e: any) {
-      setAddErr(e.message)
-    } finally {
-      setAdding(false)
-    }
+  async function openDetail(t: Training) {
+    setDetail(t)
+    setLoadingDetail(true)
+    // Training detail may include attendee list from the same endpoint
+    setLoadingDetail(false)
   }
 
-  const scheduled  = rows.filter(r => r.status === 'scheduled').length
-  const completed  = rows.filter(r => r.status === 'completed').length
-  const totalHours = rows.reduce((s, r) => s + (r.duration_hours || 0), 0)
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
+    fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
+  }
 
-  // Unique departments from data for filter
-  const depts = Array.from(new Set(rows.map(r => r.department).filter(Boolean)))
-
-  const cols: ColDef<TrainingRow>[] = [
-    { key: 'training_ref',    label: 'Ref',         render: r => <span className="font-mono text-[12px] text-[color:var(--txt2)]">{r.training_ref}</span> },
-    { key: 'title',           label: 'Title',       render: r => <span className="font-semibold text-[color:var(--txt)]">{r.title}</span> },
-    { key: 'trainer',         label: 'Trainer' },
-    { key: 'department',      label: 'Department',  render: r => r.department || '—' },
-    { key: 'training_date',   label: 'Date',        render: r => fmtDate(r.training_date) },
-    { key: 'duration_hours',  label: 'Hours',       right: true, render: r => `${r.duration_hours}h` },
+  const cols: TableCol<Training>[] = [
     {
-      key: 'enrolled',
-      label: 'Enrolled',
-      right: true,
-      render: r => (
-        <span className={r.enrolled_count >= r.max_participants ? 'text-red-600 font-semibold' : ''}>
-          {r.enrolled_count} / {r.max_participants}
-        </span>
-      ),
+      key: 'name', label: 'Training',
+      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</span>,
     },
-    { key: 'status', label: 'Status', render: r => <StatusBadge status={r.status} /> },
     {
-      key: 'attend', label: '', sortable: false,
-      render: r => r.status === 'scheduled' ? (
-        <button onClick={() => markAttend(r.id)} disabled={attending === r.id || r.enrolled_count >= r.max_participants}
-          className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white disabled:opacity-50"
-          style={{ background: GREEN }}>
-          {attending === r.id ? '…' : 'Attend'}
-        </button>
-      ) : null,
+      key: 'training_type', label: 'Type',
+      render: r => <TypePill type={r.training_type} />,
+    },
+    {
+      key: 'training_date', label: 'Date',
+      render: r => r.training_date ? (
+        <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{fmtDate(r.training_date)}</span>
+      ) : <span style={{ color: 'var(--txt3)' }}>TBD</span>,
+    },
+    {
+      key: 'trainer', label: 'Trainer',
+      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.trainer ?? '—'}</span>,
+    },
+    {
+      key: 'attendee_count', label: 'Attendees', align: 'right',
+      render: r => <span style={NUM}>{r.attendee_count ?? 0}</span>,
+    },
+    {
+      key: 'status', label: 'Status',
+      render: r => <StatusBadge status={r.status} size="sm" />,
     },
   ]
 
+  const TYPES = ['Technical', 'Compliance', 'Leadership', 'Soft Skills', 'Onboarding']
+
   return (
     <Page
-      dept="HR"
-      title="Training & Development"
+      title="Training"
+      subtitle="Employee training and development programmes"
       actions={
-        <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white" style={{ background: NAVY }}
-          onClick={() => { setShowAdd(true); setAddForm(EMPTY_ADD) }}>
-          <span className="material-symbols-rounded text-[15px] align-middle mr-1">add</span>
-          Schedule Training
-        </button>
+        canManage ? (
+          <button onClick={() => { setForm(BLANK); setNewOpen(true) }} style={btnPrimary}>
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+            New Training
+          </button>
+        ) : undefined
       }
     >
-      <ErrBanner msg={error} />
+      <ErrBanner error={err} onRetry={load} />
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <KpiCard label="Upcoming Sessions" value={String(scheduled)}  icon="school"       accent={NAVY}  loading={loading && !rows.length} />
-        <KpiCard label="Completed"         value={String(completed)}  icon="task_alt"     accent={GREEN} loading={loading && !rows.length} />
-        <KpiCard label="Total Hours Planned" value={`${totalHours}h`} icon="timer"        accent={AMBER} loading={loading && !rows.length} />
-      </div>
+      <FilterBar onReset={() => setStatusFilter('')}>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
+          <option value="">All Statuses</option>
+          <option value="planned">Planned</option>
+          <option value="ongoing">Ongoing</option>
+          <option value="completed">Completed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      </FilterBar>
 
-      <SectionCard
-        title="Training Sessions"
-        actions={
-          <div className="flex gap-2">
-            <select className="px-3 py-1.5 rounded-lg border border-[var(--bdr)] text-[12px] focus:outline-none"
-              value={statusF} onChange={e => setStatusF(e.target.value)}>
-              <option value="">All Statuses</option>
-              <option value="scheduled">Scheduled</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-            {depts.length > 0 && (
-              <select className="px-3 py-1.5 rounded-lg border border-[var(--bdr)] text-[12px] focus:outline-none"
-                value={deptF} onChange={e => setDeptF(e.target.value)}>
-                <option value="">All Depts</option>
-                {depts.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-            )}
+      <SectionCard title="Training Records" badge={trainings.length} padding={false}>
+        <DataTable<Training>
+          cols={cols}
+          rows={trainings}
+          keyFn={r => r.id}
+          onRowClick={openDetail}
+          emptyText="No training records found."
+          skeletonRows={loading ? 5 : 0}
+        />
+      </SectionCard>
+
+      {/* New Training modal */}
+      <Modal open={newOpen} onClose={() => setNewOpen(false)} title="New Training" width={460}
+        footer={
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => setNewOpen(false)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={handleCreate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {saving && <Spinner size={14} color="#fff" />}
+              Create
+            </button>
           </div>
         }
       >
-        <DataTable cols={cols} rows={rows} loading={loading} emptyIcon="school" emptyMsg="No training sessions found" />
-      </SectionCard>
-
-      {/* Schedule training modal */}
-      {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div role="dialog" aria-modal="true" aria-labelledby="training-add-title" className="bg-[var(--card)] rounded-2xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-5">
-              <h2 id="training-add-title" className="text-[16px] font-bold text-[color:var(--txt)]">Schedule Training Session</h2>
-              <button onClick={() => setShowAdd(false)} className="text-[color:var(--txt2)] hover:text-[color:var(--txt)]">
-                <span className="material-symbols-rounded text-[20px]">close</span>
-              </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Training Name *</label>
+            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Type</label>
+              <select value={form.training_type} onChange={e => setForm(f => ({ ...f, training_type: e.target.value }))}
+                style={{ ...inputStyle, height: 36, padding: '0 10px' }}>
+                {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
             </div>
-            <ErrBanner msg={addErr} />
-            <div className="space-y-3">
-              {[
-                ['Title *',       'title',           'text',   ''],
-                ['Trainer *',     'trainer',         'text',   ''],
-                ['Department',    'department',      'text',   ''],
-                ['Date *',        'training_date',   'date',   ''],
-                ['Duration (hrs)*','duration_hours', 'number', ''],
-                ['Max Participants *','max_participants','number',''],
-              ].map(([label, key, type, ph]) => (
-                <div key={key}>
-                  <label htmlFor={`training-${key}`} className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">{label}</label>
-                  <input id={`training-${key}`} type={type as string} placeholder={ph as string}
-                    className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none"
-                    value={(addForm as any)[key]} onChange={e => setAddForm(f => ({ ...f, [key]: e.target.value }))} />
-                </div>
-              ))}
-              <div>
-                <label htmlFor="training-description" className="block text-[12px] font-semibold text-[color:var(--txt2)] mb-1">Description</label>
-                <textarea id="training-description" rows={3} className="w-full px-3 py-2 rounded-lg border border-[var(--bdr)] text-[13px] focus:outline-none"
-                  value={addForm.description} onChange={e => setAddForm(f => ({ ...f, description: e.target.value }))} />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-5">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setShowAdd(false)}>Cancel</button>
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60" style={{ background: NAVY }}
-                disabled={adding || !addForm.title || !addForm.trainer || !addForm.training_date || !addForm.duration_hours || !addForm.max_participants}
-                onClick={submitAdd}>
-                {adding ? 'Scheduling…' : 'Schedule'}
-              </button>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Date</label>
+              <input type="date" value={form.training_date} onChange={e => setForm(f => ({ ...f, training_date: e.target.value }))} style={{ ...inputStyle, height: 36 }} />
             </div>
           </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Trainer</label>
+            <input value={form.trainer} onChange={e => setForm(f => ({ ...f, trainer: e.target.value }))} style={inputStyle} placeholder="Name of trainer or institution" />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Description</label>
+            <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+              rows={3} placeholder="Training objectives and content…" style={{ ...inputStyle, resize: 'vertical' }} />
+          </div>
         </div>
-      )}
+      </Modal>
+
+      {/* Detail modal */}
+      <Modal open={!!detail} onClose={() => setDetail(null)} title={detail?.name ?? 'Training Detail'} width={520}>
+        {detail && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <TypePill type={detail.training_type} />
+              <StatusBadge status={detail.status} size="sm" />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
+              {[
+                ['Date', detail.training_date ? fmtDate(detail.training_date) : 'TBD'],
+                ['Trainer', detail.trainer ?? '—'],
+                ['Attendees', String(detail.attendee_count ?? 0)],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <span style={{ color: 'var(--txt2)' }}>{label}: </span>
+                  <strong style={{ color: 'var(--txt)' }}>{value}</strong>
+                </div>
+              ))}
+            </div>
+            {detail.description && (
+              <div style={{ padding: '12px 14px', background: 'var(--th-bg)', borderRadius: 8, fontSize: 13, color: 'var(--txt)', lineHeight: 1.6 }}>
+                {detail.description}
+              </div>
+            )}
+            {(detail.attendees ?? []).length > 0 && (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)', marginBottom: 8 }}>ATTENDEES</div>
+                {(detail.attendees ?? []).map(a => (
+                  <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--bdr)' }}>
+                    <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${a.attended ? GREEN : 'var(--input-bdr)'}`, background: a.attended ? GREEN : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {a.attended && <span className="material-symbols-rounded" style={{ fontSize: 11, color: '#fff' }}>check</span>}
+                    </div>
+                    <span style={{ fontSize: 13, color: 'var(--txt)', flex: 1 }}>{a.employee_name}</span>
+                    {a.completed_at && <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{fmtDate(a.completed_at)}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </Page>
   )
 }

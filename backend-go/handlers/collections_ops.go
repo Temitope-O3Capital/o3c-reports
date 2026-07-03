@@ -23,6 +23,13 @@ func RegisterCollectionsOps(r chi.Router, db *core.DB) {
 	r.With(base).Get("/targets", collectionsOpsTargets(db))
 	r.With(head).Put("/targets", collectionsOpsUpsertTarget(db))
 	r.With(base).Get("/dashboard", collectionsOpsDashboard(db))
+	r.With(base).Get("/agent-dashboard", collectionsOpsAgentDashboard(db))
+	r.With(head).Post("/{id}/send-to-recovery", collectionsOpsSendToRecovery(db))
+
+	r.With(base).Get("/repayment-plans", collectionsOpsListPlans(db))
+	r.With(base).Post("/repayment-plans", collectionsOpsCreatePlan(db))
+	r.With(base).Get("/repayment-plans/{pid}/instalments", collectionsOpsListInstalments(db))
+	r.With(base).Put("/repayment-plans/instalments/{iid}/paid", collectionsOpsMarkPaid(db))
 }
 
 func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
@@ -439,5 +446,264 @@ func collectionsOpsDashboard(db *core.DB) http.HandlerFunc {
 		}
 
 		respond(w, result, "pg")
+	}
+}
+
+func collectionsOpsSendToRecovery(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Notes string `json:"notes"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Invalid assignment ID")
+			return
+		}
+		var b body
+		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
+
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+
+		rows, err := db.PGQuery(ctx,
+			`SELECT account_cif, outstanding_kobo, dpd_bucket FROM collection_assignments WHERE id=$1 AND status='active'`, id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Assignment not found or not active")
+			return
+		}
+		a := rows[0]
+		accountCIF := str(a["account_cif"])
+		outstanding := int64(0)
+		if v, ok := a["outstanding_kobo"].(int64); ok {
+			outstanding = v
+		}
+		dpd := str(a["dpd_bucket"])
+
+		// Generate case ref
+		refRows, _ := db.PGQuery(ctx, `SELECT LPAD(NEXTVAL('sar_ref_seq')::TEXT,6,'0') AS ref`)
+		caseRef := "RC-" + str(refRows[0]["ref"])
+
+		caseRows, err := db.PGQuery(ctx,
+			`INSERT INTO recovery_cases
+			   (case_ref, cif_number, account_cif, outstanding_kobo, source_assignment_id, dpd_at_handoff, status, opened_at, created_at, updated_at)
+			 VALUES ($1,$2,$2,$3,$4,$5,'open',NOW(),NOW(),NOW())
+			 RETURNING id`,
+			caseRef, accountCIF, outstanding, id, dpd)
+		if err != nil {
+			respondErr(w, 500, "Failed to create recovery case")
+			return
+		}
+		caseID := caseRows[0]["id"]
+
+		// Close the collection assignment
+		db.PGExec(ctx, //nolint:errcheck
+			`UPDATE collection_assignments SET status='sent_to_recovery', updated_at=NOW() WHERE id=$1`, id)
+
+		// Notify collections head
+		sendNotification(ctx, db, user.ID, "sent_to_recovery", //nolint:errcheck
+			fmt.Sprintf("Account %s sent to recovery", accountCIF),
+			fmt.Sprintf("Case %s created", caseRef),
+			"recovery_case", int64(caseID.(int64)))
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"case_id":  caseID,
+			"case_ref": caseRef,
+		})
+	}
+}
+
+/* ── Per-agent dashboard ──────────────────────────────────────────────────── */
+
+func collectionsOpsAgentDashboard(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+
+		// Individual contributors only see themselves; heads see all agents
+		agentFilter := ""
+		args := []any{}
+		if !user.HasPage("collections_assign") {
+			agentFilter = "WHERE ca.agent_user_id = $1"
+			args = append(args, user.ID)
+		}
+
+		agents, err := db.PGQuery(ctx, fmt.Sprintf(`
+			SELECT
+				u.id,
+				u.full_name,
+				COUNT(ca.id)                                                          AS assigned,
+				COUNT(cc.id) FILTER (WHERE cc.created_at::date = CURRENT_DATE)       AS contacts_today,
+				COUNT(cp.id) FILTER (WHERE cp.created_at::date = CURRENT_DATE)       AS ptps_today,
+				COUNT(cp.id) FILTER (WHERE cp.is_kept = TRUE
+					AND cp.actual_date::date = CURRENT_DATE)                          AS ptps_honoured_today,
+				COALESCE(SUM(ca.outstanding_kobo), 0)                                AS portfolio_kobo
+			FROM o3c_users u
+			LEFT JOIN collection_assignments ca ON ca.agent_user_id = u.id AND ca.status = 'active'
+			LEFT JOIN collection_contacts   cc ON cc.agent_user_id = u.id
+			LEFT JOIN collection_promises   cp ON cp.agent_user_id = u.id
+			%s
+			GROUP BY u.id, u.full_name
+			ORDER BY contacts_today DESC, assigned DESC`, agentFilter), args...)
+		if err != nil {
+			respondErr(w, 500, "Query failed"); return
+		}
+		if agents == nil {
+			agents = []core.Row{}
+		}
+		respond(w, agents, "pg")
+	}
+}
+
+/* ── Repayment Plans ──────────────────────────────────────────────────────── */
+
+func collectionsOpsListPlans(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+		status := qstr(r, "status")
+		q := qstr(r, "q")
+		limit := qint(r, "limit", 50, 1, 200)
+		offset := qint(r, "offset", 0, 0, 1<<30)
+
+		query := `
+			SELECT rp.id, rp.account_cif, rp.customer_name, rp.total_kobo, rp.paid_kobo,
+			       rp.instalment_count, rp.paid_count, rp.next_payment_date, rp.status,
+			       rp.notes, rp.created_at, u.full_name AS agent_name
+			FROM repayment_plans rp
+			LEFT JOIN o3c_users u ON rp.agent_user_id = u.id
+			WHERE 1=1`
+		args := []any{}
+		n := 1
+
+		if !user.HasPage("collections_assign") {
+			query += fmt.Sprintf(" AND rp.agent_user_id = $%d", n)
+			args = append(args, user.ID); n++
+		}
+		if status != "" {
+			query += fmt.Sprintf(" AND rp.status = $%d", n)
+			args = append(args, status); n++
+		}
+		if q != "" {
+			query += fmt.Sprintf(" AND (rp.account_cif ILIKE $%d OR rp.customer_name ILIKE $%d)", n, n)
+			args = append(args, "%"+q+"%"); n++
+		}
+		query += fmt.Sprintf(" ORDER BY rp.created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
+		args = append(args, limit, offset)
+
+		rows, err := db.PGQuery(ctx, query, args...)
+		if err != nil {
+			respondErr(w, 500, "Query failed"); return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, map[string]any{"data": rows}, "pg")
+	}
+}
+
+func collectionsOpsCreatePlan(db *core.DB) http.HandlerFunc {
+	type instalment struct {
+		DueDate    string `json:"due_date"`
+		AmountKobo int64  `json:"amount_kobo"`
+	}
+	type body struct {
+		AccountCIF   string       `json:"account_cif"`
+		CustomerName string       `json:"customer_name"`
+		Notes        string       `json:"notes"`
+		Instalments  []instalment `json:"instalments"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.AccountCIF == "" || len(b.Instalments) == 0 {
+			respondErr(w, 400, "account_cif and at least one instalment required"); return
+		}
+
+		total := int64(0)
+		for _, i := range b.Instalments {
+			total += i.AmountKobo
+		}
+
+		var nextDate any
+		if len(b.Instalments) > 0 {
+			nextDate = b.Instalments[0].DueDate
+		}
+		ns := func(s string) any {
+			if s == "" { return nil }
+			return s
+		}
+
+		planRows, err := db.PGQuery(ctx,
+			`INSERT INTO repayment_plans
+			   (account_cif, customer_name, agent_user_id, total_kobo, instalment_count, next_payment_date, notes)
+			 VALUES ($1,$2,$3,$4,$5,$6::date,$7) RETURNING id`,
+			b.AccountCIF, ns(b.CustomerName), user.ID, total, len(b.Instalments), nextDate, ns(b.Notes))
+		if err != nil {
+			respondErr(w, 500, "Plan creation failed"); return
+		}
+		planID := planRows[0]["id"]
+
+		for i, inst := range b.Instalments {
+			db.PGExec(ctx, //nolint:errcheck
+				`INSERT INTO repayment_instalments (plan_id, instalment_number, due_date, amount_kobo)
+				 VALUES ($1,$2,$3::date,$4)`,
+				planID, i+1, inst.DueDate, inst.AmountKobo)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(map[string]any{"id": planID}) //nolint:errcheck
+	}
+}
+
+func collectionsOpsListInstalments(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pid := chi.URLParam(r, "pid")
+		rows, err := db.PGQuery(r.Context(),
+			`SELECT id, instalment_number, due_date, amount_kobo, status, paid_at
+			 FROM repayment_instalments WHERE plan_id=$1 ORDER BY instalment_number`, pid)
+		if err != nil {
+			respondErr(w, 500, "Query failed"); return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, map[string]any{"data": rows}, "pg")
+	}
+}
+
+func collectionsOpsMarkPaid(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		iid := chi.URLParam(r, "iid")
+		ctx := r.Context()
+
+		instRows, err := db.PGQuery(ctx, `SELECT plan_id, status FROM repayment_instalments WHERE id=$1`, iid)
+		if err != nil || len(instRows) == 0 {
+			respondErr(w, 404, "Instalment not found"); return
+		}
+		if str(instRows[0]["status"]) == "Paid" {
+			respondErr(w, 422, "Already marked paid"); return
+		}
+		planID := instRows[0]["plan_id"]
+
+		db.PGExec(ctx, //nolint:errcheck
+			`UPDATE repayment_instalments SET status='Paid', paid_at=NOW() WHERE id=$1`, iid)
+
+		// Update plan totals
+		db.PGExec(ctx, //nolint:errcheck
+			`UPDATE repayment_plans SET
+			   paid_count    = (SELECT COUNT(*) FROM repayment_instalments WHERE plan_id=$1 AND status='Paid'),
+			   paid_kobo     = (SELECT COALESCE(SUM(amount_kobo),0) FROM repayment_instalments WHERE plan_id=$1 AND status='Paid'),
+			   next_payment_date = (SELECT MIN(due_date) FROM repayment_instalments WHERE plan_id=$1 AND status='Pending'),
+			   status = CASE
+			     WHEN (SELECT COUNT(*) FROM repayment_instalments WHERE plan_id=$1 AND status != 'Paid') = 0
+			     THEN 'Completed' ELSE status END,
+			   updated_at = NOW()
+			 WHERE id=$1`, planID)
+
+		respond(w, map[string]any{"status": "paid"}, "json")
 	}
 }

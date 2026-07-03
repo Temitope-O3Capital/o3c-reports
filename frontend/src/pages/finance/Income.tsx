@@ -1,260 +1,292 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { apiFetch, apiExport, API } from '../../lib/api'
-import { fmt, fmtNum, fmtDate, n, today, monthStart } from '../../lib/fmt'
+import { useEffect, useState, useCallback } from 'react'
 import {
-  Page, KpiCard, SectionCard, DataTable, ColDef,
-  DateFilter, AreaChartCard, DonutCard, ExportBtn,
-  ErrBanner, Sk, Spinner, StatusBadge, NAVY, RED,
-} from '../../components/UI'
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+} from 'recharts'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Tabs, Sk, FilterBar, filterInputStyle } from '../../components/UI'
+import type { TableCol } from '../../components/UI'
+import { apiFetch } from '../../lib/api'
+import { fmtKobo, fmtDate } from '../../lib/fmt'
+import { NAVY, RED, AMBER, GREEN, NUM } from '../../lib/design'
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Cycle {
   id: number
-  report_date: string
-  uploaded_at: string
-  uploaded_by: string
-  types: string[]
-  row_count: number
+  cycle_date: string
+  label: string
+  loaded_at: string
+  loaded_by_name: string
+  interest_rows: number
+  charge_rows: number
 }
 
-interface Account {
-  cif: string
-  name: string
+interface IncomeSummary {
+  total_interest: number
+  total_charges: number
+  total_balance: number
+  total_loc: number
+  by_product: ProductIncome[]
+  by_currency: CurrencyIncome[]
+}
+
+interface ProductIncome { product: string; interest: number; charges: number }
+interface CurrencyIncome { currency: string; interest: number; charges: number }
+
+interface AccountRow {
+  id: number
+  account_no: string
+  customer_name: string
   product: string
+  currency: string
+  balance: number
   interest: number
   charges: number
-  balance: number
-  loc: number
+  cycle_date: string
 }
 
-export default function Income() {
-  const [from, setFrom]           = useState(monthStart())
-  const [to, setTo]               = useState(today())
-  const [summary, setSummary]     = useState<any>(null)
-  const [byProduct, setByProduct] = useState<any[]>([])
-  const [trend, setTrend]         = useState<any[]>([])
-  const [cycles, setCycles]       = useState<Cycle[]>([])
-  const [accounts, setAccounts]   = useState<Account[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [accLoading, setAccLoading] = useState(false)
-  const [error, setError]         = useState('')
-  const [exporting, setExporting] = useState(false)
-  const [uploading,     setUploading]     = useState(false)
-  const [tab, setTab]                    = useState(0)
-  const [cycleSortKey,  setCycleSortKey] = useState<string | null>(null)
-  const [cycleSortDir,  setCycleSortDir] = useState<'asc' | 'desc'>('asc')
+interface TrendPoint { month: string; interest: number; charges: number }
 
-  const toggleCycleSort = (key: string) => {
-    if (cycleSortKey === key) setCycleSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setCycleSortKey(key); setCycleSortDir('asc') }
-  }
-  const fileRef = useRef<HTMLInputElement>(null)
+// ── Table columns ─────────────────────────────────────────────────────────────
 
-  const load = useCallback(async () => {
-    setLoading(true); setError('')
-    try {
-      const qs = new URLSearchParams({ date_from: from, date_to: to }).toString()
-      const [rS, rBp, rTr, rCy] = await Promise.allSettled([
-        apiFetch(`/api/income/summary?${qs}`),
-        apiFetch(`/api/income/by-product?${qs}`),
-        apiFetch('/api/income/trend'),
-        apiFetch('/api/income/cycles'),
-      ])
-      if (rS.status === 'fulfilled') setSummary(rS.value.data ?? rS.value)
-      if (rBp.status === 'fulfilled') setByProduct(rBp.value.data ?? rBp.value ?? [])
-      if (rTr.status === 'fulfilled') setTrend(rTr.value.data ?? rTr.value ?? [])
-      if (rCy.status === 'fulfilled') setCycles(rCy.value.data ?? rCy.value ?? [])
-      if ([rS, rBp, rTr, rCy].every(r => r.status === 'rejected')) setError((rS as PromiseRejectedResult).reason?.message ?? 'Failed to load')
-    } catch (e: any) { setError(e.message) }
-    finally { setLoading(false) }
-  }, [from, to])
+const ACC_COLS: TableCol<AccountRow>[] = [
+  { key: 'account_no', label: 'Account', sortable: true, width: 130,
+    render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{r.account_no}</span> },
+  { key: 'customer_name', label: 'Customer', sortable: true,
+    render: r => <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{r.customer_name || '—'}</span> },
+  { key: 'product', label: 'Product',
+    render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.product || '—'}</span> },
+  { key: 'currency', label: 'CCY', align: 'center', width: 60,
+    render: r => <span style={{ ...NUM, fontSize: 11.5, fontWeight: 600 }}>{r.currency}</span> },
+  { key: 'balance', label: 'Balance ₦', align: 'right', sortable: true,
+    render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{fmtKobo(r.balance)}</span> },
+  { key: 'interest', label: 'Interest ₦', align: 'right', sortable: true,
+    render: r => <span style={{ ...NUM, color: GREEN, fontWeight: 600 }}>{fmtKobo(r.interest)}</span> },
+  { key: 'charges', label: 'Charges ₦', align: 'right', sortable: true,
+    render: r => <span style={{ ...NUM, color: AMBER, fontWeight: 600 }}>{fmtKobo(r.charges)}</span> },
+]
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+
+function IncomeTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
+      <div style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 6 }}>{label}</div>
+      {payload.map((p: any) => (
+        <div key={p.name} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 2 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: p.fill, display: 'inline-block' }} />
+          <span style={{ color: 'var(--txt2)' }}>{p.name}:</span>
+          <span style={{ ...NUM, color: 'var(--txt)', fontWeight: 600 }}>{fmtKobo(p.value)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Accrual stub ───────────────────────────────────────────────────────────────
+
+function AccrualTab() {
+  return (
+    <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--txt2)', fontSize: 13 }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 32, opacity: 0.35, display: 'block', marginBottom: 8 }}>calculate</span>
+      Daily FD accrual view pending Wave 4G backend endpoint <code>/api/finance/fd-accrual</code>.
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+export default function FinanceIncome() {
+  const [tab, setTab] = useState('income')
+  const [cycles, setCycles] = useState<Cycle[]>([])
+  const [selectedCycle, setSelectedCycle] = useState<number | null>(null)
+  const [summary, setSummary] = useState<IncomeSummary | null>(null)
+  const [accounts, setAccounts] = useState<AccountRow[]>([])
+  const [trend, setTrend] = useState<TrendPoint[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadingAccounts, setLoadingAccounts] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+
+  // Load cycles
+  useEffect(() => {
+    apiFetch<Cycle[]>('/api/income/cycles')
+      .then(data => {
+        setCycles(data ?? [])
+        if (data?.length) setSelectedCycle(data[0].id)
+      })
+      .catch(e => setError(e.message))
+  }, [])
+
+  // Load trend
+  useEffect(() => {
+    apiFetch<TrendPoint[]>('/api/income/trend')
+      .then(data => setTrend(data ?? []))
+      .catch(() => {})
+  }, [])
+
+  // Load summary + accounts when cycle changes
+  useEffect(() => {
+    if (!selectedCycle) { setLoading(false); return }
+    setLoading(true)
+    Promise.allSettled([
+      apiFetch<IncomeSummary>(`/api/income/summary?cycle_id=${selectedCycle}`),
+    ]).then(([summaryRes]) => {
+      if (summaryRes.status === 'fulfilled') setSummary(summaryRes.value)
+    }).catch(e => setError(e.message)).finally(() => setLoading(false))
+  }, [selectedCycle])
 
   const loadAccounts = useCallback(async () => {
-    setAccLoading(true)
+    if (!selectedCycle) return
+    setLoadingAccounts(true)
     try {
-      const qs = new URLSearchParams({ date_from: from, date_to: to }).toString()
-      const res = await apiFetch(`/api/income/accounts?${qs}`)
-      setAccounts(res.data ?? res ?? [])
-    } catch { /* silent */ }
-    finally { setAccLoading(false) }
-  }, [from, to])
+      const res = await apiFetch<AccountRow[]>(`/api/income/accounts?cycle_id=${selectedCycle}`)
+      setAccounts(res ?? [])
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoadingAccounts(false)
+    }
+  }, [selectedCycle])
 
-  useEffect(() => { load() }, [load])
-  useEffect(() => { if (tab === 2) loadAccounts() }, [tab, loadAccounts])
+  useEffect(() => {
+    if (tab === 'accounts') loadAccounts()
+  }, [tab, loadAccounts])
 
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files
-    if (!files || files.length === 0) return
-    setUploading(true)
-    try {
-      const form = new FormData()
-      Array.from(files).forEach(f => form.append('files', f))
-      const token = localStorage.getItem('o3c_token')
-      const res = await fetch(`${API}/api/income/upload`, {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: form,
-      })
-      if (!res.ok) throw new Error('Upload failed')
-      await load()
-    } catch (e: any) { setError(e.message) }
-    finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
-  }
+  const filteredAccounts = accounts.filter(a =>
+    !search || a.account_no.includes(search) || a.customer_name.toLowerCase().includes(search.toLowerCase())
+  )
 
-  async function deleteCycle(id: number) {
-    if (!confirm('Delete this cycle?')) return
-    try {
-      await apiFetch(`/api/income/cycles/${id}`, { method: 'DELETE' })
-      setCycles(c => c.filter(x => x.id !== id))
-    } catch (e: any) { setError(e.message) }
-  }
-
-  const s = summary ?? {}
-
-  const TABS = ['Summary', 'Cycles', 'Accounts']
-
-  const accountCols: ColDef<Account>[] = [
-    { key: 'cif',      label: 'CIF' },
-    { key: 'name',     label: 'Customer' },
-    { key: 'product',  label: 'Product' },
-    { key: 'interest', label: 'Interest', right: true, render: r => fmt(r.interest) },
-    { key: 'charges',  label: 'Charges',  right: true, render: r => fmt(r.charges)  },
-    { key: 'balance',  label: 'Balance',  right: true, render: r => fmt(r.balance)  },
-    { key: 'loc',      label: 'LOC',      right: true, render: r => fmt(r.loc)      },
-  ]
+  const selectedCycleMeta = cycles.find(c => c.id === selectedCycle)
 
   return (
-    <Page dept="Finance" title="Income" subtitle="Interest, charges and balance reporting"
+    <Page
+      title="Income"
+      subtitle={selectedCycleMeta ? `Cycle: ${selectedCycleMeta.label} · Loaded ${fmtDate(selectedCycleMeta.loaded_at)} by ${selectedCycleMeta.loaded_by_name}` : undefined}
       actions={
-        <div className="flex items-center gap-2">
-          <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
-          <button onClick={() => fileRef.current?.click()} disabled={uploading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium disabled:opacity-60"
-            style={{ background: NAVY, color: '#fff', borderColor: NAVY }}>
-            {uploading
-              ? <><Spinner size={14} />Uploading…</>
-              : <><span className="material-symbols-rounded text-[15px]">upload</span>Upload Cycles</>}
-          </button>
-          <input ref={fileRef} type="file" multiple accept=".txt,.csv" className="hidden" onChange={handleUpload} />
-          <ExportBtn loading={exporting}
-            onClick={async () => {
-              setExporting(true)
-              await apiExport(`/api/income/accounts/export?date_from=${from}&date_to=${to}`, 'income_accounts')
-              setExporting(false)
-            }} />
-        </div>
-      }>
-      <ErrBanner msg={error} />
+        <select
+          value={selectedCycle ?? ''}
+          onChange={e => setSelectedCycle(Number(e.target.value))}
+          style={{ ...filterInputStyle, minWidth: 200 }}
+        >
+          {cycles.map(c => (
+            <option key={c.id} value={c.id}>{c.label} ({fmtDate(c.cycle_date)})</option>
+          ))}
+        </select>
+      }
+    >
+      <ErrBanner error={error} onRetry={() => setError(null)} />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-        <KpiCard loading={loading} label="Total Interest"   value={fmt(s.total_interest)}   icon="percent"       accent={NAVY} />
-        <KpiCard loading={loading} label="Total Charges"    value={fmt(s.total_charges)}    icon="receipt"       accent={RED}  />
-        <KpiCard loading={loading} label="Total Balance"    value={fmt(s.total_balance)}    icon="account_balance" accent="#059669" />
-        <KpiCard loading={loading} label="Total LOC"        value={fmt(s.total_loc)}        icon="credit_card"   accent="#2563EB" />
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
+        <KpiCard label="Interest Income" value={fmtKobo(summary?.total_interest ?? 0)} icon="trending_up" accent={GREEN} loading={loading} />
+        <KpiCard label="Charges" value={fmtKobo(summary?.total_charges ?? 0)} icon="receipt" accent={AMBER} loading={loading} />
+        <KpiCard label="Total Balance" value={fmtKobo(summary?.total_balance ?? 0)} icon="account_balance" accent={NAVY} loading={loading} />
+        <KpiCard label="LOC Outstanding" value={fmtKobo(summary?.total_loc ?? 0)} icon="credit_score" accent={RED} loading={loading} />
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-0 mb-5 border-b" style={{ borderColor: 'var(--bdr)' }}>
-        {TABS.map((t, i) => (
-          <button key={t} onClick={() => setTab(i)}
-            className="px-4 py-2.5 text-[13px] font-medium transition-colors"
-            style={{
-              borderBottom: tab === i ? `2px solid ${NAVY}` : '2px solid transparent',
-              color: tab === i ? NAVY : '#64748B', marginBottom: '-1px',
-            }}>
-            {t}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        tabs={[
+          { key: 'income', label: 'By Product' },
+          { key: 'trend', label: 'Trend' },
+          { key: 'accounts', label: 'Accounts' },
+          { key: 'accrual', label: 'FD Accrual' },
+        ]}
+        active={tab}
+        onChange={setTab}
+      />
 
-      {tab === 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2">
-            <AreaChartCard title="Income Trend" subtitle="Monthly interest + charges"
-              data={trend} xKey="month" areaKey="total" currency height={220} loading={loading} />
-          </div>
-          <DonutCard title="By Product" data={byProduct} nameKey="product" valueKey="total" loading={loading} />
+      {tab === 'income' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <SectionCard title="Income by Product" subtitle="Interest vs charges">
+            {loading ? <Sk h={200} /> : !summary?.by_product?.length ? (
+              <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt2)', fontSize: 13 }}>No data for this cycle</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={summary.by_product} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
+                  <XAxis dataKey="product" tick={{ fontSize: 11, fill: '#9AA4B8' }} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: '#9AA4B8' }} axisLine={false} tickLine={false} width={72} />
+                  <Tooltip content={<IncomeTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="interest" name="Interest" fill={GREEN} radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="charges" name="Charges" fill={AMBER} radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </SectionCard>
+
+          <SectionCard title="By Currency">
+            {loading ? <Sk h={200} /> : !summary?.by_currency?.length ? (
+              <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt2)', fontSize: 13 }}>No data</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '8px 0' }}>
+                {summary.by_currency.map(c => (
+                  <div key={c.currency} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg)', borderRadius: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ ...NUM, fontWeight: 700, fontSize: 13, color: 'var(--txt)' }}>{c.currency}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 20 }}>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 10, color: 'var(--txt2)', marginBottom: 2 }}>Interest</div>
+                        <div style={{ ...NUM, fontSize: 13, fontWeight: 600, color: GREEN }}>{fmtKobo(c.interest)}</div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 10, color: 'var(--txt2)', marginBottom: 2 }}>Charges</div>
+                        <div style={{ ...NUM, fontSize: 13, fontWeight: 600, color: AMBER }}>{fmtKobo(c.charges)}</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SectionCard>
         </div>
       )}
 
-      {tab === 1 && (
-        <SectionCard title="Uploaded Cycles" subtitle="Income files processed" badge={cycles.length}
-          actions={
-            <button onClick={() => fileRef.current?.click()} disabled={uploading}
-              className="flex items-center gap-1 text-[12px] font-medium px-2.5 py-1.5 rounded-lg"
-              style={{ background: 'var(--chip-bg)', color: NAVY }}>
-              <span className="material-symbols-rounded text-[14px]">upload</span>Upload
-            </button>
-          }>
-          {loading ? (
-            <div className="p-5 space-y-3">{[...Array(4)].map((_, i) => <Sk key={i} />)}</div>
-          ) : cycles.length === 0 ? (
-            <div className="py-14 text-center">
-              <span className="material-symbols-rounded text-[36px] block mb-2" style={{ color: 'var(--txt3)' }}>upload_file</span>
-              <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>No cycles uploaded yet. Click Upload Cycles to get started.</p>
-            </div>
+      {tab === 'trend' && (
+        <SectionCard title="Income Trend" subtitle="Monthly interest + charges">
+          {trend.length === 0 ? (
+            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt2)', fontSize: 13 }}>No trend data available</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-[13px]">
-                <thead>
-                  <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
-                    {([['Report Date','report_date'],['Types',null],['Rows','row_count'],['Uploaded','uploaded_at'],['By','uploaded_by'],['',null]] as [string,string|null][]).map(([h, k]) => (
-                      <th key={h} className="px-5 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.07em]"
-                        style={{ color: cycleSortKey === k ? 'var(--txt)' : 'var(--txt2)', cursor: k ? 'pointer' : undefined }}
-                        onClick={k ? () => toggleCycleSort(k) : undefined}>
-                        {h}{k && <span style={{ marginLeft: 3, color: '#C00000', opacity: cycleSortKey === k ? 1 : 0.3 }}>{cycleSortKey === k ? (cycleSortDir === 'asc' ? '↑' : '↓') : '↕'}</span>}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(() => {
-                    const sortedCycles = cycleSortKey
-                      ? [...cycles].sort((a, b) => {
-                          const va = (a as any)[cycleSortKey] ?? ''
-                          const vb = (b as any)[cycleSortKey] ?? ''
-                          const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))
-                          return cycleSortDir === 'asc' ? cmp : -cmp
-                        })
-                      : cycles
-                    return sortedCycles.map(c => (
-                    <tr key={c.id} className="hover:bg-[var(--row-hvr)] transition-colors"
-                      style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
-                      <td className="px-5 py-3 font-mono text-[12px]">{fmtDate(c.report_date)}</td>
-                      <td className="px-5 py-3">
-                        <div className="flex gap-1 flex-wrap">
-                          {(c.types || []).map(t => (
-                            <span key={t} className="text-[11px] font-semibold px-1.5 py-0.5 rounded"
-                              style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>
-                              {t}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-5 py-3 font-mono text-right">{fmtNum(c.row_count)}</td>
-                      <td className="px-5 py-3" style={{ color: 'var(--txt2)' }}>{fmtDate(c.uploaded_at)}</td>
-                      <td className="px-5 py-3" style={{ color: 'var(--txt2)' }}>{c.uploaded_by}</td>
-                      <td className="px-5 py-3">
-                        <button onClick={() => deleteCycle(c.id)}
-                          className="hover:text-red-600 transition-colors p-1 rounded" style={{ color: 'var(--txt3)' }}>
-                          <span className="material-symbols-rounded text-[16px]">delete</span>
-                        </button>
-                      </td>
-                    </tr>
-                    ))
-                  })()}
-                </tbody>
-              </table>
-            </div>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={trend} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9AA4B8' }} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: '#9AA4B8' }} axisLine={false} tickLine={false} width={72} />
+                <Tooltip content={<IncomeTooltip />} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="interest" name="Interest" fill={GREEN} radius={[3, 3, 0, 0]} stackId="a" />
+                <Bar dataKey="charges" name="Charges" fill={AMBER} radius={[3, 3, 0, 0]} stackId="a" />
+              </BarChart>
+            </ResponsiveContainer>
           )}
         </SectionCard>
       )}
 
-      {tab === 2 && (
-        <SectionCard title="Account Detail" subtitle="Per-account income breakdown">
-          <DataTable cols={accountCols} rows={accounts} loading={accLoading}
-            emptyMsg="No accounts loaded" emptyIcon="person_search" />
-        </SectionCard>
+      {tab === 'accounts' && (
+        <>
+          <FilterBar>
+            <input
+              placeholder="Search account or customer…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ ...filterInputStyle, minWidth: 260 }}
+            />
+          </FilterBar>
+          <SectionCard padding={false}>
+            <DataTable
+              cols={ACC_COLS}
+              rows={filteredAccounts}
+              keyFn={(r, i) => r.id ?? i}
+              loading={loadingAccounts}
+              emptyText="No accounts for this cycle"
+            />
+          </SectionCard>
+        </>
       )}
+
+      {tab === 'accrual' && <SectionCard title="FD Daily Accrual"><AccrualTab /></SectionCard>}
     </Page>
   )
 }

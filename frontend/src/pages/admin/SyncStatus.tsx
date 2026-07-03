@@ -1,43 +1,80 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
+import { Page, SectionCard, DataTable, ErrBanner } from '../../components/UI'
+import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDate } from '../../lib/fmt'
-import { Spinner, ErrBanner, StatusBadge, KpiCard, Page, SectionCard, GREEN, RED, AMBER, NAVY } from '../../components/UI'
+import { fmtDatetime, fmtNum } from '../../lib/fmt'
+import { RED, GREEN, AMBER, NAVY, NUM, INTER } from '../../lib/design'
+import { toast } from 'sonner'
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface SyncRun {
-  id: string; started_at: string; finished_at: string | null
-  status: string; rows_synced: number | null; error_msg: string | null; created_at: string
+  id: number
+  started_at: string
+  finished_at: string
+  status: string
+  rows_synced: number
+  error_msg?: string
+  created_at: string
 }
 
-function duration(started: string, finished: string | null): string {
-  if (!finished) return 'Running…'
-  const ms = new Date(finished).getTime() - new Date(started).getTime()
+// ── Status badge ──────────────────────────────────────────────────────────────
+
+const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
+  success:  { bg: 'rgba(22,163,74,.1)',  txt: GREEN },
+  error:    { bg: 'rgba(192,0,0,.1)',    txt: RED },
+  running:  { bg: 'rgba(37,99,235,.1)', txt: '#2563EB' },
+  partial:  { bg: 'rgba(217,119,6,.12)', txt: AMBER },
+}
+
+function StatusPill({ status }: { status: string }) {
+  const c = STATUS_COLORS[status] ?? { bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
+  return (
+    <span style={{
+      fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20,
+      background: c.bg, color: c.txt, whiteSpace: 'nowrap', textTransform: 'capitalize',
+    }}>{status}</span>
+  )
+}
+
+function durationStr(start: string, end: string): string {
+  if (!start || !end) return '—'
+  const ms = new Date(end).getTime() - new Date(start).getTime()
+  if (ms < 0) return '—'
   if (ms < 1000) return `${ms}ms`
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
-  return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`
+  return `${Math.round(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`
 }
 
-const STATUS_ICON: Record<string, string> = {
-  success: 'check_circle',
-  failed:  'cancel',
-  partial: 'warning',
-}
+// ── Columns ───────────────────────────────────────────────────────────────────
 
-const STATUS_COLOR: Record<string, string> = {
-  success: GREEN,
-  failed:  RED,
-  partial: AMBER,
-}
+const COLS: TableCol<SyncRun>[] = [
+  { key: 'created_at', label: 'Run Time', sortable: true,
+    render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{fmtDatetime(r.created_at)}</span> },
+  { key: 'status', label: 'Status', render: r => <StatusPill status={r.status} /> },
+  { key: 'rows_synced', label: 'Rows Synced', align: 'right',
+    render: r => <span style={{ ...NUM, fontWeight: 700 }}>{fmtNum(r.rows_synced)}</span> },
+  { key: '_duration', label: 'Duration', align: 'right',
+    render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{durationStr(r.started_at, r.finished_at)}</span> },
+  { key: 'error_msg', label: 'Error',
+    render: r => r.error_msg ? (
+      <span style={{ fontSize: 12, color: RED, fontFamily: 'monospace' }}>{r.error_msg.slice(0, 80)}</span>
+    ) : <span style={{ color: 'var(--txt3)' }}>—</span> },
+]
 
-export default function SyncStatus() {
-  const [runs, setRuns]       = useState<SyncRun[]>([])
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+export default function AdminSyncStatus() {
+  const [rows,    setRows]    = useState<SyncRun[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError]     = useState('')
+  const [error,   setError]   = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true); setError('')
+    setLoading(true)
+    setError(null)
     try {
-      const res = await apiFetch<SyncRun[]>('/api/settings/sync-status')
-      setRuns(Array.isArray(res) ? res : (res as any).data ?? [])
+      const data = await apiFetch<SyncRun[]>('/api/settings/sync-status')
+      setRows(Array.isArray(data) ? data : [])
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -47,90 +84,58 @@ export default function SyncStatus() {
 
   useEffect(() => { load() }, [load])
 
-  const successCount = runs.filter(r => r.status === 'success').length
-  const failedCount  = runs.filter(r => r.status === 'failed').length
-  const lastRun      = runs[0] ?? null
-  const totalRows    = runs.reduce((s, r) => s + (r.rows_synced ?? 0), 0)
+  async function triggerSync() {
+    try {
+      await apiFetch('/api/settings/sync-status', {
+        method: 'POST',
+        body: JSON.stringify({ status: 'running', rows_synced: 0 }),
+      })
+      toast.success('Sync run registered')
+      load()
+    } catch (e: any) {
+      toast.error(e.message)
+    }
+  }
+
+  const lastRun = rows[0]
+  const successRate = rows.length > 0
+    ? Math.round((rows.filter(r => r.status === 'success').length / rows.length) * 100)
+    : 0
 
   return (
     <Page
-      dept="Admin"
+      back={{ label: 'Admin', to: '/admin' }}
       title="Sync Status"
+      subtitle="MSSQL → PostgreSQL sync run history"
       actions={
-        <button onClick={load} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08] flex items-center gap-1.5">
-          <span className="material-symbols-rounded text-[16px]">refresh</span>
-          Refresh
+        <button onClick={triggerSync} style={{
+          display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 9,
+          border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER,
+        }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>sync</span>
+          Log Sync Run
         </button>
       }
     >
-      <ErrBanner msg={error} />
+      <ErrBanner error={error} onRetry={load} />
 
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <KpiCard label="Last Run Status" value={lastRun?.status ?? '—'} icon={STATUS_ICON[lastRun?.status ?? ''] ?? 'sync'} accent={STATUS_COLOR[lastRun?.status ?? ''] ?? NAVY} loading={loading && !runs.length} />
-        <KpiCard label="Successes (last 10)" value={String(successCount)} icon="check_circle" accent={GREEN} loading={loading && !runs.length} />
-        <KpiCard label="Failures (last 10)"  value={String(failedCount)}  icon="cancel"       accent={RED}   loading={loading && !runs.length} />
-        <KpiCard label="Rows Synced (last 10)" value={totalRows.toLocaleString()} icon="table_rows" accent={NAVY} loading={loading && !runs.length} />
+      {/* Stats strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>
+        {[
+          { label: 'Total Runs', value: rows.length },
+          { label: 'Last Status', value: lastRun?.status ?? '—', color: lastRun ? STATUS_COLORS[lastRun.status]?.txt : 'var(--txt)' },
+          { label: 'Success Rate', value: `${successRate}%`, color: successRate >= 80 ? GREEN : successRate >= 50 ? AMBER : RED },
+          { label: 'Last Rows', value: lastRun ? fmtNum(lastRun.rows_synced) : '—' },
+        ].map(({ label, value, color }) => (
+          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '14px 16px' }}>
+            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 6 }}>{label}</div>
+            <div style={{ ...NUM, fontSize: 20, fontWeight: 700, color: color ?? 'var(--txt)' }}>{value}</div>
+          </div>
+        ))}
       </div>
 
-      <SectionCard title="Recent Sync Runs" subtitle="Last 10 runs">
-        {loading ? (
-          <div className="flex items-center justify-center py-20"><Spinner size={32} /></div>
-        ) : runs.length === 0 ? (
-          <div className="flex flex-col items-center py-16 text-[color:var(--txt2)]">
-            <span className="material-symbols-rounded text-[40px] mb-2">sync_disabled</span>
-            <p className="text-[13px]">No sync runs recorded yet.</p>
-          </div>
-        ) : (
-          <div className="px-5 py-4 space-y-4">
-            {runs.map((run, i) => {
-              const color = STATUS_COLOR[run.status] ?? '#64748B'
-              const icon  = STATUS_ICON[run.status]  ?? 'sync'
-              return (
-                <div key={run.id} className="relative flex gap-4">
-                  {/* Timeline line */}
-                  {i < runs.length - 1 && (
-                    <div className="absolute left-[13px] top-8 bottom-0 w-px" style={{ background: 'rgba(14,40,65,0.1)' }} />
-                  )}
-
-                  {/* Icon */}
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
-                    style={{ background: `${color}15`, border: `1.5px solid ${color}30` }}>
-                    <span className="material-symbols-rounded text-[14px]" style={{ color }}>{icon}</span>
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0 pb-4">
-                    <div className="flex items-center gap-3 flex-wrap mb-1">
-                      <StatusBadge status={run.status} />
-                      <span className="text-[12px] text-[color:var(--txt2)]">{fmtDate(run.started_at, { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                      <span className="text-[11px] text-[color:var(--txt2)]">
-                        {new Date(run.started_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-x-5 gap-y-1 mt-1.5">
-                      <span className="flex items-center gap-1 text-[12px] text-[color:var(--txt2)]">
-                        <span className="material-symbols-rounded text-[14px] text-[color:var(--txt2)]">timer</span>
-                        {duration(run.started_at, run.finished_at)}
-                      </span>
-                      {run.rows_synced != null && (
-                        <span className="flex items-center gap-1 text-[12px] text-[color:var(--txt2)]">
-                          <span className="material-symbols-rounded text-[14px] text-[color:var(--txt2)]">table_rows</span>
-                          {run.rows_synced.toLocaleString()} rows synced
-                        </span>
-                      )}
-                    </div>
-                    {run.error_msg && (
-                      <div className="mt-2 px-3 py-2 rounded-lg text-[12px] text-red-700"
-                        style={{ background: 'rgba(220,38,38,0.05)', border: '1px solid rgba(220,38,38,0.15)' }}>
-                        <span className="font-semibold">Error: </span>{run.error_msg}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
+      <SectionCard title="Run History" badge={rows.length} padding={false}>
+        <DataTable cols={COLS} rows={rows} keyFn={r => r.id} loading={loading} emptyText="No sync runs recorded" />
       </SectionCard>
     </Page>
   )

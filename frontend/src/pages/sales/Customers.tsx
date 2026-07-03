@@ -1,310 +1,176 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { apiFetch } from '../../lib/api'
-import { fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import {
-  Page, SectionCard, DateFilter, StatusBadge,
-  ErrBanner, ExportBtn, Sk, NAVY,
+  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  ErrBanner, Spinner,
 } from '../../components/UI'
+import type { TableCol } from '../../components/UI'
+import { apiFetch } from '../../lib/api'
+import { fmtDatetime, fmtNum } from '../../lib/fmt'
+import { NAVY, GREEN, AMBER, BLUE, PURPLE, RED, NUM } from '../../lib/design'
 
-interface Customer {
-  'CIF Number': string
-  'First Name': string
-  'Last Name': string
-  State: string
-  City: string
-  'Job Title': string
-  'Account Created Date': string
-  'Product Name': string
-  'Account Status': string
-  'Account Manager': string
+const C360 = lazy(() => import('../../components/C360Drawer'))
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface Contact {
+  id: number
+  first_name: string
+  last_name: string
+  phone?: string
+  email?: string
+  cif_number?: string
+  status?: string
+  source?: string
+  assigned_name?: string
+  updated_at: string
+  deal_count?: number
+  open_tasks?: number
 }
 
-const STATUS_FILTER_OPTIONS = [
-  { value: 'all',      label: 'All' },
-  { value: 'active',   label: 'Active' },
-  { value: 'inactive', label: 'Inactive' },
-]
+interface CRMUser { id: number; full_name: string }
 
-export default function Customers() {
-  const [from,         setFrom]         = useState(monthStart())
-  const [to,           setTo]           = useState(today())
-  const [data,         setData]         = useState<Customer[]>([])
-  const [loading,      setLoading]      = useState(true)
-  const [error,        setError]        = useState('')
-  const [search,       setSearch]       = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [exporting,    setExporting]    = useState(false)
-  const [sortKey,      setSortKey]      = useState<string | null>(null)
-  const [sortDir,      setSortDir]      = useState<'asc' | 'desc'>('asc')
-  const [selectedCifs, setSelectedCifs] = useState<Set<string>>(new Set())
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+const SOURCE_COLORS: Record<string, string> = {
+  referral: GREEN, campaign: AMBER, digital: BLUE, corporate: PURPLE,
+  walk_in: NAVY, 'walk-in': NAVY,
+}
+const STATUS_COLORS: Record<string, { color: string; bg: string }> = {
+  customer: { color: GREEN,  bg: 'rgba(22,163,74,.12)' },
+  lead:     { color: BLUE,   bg: `${BLUE}12` },
+  prospect: { color: AMBER,  bg: `${AMBER}18` },
+  inactive: { color: '#6B7280', bg: 'rgba(75,85,99,.1)' },
+}
+
+function SourcePill({ source }: { source?: string }) {
+  if (!source) return <span style={{ color: 'var(--txt3)' }}>—</span>
+  const color = SOURCE_COLORS[source.toLowerCase()] ?? RED
+  const label = source.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  return (
+    <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${color}14`, color }}>
+      {label}
+    </span>
+  )
+}
+
+function StatusPill({ status }: { status?: string }) {
+  if (!status) return <span style={{ color: 'var(--txt3)' }}>—</span>
+  const s = STATUS_COLORS[status.toLowerCase()] ?? { color: '#6B7280', bg: 'rgba(75,85,99,.1)' }
+  return (
+    <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color }}>
+      {status.charAt(0).toUpperCase() + status.slice(1)}
+    </span>
+  )
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
+
+export default function CRMContacts() {
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const [total, setTotal]       = useState(0)
+  const [users, setUsers]       = useState<CRMUser[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [err, setErr]           = useState<string | null>(null)
+
+  const [statusFilter, setStatusFilter]     = useState('')
+  const [sourceFilter, setSourceFilter]     = useState('')
+  const [assigneeFilter, setAssigneeFilter] = useState('')
+
+  const [c360Open, setC360Open] = useState(false)
 
   const load = useCallback(async () => {
-    setLoading(true); setError('')
+    setLoading(true); setErr(null)
     try {
-      const r = await apiFetch('/api/sales/customers?limit=500')
-      setData(r.data || [])
-    } catch (e: any) { setError(e.message) }
+      const p = new URLSearchParams({ limit: '200' })
+      if (statusFilter)   p.set('status',      statusFilter)
+      if (sourceFilter)   p.set('source',       sourceFilter)
+      if (assigneeFilter) p.set('assigned_to',  assigneeFilter)
+
+      const [res, us] = await Promise.all([
+        apiFetch<{ data: Contact[]; total: number }>(`/api/crm/contacts?${p}`),
+        apiFetch<CRMUser[]>('/api/crm/users'),
+      ])
+      setContacts(Array.isArray(res?.data) ? res.data : [])
+      setTotal(res?.total ?? 0)
+      setUsers(Array.isArray(us) ? us : [])
+    } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [statusFilter, sourceFilter, assigneeFilter])
 
   useEffect(() => { load() }, [load])
 
-  const toggleSort = (key: string) => {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortKey(key); setSortDir('asc') }
-  }
-
-  const filtered = useMemo(() => {
-    return data.filter(c => {
-      const q = search.toLowerCase()
-      const matchSearch = !q || [
-        c['First Name'], c['Last Name'], c['CIF Number'],
-        c.State, c.City, c['Account Manager'], c['Product Name'],
-      ].some(v => v?.toLowerCase().includes(q))
-
-      const s = (c['Account Status'] || '').toLowerCase()
-      const matchStatus =
-        statusFilter === 'all' ||
-        (statusFilter === 'active'   && (s === 'open' || s === 'active')) ||
-        (statusFilter === 'inactive' && s !== 'open' && s !== 'active')
-
-      return matchSearch && matchStatus
-    })
-  }, [data, search, statusFilter])
-
-  const sorted = useMemo(() => {
-    if (!sortKey) return filtered
-    return [...filtered].sort((a, b) => {
-      const va = (a as any)[sortKey] ?? ''
-      const vb = (b as any)[sortKey] ?? ''
-      const cmp = String(va).localeCompare(String(vb))
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  }, [filtered, sortKey, sortDir])
-
-  function initials(c: Customer) {
-    const first = (c['First Name'] || '').trim()
-    const last  = (c['Last Name']  || '').trim()
-    if (first && last) return (first[0] + last[0]).toUpperCase()
-    if (first) return first[0].toUpperCase()
-    return '?'
-  }
-
-  function avatarColor(cif: string) {
-    const h = [...(cif || '0')].reduce((acc, ch) => acc + ch.charCodeAt(0), 0)
-    return `hsl(${(h * 37) % 360} 50% 45%)`
-  }
-
-  async function doExport() {
-    setExporting(true)
-    try {
-      const { apiExport } = await import('../../lib/api')
-      await apiExport('/api/sales/customers?limit=500', 'customers')
-    } finally { setExporting(false) }
-  }
-
-  /* Aggregate stats */
-  const activeCount   = data.filter(c => ['open','active'].includes((c['Account Status'] || '').toLowerCase())).length
-  const stateCount    = new Set(data.map(c => c.State).filter(Boolean)).size
-  const productCounts = data.reduce<Record<string, number>>((acc, c) => {
-    const p = c['Product Name'] || 'Unknown'
-    acc[p] = (acc[p] || 0) + 1
-    return acc
-  }, {})
+  const cols: TableCol<Contact>[] = [
+    {
+      key: 'cif_number', label: 'CIF',
+      render: r => r.cif_number
+        ? <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{r.cif_number}</span>
+        : <span style={{ color: 'var(--txt3)' }}>—</span>,
+    },
+    {
+      key: 'first_name', label: 'Name',
+      render: r => (
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
+            {r.first_name} {r.last_name}
+          </div>
+          {r.email && <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{r.email}</div>}
+        </div>
+      ),
+    },
+    {
+      key: 'phone', label: 'Phone',
+      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)', fontFamily: 'monospace' }}>{r.phone ?? '—'}</span>,
+    },
+    { key: 'source',        label: 'Source',  render: r => <SourcePill source={r.source} /> },
+    { key: 'assigned_name', label: 'Officer', render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.assigned_name ?? '—'}</span> },
+    { key: 'status',        label: 'Status',  render: r => <StatusPill status={r.status} /> },
+    {
+      key: 'updated_at', label: 'Last Activity',
+      render: r => <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{fmtDatetime(r.updated_at)}</span>,
+    },
+  ]
 
   return (
-    <Page dept="Sales" title="Customers"
-      subtitle="Customer directory with search, status, and profile data"
-      actions={
-        <div className="flex items-center gap-2">
-          <ExportBtn onClick={doExport} loading={exporting} />
-          <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
-        </div>
-      }>
-      <ErrBanner msg={error} />
+    <Page title="CRM Contacts" subtitle={`${fmtNum(total)} total contacts`}>
+      <ErrBanner error={err} onRetry={load} />
 
-      {/* Summary KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-        {[
-          { label: 'Total Customers', value: fmtNum(data.length), icon: 'groups',      color: NAVY },
-          { label: 'Active',          value: fmtNum(activeCount), icon: 'check_circle', color: '#059669' },
-          { label: 'Inactive',        value: fmtNum(data.length - activeCount), icon: 'cancel', color: '#C00000' },
-          { label: 'States Covered',  value: fmtNum(stateCount), icon: 'location_on',  color: '#2563EB' },
-        ].map(item => (
-          <div key={item.label} className="card p-4">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.07em]" style={{ color: 'var(--txt2)' }}>{item.label}</p>
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center"
-                style={{ background: `${item.color}12` }}>
-                <span className="material-symbols-rounded text-[15px]" style={{ color: item.color }}>{item.icon}</span>
-              </div>
-            </div>
-            {loading ? <Sk w="w-20" h="h-6" /> : (
-              <p className="kpi-number text-[22px]" style={{ color: 'var(--txt)' }}>{item.value}</p>
-            )}
-          </div>
-        ))}
-      </div>
+      <FilterBar onReset={() => { setStatusFilter(''); setSourceFilter(''); setAssigneeFilter('') }}>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
+          <option value="">All Statuses</option>
+          <option value="lead">Lead</option>
+          <option value="prospect">Prospect</option>
+          <option value="customer">Customer</option>
+          <option value="inactive">Inactive</option>
+        </select>
+        <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} style={filterInputStyle}>
+          <option value="">All Sources</option>
+          <option value="referral">Referral</option>
+          <option value="walk_in">Walk-in</option>
+          <option value="campaign">Campaign</option>
+          <option value="digital">Digital</option>
+          <option value="corporate">Corporate</option>
+        </select>
+        <select value={assigneeFilter} onChange={e => setAssigneeFilter(e.target.value)} style={filterInputStyle}>
+          <option value="">All Officers</option>
+          {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+        </select>
+      </FilterBar>
 
-      {/* Product breakdown pills */}
-      {!loading && Object.keys(productCounts).length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-4">
-          {Object.entries(productCounts).sort((a, b) => b[1] - a[1]).map(([name, count]) => (
-            <span key={name}
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-medium"
-              style={{ background: `${NAVY}08`, color: NAVY }}>
-              <span className="material-symbols-rounded text-[13px]">credit_card</span>
-              {name}
-              <span className="kpi-number text-[11px] font-bold">{fmtNum(count)}</span>
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Customer table */}
-      <SectionCard
-        title="Customer Directory"
-        subtitle={`${filtered.length} of ${data.length} customers`}
-        badge={filtered.length}
-        actions={
-          <div className="flex items-center gap-2">
-            {/* Status toggle */}
-            <div className="flex rounded-lg overflow-hidden text-[11px] font-semibold"
-              style={{ border: '1px solid rgba(15,23,42,0.12)' }}>
-              {STATUS_FILTER_OPTIONS.map(f => (
-                <button key={f.value}
-                  onClick={() => setStatusFilter(f.value)}
-                  className="px-3 py-1.5 transition-colors"
-                  style={{
-                    background: statusFilter === f.value ? NAVY : 'transparent',
-                    color: statusFilter === f.value ? '#fff' : 'var(--txt2)',
-                  }}>
-                  {f.label}
-                </button>
-              ))}
-            </div>
-            {/* Search */}
-            <div className="relative">
-              <span className="material-symbols-rounded text-[14px] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--txt2)' }}>
-                search
-              </span>
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Name, CIF, state…"
-                className="pl-8 pr-3 py-1.5 rounded-lg border text-[12px] outline-none"
-                style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)', width: 180 }}
-              />
-            </div>
-          </div>
-        }>
-        {selectedCifs.size > 0 && (
-          <div style={{ padding: '10px 14px', background: '#F0F4FF', borderBottom: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#0E2841' }}>{selectedCifs.size} selected</span>
-            <button style={{ padding: '5px 12px', border: '1px solid var(--bdr)', borderRadius: 7, fontSize: 12, fontWeight: 600, background: '#fff', color: '#0E2841', cursor: 'pointer' }}>Export Selected</button>
-            <button onClick={() => setSelectedCifs(new Set())} style={{ marginLeft: 'auto', padding: '5px 12px', border: '1px solid var(--bdr)', borderRadius: 7, fontSize: 12, background: 'transparent', color: 'var(--txt2)', cursor: 'pointer' }}>Clear</button>
-          </div>
-        )}
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr>
-                <th className="px-5 py-3 w-10" style={{ background: 'var(--th-bg)' }}>
-                  <input type="checkbox" checked={selectedCifs.size === sorted.length && sorted.length > 0}
-                    onChange={e => setSelectedCifs(e.target.checked ? new Set(sorted.map(c => c['CIF Number'])) : new Set())}
-                    style={{ cursor: 'pointer' }} />
-                </th>
-                {([['Customer','First Name'],['Location','State'],['Product','Product Name'],['Status','Account Status'],['Manager','Account Manager'],['Joined','Account Created Date']] as [string, string][]).map(([col, k]) => (
-                  <th key={col}
-                    className="px-5 py-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-left whitespace-nowrap"
-                    style={{ background: 'var(--th-bg)', color: sortKey === k ? 'var(--txt)' : 'var(--txt2)', cursor: 'pointer' }}
-                    onClick={() => toggleSort(k)}>
-                    {col}<span style={{ marginLeft: 3, color: '#C00000', opacity: sortKey === k ? 1 : 0.3 }}>{sortKey === k ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {loading
-                ? Array.from({ length: 8 }).map((_, i) => (
-                    <tr key={i} style={{ borderTop: '1px solid rgba(15,23,42,0.05)' }}>
-                      {Array.from({ length: 7 }).map((_, j) => (
-                        <td key={j} className="px-5 py-3.5"><Sk /></td>
-                      ))}
-                    </tr>
-                  ))
-                : sorted.length === 0
-                ? (
-                  <tr>
-                    <td colSpan={7} className="px-5 py-14 text-center">
-                      <span className="material-symbols-rounded text-[36px] block mb-2" style={{ color: 'var(--txt3)' }}>person_search</span>
-                      <p className="text-[13px]" style={{ color: 'var(--txt2)' }}>No customers match your filters</p>
-                    </td>
-                  </tr>
-                )
-                : sorted.map((c, i) => (
-                  <tr key={i} className="transition-colors"
-                    style={{ borderTop: '1px solid rgba(15,23,42,0.05)', background: selectedCifs.has(c['CIF Number']) ? 'var(--row-sel)' : undefined }}>
-                    {/* Checkbox */}
-                    <td className="px-5 py-3" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selectedCifs.has(c['CIF Number'])}
-                        onChange={() => setSelectedCifs(s => { const n = new Set(s); n.has(c['CIF Number']) ? n.delete(c['CIF Number']) : n.add(c['CIF Number']); return n })}
-                        style={{ cursor: 'pointer' }} />
-                    </td>
-                    {/* Customer */}
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
-                          style={{ background: avatarColor(c['CIF Number']) }}>
-                          {initials(c)}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-semibold truncate" style={{ color: 'var(--txt)' }}>
-                            {[c['First Name'], c['Last Name']].filter(Boolean).join(' ') || '—'}
-                          </p>
-                          <p className="text-[11px] kpi-number" style={{ color: 'var(--txt2)' }}>{c['CIF Number']}</p>
-                        </div>
-                      </div>
-                    </td>
-                    {/* Location */}
-                    <td className="px-5 py-3">
-                      <p style={{ color: 'var(--txt)' }}>{c.State || '—'}</p>
-                      {c.City && c.City !== c.State && (
-                        <p className="text-[11px]" style={{ color: 'var(--txt2)' }}>{c.City}</p>
-                      )}
-                    </td>
-                    {/* Product */}
-                    <td className="px-5 py-3">
-                      <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded"
-                        style={{ background: `${NAVY}08`, color: NAVY }}>
-                        {c['Product Name'] || '—'}
-                      </span>
-                    </td>
-                    {/* Status */}
-                    <td className="px-5 py-3">
-                      <StatusBadge status={
-                        (c['Account Status'] || '').toLowerCase() === 'open' ? 'active' : (c['Account Status'] || 'inactive')
-                      } />
-                    </td>
-                    {/* Manager */}
-                    <td className="px-5 py-3" style={{ color: 'var(--txt2)' }}>{c['Account Manager'] || '—'}</td>
-                    {/* Joined */}
-                    <td className="px-5 py-3 text-[12px] kpi-number whitespace-nowrap" style={{ color: 'var(--txt2)' }}>
-                      {fmtDate(c['Account Created Date'])}
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-        {!loading && data.length >= 200 && (
-          <div className="px-5 py-3 text-[11px] flex items-center gap-1"
-            style={{ color: 'var(--txt2)', borderTop: '1px solid rgba(15,23,42,0.05)', background: 'rgba(15,23,42,0.01)' }}>
-            <span className="material-symbols-rounded text-[14px]">info</span>
-            Showing up to 500 most recent. Export for full dataset.
-          </div>
-        )}
+      <SectionCard title="Contacts" badge={contacts.length} padding={false}>
+        <DataTable<Contact>
+          cols={cols}
+          rows={contacts}
+          keyFn={r => r.id}
+          onRowClick={() => setC360Open(true)}
+          emptyText="No contacts found."
+          skeletonRows={loading ? 8 : 0}
+        />
       </SectionCard>
+
+      <Suspense fallback={null}>
+        <C360 open={c360Open} onClose={() => setC360Open(false)} />
+      </Suspense>
     </Page>
   )
 }
+

@@ -63,6 +63,18 @@ export const ROLE_LABELS: Record<string, string> = {
 
   // IT
   it_admin:                 'IT Administrator',
+
+  // Telemarketing
+  telemarketing_agent:      'Telemarketing Agent',
+  telemarketing_head:       'Head of Telemarketing',
+
+  // Business Development
+  bd_officer:               'BD Officer',
+  bd_head:                  'Head of Business Development',
+
+  // Payroll
+  payroll_officer:          'Payroll Officer',
+  payroll_manager:          'Payroll Manager',
 }
 
 export function roleLabel(role: string): string {

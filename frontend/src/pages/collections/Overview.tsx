@@ -1,410 +1,316 @@
-import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { apiFetch } from '../../lib/api'
-import { fmt, fmtNum, fmtPct, n, today, monthStart } from '../../lib/fmt'
+import { useEffect, useState, useCallback } from 'react'
 import {
-  Page, KpiCard, SectionCard, DateFilter, BarChartCard,
-  DataTable, ColDef, ErrBanner, NAVY, RED, GREEN, AMBER,
-} from '../../components/UI'
+  ResponsiveContainer, AreaChart, Area, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+} from 'recharts'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner } from '../../components/UI'
+import type { TableCol } from '../../components/UI'
+import { apiFetch } from '../../lib/api'
+import { fmtKobo, fmtPct, fmtNum } from '../../lib/fmt'
+import { RED, AMBER, GREEN, BLUE, NUM } from '../../lib/design'
 
-/* ── Types ── */
-interface CollectionsKpi {
-  total_queue: number
-  contacted_today: number
-  ptps_today: number
-  collected_today_kobo: number
-  target_kobo: number
-  target_achievement_pct: number
-  ptp_kept_rate_pct: number
-  contact_rate_pct: number
-  cure_rate_pct: number
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface PortfolioKPIs {
+  par30_kobo: number
+  par60_kobo: number
+  par90_kobo: number
+  total_outstanding_kobo: number
+  total_accounts: number
+  delinquent_accounts: number
+  current_rate_pct: number
 }
 
-interface DpdBucket {
-  dpd_bucket: string
+interface DPDTrendPoint {
+  month: string
+  par30_kobo: number
+  par60_kobo: number
+  par90_kobo: number
+}
+
+interface AgentRow {
+  Agent: string
+  total: number
   count: number
-  outstanding_kobo: number
 }
 
-interface RollRateRow {
+interface RollBucket {
   dpd_bucket: string
   account_count: number
   outstanding_kobo: number
 }
 
-/* ── DPD colour map ── */
-const DPD_COLOR: Record<string, string> = {
-  current: GREEN,
-  '1-30':  AMBER,
-  '31-60': '#EA580C',
-  '61-90': RED,
-  '91+':   '#7F1D1D',
+// ── DPD colour ────────────────────────────────────────────────────────────────
+
+function dpdColor(bucket: string): string {
+  switch (bucket) {
+    case '0':       return GREEN
+    case '1-30':    return AMBER
+    case '31-60':
+    case '61-90':   return RED
+    default:        return '#7F0000'
+  }
 }
 
-/* ── Quick-link button ── */
-function QuickLink({ label, to, icon }: { label: string; to: string; icon: string }) {
-  const nav = useNavigate()
+// ── Custom tooltip ────────────────────────────────────────────────────────────
+
+function KoboTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
   return (
-    <button
-      onClick={() => nav(to)}
-      className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[13px] font-semibold transition-all hover:shadow-sm"
-      style={{ background: 'var(--card)', borderColor: 'rgba(15,23,42,0.12)', color: NAVY }}>
-      <span className="material-symbols-rounded text-[17px]">{icon}</span>
-      {label}
-    </button>
+    <div style={{
+      background: 'var(--card)', border: '1px solid var(--card-bdr)',
+      borderRadius: 8, padding: '10px 14px', fontSize: 12,
+    }}>
+      <div style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 6 }}>{label}</div>
+      {payload.map((p: any) => (
+        <div key={p.name} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 2 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: 'inline-block' }} />
+          <span style={{ color: 'var(--txt2)' }}>{p.name}:</span>
+          <span style={{ ...NUM, color: 'var(--txt)', fontWeight: 600 }}>{fmtKobo(p.value)}</span>
+        </div>
+      ))}
+    </div>
   )
 }
 
-/* ── DPD Bucket Summary ── */
-function DpdSummary({ data, loading }: { data: DpdBucket[]; loading: boolean }) {
-  const total = data.reduce((s, r) => s + n(r.count), 0)
-  return (
-    <SectionCard title="DPD Bucket Summary" subtitle="Queue distribution by days-past-due">
-      <div className="px-5 py-4 space-y-3">
-        {loading
-          ? Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="space-y-1.5">
-                <div className="flex justify-between">
-                  <div className="h-3 skeleton w-16 rounded" />
-                  <div className="h-3 skeleton w-20 rounded" />
-                </div>
-                <div className="h-2 skeleton w-full rounded-full" />
-              </div>
-            ))
-          : data.length === 0
-          ? <p className="text-[13px] py-8 text-center" style={{ color: 'var(--txt2)' }}>No bucket data</p>
-          : data.map((row, i) => {
-              const share = total > 0 ? (n(row.count) / total) * 100 : 0
-              const color = DPD_COLOR[row.dpd_bucket] ?? '#94A3B8'
-              return (
-                <div key={i}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
-                      <span className="text-[12px] font-semibold" style={{ color: 'var(--txt)' }}>
-                        DPD {row.dpd_bucket}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{fmt(n(row.outstanding_kobo) / 100)}</span>
-                      <span className="kpi-number text-[13px] font-bold" style={{ color: 'var(--txt)' }}>
-                        {n(row.count).toLocaleString()}
-                      </span>
-                      <span className="text-[11px] w-8 text-right" style={{ color: 'var(--txt2)' }}>{share.toFixed(1)}%</span>
-                    </div>
-                  </div>
-                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bdr)' }}>
-                    <div className="h-full rounded-full transition-all duration-700"
-                      style={{ width: `${share}%`, background: color }} />
-                  </div>
-                </div>
-              )
-            })}
-        {!loading && total > 0 && (
-          <div className="flex items-center justify-between text-[11px] pt-2"
-            style={{ borderTop: '1px solid var(--bdr)', color: 'var(--txt2)' }}>
-            <span>Total in queue</span>
-            <span className="kpi-number font-semibold" style={{ color: 'var(--txt2)' }}>{total.toLocaleString()}</span>
-          </div>
-        )}
-      </div>
-    </SectionCard>
-  )
-}
+// ── Agent table columns ───────────────────────────────────────────────────────
 
-/* ── Roll-Rate Matrix ── */
-function RollRateMatrix({ rows, cured, loading }: { rows: RollRateRow[]; cured: number; loading: boolean }) {
-  const total = rows.reduce((s, r) => s + n(r.account_count), 0)
+const AGENT_COLS: TableCol<AgentRow>[] = [
+  { key: 'Agent', label: 'Agent', sortable: true },
+  {
+    key: 'total', label: 'Collected', sortable: true, align: 'right',
+    render: r => <span style={NUM}>{fmtKobo(r.total)}</span>,
+  },
+  {
+    key: 'count', label: 'Transactions', sortable: true, align: 'right',
+    render: r => <span style={NUM}>{fmtNum(r.count)}</span>,
+  },
+]
+
+// ── DPD bucket bar chart ──────────────────────────────────────────────────────
+
+function RollBars({ data }: { data: RollBucket[] }) {
+  if (!data.length) return (
+    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>
+      No DPD data available
+    </div>
+  )
+  const maxKobo = Math.max(...data.map(d => Number(d.outstanding_kobo)), 1)
   return (
-    <SectionCard title="DPD Roll-Rate" subtitle="Current distribution — accounts by days past due">
-      {loading ? (
-        <div className="px-5 py-8 flex justify-center"><div className="h-4 skeleton w-48 rounded" /></div>
-      ) : (
-        <>
-          <div className="overflow-x-auto">
-            <table className="w-full text-[12px]">
-              <thead>
-                <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
-                  {['DPD Bucket','Accounts','% of Queue','Outstanding'].map(h => (
-                    <th key={h} className="px-4 py-2.5 text-left text-[10.5px] font-semibold uppercase tracking-wide" style={{ color: 'var(--txt2)' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, i) => {
-                  const pct = total > 0 ? (n(row.account_count) / total) * 100 : 0
-                  const color = DPD_COLOR[row.dpd_bucket] ?? '#94A3B8'
-                  return (
-                    <tr key={i} style={{ borderBottom: '1px solid var(--bdr)' }}>
-                      <td className="px-4 py-2.5">
-                        <span className="flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
-                          <span className="font-semibold" style={{ color: 'var(--txt)' }}>DPD {row.dpd_bucket}</span>
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 font-mono font-semibold" style={{ color: 'var(--txt)' }}>{n(row.account_count).toLocaleString()}</td>
-                      <td className="px-4 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bdr)', maxWidth: 80 }}>
-                            <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
-                          </div>
-                          <span className="tabular-nums" style={{ color: 'var(--txt2)' }}>{pct.toFixed(1)}%</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-2.5 font-mono" style={{ color: 'var(--txt2)' }}>{fmt(n(row.outstanding_kobo) / 100)}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-          {cured > 0 && (
-            <div className="mx-4 mb-4 mt-3 flex items-center gap-2 px-4 py-2.5 rounded-lg text-[12px]"
-              style={{ background: 'rgba(5,150,105,0.07)', border: '1px solid rgba(5,150,105,0.2)', color: GREEN }}>
-              <span className="material-symbols-rounded text-[16px]">trending_down</span>
-              <span><strong>{cured.toLocaleString()}</strong> account{cured === 1 ? '' : 's'} cured to DPD 0 this month</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '4px 0' }}>
+      {data.map(d => {
+        const pct = (Number(d.outstanding_kobo) / maxKobo) * 100
+        const color = dpdColor(d.dpd_bucket)
+        return (
+          <div key={d.dpd_bucket}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color }}>DPD {d.dpd_bucket}</span>
+              <span style={{ ...NUM, fontSize: 12, color: 'var(--txt)' }}>
+                {fmtKobo(d.outstanding_kobo)}
+                <span style={{ color: 'var(--txt2)', marginLeft: 6 }}>({fmtNum(d.account_count)} accts)</span>
+              </span>
             </div>
-          )}
-        </>
-      )}
-    </SectionCard>
+            <div style={{ height: 6, background: 'var(--bdr)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', width: `${pct}%`,
+                background: color, borderRadius: 3, transition: 'width 0.4s',
+              }} />
+            </div>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
-/* ── Main Page ── */
-export default function CollectionsOverview() {
-  const [from, setFrom] = useState(monthStart())
-  const [to,   setTo]   = useState(today())
+// ── Main component ────────────────────────────────────────────────────────────
 
-  const [kpis,    setKpis]    = useState<CollectionsKpi | null>(null)
-  const [buckets, setBuckets] = useState<DpdBucket[]>([])
-  const [rollRate, setRollRate] = useState<RollRateRow[]>([])
-  const [curedCount, setCuredCount] = useState(0)
-  const [activity, setActivity] = useState<any[]>([])
-  const [loading, setLoading]  = useState(true)
-  const [error,   setError]    = useState('')
+export default function CollectionsOverview() {
+  const [kpis, setKpis]         = useState<PortfolioKPIs | null>(null)
+  const [dpdTrend, setDpdTrend] = useState<DPDTrendPoint[]>([])
+  const [agents, setAgents]     = useState<AgentRow[]>([])
+  const [rollData, setRollData] = useState<RollBucket[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [err, setErr]           = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true); setError('')
+    setLoading(true)
+    setErr(null)
     try {
-      const res = await apiFetch('/api/collections-ops/dashboard')
-      const d   = res.data ?? res
-      const kpiData: CollectionsKpi = {
-        total_queue:            n(d.total_assigned ?? 0),
-        contacted_today:        n(d.contacts_today ?? 0),
-        ptps_today:             n(d.honoured_today ?? 0),
-        collected_today_kobo:   n(d.collected_today_kobo ?? 0),
-        target_kobo:            n(d.target_kobo ?? 0),
-        target_achievement_pct: n(d.target_kobo) > 0
-          ? Math.min(100, (n(d.collected_today_kobo) / n(d.target_kobo)) * 100)
-          : 0,
-        ptp_kept_rate_pct: n(d.ptp_kept_rate_pct ?? 0),
-        contact_rate_pct:  n(d.contact_rate_pct ?? 0),
-        cure_rate_pct:     n(d.cure_rate_pct ?? 0),
-      }
-      setKpis(kpiData)
-
-      // Roll-rate data
-      try {
-        const rr = await apiFetch('/api/collections/roll-rate')
-        const rrData = rr.data ?? rr
-        setRollRate(rrData.current_distribution ?? [])
-        setCuredCount(n(rrData.cured_this_month ?? 0))
-      } catch {
-        setRollRate([])
-      }
-
-      // Activity trend for the date range
-      try {
-        const res = await apiFetch(`/api/collections-ops/activity?date_from=${from}&date_to=${to}`)
-        setActivity((res.data ?? res) as any[])
-      } catch {
-        setActivity([])
-      }
-
-      // DPD bucket breakdown
-      try {
-        const res = await apiFetch('/api/collections-ops/dpd-buckets')
-        setBuckets((res.data ?? res) as DpdBucket[])
-      } catch {
-        // Derive buckets from queue if dedicated endpoint unavailable
-        try {
-          const qRes = await apiFetch('/api/collections-ops/queue?limit=500')
-          const rows: any[] = qRes.data ?? qRes ?? []
-          const map: Record<string, { count: number; outstanding_kobo: number }> = {}
-          rows.forEach(r => {
-            const b = r.dpd_bucket ?? 'unknown'
-            if (!map[b]) map[b] = { count: 0, outstanding_kobo: 0 }
-            map[b].count++
-            map[b].outstanding_kobo += n(r.outstanding_kobo)
-          })
-          setBuckets(Object.entries(map).map(([dpd_bucket, v]) => ({ dpd_bucket, ...v })))
-        } catch {
-          setBuckets([])
-        }
-      }
+      const [kpisRes, trendRes, agentRes, rollRes] = await Promise.all([
+        apiFetch<{ data: PortfolioKPIs }>('/api/collections/portfolio-kpis'),
+        apiFetch<{ data: DPDTrendPoint[] }>('/api/collections/dpd-trend'),
+        apiFetch<{ data: AgentRow[] }>('/api/collections/by-agent'),
+        apiFetch<{ data: { current_distribution: RollBucket[] } }>('/api/collections/roll-rate'),
+      ])
+      setKpis(kpisRes.data)
+      setDpdTrend(trendRes.data ?? [])
+      setAgents(agentRes.data ?? [])
+      setRollData(rollRes.data?.current_distribution ?? [])
     } catch (e: any) {
-      setError(e.message)
+      setErr(e.message ?? 'Failed to load collections data')
     } finally {
       setLoading(false)
     }
-  }, [from, to])
+  }, [])
 
   useEffect(() => { load() }, [load])
 
-  const d = kpis ?? {} as Partial<CollectionsKpi>
-  const achievePct = n(d.target_achievement_pct)
-
-  /* Activity bar-chart data */
-  const activityCols: ColDef<any>[] = [
-    { key: 'agent_name',    label: 'Agent' },
-    { key: 'contacts',      label: 'Contacts',  right: true, render: r => n(r.contacts).toLocaleString() },
-    { key: 'ptps',          label: 'PTPs',       right: true, render: r => n(r.ptps).toLocaleString() },
-    { key: 'collected_kobo',label: 'Collected',  right: true,
-      render: r => <span className="font-mono font-semibold">{fmt(n(r.collected_kobo) / 100)}</span> },
-  ]
+  const kpiLoading = loading && !kpis
+  const collectedMTD = agents.reduce((s, a) => s + Number(a.total ?? 0), 0)
+  const avgRecoveryPct = kpis?.total_outstanding_kobo
+    ? (collectedMTD / kpis.total_outstanding_kobo) * 100
+    : null
 
   return (
     <Page
-      dept="Collections"
       title="Collections Overview"
-      subtitle="Agent activity, targets and daily recovery"
-      actions={
-        <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
-      }>
-      <ErrBanner msg={error} />
+      subtitle="Portfolio at risk, recovery performance, and agent activity"
+    >
+      <ErrBanner error={err} onRetry={load} />
 
-      {/* KPI row 1 */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPI strip — PAR30, PAR90, Total Outstanding, Current Rate */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard
-          label="Active Queue"
-          value={fmtNum(d.total_queue)}
-          icon="assignment"
-          accent={NAVY}
-          loading={loading}
-        />
-        <KpiCard
-          label="Contacted Today"
-          value={fmtNum(d.contacted_today)}
-          icon="phone_in_talk"
+          label="PAR30 Total"
+          value={fmtKobo(kpis?.par30_kobo)}
+          sub="1–30 days past due"
+          icon="warning_amber"
           accent={AMBER}
-          loading={loading}
+          loading={kpiLoading}
         />
         <KpiCard
-          label="PTPs Today"
-          value={fmtNum(d.ptps_today)}
-          icon="handshake"
-          accent={NAVY}
-          loading={loading}
+          label="PAR90 Total"
+          value={fmtKobo(kpis?.par90_kobo)}
+          sub="91–360 days past due"
+          icon="error_outline"
+          accent={RED}
+          loading={kpiLoading}
         />
         <KpiCard
-          label="Collected Today"
-          value={fmt(n(d.collected_today_kobo) / 100)}
+          label="Collected MTD"
+          value={fmtKobo(collectedMTD)}
+          sub={`${fmtNum(agents.length)} agents`}
           icon="payments"
+          accent={BLUE}
+          loading={kpiLoading}
+        />
+        <KpiCard
+          label="Avg Recovery Rate"
+          value={avgRecoveryPct !== null ? fmtPct(avgRecoveryPct) : '—'}
+          sub={`${fmtNum(kpis?.delinquent_accounts)} delinquent`}
+          icon="trending_up"
           accent={GREEN}
-          sub={d.target_kobo ? `Target: ${fmt(n(d.target_kobo) / 100)}` : undefined}
-          loading={loading}
+          loading={kpiLoading}
         />
       </div>
 
-      {/* KPI row 2 — rate metrics */}
-      <div className="grid grid-cols-3 gap-4 mt-4">
-        <KpiCard
-          label="PTP Kept Rate"
-          value={loading ? '—' : `${Number(d.ptp_kept_rate_pct ?? 0).toFixed(1)}%`}
-          sub="Promises honoured MTD"
-          icon="check_circle"
-          accent={(d.ptp_kept_rate_pct ?? 0) >= 70 ? GREEN : (d.ptp_kept_rate_pct ?? 0) >= 50 ? AMBER : RED}
-          loading={loading}
-        />
-        <KpiCard
-          label="Contact Rate"
-          value={loading ? '—' : `${Number(d.contact_rate_pct ?? 0).toFixed(1)}%`}
-          sub="Contacts vs assigned today"
-          icon="phone_in_talk"
-          accent={(d.contact_rate_pct ?? 0) >= 50 ? GREEN : (d.contact_rate_pct ?? 0) >= 30 ? AMBER : RED}
-          loading={loading}
-        />
-        <KpiCard
-          label="Cure Rate"
-          value={loading ? '—' : `${Number(d.cure_rate_pct ?? 0).toFixed(1)}%`}
-          sub="Moved to DPD 0 this month"
-          icon="trending_down"
-          accent={(d.cure_rate_pct ?? 0) >= 10 ? GREEN : AMBER}
-          loading={loading}
-        />
-      </div>
-
-      {/* Target achievement banner */}
-      {!loading && n(d.target_kobo) > 0 && (
-        <div className="mt-4 card px-5 py-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>Daily Target Achievement</span>
-            <span className="kpi-number text-[15px] font-bold" style={{ color: achievePct >= 100 ? GREEN : achievePct >= 70 ? AMBER : RED }}>
-              {achievePct.toFixed(1)}%
-            </span>
+      {/* Chart row: stacked DPD trend + DPD bucket distribution */}
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 20 }}>
+        {/* Left: stacked area — 6-month PAR trend */}
+        <SectionCard title="6-Month DPD Trend (PAR30 / PAR60 / PAR90)" padding={false}>
+          <div style={{ padding: '16px 18px' }}>
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={dpdTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="par30Grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor={AMBER}   stopOpacity={0.22} />
+                    <stop offset="95%" stopColor={AMBER}   stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="par60Grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor={RED}     stopOpacity={0.18} />
+                    <stop offset="95%" stopColor={RED}     stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="par90Grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#7F0000" stopOpacity={0.22} />
+                    <stop offset="95%" stopColor="#7F0000" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 11, fill: '#9AA4B8' }}
+                  axisLine={false} tickLine={false}
+                />
+                <YAxis
+                  tickFormatter={v => fmtKobo(v)}
+                  tick={{ fontSize: 11, fill: '#9AA4B8' }}
+                  axisLine={false} tickLine={false} width={74}
+                />
+                <Tooltip content={<KoboTooltip />} />
+                <Area
+                  type="monotone" dataKey="par30_kobo" name="PAR30"
+                  stroke={AMBER} strokeWidth={2} fill="url(#par30Grad)"
+                  stackId="par"
+                />
+                <Area
+                  type="monotone" dataKey="par60_kobo" name="PAR60"
+                  stroke={RED} strokeWidth={2} fill="url(#par60Grad)"
+                  stackId="par"
+                />
+                <Area
+                  type="monotone" dataKey="par90_kobo" name="PAR90"
+                  stroke="#7F0000" strokeWidth={2} fill="url(#par90Grad)"
+                  stackId="par"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
-          <div className="h-3 rounded-full overflow-hidden" style={{ background: 'var(--bdr)' }}>
-            <div className="h-full rounded-full transition-all duration-700"
-              style={{
-                width: `${Math.min(achievePct, 100)}%`,
-                background: achievePct >= 100 ? GREEN : achievePct >= 70 ? AMBER : RED,
-              }} />
-          </div>
-          <p className="text-[11px] mt-1.5" style={{ color: 'var(--txt2)' }}>
-            {fmt(n(d.collected_today_kobo) / 100)} collected of {fmt(n(d.target_kobo) / 100)} target
-          </p>
-        </div>
-      )}
-
-      {/* Today's activity + DPD summary */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-        <SectionCard title="Today's Activity" subtitle={`Agent performance ${from} – ${to}`}>
-          {activity.length > 0
-            ? <DataTable cols={activityCols} rows={activity} loading={loading} emptyMsg="No activity data" />
-            : (
-              <div className="px-5 py-10 flex flex-col items-center gap-2" style={{ color: 'var(--txt2)' }}>
-                <span className="material-symbols-rounded text-[36px]">bar_chart</span>
-                <p className="text-[13px]">No activity data for this period</p>
-              </div>
-            )}
         </SectionCard>
 
-        <DpdSummary data={buckets} loading={loading} />
+        {/* Right: DPD bucket outstanding distribution */}
+        <SectionCard title="Outstanding by DPD Bucket" padding={false}>
+          <div style={{ padding: '16px 18px' }}>
+            <RollBars data={rollData} />
+          </div>
+        </SectionCard>
       </div>
 
-      {/* Bar chart of activity trend if data has a date key */}
-      {activity.length > 0 && (activity[0]?.date || activity[0]?.activity_date) && (
-        <div className="mt-4">
-          <BarChartCard
-            title="Collections Trend"
-            subtitle={`Daily collected amount ${from} – ${to}`}
-            data={activity.map(r => ({
-              ...r,
-              date: (r.date ?? r.activity_date ?? '').slice(5),
-              collected: n(r.collected_kobo) / 100,
-            }))}
-            xKey="date"
-            barKey="collected"
-            color={GREEN}
-            currency
-            height={220}
-            loading={loading}
-          />
-        </div>
+      {/* Agent performance table */}
+      <SectionCard
+        title="Agent Collection Performance"
+        badge={agents.length}
+        padding={false}
+        subtitle="Top 15 agents by amount collected"
+      >
+        <DataTable
+          cols={AGENT_COLS}
+          rows={agents}
+          keyFn={(r, i) => r.Agent ?? i}
+          loading={loading}
+          skeletonRows={8}
+          emptyText="No agent data found"
+        />
+      </SectionCard>
+
+      {/* Agent bar chart */}
+      {agents.length > 0 && (
+        <SectionCard title="Top 10 Agents — Collections Bar" padding={false} style={{ marginTop: 16 }}>
+          <div style={{ padding: '16px 18px' }}>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart
+                data={agents.slice(0, 10)}
+                margin={{ top: 4, right: 8, left: 0, bottom: 40 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
+                <XAxis
+                  dataKey="Agent"
+                  tick={{ fontSize: 10, fill: '#9AA4B8' }}
+                  axisLine={false} tickLine={false}
+                  angle={-35} textAnchor="end" interval={0}
+                />
+                <YAxis
+                  tickFormatter={v => fmtKobo(v)}
+                  tick={{ fontSize: 11, fill: '#9AA4B8' }}
+                  axisLine={false} tickLine={false} width={74}
+                />
+                <Tooltip content={<KoboTooltip />} />
+                <Bar dataKey="total" name="Collected" fill={BLUE} radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
       )}
-
-      {/* Roll-rate matrix */}
-      <div className="mt-4">
-        <RollRateMatrix rows={rollRate} cured={curedCount} loading={loading} />
-      </div>
-
-      {/* Quick links */}
-      <div className="mt-4 flex flex-wrap gap-3">
-        <QuickLink label="Agent Queue"      to="/collections/queue"    icon="assignment" />
-        <QuickLink label="Targets"          to="/collections/targets"  icon="flag" />
-        <QuickLink label="Promise-to-Pay"   to="/collections/promises" icon="handshake" />
-      </div>
     </Page>
   )
 }

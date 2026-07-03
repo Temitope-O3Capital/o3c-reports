@@ -1,421 +1,219 @@
-import { lazy, Suspense, useEffect, useRef, useState, useCallback, Component, memo } from 'react'
+import {
+  lazy, Suspense, useEffect, useState, useCallback, useRef, Component, memo,
+} from 'react'
 import type { ReactNode } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useParams, useLocation } from 'react-router-dom'
+import {
+  BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useLocation,
+} from 'react-router-dom'
 import { Toaster, toast } from 'sonner'
-import Sidebar from './components/Sidebar'
-import NotificationBell from './components/NotificationBell'
 
+import Sidebar          from './components/Sidebar'
+import NotificationBell from './components/NotificationBell'
+import { type AuthUser, parseToken, ROLE_PAGES } from './hooks/useAuth'
+import { roleLabel }    from './lib/roles'
+import { API, apiFetch } from './lib/api'
+import { LIGHT, DARK }  from './lib/design'
+
+// ── Lazy imports ──────────────────────────────────────────────────────────────
+const CS         = lazy(() => import('./pages/ComingSoon'))
+const CSATSurvey = lazy(() => import('./pages/helpdesk/CSATSurvey'))
+
+// Intelligence
+const ReportsBI     = lazy(() => import('./pages/reports/BI'))
+const ReportsKPI    = lazy(() => import('./pages/reports/KPITracker'))
+const ReportsExport = lazy(() => import('./pages/reports/Export'))
+const Statements    = lazy(() => import('./pages/statements/Statements'))
 const Login    = lazy(() => import('./pages/Login'))
 const Overview = lazy(() => import('./pages/Overview'))
-import { AuthUser, parseToken, ROLE_PAGES } from './hooks/useAuth'
-import { roleLabel } from './lib/roles'
-import { API, apiFetch } from './lib/api'
-import { LIGHT, DARK } from './lib/design'
+const C360     = lazy(() => import('./components/C360Drawer'))
 
-// ── Role → home route ─────────────────────────────────────────────────────────
+// BD
+const BDOverview   = lazy(() => import('./pages/bd/Overview'))
+const BDPipeline   = lazy(() => import('./pages/bd/Pipeline'))
+const BDEmployers  = lazy(() => import('./pages/bd/Employers'))
+const BDAnalytics  = lazy(() => import('./pages/bd/Analytics'))
+
+// Sales
+const SalesOverview  = lazy(() => import('./pages/sales/Overview'))
+const SalesCohort    = lazy(() => import('./pages/sales/Cohort'))
+const SalesReports   = lazy(() => import('./pages/sales/Reports'))
+const CRMContacts    = lazy(() => import('./pages/sales/Customers'))
+const CRMPipelinePg  = lazy(() => import('./pages/sales/CRMPipeline'))
+const CRMTasks       = lazy(() => import('./pages/sales/Tasks'))
+
+// LOS (loan origination)
+const LOSQueue         = lazy(() => import('./pages/los/Queue'))
+const LOSNewApp        = lazy(() => import('./pages/los/NewApplication'))
+const LOSAppDetail     = lazy(() => import('./pages/los/ApplicationDetail'))
+
+// Collections
+const CollectionsOverview  = lazy(() => import('./pages/collections/Overview'))
+const CollectionsQueue     = lazy(() => import('./pages/collections/Queue'))
+const CollectionsPromises  = lazy(() => import('./pages/collections/Promises'))
+const CollectionsPlans     = lazy(() => import('./pages/collections/RepaymentPlans'))
+const CollectionsWriteoffs = lazy(() => import('./pages/collections/WriteoffQueue'))
+
+// Risk
+const RiskAppReview    = lazy(() => import('./pages/risk/AppReview'))
+const RiskPortfolio    = lazy(() => import('./pages/risk/PortfolioHealth'))
+const RiskEyeScore     = lazy(() => import('./pages/risk/EyeScore'))
+const RiskVintage      = lazy(() => import('./pages/risk/VintageAnalysis'))
+
+// Recovery
+const RecoveryOverview = lazy(() => import('./pages/recovery/Overview'))
+const RecoveryCases    = lazy(() => import('./pages/recovery/Cases'))
+const RecoveryLegal    = lazy(() => import('./pages/recovery/Legal'))
+const RecoveryTPA      = lazy(() => import('./pages/recovery/TPA'))
+
+// Helpdesk
+const HelpdeskTickets     = lazy(() => import('./pages/helpdesk/Tickets'))
+const HelpdeskTicketDetail = lazy(() => import('./pages/helpdesk/TicketDetail'))
+const HelpdeskSupervisor  = lazy(() => import('./pages/helpdesk/Supervisor'))
+const HelpdeskCalls       = lazy(() => import('./pages/helpdesk/Calls'))
+const HelpdeskStats       = lazy(() => import('./pages/helpdesk/Stats'))
+const HelpdeskKB          = lazy(() => import('./pages/helpdesk/KnowledgeBase'))
+const HelpdeskCanned      = lazy(() => import('./pages/helpdesk/Canned'))
+
+// Cards
+const CardsOverview    = lazy(() => import('./pages/cards/Overview'))
+const CardsMgmt        = lazy(() => import('./pages/cards/Management'))
+const CardsIssuance    = lazy(() => import('./pages/cards/Issuance'))
+const CardsDisputes    = lazy(() => import('./pages/cards/Disputes'))
+const CardsCreditLimit = lazy(() => import('./pages/cards/CreditLimit'))
+const CardsBilling     = lazy(() => import('./pages/cards/Billing'))
+
+// Admin
+const AdminOverview              = lazy(() => import('./pages/admin/Overview'))
+const AdminUsers                 = lazy(() => import('./pages/admin/Users'))
+const AdminRoles                 = lazy(() => import('./pages/admin/Roles'))
+const AdminEmailSenders          = lazy(() => import('./pages/admin/EmailSenders'))
+const AdminMailHealth            = lazy(() => import('./pages/admin/MailHealth'))
+const AdminApiKeys               = lazy(() => import('./pages/admin/ApiKeys'))
+const AdminSettings              = lazy(() => import('./pages/admin/Settings'))
+const AdminNotificationSettings  = lazy(() => import('./pages/admin/NotificationSettings'))
+const AdminIntegrations          = lazy(() => import('./pages/admin/Integrations'))
+const AdminAuditLog              = lazy(() => import('./pages/admin/AuditLog'))
+const AdminSyncStatus            = lazy(() => import('./pages/admin/SyncStatus'))
+
+// Finance
+const FinanceOverview     = lazy(() => import('./pages/finance/Overview'))
+const FinanceTxns         = lazy(() => import('./pages/finance/Transactions'))
+const FinanceIncome       = lazy(() => import('./pages/finance/Income'))
+const FinanceFD           = lazy(() => import('./pages/finance/FixedDeposit'))
+const FinanceEOD          = lazy(() => import('./pages/finance/EOD'))
+const FinancePnL          = lazy(() => import('./pages/finance/PnL'))
+const FinanceManualPost   = lazy(() => import('./pages/finance/ManualPosting'))
+const FinanceCoA          = lazy(() => import('./pages/finance/ChartOfAccounts'))
+const FinanceFDMaturity   = lazy(() => import('./pages/finance/FDMaturity'))
+const FinanceCosts        = lazy(() => import('./pages/finance/CostTracking'))
+const FinanceBudget       = lazy(() => import('./pages/finance/Budget'))
+
+// Settlements
+const SettleBatches    = lazy(() => import('./pages/settlements/Batches'))
+const SettleNIP        = lazy(() => import('./pages/settlements/NIP'))
+const SettleFailed     = lazy(() => import('./pages/settlements/FailedTransactions'))
+const SettleManualPost = lazy(() => import('./pages/settlements/ManualPostings'))
+
+// Telemarketing
+const TelemarketingQueue       = lazy(() => import('./pages/telemarketing/Queue'))
+const TelemarketingDNC         = lazy(() => import('./pages/telemarketing/DNC'))
+const TelemarketingPerformance = lazy(() => import('./pages/telemarketing/Performance'))
+
+// Payroll
+const PayrollOverview = lazy(() => import('./pages/payroll/PayrollOverview'))
+const PayrollRunDetail = lazy(() => import('./pages/payroll/RunDetail'))
+const PayslipView     = lazy(() => import('./pages/payroll/PayslipView'))
+
+// Compliance
+const ComplianceWatchlist   = lazy(() => import('./pages/compliance/Watchlist'))
+const ComplianceRegCalendar = lazy(() => import('./pages/compliance/RegulatoryCalendar'))
+const ComplianceFindings    = lazy(() => import('./pages/compliance/Findings'))
+const ComplianceChecklists  = lazy(() => import('./pages/compliance/Checklists'))
+const ComplianceAuditTrail  = lazy(() => import('./pages/compliance/AuditTrail'))
+
+// HR
+const HREmployees    = lazy(() => import('./pages/hr/Employees'))
+const HRLeave        = lazy(() => import('./pages/hr/Leave'))
+const HRPerformance  = lazy(() => import('./pages/hr/Performance'))
+const HRDisciplinary = lazy(() => import('./pages/hr/Disciplinary'))
+const HRTraining     = lazy(() => import('./pages/hr/Training'))
+
+// ── Role → home ───────────────────────────────────────────────────────────────
 
 function homeFor(role: string): string {
   const map: Record<string, string> = {
     md: '/', coo: '/', cfo: '/', cmo: '/', executive: '/',
-    admin: '/', management: '/', head_ops: '/', head_it: '/',
-    sales_officer: '/sales',   sales_head: '/sales',
-    risk_officer:  '/risk',    risk_head: '/risk',
-    finance_officer: '/finance', finance_head: '/finance',
-    cards_ops_officer: '/cards', cards_ops_head: '/cards',
+    admin: '/', management: '/', head_ops: '/', head_it: '/admin/overview',
+    sales_officer: '/sales',       sales_head: '/sales',
+    bd_officer: '/bd',             bd_head: '/bd',
+    risk_officer: '/operations/risk', risk_head: '/operations/risk',
+    finance_officer: '/finance',   finance_head: '/finance',
+    cards_ops_officer: '/cards',   cards_ops_head: '/cards',
     collections_agent: '/collections', collections_head: '/collections',
-    recovery_agent: '/recovery',       recovery_head: '/recovery',
+    recovery_agent: '/recovery',   recovery_head: '/recovery',
     call_center_agent: '/helpdesk', call_center_head: '/helpdesk',
-    hr_officer: '/hr',         hr_manager: '/hr',
+    hr_officer: '/hr',             hr_manager: '/hr',
     compliance_officer: '/compliance', compliance_head: '/compliance',
     internal_control_head: '/compliance',
-    it_admin: '/admin',
+    it_admin: '/admin/overview',
+    bi_analyst: '/reports',        bi_head: '/reports',
+    settlement_officer: '/settlements',
+    telemarketing_agent: '/telemarketing', telemarketing_head: '/telemarketing',
+    payroll_officer: '/payroll',   payroll_manager: '/payroll',
   }
-  return map[role] ?? '/finance'
+  return map[role] ?? '/'
 }
 
-// ── Lazy imports ──────────────────────────────────────────────────────────────
+// ── Access guard ──────────────────────────────────────────────────────────────
 
-// Finance
-const FinanceOverview  = lazy(() => import('./pages/finance/Overview'))
-const Transactions     = lazy(() => import('./pages/finance/Transactions'))
-const Eod              = lazy(() => import('./pages/finance/Eod'))
-const Income           = lazy(() => import('./pages/finance/Income'))
-const FixedDeposit     = lazy(() => import('./pages/operations/FixedDeposit'))
+const MGMT = new Set([
+  'md','coo','cfo','cmo','executive','admin','management','head_ops','head_it','head_hr',
+])
 
-// Sales
-const SalesOverview    = lazy(() => import('./pages/sales/Overview'))
-const Customers        = lazy(() => import('./pages/sales/Customers'))
-
-// CRM (now under /sales)
-const CrmPipeline      = lazy(() => import('./pages/crm/Pipeline'))
-const CrmTasks         = lazy(() => import('./pages/crm/Tasks'))
-
-// LOS (now under /sales/applications and /risk/applications)
-const LOSQueue         = lazy(() => import('./pages/los/Queue'))
-const LOSAll           = lazy(() => import('./pages/los/AllApplications'))
-const LOSNew           = lazy(() => import('./pages/los/NewApplication'))
-const LOSDetail        = lazy(() => import('./pages/los/ApplicationDetail'))
-
-// Risk
-const RiskOverview     = lazy(() => import('./pages/risk/Overview'))
-const RiskPortfolio    = lazy(() => import('./pages/risk/Portfolio'))
-
-// Cards & Channels
-const CardsOverview    = lazy(() => import('./pages/cards/Overview'))
-const CardTrends       = lazy(() => import('./pages/cards/Trends'))
-const CardManagement   = lazy(() => import('./pages/cards/Management'))
-const BlinkCard        = lazy(() => import('./pages/operations/BlinkCard'))
-const MobileApp        = lazy(() => import('./pages/operations/MobileApp'))
-
-// Collections
-const CollectionsOverview = lazy(() => import('./pages/collections/Overview'))
-const CollectionsQueue    = lazy(() => import('./pages/collections-ops/Queue'))
-const CollectionsTargets  = lazy(() => import('./pages/collections-ops/Targets'))
-const CollectionsPromises = lazy(() => import('./pages/collections-ops/Promises'))
-
-// Recovery
-const RecoveryOverview = lazy(() => import('./pages/recovery/Overview'))
-const RecoveryCases    = lazy(() => import('./pages/recovery-ops/Cases'))
-const RecoveryLegal    = lazy(() => import('./pages/recovery-ops/Legal'))
-const RecoveryVisits   = lazy(() => import('./pages/recovery-ops/Visits'))
-
-// Settlements
-const SettlementsOverview = lazy(() => import('./pages/settlements/Overview'))
-const Reconciliation      = lazy(() => import('./pages/finance/Reconciliation'))
-
-// Customer 360
-const Customer360      = lazy(() => import('./pages/customer360/Customer360'))
-
-// HR
-const HREmployees      = lazy(() => import('./pages/hr/Employees'))
-const HRLeave          = lazy(() => import('./pages/hr/Leave'))
-const HRDisciplinary   = lazy(() => import('./pages/hr/Disciplinary'))
-const HRTraining       = lazy(() => import('./pages/hr/Training'))
-const HRPerformance    = lazy(() => import('./pages/hr/Performance'))
-
-// Compliance
-const AuditTrail       = lazy(() => import('./pages/compliance/AuditTrail'))
-const CbnReports       = lazy(() => import('./pages/compliance/CbnReports'))
-const Sars             = lazy(() => import('./pages/compliance/Sars'))
-const WatchList        = lazy(() => import('./pages/compliance/WatchList'))
-const Findings         = lazy(() => import('./pages/compliance/Findings'))
-const Checklists       = lazy(() => import('./pages/compliance/Checklists'))
-
-// Campaigns (was /marketing/*)
-const Campaigns            = lazy(() => import('./pages/Campaigns'))
-const CampaignsOverview    = lazy(() => import('./pages/campaigns/CampaignsOverview'))
-const CSATPage             = lazy(() => import('./pages/helpdesk/CSAT'))
-const CampaignReport       = lazy(() => import('./pages/campaigns/CampaignReport'))
-const AllCampaignAnalytics = lazy(() => import('./pages/campaigns/AllCampaignAnalytics'))
-
-// Customer 360 drawer
-const C360Drawer = lazy(() => import('./components/C360Drawer'))
-
-// Helpdesk (Customer Service ticketing)
-const HelpdeskOverview = lazy(() => import('./pages/helpdesk/HelpdeskOverview'))
-const TicketList       = lazy(() => import('./pages/helpdesk/TicketList'))
-const TicketDetail     = lazy(() => import('./pages/helpdesk/TicketDetail'))
-const CannedResponses  = lazy(() => import('./pages/helpdesk/CannedResponses'))
-const HelpdeskStats    = lazy(() => import('./pages/helpdesk/HelpdeskStats'))
-const VoiceConnect     = lazy(() => import('./pages/settings/VoiceConnect'))
-const MessageTemplates = lazy(() => import('./pages/marketing/MessageTemplates'))
-const ContactLists     = lazy(() => import('./pages/marketing/ContactLists'))
-const ComposeMail      = lazy(() => import('./pages/marketing/ComposeMail'))
-
-// Customer Service
-const CSOverview       = lazy(() => import('./pages/customer-service/Overview'))
-const CSCalls          = lazy(() => import('./pages/customer-service/Calls'))
-
-// Admin
-const AdminOverview           = lazy(() => import('./pages/admin/AdminOverview'))
-const UserManagement          = lazy(() => import('./pages/admin/UserManagement'))
-const RoleManagement          = lazy(() => import('./pages/admin/RoleManagement'))
-const PlatformSettings        = lazy(() => import('./pages/admin/PlatformSettings'))
-const SyncStatus              = lazy(() => import('./pages/admin/SyncStatus'))
-const ApiKeys                 = lazy(() => import('./pages/admin/ApiKeys'))
-const MailHealth              = lazy(() => import('./pages/admin/MailHealth'))
-const NotificationSettings    = lazy(() => import('./pages/admin/NotificationSettings'))
-const NotificationPreferences = lazy(() => import('./pages/settings/NotificationPreferences'))
-const EmailSenders            = lazy(() => import('./pages/admin/EmailSenders'))
-const ZohoIntegration         = lazy(() => import('./pages/admin/ZohoIntegration'))
-
-// Mail environment
-const MailLayout  = lazy(() => import('./pages/mail/MailLayout'))
-const MailInbox   = lazy(() => import('./pages/mail/MailInbox'))
-const MailSent    = lazy(() => import('./pages/mail/MailSent'))
-const MailCompose = lazy(() => import('./pages/mail/MailCompose'))
-const MailDrafts  = lazy(() => import('./pages/mail/MailDrafts'))
-
-// Helpdesk additions
-const CallLog         = lazy(() => import('./pages/helpdesk/CallLog'))
-const NewTicketPage   = lazy(() => import('./pages/helpdesk/NewTicketPage'))
-const SupervisorPage  = lazy(() => import('./pages/helpdesk/Supervisor'))
-const KnowledgeBase   = lazy(() => import('./pages/helpdesk/KnowledgeBase'))
-
-// Telemarketing
-const TelemarketingOverview = lazy(() => import('./pages/telemarketing/Overview'))
-const OutboundQueue         = lazy(() => import('./pages/telemarketing/OutboundQueue'))
-const DNCListPage           = lazy(() => import('./pages/telemarketing/DNCList'))
-
-// Active Loan Book
-const LoanBook   = lazy(() => import('./pages/active-loan-book/LoanBook'))
-const LoanDetail = lazy(() => import('./pages/active-loan-book/LoanDetail'))
-
-// Business Development
-const BDOverview       = lazy(() => import('./pages/bd/Overview'))
-const EmployerRegister = lazy(() => import('./pages/bd/EmployerRegister'))
-const BDPipeline       = lazy(() => import('./pages/bd/Pipeline'))
-
-const PayrollOverview  = lazy(() => import('./pages/payroll/Overview'))
-const PayrollRunDetail = lazy(() => import('./pages/payroll/RunDetail'))
-const PayrollPayslip   = lazy(() => import('./pages/payroll/Payslip'))
-
-// Reports & Approvals
-const Reports          = lazy(() => import('./pages/reports/Reports'))
-const Statements       = lazy(() => import('./pages/statements/Statements'))
-const Approvals        = lazy(() => import('./pages/Approvals'))
-
-// Other platform pages
-const Watch            = lazy(() => import('./pages/Watch'))
-const DesignDemo       = lazy(() => import('./pages/DesignDemo'))
-
-// ── Shared UI helpers ─────────────────────────────────────────────────────────
-
-function Placeholder({ title, dept, icon = 'construction' }: { title: string; dept?: string; icon?: string }) {
-  return (
-    <div className="px-8 py-8 animate-fadeIn">
-      {dept && (
-        <p className="text-[13px] text-slate-400 mb-1">
-          <span className="text-slate-600 font-medium">{dept}</span>
-          <span className="mx-1.5 text-slate-300">›</span>
-          <span className="text-slate-500">{title}</span>
-        </p>
-      )}
-      <div className="flex flex-col items-center justify-center min-h-[55vh] text-center">
-        <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-4"
-          style={{ background: 'rgba(14,40,65,0.06)' }}>
-          <span className="material-symbols-rounded text-[24px]" style={{ color: '#0E2841' }}>{icon}</span>
-        </div>
-        <h2 className="text-[15px] font-semibold text-slate-700 mb-1">{title}</h2>
-        <p className="text-[13px] text-slate-400 max-w-xs leading-relaxed">
-          Being built as part of the platform rebuild.
-        </p>
-      </div>
-    </div>
-  )
+function RequireAccess({ page, user, children }: { page: string; user: AuthUser; children: ReactNode }) {
+  const role = user.role as string
+  if (MGMT.has(role)) return <>{children}</>
+  const allowed = user.pages?.length
+    ? user.pages.includes(page)
+    : (ROLE_PAGES[role] ?? []).includes(page)
+  if (!allowed) return <Navigate to={homeFor(role)} replace />
+  return <>{children}</>
 }
+
+// ── Page shell utilities ──────────────────────────────────────────────────────
 
 function PageLoader() {
   return (
-    <div className="flex items-center justify-center min-h-[60vh]">
-      <div className="w-8 h-8 border-2 rounded-full animate-spin"
-        style={{ borderColor: 'rgba(14,40,65,0.1)', borderTopColor: '#0E2841' }} />
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
+      <div style={{
+        width: 26, height: 26, borderRadius: '50%',
+        border: '2.5px solid var(--bdr)',
+        borderTopColor: 'var(--nav-dot)',
+        animation: 'spin 0.7s linear infinite',
+      }} />
     </div>
   )
 }
 
-// ── Approvals slide-over button ───────────────────────────────────────────────
-
-interface ApprovalItem {
-  id:     number
-  module: string
-  title:  string
-  type:   string
-  url:    string
-}
-
-interface ApprovalSummary {
-  total: number
-  items: ApprovalItem[]
-}
-
-function ToolbarIconLink({ to, icon, title }: { to: string; icon: string; title: string }) {
+function PageFade({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation()
   return (
-    <Link to={to} title={title} aria-label={title}
-      className="flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors">
-      <span className="material-symbols-rounded text-[20px]" aria-hidden="true">{icon}</span>
-    </Link>
+    <div key={pathname} style={{ animation: 'pageFadeIn 180ms ease both', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      {children}
+    </div>
   )
 }
 
-function ToolbarIconButton({ onClick, icon, title }: { onClick: () => void; icon: string; title: string }) {
-  return (
-    <button onClick={onClick} title={title} aria-label={title}
-      className="flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors">
-      <span className="material-symbols-rounded text-[20px]" aria-hidden="true">{icon}</span>
-    </button>
-  )
-}
-
-function ApprovalsButton({ user }: { user: AuthUser }) {
-  const [open,       setOpen]      = useState(false)
-  const [summary,    setSummary]   = useState<ApprovalSummary | null>(null)
-  const [fetchError, setFetchError] = useState(false)
-  const navigate                   = useNavigate()
-  const intervalRef                = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  const fetchSummary = useCallback(async () => {
-    try {
-      const data = await apiFetch<ApprovalSummary>('/api/approvals/summary')
-      setSummary(data)
-      setFetchError(false)
-    } catch {
-      setFetchError(true)
-    }
-  }, [])
-
-  useEffect(() => {
-    fetchSummary()
-    intervalRef.current = setInterval(fetchSummary, 30_000)
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [user.id])
-
-  const total = summary?.total ?? 0
-
-  return (
-    <>
-      <button
-        onClick={() => setOpen(true)}
-        title="Pending approvals"
-        className="relative flex items-center justify-center w-8 h-8 rounded-lg transition-colors hover:bg-slate-100">
-        <span className="material-symbols-rounded text-[20px]" style={{ color: '#0E2841' }}>approval</span>
-        {total > 0 && (
-          <span
-            className="absolute -top-1 -right-1 min-w-[16px] h-4 flex items-center justify-center px-1 text-[11px] font-bold text-white rounded-full"
-            style={{ background: '#C00000' }}>
-            {total > 99 ? '99+' : total}
-          </span>
-        )}
-      </button>
-
-      {/* Backdrop */}
-      {open && (
-        <div
-          className="fixed inset-0 z-40"
-          style={{ background: 'rgba(0,0,0,0.25)' }}
-          onClick={() => setOpen(false)}
-        />
-      )}
-
-      {/* Slide-over panel */}
-      <div
-        className="fixed top-0 right-0 h-full z-50 flex flex-col bg-white shadow-2xl transition-transform duration-200"
-        style={{
-          width:     '420px',
-          transform: open ? 'translateX(0)' : 'translateX(100%)',
-          borderLeft: '1px solid rgba(15,23,42,0.08)',
-        }}>
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 flex-shrink-0"
-          style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
-          <div>
-            <h2 className="text-[15px] font-semibold text-slate-800">Pending Approvals</h2>
-            {total > 0 && (
-              <p className="text-[12px] text-slate-400 mt-0.5">{total} item{total !== 1 ? 's' : ''} awaiting review</p>
-            )}
-          </div>
-          <button
-            onClick={() => setOpen(false)}
-            className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
-            aria-label="Close">
-            <span className="material-symbols-rounded text-[18px] text-slate-500">close</span>
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          {!summary && !fetchError && (
-            <div className="flex items-center justify-center py-12">
-              <div className="w-6 h-6 border-2 rounded-full animate-spin"
-                style={{ borderColor: 'rgba(14,40,65,0.1)', borderTopColor: '#0E2841' }} />
-            </div>
-          )}
-          {fetchError && (
-            <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
-              <span className="material-symbols-rounded text-[32px]" style={{ color: '#C00000', opacity: 0.5 }}>error_outline</span>
-              <p className="text-[13px] text-slate-500">Could not load approvals</p>
-              <button
-                onClick={fetchSummary}
-                className="text-[12px] font-medium px-3 py-1.5 rounded-lg transition-colors"
-                style={{ background: 'rgba(14,40,65,0.07)', color: '#0E2841' }}>
-                Retry
-              </button>
-            </div>
-          )}
-
-          {summary && total === 0 && (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <span className="material-symbols-rounded text-[36px] mb-3" style={{ color: '#0E2841', opacity: 0.2 }}>
-                check_circle
-              </span>
-              <p className="text-[14px] font-medium text-slate-600">All clear</p>
-              <p className="text-[12px] text-slate-400 mt-1">No pending approvals</p>
-            </div>
-          )}
-
-          {summary && total > 0 && (
-            <div className="space-y-2">
-              {summary.items.map(item => (
-                <div
-                  key={item.id}
-                  className="flex items-start gap-3 p-3 rounded-xl hover:bg-slate-50 transition-colors"
-                  style={{ border: '1px solid rgba(15,23,42,0.07)' }}>
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
-                    style={{ background: 'rgba(14,40,65,0.06)' }}>
-                    <span className="material-symbols-rounded text-[16px]" style={{ color: '#0E2841' }}>
-                      pending_actions
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium text-slate-700 leading-tight truncate">{item.title}</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5 capitalize">{item.module} · {item.type}</p>
-                  </div>
-                  <button
-                    onClick={() => { setOpen(false); navigate(item.url) }}
-                    className="text-[12px] font-semibold px-2.5 py-1.5 rounded-lg transition-colors flex-shrink-0"
-                    style={{ color: '#0E2841', background: 'rgba(14,40,65,0.07)' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(14,40,65,0.13)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'rgba(14,40,65,0.07)')}>
-                    Review
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Footer link to full approvals page */}
-        <div className="flex-shrink-0 px-5 py-3" style={{ borderTop: '1px solid rgba(15,23,42,0.07)' }}>
-          <button
-            onClick={() => { setOpen(false); navigate('/approvals') }}
-            className="w-full py-2.5 text-[13px] font-semibold rounded-xl transition-colors"
-            style={{ background: 'rgba(14,40,65,0.06)', color: '#0E2841' }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(14,40,65,0.11)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(14,40,65,0.06)')}>
-            View all approvals
-          </button>
-        </div>
-      </div>
-    </>
-  )
-}
-
-// ── Per-route error boundary ──────────────────────────────────────────────────
-
-class PageErrorBoundary extends Component<{ children: ReactNode }, { error: boolean }> {
-  state = { error: false }
-  static getDerivedStateFromError() { return { error: true } }
+class PageErrorBoundary extends Component<{ children: ReactNode }, { err: string | null }> {
+  state = { err: null }
+  static getDerivedStateFromError(e: Error) { return { err: e.message } }
   render() {
-    if (this.state.error) return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-8">
-        <span className="material-symbols-rounded text-[40px]" style={{ color: '#C00000', opacity: 0.5 }}>error_outline</span>
-        <div>
-          <p className="text-[15px] font-semibold text-slate-700 mb-1">This page failed to load</p>
-          <p className="text-[13px] text-slate-400">Try refreshing, or navigate to another page.</p>
-        </div>
-        <button onClick={() => this.setState({ error: false })}
-          className="text-[13px] font-medium px-4 py-2 rounded-lg transition-colors"
-          style={{ background: 'rgba(14,40,65,0.07)', color: '#0E2841' }}>
+    if (this.state.err) return (
+      <div style={{ padding: 32, color: 'var(--nav-dot)', fontFamily: 'Sora, sans-serif' }}>
+        <p style={{ fontWeight: 600, marginBottom: 8 }}>Page error</p>
+        <p style={{ fontSize: 13, opacity: 0.8, marginBottom: 16 }}>{this.state.err}</p>
+        <button onClick={() => { this.setState({ err: null }); window.location.reload() }}
+          style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid currentColor', background: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
           Retry
         </button>
       </div>
@@ -424,114 +222,230 @@ class PageErrorBoundary extends Component<{ children: ReactNode }, { error: bool
   }
 }
 
-// ── Force change password wall ────────────────────────────────────────────────
+// ── Module title map (topbar left zone) ───────────────────────────────────────
 
-function ForceChangePassword({ onDone, onLogout }: { onDone: () => void; onLogout: () => void }) {
-  const [current,  setCurrent]  = useState('')
-  const [next,     setNext]     = useState('')
-  const [confirm,  setConfirm]  = useState('')
-  const [saving,   setSaving]   = useState(false)
-  const [err,      setErr]      = useState('')
+const MODULE_TITLES: [string, string][] = [
+  ['/approvals',         'Approvals'],
+  ['/bd',                'Business Development'],
+  ['/campaigns',         'Campaigns'],
+  ['/sales',             'Sales'],
+  ['/telemarketing',     'Telemarketing'],
+  ['/helpdesk',          'Customer Service'],
+  ['/cards',             'Card Operations'],
+  ['/operations/risk',   'Risk'],
+  ['/collections',       'Collections'],
+  ['/recovery',          'Recovery'],
+  ['/settlements',       'Settlements'],
+  ['/finance',           'Finance'],
+  ['/compliance',        'Compliance'],
+  ['/hr',                'People & HR'],
+  ['/payroll',           'Payroll'],
+  ['/reports',           'Reports & BI'],
+  ['/statements',        'Statements'],
+  ['/admin',             'Admin'],
+  ['/mail',              'Mail'],
+  ['/',                  'Overview'],
+]
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (next !== confirm) { setErr('Passwords do not match'); return }
-    if (next.length < 12) { setErr('Password must be at least 12 characters'); return }
-    setSaving(true); setErr('')
-    try {
-      const token = localStorage.getItem('o3c_token')
-      const res = await fetch(`${API}/api/auth/change-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ current_password: current, new_password: next }),
-      })
-      if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Failed'); }
-      onDone()
-    } catch (e: any) {
-      setErr(e.message)
-    } finally {
-      setSaving(false)
-    }
-  }
+function ModuleTitle() {
+  const { pathname } = useLocation()
+  const title = MODULE_TITLES.find(([prefix]) =>
+    prefix === '/' ? pathname === '/' : pathname.startsWith(prefix)
+  )?.[1] ?? 'Workspace'
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#F6F5F2] p-4">
-      <div style={{ background: '#fff', borderRadius: 20, padding: 36, width: '100%', maxWidth: 420,
-        boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}>
-        <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-4"
-          style={{ background: '#0E2841' }}>
-          <span className="material-symbols-rounded text-white text-[22px]">lock_reset</span>
-        </div>
-        <h1 className="text-[20px] font-bold text-slate-800 mb-1">Set a New Password</h1>
-        <p className="text-[13px] text-slate-500 mb-1">
-          Your account requires a password change before you can continue.
-        </p>
-        <p className="text-[12px] text-slate-400 mb-6">
-          This is required because your account was newly created or reset by an administrator. Choose a strong password of at least 12 characters.
-        </p>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          {[
-            { id: 'cp-current', label: 'Current Password',  val: current,  set: setCurrent },
-            { id: 'cp-next',    label: 'New Password',      val: next,     set: setNext },
-            { id: 'cp-confirm', label: 'Confirm Password',  val: confirm,  set: setConfirm },
-          ].map(f => (
-            <div key={f.id}>
-              <label htmlFor={f.id} className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1">{f.label}</label>
-              <input id={f.id} type="password" required value={f.val} onChange={e => f.set(e.target.value)}
-                className="w-full rounded-xl border px-3 py-2.5 text-[13px] outline-none"
-                style={{ borderColor: 'rgba(15,23,42,0.15)' }} />
-            </div>
-          ))}
-          {err && <p className="text-[12px] text-red-600 bg-red-50 px-3 py-2 rounded-lg">{err}</p>}
-          <button type="submit" disabled={saving}
-            className="w-full py-3 rounded-xl text-[14px] font-semibold text-white mt-2 disabled:opacity-60"
-            style={{ background: '#0E2841' }}>
-            {saving ? 'Saving…' : 'Change Password & Continue'}
-          </button>
-        </form>
-        <button onClick={onLogout} className="mt-3 w-full text-[12px] text-slate-400 hover:text-slate-600">
-          Sign out instead
-        </button>
-      </div>
-    </div>
+    <span style={{
+      fontSize: 14, fontWeight: 600,
+      color: 'var(--txt)',
+      letterSpacing: '-0.2px',
+      whiteSpace: 'nowrap',
+    }}>
+      {title}
+    </span>
   )
 }
 
-// ── App ───────────────────────────────────────────────────────────────────────
+// ── ⌘K Search trigger ─────────────────────────────────────────────────────────
 
-// ── Route-level role guard ────────────────────────────────────────────────────
-
-function RequireAccess({ page, user, children }: { page: string; user: AuthUser; children: React.ReactNode }) {
-  // Prefer pages from the JWT (user.pages), fall back to frontend ROLE_PAGES map
-  const pages: string[] = user.pages?.length
-    ? user.pages
-    : (ROLE_PAGES[user.role as string] ?? [])
-  if (pages.length > 0 && !pages.includes(page)) {
-    return <Navigate to="/" replace />
-  }
-  return <>{children}</>
+function SearchTrigger() {
+  return (
+    <button style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      height: 34, padding: '0 12px 0 10px',
+      width: '100%', maxWidth: 340,
+      borderRadius: 8, border: '1px solid var(--input-bdr)',
+      background: 'var(--input-bg)', cursor: 'text',
+      color: 'var(--txt3)', fontSize: 13, fontFamily: 'inherit',
+      textAlign: 'left', outline: 'none',
+    }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 16, flexShrink: 0 }}>search</span>
+      <span style={{ flex: 1 }}>Search workspace…</span>
+      <kbd style={{
+        fontSize: 10, fontFamily: 'inherit', fontWeight: 600,
+        padding: '2px 6px', borderRadius: 5, lineHeight: 1.5,
+        background: 'var(--chip-bg)', color: 'var(--chip-txt)',
+        border: '1px solid var(--bdr)', flexShrink: 0,
+      }}>⌘K</kbd>
+    </button>
+  )
 }
 
-// NOTE: 'cmo' is a legacy role not in the canonical 24 — kept intentionally for backwards compatibility
-const MGMT_ROLES = ['md', 'coo', 'cfo', 'cmo', 'executive', 'admin', 'management', 'head_ops', 'head_it']
+// ── TopBar icon button ─────────────────────────────────────────────────────────
 
-// ── Page crossfade on route change ───────────────────────────────────────────
-function PageFade({ children }: { children: ReactNode }) {
-  const location = useLocation()
-  return <div key={location.pathname} className="animate-crossfade">{children}</div>
+function TbBtn({ onClick, icon, title }: { onClick: () => void; icon: string; title: string }) {
+  return (
+    <button onClick={onClick} title={title} style={{
+      width: 34, height: 34, borderRadius: 8, border: 'none',
+      background: 'transparent', cursor: 'pointer',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      color: 'var(--txt2)', transition: 'background 120ms, color 120ms',
+    }}
+      onMouseEnter={e => {
+        const el = e.currentTarget as HTMLElement
+        el.style.background = 'var(--row-hvr)'
+        el.style.color = 'var(--txt)'
+      }}
+      onMouseLeave={e => {
+        const el = e.currentTarget as HTMLElement
+        el.style.background = 'transparent'
+        el.style.color = 'var(--txt2)'
+      }}
+    >
+      <span className="material-symbols-rounded" style={{ fontSize: 20 }}>{icon}</span>
+    </button>
+  )
 }
 
-// ── Authenticated layout shell ────────────────────────────────────────────────
+function TbLink({ to, icon, title }: { to: string; icon: string; title: string }) {
+  return (
+    <Link to={to} title={title} style={{
+      width: 34, height: 34, borderRadius: 8,
+      background: 'transparent', textDecoration: 'none',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      color: 'var(--txt2)', transition: 'background 120ms, color 120ms',
+    }}
+      onMouseEnter={e => {
+        const el = e.currentTarget as HTMLElement
+        el.style.background = 'var(--row-hvr)'
+        el.style.color = 'var(--txt)'
+      }}
+      onMouseLeave={e => {
+        const el = e.currentTarget as HTMLElement
+        el.style.background = 'transparent'
+        el.style.color = 'var(--txt2)'
+      }}
+    >
+      <span className="material-symbols-rounded" style={{ fontSize: 20 }}>{icon}</span>
+    </Link>
+  )
+}
 
-const IDLE_WARN_MS   = 25 * 60 * 1000   // show warning after 25 min of inactivity
-const IDLE_LOGOUT_MS = 30 * 60 * 1000   // force logout after 30 min
+function TbDivider() {
+  return <div style={{ width: 1, height: 18, background: 'var(--bdr)', margin: '0 4px', flexShrink: 0 }} />
+}
+
+// ── Approvals badge button ────────────────────────────────────────────────────
+
+interface ApprovalItem { id: number; module: string; title: string; type: string; url: string }
+
+function ApprovalsButton({ user }: { user: AuthUser }) {
+  const [count, setCount] = useState(0)
+  const navigate          = useNavigate()
+
+  useEffect(() => {
+    const role = user.role as string
+    if (!MGMT.has(role) && role !== 'finance_head' && role !== 'compliance_head') return
+    const load = () => {
+      apiFetch<{ total: number; items: ApprovalItem[] }>('/api/approvals/summary')
+        .then(d => setCount(d.total))
+        .catch(() => {})
+    }
+    load()
+    const t = setInterval(load, 60_000)
+    return () => clearInterval(t)
+  }, [user.role])
+
+  return (
+    <button
+      onClick={() => navigate('/approvals')}
+      title="Approvals"
+      style={{
+        position: 'relative', width: 34, height: 34,
+        borderRadius: 8, border: 'none', background: 'transparent',
+        cursor: 'pointer', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', color: 'var(--txt2)',
+        transition: 'background 120ms, color 120ms',
+      }}
+      onMouseEnter={e => {
+        const el = e.currentTarget as HTMLElement
+        el.style.background = 'var(--row-hvr)'
+        el.style.color = 'var(--txt)'
+      }}
+      onMouseLeave={e => {
+        const el = e.currentTarget as HTMLElement
+        el.style.background = 'transparent'
+        el.style.color = 'var(--txt2)'
+      }}
+    >
+      <span className="material-symbols-rounded" style={{ fontSize: 20 }}>task_alt</span>
+      {count > 0 && (
+        <span style={{
+          position: 'absolute', top: 5, right: 5,
+          minWidth: 13, height: 13, borderRadius: 7,
+          background: 'var(--nav-dot)', color: 'var(--card)',
+          fontSize: 8, fontWeight: 700,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '0 3px',
+        }}>
+          {count > 99 ? '99+' : count}
+        </span>
+      )}
+    </button>
+  )
+}
+
+// ── Theme toggle ──────────────────────────────────────────────────────────────
+
+function ThemeToggle({ dark, onToggle }: { dark: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+      style={{
+        width: 34, height: 34, borderRadius: 8, border: 'none',
+        background: 'transparent', cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: 'var(--txt2)', transition: 'background 120ms, color 120ms',
+      }}
+      onMouseEnter={e => {
+        const el = e.currentTarget as HTMLElement
+        el.style.background = 'var(--row-hvr)'
+        el.style.color = 'var(--txt)'
+      }}
+      onMouseLeave={e => {
+        const el = e.currentTarget as HTMLElement
+        el.style.background = 'transparent'
+        el.style.color = 'var(--txt2)'
+      }}
+    >
+      <span className="material-symbols-rounded" style={{ fontSize: 20 }}>
+        {dark ? 'light_mode' : 'dark_mode'}
+      </span>
+    </button>
+  )
+}
+
+// ── Idle timer ────────────────────────────────────────────────────────────────
+
+const IDLE_WARN_MS   = 25 * 60 * 1000
+const IDLE_LOGOUT_MS = 30 * 60 * 1000
+
+// ── App shell ─────────────────────────────────────────────────────────────────
 
 const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
-  const [c360Open,    setC360Open]    = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [idleWarn,    setIdleWarn]    = useState(false)
-  const [dark, setDark] = useState(() => localStorage.getItem('o3c_theme') === 'dark')
-  const openC360 = useCallback(() => setC360Open(true), [])
+  const [c360Open, setC360Open] = useState(false)
+  const [idleWarn, setIdleWarn] = useState(false)
+  const [dark,     setDark]     = useState(() => localStorage.getItem('o3c_theme') === 'dark')
 
   const toggleDark = useCallback(() => {
     setDark(d => {
@@ -541,300 +455,219 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
     })
   }, [])
 
-  // Idle session timeout
   useEffect(() => {
-    let warnTimer: ReturnType<typeof setTimeout>
+    let warnTimer:   ReturnType<typeof setTimeout>
     let logoutTimer: ReturnType<typeof setTimeout>
-
     function reset() {
       setIdleWarn(false)
-      clearTimeout(warnTimer)
-      clearTimeout(logoutTimer)
+      clearTimeout(warnTimer); clearTimeout(logoutTimer)
       warnTimer   = setTimeout(() => setIdleWarn(true), IDLE_WARN_MS)
-      logoutTimer = setTimeout(() => onLogout(), IDLE_LOGOUT_MS)
+      logoutTimer = setTimeout(onLogout, IDLE_LOGOUT_MS)
     }
-
-    const EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'] as const
+    const EVENTS = ['mousemove','mousedown','keydown','touchstart','scroll'] as const
     EVENTS.forEach(ev => window.addEventListener(ev, reset, { passive: true }))
     reset()
-
     return () => {
-      clearTimeout(warnTimer)
-      clearTimeout(logoutTimer)
+      clearTimeout(warnTimer); clearTimeout(logoutTimer)
       EVENTS.forEach(ev => window.removeEventListener(ev, reset))
     }
   }, [onLogout])
 
-  const role         = user.role as string
-  const isManagement = MGMT_ROLES.includes(role)
+  const role = user.role as string
 
   return (
     <BrowserRouter>
-      <a href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[9999] focus:px-4 focus:py-2 focus:rounded-lg focus:text-[13px] focus:font-semibold focus:text-white"
-        style={{ background: '#0E2841' }}>
-        Skip to main content
-      </a>
-      <div className="flex h-screen overflow-hidden" style={{ ...(dark ? DARK : LIGHT), background: 'var(--bg)', transition: 'background .25s, color .25s' }}>
+      <div style={{
+        display: 'flex', height: '100vh', overflow: 'hidden',
+        ...(dark ? DARK : LIGHT),
+        background: 'var(--bg)',
+        fontFamily: "'Sora', sans-serif",
+      }}>
         <Toaster richColors position="top-right" />
 
-        {sidebarOpen && (
-          <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
-        )}
-
-        <div className={`fixed inset-y-0 left-0 z-50 md:relative md:inset-auto md:z-auto transition-transform duration-200 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
-          <Sidebar user={user} onLogout={onLogout} onMobileClose={() => setSidebarOpen(false)} />
-        </div>
-
-        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-          <header
-            className="flex items-center gap-2 px-4 py-2.5 flex-shrink-0"
-            style={{ borderBottom: '1px solid rgba(15,23,42,0.07)' }}>
-            <button
-              className="md:hidden p-1.5 rounded-lg hover:bg-black/[0.06] transition-colors"
-              onClick={() => setSidebarOpen(true)}
-              aria-label="Open navigation">
-              <span className="material-symbols-rounded text-[22px] text-slate-600" aria-hidden="true">menu</span>
-            </button>
-            <div className="flex-1" />
-            <button
-              onClick={toggleDark}
-              title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px',
-                borderRadius: 99, border: '1px solid var(--bdr, #E8EBF2)',
-                background: 'var(--chip-bg, #EEF0F8)', cursor: 'pointer',
-                fontSize: 11.5, fontWeight: 600, color: 'var(--txt2, #798094)',
-              }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>
-                {dark ? 'light_mode' : 'dark_mode'}
-              </span>
-              {dark ? 'Light' : 'Dark'}
-            </button>
-            <ToolbarIconButton onClick={openC360} icon="person_search" title="Customer 360" />
-            <ToolbarIconLink to="/tasks"       icon="task_alt"      title="Tasks" />
-            <ToolbarIconLink to="/mail/inbox"  icon="mail"          title="Mail" />
-            <div className="w-px h-4 bg-slate-200 mx-1" />
+        {/* Sidebar */}
+        <Sidebar
+          user={user}
+          onLogout={onLogout}
+          utilities={<>
+            <TbBtn onClick={() => setC360Open(true)} icon="manage_search" title="Customer 360°" />
             <ApprovalsButton user={user} />
             <NotificationBell />
-          </header>
+            <TbDivider />
+            <ThemeToggle dark={dark} onToggle={toggleDark} />
+          </>}
+        />
 
-          <main id="main-content" className="flex-1 overflow-y-auto">
+        {/* Main column */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+
+          {/* Page area */}
+          <main style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <Suspense fallback={<PageLoader />}>
               <PageFade>
-              <Routes>
-                {/* Design demo — full-screen overlay, no access guard */}
-                <Route path="/design-demo" element={<PageErrorBoundary><DesignDemo /></PageErrorBoundary>} />
+                <Routes>
+                  <Route path="/" element={
+                    MGMT.has(role) ? <Overview /> : <Navigate to={homeFor(role)} replace />
+                  } />
 
-                {/* Root — redirect non-management users to their home module */}
-                <Route path="/"
-                  element={isManagement
-                    ? <Overview />
-                    : <Navigate to={homeFor(role)} replace />
-                  }
-                />
+                  <Route path="/approvals" element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
 
-                <Route path="/approvals" element={<PageErrorBoundary><RequireAccess page="approvals" user={user}><Approvals /></RequireAccess></PageErrorBoundary>} />
+                  {/* Sales & BD */}
+                  <Route path="/bd"             element={<PageErrorBoundary><BDOverview /></PageErrorBoundary>} />
+                  <Route path="/bd/leads"       element={<PageErrorBoundary><BDPipeline /></PageErrorBoundary>} />
+                  <Route path="/bd/pipeline"    element={<PageErrorBoundary><BDPipeline /></PageErrorBoundary>} />
+                  <Route path="/bd/employers"   element={<PageErrorBoundary><BDEmployers /></PageErrorBoundary>} />
+                  <Route path="/bd/analytics"   element={<PageErrorBoundary><BDAnalytics /></PageErrorBoundary>} />
 
-                {/* ── Finance ── */}
-                <Route path="/finance"              element={<PageErrorBoundary><RequireAccess page="income" user={user}><FinanceOverview /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/finance/transactions" element={<PageErrorBoundary><RequireAccess page="transactions" user={user}><Transactions /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/finance/income"       element={<PageErrorBoundary><RequireAccess page="income" user={user}><Income /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/finance/fixed-deposit"element={<PageErrorBoundary><RequireAccess page="fixed_deposit" user={user}><FixedDeposit /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/finance/eod"          element={<PageErrorBoundary><RequireAccess page="eod" user={user}><Eod /></RequireAccess></PageErrorBoundary>} />
+                  <Route path="/campaigns"            element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
+                  <Route path="/campaigns/templates"  element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
+                  <Route path="/campaigns/lists"      element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
+                  <Route path="/campaigns/analytics"  element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
+                  <Route path="/campaigns/:id/report" element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
 
-                {/* ── Sales & CRM ── */}
-                <Route path="/sales"                    element={<PageErrorBoundary><RequireAccess page="sales" user={user}><SalesOverview /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/sales/customers"          element={<PageErrorBoundary><RequireAccess page="sales" user={user}><Customers /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/sales/crm"                element={<PageErrorBoundary><RequireAccess page="crm_pipeline" user={user}><CrmPipeline /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/sales/tasks"              element={<PageErrorBoundary><RequireAccess page="crm_tasks" user={user}><CrmTasks /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/tasks"                    element={<PageErrorBoundary><RequireAccess page="crm_tasks" user={user}><CrmTasks /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/sales/applications"       element={<PageErrorBoundary><RequireAccess page="sales" user={user}><LOSQueue /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/sales/applications/new"   element={<PageErrorBoundary><RequireAccess page="sales" user={user}><LOSNew /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/sales/applications/:id"   element={<PageErrorBoundary><RequireAccess page="sales" user={user}><LOSDetail /></RequireAccess></PageErrorBoundary>} />
+                  <Route path="/sales"           element={<PageErrorBoundary><SalesOverview /></PageErrorBoundary>} />
+                  <Route path="/sales/cohort"    element={<PageErrorBoundary><SalesCohort /></PageErrorBoundary>} />
+                  <Route path="/sales/reports"   element={<PageErrorBoundary><SalesReports /></PageErrorBoundary>} />
+                  <Route path="/sales/customers" element={<PageErrorBoundary><CRMContacts /></PageErrorBoundary>} />
+                  <Route path="/sales/crm"       element={<PageErrorBoundary><CRMPipelinePg /></PageErrorBoundary>} />
+                  <Route path="/sales/tasks"     element={<PageErrorBoundary><CRMTasks /></PageErrorBoundary>} />
 
-                {/* ── Risk & Credit ── */}
-                <Route path="/risk"              element={<RequireAccess page="credit_portfolio" user={user}><RiskOverview /></RequireAccess>} />
-                <Route path="/risk/applications" element={<RequireAccess page="los_all" user={user}><LOSAll /></RequireAccess>} />
-                <Route path="/risk/portfolio"    element={<RequireAccess page="credit_portfolio" user={user}><RiskPortfolio /></RequireAccess>} />
+                  <Route path="/sales/applications"     element={<PageErrorBoundary><LOSQueue /></PageErrorBoundary>} />
+                  <Route path="/sales/applications/new" element={<PageErrorBoundary><LOSNewApp /></PageErrorBoundary>} />
+                  <Route path="/sales/applications/:id" element={<PageErrorBoundary><LOSAppDetail /></PageErrorBoundary>} />
 
-                {/* ── Settlements ── */}
-                <Route path="/settlements"      element={<PageErrorBoundary><RequireAccess page="settlement" user={user}><SettlementsOverview /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/settlements/recon"element={<PageErrorBoundary><RequireAccess page="reconciliation" user={user}><Reconciliation /></RequireAccess></PageErrorBoundary>} />
+                  {/* Contact Centre */}
+                  <Route path="/telemarketing"             element={<PageErrorBoundary><TelemarketingQueue /></PageErrorBoundary>} />
+                  <Route path="/telemarketing/queue"       element={<PageErrorBoundary><TelemarketingQueue /></PageErrorBoundary>} />
+                  <Route path="/telemarketing/dnc"         element={<PageErrorBoundary><TelemarketingDNC /></PageErrorBoundary>} />
+                  <Route path="/telemarketing/performance" element={<PageErrorBoundary><TelemarketingPerformance /></PageErrorBoundary>} />
 
-                {/* ── Cards & Channels ── */}
-                <Route path="/cards"           element={<PageErrorBoundary><RequireAccess page="cards" user={user}><CardsOverview /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/cards/trends"    element={<PageErrorBoundary><RequireAccess page="card_trends" user={user}><CardTrends /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/cards/management"element={<PageErrorBoundary><RequireAccess page="cards" user={user}><CardManagement /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/cards/blink"     element={<PageErrorBoundary><RequireAccess page="blink_card" user={user}><BlinkCard /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/cards/mobile-app"element={<PageErrorBoundary><RequireAccess page="mobile_app" user={user}><MobileApp /></RequireAccess></PageErrorBoundary>} />
+                  <Route path="/helpdesk"                element={<PageErrorBoundary><HelpdeskTickets /></PageErrorBoundary>} />
+                  <Route path="/helpdesk/tickets"        element={<PageErrorBoundary><HelpdeskTickets /></PageErrorBoundary>} />
+                  <Route path="/helpdesk/calls"          element={<PageErrorBoundary><HelpdeskCalls /></PageErrorBoundary>} />
+                  <Route path="/helpdesk/supervisor"     element={<PageErrorBoundary><HelpdeskSupervisor /></PageErrorBoundary>} />
+                  <Route path="/helpdesk/stats"          element={<PageErrorBoundary><HelpdeskStats /></PageErrorBoundary>} />
+                  <Route path="/helpdesk/knowledge-base" element={<PageErrorBoundary><HelpdeskKB /></PageErrorBoundary>} />
+                  <Route path="/helpdesk/canned"         element={<PageErrorBoundary><HelpdeskCanned /></PageErrorBoundary>} />
+                  <Route path="/helpdesk/:id"            element={<PageErrorBoundary><HelpdeskTicketDetail /></PageErrorBoundary>} />
 
-                {/* ── Collections ── */}
-                <Route path="/collections"         element={<PageErrorBoundary><RequireAccess page="collections" user={user}><CollectionsOverview /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/collections/queue"   element={<PageErrorBoundary><RequireAccess page="collections" user={user}><CollectionsQueue /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/collections/targets" element={<PageErrorBoundary><RequireAccess page="collections" user={user}><CollectionsTargets /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/collections/promises"element={<PageErrorBoundary><RequireAccess page="collections" user={user}><CollectionsPromises /></RequireAccess></PageErrorBoundary>} />
+                  {/* Cards */}
+                  <Route path="/cards"              element={<PageErrorBoundary><CardsOverview /></PageErrorBoundary>} />
+                  <Route path="/cards/management"   element={<PageErrorBoundary><CardsMgmt /></PageErrorBoundary>} />
+                  <Route path="/cards/issuance"     element={<PageErrorBoundary><CardsIssuance /></PageErrorBoundary>} />
+                  <Route path="/cards/disputes"     element={<PageErrorBoundary><CardsDisputes /></PageErrorBoundary>} />
+                  <Route path="/cards/credit-limit" element={<PageErrorBoundary><CardsCreditLimit /></PageErrorBoundary>} />
+                  <Route path="/cards/billing"      element={<PageErrorBoundary><CardsBilling /></PageErrorBoundary>} />
 
-                {/* ── Recovery ── */}
-                <Route path="/recovery"        element={<PageErrorBoundary><RequireAccess page="recovery" user={user}><RecoveryOverview /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/recovery/cases"  element={<PageErrorBoundary><RequireAccess page="recovery" user={user}><RecoveryCases /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/recovery/legal"  element={<PageErrorBoundary><RequireAccess page="recovery" user={user}><RecoveryLegal /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/recovery/visits" element={<PageErrorBoundary><RequireAccess page="recovery" user={user}><RecoveryVisits /></RequireAccess></PageErrorBoundary>} />
+                  {/* Operations — Risk */}
+                  <Route path="/operations/risk"              element={<PageErrorBoundary><RiskAppReview /></PageErrorBoundary>} />
+                  <Route path="/operations/risk/applications" element={<PageErrorBoundary><RiskAppReview /></PageErrorBoundary>} />
+                  <Route path="/operations/risk/portfolio"    element={<PageErrorBoundary><RiskPortfolio /></PageErrorBoundary>} />
+                  <Route path="/operations/risk/eye"          element={<PageErrorBoundary><RiskEyeScore /></PageErrorBoundary>} />
+                  <Route path="/operations/risk/vintage"      element={<PageErrorBoundary><RiskVintage /></PageErrorBoundary>} />
 
-                {/* ── Customer 360 ── */}
-                <Route path="/customer360"      element={<PageErrorBoundary><RequireAccess page="crm_contacts" user={user}><Customer360 /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/customer360/:cif" element={<PageErrorBoundary><RequireAccess page="crm_contacts" user={user}><Customer360 /></RequireAccess></PageErrorBoundary>} />
+                  {/* Collections */}
+                  <Route path="/collections"                 element={<PageErrorBoundary><CollectionsOverview /></PageErrorBoundary>} />
+                  <Route path="/collections/queue"           element={<PageErrorBoundary><CollectionsQueue /></PageErrorBoundary>} />
+                  <Route path="/collections/promises"        element={<PageErrorBoundary><CollectionsPromises /></PageErrorBoundary>} />
+                  <Route path="/collections/repayment-plans" element={<PageErrorBoundary><CollectionsPlans /></PageErrorBoundary>} />
+                  <Route path="/collections/writeoffs"       element={<PageErrorBoundary><CollectionsWriteoffs /></PageErrorBoundary>} />
 
-                {/* ── Customer Service ── */}
-                <Route path="/customer-service"       element={<Navigate to="/helpdesk" replace />} />
-                <Route path="/customer-service/calls" element={<Navigate to="/helpdesk/calls" replace />} />
+                  {/* Recovery */}
+                  <Route path="/recovery"       element={<PageErrorBoundary><RecoveryOverview /></PageErrorBoundary>} />
+                  <Route path="/recovery/cases" element={<PageErrorBoundary><RecoveryCases /></PageErrorBoundary>} />
+                  <Route path="/recovery/legal" element={<PageErrorBoundary><RecoveryLegal /></PageErrorBoundary>} />
+                  <Route path="/recovery/tpa"   element={<PageErrorBoundary><RecoveryTPA /></PageErrorBoundary>} />
 
-                {/* ── HR ── */}
-                <Route path="/hr"              element={<Navigate to="/hr/employees" replace />} />
-                <Route path="/hr/employees"    element={<RequireAccess page="hr_employees" user={user}><HREmployees /></RequireAccess>} />
-                <Route path="/hr/leave"        element={<RequireAccess page="hr_leave" user={user}><HRLeave /></RequireAccess>} />
-                <Route path="/hr/performance"  element={<RequireAccess page="hr_performance" user={user}><HRPerformance /></RequireAccess>} />
-                <Route path="/hr/disciplinary" element={<RequireAccess page="hr_disciplinary" user={user}><HRDisciplinary /></RequireAccess>} />
-                <Route path="/hr/training"     element={<RequireAccess page="hr_training" user={user}><HRTraining /></RequireAccess>} />
+                  {/* Settlements */}
+                  <Route path="/settlements"                 element={<PageErrorBoundary><SettleBatches /></PageErrorBoundary>} />
+                  <Route path="/settlements/nip"             element={<PageErrorBoundary><SettleNIP /></PageErrorBoundary>} />
+                  <Route path="/settlements/failed"          element={<PageErrorBoundary><SettleFailed /></PageErrorBoundary>} />
+                  <Route path="/settlements/manual-postings" element={<PageErrorBoundary><SettleManualPost /></PageErrorBoundary>} />
 
-                {/* ── Compliance ── */}
-                <Route path="/compliance"               element={<Navigate to="/compliance/checklists" replace />} />
-                <Route path="/compliance/watchlist"     element={<RequireAccess page="watch_list" user={user}><WatchList /></RequireAccess>} />
-                <Route path="/compliance/sars"          element={<RequireAccess page="sars" user={user}><Sars /></RequireAccess>} />
-                <Route path="/compliance/cbn-reports"   element={<RequireAccess page="cbn_reports" user={user}><CbnReports /></RequireAccess>} />
-                <Route path="/compliance/findings"      element={<RequireAccess page="audit_findings" user={user}><Findings /></RequireAccess>} />
-                <Route path="/compliance/checklists"    element={<RequireAccess page="compliance_checklists" user={user}><Checklists /></RequireAccess>} />
-                <Route path="/compliance/audit-trail"   element={<RequireAccess page="audit_trail" user={user}><AuditTrail /></RequireAccess>} />
+                  {/* Finance */}
+                  <Route path="/finance"                    element={<PageErrorBoundary><FinanceOverview /></PageErrorBoundary>} />
+                  <Route path="/finance/transactions"       element={<PageErrorBoundary><FinanceTxns /></PageErrorBoundary>} />
+                  <Route path="/finance/income"             element={<PageErrorBoundary><FinanceIncome /></PageErrorBoundary>} />
+                  <Route path="/finance/fixed-deposit"      element={<PageErrorBoundary><FinanceFD /></PageErrorBoundary>} />
+                  <Route path="/finance/eod"                element={<PageErrorBoundary><FinanceEOD /></PageErrorBoundary>} />
+                  <Route path="/finance/pnl"                element={<PageErrorBoundary><FinancePnL /></PageErrorBoundary>} />
+                  <Route path="/finance/manual-postings"    element={<PageErrorBoundary><FinanceManualPost /></PageErrorBoundary>} />
+                  <Route path="/finance/gl-accounts"        element={<PageErrorBoundary><FinanceCoA /></PageErrorBoundary>} />
+                  <Route path="/finance/fd-maturity"        element={<PageErrorBoundary><FinanceFDMaturity /></PageErrorBoundary>} />
+                  <Route path="/finance/costs"              element={<PageErrorBoundary><FinanceCosts /></PageErrorBoundary>} />
+                  <Route path="/finance/budget"             element={<PageErrorBoundary><FinanceBudget /></PageErrorBoundary>} />
 
-                {/* ── Campaigns ── */}
-                <Route path="/campaigns/overview"         element={<PageErrorBoundary><RequireAccess page="campaigns" user={user}><CampaignsOverview /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/campaigns"                  element={<PageErrorBoundary><RequireAccess page="campaigns" user={user}><Campaigns /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/campaigns/compose"          element={<PageErrorBoundary><RequireAccess page="campaigns" user={user}><ComposeMail /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/campaigns/templates"        element={<PageErrorBoundary><RequireAccess page="message_templates" user={user}><MessageTemplates /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/campaigns/lists"            element={<PageErrorBoundary><RequireAccess page="contact_lists" user={user}><ContactLists /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/campaigns/analytics"        element={<PageErrorBoundary><RequireAccess page="campaign_analytics" user={user}><AllCampaignAnalytics /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/campaigns/:id/report"       element={<PageErrorBoundary><RequireAccess page="campaign_analytics" user={user}><CampaignReport /></RequireAccess></PageErrorBoundary>} />
+                  {/* Compliance */}
+                  <Route path="/compliance"             element={<Navigate to="/compliance/watchlist" replace />} />
+                  <Route path="/compliance/watchlist"   element={<PageErrorBoundary><ComplianceWatchlist /></PageErrorBoundary>} />
+                  <Route path="/compliance/regulatory"  element={<PageErrorBoundary><ComplianceRegCalendar /></PageErrorBoundary>} />
+                  <Route path="/compliance/findings"    element={<PageErrorBoundary><ComplianceFindings /></PageErrorBoundary>} />
+                  <Route path="/compliance/checklists"  element={<PageErrorBoundary><ComplianceChecklists /></PageErrorBoundary>} />
+                  <Route path="/compliance/audit-trail" element={<PageErrorBoundary><ComplianceAuditTrail /></PageErrorBoundary>} />
 
-                {/* ── Helpdesk ── */}
-                <Route path="/helpdesk"            element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><HelpdeskOverview /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/helpdesk/tickets"    element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><TicketList /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/helpdesk/new"        element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><NewTicketPage /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/helpdesk/stats"      element={<PageErrorBoundary><RequireAccess page="helpdesk_stats" user={user}><HelpdeskStats /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/helpdesk/canned"     element={<PageErrorBoundary><RequireAccess page="helpdesk_canned" user={user}><CannedResponses /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/helpdesk/calls"      element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><CallLog /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/helpdesk/supervisor"      element={<PageErrorBoundary><RequireAccess page="helpdesk_stats" user={user}><SupervisorPage /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/helpdesk/knowledge-base" element={<PageErrorBoundary><RequireAccess page="helpdesk_kb" user={user}><KnowledgeBase /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/helpdesk/:id"             element={<PageErrorBoundary><RequireAccess page="helpdesk" user={user}><TicketDetail /></RequireAccess></PageErrorBoundary>} />
+                  {/* People */}
+                  <Route path="/hr"               element={<Navigate to="/hr/employees" replace />} />
+                  <Route path="/hr/employees"     element={<PageErrorBoundary><HREmployees /></PageErrorBoundary>} />
+                  <Route path="/hr/leave"         element={<PageErrorBoundary><HRLeave /></PageErrorBoundary>} />
+                  <Route path="/hr/performance"   element={<PageErrorBoundary><HRPerformance /></PageErrorBoundary>} />
+                  <Route path="/hr/disciplinary"  element={<PageErrorBoundary><HRDisciplinary /></PageErrorBoundary>} />
+                  <Route path="/hr/training"      element={<PageErrorBoundary><HRTraining /></PageErrorBoundary>} />
 
-                {/* ── Telemarketing ── */}
-                <Route path="/telemarketing"       element={<PageErrorBoundary><RequireAccess page="telemarketing" user={user}><TelemarketingOverview /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/telemarketing/queue" element={<PageErrorBoundary><RequireAccess page="telemarketing" user={user}><OutboundQueue /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/telemarketing/dnc"   element={<PageErrorBoundary><RequireAccess page="telemarketing" user={user}><DNCListPage /></RequireAccess></PageErrorBoundary>} />
+                  <Route path="/payroll"                          element={<PageErrorBoundary><PayrollOverview /></PageErrorBoundary>} />
+                  <Route path="/payroll/runs/:id"                 element={<PageErrorBoundary><PayrollRunDetail /></PageErrorBoundary>} />
+                  <Route path="/payroll/runs/:runId/items/:itemId" element={<PageErrorBoundary><PayslipView /></PageErrorBoundary>} />
 
-                {/* ── Active Loan Book ── */}
-                <Route path="/active-loan-book"     element={<PageErrorBoundary><RequireAccess page="active_loan_book" user={user}><LoanBook /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/active-loan-book/:id" element={<PageErrorBoundary><RequireAccess page="active_loan_book" user={user}><LoanDetail /></RequireAccess></PageErrorBoundary>} />
+                  {/* Intelligence */}
+                  <Route path="/reports"        element={<PageErrorBoundary><ReportsBI /></PageErrorBoundary>} />
+                  <Route path="/reports/kpi"    element={<PageErrorBoundary><ReportsKPI /></PageErrorBoundary>} />
+                  <Route path="/reports/export" element={<PageErrorBoundary><ReportsExport /></PageErrorBoundary>} />
+                  <Route path="/statements"     element={<PageErrorBoundary><Statements /></PageErrorBoundary>} />
 
-                {/* ── Business Development ── */}
-                <Route path="/bd"           element={<PageErrorBoundary><RequireAccess page="bd" user={user}><BDOverview /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/bd/employers" element={<PageErrorBoundary><RequireAccess page="bd_employers" user={user}><EmployerRegister /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/bd/pipeline"  element={<PageErrorBoundary><RequireAccess page="bd_pipeline" user={user}><BDPipeline /></RequireAccess></PageErrorBoundary>} />
+                  {/* Admin */}
+                  <Route path="/admin"                       element={<PageErrorBoundary><AdminOverview /></PageErrorBoundary>} />
+                  <Route path="/admin/overview"              element={<PageErrorBoundary><AdminOverview /></PageErrorBoundary>} />
+                  <Route path="/admin/users"                 element={<PageErrorBoundary><AdminUsers /></PageErrorBoundary>} />
+                  <Route path="/admin/roles"                 element={<PageErrorBoundary><AdminRoles /></PageErrorBoundary>} />
+                  <Route path="/admin/email-senders"         element={<PageErrorBoundary><AdminEmailSenders /></PageErrorBoundary>} />
+                  <Route path="/admin/mail"                  element={<PageErrorBoundary><AdminMailHealth /></PageErrorBoundary>} />
+                  <Route path="/admin/api-keys"              element={<PageErrorBoundary><AdminApiKeys /></PageErrorBoundary>} />
+                  <Route path="/admin/settings"              element={<PageErrorBoundary><AdminSettings /></PageErrorBoundary>} />
+                  <Route path="/admin/notification-settings" element={<PageErrorBoundary><AdminNotificationSettings /></PageErrorBoundary>} />
+                  <Route path="/admin/integrations"          element={<PageErrorBoundary><AdminIntegrations /></PageErrorBoundary>} />
+                  <Route path="/admin/audit"                 element={<PageErrorBoundary><AdminAuditLog /></PageErrorBoundary>} />
+                  <Route path="/admin/sync"                  element={<PageErrorBoundary><AdminSyncStatus /></PageErrorBoundary>} />
 
-                {/* ── Payroll ── */}
-                <Route path="/payroll"                       element={<PageErrorBoundary><RequireAccess page="payroll" user={user}><PayrollOverview /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/payroll/runs/:id"              element={<PageErrorBoundary><RequireAccess page="payroll" user={user}><PayrollRunDetail /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/payroll/runs/:runId/items/:itemId" element={<PageErrorBoundary><RequireAccess page="payroll" user={user}><PayrollPayslip /></RequireAccess></PageErrorBoundary>} />
+                  {/* Mail */}
+                  <Route path="/mail/inbox"   element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
+                  <Route path="/mail/compose" element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
+                  <Route path="/mail/:id"     element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
 
-                {/* ── Settings ── */}
-                <Route path="/settings/voice"      element={<VoiceConnect />} />
-
-                {/* ── Reports ── */}
-                <Route path="/reports" element={<PageErrorBoundary><RequireAccess page="reports" user={user}><Reports /></RequireAccess></PageErrorBoundary>} />
-                <Route path="/statements" element={<RequireAccess page="statements" user={user}><Statements /></RequireAccess>} />
-
-                {/* ── Admin ── */}
-                <Route path="/admin"                       element={<RequireAccess page="admin_users" user={user}><Navigate to="/admin/overview" replace /></RequireAccess>} />
-                <Route path="/admin/overview"              element={<RequireAccess page="admin_users" user={user}><AdminOverview /></RequireAccess>} />
-                <Route path="/admin/users"                 element={<RequireAccess page="admin_users" user={user}><UserManagement /></RequireAccess>} />
-                <Route path="/admin/api-keys"              element={<RequireAccess page="admin_api_keys" user={user}><ApiKeys /></RequireAccess>} />
-                <Route path="/admin/mail"                  element={<RequireAccess page="admin_api_keys" user={user}><MailHealth /></RequireAccess>} />
-                <Route path="/admin/settings"              element={<RequireAccess page="settings" user={user}><PlatformSettings /></RequireAccess>} />
-                <Route path="/admin/sync"                  element={<RequireAccess page="sync_status" user={user}><SyncStatus /></RequireAccess>} />
-                <Route path="/admin/notification-settings" element={<RequireAccess page="settings" user={user}><NotificationSettings /></RequireAccess>} />
-                <Route path="/admin/email-senders"         element={<RequireAccess page="settings" user={user}><EmailSenders /></RequireAccess>} />
-                <Route path="/admin/roles"                 element={<RequireAccess page="admin_users" user={user}><RoleManagement /></RequireAccess>} />
-                <Route path="/admin/integrations"          element={<RequireAccess page="admin_api_keys" user={user}><ZohoIntegration /></RequireAccess>} />
-                <Route path="/admin/audit"                 element={<RequireAccess page="admin_users" user={user}><AuditTrail /></RequireAccess>} />
-                <Route path="/settings/notifications" element={<NotificationPreferences />} />
-
-                {/* ── Mail environment ── */}
-                <Route path="/mail" element={<MailLayout />}>
-                  <Route index element={<Navigate to="/mail/inbox" replace />} />
-                  <Route path="inbox"   element={<MailInbox />} />
-                  <Route path="sent"    element={<MailSent />} />
-                  <Route path="compose" element={<MailCompose />} />
-                  <Route path="drafts"  element={<MailDrafts />} />
-                </Route>
-
-                {/* ── Watch ── */}
-                <Route path="/watch" element={<Watch />} />
-
-                {/* ── Legacy redirects ── */}
-                <Route path="/collections-ops/queue"       element={<Navigate to="/collections/queue"    replace />} />
-                <Route path="/collections-ops/targets"     element={<Navigate to="/collections/targets"  replace />} />
-                <Route path="/collections-ops/promises"    element={<Navigate to="/collections/promises" replace />} />
-                <Route path="/recovery-ops/cases"          element={<Navigate to="/recovery/cases"        replace />} />
-                <Route path="/recovery-ops/legal"          element={<Navigate to="/recovery/legal"        replace />} />
-                <Route path="/recovery-ops/visits"         element={<Navigate to="/recovery/visits"       replace />} />
-                <Route path="/crm/pipeline"                element={<Navigate to="/sales/crm"             replace />} />
-                <Route path="/crm/tasks"                   element={<Navigate to="/sales/tasks"           replace />} />
-                <Route path="/crm/contacts"                element={<Navigate to="/sales/customers"       replace />} />
-                <Route path="/crm/reports"                 element={<Navigate to="/reports"               replace />} />
-                <Route path="/los/queue"                   element={<Navigate to="/sales/applications"    replace />} />
-                <Route path="/los/all"                     element={<Navigate to="/risk/applications"     replace />} />
-                <Route path="/los/new"                     element={<Navigate to="/sales/applications/new" replace />} />
-                <Route path="/los/:id"                     element={<NavigateWithParams to="/sales/applications/:id" />} />
-                <Route path="/marketing/campaigns"         element={<Navigate to="/campaigns"             replace />} />
-                <Route path="/marketing/templates"         element={<Navigate to="/campaigns/templates"   replace />} />
-                <Route path="/marketing/lists"             element={<Navigate to="/campaigns/lists"       replace />} />
-                <Route path="/compliance/watch-list"       element={<Navigate to="/compliance/watchlist"  replace />} />
-                <Route path="/settings"                    element={<Navigate to="/admin/settings"        replace />} />
-                <Route path="/kpi"                         element={<Navigate to="/"                      replace />} />
-                <Route path="/kpi/portfolio"               element={<Navigate to="/risk/portfolio"        replace />} />
-                <Route path="/operations/settlement"       element={<Navigate to="/settlements"           replace />} />
-                <Route path="/operations/blink-card"       element={<Navigate to="/cards/blink"           replace />} />
-                <Route path="/operations/mobile-app"       element={<Navigate to="/cards/mobile-app"      replace />} />
-                <Route path="/operations/credit-portfolio" element={<Navigate to="/risk/portfolio"        replace />} />
-                <Route path="/operations/fixed-deposit"    element={<Navigate to="/finance/fixed-deposit" replace />} />
-                <Route path="/finance/reconciliation"      element={<Navigate to="/settlements/recon"     replace />} />
-                <Route path="/finance/collections"         element={<Navigate to="/collections"           replace />} />
-                <Route path="/finance/recovery"            element={<Navigate to="/recovery"              replace />} />
-                <Route path="/admin/users-legacy"          element={<Navigate to="/admin/users"           replace />} />
-
-                <Route path="*" element={<Navigate to={homeFor(role)} replace />} />
-              </Routes>
+                  <Route path="*" element={<Navigate to={homeFor(role)} replace />} />
+                </Routes>
               </PageFade>
             </Suspense>
           </main>
         </div>
+
+        {/* C360 drawer */}
         <Suspense fallback={null}>
-          <C360Drawer open={c360Open} onClose={() => setC360Open(false)} />
+          <C360 open={c360Open} onClose={() => setC360Open(false)} />
         </Suspense>
 
-        {/* Idle session warning */}
+        {/* Idle warning */}
         {idleWarn && (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40">
-            <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4 text-center">
-              <span className="material-symbols-rounded text-[36px] mb-3 block" style={{ color: '#D97706' }}>timer</span>
-              <h2 className="text-[16px] font-bold text-slate-800 mb-1">Session expiring soon</h2>
-              <p className="text-[13px] text-slate-500 mb-5">
-                You've been inactive for 25 minutes. Move your mouse or press a key to stay signed in,
-                or you'll be automatically signed out.
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ background: 'var(--card)', borderRadius: 20, padding: 28, maxWidth: 340, width: '100%', margin: '0 16px', textAlign: 'center', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 36, color: 'var(--nav-dot)', display: 'block', marginBottom: 12 }}>timer</span>
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--txt)', marginBottom: 6 }}>Session expiring</h2>
+              <p style={{ fontSize: 13, color: 'var(--txt2)', marginBottom: 20, lineHeight: 1.5 }}>
+                25 minutes of inactivity. Move your mouse to stay signed in.
               </p>
               <button
                 onClick={() => setIdleWarn(false)}
-                className="w-full py-2.5 rounded-xl text-[14px] font-semibold text-white"
-                style={{ background: '#0E2841' }}>
+                style={{ width: '100%', padding: '10px 0', borderRadius: 12, border: 'none', background: 'var(--nav-dot)', color: 'var(--card)', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+              >
                 Stay signed in
               </button>
             </div>
@@ -845,57 +678,98 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
   )
 })
 
-// ── App — auth layer only ─────────────────────────────────────────────────────
+// ── Force password change ─────────────────────────────────────────────────────
+
+function ForceChangePassword({ onDone }: { onDone: () => void }) {
+  const [pw,  setPw]  = useState('')
+  const [pw2, setPw2] = useState('')
+  const [err, setErr] = useState('')
+  const [ok,  setOk]  = useState(false)
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (pw !== pw2) { setErr('Passwords do not match'); return }
+    if (pw.length < 8) { setErr('Password must be at least 8 characters'); return }
+    try {
+      await apiFetch('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ new_password: pw }) } as RequestInit)
+      setOk(true)
+      setTimeout(onDone, 1200)
+    } catch (e: unknown) {
+      setErr((e as Error).message ?? 'Failed')
+    }
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', fontFamily: "'Sora', sans-serif" }}>
+      <div style={{ background: 'var(--card)', borderRadius: 20, padding: 32, maxWidth: 360, width: '100%', margin: '0 16px', boxShadow: 'var(--card-shadow)' }}>
+        <h1 style={{ fontSize: 18, fontWeight: 700, color: 'var(--txt)', marginBottom: 6 }}>Set your password</h1>
+        <p style={{ fontSize: 13, color: 'var(--txt2)', marginBottom: 24 }}>Please set a new password before continuing.</p>
+        {ok ? (
+          <p style={{ color: 'var(--nav-dot)', fontWeight: 600 }}>Password updated — logging you in…</p>
+        ) : (
+          <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <input type="password" placeholder="New password" value={pw} onChange={e => setPw(e.target.value)}
+              style={{ height: 48, borderRadius: 10, border: '1.5px solid var(--input-bdr)', padding: '0 14px', fontSize: 14, fontFamily: 'inherit', background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none' }} />
+            <input type="password" placeholder="Confirm password" value={pw2} onChange={e => setPw2(e.target.value)}
+              style={{ height: 48, borderRadius: 10, border: '1.5px solid var(--input-bdr)', padding: '0 14px', fontSize: 14, fontFamily: 'inherit', background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none' }} />
+            {err && <p style={{ color: 'var(--nav-dot)', fontSize: 13 }}>{err}</p>}
+            <button type="submit" style={{ height: 48, borderRadius: 10, border: 'none', background: 'var(--nav-dot)', color: 'var(--card)', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+              Set password
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Root ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [user,    setUser]    = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (import.meta.env.DEV) {
+      setUser({
+        id: 1, name: 'Temitope Posi', email: 'admin@o3cards.com',
+        role: 'md', pages: [], must_change_password: false,
+      })
+      setLoading(false)
+      return
+    }
+
     try {
       const token  = localStorage.getItem('o3c_token')
       const stored = localStorage.getItem('o3c_user')
       if (token && stored) {
         const payload = parseToken(token)
         if (payload && payload.exp * 1000 > Date.now()) {
-          const u = JSON.parse(stored)
-          if (u && typeof u.name === 'string' && typeof u.role === 'string') {
-            setUser(u)
-          } else {
-            localStorage.removeItem('o3c_token')
-            localStorage.removeItem('o3c_user')
-          }
-        } else {
-          localStorage.removeItem('o3c_token')
-          localStorage.removeItem('o3c_user')
+          const u = JSON.parse(stored) as AuthUser
+          if (u?.name && u?.role) { setUser(u); setLoading(false); return }
         }
       }
-    } catch {
-      localStorage.removeItem('o3c_token')
-      localStorage.removeItem('o3c_user')
-    }
+    } catch { /* fall through */ }
+    localStorage.removeItem('o3c_token')
+    localStorage.removeItem('o3c_user')
     setLoading(false)
+  }, [])
 
-    function onAuthExpired() {
-      setUser(null)
-      toast.error('Session expired — please sign in again')
-    }
-    function onStorage(e: StorageEvent) {
-      if (e.key === 'o3c_token' && !e.newValue) setUser(null)
-    }
-    window.addEventListener('auth:expired', onAuthExpired)
-    window.addEventListener('storage', onStorage)
+  // Cross-tab logout: always listen so logout on Tab B clears Tab A
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => { if (e.key === 'o3c_token' && !e.newValue) setUser(null) }
+    const onExpired = () => { setUser(null); toast.error('Session expired') }
+    window.addEventListener('storage',      onStorage)
+    window.addEventListener('auth:expired', onExpired)
     return () => {
-      window.removeEventListener('auth:expired', onAuthExpired)
-      window.removeEventListener('storage', onStorage)
+      window.removeEventListener('storage',      onStorage)
+      window.removeEventListener('auth:expired', onExpired)
     }
   }, [])
 
-  const handleLogin = useCallback((u: AuthUser) => {
+  const handleLogin  = useCallback((u: AuthUser) => {
     setUser(u)
-    toast.success(`Welcome back, ${u.name.split(' ')[0]}`, {
-      description: `Signed in as ${roleLabel(u.role as string)}`,
-    })
+    toast.success(`Welcome back, ${u.name.split(' ')[0]}`, { description: roleLabel(u.role as string) })
   }, [])
 
   const handleLogout = useCallback(() => {
@@ -905,66 +779,57 @@ export default function App() {
     toast.info('Signed out')
   }, [])
 
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/csat/')) {
+    return (
+      <BrowserRouter>
+        <Suspense fallback={null}>
+          <Routes><Route path="/csat/:token" element={<CSATSurvey />} /></Routes>
+        </Suspense>
+      </BrowserRouter>
+    )
+  }
+
+  if (typeof window !== 'undefined' && window.location.pathname === '/design-demo') {
+    const DesignDemo = lazy(() => import('./pages/DesignDemo'))
+    return (
+      <BrowserRouter>
+        <Suspense fallback={null}>
+          <Routes><Route path="/design-demo" element={<DesignDemo />} /></Routes>
+        </Suspense>
+      </BrowserRouter>
+    )
+  }
+
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-[#F6F5F2]">
-      <div className="w-8 h-8 border-2 rounded-full animate-spin"
-        style={{ borderColor: 'rgba(14,40,65,0.1)', borderTopColor: '#0E2841' }} />
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F4F6FA' }}>
+      <div style={{ width: 26, height: 26, borderRadius: '50%', border: '2.5px solid rgba(14,40,65,0.12)', borderTopColor: '#C00000', animation: 'spin 0.7s linear infinite' }} />
     </div>
   )
-
-  // Public routes — no auth required
-  if (window.location.pathname === '/design-demo') {
-    return (
-      <BrowserRouter>
-        <Suspense fallback={<div className="min-h-screen bg-[#F6F7F9]" />}>
-          <Routes>
-            <Route path="/design-demo" element={<DesignDemo />} />
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
-    )
-  }
-
-  if (window.location.pathname.startsWith('/csat/')) {
-    return (
-      <BrowserRouter>
-        <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
-          <Routes>
-            <Route path="/csat/:token" element={<CSATPage />} />
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
-    )
-  }
 
   if (!user) return (
     <>
       <Toaster richColors position="top-right" />
-      <Suspense fallback={<div className="min-h-screen bg-[#F6F5F2]" />}>
+      <Suspense fallback={null}>
         <Login onLogin={handleLogin} />
       </Suspense>
     </>
   )
 
-  if (user.must_change_password) return (
-    <>
-      <Toaster richColors position="top-right" />
-      <ForceChangePassword onDone={() => {
-        setUser(u => u ? { ...u, must_change_password: false } : u)
-        const stored = localStorage.getItem('o3c_user')
-        if (stored) {
-          try { localStorage.setItem('o3c_user', JSON.stringify({ ...JSON.parse(stored), must_change_password: false })) } catch {}
-        }
-      }} onLogout={handleLogout} />
-    </>
-  )
+  if (user.must_change_password) {
+    const LIGHT_LOCAL = { '--bg': '#F4F6FA', '--card': '#FFFFFF', '--txt': '#0F1623', '--txt2': '#798094', '--input-bg': '#F2F4F9', '--input-bdr': '#DDE0EA', '--nav-dot': '#C00000', '--card-shadow': '0 1px 2px rgba(0,0,0,0.04), 0 4px 18px rgba(0,0,0,0.05)' } as React.CSSProperties
+    return (
+      <>
+        <Toaster richColors position="top-right" />
+        <div style={LIGHT_LOCAL}>
+          <ForceChangePassword onDone={() => {
+            setUser(u => u ? { ...u, must_change_password: false } : u)
+            const stored = localStorage.getItem('o3c_user')
+            if (stored) try { localStorage.setItem('o3c_user', JSON.stringify({ ...JSON.parse(stored), must_change_password: false })) } catch {}
+          }} />
+        </div>
+      </>
+    )
+  }
 
   return <AppShell user={user} onLogout={handleLogout} />
-}
-
-// Helper: redirect /los/:id → /sales/applications/:id, preserving the param
-function NavigateWithParams({ to }: { to: string }) {
-  const params = useParams()
-  const target = to.replace(/:(\w+)/g, (_, key) => params[key] ?? key)
-  return <Navigate to={target} replace />
 }

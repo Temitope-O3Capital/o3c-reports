@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 130" width="220" height="130">
+  <defs>
+    <!-- Red sphere gradient -->
+    <radialGradient id="g-red" cx="36%" cy="26%" r="72%" gradientUnits="objectBoundingBox">
+      <stop offset="0%"   stop-color="#FF9090"/>
+      <stop offset="14%"  stop-color="#E02828"/>
+      <stop offset="52%"  stop-color="#A81010"/>
+      <stop offset="100%" stop-color="#420000"/>
+    </radialGradient>
+    <!-- Red sphere specular highlight -->
+    <radialGradient id="g-red-hi" cx="40%" cy="30%" r="40%" gradientUnits="objectBoundingBox">
+      <stop offset="0%"   stop-color="#FFAAAA" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#FF6060" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Silver sphere gradient -->
+    <radialGradient id="g-silver" cx="36%" cy="24%" r="74%" gradientUnits="objectBoundingBox">
+      <stop offset="0%"   stop-color="#FFFFFF"/>
+      <stop offset="10%"  stop-color="#F2F2F2"/>
+      <stop offset="36%"  stop-color="#C8C8C8"/>
+      <stop offset="70%"  stop-color="#808080"/>
+      <stop offset="100%" stop-color="#282828"/>
+    </radialGradient>
+    <!-- Silver specular highlight -->
+    <radialGradient id="g-silver-hi" cx="38%" cy="26%" r="38%" gradientUnits="objectBoundingBox">
+      <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Black sphere gradient -->
+    <radialGradient id="g-dark" cx="36%" cy="26%" r="70%" gradientUnits="objectBoundingBox">
+      <stop offset="0%"   stop-color="#A0A0A0"/>
+      <stop offset="20%"  stop-color="#484848"/>
+      <stop offset="55%"  stop-color="#181818"/>
+      <stop offset="100%" stop-color="#020202"/>
+    </radialGradient>
+    <!-- Dark specular highlight -->
+    <radialGradient id="g-dark-hi" cx="38%" cy="28%" r="38%" gradientUnits="objectBoundingBox">
+      <stop offset="0%"   stop-color="#D0D0D0" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#D0D0D0" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Clip paths so silver sphere sits on top -->
+    <clipPath id="clip-left-of-silver">
+      <rect x="0" y="0" width="108" height="130"/>
+    </clipPath>
+    <clipPath id="clip-right-of-silver">
+      <rect x="112" y="0" width="108" height="130"/>
+    </clipPath>
+  </defs>
+
+  <!-- Red sphere (back-left) -->
+  <circle cx="62"  cy="65" r="52" fill="url(#g-red)"/>
+  <ellipse cx="55" cy="46" rx="26" ry="18" fill="url(#g-red-hi)"/>
+
+  <!-- Black sphere (back-right) -->
+  <circle cx="158" cy="65" r="52" fill="url(#g-dark)"/>
+  <ellipse cx="152" cy="48" rx="24" ry="16" fill="url(#g-dark-hi)"/>
+
+  <!-- Silver sphere (front-center, rendered last so it sits on top) -->
+  <circle cx="110" cy="65" r="56" fill="url(#g-silver)"/>
+  <ellipse cx="103" cy="45" rx="28" ry="20" fill="url(#g-silver-hi)"/>
+</svg>

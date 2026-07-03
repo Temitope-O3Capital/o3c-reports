@@ -270,6 +270,24 @@ func tmLogDisposition(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Insert failed")
 			return
 		}
+
+		// Hand-off: when converted, create a BD lead for follow-up
+		if b.Outcome == "converted" {
+			lead, _ := db.PGQuery(r.Context(),
+				`SELECT customer_name, customer_phone, employer, assigned_to FROM telemarketing_leads WHERE id=$1`, id)
+			if len(lead) > 0 {
+				l := lead[0]
+				title := str(l["customer_name"])
+				db.PGExec(r.Context(), //nolint:errcheck
+					`INSERT INTO bd_leads
+					   (title, contact_name, contact_phone, company_name, lead_type, stage,
+					    entity_type, source, assigned_to, created_by, created_at, updated_at)
+					 VALUES ($1,$1,$2,$3,'Personal Loan','prospect','individual','telemarketing',$4,$5,NOW(),NOW())
+					 ON CONFLICT DO NOTHING`,
+					title, l["customer_phone"], l["employer"], l["assigned_to"], user.ID)
+			}
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck

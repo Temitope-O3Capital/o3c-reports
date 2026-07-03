@@ -1,222 +1,252 @@
 import { useState, useEffect, useCallback } from 'react'
+import {
+  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Modal, ConfirmModal, ErrBanner, Spinner, btnPrimary,
+} from '../../components/UI'
+import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import {
-  Page, SectionCard, DataTable, ErrBanner, StatusBadge, ColDef, NAVY, RED,
-} from '../../components/UI'
+import { NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { toast } from 'sonner'
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface WatchEntry {
-  id: string
-  entity_type: string
-  entity_name: string
-  id_type: string
-  id_value: string
-  reason: string
-  source: string
-  is_active: boolean
-  added_by: string
+  id: number
+  name: string
+  watch_type: string
+  source?: string
+  notes?: string
+  status: string
   created_at: string
+  matched_transactions_count?: number
 }
 
-export default function WatchList() {
-  const [q, setQ] = useState('')
-  const [isActive, setIsActive] = useState<string>('true')
-  const [rows, setRows] = useState<WatchEntry[]>([])
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+const TYPE_STYLE: Record<string, { color: string; bg: string }> = {
+  PEP:      { color: RED,    bg: `${RED}12` },
+  Sanction: { color: AMBER,  bg: `${AMBER}18` },
+  Internal: { color: BLUE,   bg: `${BLUE}12` },
+}
+
+function TypePill({ type }: { type: string }) {
+  const s = TYPE_STYLE[type] ?? TYPE_STYLE.Internal
+  return (
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color }}>
+      {type}
+    </span>
+  )
+}
+
+function StatusDot({ status }: { status: string }) {
+  const active = status?.toLowerCase() === 'active'
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 600, color: active ? GREEN : '#9CA3AF' }}>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: active ? GREEN : '#9CA3AF', display: 'inline-block' }} />
+      {active ? 'Active' : 'Inactive'}
+    </span>
+  )
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
+
+const BLANK = { name: '', watch_type: 'Internal', source: '', notes: '' }
+
+export default function Watchlist() {
+  const [entries, setEntries] = useState<WatchEntry[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [showNew, setShowNew] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [typeFilter, setTypeFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+
+  const [addOpen, setAddOpen] = useState(false)
+  const [form, setForm] = useState(BLANK)
   const [saving, setSaving] = useState(false)
-  const [confirmDeactivate, setConfirmDeactivate] = useState<string | null>(null)
-  const [newForm, setNewForm] = useState({
-    entity_type: 'individual', entity_name: '', id_type: 'BVN',
-    id_value: '', reason: '', source: '',
-  })
+  const [deactivateEntry, setDeactivateEntry] = useState<WatchEntry | null>(null)
+  const [deactivating, setDeactivating] = useState(false)
 
   const load = useCallback(async () => {
-    setLoading(true); setError('')
+    setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
-      if (q) p.set('q', q)
-      if (isActive !== '') p.set('is_active', isActive)
-      const res = await apiFetch(`/api/compliance/watch-list?${p}`)
-      setRows(res.data ?? res)
-    } catch (e: any) { setError(e.message) }
+      if (typeFilter)   p.set('type', typeFilter)
+      if (statusFilter) p.set('status', statusFilter)
+      const data = await apiFetch<WatchEntry[]>(`/api/compliance/watch-list?${p}`)
+      setEntries(Array.isArray(data) ? data : [])
+    } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [q, isActive])
+  }, [typeFilter, statusFilter])
 
   useEffect(() => { load() }, [load])
 
-  async function addEntry() {
-    setSaving(true); setError('')
+  async function handleAdd() {
+    if (!form.name) { toast.error('Name is required'); return }
+    setSaving(true)
     try {
-      await apiPost('/api/compliance/watch-list', newForm)
-      setShowNew(false)
-      setNewForm({ entity_type: 'individual', entity_name: '', id_type: 'BVN', id_value: '', reason: '', source: '' })
-      load()
-    } catch (e: any) { setError(e.message) }
+      await apiPost('/api/compliance/watch-list', form)
+      toast.success('Added to watchlist')
+      setAddOpen(false); setForm(BLANK); load()
+    } catch (e: any) { toast.error(e.message) }
     finally { setSaving(false) }
   }
 
-  async function deactivate(id: string) {
-    setSaving(true); setError('')
+  async function handleDeactivate() {
+    if (!deactivateEntry) return
+    setDeactivating(true)
     try {
-      await apiPut(`/api/compliance/watch-list/${id}/deactivate`, {})
-      setConfirmDeactivate(null)
-      load()
-    } catch (e: any) { setError(e.message) }
-    finally { setSaving(false) }
+      await apiPut(`/api/compliance/watch-list/${deactivateEntry.id}/deactivate`, {})
+      toast.success('Entry deactivated')
+      setDeactivateEntry(null); load()
+    } catch (e: any) { toast.error(e.message) }
+    finally { setDeactivating(false) }
   }
 
-  const cols: ColDef<WatchEntry>[] = [
-    { key: 'entity_name', label: 'Entity Name', render: r => (
-      <span className="font-semibold" style={{ color: 'var(--txt)' }}>{r.entity_name}</span>
-    )},
-    { key: 'entity_type', label: 'Type', render: r => (
-      <span className="text-[12px] capitalize" style={{ color: 'var(--txt2)' }}>{r.entity_type}</span>
-    )},
-    { key: 'id_type', label: 'ID', render: r => (
-      <span className="text-[12px]">
-        <span className="font-semibold" style={{ color: 'var(--txt2)' }}>{r.id_type}</span>
-        <span className="ml-1" style={{ color: 'var(--txt2)' }}>{r.id_value}</span>
-      </span>
-    )},
-    { key: 'reason', label: 'Reason', render: r => (
-      <span className="text-[12px] max-w-[200px] block truncate" style={{ color: 'var(--txt2)' }}>{r.reason}</span>
-    )},
-    { key: 'source', label: 'Source', render: r => (
-      <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{r.source || '—'}</span>
-    )},
-    { key: 'is_active', label: 'Status', render: r => (
-      <StatusBadge status={r.is_active ? 'active' : 'inactive'} />
-    )},
-    { key: 'added_by', label: 'Added By', render: r => (
-      <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{r.added_by || '—'}</span>
-    )},
-    { key: 'created_at', label: 'Date Added', render: r => (
-      <span className="text-[12px] whitespace-nowrap" style={{ color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span>
-    )},
-    { key: 'actions', label: '', sortable: false, render: r => (
-      r.is_active ? (
-        confirmDeactivate === r.id ? (
-          <span className="inline-flex items-center gap-1">
-            <span className="text-[11px] mr-1" style={{ color: 'var(--txt2)' }}>Sure?</span>
-            <button onClick={() => deactivate(r.id)} disabled={saving}
-              className="text-[11px] font-semibold px-2 py-1 rounded"
-              style={{ background: 'rgba(192,0,0,0.10)', color: RED }}>
-              Confirm
+  const cols: TableCol<WatchEntry>[] = [
+    {
+      key: 'name', label: 'Name',
+      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</span>,
+    },
+    {
+      key: 'watch_type', label: 'Type',
+      render: r => <TypePill type={r.watch_type} />,
+    },
+    {
+      key: 'source', label: 'Source',
+      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.source ?? '—'}</span>,
+    },
+    {
+      key: 'created_at', label: 'Added',
+      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span>,
+    },
+    {
+      key: 'matched_transactions_count', label: 'Matched Txns', align: 'right',
+      render: r => {
+        const n = r.matched_transactions_count ?? 0
+        return <span style={{ ...NUM, color: n > 0 ? RED : 'var(--txt3)', fontWeight: n > 0 ? 700 : 400 }}>{n}</span>
+      },
+    },
+    {
+      key: 'status', label: 'Status',
+      render: r => <StatusDot status={r.status} />,
+    },
+    {
+      key: 'id', label: '',
+      render: r => (
+        <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
+          {r.status?.toLowerCase() === 'active' && (
+            <button
+              onClick={() => setDeactivateEntry(r)}
+              style={{ padding: '3px 10px', borderRadius: 6, border: '1.5px solid rgba(220,38,38,.3)', background: 'transparent', color: RED, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Deactivate
             </button>
-            <button onClick={() => setConfirmDeactivate(null)}
-              className="text-[11px] font-medium px-2 py-1 rounded"
-              style={{ background: 'var(--chip-bg)', color: 'var(--txt2)' }}>
-              Cancel
-            </button>
-          </span>
-        ) : (
-          <button onClick={() => setConfirmDeactivate(r.id)} disabled={saving}
-            className="text-[11px] font-medium px-2 py-1 rounded"
-            style={{ background: 'rgba(192,0,0,0.07)', color: RED }}>
-            Deactivate
-          </button>
-        )
-      ) : null
-    )},
+          )}
+        </div>
+      ),
+    },
   ]
 
   return (
-    <Page dept="Compliance" title="Watch List"
-      subtitle="Entities flagged for enhanced due diligence"
+    <Page
+      title="AML Watchlist"
+      subtitle="PEP, sanctions, and internal watchlist entries"
       actions={
-        <button onClick={() => setShowNew(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold"
-          style={{ background: NAVY, color: '#fff' }}>
-          <span className="material-symbols-rounded text-[15px]">add</span>
-          Add to Watch List
+        <button onClick={() => { setForm(BLANK); setAddOpen(true) }} style={btnPrimary}>
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+          Add Entry
         </button>
-      }>
+      }
+    >
+      <ErrBanner error={err} onRetry={load} />
 
-      <div className="flex flex-wrap gap-2 mb-4">
-        <input type="search" placeholder="Search by name or ID…" value={q}
-          onChange={e => setQ(e.target.value)}
-          className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
-          style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)', minWidth: 220 }} />
-        <select value={isActive} onChange={e => setIsActive(e.target.value)}
-          className="px-3 py-1.5 rounded-lg border text-[12px] outline-none"
-          style={{ borderColor: 'var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}>
-          <option value="true">Active Only</option>
-          <option value="false">Inactive Only</option>
-          <option value="">All</option>
+      <FilterBar onReset={() => { setTypeFilter(''); setStatusFilter('') }}>
+        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={filterInputStyle}>
+          <option value="">All Types</option>
+          <option value="PEP">PEP</option>
+          <option value="Sanction">Sanction</option>
+          <option value="Internal">Internal</option>
         </select>
-      </div>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
+          <option value="">All Statuses</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+      </FilterBar>
 
-      <ErrBanner msg={error} />
+      <SectionCard title="Watchlist Entries" badge={entries.length} padding={false}>
+        <DataTable<WatchEntry>
+          cols={cols}
+          rows={entries}
+          keyFn={r => r.id}
+          emptyText="No watchlist entries found."
+          skeletonRows={loading ? 6 : 0}
+        />
+      </SectionCard>
 
-      {showNew && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="card p-6 w-full max-w-md shadow-2xl">
-            <h2 className="text-[16px] font-bold mb-4" style={{ color: NAVY }}>Add to Watch List</h2>
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] font-semibold uppercase block mb-1" style={{ color: 'var(--txt2)' }}>Entity Type</label>
-                  <select value={newForm.entity_type} onChange={e => setNewForm(f => ({ ...f, entity_type: e.target.value }))}
-                    className="w-full px-3 py-2 rounded border text-[13px] outline-none"
-                    style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}>
-                    <option value="individual">Individual</option>
-                    <option value="business">Business</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[11px] font-semibold uppercase block mb-1" style={{ color: 'var(--txt2)' }}>ID Type</label>
-                  <select value={newForm.id_type} onChange={e => setNewForm(f => ({ ...f, id_type: e.target.value }))}
-                    className="w-full px-3 py-2 rounded border text-[13px] outline-none"
-                    style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}>
-                    {['BVN','NIN','RC Number','Passport'].map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold uppercase block mb-1" style={{ color: 'var(--txt2)' }}>Entity Name</label>
-                <input value={newForm.entity_name} onChange={e => setNewForm(f => ({ ...f, entity_name: e.target.value }))}
-                  className="w-full px-3 py-2 rounded border text-[13px] outline-none"
-                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold uppercase block mb-1" style={{ color: 'var(--txt2)' }}>ID Value</label>
-                <input value={newForm.id_value} onChange={e => setNewForm(f => ({ ...f, id_value: e.target.value }))}
-                  className="w-full px-3 py-2 rounded border text-[13px] outline-none"
-                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold uppercase block mb-1" style={{ color: 'var(--txt2)' }}>Reason</label>
-                <textarea value={newForm.reason} onChange={e => setNewForm(f => ({ ...f, reason: e.target.value }))}
-                  className="w-full px-3 py-2 rounded border text-[13px] outline-none resize-none"
-                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} rows={2} />
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold uppercase block mb-1" style={{ color: 'var(--txt2)' }}>Source</label>
-                <input value={newForm.source} onChange={e => setNewForm(f => ({ ...f, source: e.target.value }))}
-                  placeholder="e.g. NFIU, Internal, CBN"
-                  className="w-full px-3 py-2 rounded border text-[13px] outline-none"
-                  style={{ borderColor: 'var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }} />
-              </div>
+      {/* Add modal */}
+      <Modal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        title="Add to Watchlist"
+        width={460}
+        footer={
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => setAddOpen(false)}
+              style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
+              Cancel
+            </button>
+            <button onClick={handleAdd} disabled={saving}
+              style={{ ...btnPrimary, opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {saving && <Spinner size={14} color="#fff" />}
+              Add Entry
+            </button>
+          </div>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {[
+            { label: 'Full Name *', key: 'name' as const, placeholder: 'Full name of individual or entity' },
+            { label: 'Source', key: 'source' as const, placeholder: 'e.g. OFAC, UN Sanctions, Internal' },
+          ].map(({ label, key, placeholder }) => (
+            <div key={key}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>{label}</label>
+              <input
+                value={form[key]}
+                onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                placeholder={placeholder}
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box' as const }}
+              />
             </div>
-            <div className="flex justify-end gap-2 mt-5">
-              <button onClick={() => setShowNew(false)}
-                className="px-4 py-2 rounded text-[13px] font-medium" style={{ color: 'var(--txt2)' }}>Cancel</button>
-              <button onClick={addEntry}
-                disabled={saving || !newForm.entity_name || !newForm.id_value}
-                className="px-4 py-2 rounded text-[13px] font-semibold disabled:opacity-50"
-                style={{ background: NAVY, color: '#fff' }}>
-                {saving ? 'Adding…' : 'Add Entry'}
-              </button>
-            </div>
+          ))}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Type</label>
+            <select value={form.watch_type} onChange={e => setForm(f => ({ ...f, watch_type: e.target.value }))}
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none' }}>
+              <option value="PEP">PEP</option>
+              <option value="Sanction">Sanction</option>
+              <option value="Internal">Internal</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Notes</label>
+            <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+              rows={3} placeholder="Additional context…"
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' as const }} />
           </div>
         </div>
-      )}
+      </Modal>
 
-      <SectionCard title="Watch List Entries" badge={rows.length}>
-        <DataTable cols={cols} rows={rows} loading={loading} emptyIcon="person_off" emptyMsg="No watch list entries" />
-      </SectionCard>
+      <ConfirmModal
+        open={!!deactivateEntry}
+        title="Deactivate watchlist entry?"
+        body={`Remove "${deactivateEntry?.name}" from the active watchlist? You can reactivate it later.`}
+        confirmLabel="Deactivate"
+        danger
+        loading={deactivating}
+        onConfirm={handleDeactivate}
+        onClose={() => setDeactivateEntry(null)}
+      />
     </Page>
   )
 }

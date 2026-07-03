@@ -1,305 +1,355 @@
-import { snake } from '../../lib/labels'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import {
+  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Modal, ConfirmModal, ErrBanner, Spinner, Tabs, StatusBadge, btnPrimary,
+} from '../../components/UI'
+import type { TableCol } from '../../components/UI'
+import { apiFetch, apiPost, apiPut } from '../../lib/api'
+import { fmtDate, fmtKobo } from '../../lib/fmt'
+import { NAVY, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
-import { apiFetch, apiPost } from '../../lib/api'
-import { fmt, fmtDate } from '../../lib/fmt'
-import { Spinner, ErrBanner, StatusBadge, KpiCard, Page, Pagination, FilterBar, NAVY, RED, GREEN } from '../../components/UI'
+import type { AuthUser } from '../../hooks/useAuth'
 
-// ── Types ─────────────────────────────────────────────────────────
-interface Department { id: string; name: string }
+// ── Types ─────────────────────────────────────────────────────────────────────
+
 interface Employee {
-  id: string; staff_id: string; first_name: string; last_name: string
-  email?: string; phone?: string; department_id?: string; department_name?: string
-  job_title?: string; grade?: string; employment_type?: string
-  employment_date?: string; salary_kobo?: number; status: string
+  id: number
+  staff_id?: string
+  first_name: string
+  last_name: string
+  email?: string
+  phone?: string
+  department?: string
+  department_id?: number
+  job_title?: string
+  grade_level?: string
+  grade_level_id?: number
+  status: string
+  date_of_birth?: string
+  gender?: string
+  address?: string
+  emergency_contact_name?: string
+  emergency_contact_phone?: string
+  start_date?: string
+  manager_name?: string
+  contract_type?: string
+  bank_name?: string
+  account_number?: string
+  salary_kobo?: number
+  pension_rsa_pin?: string
+  hmo_plan?: string
 }
-interface LeaveBalance { leave_type: string; total_days: number; used_days: number; remaining: number }
-interface DashStats { total_active: number; on_leave: number; exiting_this_month: number }
 
-interface AddForm {
-  staff_id: string; first_name: string; last_name: string; email: string; phone: string
-  department_id: string; job_title: string; employment_type: string
-  employment_date: string; salary_kobo: string
+interface LeaveBalance { leave_type: string; total_days: number; used_days: number; remaining_days: number }
+interface Department { id: number; name: string }
+interface GradeLevel { id: number; name: string }
+
+// ── Main component ─────────────────────────────────────────────────────────────
+
+const BLANK: Partial<Employee> = {
+  first_name: '', last_name: '', email: '', phone: '',
+  department_id: undefined, job_title: '', grade_level_id: undefined,
+  salary_kobo: 0, bank_name: '', account_number: '', contract_type: 'Full-Time',
 }
-
-const EMPLOYMENT_TYPES = ['full_time', 'part_time', 'contract', 'intern']
 
 export default function Employees() {
-  const [employees, setEmployees]     = useState<Employee[]>([])
-  const [departments, setDepartments] = useState<Department[]>([])
-  const [stats, setStats]             = useState<DashStats | null>(null)
-  const [loading, setLoading]         = useState(true)
-  const [error, setError]             = useState('')
+  const storedUser = localStorage.getItem('auth_user')
+  const userRole = storedUser ? (JSON.parse(storedUser) as AuthUser).role : ''
+  const canManage = ['hr_manager', 'head_hr', 'admin', 'coo'].includes(userRole)
 
-  const [search, setSearch]           = useState('')
-  const [deptF, setDeptF]             = useState('')
-  const [statusF, setStatusF]         = useState('active')
-  const [page, setPage]               = useState(0)
-  const limit = 50
+  const [employees, setEmployees] = useState<Employee[]>([])
+  const [depts, setDepts] = useState<Department[]>([])
+  const [grades, setGrades] = useState<GradeLevel[]>([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
 
-  // Sidebar
-  const [selected, setSelected]       = useState<Employee | null>(null)
-  const [leaveBalance, setLeaveBalance] = useState<LeaveBalance[]>([])
-  const [lbLoading, setLbLoading]     = useState(false)
+  const [deptFilter, setDeptFilter]     = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [gradeFilter, setGradeFilter]   = useState('')
 
-  // Add modal
-  const [showAdd, setShowAdd]         = useState(false)
-  const [addForm, setAddForm]         = useState<AddForm>({
-    staff_id: '', first_name: '', last_name: '', email: '', phone: '',
-    department_id: '', job_title: '', employment_type: 'full_time',
-    employment_date: '', salary_kobo: '',
-  })
-  const [adding, setAdding]           = useState(false)
-  const [addErr, setAddErr]           = useState('')
-  const [reloadKey, setReloadKey]     = useState(0)
+  const [addOpen, setAddOpen]         = useState(false)
+  const [form, setForm]               = useState<Partial<Employee>>(BLANK)
+  const [saving, setSaving]           = useState(false)
 
-  useEffect(() => {
-    let active = true
-    setLoading(true); setError('')
-    async function load() {
-      try {
-        const params = new URLSearchParams({
-          status: statusF,
-          limit: String(limit),
-          offset: String(page * limit),
-          ...(search ? { q: search } : {}),
-        })
-        const [rEmp, rDept, rDash] = await Promise.allSettled([
-          apiFetch<{ data: Employee[] }>(`/api/hr/employees?${params}`),
-          apiFetch<Department[]>('/api/hr/departments'),
-          apiFetch<DashStats>('/api/hr/dashboard'),
-        ])
-        if (!active) return
-        if (rEmp.status === 'fulfilled') setEmployees(rEmp.value.data ?? [])
-        if (rDept.status === 'fulfilled') setDepartments(Array.isArray(rDept.value) ? rDept.value : [])
-        if (rDash.status === 'fulfilled') setStats(rDash.value)
-        if ([rEmp, rDept, rDash].every(r => r.status === 'rejected')) {
-          setError((rEmp as PromiseRejectedResult).reason?.message ?? 'Failed to load')
-        }
-      } catch (e: any) { if (active) setError(e.message) }
-      finally { if (active) setLoading(false) }
-    }
-    load()
-    return () => { active = false }
-  }, [statusF, page, search, reloadKey])
+  const [detail, setDetail]           = useState<Employee | null>(null)
+  const [detailTab, setDetailTab]     = useState('personal')
+  const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([])
+  const [loadingLeave, setLoadingLeave]   = useState(false)
 
-  async function selectEmployee(emp: Employee) {
-    setSelected(emp)
-    setLbLoading(true)
+  const load = useCallback(async () => {
+    setLoading(true); setErr(null)
     try {
-      const res = await apiFetch<LeaveBalance[]>(`/api/hr/employees/${emp.id}/leave-balance`)
-      setLeaveBalance(Array.isArray(res) ? res : [])
-    } catch { setLeaveBalance([]) }
-    finally { setLbLoading(false) }
-  }
+      const p = new URLSearchParams()
+      if (deptFilter)   p.set('department_id', deptFilter)
+      if (statusFilter) p.set('status', statusFilter)
+      if (gradeFilter)  p.set('grade_level_id', gradeFilter)
+      const [emps, ds, gs] = await Promise.all([
+        apiFetch<Employee[]>(`/api/hr/employees?${p}`),
+        apiFetch<Department[]>('/api/hr/departments'),
+        apiFetch<GradeLevel[]>('/api/hr/grade-levels'),
+      ])
+      setEmployees(Array.isArray(emps) ? emps : [])
+      setDepts(Array.isArray(ds) ? ds : [])
+      setGrades(Array.isArray(gs) ? gs : [])
+    } catch (e: any) { setErr(e.message) }
+    finally { setLoading(false) }
+  }, [deptFilter, statusFilter, gradeFilter])
 
-  function setAdd(k: keyof AddForm, v: string) {
-    setAddForm(f => ({ ...f, [k]: v }))
-  }
+  useEffect(() => { load() }, [load])
 
-  async function submitAdd() {
-    setAdding(true); setAddErr('')
+  async function openDetail(emp: Employee) {
+    setDetail(emp)
+    setDetailTab('personal')
+    setLeaveBalances([])
+    setLoadingLeave(true)
     try {
-      await apiPost('/api/hr/employees', {
-        ...addForm,
-        salary_kobo: addForm.salary_kobo ? Math.round(parseFloat(addForm.salary_kobo) * 100) : undefined,
-        department_id: addForm.department_id || undefined,
-      })
-      setShowAdd(false)
-      setAddForm({ staff_id: '', first_name: '', last_name: '', email: '', phone: '', department_id: '', job_title: '', employment_type: 'full_time', employment_date: '', salary_kobo: '' })
-      toast.success('Employee added successfully')
-      setReloadKey(k => k + 1)
-    } catch (e: any) {
-      setAddErr(e.message)
-    } finally {
-      setAdding(false)
-    }
+      const full = await apiFetch<Employee>(`/api/hr/employees/${emp.id}`)
+      setDetail(full)
+      const lb = await apiFetch<LeaveBalance[]>(`/api/hr/employees/${emp.id}/leave-balance`)
+      setLeaveBalances(Array.isArray(lb) ? lb : [])
+    } catch { /* keep what we have */ }
+    finally { setLoadingLeave(false) }
   }
 
-  const filtered = deptF ? employees.filter(e => e.department_id === deptF) : employees
+  async function handleCreate() {
+    if (!form.first_name || !form.last_name) { toast.error('First and last name are required'); return }
+    setSaving(true)
+    try {
+      await apiPost('/api/hr/employees', form)
+      toast.success('Employee added')
+      setAddOpen(false); setForm(BLANK); load()
+    } catch (e: any) { toast.error(e.message) }
+    finally { setSaving(false) }
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
+    fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
+  }
+
+  const cols: TableCol<Employee>[] = [
+    {
+      key: 'staff_id', label: 'Staff ID',
+      render: r => <span style={{ ...NUM, fontSize: 12, fontWeight: 700, color: NAVY }}>{r.staff_id ?? '—'}</span>,
+    },
+    {
+      key: 'first_name', label: 'Name',
+      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.first_name} {r.last_name}</span>,
+    },
+    {
+      key: 'department', label: 'Department',
+      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.department ?? '—'}</span>,
+    },
+    {
+      key: 'job_title', label: 'Job Title',
+      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.job_title ?? '—'}</span>,
+    },
+    {
+      key: 'grade_level', label: 'Grade',
+      render: r => r.grade_level ? (
+        <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${BLUE}12`, color: BLUE }}>
+          {r.grade_level}
+        </span>
+      ) : <span style={{ color: 'var(--txt3)' }}>—</span>,
+    },
+    {
+      key: 'status', label: 'Status',
+      render: r => <StatusBadge status={r.status} size="sm" />,
+    },
+  ]
+
+  const detailTabs = [
+    { key: 'personal',   label: 'Personal' },
+    { key: 'employment', label: 'Employment' },
+    { key: 'payroll',    label: 'Payroll' },
+    { key: 'leave',      label: 'Leave' },
+  ]
 
   return (
     <Page
-      dept="HR"
-      title="Employee Directory"
+      title="Employees"
+      subtitle="Employee directory and records"
       actions={
-        <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white" style={{ background: NAVY }} onClick={() => setShowAdd(true)}>
-          <span className="material-symbols-rounded text-[15px] align-middle mr-1" aria-hidden="true">person_add</span>
-          Add Employee
-        </button>
+        canManage ? (
+          <button onClick={() => { setForm(BLANK); setAddOpen(true) }} style={btnPrimary}>
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>person_add</span>
+            Add Employee
+          </button>
+        ) : undefined
       }
     >
-      <ErrBanner msg={error} />
+      <ErrBanner error={err} onRetry={load} />
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <KpiCard label="Active Staff" value={String(stats?.total_active ?? '—')} icon="group" accent={GREEN} loading={loading && !stats} />
-        <KpiCard label="On Leave" value={String(stats?.on_leave ?? '—')} icon="event_busy" accent="#D97706" loading={loading && !stats} />
-        <KpiCard label="Exiting This Month" value={String(stats?.exiting_this_month ?? '—')} icon="logout" accent="#C00000" loading={loading && !stats} />
-      </div>
+      <FilterBar onReset={() => { setDeptFilter(''); setStatusFilter(''); setGradeFilter('') }}>
+        <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={filterInputStyle}>
+          <option value="">All Departments</option>
+          {depts.map(d => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
+        </select>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
+          <option value="">All Statuses</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+          <option value="suspended">Suspended</option>
+        </select>
+        <select value={gradeFilter} onChange={e => setGradeFilter(e.target.value)} style={filterInputStyle}>
+          <option value="">All Grades</option>
+          {grades.map(g => <option key={g.id} value={String(g.id)}>{g.name}</option>)}
+        </select>
+      </FilterBar>
 
-      <div className="flex gap-5">
-        {/* Table section */}
-        <div className="flex-1 min-w-0">
-          <FilterBar>
-            <input className="w-full max-w-xs px-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-              placeholder="Search by name or staff ID…" value={search} onChange={e => { setSearch(e.target.value); setPage(0) }} />
-            <select className="px-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-              value={deptF} onChange={e => setDeptF(e.target.value)}>
-              <option value="">All Departments</option>
-              {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-            <select className="px-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-              value={statusF} onChange={e => { setStatusF(e.target.value); setPage(0) }}>
-              <option value="active">Active</option>
-              <option value="">All</option>
-            </select>
-          </FilterBar>
+      <SectionCard title="Employees" badge={employees.length} padding={false}>
+        <DataTable<Employee>
+          cols={cols}
+          rows={employees}
+          keyFn={r => r.id}
+          onRowClick={openDetail}
+          emptyText="No employees found."
+          skeletonRows={loading ? 8 : 0}
+        />
+      </SectionCard>
 
-          <div className="card overflow-hidden">
-            {loading ? (
-              <div className="flex items-center justify-center py-20"><Spinner size={32} /></div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-[13px]">
-                  <thead>
-                    <tr style={{ background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>
-                      {['Staff ID','Name','Department','Job Title','Grade','Status','Start Date',''].map(h => (
-                        <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: 'var(--txt2)', fontFamily: "'Inter', ui-sans-serif, sans-serif", fontSize: 10 }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.length === 0 ? (
-                      <tr><td colSpan={8} className="px-4 py-14 text-center text-[13px]" style={{ color: 'var(--txt2)' }}>No employees found</td></tr>
-                    ) : filtered.map(emp => (
-                      <tr key={emp.id} className="cursor-pointer" style={{ borderBottom: '1px solid var(--bdr)', transition: 'background .1s' }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = ''} onClick={() => selectEmployee(emp)}>
-                        <td className="px-4 py-3 font-mono text-[12px]" style={{ color: 'var(--txt2)' }}>{emp.staff_id}</td>
-                        <td className="px-4 py-3 font-semibold" style={{ color: 'var(--txt)' }}>{emp.first_name} {emp.last_name}</td>
-                        <td className="px-4 py-3" style={{ color: 'var(--txt2)' }}>{emp.department_name ?? '—'}</td>
-                        <td className="px-4 py-3" style={{ color: 'var(--txt2)' }}>{emp.job_title ?? '—'}</td>
-                        <td className="px-4 py-3" style={{ color: 'var(--txt2)' }}>{emp.grade ?? '—'}</td>
-                        <td className="px-4 py-3"><StatusBadge status={emp.status} /></td>
-                        <td className="px-4 py-3" style={{ color: 'var(--txt2)' }}>{fmtDate(emp.employment_date)}</td>
-                        <td className="px-4 py-3">
-                          <button style={{ color: 'var(--txt2)' }}><span className="material-symbols-rounded text-[18px]">chevron_right</span></button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+      {/* Add modal */}
+      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Employee" width={580}
+        footer={
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => setAddOpen(false)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={handleCreate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {saving && <Spinner size={14} color="#fff" />}
+              Add Employee
+            </button>
+          </div>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {([['First Name *', 'first_name'], ['Last Name *', 'last_name'], ['Email', 'email'], ['Phone', 'phone'], ['Job Title', 'job_title']] as [string, keyof Employee][]).map(([label, key]) => (
+              <div key={key}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>{label}</label>
+                <input value={(form[key] as string) ?? ''} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} style={inputStyle} />
               </div>
-            )}
-            <Pagination page={page} hasMore={employees.length >= limit} onPrev={() => setPage(p => p - 1)} onNext={() => setPage(p => p + 1)} />
+            ))}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Department</label>
+              <select value={form.department_id ?? ''} onChange={e => setForm(f => ({ ...f, department_id: Number(e.target.value) || undefined }))}
+                style={{ ...inputStyle, height: 36, padding: '0 10px' }}>
+                <option value="">— Select —</option>
+                {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Grade Level</label>
+              <select value={form.grade_level_id ?? ''} onChange={e => setForm(f => ({ ...f, grade_level_id: Number(e.target.value) || undefined }))}
+                style={{ ...inputStyle, height: 36, padding: '0 10px' }}>
+                <option value="">— Select —</option>
+                {grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Gross Salary (₦)</label>
+              <input type="number" value={form.salary_kobo ? form.salary_kobo / 100 : ''} onChange={e => setForm(f => ({ ...f, salary_kobo: Math.round(Number(e.target.value) * 100) }))} style={inputStyle} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Bank Name</label>
+              <input value={form.bank_name ?? ''} onChange={e => setForm(f => ({ ...f, bank_name: e.target.value }))} style={inputStyle} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Account Number</label>
+              <input value={form.account_number ?? ''} onChange={e => setForm(f => ({ ...f, account_number: e.target.value }))} style={inputStyle} />
+            </div>
           </div>
         </div>
+      </Modal>
 
-        {/* Employee sidebar */}
-        {selected && (
-          <div className="w-72 flex-shrink-0 space-y-4">
-            <div className="card p-5">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-[16px]" style={{ background: NAVY }}>
-                  {selected.first_name.charAt(0)}
-                </div>
-                <div>
-                  <p className="text-[14px] font-bold" style={{ color: 'var(--txt)' }}>{selected.first_name} {selected.last_name}</p>
-                  <p className="text-[11px] font-mono" style={{ color: 'var(--txt2)' }}>{selected.staff_id}</p>
-                </div>
-              </div>
-              <div className="space-y-2">
-                {[
-                  ['Email', selected.email ?? '—'],
-                  ['Phone', selected.phone ?? '—'],
-                  ['Title', selected.job_title ?? '—'],
-                  ['Department', selected.department_name ?? '—'],
-                  ['Grade', selected.grade ?? '—'],
-                  ['Type', snake(selected.employment_type ?? '—')],
-                  ['Salary', selected.salary_kobo ? fmt(selected.salary_kobo / 100) + '/mo' : '—'],
-                ].map(([k, v]) => (
-                  <div key={k} className="flex justify-between">
-                    <span className="text-[11px]" style={{ color: 'var(--txt2)' }}>{k}</span>
-                    <span className="text-[12px] text-right max-w-[60%] truncate" style={{ color: 'var(--txt)' }}>{v}</span>
-                  </div>
-                ))}
-              </div>
+      {/* Detail modal */}
+      <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? `${detail.first_name} ${detail.last_name}` : ''} width={560}>
+        {detail && (
+          <div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <StatusBadge status={detail.status} />
+              {detail.staff_id && <span style={{ ...NUM, fontSize: 12, fontWeight: 700, color: NAVY }}>{detail.staff_id}</span>}
             </div>
-            {/* Leave balance */}
-            <div className="card p-4">
-              <p className="text-[12px] font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--txt2)' }}>Leave Balance</p>
-              {lbLoading ? <Spinner size={20} /> : leaveBalance.length === 0 ? (
-                <p className="text-[12px]" style={{ color: 'var(--txt2)' }}>No leave data</p>
-              ) : leaveBalance.map((lb, i) => (
-                <div key={i} className="mb-3">
-                  <div className="flex justify-between mb-1">
-                    <span className="text-[12px]" style={{ color: 'var(--txt2)' }}>{lb.leave_type}</span>
-                    <span className="text-[12px] font-semibold" style={{ color: 'var(--txt)' }}>{lb.remaining} / {lb.total_days} days</span>
-                  </div>
-                  <div className="h-1.5 rounded-full" style={{ background: 'var(--chip-bg)' }}>
-                    <div className="h-full rounded-full" style={{ width: `${lb.total_days > 0 ? (lb.used_days / lb.total_days) * 100 : 0}%`, background: NAVY }} />
-                  </div>
+            <Tabs tabs={detailTabs} active={detailTab} onChange={setDetailTab} />
+            <div style={{ paddingTop: 16 }}>
+              {detailTab === 'personal' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {[
+                    ['Date of Birth',     detail.date_of_birth ? fmtDate(detail.date_of_birth) : '—'],
+                    ['Gender',            detail.gender ?? '—'],
+                    ['Phone',             detail.phone ?? '—'],
+                    ['Email',             detail.email ?? '—'],
+                    ['Address',           detail.address ?? '—'],
+                    ['Emergency Contact', detail.emergency_contact_name ?? '—'],
+                    ['Emergency Phone',   detail.emergency_contact_phone ?? '—'],
+                  ].map(([label, value]) => (
+                    <div key={label} style={{ display: 'flex', gap: 12, fontSize: 13 }}>
+                      <span style={{ color: 'var(--txt2)', minWidth: 140, flexShrink: 0 }}>{label}</span>
+                      <span style={{ color: 'var(--txt)', fontWeight: 500 }}>{value}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+              {detailTab === 'employment' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {[
+                    ['Staff ID',       detail.staff_id ?? '—'],
+                    ['Department',     detail.department ?? '—'],
+                    ['Job Title',      detail.job_title ?? '—'],
+                    ['Grade Level',    detail.grade_level ?? '—'],
+                    ['Start Date',     detail.start_date ? fmtDate(detail.start_date) : '—'],
+                    ['Manager',        detail.manager_name ?? '—'],
+                    ['Contract Type',  detail.contract_type ?? '—'],
+                  ].map(([label, value]) => (
+                    <div key={label} style={{ display: 'flex', gap: 12, fontSize: 13 }}>
+                      <span style={{ color: 'var(--txt2)', minWidth: 140, flexShrink: 0 }}>{label}</span>
+                      <span style={{ color: 'var(--txt)', fontWeight: 500 }}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {detailTab === 'payroll' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {[
+                    ['Bank',           detail.bank_name ?? '—'],
+                    ['Account Number', detail.account_number ?? '—'],
+                    ['Gross Salary',   detail.salary_kobo ? fmtKobo(detail.salary_kobo) : '—'],
+                    ['Pension RSA PIN',detail.pension_rsa_pin ?? '—'],
+                    ['HMO Plan',       detail.hmo_plan ?? '—'],
+                  ].map(([label, value]) => (
+                    <div key={label} style={{ display: 'flex', gap: 12, fontSize: 13 }}>
+                      <span style={{ color: 'var(--txt2)', minWidth: 140, flexShrink: 0 }}>{label}</span>
+                      <span style={{ color: 'var(--txt)', fontWeight: 500 }}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {detailTab === 'leave' && (
+                loadingLeave ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}><Spinner size={24} /></div>
+                ) : leaveBalances.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--txt2)', fontSize: 13 }}>No leave balances found.</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {leaveBalances.map(lb => (
+                      <div key={lb.leave_type} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'var(--th-bg)', borderRadius: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginBottom: 3 }}>{lb.leave_type}</div>
+                          <div style={{ height: 5, background: 'var(--bdr)', borderRadius: 10, overflow: 'hidden' }}>
+                            <div style={{ width: `${lb.total_days > 0 ? (lb.remaining_days / lb.total_days) * 100 : 0}%`, height: '100%', background: GREEN, borderRadius: 10 }} />
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right', minWidth: 70 }}>
+                          <div style={{ ...NUM, fontSize: 15, fontWeight: 700, color: GREEN }}>{lb.remaining_days}</div>
+                          <div style={{ fontSize: 11, color: 'var(--txt3)' }}>of {lb.total_days} left</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
             </div>
           </div>
         )}
-      </div>
-
-      {/* Add Employee modal */}
-      {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={e => { if (e.target === e.currentTarget) setShowAdd(false) }}>
-          <div role="dialog" aria-modal="true" aria-labelledby="add-emp-title"
-            className="rounded-2xl shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto" style={{ background: 'var(--card)' }}>
-            <div className="flex items-center justify-between mb-5">
-              <h2 id="add-emp-title" className="text-[16px] font-bold" style={{ color: 'var(--txt)' }}>Add Employee</h2>
-              <button onClick={() => setShowAdd(false)} style={{ color: 'var(--txt2)' }} aria-label="Close">
-                <span className="material-symbols-rounded text-[20px]" aria-hidden="true">close</span>
-              </button>
-            </div>
-            <ErrBanner msg={addErr} />
-            <div className="grid grid-cols-2 gap-4">
-              {[
-                ['Staff ID *', 'staff_id', 'text', 'e.g. STF0042'],
-                ['First Name *', 'first_name', 'text', ''],
-                ['Last Name *', 'last_name', 'text', ''],
-                ['Email', 'email', 'email', ''],
-                ['Phone', 'phone', 'tel', ''],
-                ['Job Title', 'job_title', 'text', ''],
-                ['Start Date', 'employment_date', 'date', ''],
-                ['Monthly Salary (₦)', 'salary_kobo', 'number', ''],
-              ].map(([label, key, type, placeholder]) => (
-                <div key={key}>
-                  <label htmlFor={`emp-${key}`} className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>{label}</label>
-                  <input id={`emp-${key}`} type={type as string} placeholder={placeholder as string}
-                    className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-                    value={(addForm as any)[key]} onChange={e => setAdd(key as keyof AddForm, e.target.value)} />
-                </div>
-              ))}
-              <div>
-                <label htmlFor="emp-department_id" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Department</label>
-                <select id="emp-department_id" className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-                  value={addForm.department_id} onChange={e => setAdd('department_id', e.target.value)}>
-                  <option value="">Select…</option>
-                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="emp-employment_type" className="block text-[12px] font-semibold mb-1" style={{ color: 'var(--txt2)' }}>Employment Type</label>
-                <select id="emp-employment_type" className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0E2841]/20" style={{ border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)' }}
-                  value={addForm.employment_type} onChange={e => setAdd('employment_type', e.target.value)}>
-                  {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{snake(t)}</option>)}
-                </select>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-6">
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[color:var(--txt)] bg-black/[0.05] hover:bg-black/[0.08]" onClick={() => setShowAdd(false)}>Cancel</button>
-              <button className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white disabled:opacity-60" style={{ background: NAVY }} disabled={adding || !addForm.staff_id || !addForm.first_name || !addForm.last_name} onClick={submitAdd}>
-                {adding ? 'Adding…' : 'Add Employee'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </Modal>
     </Page>
   )
 }

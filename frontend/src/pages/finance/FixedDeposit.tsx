@@ -1,0 +1,543 @@
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import {
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+} from 'recharts'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, filterInputStyle, SearchInput } from '../../components/UI'
+import type { TableCol } from '../../components/UI'
+import { apiFetch, apiPost } from '../../lib/api'
+import { fmtKobo, fmtDate, fmtPct, today, monthStart } from '../../lib/fmt'
+import { NAVY, RED, GREEN, AMBER, BLUE, NUM, INTER, SORA } from '../../lib/design'
+import { toast } from 'sonner'
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface FDRecord {
+  id: number
+  transaction_date: string
+  customer_name: string
+  transaction_type: 'inflow' | 'liquidation'
+  principal: number
+  interest_paid: number
+  gross_amount: number
+  usd_amount: number
+  ngn_amount: number
+  currency: string
+  location: string
+  account_officer: string
+  maturity_date: string
+  tenor_days: number
+  rate: number
+  notes: string
+}
+
+interface FDSummary {
+  inflow_count: number
+  liquidation_count: number
+  total_inflow_ngn: number
+  total_inflow_usd: number
+  total_liquidated: number
+  total_principal: number
+  total_interest: number
+  total_transactions: number
+  net_position: number
+}
+
+interface TrendPoint { month: string; inflow: number; liquidation: number }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function daysToMaturity(maturity: string): number {
+  const diff = new Date(maturity).getTime() - Date.now()
+  return Math.ceil(diff / (1000 * 60 * 60 * 24))
+}
+
+function daysColor(days: number): string {
+  if (days < 0) return RED
+  if (days <= 7) return AMBER
+  return GREEN
+}
+
+// ── Table columns ─────────────────────────────────────────────────────────────
+
+const COLS: TableCol<FDRecord>[] = [
+  { key: 'id', label: 'FD#', width: 90, render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>FD-{String(r.id).padStart(5, '0')}</span> },
+  { key: 'customer_name', label: 'Investor', sortable: true,
+    render: r => <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{r.customer_name || '—'}</span> },
+  { key: 'principal', label: 'Amount ₦', align: 'right', sortable: true,
+    render: r => <span style={{ ...NUM, fontWeight: 600 }}>{r.currency === 'USD' ? `$${(r.usd_amount / 100).toLocaleString()}` : fmtKobo(r.ngn_amount || r.principal)}</span> },
+  { key: 'rate', label: 'Rate %', align: 'right', render: r => <span style={NUM}>{fmtPct(r.rate)}</span> },
+  { key: 'transaction_date', label: 'Start', sortable: true, width: 100,
+    render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.transaction_date)}</span> },
+  { key: 'maturity_date', label: 'Maturity', sortable: true, width: 100,
+    render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.maturity_date)}</span> },
+  { key: 'transaction_type', label: 'Status', render: r => (
+    <StatusBadge status={r.transaction_type === 'inflow' ? 'Active' : 'Liquidated'} />
+  )},
+  { key: '_days', label: 'Days to Mat.', align: 'right', render: r => {
+    const d = daysToMaturity(r.maturity_date)
+    return <span style={{ ...NUM, fontWeight: 600, color: daysColor(d) }}>{d < 0 ? 'Matured' : `${d}d`}</span>
+  }},
+]
+
+// ── New FD modal ───────────────────────────────────────────────────────────────
+
+interface NewFDModal {
+  customer_name: string
+  principal: string
+  rate: string
+  tenor_days: string
+  transaction_date: string
+  maturity_date: string
+  currency: string
+  location: string
+  account_officer: string
+  notes: string
+}
+
+const EMPTY_FORM: NewFDModal = {
+  customer_name: '', principal: '', rate: '', tenor_days: '',
+  transaction_date: today(), maturity_date: '',
+  currency: 'NGN', location: '', account_officer: '', notes: '',
+}
+
+function NewFDDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [form, setForm] = useState<NewFDModal>(EMPTY_FORM)
+  const [saving, setSaving] = useState(false)
+
+  function updateField(k: keyof NewFDModal, v: string) {
+    setForm(f => {
+      const next = { ...f, [k]: v }
+      // Auto-compute maturity date from start + tenor
+      if ((k === 'transaction_date' || k === 'tenor_days') && next.transaction_date && next.tenor_days) {
+        const start = new Date(next.transaction_date)
+        start.setDate(start.getDate() + Number(next.tenor_days))
+        next.maturity_date = start.toISOString().split('T')[0]
+      }
+      return next
+    })
+  }
+
+  async function submit() {
+    if (!form.customer_name || !form.principal || !form.rate || !form.tenor_days) {
+      toast.error('Fill in all required fields')
+      return
+    }
+    setSaving(true)
+    try {
+      await apiPost('/api/fixed-deposit/transactions', {
+        ...form,
+        transaction_type: 'inflow',
+        principal: Math.round(Number(form.principal) * 100),
+        rate: Number(form.rate),
+        tenor_days: Number(form.tenor_days),
+      })
+      toast.success('Fixed deposit created')
+      onSaved()
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const field = (label: string, key: keyof NewFDModal, type = 'text', required = false) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>{label}{required && ' *'}</label>
+      <input type={type} value={form[key]} onChange={e => updateField(key, e.target.value)}
+        style={{ ...filterInputStyle, height: 36 }} />
+    </div>
+  )
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)' }} onClick={onClose} />
+      <div style={{ position: 'relative', background: 'var(--card)', borderRadius: 14, padding: 24, width: 520, maxHeight: '90vh', overflow: 'auto', zIndex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>New Fixed Deposit</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: 18 }}>×</button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ gridColumn: '1/-1' }}>{field('Investor Name', 'customer_name', 'text', true)}</div>
+          {field('Principal (₦)', 'principal', 'number', true)}
+          {field('Rate (%)', 'rate', 'number', true)}
+          {field('Tenor (days)', 'tenor_days', 'number', true)}
+          <div>
+            <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Currency</label>
+            <select value={form.currency} onChange={e => updateField('currency', e.target.value)} style={{ ...filterInputStyle, height: 36, marginTop: 4 }}>
+              <option value="NGN">NGN</option>
+              <option value="USD">USD</option>
+            </select>
+          </div>
+          {field('Start Date', 'transaction_date', 'date', true)}
+          {field('Maturity Date', 'maturity_date', 'date')}
+          {field('Location', 'location')}
+          <div style={{ gridColumn: '1/-1' }}>{field('Account Officer', 'account_officer')}</div>
+          <div style={{ gridColumn: '1/-1' }}>
+            <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Notes</label>
+            <textarea value={form.notes} onChange={e => updateField('notes', e.target.value)}
+              rows={2} style={{ ...filterInputStyle, height: 'auto', width: '100%', marginTop: 4, resize: 'vertical', padding: '8px 10px' }} />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+          <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={submit} disabled={saving} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+            {saving ? 'Saving…' : 'Create FD'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Tooltip ────────────────────────────────────────────────────────────────────
+
+function FDTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
+      <div style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 6 }}>{label}</div>
+      {payload.map((p: any) => (
+        <div key={p.name} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 2 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: 'inline-block' }} />
+          <span style={{ color: 'var(--txt2)' }}>{p.name}:</span>
+          <span style={{ ...NUM, color: 'var(--txt)', fontWeight: 600 }}>{fmtKobo(p.value)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+
+function PageBtn({ children, active, disabled, onClick, icon }: {
+  children?: React.ReactNode; active?: boolean; disabled?: boolean
+  onClick?: () => void; icon?: string
+}) {
+  return (
+    <button onClick={onClick} disabled={disabled} style={{
+      width: 28, height: 28, borderRadius: 6,
+      border: active ? 'none' : '1.5px solid var(--input-bdr)',
+      background: active ? RED : 'transparent',
+      color: active ? '#fff' : disabled ? 'var(--txt3)' : 'var(--txt2)',
+      fontSize: 12, fontWeight: 600, cursor: disabled ? 'default' : 'pointer',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: INTER,
+    }}>
+      {icon ? <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{icon}</span> : children}
+    </button>
+  )
+}
+
+const PER_PAGE = 25
+
+export default function FinanceFixedDeposit() {
+  const [rows, setRows] = useState<FDRecord[]>([])
+  const [summary, setSummary] = useState<FDSummary | null>(null)
+  const [trend, setTrend] = useState<TrendPoint[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [showNew, setShowNew] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'inflow' | 'liquidation'>('all')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo, setDateTo] = useState(today())
+  const [matFrom, setMatFrom] = useState('')
+  const [matTo, setMatTo] = useState('')
+  const [page, setPage] = useState(1)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const qs = `date_from=${dateFrom}&date_to=${dateTo}`
+      const [txRes, sumRes, trendRes] = await Promise.allSettled([
+        apiFetch<{ data: FDRecord[] }>(`/api/fixed-deposit/transactions?${qs}`),
+        apiFetch<FDSummary>(`/api/fixed-deposit/summary?${qs}`),
+        apiFetch<TrendPoint[]>('/api/fixed-deposit/trend'),
+      ])
+      if (txRes.status === 'fulfilled') setRows(txRes.value?.data ?? [])
+      if (sumRes.status === 'fulfilled') setSummary(sumRes.value)
+      if (trendRes.status === 'fulfilled') setTrend(trendRes.value ?? [])
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [dateFrom, dateTo])
+
+  useEffect(() => { load() }, [load])
+
+  const activeFilterCount = (statusFilter !== 'all' ? 1 : 0) + (dateFrom !== monthStart() ? 1 : 0) + (dateTo !== today() ? 1 : 0) + (matFrom ? 1 : 0) + (matTo ? 1 : 0)
+
+  const filtered = useMemo(() => rows.filter(r => {
+    if (statusFilter !== 'all' && r.transaction_type !== statusFilter) return false
+    if (matFrom && r.maturity_date < matFrom) return false
+    if (matTo && r.maturity_date.slice(0, 10) > matTo) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (!r.customer_name.toLowerCase().includes(q)) return false
+    }
+    return true
+  }), [rows, statusFilter, matFrom, matTo, search])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE))
+  const safePage   = Math.min(page, totalPages)
+  const pageRows   = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE)
+  const showStart  = filtered.length === 0 ? 0 : (safePage - 1) * PER_PAGE + 1
+  const showEnd    = Math.min(safePage * PER_PAGE, filtered.length)
+
+  function resetFilters() {
+    setSearch(''); setStatusFilter('all'); setDateFrom(monthStart()); setDateTo(today()); setMatFrom(''); setMatTo('')
+  }
+
+  return (
+    <Page
+      title="Fixed Deposits"
+      subtitle={summary ? `${summary.inflow_count} active · ${summary.liquidation_count} liquidated` : undefined}
+      actions={
+        <button onClick={() => setShowNew(true)} style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '6px 14px', borderRadius: 8, border: 'none',
+          background: NAVY, color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+        }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>New FD
+        </button>
+      }
+    >
+      <ErrBanner error={error} onRetry={load} />
+
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
+        <KpiCard label="Total Inflow NGN" value={fmtKobo(summary?.total_inflow_ngn ?? 0)} icon="south_east" accent={GREEN} loading={loading} />
+        <KpiCard label="Total Liquidated" value={fmtKobo(summary?.total_liquidated ?? 0)} icon="north_west" accent={AMBER} loading={loading} />
+        <KpiCard label="Net FD Position" value={fmtKobo(summary?.net_position ?? 0)} icon="savings" accent={BLUE} loading={loading} />
+        <KpiCard label="Interest Paid" value={fmtKobo(summary?.total_interest ?? 0)} icon="paid" accent={NAVY} loading={loading} />
+      </div>
+
+      {/* Trend chart */}
+      <SectionCard title="FD Activity Trend" subtitle="Monthly inflow vs liquidation" style={{ marginBottom: 16 }}>
+        {loading ? <div style={{ height: 160 }} /> : trend.length === 0 ? (
+          <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt2)', fontSize: 13 }}>No trend data</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={160}>
+            <AreaChart data={trend} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="inflowGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#16A34A" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="#16A34A" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="liqGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#D97706" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="#D97706" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9AA4B8' }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: '#9AA4B8' }} axisLine={false} tickLine={false} width={72} />
+              <Tooltip content={<FDTooltip />} />
+              <Area type="monotone" dataKey="inflow" name="Inflow" stroke="#16A34A" strokeWidth={2} fill="url(#inflowGrad)" dot={false} />
+              <Area type="monotone" dataKey="liquidation" name="Liquidation" stroke="#D97706" strokeWidth={2} fill="url(#liqGrad)" dot={false} />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </SectionCard>
+
+      <SectionCard title="FD Records" badge={filtered.length} padding={false}>
+
+        {/* Filter bar */}
+        <div style={{
+          padding: '12px 18px',
+          borderBottom: filterOpen ? 'none' : '1px solid var(--bdr)',
+          display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+        }}>
+          <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
+
+          <button
+            onClick={() => setFilterOpen(o => !o)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 600,
+              border: `1.5px solid ${activeFilterCount > 0 ? RED : 'var(--input-bdr)'}`,
+              background: 'transparent',
+              color: activeFilterCount > 0 ? RED : 'var(--txt2)',
+              cursor: 'pointer', fontFamily: SORA, position: 'relative',
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>tune</span>
+            Filters
+            {activeFilterCount > 0 && (
+              <span style={{
+                position: 'absolute', top: -6, right: -6,
+                width: 16, height: 16, borderRadius: '50%',
+                background: RED, color: '#fff',
+                fontSize: 9, fontWeight: 700, fontFamily: INTER,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>{activeFilterCount}</span>
+            )}
+          </button>
+
+          <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+            {filtered.length} of {rows.length}
+          </div>
+        </div>
+
+        {/* Expandable filter panel */}
+        {filterOpen && (
+          <div style={{ borderBottom: '1px solid var(--bdr)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', padding: '20px 20px 0' }}>
+
+              {/* Status */}
+              <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>STATUS</div>
+                {([
+                  { value: 'all',         label: 'All records',     color: NAVY },
+                  { value: 'inflow',      label: 'Active (Inflow)', color: '#16A34A' },
+                  { value: 'liquidation', label: 'Liquidated',      color: AMBER },
+                ] as const).map(opt => (
+                  <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
+                    <input type="radio" name="fd_status" value={opt.value} checked={statusFilter === opt.value} onChange={() => setStatusFilter(opt.value)}
+                      style={{ accentColor: opt.color, width: 14, height: 14, cursor: 'pointer' }} />
+                    <span style={{ fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA }}>{opt.label}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>
+                      {opt.value === 'all' ? rows.length : rows.filter(r => r.transaction_type === opt.value).length}
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              {/* Date range — triggers reload */}
+              <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>TRANSACTION DATE</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>From</label>
+                    <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>To</label>
+                    <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Maturity date range */}
+              <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>MATURITY DATE</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>From</label>
+                    <input type="date" value={matFrom} onChange={e => setMatFrom(e.target.value)}
+                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>To</label>
+                    <input type="date" value={matTo} onChange={e => setMatTo(e.target.value)}
+                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick stats */}
+              <div style={{ paddingLeft: 20 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>QUICK STATS</div>
+                {[
+                  { label: 'Active FDs',   value: rows.filter(r => r.transaction_type === 'inflow').length,      color: '#16A34A' },
+                  { label: 'Liquidated',   value: rows.filter(r => r.transaction_type === 'liquidation').length, color: AMBER },
+                ].map(s => (
+                  <div key={s.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: SORA }}>{s.label}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: s.color, fontFamily: INTER }}>{s.value}</span>
+                  </div>
+                ))}
+              </div>
+
+            </div>
+
+            <div style={{
+              padding: '14px 20px', borderTop: '1px solid var(--bdr)', marginTop: 16,
+              display: 'flex', alignItems: 'center', gap: 12,
+            }}>
+              <span style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>
+                {activeFilterCount === 0
+                  ? `No filters — showing all ${rows.length} records`
+                  : `${activeFilterCount} filter${activeFilterCount !== 1 ? 's' : ''} active`}
+              </span>
+              <button onClick={resetFilters} style={{
+                padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+                border: '1.5px solid var(--input-bdr)', background: 'transparent',
+                color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA,
+              }}>Reset</button>
+              <button onClick={() => { load(); setFilterOpen(false) }} style={{
+                marginLeft: 'auto', padding: '5px 16px', borderRadius: 7,
+                fontSize: 12, fontWeight: 600, border: 'none', background: RED, color: '#fff',
+                cursor: 'pointer', fontFamily: SORA,
+              }}>Apply · {filtered.length} results</button>
+            </div>
+          </div>
+        )}
+
+        {/* Active chips */}
+        {!filterOpen && activeFilterCount > 0 && (
+          <div style={{
+            padding: '8px 18px', borderBottom: '1px solid var(--bdr)',
+            display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
+          }}>
+            {statusFilter !== 'all' && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: statusFilter === 'inflow' ? 'rgba(22,163,74,.12)' : `${AMBER}18`, color: statusFilter === 'inflow' ? '#16A34A' : AMBER }}>
+                {statusFilter === 'inflow' ? 'Active' : 'Liquidated'}
+                <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setStatusFilter('all')}>close</span>
+              </span>
+            )}
+            {(dateFrom !== monthStart() || dateTo !== today()) && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
+                {dateFrom} → {dateTo}
+                <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => { setDateFrom(monthStart()); setDateTo(today()); load() }}>close</span>
+              </span>
+            )}
+            <button onClick={resetFilters} style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--txt3)', padding: 0, fontFamily: SORA }}>Clear all</button>
+          </div>
+        )}
+
+        <DataTable
+          cols={COLS}
+          rows={pageRows}
+          keyFn={r => r.id}
+          loading={loading}
+          emptyText="No fixed deposit records found"
+        />
+
+        {/* Pagination footer */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 18px', borderTop: '1px solid var(--bdr)',
+        }}>
+          <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+            {filtered.length === 0 ? 'No records' : `Showing ${showStart}–${showEnd} of ${filtered.length} FDs`}
+          </span>
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <PageBtn icon="chevron_left" disabled={safePage === 1} onClick={() => setPage(p => p - 1)} />
+              {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                let pg: number
+                if (totalPages <= 7) pg = i + 1
+                else if (safePage <= 4) pg = i + 1
+                else if (safePage >= totalPages - 3) pg = totalPages - 6 + i
+                else pg = safePage - 3 + i
+                return <PageBtn key={pg} active={pg === safePage} onClick={() => setPage(pg)}>{pg}</PageBtn>
+              })}
+              <PageBtn icon="chevron_right" disabled={safePage === totalPages} onClick={() => setPage(p => p + 1)} />
+            </div>
+          )}
+        </div>
+
+      </SectionCard>
+
+      {showNew && <NewFDDialog onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); load() }} />}
+    </Page>
+  )
+}
