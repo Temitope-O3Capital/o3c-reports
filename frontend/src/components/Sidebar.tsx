@@ -515,7 +515,7 @@ export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser;
         {/* O3 box logo */}
         <div style={{
           width: 28, height: 28, borderRadius: 7,
-          background: '#0E2841',
+          background: '#C00000',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 11, fontWeight: 800, color: '#fff',
           flexShrink: 0, fontFamily: INTER,
@@ -525,12 +525,12 @@ export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser;
 
         {!collapsed && (
           <>
-            <div style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--txt)', letterSpacing: -0.4, whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: 13.5, fontWeight: 800, color: '#FFFFFF', letterSpacing: -0.4, whiteSpace: 'nowrap' }}>
               O3 <span style={{ color: '#C00000' }}>Capital</span>
             </div>
             <div style={{
               marginLeft: 'auto', fontSize: 8.5, fontWeight: 700, letterSpacing: 0.5,
-              color: 'var(--txt2)', background: 'var(--chip-bg)',
+              color: 'rgba(255,255,255,0.45)', background: 'rgba(255,255,255,0.10)',
               padding: '2px 6px', borderRadius: 4, fontFamily: INTER, whiteSpace: 'nowrap',
             }}>
               WORKSPACE
@@ -628,7 +628,7 @@ export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser;
         }}>
           <div style={{
             width: 26, height: 26, borderRadius: '50%',
-            background: 'linear-gradient(135deg,#0E2841,#1a3a5c)',
+            background: 'rgba(255,255,255,0.15)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 10, fontWeight: 700, color: '#fff', flexShrink: 0, fontFamily: INTER,
           }}>
@@ -638,10 +638,10 @@ export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser;
           {!collapsed && (
             <>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--nav-act-txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {user.name}
                 </div>
-                <div style={{ fontSize: 9.5, color: 'var(--txt2)', fontFamily: INTER }}>
+                <div style={{ fontSize: 9.5, color: 'var(--nav-txt)', fontFamily: INTER }}>
                   {roleLabel(user.role as string)}
                 </div>
               </div>

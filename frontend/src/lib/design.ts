@@ -42,19 +42,19 @@ export type ThemeVars = React.CSSProperties & {
 // ── Light theme ───────────────────────────────────────────────────────────────
 export const LIGHT: ThemeVars = {
   '--bg': '#F4F6FA',
-  '--sb': '#F8F9FB',         // sidebar: very subtle off-white (different from cards)
-  '--sb-bdr': '#EAECF3',
-  '--topbar-bg': '#FFFFFF',  // topbar: pure white — separates from sidebar surface
-  '--grp': '#B0B8CC',
-  '--nav-txt': '#9AA4B8',
-  '--nav-act-txt': '#0F1623',
-  '--nav-act-bg': 'rgba(192,0,0,0.06)',  // subtle red-tinted pill — O3 brand accent
+  '--sb': '#0E2841',                       // sidebar: O3 navy
+  '--sb-bdr': '#0A1E33',
+  '--topbar-bg': '#FFFFFF',
+  '--grp': 'rgba(255,255,255,0.28)',        // section header labels
+  '--nav-txt': 'rgba(255,255,255,0.42)',    // inactive nav items
+  '--nav-act-txt': '#FFFFFF',              // active nav items
+  '--nav-act-bg': 'rgba(255,255,255,0.10)',
   '--nav-dot': '#C00000',
-  '--nav-hvr-bg': 'rgba(0,0,0,0.04)',
-  '--nav-hvr-txt': '#0F1623',
-  '--sub-txt': '#C0C8D8',
-  '--sub-hvr': '#6B7590',
-  '--sub-act': '#0F1623',
+  '--nav-hvr-bg': 'rgba(255,255,255,0.07)',
+  '--nav-hvr-txt': 'rgba(255,255,255,0.82)',
+  '--sub-txt': 'rgba(255,255,255,0.32)',
+  '--sub-hvr': 'rgba(255,255,255,0.70)',
+  '--sub-act': '#FFFFFF',
   '--card': '#FFFFFF', '--card-bdr': '#E8EBF2',
   '--card-shadow': '0 1px 2px rgba(0,0,0,0.04), 0 4px 18px rgba(0,0,0,0.05)',
   '--txt': '#0F1623', '--txt2': '#798094', '--txt3': '#C0C8D8',
