@@ -851,6 +851,7 @@ func finIncomeLoans(db *core.DB) http.HandlerFunc {
 			SELECT
 			  id,
 			  reference                                                        AS loan_ref,
+			  applicant_name,
 			  loan_product                                                     AS product,
 			  disbursed_amount_kobo,
 			  interest_rate_bps,
@@ -858,12 +859,26 @@ func finIncomeLoans(db *core.DB) http.HandlerFunc {
 			  TO_CHAR(disbursed_at, 'YYYY-MM-DD')                             AS disbursed_at,
 			  TO_CHAR(maturity_date, 'YYYY-MM-DD')                            AS maturity_date,
 			  status,
-			  GREATEST(CURRENT_DATE - disbursed_at::date, 0)                  AS days_active,
+			  CASE
+			    WHEN maturity_date IS NOT NULL AND maturity_date::date < CURRENT_DATE
+			      THEN (maturity_date::date - disbursed_at::date)
+			    ELSE GREATEST(CURRENT_DATE - disbursed_at::date, 0)
+			  END                                                              AS days_active,
 			  ROUND(
 			    disbursed_amount_kobo::numeric
 			    * (interest_rate_bps::numeric / 10000)
-			    * GREATEST(CURRENT_DATE - disbursed_at::date, 0) / 365
-			  )::bigint                                                        AS interest_earned_kobo
+			    * CASE
+			        WHEN maturity_date IS NOT NULL AND maturity_date::date < CURRENT_DATE
+			          THEN (maturity_date::date - disbursed_at::date)
+			        ELSE GREATEST(CURRENT_DATE - disbursed_at::date, 0)
+			      END / 365
+			  )::bigint                                                        AS interest_earned_kobo,
+			  CASE
+			    WHEN maturity_date IS NULL THEN 'Unknown'
+			    WHEN maturity_date::date < CURRENT_DATE THEN 'Matured'
+			    WHEN maturity_date::date <= CURRENT_DATE + INTERVAL '30 days' THEN 'Maturing Soon'
+			    ELSE 'Active'
+			  END                                                              AS maturity_status
 			FROM loan_applications
 			WHERE disbursed_at IS NOT NULL
 			ORDER BY disbursed_at DESC

@@ -61,6 +61,7 @@ interface ChartRow { type: string; current: number; previous: number }
 interface LoanRow {
   id: number
   loan_ref: string
+  applicant_name: string
   product: string
   disbursed_amount_kobo: number
   rate_pct: number
@@ -69,6 +70,7 @@ interface LoanRow {
   status: string
   days_active: number
   interest_earned_kobo: number
+  maturity_status: string
 }
 
 interface FeeTypeSummary { fee_type: string; count: number; total_kobo: number }
@@ -142,16 +144,32 @@ function EmptyState({ icon, message }: { icon: string; message: string }) {
 
 // ── Loan columns ──────────────────────────────────────────────────────────────
 
+const MATURITY_STATUS_COLORS: Record<string, string> = {
+  'Matured': '#6B7280',
+  'Active': GREEN,
+  'Maturing Soon': '#D97706',
+  'Unknown': '#9AA4B8',
+}
+
 const LOAN_COLS: TableCol<LoanRow>[] = [
-  { key: 'loan_ref', label: 'Ref', width: 110,
+  { key: 'loan_ref', label: 'Ref', width: 120,
     render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{r.loan_ref || `#${r.id}`}</span> },
-  { key: 'product', label: 'Product', sortable: true,
-    render: r => <span style={{ fontSize: 13, color: 'var(--txt)' }}>{r.product || '—'}</span> },
-  { key: 'disbursed_amount_kobo', label: 'Disbursed', align: 'right', sortable: true,
+  { key: 'applicant_name', label: 'Borrower', sortable: true,
+    render: r => <span style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 500 }}>{r.applicant_name || '—'}</span> },
+  { key: 'disbursed_amount_kobo', label: 'Principal', align: 'right', sortable: true,
     render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKoboExact(r.disbursed_amount_kobo)}</span> },
   { key: 'rate_pct', label: 'Rate %', align: 'right', sortable: true,
     render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{Number(r.rate_pct).toFixed(2)}%</span> },
-  { key: 'days_active', label: 'Days Active', align: 'right',
+  { key: 'maturity_status', label: 'Status', sortable: true,
+    render: r => {
+      const color = MATURITY_STATUS_COLORS[r.maturity_status] ?? '#9AA4B8'
+      return (
+        <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 20, background: color + '1A', color }}>
+          {r.maturity_status}
+        </span>
+      )
+    }},
+  { key: 'days_active', label: 'Tenor Days', align: 'right',
     render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{r.days_active}</span> },
   { key: 'interest_earned_kobo', label: 'Interest Earned', align: 'right', sortable: true,
     render: r => <span style={{ ...NUM, fontWeight: 600, color: GREEN }}>{fmtKoboExact(r.interest_earned_kobo)}</span> },
@@ -182,6 +200,32 @@ function exportCardCsv(rows: SummaryRow[], cycleDate: string) {
   const a = document.createElement('a')
   a.href = url
   a.download = `card-income-${cycleDate}.csv`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+function exportLoansCsv(rows: LoanRow[]) {
+  const header = ['Ref', 'Borrower', 'Product', 'Principal (NGN)', 'Rate %', 'Status', 'Tenor Days', 'Interest Earned (NGN)', 'Disbursed Date', 'Maturity Date']
+  const lines = rows.map(r => [
+    r.loan_ref || r.id,
+    `"${(r.applicant_name || '').replace(/"/g, '""')}"`,
+    `"${(r.product || '').replace(/"/g, '""')}"`,
+    (n(r.disbursed_amount_kobo) / 100).toFixed(2),
+    Number(r.rate_pct).toFixed(2),
+    r.maturity_status,
+    r.days_active,
+    (n(r.interest_earned_kobo) / 100).toFixed(2),
+    r.disbursed_at,
+    r.maturity_date,
+  ].join(','))
+  const csv = [header.join(','), ...lines].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `loans-${new Date().toISOString().slice(0, 10)}.csv`
   document.body.appendChild(a)
   a.click()
   a.remove()
@@ -510,20 +554,55 @@ export default function FinanceIncome() {
 
       {/* ── LOANS TAB ───────────────────────────────────────────────────────── */}
       {tab === 'loans' && (
-        loans.length === 0 ? (
-          <SectionCard>
-            <EmptyState icon="account_balance" message="No disbursed loans yet. Loan interest income will appear here once loans are active." />
-          </SectionCard>
-        ) : (
+        <>
+          {/* Portfolio KPI strip */}
+          {loans.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 16 }}>
+              {[
+                {
+                  label: 'Total Portfolio',
+                  value: fmtKoboExact(loans.reduce((s, r) => s + n(r.disbursed_amount_kobo), 0)),
+                  icon: 'account_balance', color: NAVY,
+                },
+                {
+                  label: 'Total Interest Earned',
+                  value: fmtKoboExact(loans.reduce((s, r) => s + n(r.interest_earned_kobo), 0)),
+                  icon: 'trending_up', color: GREEN,
+                },
+                {
+                  label: 'Avg Rate (p.a.)',
+                  value: (loans.reduce((s, r) => s + n(r.rate_pct), 0) / loans.length).toFixed(2) + '%',
+                  icon: 'percent', color: AMBER,
+                },
+                {
+                  label: 'Active / Matured',
+                  value: `${loans.filter(r => r.maturity_status === 'Active').length} / ${loans.filter(r => r.maturity_status === 'Matured').length}`,
+                  icon: 'donut_large', color: BLUE,
+                },
+              ].map(k => (
+                <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10, padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 11 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 24, color: k.color, opacity: 0.8 }}>{k.icon}</span>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 2 }}>{k.label}</div>
+                    <div style={{ ...NUM, fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{k.value}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <SectionCard padding={false}>
             <DataTable
               cols={LOAN_COLS}
               rows={loans}
               keyFn={r => r.id}
-              emptyText="No disbursed loans"
+              emptyText="No disbursed loans yet. Interest income will appear here once loans are active."
+              searchKeys={['loan_ref', 'applicant_name', 'product', 'maturity_status']}
+              searchPlaceholder="Search by borrower, ref, product…"
+              pageSize={20}
+              onExport={loans.length > 0 ? () => exportLoansCsv(loans) : undefined}
             />
           </SectionCard>
-        )
+        </>
       )}
 
       {/* ── FEE TYPES TAB ───────────────────────────────────────────────────── */}

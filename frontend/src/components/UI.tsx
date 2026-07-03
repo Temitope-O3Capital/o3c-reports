@@ -403,16 +403,23 @@ interface DataTableProps<T> {
   loading?: boolean
   skeletonRows?: number
   rowStyle?: (row: T, idx: number) => CSSProperties | undefined
+  searchKeys?: string[]
+  searchPlaceholder?: string
+  pageSize?: number
+  onExport?: () => void
 }
 
 export function DataTable<T extends Record<string, any>>({
   cols, rows, keyFn, onRowClick,
   selectable, selectedIds: extSel, onSelect,
   bulkBar, emptyText = 'No records found', loading, skeletonRows = 8, rowStyle,
+  searchKeys, searchPlaceholder = 'Search…', pageSize, onExport,
 }: DataTableProps<T>) {
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [internalSel, setInternalSel] = useState<Set<string | number>>(new Set())
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
 
   const selectedIds = extSel ?? internalSel
   const setSelectedIds = onSelect ?? setInternalSel
@@ -430,6 +437,16 @@ export function DataTable<T extends Record<string, any>>({
       return sortDir === 'asc' ? cmp : -cmp
     })
   }, [rows, sortKey, sortDir])
+
+  const filtered = useMemo(() => {
+    if (!searchKeys?.length || !search.trim()) return sorted
+    const q = search.toLowerCase()
+    return sorted.filter(row => searchKeys.some(k => String(row[k] ?? '').toLowerCase().includes(q)))
+  }, [sorted, search, searchKeys])
+
+  const totalPages = pageSize ? Math.max(1, Math.ceil(filtered.length / pageSize)) : 1
+  const safePage = pageSize ? Math.min(Math.max(1, page), totalPages) : 1
+  const displayRows = pageSize ? filtered.slice((safePage - 1) * pageSize, safePage * pageSize) : filtered
 
   const getKey = (row: T, i: number) => keyFn ? keyFn(row, i) : (row.id ?? i)
 
@@ -455,6 +472,29 @@ export function DataTable<T extends Record<string, any>>({
 
   return (
     <div style={{ overflow: 'hidden' }}>
+      {(!!searchKeys?.length || !!onExport) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--bdr)' }}>
+          {!!searchKeys?.length && (
+            <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>
+              <span className="material-symbols-rounded" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: 'var(--txt2)', pointerEvents: 'none' }}>search</span>
+              <input
+                type="text"
+                placeholder={searchPlaceholder}
+                value={search}
+                onChange={e => { setSearch(e.target.value); setPage(1) }}
+                style={{ width: '100%', boxSizing: 'border-box' as const, paddingLeft: 30, paddingRight: 8, paddingTop: 7, paddingBottom: 7, fontSize: 13, borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--bg)', color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}
+              />
+            </div>
+          )}
+          <div style={{ flex: 1 }} />
+          {!!onExport && (
+            <button onClick={onExport} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
+              Export CSV
+            </button>
+          )}
+        </div>
+      )}
       {selectable && selectedIds.size > 0 && (
         <div style={{
           background: '#F0F4FF', borderBottom: '1px solid var(--bdr)',
@@ -519,14 +559,14 @@ export function DataTable<T extends Record<string, any>>({
                   {cols.map(col => <td key={col.key} style={tdBase}><Sk h={14} /></td>)}
                 </tr>
               ))
-            ) : sorted.length === 0 ? (
+            ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={cols.length + (selectable ? 1 : 0)} style={{ ...tdBase, textAlign: 'center', color: 'var(--txt2)', padding: '40px 12px' }}>
                   {emptyText}
                 </td>
               </tr>
             ) : (
-              sorted.map((row, i) => {
+              displayRows.map((row, i) => {
                 const id = getKey(row, i)
                 const isSel = selectedIds.has(id)
                 const rs = rowStyle?.(row, i)
@@ -556,6 +596,26 @@ export function DataTable<T extends Record<string, any>>({
           </tbody>
         </table>
       </div>
+      {!!pageSize && filtered.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderTop: '1px solid var(--bdr)' }}>
+          <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+            {`Showing ${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, filtered.length)} of ${filtered.length.toLocaleString()}`}
+          </span>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={safePage === 1}
+              style={{ padding: '5px 10px', fontSize: 12, borderRadius: 6, border: '1px solid var(--bdr)', background: safePage === 1 ? 'var(--bg)' : 'var(--card)', color: safePage === 1 ? 'var(--txt2)' : 'var(--txt)', cursor: safePage === 1 ? 'default' : 'pointer', fontFamily: INTER }}
+            >‹ Prev</button>
+            <span style={{ fontSize: 12, color: 'var(--txt2)', padding: '0 8px', fontFamily: INTER }}>{safePage} / {totalPages}</span>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={safePage === totalPages}
+              style={{ padding: '5px 10px', fontSize: 12, borderRadius: 6, border: '1px solid var(--bdr)', background: safePage === totalPages ? 'var(--bg)' : 'var(--card)', color: safePage === totalPages ? 'var(--txt2)' : 'var(--txt)', cursor: safePage === totalPages ? 'default' : 'pointer', fontFamily: INTER }}
+            >Next ›</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
