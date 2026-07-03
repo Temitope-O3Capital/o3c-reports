@@ -11,7 +11,7 @@ import (
 )
 
 func RegisterFinance(r chi.Router, db *core.DB) {
-	access := core.RequirePages("finance")
+	access := core.RequirePages("finance", "income")
 
 	// GL Accounts (Chart of Accounts)
 	r.With(access).Get("/gl-accounts",        finGLList(db))

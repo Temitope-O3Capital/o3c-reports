@@ -329,7 +329,7 @@ func authErr(w http.ResponseWriter, code int, msg string) {
 var RolePages = map[string][]string{
 	// ── Executive ──────────────────────────────────────────────────────────────
 	"md": {
-		"overview", "executive", "transactions", "income", "eod", "uploads",
+		"overview", "executive", "transactions", "income", "finance", "eod", "uploads",
 		"reconciliation", "collections", "recovery", "sales", "cards", "card_trends",
 		"cohort", "call_center", "loans", "credit_portfolio", "fixed_deposit", "settlement", "mobile_app", "blink_card",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
@@ -343,7 +343,7 @@ var RolePages = map[string][]string{
 		"helpdesk_kb",
 	},
 	"coo": {
-		"overview", "executive", "transactions", "income", "eod", "uploads",
+		"overview", "executive", "transactions", "income", "finance", "eod", "uploads",
 		"reconciliation", "collections", "recovery", "sales", "cards", "card_trends",
 		"cohort", "call_center", "loans", "credit_portfolio", "fixed_deposit", "settlement", "mobile_app", "blink_card",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
@@ -352,7 +352,7 @@ var RolePages = map[string][]string{
 		"kpi_dashboard", "reports", "statements",
 	},
 	"cfo": {
-		"overview", "executive", "income", "eod", "uploads", "reconciliation",
+		"overview", "executive", "income", "finance", "eod", "uploads", "reconciliation",
 		"collections", "recovery", "transactions", "loans", "credit_portfolio",
 		"fixed_deposit", "settlement",
 		"los_finance", "customer360",
@@ -394,12 +394,12 @@ var RolePages = map[string][]string{
 
 	// ── Finance ────────────────────────────────────────────────────────────────
 	"finance_officer": {
-		"overview", "income", "eod", "transactions", "reconciliation",
+		"overview", "income", "finance", "eod", "transactions", "reconciliation",
 		"collections_payment", "credit_portfolio", "fixed_deposit", "settlement",
 		"los_finance", "customer360",
 	},
 	"finance_head": {
-		"overview", "income", "eod", "transactions", "uploads", "reconciliation",
+		"overview", "income", "finance", "eod", "transactions", "uploads", "reconciliation",
 		"collections_payment", "collections_payment_approve",
 		"credit_portfolio", "fixed_deposit", "settlement",
 		"los_finance", "los_finance_approve", "customer360",
@@ -477,7 +477,7 @@ var RolePages = map[string][]string{
 	// ── IT Admin ───────────────────────────────────────────────────────────────
 	"it_admin": {
 		"overview", "transactions", "collections", "recovery", "sales",
-		"cards", "card_trends", "cohort", "admin_users", "executive", "income", "eod",
+		"cards", "card_trends", "cohort", "admin_users", "executive", "income", "finance", "eod",
 		"uploads", "reconciliation", "call_center", "loans", "credit_portfolio",
 		"fixed_deposit", "settlement", "los", "los_all", "customer360",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
@@ -489,7 +489,7 @@ var RolePages = map[string][]string{
 
 	// ── Legacy roles (keep for backwards compatibility) ──────────────────────
 	"admin": {
-		"overview", "executive", "transactions", "income", "eod", "uploads",
+		"overview", "executive", "transactions", "income", "finance", "eod", "uploads",
 		"reconciliation", "collections", "recovery", "sales", "cards", "card_trends",
 		"cohort", "call_center", "customer_service", "loans", "credit_portfolio",
 		"fixed_deposit", "settlement", "mobile_app", "blink_card",
