@@ -44,13 +44,10 @@ interface TxnRow {
   description: string
 }
 
-interface TreasuryStub {
-  cash_at_bank: number
+interface Treasury {
+  cash_position: number
   fd_liabilities: number
-  pending_disbursements: number
   net_liquidity: number
-  projection_7d: number
-  projection_30d: number
 }
 
 // ── Colours ───────────────────────────────────────────────────────────────────
@@ -84,34 +81,31 @@ function DonutTooltip({ active, payload }: any) {
   )
 }
 
-// ── Treasury stub card ─────────────────────────────────────────────────────────
+// ── Treasury card ─────────────────────────────────────────────────────────────
 
-function TreasuryTab({ data }: { data: TreasuryStub | null }) {
+function TreasuryTab({ data }: { data: Treasury | null }) {
   if (!data) {
     return (
       <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--txt2)', fontSize: 13 }}>
         <span className="material-symbols-rounded" style={{ fontSize: 32, opacity: 0.35, display: 'block', marginBottom: 8 }}>account_balance</span>
-        Treasury data not yet available — backend endpoint pending Wave 4G.
+        Loading treasury position…
       </div>
     )
   }
   const rows = [
-    { label: 'Cash at Bank', value: fmtKobo(data.cash_at_bank), icon: 'payments' },
+    { label: 'Cash Position (30d EOD)', value: fmtKobo(data.cash_position), icon: 'payments' },
     { label: 'FD Liabilities', value: fmtKobo(data.fd_liabilities), icon: 'savings' },
-    { label: 'Pending Disbursements', value: fmtKobo(data.pending_disbursements), icon: 'pending' },
     { label: 'Net Liquidity', value: fmtKobo(data.net_liquidity), icon: 'water_drop', accent: data.net_liquidity >= 0 ? GREEN : RED },
-    { label: '7-Day Projection', value: fmtKobo(data.projection_7d), icon: 'trending_up' },
-    { label: '30-Day Projection', value: fmtKobo(data.projection_30d), icon: 'insights' },
   ]
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
       {rows.map(r => (
         <div key={r.label} style={{ background: 'var(--bg)', borderRadius: 10, padding: '14px 16px', border: '1px solid var(--bdr)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16, color: r.accent ?? 'var(--txt2)' }}>{r.icon}</span>
+            <span className="material-symbols-rounded" style={{ fontSize: 16, color: (r as any).accent ?? 'var(--txt2)' }}>{r.icon}</span>
             <span style={{ fontSize: 11.5, color: 'var(--txt2)', fontWeight: 600 }}>{r.label}</span>
           </div>
-          <div style={{ ...NUM, fontSize: 17, fontWeight: 700, color: r.accent ?? 'var(--txt)', letterSpacing: '-0.4px' }}>{r.value}</div>
+          <div style={{ ...NUM, fontSize: 17, fontWeight: 700, color: (r as any).accent ?? 'var(--txt)', letterSpacing: '-0.4px' }}>{r.value}</div>
         </div>
       ))}
     </div>
@@ -156,7 +150,7 @@ export default function FinanceOverview() {
   const [trend, setTrend] = useState<TrendPoint[]>([])
   const [products, setProducts] = useState<ProductPoint[]>([])
   const [txns, setTxns] = useState<TxnRow[]>([])
-  const [treasury] = useState<TreasuryStub | null>(null)
+  const [treasury, setTreasury] = useState<Treasury | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -164,18 +158,20 @@ export default function FinanceOverview() {
     const from = monthStart()
     const to = today()
     try {
-      const [eodRes, fdRes, trendRes, prodRes, txnRes] = await Promise.allSettled([
+      const [eodRes, fdRes, trendRes, prodRes, txnRes, treasuryRes] = await Promise.allSettled([
         apiFetch<EODSummary>(`/api/eod/summary?date_from=${from}&date_to=${to}`),
         apiFetch<FDSummary>(`/api/fixed-deposit/summary?date_from=${from}&date_to=${to}`),
         apiFetch<TrendPoint[]>('/api/eod/trend'),
         apiFetch<ProductPoint[]>('/api/eod/by-product'),
         apiFetch<{ data: TxnRow[] }>(`/api/eod/transactions?date_from=${from}&date_to=${to}&limit=10`),
+        apiFetch<Treasury>('/api/finance/treasury'),
       ])
       if (eodRes.status === 'fulfilled') setEod(eodRes.value)
       if (fdRes.status === 'fulfilled') setFd(fdRes.value)
       if (trendRes.status === 'fulfilled') setTrend(trendRes.value ?? [])
       if (prodRes.status === 'fulfilled') setProducts(prodRes.value ?? [])
       if (txnRes.status === 'fulfilled') setTxns(txnRes.value?.data ?? [])
+      if (treasuryRes.status === 'fulfilled') setTreasury(treasuryRes.value)
     } catch (e: any) {
       setError(e.message)
     } finally {

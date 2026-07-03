@@ -40,6 +40,10 @@ func RegisterFinance(r chi.Router, db *core.DB) {
 
 	// FD Accrual (per-FD daily interest)
 	r.With(access).Get("/fd-accrual", finFDAccrual(db))
+
+	// Income ledger (sourced from card cycle data)
+	r.With(access).Get("/income",       finIncomeList(db))
+	r.With(access).Get("/income/chart", finIncomeChart(db))
 }
 
 /* ── GL Accounts ─────────────────────────────────────────────────────────── */

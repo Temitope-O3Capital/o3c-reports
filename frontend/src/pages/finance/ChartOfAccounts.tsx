@@ -40,9 +40,92 @@ function normaliseClass(raw: string): AccountClass {
   return map[raw] ?? (raw as AccountClass)
 }
 
+// ── Edit account modal ─────────────────────────────────────────────────────────
+
+function EditAccountModal({ account, onClose, onSaved }: { account: GLAccount; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(account.name)
+  const [cls, setCls] = useState<AccountClass>(account.class)
+  const [normalBalance, setNormalBalance] = useState<'Dr' | 'Cr'>(account.normal_balance)
+  const [currency, setCurrency] = useState(account.currency)
+  const [isActive, setIsActive] = useState(account.is_active)
+  const [saving, setSaving] = useState(false)
+
+  async function submit() {
+    if (!name) { toast.error('Name is required'); return }
+    setSaving(true)
+    try {
+      await apiFetch(`/api/finance/gl-accounts/${account.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name, class: cls, normal_balance: normalBalance, currency, is_active: isActive }),
+      })
+      toast.success('GL account updated')
+      onSaved()
+    } catch (e: any) {
+      toast.error(e.message ?? 'Update failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)' }} onClick={onClose} />
+      <div style={{ position: 'relative', background: 'var(--card)', borderRadius: 14, padding: 24, width: 440, zIndex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>Edit GL Account</h3>
+            <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginTop: 2 }}>{account.code}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: 18 }}>×</button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Account Name *</label>
+            <input value={name} onChange={e => setName(e.target.value)} style={{ ...filterInputStyle, height: 36 }} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Class</label>
+              <select value={cls} onChange={e => setCls(e.target.value as AccountClass)} style={{ ...filterInputStyle, height: 36 }}>
+                {(['Asset','Liability','Income','Expense','Equity'] as AccountClass[]).map(c => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Normal Balance</label>
+              <select value={normalBalance} onChange={e => setNormalBalance(e.target.value as 'Dr' | 'Cr')} style={{ ...filterInputStyle, height: 36 }}>
+                <option value="Dr">Debit (Dr)</option>
+                <option value="Cr">Credit (Cr)</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Currency</label>
+              <select value={currency} onChange={e => setCurrency(e.target.value)} style={{ ...filterInputStyle, height: 36 }}>
+                <option>NGN</option><option>USD</option><option>GBP</option><option>EUR</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Status</label>
+              <select value={isActive ? 'active' : 'inactive'} onChange={e => setIsActive(e.target.value === 'active')} style={{ ...filterInputStyle, height: 36 }}>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+          <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={submit} disabled={saving} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Columns ───────────────────────────────────────────────────────────────────
 
-const COLS: TableCol<GLAccount>[] = [
+function makeCols(onEdit: (a: GLAccount) => void): TableCol<GLAccount>[] { return [
   { key: 'code', label: 'Code', render: r => (
     <span style={{ ...NUM, fontWeight: 700, paddingLeft: r.parent_code ? 20 : 0 }}>{r.code}</span>
   )},
@@ -68,7 +151,12 @@ const COLS: TableCol<GLAccount>[] = [
   { key: 'currency', label: 'CCY', align: 'center' },
   { key: 'profit_centre', label: 'Profit Centre', render: r => r.profit_centre ?? '—' },
   { key: 'is_active', label: 'Status', render: r => <StatusBadge status={r.is_active ? 'Active' : 'Inactive'} /> },
-]
+  { key: 'id', label: '', align: 'center', render: r => (
+    <button onClick={() => onEdit(r)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', padding: 4, borderRadius: 6, display: 'flex', alignItems: 'center' }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 16 }}>edit</span>
+    </button>
+  )},
+]}
 
 // ── Add account modal ──────────────────────────────────────────────────────────
 
@@ -152,6 +240,7 @@ export default function FinanceChartOfAccounts() {
   const [classFilter, setClassFilter] = useState<AccountClass | ''>('')
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [editAccount, setEditAccount] = useState<GLAccount | null>(null)
   const [filterOpen, setFilterOpen] = useState(false)
 
   const load = useCallback(async () => {
@@ -318,7 +407,7 @@ export default function FinanceChartOfAccounts() {
           )}
 
           <DataTable
-            cols={COLS}
+            cols={makeCols(setEditAccount)}
             rows={filtered}
             keyFn={r => r.id}
             emptyText="No accounts match your filter"
@@ -331,6 +420,13 @@ export default function FinanceChartOfAccounts() {
         <AddAccountModal
           onClose={() => setShowAdd(false)}
           onSaved={() => { setShowAdd(false); load() }}
+        />
+      )}
+      {editAccount && (
+        <EditAccountModal
+          account={editAccount}
+          onClose={() => setEditAccount(null)}
+          onSaved={() => { setEditAccount(null); load() }}
         />
       )}
     </Page>

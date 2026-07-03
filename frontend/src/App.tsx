@@ -33,6 +33,13 @@ const BDPipeline   = lazy(() => import('./pages/bd/Pipeline'))
 const BDEmployers  = lazy(() => import('./pages/bd/Employers'))
 const BDAnalytics  = lazy(() => import('./pages/bd/Analytics'))
 
+// Campaigns
+const CampaignsList     = lazy(() => import('./pages/campaigns/List'))
+const CampaignAnalytics = lazy(() => import('./pages/campaigns/Analytics'))
+const CampaignTemplates = lazy(() => import('./pages/campaigns/Templates'))
+const CampaignLists     = lazy(() => import('./pages/campaigns/ContactLists'))
+const CampaignReport    = lazy(() => import('./pages/campaigns/Report'))
+
 // Sales
 const SalesOverview  = lazy(() => import('./pages/sales/Overview'))
 const SalesCohort    = lazy(() => import('./pages/sales/Cohort'))
@@ -519,11 +526,11 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/bd/employers"   element={<PageErrorBoundary><BDEmployers /></PageErrorBoundary>} />
                   <Route path="/bd/analytics"   element={<PageErrorBoundary><BDAnalytics /></PageErrorBoundary>} />
 
-                  <Route path="/campaigns"            element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
-                  <Route path="/campaigns/templates"  element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
-                  <Route path="/campaigns/lists"      element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
-                  <Route path="/campaigns/analytics"  element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
-                  <Route path="/campaigns/:id/report" element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
+                  <Route path="/campaigns"            element={<PageErrorBoundary><CampaignsList /></PageErrorBoundary>} />
+                  <Route path="/campaigns/templates"  element={<PageErrorBoundary><CampaignTemplates /></PageErrorBoundary>} />
+                  <Route path="/campaigns/lists"      element={<PageErrorBoundary><CampaignLists /></PageErrorBoundary>} />
+                  <Route path="/campaigns/analytics"  element={<PageErrorBoundary><CampaignAnalytics /></PageErrorBoundary>} />
+                  <Route path="/campaigns/:id/report" element={<PageErrorBoundary><CampaignReport /></PageErrorBoundary>} />
 
                   <Route path="/sales"           element={<PageErrorBoundary><SalesOverview /></PageErrorBoundary>} />
                   <Route path="/sales/cohort"    element={<PageErrorBoundary><SalesCohort /></PageErrorBoundary>} />

@@ -49,25 +49,30 @@ function horizonLabel(h: string): string {
 
 // ── Rollover / Liquidate actions ──────────────────────────────────────────────
 
-function ActionButtons({ fd }: { fd: FDRecord }) {
+function ActionButtons({ fd, onDone }: { fd: FDRecord; onDone: () => void }) {
   const [confirming, setConfirming] = useState<'rollover' | 'liquidate' | null>(null)
+  const [busy, setBusy] = useState(false)
 
   async function execute(action: 'rollover' | 'liquidate') {
+    setBusy(true)
     try {
       await apiFetch(`/api/fixed-deposit/transactions/${fd.id}/${action}`, { method: 'POST' })
-      toast.success(`FD ${action === 'rollover' ? 'rolled over' : 'liquidated'}`)
-    } catch {
-      toast.info(`${action} endpoint pending Wave 4G backend`)
+      toast.success(`FD ${action === 'rollover' ? 'rolled over' : 'liquidated'} successfully`)
+      onDone()
+    } catch (e: any) {
+      toast.error(e.message ?? `${action} failed`)
+    } finally {
+      setBusy(false)
+      setConfirming(null)
     }
-    setConfirming(null)
   }
 
   if (confirming) {
     return (
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
         <span style={{ fontSize: 11.5, color: 'var(--txt2)' }}>Confirm {confirming}?</span>
-        <button onClick={() => execute(confirming)} style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: confirming === 'rollover' ? 'rgba(22,163,74,.12)' : 'rgba(192,0,0,.08)', color: confirming === 'rollover' ? GREEN : RED, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>Yes</button>
-        <button onClick={() => setConfirming(null)} style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt2)', fontSize: 11.5, cursor: 'pointer' }}>No</button>
+        <button onClick={() => execute(confirming)} disabled={busy} style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: confirming === 'rollover' ? 'rgba(22,163,74,.12)' : 'rgba(192,0,0,.08)', color: confirming === 'rollover' ? GREEN : RED, fontSize: 11.5, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>{busy ? '…' : 'Yes'}</button>
+        <button onClick={() => setConfirming(null)} disabled={busy} style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt2)', fontSize: 11.5, cursor: 'pointer' }}>No</button>
       </div>
     )
   }
@@ -76,12 +81,12 @@ function ActionButtons({ fd }: { fd: FDRecord }) {
     <div style={{ display: 'flex', gap: 6 }}>
       <button onClick={e => { e.stopPropagation(); setConfirming('rollover') }} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: 'rgba(22,163,74,.1)', color: GREEN, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>Rollover</button>
       <button onClick={e => { e.stopPropagation(); setConfirming('liquidate') }} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: 'rgba(192,0,0,.07)', color: RED, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>Liquidate</button>
-      <EarlyWithdrawalButton fd={fd} />
+      <EarlyWithdrawalButton fd={fd} onDone={onDone} />
     </div>
   )
 }
 
-function EarlyWithdrawalButton({ fd }: { fd: FDRecord }) {
+function EarlyWithdrawalButton({ fd, onDone }: { fd: FDRecord; onDone: () => void }) {
   const [saving, setSaving] = useState(false)
 
   async function request(e: React.MouseEvent) {
@@ -93,6 +98,7 @@ function EarlyWithdrawalButton({ fd }: { fd: FDRecord }) {
       )
       const penalty = res ? `Penalty: ₦${(res.penalty_kobo / 100).toLocaleString()} · Net: ₦${(res.net_payout_kobo / 100).toLocaleString()}` : ''
       toast.success(`Early withdrawal requested. ${penalty}`)
+      onDone()
     } catch (e: any) {
       toast.error(e.message ?? 'Request failed')
     } finally {
@@ -113,7 +119,7 @@ function EarlyWithdrawalButton({ fd }: { fd: FDRecord }) {
 
 // ── Columns ───────────────────────────────────────────────────────────────────
 
-const COLS: TableCol<FDRecord>[] = [
+function makeCols(onDone: () => void): TableCol<FDRecord>[] { return [
   { key: 'id', label: 'FD#', width: 90,
     render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>FD-{String(r.id).padStart(5, '0')}</span> },
   { key: 'customer_name', label: 'Investor', sortable: true,
@@ -150,8 +156,8 @@ const COLS: TableCol<FDRecord>[] = [
       </span>
     )
   }},
-  { key: '_actions', label: '', render: r => <ActionButtons fd={r} /> },
-]
+  { key: '_actions', label: '', render: r => <ActionButtons fd={r} onDone={onDone} /> },
+]}
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -294,7 +300,7 @@ export default function FinanceFDMaturity() {
         </div>
 
         <DataTable
-          cols={COLS}
+          cols={makeCols(load)}
           rows={pageRows}
           keyFn={r => r.id}
           loading={loading}
