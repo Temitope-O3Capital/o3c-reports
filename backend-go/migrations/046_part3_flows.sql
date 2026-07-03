@@ -28,7 +28,37 @@ ALTER TABLE recovery_cases
   ADD COLUMN IF NOT EXISTS dpd_at_handoff        TEXT;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 3. fd_early_withdrawal_requests — early withdrawal approval flow
+-- 3. fd_transactions — base FD ledger (guard: 044 may have already applied it)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS fd_transactions (
+  id               BIGSERIAL PRIMARY KEY,
+  transaction_date DATE NOT NULL,
+  customer_name    TEXT NOT NULL,
+  transaction_type TEXT NOT NULL DEFAULT 'inflow'
+                       CHECK (transaction_type IN ('inflow','outflow','liquidation','rolled_over')),
+  principal        NUMERIC,
+  interest_paid    NUMERIC,
+  gross_amount     NUMERIC,
+  usd_amount       NUMERIC,
+  ngn_amount       NUMERIC,
+  currency         TEXT NOT NULL DEFAULT 'NGN',
+  location         TEXT,
+  account_officer  TEXT,
+  maturity_date    DATE,
+  tenor_days       INT,
+  rate             NUMERIC,
+  notes            TEXT,
+  created_by       BIGINT REFERENCES o3c_users(id),
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_fd_txn_date     ON fd_transactions(transaction_date DESC);
+CREATE INDEX IF NOT EXISTS idx_fd_txn_type     ON fd_transactions(transaction_type);
+CREATE INDEX IF NOT EXISTS idx_fd_txn_maturity ON fd_transactions(maturity_date);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 4. fd_early_withdrawal_requests — early withdrawal approval flow
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS fd_early_withdrawal_requests (
   id                  BIGSERIAL PRIMARY KEY,
