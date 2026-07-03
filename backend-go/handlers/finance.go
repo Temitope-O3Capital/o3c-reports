@@ -611,3 +611,132 @@ func finFDAccrual(db *core.DB) http.HandlerFunc {
 		jsonRows(w, rows)
 	}
 }
+
+/* ── Income ledger ────────────────────────────────────────────────────────────
+   Flattens card_cycle_data into income line items per product per cycle.
+   Each row: date, source (product name), type (Interest/Fees/Penalty), amount_kobo, ref.
+   Filters: type, date_from, date_to.
+*/
+
+func finIncomeList(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		typeFilter := qstr(r, "type")
+		dateFrom   := qstr(r, "date_from")
+		dateTo     := qstr(r, "date_to")
+		limit      := qint(r, "limit", 200, 1, 1000)
+		offset     := qint(r, "offset", 0, 0, 1<<30)
+
+		dateWhere := "1=1"
+		var dateArgs []any
+		n := 1
+		if dateFrom != "" {
+			dateWhere += fmt.Sprintf(" AND d.cycle_date >= $%d::date", n)
+			dateArgs = append(dateArgs, dateFrom); n++
+		}
+		if dateTo != "" {
+			dateWhere += fmt.Sprintf(" AND d.cycle_date <= $%d::date", n)
+			dateArgs = append(dateArgs, dateTo); n++
+		}
+
+		buildPart := func(incomeType, col string) string {
+			return fmt.Sprintf(`
+			SELECT
+			  d.cycle_date                              AS date,
+			  COALESCE(p.product_name, d.product_code) AS source,
+			  '%s'                                      AS type,
+			  SUM(d.%s)                                 AS amount_kobo,
+			  d.product_code                            AS ref
+			FROM card_cycle_data d
+			LEFT JOIN card_products p ON p.product_code = d.product_code
+			WHERE %s AND d.%s > 0
+			GROUP BY d.cycle_date, p.product_name, d.product_code`, incomeType, col, dateWhere, col)
+		}
+
+		allTypes := []struct{ label, col string }{
+			{"Interest", "interest_charged_kobo"},
+			{"Fees",     "fees_kobo"},
+			{"Penalty",  "penalty_kobo"},
+		}
+
+		var parts []string
+		var partCount int
+		for _, t := range allTypes {
+			if typeFilter == "" || typeFilter == t.label {
+				parts = append(parts, buildPart(t.label, t.col))
+				partCount++
+			}
+		}
+
+		// Build args: dateArgs repeated once per UNION part, then limit/offset
+		var args []any
+		for i := 0; i < partCount; i++ {
+			args = append(args, dateArgs...)
+		}
+		args = append(args, limit, offset)
+
+		finalSQL := fmt.Sprintf(`
+			SELECT * FROM (%s) inc
+			ORDER BY date DESC, amount_kobo DESC
+			LIMIT $%d OFFSET $%d`, strings.Join(parts, " UNION ALL "), n, n+1)
+
+		rows, err := db.PGQuery(r.Context(), finalSQL, args...)
+		if err != nil {
+			respondErr(w, 500, "income query failed: "+err.Error())
+			return
+		}
+		jsonRows(w, rows)
+	}
+}
+
+/* ── Income chart ─────────────────────────────────────────────────────────────
+   Returns income by type comparing the two most recent cycle dates.
+   Response: [{ type, current, previous }]
+*/
+
+func finIncomeChart(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dateRows, err := db.PGQuery(r.Context(),
+			`SELECT DISTINCT TO_CHAR(cycle_date,'YYYY-MM-DD') AS d FROM card_cycle_data ORDER BY d DESC LIMIT 2`)
+		if err != nil || len(dateRows) == 0 {
+			respond(w, []map[string]any{}, "pg")
+			return
+		}
+		current  := fmt.Sprintf("%v", dateRows[0]["d"])
+		previous := ""
+		if len(dateRows) > 1 {
+			previous = fmt.Sprintf("%v", dateRows[1]["d"])
+		}
+
+		type chartRow struct {
+			Type     string `json:"type"`
+			Current  int64  `json:"current"`
+			Previous int64  `json:"previous"`
+		}
+
+		types := []struct{ label, col string }{
+			{"Interest", "interest_charged_kobo"},
+			{"Fees",     "fees_kobo"},
+			{"Penalty",  "penalty_kobo"},
+		}
+
+		out := make([]chartRow, len(types))
+		for i, t := range types {
+			curRows, _ := db.PGQuery(r.Context(),
+				fmt.Sprintf(`SELECT COALESCE(SUM(%s),0) AS v FROM card_cycle_data WHERE cycle_date=$1::date`, t.col),
+				current)
+			out[i].Type = t.label
+			if len(curRows) > 0 {
+				out[i].Current = toInt64(curRows[0]["v"])
+			}
+			if previous != "" {
+				prevRows, _ := db.PGQuery(r.Context(),
+					fmt.Sprintf(`SELECT COALESCE(SUM(%s),0) AS v FROM card_cycle_data WHERE cycle_date=$1::date`, t.col),
+					previous)
+				if len(prevRows) > 0 {
+					out[i].Previous = toInt64(prevRows[0]["v"])
+				}
+			}
+		}
+		respond(w, out, "pg")
+	}
+}

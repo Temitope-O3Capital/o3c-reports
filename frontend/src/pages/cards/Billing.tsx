@@ -1,258 +1,269 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, ErrBanner, SearchInput } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Sk, FilterBar, filterInputStyle } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtNum } from '../../lib/fmt'
-import { RED, GREEN, AMBER, NAVY, INTER, NUM } from '../../lib/design'
-import { toast } from 'sonner'
+import { fmtKobo, fmtDate } from '../../lib/fmt'
+import { RED, GREEN, AMBER, NAVY, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface BillingCycle {
+interface SummaryRow {
+  cycle_date: string
+  product_code: string
+  product_name: string
+  category: string
+  card_type: string
+  account_count: number
+  overdue_accounts: number
+  total_outstanding_kobo: number
+  total_overdue_kobo: number
+  total_interest_kobo: number
+  total_fees_kobo: number
+  total_penalty_kobo: number
+  total_credit_limit_kobo: number
+}
+
+interface AccountRow {
   id: number
-  product: string
-  cycle_start: string
-  cycle_end: string
-  accounts_count: number
-  total_balance_kobo: number
-  statements_generated: number
-  status: string
+  account_number: string
+  cif: string
+  currency: string
+  outstanding_balance_kobo: number
+  overdue_amount_kobo: number
+  interest_charged_kobo: number
+  fees_kobo: number
+  credit_limit_kobo: number
 }
 
-// ── Status config ──────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
-  open:       { bg: 'rgba(22,163,74,.1)',   txt: GREEN },
-  processing: { bg: 'rgba(217,119,6,.12)',  txt: AMBER },
-  closed:     { bg: 'rgba(107,114,128,.1)', txt: '#6B7280' },
-  pending:    { bg: 'rgba(14,40,65,.08)',   txt: NAVY },
+function cycleStart(cycleDate: string) {
+  return cycleDate.slice(0, 7) + '-01'
 }
 
-function StatusPill({ status }: { status: string }) {
-  const c = STATUS_COLORS[status] ?? { bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
+function cycleLabel(cycleDate: string) {
+  return fmtDate(cycleDate)
+}
+
+function StatusPill({ date }: { date: string }) {
+  const past = new Date(date) < new Date()
+  const s = past
+    ? { bg: 'rgba(107,114,128,.1)', color: '#6B7280', label: 'Closed' }
+    : { bg: 'rgba(22,163,74,.1)',   color: GREEN,     label: 'Open' }
   return (
-    <span style={{
-      fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20,
-      background: c.bg, color: c.txt, whiteSpace: 'nowrap', textTransform: 'capitalize',
-    }}>{status}</span>
+    <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20, background: s.bg, color: s.color }}>
+      {s.label}
+    </span>
   )
 }
 
-// ── Expand panel ──────────────────────────────────────────────────────────────
+function CatPill({ category }: { category: string }) {
+  const s = category === 'prepaid'
+    ? { bg: 'rgba(14,40,65,.08)',  color: NAVY }
+    : { bg: 'rgba(192,0,0,.08)',   color: RED }
+  return (
+    <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: s.bg, color: s.color, textTransform: 'capitalize' as const }}>
+      {category}
+    </span>
+  )
+}
 
-function ExpandPanel({ cycle }: { cycle: BillingCycle }) {
-  const sentPct = cycle.accounts_count > 0
-    ? Math.round((cycle.statements_generated / cycle.accounts_count) * 100)
-    : 0
+// ── Account expand panel ───────────────────────────────────────────────────────
+
+function AccountPanel({ cycleDate, productCode }: { cycleDate: string; productCode: string }) {
+  const [rows, setRows] = useState<AccountRow[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [offset, setOffset] = useState(0)
+  const PAGE = 100
+
+  const load = useCallback(async (off = 0) => {
+    setLoading(true)
+    try {
+      const res = await apiFetch<{ data: AccountRow[]; total: number }>(
+        `/api/cards/cycle-data?cycle_date=${cycleDate}&product_code=${productCode}&limit=${PAGE}&offset=${off}`
+      )
+      setRows(res?.data ?? [])
+      setTotal(res?.total ?? 0)
+      setOffset(off)
+    } finally {
+      setLoading(false)
+    }
+  }, [cycleDate, productCode])
+
+  useEffect(() => { load(0) }, [load])
+
+  if (loading) return <div style={{ padding: 16, color: 'var(--txt2)', fontSize: 13 }}>Loading accounts…</div>
+  if (!rows.length) return <div style={{ padding: 16, color: 'var(--txt2)', fontSize: 13 }}>No accounts</div>
 
   return (
-    <div style={{ background: '#F8FAFC', borderTop: '1px solid var(--bdr)', padding: '16px 24px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
-          {cycle.product} — {fmtDate(cycle.cycle_start)} to {fmtDate(cycle.cycle_end)}
-        </span>
-        <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
-          {cycle.statements_generated} / {cycle.accounts_count} statements sent
-        </span>
+    <div style={{ padding: '12px 16px', background: 'var(--bg)' }}>
+      <div style={{ fontSize: 12, color: 'var(--txt2)', marginBottom: 10 }}>
+        {total.toLocaleString()} accounts · showing {offset + 1}–{Math.min(offset + PAGE, total)}
       </div>
-
-      {/* Progress bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-        <div style={{ flex: 1, height: 8, borderRadius: 4, background: 'var(--bdr)', overflow: 'hidden' }}>
-          <div style={{ width: `${sentPct}%`, height: '100%', background: sentPct === 100 ? GREEN : AMBER, borderRadius: 4, transition: 'width .3s' }} />
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <thead>
+          <tr style={{ background: 'var(--th-bg)' }}>
+            {['Account', 'CIF', 'CCY', 'Outstanding', 'Overdue', 'Interest', 'Fees', 'Limit'].map(h => (
+              <th key={h} style={{ padding: '8px 10px', textAlign: h === 'Account' || h === 'CIF' ? 'left' : 'right', color: 'var(--txt2)', fontWeight: 600 }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(a => (
+            <tr key={a.id} style={{ borderBottom: '1px solid var(--bdr)' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
+              onMouseLeave={e => (e.currentTarget.style.background = '')}
+            >
+              <td style={{ padding: '8px 10px', ...NUM, fontSize: 11.5, color: 'var(--txt2)' }}>{a.account_number}</td>
+              <td style={{ padding: '8px 10px', ...NUM, fontSize: 11.5, color: 'var(--txt2)' }}>{a.cif}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, fontWeight: 600 }}>{a.currency}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM }}>{fmtKobo(a.outstanding_balance_kobo)}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, color: a.overdue_amount_kobo > 0 ? RED : 'var(--txt2)' }}>{fmtKobo(a.overdue_amount_kobo)}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, color: GREEN }}>{fmtKobo(a.interest_charged_kobo)}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, color: AMBER }}>{fmtKobo(a.fees_kobo)}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, color: 'var(--txt2)' }}>{fmtKobo(a.credit_limit_kobo)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {total > PAGE && (
+        <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+          <button disabled={offset === 0} onClick={() => load(offset - PAGE)}
+            style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset === 0 ? 'not-allowed' : 'pointer', opacity: offset === 0 ? 0.4 : 1 }}>← Prev</button>
+          <button disabled={offset + PAGE >= total} onClick={() => load(offset + PAGE)}
+            style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset + PAGE >= total ? 'not-allowed' : 'pointer', opacity: offset + PAGE >= total ? 0.4 : 1 }}>Next →</button>
         </div>
-        <span style={{ ...NUM, fontSize: 12, fontWeight: 700, color: sentPct === 100 ? GREEN : AMBER, minWidth: 36 }}>{sentPct}%</span>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
-        {[
-          { label: 'Accounts', value: fmtNum(cycle.accounts_count) },
-          { label: 'Total Balance', value: fmtKobo(Number(cycle.total_balance_kobo)) },
-          { label: 'Statements Sent', value: fmtNum(cycle.statements_generated) },
-        ].map(({ label, value }) => (
-          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 8, padding: '10px 14px' }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 4 }}>{label}</div>
-            <div style={{ ...NUM, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{value}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ── Cycle row ─────────────────────────────────────────────────────────────────
-
-function CycleRow({ cycle, expanded, onToggle }: { cycle: BillingCycle; expanded: boolean; onToggle: () => void }) {
-  return (
-    <>
-      <tr
-        onClick={onToggle}
-        style={{ borderBottom: expanded ? 'none' : '1px solid var(--bdr)', cursor: 'pointer' }}
-        className="table-row-hover"
-      >
-        <td style={{ padding: '12px 18px' }}>
-          <span className="material-symbols-rounded" style={{
-            fontSize: 16, color: 'var(--txt3)', verticalAlign: 'middle', marginRight: 6,
-            transition: 'transform .15s', transform: expanded ? 'rotate(90deg)' : 'none', display: 'inline-block',
-          }}>chevron_right</span>
-          <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{cycle.product}</span>
-        </td>
-        <td style={{ padding: '12px 18px', fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(cycle.cycle_start)}</td>
-        <td style={{ padding: '12px 18px', fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(cycle.cycle_end)}</td>
-        <td style={{ padding: '12px 18px', textAlign: 'right', ...NUM }}>{fmtNum(Number(cycle.accounts_count))}</td>
-        <td style={{ padding: '12px 18px', textAlign: 'right', ...NUM, fontWeight: 600 }}>{fmtKobo(Number(cycle.total_balance_kobo))}</td>
-        <td style={{ padding: '12px 18px', textAlign: 'right', ...NUM, color: cycle.statements_generated === cycle.accounts_count && cycle.accounts_count > 0 ? GREEN : 'var(--txt2)' }}>
-          {fmtNum(Number(cycle.statements_generated))} / {fmtNum(Number(cycle.accounts_count))}
-        </td>
-        <td style={{ padding: '12px 18px' }}><StatusPill status={cycle.status} /></td>
-      </tr>
-      {expanded && (
-        <tr>
-          <td colSpan={7} style={{ padding: 0, borderBottom: '1px solid var(--bdr)' }}>
-            <ExpandPanel cycle={cycle} />
-          </td>
-        </tr>
       )}
-    </>
+    </div>
   )
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function CardsBilling() {
-  const [rows,      setRows]      = useState<BillingCycle[]>([])
-  const [loading,   setLoading]   = useState(true)
-  const [error,     setError]     = useState<string | null>(null)
-  const [generating, setGenerating] = useState(false)
-  const [expandedId, setExpandedId] = useState<number | null>(null)
-  const [search,    setSearch]    = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [allRows, setAllRows]   = useState<SummaryRow[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [error, setError]       = useState<string | null>(null)
+  const [selectedDate, setSelectedDate] = useState('')
+  const [expandedKey, setExpandedKey]   = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const data = await apiFetch<BillingCycle[]>('/api/cards/billing')
-      setRows(Array.isArray(data) ? data : [])
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
+  useEffect(() => {
+    apiFetch<SummaryRow[]>('/api/cards/cycle-summary')
+      .then(data => {
+        setAllRows(data ?? [])
+        if (data?.length) setSelectedDate(data[0].cycle_date)
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => { load() }, [load])
+  const cycleDates = useMemo(() =>
+    [...new Set(allRows.map(r => r.cycle_date))].sort((a, b) => b.localeCompare(a)),
+    [allRows]
+  )
 
-  async function generateCycles() {
-    setGenerating(true)
-    try {
-      await apiFetch('/api/cards/billing/generate', { method: 'POST' })
-      toast.success('Billing cycles generated for current month')
-      load()
-    } catch (e: any) {
-      toast.error(e.message)
-    } finally {
-      setGenerating(false)
-    }
+  const cycleRows = useMemo(() =>
+    allRows.filter(r => r.cycle_date === selectedDate)
+      .sort((a, b) => b.total_outstanding_kobo - a.total_outstanding_kobo),
+    [allRows, selectedDate]
+  )
+
+  const totals = useMemo(() => ({
+    accounts:    cycleRows.reduce((s, r) => s + Number(r.account_count), 0),
+    outstanding: cycleRows.reduce((s, r) => s + r.total_outstanding_kobo, 0),
+    overdue:     cycleRows.reduce((s, r) => s + r.total_overdue_kobo, 0),
+  }), [cycleRows])
+
+  function toggleExpand(key: string) {
+    setExpandedKey(prev => prev === key ? null : key)
   }
-
-  const displayed = useMemo(() => rows.filter(c => {
-    if (statusFilter && c.status !== statusFilter) return false
-    if (search && !c.product.toLowerCase().includes(search.toLowerCase())) return false
-    return true
-  }), [rows, search, statusFilter])
-
-  const openCycles        = rows.filter(c => c.status === 'open').length
-  const pendingStatements = rows.reduce((s, c) => s + (Number(c.accounts_count) - Number(c.statements_generated)), 0)
-  const products          = new Set(rows.map(c => c.product)).size
 
   return (
     <Page
       title="Billing Cycles"
-      subtitle="Monthly billing periods and statement generation"
+      subtitle="Card statement cycles from the processing system"
       actions={
-        <button
-          onClick={generateCycles}
-          disabled={generating}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 9,
-            border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700,
-            cursor: generating ? 'default' : 'pointer', fontFamily: INTER, opacity: generating ? .7 : 1,
-          }}
+        <select
+          value={selectedDate}
+          onChange={e => { setSelectedDate(e.target.value); setExpandedKey(null) }}
+          style={{ ...filterInputStyle, minWidth: 180 }}
         >
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>refresh</span>
-          {generating ? 'Generating…' : 'Generate Current Month'}
-        </button>
+          {cycleDates.map(d => (
+            <option key={d} value={d}>Cycle ending {fmtDate(d)}</option>
+          ))}
+        </select>
       }
     >
-      <ErrBanner error={error} onRetry={load} />
+      <ErrBanner error={error} onRetry={() => setError(null)} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginBottom: 20 }}>
-        {[
-          { label: 'Open Cycles',         value: openCycles, color: GREEN },
-          { label: 'Statements Pending',  value: pendingStatements.toLocaleString(), color: pendingStatements > 0 ? AMBER : 'var(--txt)' },
-          { label: 'Products',            value: products, color: 'var(--txt)' },
-        ].map(({ label, value, color }) => (
-          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '14px 16px' }}>
-            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 6 }}>{label}</div>
-            <div style={{ ...NUM, fontSize: 20, fontWeight: 700, color }}>{value}</div>
-          </div>
-        ))}
-      </div>
-
-      <SectionCard title="Billing Cycles" badge={displayed.length} padding={false}>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 10, alignItems: 'center' }}>
-          <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
-          <select
-            value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-            style={{ padding: '7px 12px', borderRadius: 9, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}
-          >
-            <option value="">All statuses</option>
-            <option value="open">Open</option>
-            <option value="processing">Processing</option>
-            <option value="closed">Closed</option>
-          </select>
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>{displayed.length} cycles</span>
+      {/* Cycle summary strip */}
+      {selectedDate && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 20 }}>
+          {[
+            { label: 'Total Accounts',  value: totals.accounts.toLocaleString(), icon: 'credit_card',    color: NAVY },
+            { label: 'Outstanding',     value: fmtKobo(totals.outstanding),     icon: 'account_balance', color: '#0EA5E9' },
+            { label: 'Overdue',         value: fmtKobo(totals.overdue),         icon: 'warning',         color: RED },
+          ].map(k => (
+            <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 28, color: k.color, opacity: 0.85 }}>{k.icon}</span>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 2 }}>{k.label}</div>
+                <div style={{ ...NUM, fontSize: 18, fontWeight: 700, color: 'var(--txt)' }}>{k.value}</div>
+              </div>
+            </div>
+          ))}
         </div>
+      )}
 
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ background: 'var(--th-bg)' }}>
-              {['Product', 'Cycle Start', 'Cycle End', 'Accounts', 'Total Balance', 'Statements', 'Status'].map(h => (
-                <th key={h} style={{
-                  padding: '10px 18px',
-                  textAlign: ['Accounts', 'Total Balance', 'Statements'].includes(h) ? 'right' : 'left',
-                  fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase',
-                  letterSpacing: '.4px', borderBottom: '1px solid var(--bdr)',
-                }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={7} style={{ padding: 40, textAlign: 'center', color: 'var(--txt3)' }}>Loading…</td></tr>
-            ) : displayed.length === 0 ? (
-              <tr>
-                <td colSpan={7} style={{ padding: 48, textAlign: 'center', color: 'var(--txt3)', fontSize: 13 }}>
-                  <div style={{ marginBottom: 12 }}>No billing cycles yet.</div>
-                  <button onClick={generateCycles} disabled={generating} style={{
-                    padding: '8px 18px', borderRadius: 9, border: 'none', background: NAVY, color: '#fff',
-                    fontSize: 13, fontWeight: 700, cursor: generating ? 'default' : 'pointer', fontFamily: INTER,
-                  }}>Generate Current Month Cycles</button>
-                </td>
+      {/* Products table */}
+      <SectionCard padding={false} title={selectedDate ? `Products · cycle ending ${fmtDate(selectedDate)}` : 'Products'}>
+        {loading ? <Sk h={300} /> : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: 'var(--th-bg)' }}>
+                {['Product', 'Category', 'Cycle Start', 'Cycle End', 'Accounts', 'Total Outstanding', 'Overdue Accounts', 'Status', ''].map(h => (
+                  <th key={h} style={{ padding: '10px 14px', textAlign: ['Accounts','Overdue Accounts'].includes(h) ? 'right' : h === 'Total Outstanding' ? 'right' : 'left', color: 'var(--txt2)', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
               </tr>
-            ) : displayed.map(c => (
-              <CycleRow
-                key={c.id}
-                cycle={c}
-                expanded={expandedId === c.id}
-                onToggle={() => setExpandedId(id => id === c.id ? null : c.id)}
-              />
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {cycleRows.map(row => {
+                const key = `${row.cycle_date}-${row.product_code}`
+                const expanded = expandedKey === key
+                return [
+                  <tr key={key}
+                    style={{ borderBottom: expanded ? 'none' : '1px solid var(--bdr)', cursor: 'pointer', background: expanded ? 'var(--row-hvr)' : '' }}
+                    onMouseEnter={e => { if (!expanded) e.currentTarget.style.background = 'var(--row-hvr)' }}
+                    onMouseLeave={e => { if (!expanded) e.currentTarget.style.background = '' }}
+                    onClick={() => toggleExpand(key)}
+                  >
+                    <td style={{ padding: '10px 14px', fontWeight: 500, color: 'var(--txt)' }}>{row.product_name}</td>
+                    <td style={{ padding: '10px 14px' }}><CatPill category={row.category} /></td>
+                    <td style={{ padding: '10px 14px', ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(cycleStart(row.cycle_date))}</td>
+                    <td style={{ padding: '10px 14px', ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(row.cycle_date)}</td>
+                    <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM }}>{Number(row.account_count).toLocaleString()}</td>
+                    <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, fontWeight: 600 }}>{fmtKobo(row.total_outstanding_kobo)}</td>
+                    <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, color: Number(row.overdue_accounts) > 0 ? RED : 'var(--txt2)' }}>{Number(row.overdue_accounts).toLocaleString()}</td>
+                    <td style={{ padding: '10px 14px' }}><StatusPill date={row.cycle_date} /></td>
+                    <td style={{ padding: '10px 14px', textAlign: 'center', color: 'var(--txt2)' }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: 18, verticalAlign: 'middle' }}>
+                        {expanded ? 'expand_less' : 'expand_more'}
+                      </span>
+                    </td>
+                  </tr>,
+                  expanded && (
+                    <tr key={`${key}-expand`} style={{ borderBottom: '1px solid var(--bdr)' }}>
+                      <td colSpan={9} style={{ padding: 0 }}>
+                        <AccountPanel cycleDate={row.cycle_date} productCode={row.product_code} />
+                      </td>
+                    </tr>
+                  ),
+                ]
+              })}
+            </tbody>
+          </table>
+        )}
       </SectionCard>
     </Page>
   )
 }
-
-void RED
