@@ -15,8 +15,9 @@ import { API, apiFetch } from './lib/api'
 import { LIGHT, DARK }  from './lib/design'
 
 // ── Lazy imports ──────────────────────────────────────────────────────────────
-const CS         = lazy(() => import('./pages/ComingSoon'))
-const CSATSurvey = lazy(() => import('./pages/helpdesk/CSATSurvey'))
+const CS           = lazy(() => import('./pages/ComingSoon'))
+const CSATSurvey   = lazy(() => import('./pages/helpdesk/CSATSurvey'))
+const UserSettings = lazy(() => import('./pages/Settings'))
 
 // Intelligence
 const ReportsBI     = lazy(() => import('./pages/reports/BI'))
@@ -655,6 +656,8 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/mail/inbox"   element={<PageErrorBoundary><MailInbox /></PageErrorBoundary>} />
                   <Route path="/mail/compose" element={<PageErrorBoundary><MailCompose /></PageErrorBoundary>} />
                   <Route path="/mail/:id"     element={<PageErrorBoundary><MailThread /></PageErrorBoundary>} />
+
+                  <Route path="/settings" element={<PageErrorBoundary><UserSettings /></PageErrorBoundary>} />
 
                   <Route path="*" element={<Navigate to={homeFor(role)} replace />} />
                 </Routes>

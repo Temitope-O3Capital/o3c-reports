@@ -20,10 +20,30 @@ import (
 // RegisterMFA mounts TOTP endpoints. All are public (no auth middleware) but
 // the setup/verify/disable routes read an MFA challenge token from the body.
 func RegisterMFA(r chi.Router, db *core.DB) {
+	r.Get("/status", mfaStatus(db))
 	r.Post("/setup", mfaSetup(db))
 	r.Post("/verify", mfaVerify(db))
 	r.Post("/disable", mfaDisable(db))
 	r.Post("/challenge", mfaChallenge(db))
+}
+
+func mfaStatus(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "Unauthorized")
+			return
+		}
+		rows, err := db.PGQuery(r.Context(),
+			`SELECT COALESCE(totp_enabled, false) AS totp_enabled FROM o3c_users WHERE id = $1`, user.ID)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 500, "Database error")
+			return
+		}
+		enabled, _ := rows[0]["totp_enabled"].(bool)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"totp_enabled": enabled}) //nolint:errcheck
+	}
 }
 
 // mfaSetup generates a fresh TOTP secret for the authenticated user and stores it

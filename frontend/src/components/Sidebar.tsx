@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
-import { useLocation, Link } from 'react-router-dom'
+import { useLocation, Link, useNavigate } from 'react-router-dom'
 import { roleLabel } from '../lib/roles'
 import { INTER } from '../lib/design'
 import type { AuthUser } from '../hooks/useAuth'
@@ -454,6 +454,7 @@ function SectionHeader({ label, collapsed }: { label?: string; collapsed: boolea
 
 export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser; onLogout: () => void; utilities?: ReactNode }) {
   const { pathname } = useLocation()
+  const navigate = useNavigate()
 
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('o3c_sb') === '1')
 
@@ -647,18 +648,18 @@ export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser;
               </div>
 
               <button
-                onClick={onLogout}
-                title="Sign out"
+                onClick={() => navigate('/settings')}
+                title="Settings & Security"
                 style={{
                   width: 24, height: 24, borderRadius: 6, border: 'none',
                   background: 'transparent', cursor: 'pointer', flexShrink: 0,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   color: 'var(--txt3)', transition: 'color 120ms',
                 }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--nav-dot)' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#fff' }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--txt3)' }}
               >
-                <span className="material-symbols-rounded" style={{ fontSize: 17 }}>more_horiz</span>
+                <span className="material-symbols-rounded" style={{ fontSize: 17 }}>settings</span>
               </button>
             </>
           )}
