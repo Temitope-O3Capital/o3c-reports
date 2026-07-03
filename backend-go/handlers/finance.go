@@ -850,7 +850,7 @@ func finIncomeLoans(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
 			  id,
-			  loan_ref,
+			  reference                                                        AS loan_ref,
 			  loan_product                                                     AS product,
 			  disbursed_amount_kobo,
 			  interest_rate_bps,

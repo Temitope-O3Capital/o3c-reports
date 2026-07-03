@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, BarChart, Bar, XAxis, CartesianGrid, Tooltip, Legend, LabelList,
 } from 'recharts'
 import {
   Page, SectionCard, DataTable, ErrBanner, Sk, Tabs, FilterBar, filterInputStyle, KpiCard,
@@ -160,6 +160,33 @@ const LOAN_COLS: TableCol<LoanRow>[] = [
   { key: 'maturity_date', label: 'Matures', sortable: true,
     render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.maturity_date)}</span> },
 ]
+
+// ── CSV export ────────────────────────────────────────────────────────────────
+
+function exportCardCsv(rows: SummaryRow[], cycleDate: string) {
+  const header = ['Product', 'Currency', 'Category', 'Accounts', 'Outstanding', 'Interest', 'Fees', 'Penalty', 'Credit Limit']
+  const lines = rows.map(r => [
+    `"${(r.product_name || r.product_code).replace(/"/g, '""')}"`,
+    r.currency,
+    r.category || '',
+    n(r.account_count),
+    (n(r.total_outstanding_kobo) / 100).toFixed(2),
+    (n(r.total_interest_kobo) / 100).toFixed(2),
+    (n(r.total_fees_kobo) / 100).toFixed(2),
+    (n(r.total_penalty_kobo) / 100).toFixed(2),
+    (n(r.total_credit_limit_kobo) / 100).toFixed(2),
+  ].join(','))
+  const csv = [header.join(','), ...lines].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `card-income-${cycleDate}.csv`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -321,38 +348,56 @@ export default function FinanceIncome() {
             )}
           </SectionCard>
 
-          {/* Current vs previous chart — NGN only */}
+          {/* Income by Type — data labels, no Y axis (values differ in scale between cycles) */}
           <SectionCard title="Income by Type" subtitle="NGN · Current cycle vs previous cycle" style={{ marginBottom: 16 }}>
-            {loading ? <Sk h={200} /> : !chart.length ? (
+            {loading ? <Sk h={220} /> : !chart.length ? (
               <EmptyState icon="bar_chart" message="No chart data available" />
             ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={chart} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={chart} margin={{ top: 32, right: 8, left: 8, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
                   <XAxis dataKey="type" tick={{ fontSize: 12, fill: '#9AA4B8' }} axisLine={false} tickLine={false} />
-                  <YAxis tickFormatter={v => fmtKoboExact(v)} tick={{ fontSize: 10, fill: '#9AA4B8' }} axisLine={false} tickLine={false} width={110} />
                   <Tooltip content={<ChartTip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="current"  name="Current cycle"  fill={NAVY}    radius={[3,3,0,0]} />
-                  <Bar dataKey="previous" name="Previous cycle" fill="#9AA4B8" radius={[3,3,0,0]} />
+                  <Bar dataKey="current" name="Current cycle" fill={NAVY} radius={[3,3,0,0]}>
+                    <LabelList dataKey="current" position="top"
+                      formatter={(v: number) => fmtKoboExact(v)}
+                      style={{ fontSize: 9.5, fill: NAVY, fontFamily: 'Inter', fontVariantNumeric: 'tabular-nums' }} />
+                  </Bar>
+                  <Bar dataKey="previous" name="Previous cycle" fill="#9AA4B8" radius={[3,3,0,0]}>
+                    <LabelList dataKey="previous" position="top"
+                      formatter={(v: number) => fmtKoboExact(v)}
+                      style={{ fontSize: 9.5, fill: '#6B7280', fontFamily: 'Inter', fontVariantNumeric: 'tabular-nums' }} />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}
           </SectionCard>
 
-          {/* By product chart — NGN only */}
+          {/* Cards — by product, NGN only */}
           {chartProducts.length > 0 && (
-            <SectionCard title="Income by Product" subtitle="NGN interest · fees · penalty" style={{ marginBottom: 16 }}>
+            <SectionCard title="Cards" subtitle="NGN interest · fees · penalty by product" style={{ marginBottom: 16 }}>
               <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={chartProducts} margin={{ top: 4, right: 4, left: 0, bottom: 48 }}>
+                <BarChart data={chartProducts} margin={{ top: 28, right: 8, left: 8, bottom: 48 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
                   <XAxis dataKey="product" tick={{ fontSize: 10, fill: '#9AA4B8' }} angle={-35} textAnchor="end" interval={0} axisLine={false} tickLine={false} />
-                  <YAxis tickFormatter={v => fmtKoboExact(v)} tick={{ fontSize: 10, fill: '#9AA4B8' }} axisLine={false} tickLine={false} width={110} />
                   <Tooltip content={<ChartTip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="interest" name="Interest"  fill={GREEN} radius={[3,3,0,0]} />
-                  <Bar dataKey="fees"     name="Fees"      fill={AMBER} radius={[3,3,0,0]} />
-                  <Bar dataKey="penalty"  name="Penalty"   fill={RED}   radius={[3,3,0,0]} />
+                  <Bar dataKey="interest" name="Interest" fill={GREEN} radius={[3,3,0,0]}>
+                    <LabelList dataKey="interest" position="top"
+                      formatter={(v: number) => v > 0 ? fmtKoboExact(v) : ''}
+                      style={{ fontSize: 8.5, fill: GREEN, fontFamily: 'Inter', fontVariantNumeric: 'tabular-nums' }} />
+                  </Bar>
+                  <Bar dataKey="fees"    name="Fees"    fill={AMBER} radius={[3,3,0,0]}>
+                    <LabelList dataKey="fees" position="top"
+                      formatter={(v: number) => v > 0 ? fmtKoboExact(v) : ''}
+                      style={{ fontSize: 8.5, fill: AMBER, fontFamily: 'Inter', fontVariantNumeric: 'tabular-nums' }} />
+                  </Bar>
+                  <Bar dataKey="penalty" name="Penalty" fill={RED}   radius={[3,3,0,0]}>
+                    <LabelList dataKey="penalty" position="top"
+                      formatter={(v: number) => v > 0 ? fmtKoboExact(v) : ''}
+                      style={{ fontSize: 8.5, fill: RED, fontFamily: 'Inter', fontVariantNumeric: 'tabular-nums' }} />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </SectionCard>
@@ -397,7 +442,22 @@ export default function FinanceIncome() {
           )}
 
           {/* Product table — NGN first, then USD, with exact values */}
-          <SectionCard padding={false}>
+          <SectionCard padding={false}
+            title="Products"
+            actions={allProductRows.length > 0 ? (
+              <button
+                onClick={() => exportCardCsv(allProductRows, selectedDate)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '5px 12px', borderRadius: 6, border: '1px solid var(--bdr)',
+                  background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)',
+                }}
+              >
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
+                Export CSV
+              </button>
+            ) : undefined}
+          >
             {loading ? <Sk h={260} /> : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
