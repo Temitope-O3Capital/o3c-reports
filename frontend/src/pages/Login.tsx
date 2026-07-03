@@ -475,8 +475,7 @@ export default function Login({ onLogin }: LoginProps) {
     try {
       const res  = await fetch(`${API}/api/auth/token`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: new URLSearchParams({ username: email.trim(), password }),
       })
       const data = await res.json()
       if (!res.ok) { triggerErr(data.detail || 'Invalid credentials'); return }
