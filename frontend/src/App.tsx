@@ -9,9 +9,9 @@ import { Toaster, toast } from 'sonner'
 
 import Sidebar          from './components/Sidebar'
 import NotificationBell from './components/NotificationBell'
-import { type AuthUser, parseToken, ROLE_PAGES } from './hooks/useAuth'
+import { type AuthUser, ROLE_PAGES } from './hooks/useAuth'
 import { roleLabel }    from './lib/roles'
-import { API, apiFetch } from './lib/api'
+import { API, apiFetch, apiLogout, refreshSession } from './lib/api'
 import { LIGHT, DARK }  from './lib/design'
 
 // ── Lazy imports ──────────────────────────────────────────────────────────────
@@ -130,6 +130,7 @@ const SettleManualPost = lazy(() => import('./pages/settlements/ManualPostings')
 
 // Telemarketing
 const TelemarketingQueue       = lazy(() => import('./pages/telemarketing/Queue'))
+const TelemarketingLeads       = lazy(() => import('./pages/telemarketing/Leads'))
 const TelemarketingDNC         = lazy(() => import('./pages/telemarketing/DNC'))
 const TelemarketingPerformance = lazy(() => import('./pages/telemarketing/Performance'))
 
@@ -553,6 +554,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   {/* Contact Centre */}
                   <Route path="/telemarketing"             element={<PageErrorBoundary><TelemarketingQueue /></PageErrorBoundary>} />
                   <Route path="/telemarketing/queue"       element={<PageErrorBoundary><TelemarketingQueue /></PageErrorBoundary>} />
+                  <Route path="/telemarketing/leads"       element={<PageErrorBoundary><TelemarketingLeads /></PageErrorBoundary>} />
                   <Route path="/telemarketing/dnc"         element={<PageErrorBoundary><TelemarketingDNC /></PageErrorBoundary>} />
                   <Route path="/telemarketing/performance" element={<PageErrorBoundary><TelemarketingPerformance /></PageErrorBoundary>} />
 
@@ -755,25 +757,30 @@ export default function App() {
       return
     }
 
+    const stored = localStorage.getItem('o3c_user')
+    if (!stored) { setLoading(false); return }
+
+    let u: AuthUser
     try {
-      const token  = localStorage.getItem('o3c_token')
-      const stored = localStorage.getItem('o3c_user')
-      if (token && stored) {
-        const payload = parseToken(token)
-        if (payload && payload.exp * 1000 > Date.now()) {
-          const u = JSON.parse(stored) as AuthUser
-          if (u?.name && u?.role) { setUser(u); setLoading(false); return }
-        }
-      }
-    } catch { /* fall through */ }
-    localStorage.removeItem('o3c_token')
-    localStorage.removeItem('o3c_user')
-    setLoading(false)
+      u = JSON.parse(stored) as AuthUser
+      if (!u?.name || !u?.role) { setLoading(false); return }
+    } catch { setLoading(false); return }
+
+    // Fast path: if the CSRF cookie is present the access token is still live.
+    if (/(?:^|;\s*)o3c_csrf=/.test(document.cookie)) {
+      setUser(u); setLoading(false); return
+    }
+
+    // Access token may be expired — try a silent refresh.
+    refreshSession().then(ok => {
+      if (ok) { setUser(u) } else { localStorage.removeItem('o3c_user') }
+      setLoading(false)
+    })
   }, [])
 
   // Cross-tab logout: always listen so logout on Tab B clears Tab A
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => { if (e.key === 'o3c_token' && !e.newValue) setUser(null) }
+    const onStorage = (e: StorageEvent) => { if (e.key === 'o3c_user' && !e.newValue) setUser(null) }
     const onExpired = () => { setUser(null); toast.error('Session expired') }
     window.addEventListener('storage',      onStorage)
     window.addEventListener('auth:expired', onExpired)
@@ -789,8 +796,7 @@ export default function App() {
   }, [])
 
   const handleLogout = useCallback(() => {
-    localStorage.removeItem('o3c_token')
-    localStorage.removeItem('o3c_user')
+    apiLogout()
     setUser(null)
     toast.info('Signed out')
   }, [])

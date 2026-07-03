@@ -257,8 +257,11 @@ func mfaChallenge(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Set HttpOnly cookie alongside the JSON body
-		setAuthCookie(w, token)
+		setAuthCookie(w, r, token)
+
+		if refreshTok, refErr := core.CreateRefreshToken(toInt64(u["id"])); refErr == nil {
+			setRefreshCookie(w, r, refreshTok)
+		}
 
 		mustChange, _ := u["must_change_password"].(bool)
 		w.Header().Set("Content-Type", "application/json")

@@ -141,9 +141,8 @@ export default function FinanceTransactions() {
   async function handleExport() {
     setExporting(true)
     try {
-      const token = localStorage.getItem('o3c_token') ?? ''
       const res = await fetch(`${API}/api/eod/transactions/export?${buildQS(0)}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       })
       if (!res.ok) throw new Error('Export failed')
       const blob = await res.blob()

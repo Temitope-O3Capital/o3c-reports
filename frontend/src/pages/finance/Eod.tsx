@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Page, KpiCard, SectionCard, DataTable, ErrBanner, FilterBar, filterInputStyle } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, getCsrfToken } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, fmtDatetime, today, monthStart } from '../../lib/fmt'
 import { NAVY, GREEN, RED, AMBER, NUM } from '../../lib/design'
 import { toast } from 'sonner'
@@ -94,9 +94,9 @@ function UploadButton({ onUploaded }: { onUploaded: () => void }) {
     const form = new FormData()
     form.append('file', file)
     try {
-      const token = localStorage.getItem('o3c_token') ?? ''
       const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/eod/upload`, {
-        method: 'POST', body: form, headers: { Authorization: `Bearer ${token}` },
+        method: 'POST', body: form, credentials: 'include',
+        headers: { 'X-CSRF-Token': getCsrfToken() },
       })
       if (!res.ok) throw new Error(`Upload failed (${res.status})`)
       toast.success('EOD file uploaded successfully')

@@ -507,7 +507,6 @@ export default function Login({ onLogin }: LoginProps) {
   }
 
   function finalise(data: any) {
-    localStorage.setItem('o3c_token', data.access_token)
     const user: AuthUser = {
       id:                   data.user.id,
       name:                 data.user.name,

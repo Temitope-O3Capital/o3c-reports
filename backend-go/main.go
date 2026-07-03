@@ -433,7 +433,7 @@ func corsMiddleware(allowed []string) func(http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-CSRF-Token")
 				w.Header().Set("Vary", "Origin")
 			}
 			if r.Method == http.MethodOptions {
@@ -532,6 +532,7 @@ func logoutHandler() http.HandlerFunc {
 				slog.Warn("logout: denylist insert failed", "err", err)
 			}
 		}
+		handlers.ClearAuthCookies(w, r)
 		w.WriteHeader(204)
 	}
 }

@@ -24,18 +24,75 @@ func RegisterAuth(r chi.Router, db *core.DB) {
 	r.Post("/forgot-password", forgotPasswordHandler(db))
 }
 
-// setAuthCookie writes the access token as an HttpOnly SameSite=Strict cookie.
-// The expiry matches the JWT (8 h). Secure is enabled when the request came over HTTPS.
-func setAuthCookie(w http.ResponseWriter, token string) {
+// cookieAttrs returns (secure, sameSite) based on whether the request was HTTPS.
+// SameSite=None is required for cross-origin cookie sending (Cloudflare Pages → Railway).
+func cookieAttrs(r *http.Request) (bool, http.SameSite) {
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	if secure {
+		return true, http.SameSiteNoneMode
+	}
+	return false, http.SameSiteLaxMode
+}
+
+// setAuthCookie writes the 30-min access token as an HttpOnly cookie and a matching
+// CSRF token in a readable (non-HttpOnly) cookie for the double-submit pattern.
+func setAuthCookie(w http.ResponseWriter, r *http.Request, token string) {
+	secure, sameSite := cookieAttrs(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "o3c_token",
 		Value:    token,
 		Path:     "/",
-		MaxAge:   8 * 60 * 60,
+		MaxAge:   30 * 60,
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		Secure:   true,
+		Secure:   secure,
+		SameSite: sameSite,
 	})
+	csrf := newCSRFToken()
+	http.SetCookie(w, &http.Cookie{
+		Name:     "o3c_csrf",
+		Value:    csrf,
+		Path:     "/",
+		MaxAge:   30 * 60,
+		HttpOnly: false,
+		Secure:   secure,
+		SameSite: sameSite,
+	})
+}
+
+// setRefreshCookie writes the 7-day refresh token as an HttpOnly cookie.
+func setRefreshCookie(w http.ResponseWriter, r *http.Request, token string) {
+	secure, sameSite := cookieAttrs(r)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "o3c_refresh",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   7 * 24 * 60 * 60,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: sameSite,
+	})
+}
+
+// ClearAuthCookies expires all auth cookies — called on logout.
+func ClearAuthCookies(w http.ResponseWriter, r *http.Request) {
+	secure, sameSite := cookieAttrs(r)
+	for _, name := range []string{"o3c_token", "o3c_csrf", "o3c_refresh"} {
+		http.SetCookie(w, &http.Cookie{
+			Name:     name,
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			Secure:   secure,
+			SameSite: sameSite,
+		})
+	}
+}
+
+func newCSRFToken() string {
+	b := make([]byte, 16)
+	rand.Read(b) //nolint:errcheck
+	return hex.EncodeToString(b)
 }
 
 func forgotPasswordHandler(db *core.DB) http.HandlerFunc {
@@ -191,7 +248,14 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		setAuthCookie(w, token)
+		setAuthCookie(w, r, token)
+
+		refreshTok, err := core.CreateRefreshToken(toInt64(u["id"]))
+		if err != nil {
+			respondErr(w, 500, "Token generation failed")
+			return
+		}
+		setRefreshCookie(w, r, refreshTok)
 
 		mustChange, _ := u["must_change_password"].(bool)
 		w.Header().Set("Content-Type", "application/json")
@@ -213,35 +277,45 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// refreshHandler reads the o3c_token HttpOnly cookie, verifies it, and issues a fresh token.
+// refreshHandler reads the o3c_refresh HttpOnly cookie, verifies it, looks up the user,
+// and issues a fresh 30-min access token + rotated 7-day refresh token.
 func refreshHandler(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie("o3c_token")
+		cookie, err := r.Cookie("o3c_refresh")
 		if err != nil {
 			respondErr(w, 401, "No refresh token")
 			return
 		}
-		old, err := core.VerifyToken(cookie.Value)
+		old, err := core.VerifyRefreshToken(cookie.Value)
 		if err != nil {
-			respondErr(w, 401, "Invalid or expired token")
+			respondErr(w, 401, "Invalid or expired refresh token")
 			return
 		}
 
-		role := old.Role
+		rows, err := db.PGQuery(r.Context(),
+			`SELECT id, email, full_name, role, department
+			 FROM o3c_users WHERE id = $1 AND deleted_at IS NULL AND is_active = TRUE`, old.ID)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 401, "User not found or inactive")
+			return
+		}
+		u := rows[0]
+
+		role := str(u["role"])
 		pages := core.RolePages[role]
 		if len(pages) == 0 {
-			rows, _ := db.PGQuery(r.Context(), `SELECT pages FROM o3c_custom_roles WHERE name = $1`, role)
-			if len(rows) > 0 {
-				pages = core.ParsePages(rows[0]["pages"])
+			rows2, _ := db.PGQuery(r.Context(), `SELECT pages FROM o3c_custom_roles WHERE name = $1`, role)
+			if len(rows2) > 0 {
+				pages = core.ParsePages(rows2[0]["pages"])
 			}
 		}
 
 		claims := &core.Claims{
-			Sub:        old.Sub,
+			Sub:        str(u["email"]),
 			ID:         old.ID,
-			Role:       old.Role,
-			FullName:   old.FullName,
-			Department: old.Department,
+			Role:       role,
+			FullName:   str(u["full_name"]),
+			Department: str(u["department"]),
 			Pages:      pages,
 		}
 		token, err := core.CreateToken(claims)
@@ -250,7 +324,14 @@ func refreshHandler(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		setAuthCookie(w, token)
+		newRefresh, err := core.CreateRefreshToken(old.ID)
+		if err != nil {
+			respondErr(w, 500, "Token generation failed")
+			return
+		}
+
+		setAuthCookie(w, r, token)
+		setRefreshCookie(w, r, newRefresh)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"access_token": token,

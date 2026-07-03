@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -17,7 +18,7 @@ import (
 )
 
 const tokenAudience = "o3c:api"
-const tokenExpiry = 8 * time.Hour
+const tokenExpiry = 30 * time.Minute
 
 const sseTokenAudience = "o3c:sse"
 const sseTokenExpiry = 2 * time.Minute
@@ -168,6 +169,39 @@ func VerifySSEToken(raw string) (*Claims, error) {
 	return c, nil
 }
 
+const refreshTokenAudience = "o3c:refresh"
+const refreshTokenExpiry = 7 * 24 * time.Hour
+
+// CreateRefreshToken issues a long-lived (7-day) refresh token for the given user.
+func CreateRefreshToken(userID int64) (string, error) {
+	jti := newJTI()
+	c := &Claims{
+		ID:  userID,
+		JTI: jti,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(refreshTokenExpiry)),
+			Audience:  jwt.ClaimStrings{refreshTokenAudience},
+			ID:        jti,
+		},
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString([]byte(secretKey))
+}
+
+// VerifyRefreshToken validates a token issued by CreateRefreshToken and returns its claims.
+func VerifyRefreshToken(raw string) (*Claims, error) {
+	c := &Claims{}
+	_, err := jwt.ParseWithClaims(raw, c, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(secretKey), nil
+	}, jwt.WithAudience(refreshTokenAudience))
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
 func VerifyToken(raw string) (*Claims, error) {
 	c := &Claims{}
 	_, err := jwt.ParseWithClaims(raw, c, func(token *jwt.Token) (any, error) {
@@ -193,13 +227,17 @@ func CheckPassword(plain, hashed string) bool {
 
 // AuthMiddleware validates the Bearer token (or o3c_token HttpOnly cookie as fallback)
 // and populates the request context. Also checks the JTI denylist.
+// Cookie-authenticated mutation requests (POST/PUT/PATCH/DELETE) are validated against
+// the X-CSRF-Token header using the double-submit cookie pattern.
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fromCookie := false
 		raw := ""
 		if header := r.Header.Get("Authorization"); strings.HasPrefix(header, "Bearer ") {
 			raw = strings.TrimPrefix(header, "Bearer ")
 		} else if cookie, err := r.Cookie("o3c_token"); err == nil {
 			raw = cookie.Value
+			fromCookie = true
 		}
 		if raw == "" {
 			authErr(w, 401, "Unauthorized")
@@ -213,6 +251,19 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		if isTokenRevoked(r.Context(), claims.JTI) {
 			authErr(w, 401, "Token has been revoked")
 			return
+		}
+		// CSRF double-submit check for cookie-authenticated state-changing requests.
+		// Bearer-authenticated requests (mobile app, API clients) are exempt.
+		if fromCookie {
+			m := r.Method
+			if m == http.MethodPost || m == http.MethodPut || m == http.MethodPatch || m == http.MethodDelete {
+				csrfCookie, cookieErr := r.Cookie("o3c_csrf")
+				csrfHeader := r.Header.Get("X-CSRF-Token")
+				if cookieErr != nil || csrfHeader == "" || subtle.ConstantTimeCompare([]byte(csrfCookie.Value), []byte(csrfHeader)) != 1 {
+					authErr(w, 403, "CSRF token invalid")
+					return
+				}
+			}
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, claims)))
 	})
@@ -558,10 +609,11 @@ var RolePages = map[string][]string{
 	// ── Telemarketing ─────────────────────────────────────────────────────────
 	"telemarketing_agent": {
 		"overview", "telemarketing", "customer360",
+		"campaigns", "contact_lists", "message_templates",
 	},
 	"telemarketing_head": {
 		"overview", "telemarketing", "telemarketing_stats", "customer360",
-		"kpi_dashboard",
+		"kpi_dashboard", "campaigns", "contact_lists", "message_templates",
 	},
 
 	// ── Business Development ──────────────────────────────────────────────────
