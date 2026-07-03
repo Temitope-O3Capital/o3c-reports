@@ -40,6 +40,12 @@ const CampaignTemplates = lazy(() => import('./pages/campaigns/Templates'))
 const CampaignLists     = lazy(() => import('./pages/campaigns/ContactLists'))
 const CampaignReport    = lazy(() => import('./pages/campaigns/Report'))
 
+// Approvals & Mail
+const ApprovalsPage  = lazy(() => import('./pages/Approvals'))
+const MailInbox      = lazy(() => import('./pages/mail/Inbox'))
+const MailCompose    = lazy(() => import('./pages/mail/Compose'))
+const MailThread     = lazy(() => import('./pages/mail/ThreadDetail'))
+
 // Sales
 const SalesOverview  = lazy(() => import('./pages/sales/Overview'))
 const SalesCohort    = lazy(() => import('./pages/sales/Cohort'))
@@ -517,7 +523,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                     MGMT.has(role) ? <Overview /> : <Navigate to={homeFor(role)} replace />
                   } />
 
-                  <Route path="/approvals" element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
+                  <Route path="/approvals" element={<PageErrorBoundary><ApprovalsPage /></PageErrorBoundary>} />
 
                   {/* Sales & BD */}
                   <Route path="/bd"             element={<PageErrorBoundary><BDOverview /></PageErrorBoundary>} />
@@ -646,9 +652,9 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/admin/sync"                  element={<PageErrorBoundary><AdminSyncStatus /></PageErrorBoundary>} />
 
                   {/* Mail */}
-                  <Route path="/mail/inbox"   element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
-                  <Route path="/mail/compose" element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
-                  <Route path="/mail/:id"     element={<PageErrorBoundary><CS /></PageErrorBoundary>} />
+                  <Route path="/mail/inbox"   element={<PageErrorBoundary><MailInbox /></PageErrorBoundary>} />
+                  <Route path="/mail/compose" element={<PageErrorBoundary><MailCompose /></PageErrorBoundary>} />
+                  <Route path="/mail/:id"     element={<PageErrorBoundary><MailThread /></PageErrorBoundary>} />
 
                   <Route path="*" element={<Navigate to={homeFor(role)} replace />} />
                 </Routes>

@@ -174,6 +174,28 @@ function NewDisputeModal({ onClose, onCreated }: { onClose: () => void; onCreate
   )
 }
 
+// ── Export CSV ────────────────────────────────────────────────────────────────
+
+function exportDisputesCsv(rows: Dispute[]) {
+  const header = ['Dispute #', 'Customer', 'CIF Number', 'Card Type', 'Amount (₦)', 'Type', 'Status', 'Filed Date', 'Days Open']
+  const lines = rows.map(r => [
+    `"${String(r.ref ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.cif_number ?? '').replace(/"/g, '""')}"`,
+    r.card_type ?? '',
+    r.amount_kobo !== undefined ? (r.amount_kobo / 100).toFixed(2) : '',
+    `"${String(r.dispute_type ?? '').replace(/"/g, '""')}"`,
+    r.status ?? '',
+    r.filed_date ? r.filed_date.slice(0, 10) : '',
+    r.days_open ?? '',
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `disputes-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function CardsDisputes() {
@@ -183,6 +205,7 @@ export default function CardsDisputes() {
   const [showNew, setShowNew] = useState(false)
   const [search,  setSearch]  = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [sel, setSel] = useState<Set<string | number>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -278,7 +301,25 @@ export default function CardsDisputes() {
           </select>
           <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>{displayed.length} disputes</span>
         </div>
-        <DataTable cols={cols} rows={displayed} keyFn={r => r.id} loading={loading} emptyText="No disputes filed yet" />
+        <DataTable
+          cols={cols}
+          rows={displayed}
+          keyFn={r => r.id}
+          loading={loading}
+          emptyText="No disputes filed yet"
+          pageSize={20}
+          onExport={() => exportDisputesCsv(displayed)}
+          selectable
+          selectedIds={sel}
+          onSelect={setSel}
+          bulkBar={sel.size > 0 ? (
+            <>
+              <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{sel.size} selected</span>
+              <button onClick={() => setSel(new Set())} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: GREEN, color: 'white', cursor: 'pointer', fontSize: 12 }}>Resolve</button>
+              <button onClick={() => setSel(new Set())} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', cursor: 'pointer', fontSize: 12 }}>Escalate</button>
+            </>
+          ) : undefined}
+        />
       </SectionCard>
 
       <SectionCard title="Status Flow" style={{ marginTop: 16 }}>

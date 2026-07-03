@@ -6,6 +6,24 @@ import { fmtKobo, fmtDatetime } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, INTER, SORA } from '../../lib/design'
 import { toast } from 'sonner'
 
+function exportPostingsCsv(rows: Posting[]) {
+  const header = ['Date', 'Initiated By', 'DR Account', 'CR Account', 'Amount (₦)', 'Narrative', 'Status']
+  const lines = rows.map(r => [
+    r.initiated_at ?? '',
+    `"${String(r.initiated_by_name ?? '').replace(/"/g, '""')}"`,
+    r.dr_account ?? '',
+    r.cr_account ?? '',
+    (r.amount_kobo / 100).toFixed(2),
+    `"${String(r.narrative ?? '').replace(/"/g, '""')}"`,
+    r.status ?? '',
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `manual-postings-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Posting {
@@ -157,6 +175,7 @@ export default function FinanceManualPosting() {
   const [statusFilter, setStatusFilter] = useState('')
   const [filterOpen, setFilterOpen] = useState(false)
   const [showPropose, setShowPropose] = useState(false)
+  const [sel, setSel] = useState<Set<string | number>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
@@ -174,6 +193,19 @@ export default function FinanceManualPosting() {
   }, [statusFilter])
 
   useEffect(() => { load() }, [load])
+
+  async function handleBulkApprove() {
+    const ids = [...sel].filter(id => rows.find(r => r.id === id)?.status === 'pending')
+    if (!ids.length) { toast.error('No pending postings selected'); return }
+    try {
+      await Promise.all(ids.map(id => apiFetch(`/api/finance/manual-postings/${id}/approve`, { method: 'PATCH', body: JSON.stringify({}) })))
+      toast.success(`${ids.length} posting${ids.length !== 1 ? 's' : ''} approved`)
+      setSel(new Set())
+      load()
+    } catch (e: any) {
+      toast.error(e.message ?? 'Bulk approve failed')
+    }
+  }
 
   async function handleApprove(id: number) {
     try {
@@ -215,13 +247,22 @@ export default function FinanceManualPosting() {
       title="Manual Postings"
       subtitle="Approval queue for GL manual entries"
       actions={
-        <button onClick={() => setShowPropose(true)} style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          padding: '6px 14px', borderRadius: 8, border: 'none',
-          background: NAVY, color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
-        }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>Propose Posting
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => exportPostingsCsv(filtered)} style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '6px 14px', borderRadius: 8, border: '1px solid var(--bdr)',
+            background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>Export CSV
+          </button>
+          <button onClick={() => setShowPropose(true)} style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '6px 14px', borderRadius: 8, border: 'none',
+            background: NAVY, color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>Propose Posting
+          </button>
+        </div>
       }
     >
       {error && <ErrBanner error={error} onRetry={load} />}
@@ -347,6 +388,17 @@ export default function FinanceManualPosting() {
             rows={filtered}
             keyFn={r => r.id}
             emptyText="No manual postings pending approval"
+            searchKeys={['narrative', 'dr_account', 'cr_account', 'status']}
+            searchPlaceholder="Search narrative, accounts, status…"
+            pageSize={20}
+            selectable
+            selectedIds={sel}
+            onSelect={setSel}
+            bulkBar={
+              <button onClick={handleBulkApprove} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#16A34A', color: 'white', cursor: 'pointer', fontSize: 12 }}>
+                Bulk Approve
+              </button>
+            }
           />
 
         </SectionCard>

@@ -252,6 +252,29 @@ export default function Employers() {
     setSearch(''); setFSectors(new Set()); setFMOU(new Set()); setFStates(new Set())
   }
 
+  function exportEmployersCsv(data: Employer[]) {
+    const header = ['Name', 'RC Number', 'Sector', 'State', 'MOU Status', 'MOU Expiry', 'Staff Count', 'Active Loans', 'Contact Name', 'Contact Phone', 'Contact Email', 'Created At']
+    const lines = data.map(r => [
+      `"${String(r.name ?? '').replace(/"/g, '""')}"`,
+      r.rc_number ?? '',
+      r.sector ?? '',
+      r.state ?? '',
+      r.mou_status ?? '',
+      r.mou_expiry_date ?? '',
+      r.staff_count != null ? String(r.staff_count) : '',
+      r.active_loans != null ? String(r.active_loans) : '',
+      `"${String(r.contact_name ?? '').replace(/"/g, '""')}"`,
+      r.contact_phone ?? '',
+      r.contact_email ?? '',
+      r.created_at ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `employers-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   const cols: TableCol<Employer>[] = [
     {
       key: 'name', label: 'Employer', sortable: true,
@@ -526,13 +549,14 @@ export default function Employers() {
           selectable
           selectedIds={selected}
           onSelect={setSelected}
+          onExport={() => exportEmployersCsv(filtered)}
           bulkBar={
             <>
               <button style={{
                 padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600,
                 cursor: 'pointer', fontFamily: SORA,
                 border: 'none', background: NAVY, color: '#fff',
-              }}>Export selected</button>
+              }}>Assign Sales Officer</button>
             </>
           }
         />

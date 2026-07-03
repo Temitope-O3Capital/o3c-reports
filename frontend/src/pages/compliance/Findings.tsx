@@ -70,6 +70,26 @@ function daysOverdue(due?: string): number | null {
   return d > 0 ? d : null
 }
 
+// ── Export ─────────────────────────────────────────────────────────────────────
+
+function exportFindingsCsv(rows: Finding[]) {
+  const header = ['Ref#', 'Summary', 'Severity', 'Status', 'Owner', 'Due Date', 'Created At']
+  const lines = rows.map(r => [
+    r.finding_ref ?? '',
+    `"${String(r.summary ?? '').replace(/"/g, '""')}"`,
+    r.severity ?? '',
+    r.status ?? '',
+    `"${String(r.owner_name ?? '').replace(/"/g, '""')}"`,
+    r.due_date ?? '',
+    r.created_at ?? '',
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `findings-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 const BLANK_FORM = { summary: '', severity: 'Medium', owner: '', due_date: '' }
@@ -81,6 +101,7 @@ export default function Findings() {
   const [err, setErr] = useState<string | null>(null)
   const [sevFilter, setSevFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [sel, setSel] = useState<Set<string | number>>(new Set())
 
   const [newOpen, setNewOpen] = useState(false)
   const [form, setForm] = useState(BLANK_FORM)
@@ -150,6 +171,16 @@ export default function Findings() {
       setCloseEntry(null); setDetail(null); load()
     } catch (e: any) { toast.error(e.message) }
     finally { setClosing(false) }
+  }
+
+  async function handleBulkClose() {
+    const ids = [...sel]
+    if (ids.length === 0) return
+    try {
+      await Promise.all(ids.map(id => apiPut(`/api/compliance/findings/${id}/close`, {})))
+      toast.success(`${ids.length} finding${ids.length !== 1 ? 's' : ''} closed`)
+      setSel(new Set()); load()
+    } catch (e: any) { toast.error(e.message) }
   }
 
   const cols: TableCol<Finding>[] = [
@@ -232,6 +263,18 @@ export default function Findings() {
           onRowClick={openDetail}
           emptyText="No findings found."
           skeletonRows={loading ? 5 : 0}
+          searchKeys={['summary', 'status', 'severity']}
+          searchPlaceholder="Search findings…"
+          pageSize={20}
+          onExport={() => exportFindingsCsv(findings)}
+          selectable
+          selectedIds={sel}
+          onSelect={setSel}
+          bulkBar={
+            <button onClick={handleBulkClose} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#C00000', color: 'white', cursor: 'pointer', fontSize: 12 }}>
+              Close Selected
+            </button>
+          }
         />
       </SectionCard>
 

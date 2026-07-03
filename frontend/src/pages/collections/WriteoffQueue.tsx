@@ -37,6 +37,26 @@ function DpdBadge({ dpd }: { dpd: number }) {
   )
 }
 
+// ── Export CSV ────────────────────────────────────────────────────────────────
+
+function exportWriteoffCsv(rows: WriteoffRow[]) {
+  const header = ['CIF', 'Customer Name', 'Outstanding (₦)', 'DPD', 'Last Payment Date', 'Recovery Attempts', 'Recommended By']
+  const lines = rows.map(r => [
+    r.account_cif ?? '',
+    `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
+    (r.outstanding_kobo / 100).toFixed(2),
+    r.dpd ?? '',
+    r.last_payment_date ?? '',
+    r.recovery_attempts ?? '',
+    `"${String(r.recommended_by ?? '').replace(/"/g, '""')}"`,
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `writeoff-queue-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 // ── Role check ────────────────────────────────────────────────────────────────
 
 function getUser(): { role?: string } {
@@ -290,6 +310,8 @@ export default function WriteoffQueue() {
           rows={rows}
           keyFn={r => r.id}
           loading={loading}
+          pageSize={20}
+          onExport={() => exportWriteoffCsv(rows)}
           selectable={canAct}
           selectedIds={selectedIds}
           onSelect={canAct ? setSelectedIds : undefined}

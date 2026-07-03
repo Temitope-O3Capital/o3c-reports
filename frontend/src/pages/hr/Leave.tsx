@@ -70,6 +70,8 @@ export default function Leave() {
 
   const [approving, setApproving] = useState<number | null>(null)
 
+  const [sel, setSel] = useState<Set<string | number>>(new Set())
+
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
@@ -118,6 +120,38 @@ export default function Leave() {
       setRejectEntry(null); setRejectReason(''); load()
     } catch (e: any) { toast.error(e.message) }
     finally { setRejecting(false) }
+  }
+
+  async function handleBatchApprove() {
+    const ids = Array.from(sel) as number[]
+    await Promise.all(ids.map(id => apiPut(`/api/hr/leave/${id}/approve`, {}).catch(() => null)))
+    toast.success(`${ids.length} leave request(s) approved`)
+    setSel(new Set()); load()
+  }
+
+  async function handleBatchDecline() {
+    const ids = Array.from(sel) as number[]
+    await Promise.all(ids.map(id => apiPut(`/api/hr/leave/${id}/decline`, { reason: '' }).catch(() => null)))
+    toast.success(`${ids.length} leave request(s) declined`)
+    setSel(new Set()); load()
+  }
+
+  function exportLeaveCsv(rows: Leave[]) {
+    const header = ['Employee', 'Leave Type', 'From', 'To', 'Days', 'Status', 'Applied']
+    const lines = rows.map(r => [
+      `"${String(r.employee_name ?? '').replace(/"/g, '""')}"`,
+      r.leave_type ?? '',
+      r.start_date ?? '',
+      r.end_date ?? '',
+      r.days ?? 0,
+      r.status ?? '',
+      r.applied_at ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `leave-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
   const inputStyle: React.CSSProperties = {
@@ -209,6 +243,25 @@ export default function Leave() {
           keyFn={r => r.id}
           emptyText="No leave requests found."
           skeletonRows={loading ? 6 : 0}
+          searchKeys={['employee_name', 'leave_type', 'status']}
+          searchPlaceholder="Search leave requests…"
+          pageSize={20}
+          onExport={() => exportLeaveCsv(leaves)}
+          selectable
+          selectedIds={sel}
+          onSelect={setSel}
+          bulkBar={
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={handleBatchApprove}
+                style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: GREEN, color: 'white', cursor: 'pointer', fontSize: 12 }}>
+                Approve Selected
+              </button>
+              <button onClick={handleBatchDecline}
+                style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#C00000', color: 'white', cursor: 'pointer', fontSize: 12 }}>
+                Decline Selected
+              </button>
+            </div>
+          }
         />
       </SectionCard>
 

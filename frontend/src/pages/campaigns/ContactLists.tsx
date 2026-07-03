@@ -32,6 +32,7 @@ export default function ContactLists() {
   const [saving, setSaving]     = useState(false)
   const [saveErr, setSaveErr]   = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ContactList | null>(null)
+  const [sel, setSel]           = useState<Set<string | number>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -60,6 +61,22 @@ export default function ContactLists() {
       await apiDelete(`/api/contact-lists/${deleteTarget.id}`)
       setDeleteTarget(null); load()
     } catch (ex: any) { setErr(ex.message) }
+  }
+
+  function exportListsCsv(data: ContactList[]) {
+    const header = ['Name', 'Description', 'Members', 'Created By', 'Created At']
+    const lines = data.map(r => [
+      `"${String(r.name ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.description ?? '').replace(/"/g, '""')}"`,
+      r.member_count != null ? String(r.member_count) : '',
+      `"${String(r.created_by_name ?? '').replace(/"/g, '""')}"`,
+      r.created_at ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `contact-lists-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
   const totalMembers = lists.reduce((s, l) => s + Number(l.member_count ?? 0), 0)
@@ -115,6 +132,10 @@ export default function ContactLists() {
           keyFn={r => r.id}
           emptyText="No contact lists yet."
           skeletonRows={loading ? 5 : 0}
+          searchKeys={['name', 'description', 'created_by_name']}
+          searchPlaceholder="Search lists…"
+          pageSize={20}
+          onExport={() => exportListsCsv(lists)}
         />
       </SectionCard>
 

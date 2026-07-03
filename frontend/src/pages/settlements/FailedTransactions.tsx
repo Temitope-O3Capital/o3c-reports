@@ -186,7 +186,22 @@ export default function FailedTransactions() {
   }
 
   function handleExportCsv() {
-    toast.info('Exporting failed transactions…')
+    const toExport = checkedIds.size > 0 ? filtered.filter(r => checkedIds.has(r.id)) : filtered
+    const header = ['Txn Ref', 'Amount (₦)', 'Customer', 'Channel', 'Failure Reason', 'Failed Date', 'Retry Count']
+    const lines = toExport.map(r => [
+      `"${String(r.txn_ref ?? '').replace(/"/g, '""')}"`,
+      r.amount_kobo !== undefined ? (r.amount_kobo / 100).toFixed(2) : '',
+      `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
+      r.channel ?? '',
+      `"${String(r.failure_reason ?? '').replace(/"/g, '""')}"`,
+      r.failed_at ? r.failed_at.slice(0, 19).replace('T', ' ') : '',
+      r.retry_count ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `failed-transactions-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
   const bulkBar = checkedIds.size > 0 ? (
@@ -298,6 +313,10 @@ export default function FailedTransactions() {
           keyFn={r => r.id}
           loading={loading}
           emptyText="No failed transactions found"
+          pageSize={20}
+          searchKeys={['txn_ref', 'customer_name', 'channel', 'failure_reason']}
+          searchPlaceholder="Search ref, customer, channel…"
+          onExport={handleExportCsv}
           selectable
           selectedIds={checkedIds}
           onSelect={setCheckedIds}

@@ -147,6 +147,26 @@ export default function CampaignsList() {
   const completed = campaigns.filter(c => c.status === 'completed').length
   const draft     = campaigns.filter(c => c.status === 'draft').length
 
+  function exportCampaignsCsv(data: Campaign[]) {
+    const header = ['Name', 'Type', 'Status', 'Audience', 'Sent', 'Delivered', 'Open Rate', 'Scheduled At', 'Created At']
+    const lines = data.map(r => [
+      `"${String(r.name ?? '').replace(/"/g, '""')}"`,
+      r.type ?? '',
+      r.status ?? '',
+      r.total_contacts != null ? String(r.total_contacts) : '',
+      String(sentCount(r)),
+      String(deliveredCount(r)),
+      openRate(r).toFixed(1) + '%',
+      r.scheduled_at ?? '',
+      r.created_at ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `campaigns-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   const cols: TableCol<Campaign>[] = [
     {
       key: 'name', label: 'Campaign',
@@ -277,6 +297,10 @@ export default function CampaignsList() {
           onRowClick={r => navigate(`/campaigns/${r.id}/report`)}
           emptyText="No campaigns found."
           skeletonRows={loading ? 8 : 0}
+          searchKeys={['name', 'status']}
+          searchPlaceholder="Search campaigns…"
+          pageSize={20}
+          onExport={() => exportCampaignsCsv(campaigns)}
         />
       </SectionCard>
 

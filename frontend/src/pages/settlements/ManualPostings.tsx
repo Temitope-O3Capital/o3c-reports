@@ -179,6 +179,27 @@ function RejectModal({ open, rowId, onClose, onSuccess }: RejectModalProps) {
   )
 }
 
+// ── Export CSV ────────────────────────────────────────────────────────────────
+
+function exportManualPostingsCsv(rows: ManualPosting[]) {
+  const header = ['Ref', 'Type', 'Amount (₦)', 'Account', 'Description', 'Initiated By', 'Status', 'Date']
+  const lines = rows.map(r => [
+    `"${String(r.ref ?? '').replace(/"/g, '""')}"`,
+    r.type ?? '',
+    r.amount_kobo !== undefined ? (r.amount_kobo / 100).toFixed(2) : '',
+    `"${String(r.account ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.description ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.initiated_by ?? '').replace(/"/g, '""')}"`,
+    r.status ?? '',
+    r.created_at ? r.created_at.slice(0, 10) : '',
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `manual-postings-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ManualPostings() {

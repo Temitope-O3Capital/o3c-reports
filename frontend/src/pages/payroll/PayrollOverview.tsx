@@ -103,6 +103,26 @@ export default function PayrollOverview() {
   const runs = data?.runs ?? []
   const latest = runs[0]
 
+  function exportRunsCsv(rows: PayrollRun[]) {
+    const header = ['Period', 'Status', 'Headcount', 'Gross', 'Net Pay', 'PAYE', 'Pension', 'Created', 'Paid']
+    const lines = rows.map(r => [
+      `${MONTHS[r.period_month]} ${r.period_year}`,
+      r.status ?? '',
+      r.headcount ?? 0,
+      r.total_gross_kobo / 100,
+      r.total_net_kobo / 100,
+      r.total_paye_kobo / 100,
+      r.total_pension_kobo / 100,
+      r.created_at ?? '',
+      r.paid_at ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `payroll-runs-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   const thisYear = new Date().getFullYear()
   const yearOptions = [thisYear - 1, thisYear, thisYear + 1]
 

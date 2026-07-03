@@ -231,6 +231,24 @@ function makeCols(onDone: () => void): TableCol<Cardholder>[] {
   ]
 }
 
+// ── Export CSV ────────────────────────────────────────────────────────────────
+
+function exportCardholdersCsv(rows: Cardholder[]) {
+  const header = ['CIF Number', 'Product', 'Card Programme', 'Status', 'Issued Date']
+  const lines = rows.map(r => [
+    `"${String(r.cif_number ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.product_name ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.card_product ?? '').replace(/"/g, '""')}"`,
+    r.status ?? '',
+    r.created_at ? r.created_at.slice(0, 10) : '',
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `cardholders-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const PAGE_SIZE = 50
@@ -404,7 +422,7 @@ export default function CardsManagement() {
           </div>
         )}
 
-        <DataTable cols={makeCols(() => load(page))} rows={displayed} keyFn={r => r.cif_number} loading={loading} emptyText="No cardholders found" />
+        <DataTable cols={makeCols(() => load(page))} rows={displayed} keyFn={r => r.cif_number} loading={loading} emptyText="No cardholders found" onExport={() => exportCardholdersCsv(displayed)} />
 
         {/* Pagination */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderTop: '1px solid var(--bdr)' }}>

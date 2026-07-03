@@ -99,6 +99,23 @@ export default function Training() {
     setLoadingDetail(false)
   }
 
+  function exportTrainingCsv(rows: Training[]) {
+    const header = ['Name', 'Type', 'Date', 'Trainer', 'Attendees', 'Status']
+    const lines = rows.map(r => [
+      `"${String(r.name ?? '').replace(/"/g, '""')}"`,
+      r.training_type ?? '',
+      r.training_date ?? '',
+      `"${String(r.trainer ?? '').replace(/"/g, '""')}"`,
+      r.attendee_count ?? 0,
+      r.status ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `training-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
     fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
@@ -168,6 +185,10 @@ export default function Training() {
           onRowClick={openDetail}
           emptyText="No training records found."
           skeletonRows={loading ? 5 : 0}
+          searchKeys={['name', 'training_type', 'trainer', 'status']}
+          searchPlaceholder="Search training…"
+          pageSize={20}
+          onExport={() => exportTrainingCsv(trainings)}
         />
       </SectionCard>
 

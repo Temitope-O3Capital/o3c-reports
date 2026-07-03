@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, SearchInput } from '../../components/UI'
+import { useEffect, useState, useCallback } from 'react'
+import { Page, SectionCard, DataTable, ErrBanner } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { NAVY, RED, GREEN, INTER, SORA, NUM } from '../../lib/design'
@@ -233,6 +233,24 @@ function RoleModal({ role, users, onClose, onSaved }: {
 }
 
 
+// ── Export ────────────────────────────────────────────────────────────────────
+
+function exportRolesCsv(rows: Role[]) {
+  const header = ['Role Key', 'Label', 'Type', 'User Count', 'Page Count']
+  const lines = rows.map(r => [
+    `"${String(r.name ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.label ?? '').replace(/"/g, '""')}"`,
+    r.built_in ? 'Built-in' : 'Custom',
+    r.user_count ?? 0,
+    r.pages.length,
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `roles-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AdminRoles() {
@@ -241,7 +259,6 @@ export default function AdminRoles() {
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
   const [editing, setEditing] = useState<Role | null | false>(false)
-  const [search,  setSearch]  = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -268,11 +285,7 @@ export default function AdminRoles() {
 
   useEffect(() => { load() }, [load])
 
-  const displayed = useMemo(() => {
-    if (!search) return roles
-    const q = search.toLowerCase()
-    return roles.filter(r => r.name.includes(q) || (r.label ?? '').toLowerCase().includes(q))
-  }, [roles, search])
+  const displayed = roles
 
   const COLS: TableCol<Role>[] = [
     { key: 'name', label: 'Role Key',
@@ -313,13 +326,7 @@ export default function AdminRoles() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="All Roles" badge={displayed.length} padding={false}>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 10, alignItems: 'center' }}>
-          <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
-            {roles.filter(r => r.built_in).length} built-in · {roles.filter(r => !r.built_in).length} custom
-          </span>
-        </div>
+      <SectionCard title="All Roles" badge={roles.length} padding={false}>
         <DataTable
           cols={COLS}
           rows={displayed}
@@ -327,6 +334,10 @@ export default function AdminRoles() {
           loading={loading}
           emptyText="No roles found"
           onRowClick={r => setEditing(r)}
+          searchKeys={['name', 'label']}
+          searchPlaceholder="Search roles…"
+          pageSize={20}
+          onExport={() => exportRolesCsv(displayed)}
         />
       </SectionCard>
 

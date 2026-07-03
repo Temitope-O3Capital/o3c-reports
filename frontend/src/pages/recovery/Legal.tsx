@@ -217,6 +217,26 @@ function MilestoneTimeline({
   )
 }
 
+// ── Export CSV ────────────────────────────────────────────────────────────────
+
+function exportLegalCsv(rows: LegalCase[]) {
+  const header = ['CIF', 'Customer Name', 'Outstanding (₦)', 'Milestone', 'Solicitor', 'Next Court Date', 'Days in Legal']
+  const lines = rows.map(r => [
+    r.account_cif ?? '',
+    `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
+    (r.outstanding_kobo / 100).toFixed(2),
+    `"${String(r.current_milestone ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.solicitor ?? '').replace(/"/g, '""')}"`,
+    r.next_court_date ?? '',
+    r.days_in_legal ?? '',
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `legal-cases-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function RecoveryLegal() {
@@ -337,7 +357,24 @@ export default function RecoveryLegal() {
   const filtered = rows
 
   return (
-    <Page title="Legal Cases" subtitle="Manage accounts in legal proceedings">
+    <Page
+      title="Legal Cases"
+      subtitle="Manage accounts in legal proceedings"
+      actions={
+        <button
+          onClick={() => exportLegalCsv(rows)}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '7px 14px', borderRadius: 8, border: '1.5px solid var(--bdr)',
+            background: 'var(--card)', color: 'var(--txt)',
+            fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+          }}
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
+          Export CSV
+        </button>
+      }
+    >
       <ErrBanner error={err} onRetry={load} />
 
       <SectionCard

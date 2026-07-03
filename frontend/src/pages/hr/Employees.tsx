@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
   Modal, ConfirmModal, ErrBanner, Spinner, Tabs, StatusBadge, btnPrimary,
@@ -71,6 +71,8 @@ export default function Employees() {
   const [form, setForm]               = useState<Partial<Employee>>(BLANK)
   const [saving, setSaving]           = useState(false)
 
+  const [sel, setSel] = useState<Set<string | number>>(new Set())
+
   const [detail, setDetail]           = useState<Employee | null>(null)
   const [detailTab, setDetailTab]     = useState('personal')
   const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([])
@@ -120,6 +122,26 @@ export default function Employees() {
       setAddOpen(false); setForm(BLANK); load()
     } catch (e: any) { toast.error(e.message) }
     finally { setSaving(false) }
+  }
+
+  function exportEmployeesCsv(rows: Employee[]) {
+    const header = ['Staff ID', 'First Name', 'Last Name', 'Email', 'Phone', 'Department', 'Job Title', 'Grade', 'Status']
+    const lines = rows.map(r => [
+      r.staff_id ?? '',
+      `"${String(r.first_name ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.last_name ?? '').replace(/"/g, '""')}"`,
+      r.email ?? '',
+      r.phone ?? '',
+      `"${String(r.department ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.job_title ?? '').replace(/"/g, '""')}"`,
+      r.grade_level ?? '',
+      r.status ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `employees-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
   const inputStyle: React.CSSProperties = {
@@ -205,6 +227,19 @@ export default function Employees() {
           onRowClick={openDetail}
           emptyText="No employees found."
           skeletonRows={loading ? 8 : 0}
+          searchKeys={['first_name', 'last_name', 'email', 'department', 'job_title', 'status', 'staff_id']}
+          searchPlaceholder="Search employees…"
+          pageSize={20}
+          onExport={() => exportEmployeesCsv(employees)}
+          selectable
+          selectedIds={sel}
+          onSelect={setSel}
+          bulkBar={
+            <button onClick={() => { setSel(new Set()) }}
+              style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#C00000', color: 'white', cursor: 'pointer', fontSize: 12 }}>
+              Deactivate Selected
+            </button>
+          }
         />
       </SectionCard>
 

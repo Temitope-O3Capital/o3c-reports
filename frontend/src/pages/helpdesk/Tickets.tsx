@@ -245,6 +245,7 @@ export default function Tickets() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
+  const [lastLoaded, setLastLoaded] = useState<Date | null>(null)
 
   // Filters
   const [status, setStatus] = useState('')
@@ -282,6 +283,7 @@ export default function Tickets() {
       const resp = await apiFetch<TicketsResp>(`/api/helpdesk/tickets?${params}`)
       setTickets(resp.tickets ?? [])
       setTotal(resp.total ?? 0)
+      setLastLoaded(new Date())
     } catch (e: any) {
       setErr(e.message)
     } finally {
@@ -357,17 +359,39 @@ export default function Tickets() {
       title="Tickets"
       subtitle={`${total} ticket${total !== 1 ? 's' : ''}`}
       actions={
-        <button
-          onClick={() => setNewOpen(true)}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '7px 15px', background: NAVY, color: '#fff',
-            border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-          }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
-          New Ticket
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {lastLoaded && (
+            <span style={{ fontSize: 11.5, color: 'var(--txt2)' }}>
+              {(() => {
+                const mins = Math.floor((Date.now() - lastLoaded.getTime()) / 60_000)
+                return mins === 0 ? 'Just loaded' : `Last loaded ${mins}m ago`
+              })()}
+            </span>
+          )}
+          <button
+            onClick={() => load()}
+            title="Refresh"
+            style={{
+              display: 'inline-flex', alignItems: 'center',
+              width: 32, height: 32, borderRadius: 8,
+              border: '1px solid var(--bdr)', background: 'var(--card)',
+              color: 'var(--txt2)', cursor: 'pointer', justifyContent: 'center',
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>refresh</span>
+          </button>
+          <button
+            onClick={() => setNewOpen(true)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '7px 15px', background: NAVY, color: '#fff',
+              border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+            New Ticket
+          </button>
+        </div>
       }
       noPad
     >

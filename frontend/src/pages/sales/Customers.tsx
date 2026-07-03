@@ -99,6 +99,26 @@ export default function CRMContacts() {
 
   useEffect(() => { load() }, [load])
 
+  function exportContactsCsv(data: Contact[]) {
+    const header = ['CIF', 'First Name', 'Last Name', 'Email', 'Phone', 'Source', 'Status', 'Assigned', 'Updated At']
+    const lines = data.map(r => [
+      `"${String(r.cif_number ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.first_name ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.last_name ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.email ?? '').replace(/"/g, '""')}"`,
+      r.phone ?? '',
+      r.source ?? '',
+      r.status ?? '',
+      `"${String(r.assigned_name ?? '').replace(/"/g, '""')}"`,
+      r.updated_at ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `contacts-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   const cols: TableCol<Contact>[] = [
     {
       key: 'cif_number', label: 'CIF',
@@ -164,6 +184,10 @@ export default function CRMContacts() {
           onRowClick={() => setC360Open(true)}
           emptyText="No contacts found."
           skeletonRows={loading ? 8 : 0}
+          searchKeys={['first_name', 'last_name', 'email', 'phone']}
+          searchPlaceholder="Search contacts…"
+          pageSize={20}
+          onExport={() => exportContactsCsv(contacts)}
         />
       </SectionCard>
 

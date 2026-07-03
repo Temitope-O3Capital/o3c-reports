@@ -43,6 +43,27 @@ const COLS: TableCol<LogEntry>[] = [
     render: r => <span style={{ ...NUM, fontSize: 11.5, color: 'var(--txt3)' }}>{r.ip || '—'}</span> },
 ]
 
+// ── Export ────────────────────────────────────────────────────────────────────
+
+function exportAuditLogCsv(rows: LogEntry[]) {
+  const header = ['Time', 'User', 'Email', 'Role', 'Module', 'Action', 'Detail', 'IP']
+  const lines = rows.map(r => [
+    r.ts ?? '',
+    `"${String(r.full_name ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.email ?? '').replace(/"/g, '""')}"`,
+    r.role ?? '',
+    r.page ?? '',
+    `"${String(r.action ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.detail ?? '').replace(/"/g, '""')}"`,
+    r.ip ?? '',
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AdminAuditLog() {
@@ -123,7 +144,7 @@ export default function AdminAuditLog() {
           </span>
         </div>
 
-        <DataTable cols={COLS} rows={displayed} keyFn={r => r.id} loading={loading} emptyText="No activity found" />
+        <DataTable cols={COLS} rows={displayed} keyFn={r => r.id} loading={loading} emptyText="No activity found" pageSize={20} onExport={() => exportAuditLogCsv(displayed)} />
       </SectionCard>
     </Page>
   )

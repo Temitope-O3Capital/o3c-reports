@@ -55,6 +55,24 @@ const COLS: TableCol<BudgetLine>[] = [
   }},
 ]
 
+function exportBudgetCsv(rows: BudgetLine[]) {
+  const header = ['Cost Centre', 'Category', 'Budget (₦)', 'Actual (₦)', 'Committed (₦)', 'Variance (₦)', 'Period']
+  const lines = rows.map(r => [
+    `"${String(r.cost_centre ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.category ?? '').replace(/"/g, '""')}"`,
+    (r.budget_amount / 100).toFixed(2),
+    (r.actual_amount / 100).toFixed(2),
+    (r.committed_amount / 100).toFixed(2),
+    ((r.budget_amount - r.actual_amount - r.committed_amount) / 100).toFixed(2),
+    r.period ?? '',
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `budget-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 // ── Upload button ─────────────────────────────────────────────────────────────
 
 function UploadBudgetButton() {
@@ -136,6 +154,13 @@ export default function FinanceBudget() {
       subtitle="Cost centre budgets, actual spend, and variance"
       actions={
         <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => exportBudgetCsv(filtered)} style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '6px 14px', borderRadius: 8, border: '1px solid var(--bdr)',
+            background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>Export CSV
+          </button>
           <UploadBudgetButton />
           <select value={period} onChange={e => setPeriod(e.target.value)} style={filterInputStyle}>
             <option value="2026-07">July 2026</option>
@@ -197,6 +222,8 @@ export default function FinanceBudget() {
               rows={filtered}
               keyFn={r => r.id}
               emptyText="No budget lines for this period"
+              pageSize={20}
+              onExport={() => exportBudgetCsv(filtered)}
             />
           </SectionCard>
         </>

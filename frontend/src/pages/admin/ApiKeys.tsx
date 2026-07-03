@@ -141,6 +141,24 @@ function RowActions({ apiKey, onEdit, onReload }: { apiKey: ApiKey; onEdit: () =
 }
 
 
+// ── Export ────────────────────────────────────────────────────────────────────
+
+function exportApiKeysCsv(rows: ApiKey[]) {
+  const header = ['Key Name', 'Category', 'Has Value', 'Test Status', 'Updated At']
+  const lines = rows.map(r => [
+    `"${String(r.key_name ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.category ?? '').replace(/"/g, '""')}"`,
+    r.has_value ? 'Yes' : 'No',
+    r.test_status ?? '',
+    r.updated_at ?? '',
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `api-keys-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AdminApiKeys() {
@@ -247,7 +265,7 @@ export default function AdminApiKeys() {
           </select>
           <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>{displayed.length} keys</span>
         </div>
-        <DataTable cols={COLS} rows={displayed} keyFn={r => r.key_name} loading={loading} emptyText="No API keys configured" />
+        <DataTable cols={COLS} rows={displayed} keyFn={r => r.key_name} loading={loading} emptyText="No API keys configured" pageSize={20} onExport={() => exportApiKeysCsv(displayed)} />
       </SectionCard>
 
       {editing && <EditModal apiKey={editing} onClose={() => setEditing(null)} onSaved={load} />}

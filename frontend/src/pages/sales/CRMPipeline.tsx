@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import {
-  Page, SectionCard, DataTable, Modal, ErrBanner, btnPrimary, btnSecondary,
+  Page, SectionCard, DataTable, Modal, ErrBanner, btnPrimary, btnSecondary, filterInputStyle, Spinner,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtDatetime } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 
@@ -66,6 +67,169 @@ function daysInStage(deal: Deal): number {
   return Math.floor((Date.now() - new Date(deal.updated_at).getTime()) / DAYS_IN_STAGE_MS)
 }
 
+// ── Create Deal Modal ──────────────────────────────────────────────────────────
+
+interface CRMContact { id: number; first_name: string; last_name: string }
+
+function CreateDealModal({
+  open, stages, onClose, onCreated,
+}: {
+  open: boolean
+  stages: Stage[]
+  onClose: () => void
+  onCreated: () => void
+}) {
+  const [contacts, setContacts] = useState<CRMContact[]>([])
+  const [title, setTitle] = useState('')
+  const [contactId, setContactId] = useState('')
+  const [stageId, setStageId] = useState('')
+  const [product, setProduct] = useState('')
+  const [value, setValue] = useState('')
+  const [probability, setProbability] = useState('')
+  const [closeDate, setCloseDate] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    apiFetch<{ data: CRMContact[] }>('/api/crm/contacts?limit=200')
+      .then(r => setContacts(r?.data ?? []))
+      .catch(() => setContacts([]))
+  }, [open])
+
+  useEffect(() => {
+    if (!open) {
+      setTitle(''); setContactId(''); setStageId(''); setProduct('')
+      setValue(''); setProbability(''); setCloseDate('')
+    }
+  }, [open])
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!title.trim()) { toast.error('Title is required'); return }
+    setSaving(true)
+    try {
+      await apiPost('/api/crm/deals', {
+        title: title.trim(),
+        contact_id: contactId ? Number(contactId) : undefined,
+        stage_id: stageId ? Number(stageId) : undefined,
+        product: product.trim() || undefined,
+        expected_value: value ? Number(value) : undefined,
+        probability: probability ? Number(probability) : undefined,
+        expected_close_date: closeDate || undefined,
+      })
+      toast.success('Deal created')
+      onCreated()
+      onClose()
+    } catch (e: any) {
+      toast.error(e.message ?? 'Failed to create deal')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="New Deal" width={480}
+      footer={
+        <>
+          <button onClick={onClose} style={btnSecondary}>Cancel</button>
+          <button
+            form="create-deal-form" type="submit"
+            disabled={saving}
+            style={{ ...btnPrimary, opacity: saving ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            {saving && <Spinner size={14} color="#fff" />}
+            Create Deal
+          </button>
+        </>
+      }
+    >
+      <form id="create-deal-form" onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div>
+          <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Title *</label>
+          <input
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder="e.g. ACME Corp — Business Loan"
+            required
+            style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const, height: 38, fontSize: 13 }}
+          />
+        </div>
+        <div>
+          <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Contact</label>
+          <select
+            value={contactId}
+            onChange={e => setContactId(e.target.value)}
+            style={{ ...filterInputStyle, width: '100%', height: 38 }}
+          >
+            <option value="">— Select contact —</option>
+            {contacts.map(c => (
+              <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>
+            ))}
+          </select>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Stage</label>
+            <select
+              value={stageId}
+              onChange={e => setStageId(e.target.value)}
+              style={{ ...filterInputStyle, width: '100%', height: 38 }}
+            >
+              <option value="">— Select stage —</option>
+              {stages.filter(s => !s.is_won && !s.is_lost).map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Product</label>
+            <input
+              value={product}
+              onChange={e => setProduct(e.target.value)}
+              placeholder="e.g. Business Loan"
+              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const, height: 38 }}
+            />
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Est. Value (₦)</label>
+            <input
+              type="number"
+              min="0"
+              value={value}
+              onChange={e => setValue(e.target.value)}
+              placeholder="0"
+              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const, height: 38 }}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Probability %</label>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              value={probability}
+              onChange={e => setProbability(e.target.value)}
+              placeholder="50"
+              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const, height: 38 }}
+            />
+          </div>
+        </div>
+        <div>
+          <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Expected Close Date</label>
+          <input
+            type="date"
+            value={closeDate}
+            onChange={e => setCloseDate(e.target.value)}
+            style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const, height: 38 }}
+          />
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function CRMPipeline() {
@@ -76,6 +240,7 @@ export default function CRMPipeline() {
   const [err, setErr]           = useState<string | null>(null)
   const [view, setView]         = useState<'table' | 'kanban'>('table')
   const [selected, setSelected] = useState<Deal | null>(null)
+  const [newDealOpen, setNewDealOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -134,18 +299,27 @@ export default function CRMPipeline() {
       title="CRM Pipeline"
       subtitle="Deal management and sales pipeline"
       actions={
-        <div style={{ display: 'flex', gap: 4, background: 'var(--th-bg)', padding: 3, borderRadius: 8, border: '1px solid var(--bdr)' }}>
-          {(['table', 'kanban'] as const).map(v => (
-            <button key={v} onClick={() => setView(v)}
-              style={{
-                padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 600,
-                background: view === v ? 'var(--card)' : 'transparent',
-                color: view === v ? 'var(--txt)' : 'var(--txt2)',
-                boxShadow: view === v ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
-              }}>
-              {v.charAt(0).toUpperCase() + v.slice(1)}
-            </button>
-          ))}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            onClick={() => setNewDealOpen(true)}
+            style={{ ...btnPrimary, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+            New Deal
+          </button>
+          <div style={{ display: 'flex', gap: 4, background: 'var(--th-bg)', padding: 3, borderRadius: 8, border: '1px solid var(--bdr)' }}>
+            {(['table', 'kanban'] as const).map(v => (
+              <button key={v} onClick={() => setView(v)}
+                style={{
+                  padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 600,
+                  background: view === v ? 'var(--card)' : 'transparent',
+                  color: view === v ? 'var(--txt)' : 'var(--txt2)',
+                  boxShadow: view === v ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
+                }}>
+                {v.charAt(0).toUpperCase() + v.slice(1)}
+              </button>
+            ))}
+          </div>
         </div>
       }
     >
@@ -218,6 +392,14 @@ export default function CRMPipeline() {
           </div>
         </div>
       )}
+
+      {/* New deal modal */}
+      <CreateDealModal
+        open={newDealOpen}
+        stages={stages}
+        onClose={() => setNewDealOpen(false)}
+        onCreated={load}
+      />
 
       {/* Deal detail modal */}
       <Modal open={!!selected} onClose={() => setSelected(null)} title={selected?.title ?? 'Deal Detail'} width={500}

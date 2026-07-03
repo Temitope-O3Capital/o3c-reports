@@ -142,6 +142,23 @@ export default function CRMTasks() {
     finally { setCompleting(false) }
   }
 
+  function exportTasksCsv(data: Task[]) {
+    const header = ['Title', 'Status', 'Priority', 'Due Date', 'Assigned To', 'Related Contact']
+    const lines = data.map(r => [
+      `"${String(r.title ?? '').replace(/"/g, '""')}"`,
+      r.status ?? '',
+      r.priority ?? '',
+      r.due_date ?? '',
+      `"${String(r.assigned_name ?? '').replace(/"/g, '""')}"`,
+      `"${String((r.first_name ?? '') + ' ' + (r.last_name ?? '')).trim().replace(/"/g, '""')}"`,
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `tasks-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   async function handleEdit() {
     if (!editing) return
     setEditSaving(true)
@@ -254,6 +271,10 @@ export default function CRMTasks() {
           bulkBar={bulkBar}
           emptyText="No tasks found."
           skeletonRows={loading ? 6 : 0}
+          searchKeys={['title', 'status', 'priority', 'assigned_name']}
+          searchPlaceholder="Search tasks…"
+          pageSize={20}
+          onExport={() => exportTasksCsv(tasks)}
         />
       </SectionCard>
 

@@ -80,6 +80,7 @@ export default function Disciplinary() {
   const [saving, setSaving]   = useState(false)
 
   const [detail, setDetail] = useState<DisciplinaryCase | null>(null)
+  const [sel, setSel] = useState<Set<string | number>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -111,6 +112,30 @@ export default function Disciplinary() {
       const full = await apiFetch<DisciplinaryCase>(`/api/hr/disciplinary/${c.id}`)
       setDetail(full)
     } catch { setDetail(c) }
+  }
+
+  async function handleBatchClose() {
+    const ids = Array.from(sel) as number[]
+    await Promise.all(ids.map(id => apiPut(`/api/hr/disciplinary/${id}/close`, {}).catch(() => null)))
+    toast.success(`${ids.length} case(s) closed`)
+    setSel(new Set()); load()
+  }
+
+  function exportDisciplinaryCsv(rows: DisciplinaryCase[]) {
+    const header = ['Employee', 'Type', 'Incident Date', 'Outcome', 'Issued By', 'Status']
+    const lines = rows.map(r => [
+      `"${String(r.employee_name ?? '').replace(/"/g, '""')}"`,
+      r.case_type ?? '',
+      r.incident_date ?? '',
+      r.outcome ?? '',
+      `"${String(r.issued_by_name ?? '').replace(/"/g, '""')}"`,
+      r.status ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `disciplinary-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
   const inputStyle: React.CSSProperties = {
@@ -183,6 +208,19 @@ export default function Disciplinary() {
           onRowClick={openDetail}
           emptyText="No disciplinary cases found."
           skeletonRows={loading ? 5 : 0}
+          searchKeys={['employee_name', 'case_type', 'outcome', 'status', 'issued_by_name']}
+          searchPlaceholder="Search cases…"
+          pageSize={20}
+          onExport={() => exportDisciplinaryCsv(cases)}
+          selectable
+          selectedIds={sel}
+          onSelect={setSel}
+          bulkBar={
+            <button onClick={handleBatchClose}
+              style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#C00000', color: 'white', cursor: 'pointer', fontSize: 12 }}>
+              Close Selected
+            </button>
+          }
         />
       </SectionCard>
 

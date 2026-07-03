@@ -75,6 +75,26 @@ function ProductPill({ product }: { product: string }) {
 }
 
 
+function exportLOSCsv(rows: LoanApp[]) {
+  const header = ['App #', 'Applicant', 'Reference', 'Product', 'Amount (₦)', 'Stage', 'Status', 'Officer', 'Last Updated']
+  const lines = rows.map(r => [
+    `APP-${r.id}`,
+    `"${String(r.applicant_name ?? '').replace(/"/g, '""')}"`,
+    r.reference ?? '',
+    `"${String(r.product_type ?? '').replace(/"/g, '""')}"`,
+    (r.amount_requested_kobo / 100).toFixed(2),
+    r.stage ?? '',
+    r.status ?? '',
+    `"${String(r.assigned_officer_name ?? '').replace(/"/g, '""')}"`,
+    r.updated_at ?? '',
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `loan-applications-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 function PageBtn({ children, active, disabled, onClick, icon }: {
   children?: React.ReactNode; active?: boolean; disabled?: boolean
   onClick?: () => void; icon?: string
@@ -393,6 +413,7 @@ export default function LOSQueue() {
           skeletonRows={8}
           onRowClick={r => navigate(`/sales/applications/${r.id}`)}
           emptyText="No applications found"
+          onExport={() => exportLOSCsv(filtered)}
         />
 
         {/* Pagination footer */}

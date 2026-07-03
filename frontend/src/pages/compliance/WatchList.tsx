@@ -102,6 +102,23 @@ export default function Watchlist() {
     finally { setDeactivating(false) }
   }
 
+  function exportWatchlistCsv(data: WatchEntry[]) {
+    const header = ['Name', 'Type', 'Source', 'Status', 'Matched Txns', 'Added']
+    const lines = data.map(r => [
+      `"${String(r.name ?? '').replace(/"/g, '""')}"`,
+      r.watch_type ?? '',
+      `"${String(r.source ?? '').replace(/"/g, '""')}"`,
+      r.status ?? '',
+      r.matched_transactions_count ?? 0,
+      r.created_at ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `watchlist-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   const cols: TableCol<WatchEntry>[] = [
     {
       key: 'name', label: 'Name',
@@ -181,6 +198,10 @@ export default function Watchlist() {
           keyFn={r => r.id}
           emptyText="No watchlist entries found."
           skeletonRows={loading ? 6 : 0}
+          searchKeys={['name', 'watch_type', 'source', 'status']}
+          searchPlaceholder="Search entries…"
+          pageSize={20}
+          onExport={() => exportWatchlistCsv(entries)}
         />
       </SectionCard>
 

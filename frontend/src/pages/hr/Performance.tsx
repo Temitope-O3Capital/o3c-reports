@@ -113,6 +113,24 @@ export default function Performance() {
     }, {})
   ).map(([dept, scores]) => ({ dept, avg: +(scores.reduce((s, v) => s + v, 0) / scores.length).toFixed(2) }))
 
+  function exportAppraisalsCsv(rows: Appraisal[]) {
+    const header = ['Employee', 'Department', 'Period', 'Score', 'Rating', 'Reviewer', 'Status']
+    const lines = rows.map(r => [
+      `"${String(r.employee_name ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.department ?? '').replace(/"/g, '""')}"`,
+      r.period ?? '',
+      r.score ?? '',
+      r.rating ?? '',
+      `"${String(r.reviewer_name ?? '').replace(/"/g, '""')}"`,
+      r.status ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `appraisals-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
     fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
@@ -167,6 +185,18 @@ export default function Performance() {
           <option value="">All Periods</option>
           {periods.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
+        <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ ...filterInputStyle, minWidth: 160 }}>
+          <option value="">All Departments</option>
+          <option value="Operations">Operations</option>
+          <option value="Finance">Finance</option>
+          <option value="HR">HR</option>
+          <option value="Technology">Technology</option>
+          <option value="Sales">Sales</option>
+          <option value="Collections">Collections</option>
+          <option value="Risk">Risk</option>
+          <option value="Compliance">Compliance</option>
+          <option value="Cards">Cards</option>
+        </select>
       </FilterBar>
 
       {/* Score distribution chart */}
@@ -191,6 +221,10 @@ export default function Performance() {
           keyFn={r => r.id}
           emptyText="No appraisals found."
           skeletonRows={loading ? 6 : 0}
+          searchKeys={['employee_name', 'department', 'period', 'status', 'reviewer_name']}
+          searchPlaceholder="Search appraisals…"
+          pageSize={20}
+          onExport={() => exportAppraisalsCsv(appraisals)}
         />
       </SectionCard>
 

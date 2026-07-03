@@ -44,6 +44,27 @@ function PtpPill({ status }: { status: string }) {
   )
 }
 
+// ── Export CSV ────────────────────────────────────────────────────────────────
+
+function exportPromisesCsv(rows: PTPane[]) {
+  const header = ['CIF', 'Customer Name', 'Outstanding (₦)', 'PTP Amount (₦)', 'Due Date', 'Status', 'Agent', 'Created']
+  const lines = rows.map(r => [
+    r.account_cif ?? '',
+    `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
+    (r.outstanding_kobo / 100).toFixed(2),
+    (r.promise_amount_kobo / 100).toFixed(2),
+    r.promise_date ?? '',
+    r.status ?? '',
+    `"${String(r.agent_name ?? '').replace(/"/g, '""')}"`,
+    r.created_at ?? '',
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `promises-to-pay-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function CollectionsPromises() {
@@ -192,12 +213,14 @@ export default function CollectionsPromises() {
     },
   ]
 
+  const selectedRows = rows.filter(r => selectedIds.has(r.id))
+
   const bulkBar = selectedIds.size > 0 ? (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: '#F0F4FF', borderBottom: '1px solid var(--bdr)' }}>
       <span style={{ fontSize: 12.5, fontWeight: 600, color: NAVY }}>{selectedIds.size} selected</span>
       <div style={{ marginLeft: 'auto' }}>
         <button
-          onClick={() => toast.success('Exporting…')}
+          onClick={() => exportPromisesCsv(selectedRows)}
           style={btnSecondary}
         >
           <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
@@ -257,6 +280,8 @@ export default function CollectionsPromises() {
           rows={rows}
           keyFn={r => r.id}
           loading={loading}
+          pageSize={20}
+          onExport={() => exportPromisesCsv(rows)}
           selectable
           selectedIds={selectedIds}
           onSelect={setSelectedIds}
@@ -264,9 +289,12 @@ export default function CollectionsPromises() {
           emptyText="No promises found"
           skeletonRows={8}
           rowStyle={r => {
-            if (r.status === 'Pending' && r.promise_date && r.promise_date < today()) {
-              return { background: `${RED}08` }
-            }
+            const s = r.status
+            if (s === 'Kept')   return { background: `${GREEN}0C` }
+            if (s === 'Broken') return { background: `${RED}0D` }
+            if (s === 'Pending' && r.promise_date && r.promise_date < today())
+              return { background: `${RED}12` }
+            if (s === 'Pending') return { background: `${AMBER}0A` }
             return undefined
           }}
         />

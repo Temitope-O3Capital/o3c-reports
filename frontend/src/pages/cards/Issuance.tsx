@@ -168,6 +168,26 @@ function NewIssuanceModal({ onClose, onCreated }: { onClose: () => void; onCreat
   )
 }
 
+// ── Export CSV ────────────────────────────────────────────────────────────────
+
+function exportIssuanceCsv(rows: IssuanceRequest[]) {
+  const header = ['Request #', 'Customer', 'CIF Number', 'Card Type', 'Status', 'Submitted Date', 'Days Pending']
+  const lines = rows.map(r => [
+    `"${String(r.ref ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.cif_number ?? '').replace(/"/g, '""')}"`,
+    r.card_type ?? '',
+    r.status ?? '',
+    r.submitted_date ? r.submitted_date.slice(0, 10) : '',
+    r.days_pending ?? '',
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `issuance-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function CardsIssuance() {
@@ -177,6 +197,7 @@ export default function CardsIssuance() {
   const [showNew, setShowNew] = useState(false)
   const [search,  setSearch]  = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [sel, setSel] = useState<Set<string | number>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -250,7 +271,25 @@ export default function CardsIssuance() {
           </select>
           <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>{displayed.length} requests</span>
         </div>
-        <DataTable cols={cols} rows={displayed} keyFn={r => r.id} loading={loading} emptyText="No issuance requests yet" />
+        <DataTable
+          cols={cols}
+          rows={displayed}
+          keyFn={r => r.id}
+          loading={loading}
+          emptyText="No issuance requests yet"
+          pageSize={20}
+          onExport={() => exportIssuanceCsv(displayed)}
+          selectable
+          selectedIds={sel}
+          onSelect={setSel}
+          bulkBar={sel.size > 0 ? (
+            <>
+              <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{sel.size} selected</span>
+              <button onClick={async () => { setSel(new Set()) }} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: GREEN, color: 'white', cursor: 'pointer', fontSize: 12 }}>Approve</button>
+              <button onClick={async () => { setSel(new Set()) }} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', cursor: 'pointer', fontSize: 12 }}>Reject</button>
+            </>
+          ) : undefined}
+        />
       </SectionCard>
 
       {showNew && <NewIssuanceModal onClose={() => setShowNew(false)} onCreated={load} />}

@@ -321,6 +321,28 @@ function TPADetailContent({ agency }: { agency: TPAAgency }) {
   )
 }
 
+// ── Export CSV ────────────────────────────────────────────────────────────────
+
+function exportTPACsv(rows: TPAAgency[]) {
+  const header = ['Agency Name', 'Licence #', 'Contact Name', 'Contact Phone', 'Commission %', 'Accounts Assigned', 'Recovered (₦)', 'Commission Accrued (₦)', 'Active']
+  const lines = rows.map(r => [
+    `"${String(r.name ?? '').replace(/"/g, '""')}"`,
+    r.licence_no ?? '',
+    `"${String(r.contact_name ?? '').replace(/"/g, '""')}"`,
+    r.contact_phone ?? '',
+    r.commission_pct ?? '',
+    r.accounts_assigned ?? '',
+    (r.recovered_kobo / 100).toFixed(2),
+    (r.commission_accrued_kobo / 100).toFixed(2),
+    r.active ? 'Yes' : 'No',
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `tpa-agencies-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function RecoveryTPA() {
@@ -535,6 +557,10 @@ export default function RecoveryTPA() {
           skeletonRows={6}
           emptyText="No TPA agencies registered"
           onRowClick={r => setDetailAgency(r)}
+          searchKeys={['name', 'licence_no', 'contact_name', 'contact_phone']}
+          searchPlaceholder="Search by agency name, licence, contact…"
+          pageSize={20}
+          onExport={() => exportTPACsv(agencies)}
         />
       </SectionCard>
 

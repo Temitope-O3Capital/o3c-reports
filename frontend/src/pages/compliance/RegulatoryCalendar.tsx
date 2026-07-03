@@ -192,6 +192,10 @@ export default function RegulatoryCalendar() {
           keyFn={r => r.id}
           emptyText="No regulatory requirements found for the selected filters."
           skeletonRows={loading ? 5 : 0}
+          searchKeys={['report_name', 'regulatory_body', 'owner_name']}
+          searchPlaceholder="Search requirements…"
+          pageSize={20}
+          onExport={() => exportCalendarCsv(items)}
         />
       </SectionCard>
 

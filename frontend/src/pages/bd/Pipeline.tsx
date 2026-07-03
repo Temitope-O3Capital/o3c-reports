@@ -217,6 +217,26 @@ export default function BDPipeline() {
     setSearch(''); setFStages(new Set()); setFTypes(new Set()); setFAssignees(new Set()); setDateFrom(''); setDateTo('')
   }
 
+  function exportLeadsCsv(data: Lead[]) {
+    const header = ['Title', 'Company', 'Contact', 'Type', 'Stage', 'Score', 'Est. Value', 'Assigned', 'Created At']
+    const lines = data.map(r => [
+      `"${String(r.title ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.company_name ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.contact_name ?? '').replace(/"/g, '""')}"`,
+      r.lead_type ?? '',
+      r.stage ?? '',
+      r.lead_score != null ? String(r.lead_score) : '',
+      r.potential_value_kobo != null ? String(Number(r.potential_value_kobo) / 100) : '',
+      `"${String(r.assigned_name ?? '').replace(/"/g, '""')}"`,
+      r.created_at ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   async function doCreateLead() {
     const et = newForm.entity_type
     if (et === 'company' && !newForm.company_name.trim()) {
@@ -657,6 +677,7 @@ export default function BDPipeline() {
             selectable
             selectedIds={selected}
             onSelect={setSelected}
+            onExport={() => exportLeadsCsv(filtered)}
             bulkBar={
               <>
                 {BULK_ACTIONS.map(b => (

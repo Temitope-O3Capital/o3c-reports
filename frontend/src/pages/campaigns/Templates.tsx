@@ -101,6 +101,22 @@ export default function CampaignTemplates() {
     } catch (ex: any) { setErr(ex.message) }
   }
 
+  function exportTemplatesCsv(data: Template[]) {
+    const header = ['Name', 'Channel', 'Category', 'Created By', 'Created At']
+    const lines = data.map(r => [
+      `"${String(r.name ?? '').replace(/"/g, '""')}"`,
+      r.channel ?? '',
+      r.category ?? '',
+      `"${String(r.created_by_name ?? '').replace(/"/g, '""')}"`,
+      r.created_at ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `templates-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   const cols: TableCol<Template>[] = [
     {
       key: 'name', label: 'Template',
@@ -169,6 +185,10 @@ export default function CampaignTemplates() {
           keyFn={r => r.id}
           emptyText="No templates found."
           skeletonRows={loading ? 6 : 0}
+          searchKeys={['name', 'channel', 'category', 'created_by_name']}
+          searchPlaceholder="Search templates…"
+          pageSize={20}
+          onExport={() => exportTemplatesCsv(templates)}
         />
       </SectionCard>
 
