@@ -240,6 +240,26 @@ export default function FinanceFDMaturity() {
   const totalPrincipal = rows.reduce((s, r) => s + (r.ngn_amount || r.principal), 0)
   const maturingThisWeek = rows.filter(r => daysToMaturity(r.maturity_date) <= 7).length
 
+  function exportFDCsv(data: FDRecord[]) {
+    const header = ['Customer', 'Currency', 'Amount ₦', 'Rate %', 'Start Date', 'Maturity Date', 'Tenor (days)', 'Account Officer', 'Location']
+    const lines = data.map(r => [
+      `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
+      r.currency ?? '',
+      ((r.ngn_amount || r.principal) / 100).toFixed(2),
+      r.rate != null ? r.rate.toFixed(2) : '',
+      r.transaction_date ?? '',
+      r.maturity_date ?? '',
+      r.tenor_days ?? '',
+      `"${String(r.account_officer ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.location ?? '').replace(/"/g, '""')}"`,
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `fd-maturity-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   return (
     <Page
       title="FD Maturity Calendar"
@@ -305,6 +325,7 @@ export default function FinanceFDMaturity() {
           keyFn={r => r.id}
           loading={loading}
           emptyText={`No FDs maturing in the ${horizonLabel(horizon).toLowerCase()}`}
+          onExport={() => exportFDCsv(displayed)}
         />
 
         {/* Pagination footer */}

@@ -119,6 +119,22 @@ export default function RegulatoryCalendar() {
     finally { setDoneing(false) }
   }
 
+  function exportCalendarCsv(data: CBNReport[]) {
+    const header = ['Requirement', 'Regulatory Body', 'Due Date', 'Owner', 'Status']
+    const lines = data.map(r => [
+      `"${String(r.report_name ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.regulatory_body ?? '').replace(/"/g, '""')}"`,
+      r.due_date ?? '',
+      `"${String(r.owner_name ?? '').replace(/"/g, '""')}"`,
+      r.status ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `regulatory-calendar-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   const cols: TableCol<CBNReport>[] = [
     {
       key: 'report_name', label: 'Requirement',

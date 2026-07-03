@@ -293,6 +293,30 @@ export default function FinanceFixedDeposit() {
     setSearch(''); setStatusFilter('all'); setDateFrom(monthStart()); setDateTo(today()); setMatFrom(''); setMatTo('')
   }
 
+  function exportFDRecordsCsv(data: FDRecord[]) {
+    const header = ['FD#', 'Investor', 'Currency', 'Principal ₦', 'Interest Paid ₦', 'Rate %', 'Start Date', 'Maturity Date', 'Tenor Days', 'Location', 'Officer', 'Status', 'Notes']
+    const lines = data.map(r => [
+      `FD-${String(r.id).padStart(5, '0')}`,
+      `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
+      r.currency ?? '',
+      ((r.ngn_amount || r.principal) / 100).toFixed(2),
+      (r.interest_paid / 100).toFixed(2),
+      r.rate ?? 0,
+      r.transaction_date ?? '',
+      r.maturity_date ?? '',
+      r.tenor_days ?? 0,
+      `"${String(r.location ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.account_officer ?? '').replace(/"/g, '""')}"`,
+      r.transaction_type === 'inflow' ? 'Active' : 'Liquidated',
+      `"${String(r.notes ?? '').replace(/"/g, '""')}"`,
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `fixed-deposits-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   return (
     <Page
       title="Fixed Deposits"
@@ -509,6 +533,7 @@ export default function FinanceFixedDeposit() {
           keyFn={r => r.id}
           loading={loading}
           emptyText="No fixed deposit records found"
+          onExport={() => exportFDRecordsCsv(filtered)}
         />
 
         {/* Pagination footer */}

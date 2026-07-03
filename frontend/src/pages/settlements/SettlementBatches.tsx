@@ -82,6 +82,25 @@ export default function SettlementBatches() {
   const totalExceptions = rows.reduce((s, r) => s + r.exception_count, 0)
   const openBatches = rows.filter(r => r.status === 'pending').length
 
+  function exportBatchesCsv(data: Batch[]) {
+    const header = ['Date', 'Batch Ref', 'Type', 'Txns', 'Credits ₦', 'Debits ₦', 'Exceptions', 'Status']
+    const lines = data.map(r => [
+      r.batch_date ?? '',
+      r.batch_ref ?? '',
+      r.batch_type ?? '',
+      r.txn_count ?? 0,
+      (r.total_credits / 100).toFixed(2),
+      (r.total_debits / 100).toFixed(2),
+      r.exception_count ?? 0,
+      r.status ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `settlement-batches-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   return (
     <Page title="Settlement Batches" subtitle="NIP/NIBSS daily settlement overview">
       <ErrBanner error={error} onRetry={load} />
@@ -112,6 +131,10 @@ export default function SettlementBatches() {
           keyFn={r => r.id}
           loading={loading}
           emptyText="No settlement batches for this period"
+          searchKeys={['batch_ref', 'batch_type', 'status']}
+          searchPlaceholder="Search ref, type, status…"
+          pageSize={20}
+          onExport={() => exportBatchesCsv(rows)}
         />
       </SectionCard>
     </Page>

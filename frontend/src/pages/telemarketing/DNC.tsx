@@ -105,6 +105,21 @@ export default function TelemarketingDNC() {
     }
   }
 
+  function exportDncCsv(data: DNCEntry[]) {
+    const header = ['Phone', 'Reason', 'Added By', 'Added Date']
+    const lines = data.map(r => [
+      r.phone ?? '',
+      `"${String(r.reason ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.added_by ?? '').replace(/"/g, '""')}"`,
+      r.added_at ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `dnc-list-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   const cols: TableCol<DNCEntry>[] = [
     {
       key: 'phone',
@@ -214,6 +229,10 @@ export default function TelemarketingDNC() {
           onSelect={setSelectedIds}
           bulkBar={bulkBar}
           skeletonRows={8}
+          searchKeys={['phone', 'reason', 'added_by']}
+          searchPlaceholder="Search phone, reason…"
+          pageSize={20}
+          onExport={() => exportDncCsv(rows)}
         />
       </SectionCard>
 

@@ -270,6 +270,23 @@ export default function FinanceChartOfAccounts() {
 
   function resetFilters() { setClassFilter(''); setSearch('') }
 
+  function exportAccountsCsv(data: GLAccount[]) {
+    const header = ['Code', 'Name', 'Class', 'Currency', 'Normal Balance', 'Active']
+    const lines = data.map(r => [
+      r.code ?? '',
+      `"${String(r.name ?? '').replace(/"/g, '""')}"`,
+      r.class ?? '',
+      r.currency ?? '',
+      r.normal_balance ?? '',
+      r.is_active ? 'Yes' : 'No',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `chart-of-accounts-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   return (
     <Page
       title="Chart of Accounts"
@@ -411,6 +428,8 @@ export default function FinanceChartOfAccounts() {
             rows={filtered}
             keyFn={r => r.id}
             emptyText="No accounts match your filter"
+            pageSize={20}
+            onExport={() => exportAccountsCsv(filtered)}
           />
 
         </SectionCard>

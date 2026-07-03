@@ -169,6 +169,25 @@ export default function Calls() {
 
   useEffect(() => { load() }, [load])
 
+  function exportCallsCsv(data: CallLog[]) {
+    const header = ['Agent', 'Customer', 'Phone', 'Direction', 'Duration (s)', 'Outcome', 'Ticket', 'Called At']
+    const lines = data.map(r => [
+      `"${String(r.agent_name ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
+      r.phone ?? '',
+      r.direction ?? '',
+      r.duration_seconds ?? 0,
+      r.outcome ?? '',
+      r.ticket_ref ?? '',
+      r.called_at ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `call-log-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   const cols = buildCols(navigate)
 
   return (
@@ -208,6 +227,10 @@ export default function Calls() {
           keyFn={r => r.id}
           loading={loading}
           emptyText="No call records found"
+          searchKeys={['agent_name', 'customer_name', 'outcome', 'direction']}
+          searchPlaceholder="Search agent, customer, outcome…"
+          pageSize={20}
+          onExport={() => exportCallsCsv(rows)}
         />
       </SectionCard>
     </Page>

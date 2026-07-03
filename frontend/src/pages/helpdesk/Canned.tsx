@@ -201,6 +201,21 @@ export default function Canned() {
     }
   }
 
+  function exportCannedCsv(data: CannedResponse[]) {
+    const header = ['Title', 'Category', 'Created By', 'Last Used']
+    const lines = data.map(r => [
+      `"${String(r.title ?? '').replace(/"/g, '""')}"`,
+      r.category ?? '',
+      `"${String(r.created_by ?? '').replace(/"/g, '""')}"`,
+      r.last_used_at ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `canned-responses-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   const cols: TableCol<CannedResponse>[] = [
     {
       key: 'title',
@@ -280,6 +295,10 @@ export default function Canned() {
           keyFn={r => r.id}
           loading={loading}
           emptyText="No canned responses yet"
+          searchKeys={['title', 'category', 'created_by']}
+          searchPlaceholder="Search responses…"
+          pageSize={20}
+          onExport={() => exportCannedCsv(rows)}
         />
       </SectionCard>
 

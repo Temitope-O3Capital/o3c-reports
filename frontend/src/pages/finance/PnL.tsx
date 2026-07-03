@@ -99,6 +99,21 @@ export default function FinancePnL() {
   const totCost = data?.total_cost     ?? 0
   const netInc  = data?.net_income     ?? 0
 
+  function exportPnlCsv(data: ProductLine[]) {
+    const header = ['Product', 'Revenue ₦', 'Cost ₦', 'Net ₦']
+    const rows = data.map(r => [
+      `"${String(r.product ?? '').replace(/"/g, '""')}"`,
+      (r.revenue / 100).toFixed(2),
+      (r.cost / 100).toFixed(2),
+      (r.net / 100).toFixed(2),
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...rows].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `pnl-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   return (
     <Page
       title="Profit & Loss"
@@ -181,6 +196,9 @@ export default function FinancePnL() {
           rows={lines}
           keyFn={r => r.product}
           emptyText={loading ? 'Loading…' : 'No P&L data available for this period'}
+          searchKeys={['product']}
+          pageSize={20}
+          onExport={lines.length > 0 ? () => exportPnlCsv(lines) : undefined}
         />
       </SectionCard>
     </Page>

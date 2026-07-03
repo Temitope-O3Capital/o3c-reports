@@ -262,6 +262,25 @@ export default function ManualPostings() {
     }
   }
 
+  function exportPostingsCsv(data: ManualPosting[]) {
+    const header = ['Ref', 'Type', 'Amount ₦', 'Account', 'Description', 'Initiated By', 'Status', 'Date']
+    const lines = data.map(r => [
+      r.ref ?? '',
+      r.type ?? '',
+      (r.amount_kobo / 100).toFixed(2),
+      `"${String(r.account ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.description ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.initiated_by ?? '').replace(/"/g, '""')}"`,
+      r.status ?? '',
+      r.created_at ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `manual-postings-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   const cols: TableCol<ManualPosting>[] = [
     {
       key: 'ref', label: 'Ref',
@@ -367,6 +386,10 @@ export default function ManualPostings() {
           keyFn={r => r.id}
           loading={loading}
           emptyText="No manual postings found"
+          searchKeys={['ref', 'account', 'description', 'initiated_by', 'status']}
+          searchPlaceholder="Search ref, account, description…"
+          pageSize={20}
+          onExport={() => exportPostingsCsv(rows)}
         />
       </SectionCard>
 

@@ -162,6 +162,56 @@ export default function FinanceEOD() {
 
   useEffect(() => { load() }, [load])
 
+  function exportUploadsCsv(data: EODUpload[]) {
+    const header = ['Date', 'Filename', 'Rows', 'Uploaded By', 'Loaded At', 'Status']
+    const lines = data.map(r => [
+      r.upload_date ?? '',
+      `"${String(r.filename ?? '').replace(/"/g, '""')}"`,
+      r.row_count ?? 0,
+      `"${String(r.loaded_by_name ?? '').replace(/"/g, '""')}"`,
+      r.loaded_at ?? '',
+      r.status ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `eod-uploads-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
+  function exportProductCsv(data: ByProductRow[]) {
+    const header = ['Code', 'Product', 'Txns', 'Credits ₦', 'Debits ₦', 'Volume ₦']
+    const lines = data.map(r => [
+      r.product_code ?? '',
+      `"${String(r.product_name ?? '').replace(/"/g, '""')}"`,
+      r.count ?? 0,
+      (r.cr / 100).toFixed(2),
+      (r.dr / 100).toFixed(2),
+      (r.volume / 100).toFixed(2),
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `eod-by-product-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
+  function exportBranchCsv(data: ByBranchRow[]) {
+    const header = ['Code', 'Branch', 'Accounts', 'Txns', 'Volume ₦']
+    const lines = data.map(r => [
+      r.branch_code ?? '',
+      `"${String(r.branch_name ?? '').replace(/"/g, '""')}"`,
+      r.active_accounts ?? 0,
+      r.count ?? 0,
+      (r.volume / 100).toFixed(2),
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `eod-by-branch-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   return (
     <Page
       title="EOD / EOB"
@@ -211,6 +261,10 @@ export default function FinanceEOD() {
             keyFn={r => r.id}
             loading={loading}
             emptyText="No EOD files uploaded yet"
+            searchKeys={['filename', 'loaded_by_name', 'status']}
+            searchPlaceholder="Search filename, uploader…"
+            pageSize={20}
+            onExport={() => exportUploadsCsv(uploads)}
           />
         </SectionCard>
       )}
@@ -223,6 +277,10 @@ export default function FinanceEOD() {
             keyFn={(r, i) => r.product_code ?? i}
             loading={loading}
             emptyText="No product breakdown available"
+            searchKeys={['product_code', 'product_name']}
+            searchPlaceholder="Search product…"
+            pageSize={20}
+            onExport={() => exportProductCsv(byProduct)}
           />
         </SectionCard>
       )}
@@ -235,6 +293,10 @@ export default function FinanceEOD() {
             keyFn={(r, i) => r.branch_code ?? i}
             loading={loading}
             emptyText="No branch breakdown available"
+            searchKeys={['branch_code', 'branch_name']}
+            searchPlaceholder="Search branch…"
+            pageSize={20}
+            onExport={() => exportBranchCsv(byBranch)}
           />
         </SectionCard>
       )}

@@ -150,7 +150,21 @@ export default function NIPReconciliation() {
   }, [rows])
 
   function handleExportExceptions() {
-    toast.info('Exporting exceptions…')
+    const header = ['NIP Ref', 'Amount ₦', 'Value Date', 'Customer', 'Core Banking Credited', 'Match Status', 'Exception Type']
+    const lines = sorted.map(r => [
+      r.nip_ref ?? '',
+      (r.amount_kobo / 100).toFixed(2),
+      r.value_date ?? '',
+      `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
+      r.core_banking_credited ? 'Yes' : 'No',
+      r.match_status ?? '',
+      r.exception_type ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `nip-records-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
   function handleMarkResolved() {
@@ -247,6 +261,10 @@ export default function NIPReconciliation() {
           selectedIds={checkedIds}
           onSelect={setCheckedIds}
           bulkBar={bulkBar}
+          searchKeys={['nip_ref', 'customer_name', 'match_status', 'exception_type']}
+          searchPlaceholder="Search ref, customer, status…"
+          pageSize={20}
+          onExport={handleExportExceptions}
         />
       </SectionCard>
 

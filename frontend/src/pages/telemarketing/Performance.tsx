@@ -215,6 +215,23 @@ export default function TelemarketingPerformance() {
 
   const kpiLoading = loading && !kpis
 
+  function exportAgentPerfCsv(data: AgentPerf[]) {
+    const header = ['Agent', 'Calls', 'Connected', 'PTPs', 'Conversion %', 'Avg Handle (s)']
+    const lines = data.map(r => [
+      `"${String(r.agent_name ?? '').replace(/"/g, '""')}"`,
+      r.calls ?? 0,
+      r.connected ?? 0,
+      r.ptp_count ?? 0,
+      r.conversion_pct != null ? r.conversion_pct.toFixed(1) : '',
+      r.avg_handle_seconds ?? 0,
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `agent-performance-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   return (
     <Page
       title="Telemarketing Performance"
@@ -371,6 +388,10 @@ export default function TelemarketingPerformance() {
           loading={loading}
           skeletonRows={8}
           emptyText="No agent data found"
+          searchKeys={['agent_name']}
+          searchPlaceholder="Search agents…"
+          pageSize={20}
+          onExport={() => exportAgentPerfCsv(agents)}
         />
       </SectionCard>
     </Page>

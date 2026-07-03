@@ -173,6 +173,22 @@ export default function PortfolioHealth() {
   const kpiLoading = loading && !kpis
   const totalBandCount = bandDist.reduce((acc, d) => acc + d.count, 0)
 
+  function exportEmployersCsv(data: EmployerRow[]) {
+    const header = ['Company', 'Staff Loans', 'Book ₦', '% of Book', 'PAR30 Count']
+    const lines = data.map(r => [
+      `"${String(r.company ?? '').replace(/"/g, '""')}"`,
+      r.staff_loans_count ?? 0,
+      (r.book_kobo / 100).toFixed(2),
+      r.pct_of_total != null ? r.pct_of_total.toFixed(2) + '%' : '',
+      r.par30_count ?? 0,
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `employer-exposure-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   return (
     <Page
       title="Portfolio Health"
@@ -340,6 +356,10 @@ export default function PortfolioHealth() {
           loading={loading}
           skeletonRows={8}
           emptyText="No employer data found"
+          searchKeys={['company']}
+          searchPlaceholder="Search employers…"
+          pageSize={20}
+          onExport={() => exportEmployersCsv(employers)}
         />
       </SectionCard>
     </Page>

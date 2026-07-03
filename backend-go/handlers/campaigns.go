@@ -500,6 +500,7 @@ func RegisterCampaigns(r chi.Router, db *core.DB) {
 	r.With(access).Post("/{id}/pause", pauseCampaign(db))
 	r.With(access).Post("/{id}/cancel", cancelCampaign(db))
 	r.With(access).Get("/{id}/contacts", listCampaignContacts(db))
+	r.With(access).Post("/{id}/push-to-telemarketing", campaignPushToTelemarketing(db))
 }
 
 // RegisterCampaignWebhooks wires public webhook endpoints (no auth required).
@@ -1066,6 +1067,124 @@ func listCampaignContacts(db *core.DB) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"total": total, "contacts": rows}) //nolint:errcheck
+	}
+}
+
+// ── Campaign → Telemarketing handoff ──────────────────────────────────────────
+
+func campaignPushToTelemarketing(db *core.DB) http.HandlerFunc {
+	type body struct {
+		TelemarketingCampaignID *int64  `json:"telemarketing_campaign_id"`
+		NewCampaignName         string  `json:"new_campaign_name"`
+		Segment                 string  `json:"segment"` // all | email_opened | email_clicked | sms_delivered
+		AssignedTo              *int64  `json:"assigned_to"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		campaignID := chi.URLParam(r, "id")
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.Segment == "" {
+			b.Segment = "all"
+		}
+
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+
+		// ── 1. Verify campaign exists ─────────────────────────────────────────
+		campaigns, err := db.PGQuery(ctx, `SELECT id, name FROM campaigns WHERE id=$1`, campaignID)
+		if err != nil || len(campaigns) == 0 {
+			respondErr(w, 404, "Campaign not found")
+			return
+		}
+
+		// ── 2. Resolve or create the telemarketing campaign ───────────────────
+		var tmCampaignID int64
+		if b.TelemarketingCampaignID != nil && *b.TelemarketingCampaignID > 0 {
+			tmCampaignID = *b.TelemarketingCampaignID
+		} else {
+			name := b.NewCampaignName
+			if name == "" {
+				name = "Campaign: " + str(campaigns[0]["name"])
+			}
+			rows, err := db.PGQuery(ctx,
+				`INSERT INTO telemarketing_campaigns (name, status, created_by)
+				 VALUES ($1, 'active', $2) RETURNING id`,
+				name, user.ID)
+			if err != nil || len(rows) == 0 {
+				respondErr(w, 500, "Failed to create telemarketing campaign")
+				return
+			}
+			tmCampaignID = toInt64(rows[0]["id"])
+		}
+
+		// ── 3. Build segment filter ───────────────────────────────────────────
+		segmentFilter := ""
+		switch b.Segment {
+		case "email_opened":
+			segmentFilter = " AND email_status='opened'"
+		case "email_clicked":
+			segmentFilter = " AND email_status='clicked'"
+		case "sms_delivered":
+			segmentFilter = " AND sms_status='delivered'"
+		}
+
+		// ── 4. Fetch contacts, excluding DNC numbers ──────────────────────────
+		contacts, err := db.PGQuery(ctx, fmt.Sprintf(`
+			SELECT cc.first_name, cc.last_name, cc.phone, cc.email, cc.cif_number
+			FROM campaign_contacts cc
+			WHERE cc.campaign_id=$1
+			  AND cc.phone IS NOT NULL
+			  AND NOT EXISTS (
+			      SELECT 1 FROM dnc_list d WHERE d.phone = cc.phone
+			  )
+			%s`, segmentFilter), campaignID)
+		if err != nil {
+			respondErr(w, 500, "Failed to fetch contacts")
+			return
+		}
+
+		// ── 5. Count DNC-skipped contacts for reporting ───────────────────────
+		var totalCount int64
+		if tr, _ := db.PGQuery(ctx, fmt.Sprintf(`
+			SELECT COUNT(*) AS n FROM campaign_contacts
+			WHERE campaign_id=$1 AND phone IS NOT NULL%s`, segmentFilter), campaignID); len(tr) > 0 {
+			totalCount = toInt64(tr[0]["n"])
+		}
+		skippedDNC := totalCount - int64(len(contacts))
+
+		// ── 6. Bulk insert into telemarketing_leads ───────────────────────────
+		created := int64(0)
+		for _, c := range contacts {
+			firstName := str(c["first_name"])
+			lastName := str(c["last_name"])
+			fullName := strings.TrimSpace(firstName + " " + lastName)
+			if fullName == "" {
+				fullName = str(c["email"])
+			}
+			phone := ns(str(c["phone"]))
+			var cif *string
+			if v := str(c["cif_number"]); v != "" {
+				cif = &v
+			}
+			_, err := db.PGExec(ctx,
+				`INSERT INTO telemarketing_leads
+				   (campaign_id, customer_cif, customer_name, customer_phone, lead_score, assigned_to, status)
+				 VALUES ($1,$2,$3,$4,50,$5,'pending')
+				 ON CONFLICT DO NOTHING`,
+				tmCampaignID, cif, fullName, phone, b.AssignedTo)
+			if err == nil {
+				created++
+			}
+		}
+
+		respond(w, map[string]any{
+			"telemarketing_campaign_id": tmCampaignID,
+			"created":                   created,
+			"skipped_dnc":               skippedDNC,
+		}, "pg")
 	}
 }
 

@@ -189,6 +189,24 @@ export default function FinanceCostTracking() {
 
   function resetFilters() { setSearch(''); setDeptFilter(''); setCatFilter('') }
 
+  function exportCostsCsv(data: CostEntry[]) {
+    const header = ['Date', 'Department', 'Category', 'Description', 'Actual ₦', 'Budget ₦', 'Recorded By']
+    const lines = data.map(r => [
+      r.entry_date ?? '',
+      r.department ?? '',
+      r.category ?? '',
+      `"${String(r.description ?? '').replace(/"/g, '""')}"`,
+      (r.amount_kobo / 100).toFixed(2),
+      (r.budget_amount_kobo / 100).toFixed(2),
+      `"${String(r.recorded_by_name ?? '').replace(/"/g, '""')}"`,
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `cost-tracking-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   return (
     <Page
       title="Cost Tracking"
@@ -354,6 +372,8 @@ export default function FinanceCostTracking() {
               rows={filtered}
               keyFn={r => r.id}
               emptyText="No cost entries yet — click 'Add Entry' to record costs"
+              pageSize={20}
+              onExport={() => exportCostsCsv(filtered)}
             />
 
           </SectionCard>

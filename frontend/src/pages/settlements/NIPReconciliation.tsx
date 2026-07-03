@@ -182,6 +182,45 @@ export default function NIPReconciliation() {
   const openCount = exceptions.filter(e => e.status === 'open').length
   const totalExcAmount = exceptions.reduce((s, e) => s + e.amount_kobo, 0)
 
+  function exportExceptionsCsv(data: Exception[]) {
+    const header = ['Date', 'Txn Ref', 'Batch Ref', 'Amount ₦', 'Exception Type', 'Description', 'Status', 'Resolved By', 'Resolved At']
+    const lines = data.map(r => [
+      r.txn_date ?? '',
+      r.txn_ref ?? '',
+      r.batch_ref ?? '',
+      (r.amount_kobo / 100).toFixed(2),
+      r.exception_type ?? '',
+      `"${String(r.description ?? '').replace(/"/g, '""')}"`,
+      r.status ?? '',
+      `"${String(r.resolved_by_name ?? '').replace(/"/g, '""')}"`,
+      r.resolved_at ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `nip-exceptions-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
+  function exportBatchesCsv(data: Batch[]) {
+    const header = ['Date', 'Batch Ref', 'Type', 'Txns', 'Credits ₦', 'Debits ₦', 'Exceptions', 'Status']
+    const lines = data.map(r => [
+      r.batch_date ?? '',
+      r.batch_ref ?? '',
+      r.batch_type ?? '',
+      r.txn_count ?? 0,
+      (r.total_credits / 100).toFixed(2),
+      (r.total_debits / 100).toFixed(2),
+      r.exception_count ?? 0,
+      r.status ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `nip-batches-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   return (
     <Page
       title="NIP Reconciliation"
@@ -235,13 +274,33 @@ export default function NIPReconciliation() {
 
       {tab === 'exceptions' && (
         <SectionCard padding={false}>
-          <DataTable cols={excCols} rows={exceptions} keyFn={r => r.id} loading={loading} emptyText="No exceptions for this date/filter" />
+          <DataTable
+            cols={excCols}
+            rows={exceptions}
+            keyFn={r => r.id}
+            loading={loading}
+            emptyText="No exceptions for this date/filter"
+            searchKeys={['txn_ref', 'batch_ref', 'exception_type', 'status']}
+            searchPlaceholder="Search ref, type, status…"
+            pageSize={20}
+            onExport={() => exportExceptionsCsv(exceptions)}
+          />
         </SectionCard>
       )}
 
       {tab === 'batches' && (
         <SectionCard padding={false}>
-          <DataTable cols={BATCH_COLS} rows={batches} keyFn={r => r.id} loading={loading} emptyText="No batches found" />
+          <DataTable
+            cols={BATCH_COLS}
+            rows={batches}
+            keyFn={r => r.id}
+            loading={loading}
+            emptyText="No batches found"
+            searchKeys={['batch_ref', 'batch_type', 'status']}
+            searchPlaceholder="Search ref, type, status…"
+            pageSize={20}
+            onExport={() => exportBatchesCsv(batches)}
+          />
         </SectionCard>
       )}
 
