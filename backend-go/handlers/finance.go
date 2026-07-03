@@ -42,8 +42,11 @@ func RegisterFinance(r chi.Router, db *core.DB) {
 	r.With(access).Get("/fd-accrual", finFDAccrual(db))
 
 	// Income ledger (sourced from card cycle data)
-	r.With(access).Get("/income",       finIncomeList(db))
-	r.With(access).Get("/income/chart", finIncomeChart(db))
+	r.With(access).Get("/income",            finIncomeList(db))
+	r.With(access).Get("/income/chart",      finIncomeChart(db))
+	r.With(access).Get("/income/loans",      finIncomeLoans(db))
+	r.With(access).Get("/income/fee-types",  finIncomeFeeTypes(db))
+	r.With(access).Get("/income/summary",    finIncomeSummary(db))
 }
 
 /* ── GL Accounts ─────────────────────────────────────────────────────────── */
@@ -738,5 +741,174 @@ func finIncomeChart(db *core.DB) http.HandlerFunc {
 			}
 		}
 		respond(w, out, "pg")
+	}
+}
+
+/* ── Income summary (KPIs) ────────────────────────────────────────────────────
+   Returns headline totals for the most recent cycle:
+   card_interest, card_fees, card_penalty, loan_interest, fee_type_income.
+*/
+
+func finIncomeSummary(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cycleDate := qstr(r, "cycle_date")
+
+		// Default to most recent cycle
+		if cycleDate == "" {
+			rows, _ := db.PGQuery(r.Context(),
+				`SELECT TO_CHAR(cycle_date,'YYYY-MM-DD') AS d FROM card_cycle_data ORDER BY cycle_date DESC LIMIT 1`)
+			if len(rows) > 0 {
+				cycleDate = fmt.Sprintf("%v", rows[0]["d"])
+			}
+		}
+
+		cardRows, err := db.PGQuery(r.Context(), `
+			SELECT
+			  COALESCE(SUM(interest_charged_kobo), 0) AS card_interest_kobo,
+			  COALESCE(SUM(fees_kobo),             0) AS card_fees_kobo,
+			  COALESCE(SUM(penalty_kobo),          0) AS card_penalty_kobo,
+			  COALESCE(SUM(purchase_amount_kobo),  0) AS card_purchases_kobo,
+			  COALESCE(SUM(cash_advance_kobo),     0) AS card_cash_advance_kobo
+			FROM card_cycle_data
+			WHERE cycle_date = $1::date`, cycleDate)
+		if err != nil {
+			respondErr(w, 500, "summary query failed")
+			return
+		}
+
+		loanRows, _ := db.PGQuery(r.Context(), `
+			SELECT
+			  COALESCE(SUM(disbursed_amount_kobo), 0) AS total_disbursed_kobo,
+			  COUNT(*) FILTER (WHERE disbursed_at IS NOT NULL) AS active_loans
+			FROM loan_applications
+			WHERE status IN ('disbursed','active')`)
+
+		feeRows, _ := db.PGQuery(r.Context(), `
+			SELECT COALESCE(SUM(amount_kobo), 0) AS fee_type_income_kobo
+			FROM fee_income`)
+
+		summary := map[string]any{
+			"cycle_date":             cycleDate,
+			"card_interest_kobo":     int64(0),
+			"card_fees_kobo":         int64(0),
+			"card_penalty_kobo":      int64(0),
+			"card_purchases_kobo":    int64(0),
+			"card_cash_advance_kobo": int64(0),
+			"loan_disbursed_kobo":    int64(0),
+			"active_loans":           int64(0),
+			"fee_type_income_kobo":   int64(0),
+		}
+		if len(cardRows) > 0 {
+			for k, v := range cardRows[0] {
+				summary[k] = toInt64(v)
+			}
+		}
+		if len(loanRows) > 0 {
+			summary["loan_disbursed_kobo"] = toInt64(loanRows[0]["total_disbursed_kobo"])
+			summary["active_loans"] = toInt64(loanRows[0]["active_loans"])
+		}
+		if len(feeRows) > 0 {
+			summary["fee_type_income_kobo"] = toInt64(feeRows[0]["fee_type_income_kobo"])
+		}
+
+		respond(w, summary, "pg")
+	}
+}
+
+/* ── Income — loans ───────────────────────────────────────────────────────────
+   Returns disbursed loans with rate and estimated interest earned to date.
+*/
+
+func finIncomeLoans(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit  := qint(r, "limit",  100, 1, 500)
+		offset := qint(r, "offset", 0,   0, 1<<30)
+
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT
+			  id,
+			  loan_ref,
+			  loan_product                                                     AS product,
+			  disbursed_amount_kobo,
+			  interest_rate_bps,
+			  ROUND(interest_rate_bps::numeric / 100, 2)                      AS rate_pct,
+			  TO_CHAR(disbursed_at, 'YYYY-MM-DD')                             AS disbursed_at,
+			  TO_CHAR(maturity_date, 'YYYY-MM-DD')                            AS maturity_date,
+			  status,
+			  GREATEST(CURRENT_DATE - disbursed_at::date, 0)                  AS days_active,
+			  ROUND(
+			    disbursed_amount_kobo::numeric
+			    * (interest_rate_bps::numeric / 10000)
+			    * GREATEST(CURRENT_DATE - disbursed_at::date, 0) / 365
+			  )::bigint                                                        AS interest_earned_kobo
+			FROM loan_applications
+			WHERE disbursed_at IS NOT NULL
+			ORDER BY disbursed_at DESC
+			LIMIT $1 OFFSET $2`, ), limit, offset)
+		if err != nil {
+			respondErr(w, 500, "loan income query failed: "+err.Error())
+			return
+		}
+		jsonRows(w, rows)
+	}
+}
+
+/* ── Income — fee types ───────────────────────────────────────────────────────
+   Returns fee income grouped by fee_type and date from the fee_income table.
+   Table is empty until a fee-type-level report is connected.
+*/
+
+func finIncomeFeeTypes(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		feeType  := qstr(r, "fee_type")
+		dateFrom := qstr(r, "date_from")
+		dateTo   := qstr(r, "date_to")
+
+		where := "1=1"
+		var args []any
+		n := 1
+		if feeType != "" {
+			where += fmt.Sprintf(" AND fee_type=$%d", n); args = append(args, feeType); n++
+		}
+		if dateFrom != "" {
+			where += fmt.Sprintf(" AND fee_date>=$%d::date", n); args = append(args, dateFrom); n++
+		}
+		if dateTo != "" {
+			where += fmt.Sprintf(" AND fee_date<=$%d::date", n); args = append(args, dateTo); n++
+		}
+		_ = n
+
+		// Summary by fee type
+		summaryRows, _ := db.PGQuery(r.Context(), `
+			SELECT fee_type,
+			  COUNT(*)           AS count,
+			  SUM(amount_kobo)   AS total_kobo
+			FROM fee_income
+			GROUP BY fee_type
+			ORDER BY total_kobo DESC`)
+
+		// Detail rows
+		detailRows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT
+			  TO_CHAR(fee_date,'YYYY-MM-DD') AS fee_date,
+			  fee_type,
+			  product_code,
+			  COALESCE(p.product_name, fi.product_code) AS product_name,
+			  SUM(fi.amount_kobo) AS amount_kobo,
+			  fi.currency
+			FROM fee_income fi
+			LEFT JOIN card_products p ON p.product_code = fi.product_code
+			WHERE %s
+			GROUP BY fee_date, fee_type, fi.product_code, p.product_name, fi.currency
+			ORDER BY fee_date DESC, amount_kobo DESC`, where), args...)
+		if err != nil {
+			respondErr(w, 500, "fee types query failed: "+err.Error())
+			return
+		}
+
+		respond(w, map[string]any{
+			"summary": summaryRows,
+			"detail":  detailRows,
+		}, "pg")
 	}
 }
