@@ -2,4 +2,4 @@
 CREATE SEQUENCE IF NOT EXISTS loan_ref_seq START 1;
 
 -- Seed the sequence from the current max to avoid collisions with existing references.
-SELECT setval('loan_ref_seq', COALESCE((SELECT COUNT(*) FROM loan_applications), 0));
+SELECT setval('loan_ref_seq', GREATEST(COALESCE((SELECT COUNT(*) FROM loan_applications), 0), 1));
