@@ -7,18 +7,34 @@ import {
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtDate } from '../../lib/fmt'
+import { fmtCurrencyMinor, fmtKoboExact, fmtDate } from '../../lib/fmt'
 import { GREEN, AMBER, RED, NAVY, BLUE, PURPLE, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Summary {
   cycle_date: string
-  card_interest_kobo: number
-  card_fees_kobo: number
-  card_penalty_kobo: number
-  card_purchases_kobo: number
-  card_cash_advance_kobo: number
+  // NGN fields (amounts in kobo)
+  card_interest_ngn: number
+  card_fees_ngn: number
+  card_penalty_ngn: number
+  card_outstanding_ngn: number
+  card_billed_ngn: number
+  card_credit_limit_ngn: number
+  card_purchases_ngn: number
+  card_cash_advance_ngn: number
+  card_accounts_ngn: number
+  // USD fields (amounts in cents)
+  card_interest_usd: number
+  card_fees_usd: number
+  card_penalty_usd: number
+  card_outstanding_usd: number
+  card_billed_usd: number
+  card_credit_limit_usd: number
+  card_purchases_usd: number
+  card_cash_advance_usd: number
+  card_accounts_usd: number
+  // Loans & fees
   loan_disbursed_kobo: number
   active_loans: number
   fee_type_income_kobo: number
@@ -29,11 +45,14 @@ interface SummaryRow {
   product_code: string
   product_name: string
   category: string
+  currency: string
   total_interest_kobo: number
   total_fees_kobo: number
   total_penalty_kobo: number
   total_purchases_kobo: number
   total_cash_advance_kobo: number
+  total_outstanding_kobo: number
+  total_credit_limit_kobo: number
   account_count: number
 }
 
@@ -69,22 +88,32 @@ const FEE_LABELS: Record<string, string> = {
 }
 
 const FEE_COLORS: Record<string, string> = {
-  membership: NAVY, reissue: BLUE ?? '#0EA5E9', maintenance: GREEN,
-  joining: AMBER, blink: PURPLE ?? '#7C3AED', other: '#9AA4B8',
+  membership: NAVY, reissue: BLUE, maintenance: GREEN,
+  joining: AMBER, blink: PURPLE, other: '#9AA4B8',
 }
 
-// ── Pill helpers ──────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function n(v: unknown): number { return Number(v ?? 0) }
 
 function TypePill({ type, color }: { type: string; color: string }) {
   return (
-    <span style={{
-      fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20,
-      background: color + '1A', color,
-    }}>{type}</span>
+    <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20, background: color + '1A', color }}>
+      {type}
+    </span>
   )
 }
 
-// ── Tooltip ───────────────────────────────────────────────────────────────────
+function CurrencyBadge({ currency }: { currency: string }) {
+  const isUsd = currency === 'USD'
+  return (
+    <span style={{
+      fontSize: 10.5, fontWeight: 700, padding: '1px 7px', borderRadius: 10, letterSpacing: 0.3,
+      background: isUsd ? 'rgba(37,99,235,.1)' : 'rgba(22,163,74,.1)',
+      color: isUsd ? BLUE : GREEN,
+    }}>{currency}</span>
+  )
+}
 
 function ChartTip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
@@ -95,14 +124,12 @@ function ChartTip({ active, payload, label }: any) {
         <div key={p.name} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 2 }}>
           <span style={{ width: 8, height: 8, borderRadius: 2, background: p.fill, display: 'inline-block' }} />
           <span style={{ color: 'var(--txt2)' }}>{p.name}:</span>
-          <span style={{ ...NUM, fontWeight: 600, color: 'var(--txt)' }}>{fmtKobo(p.value)}</span>
+          <span style={{ ...NUM, fontWeight: 600, color: 'var(--txt)' }}>{fmtKoboExact(p.value)}</span>
         </div>
       ))}
     </div>
   )
 }
-
-// ── Empty state ───────────────────────────────────────────────────────────────
 
 function EmptyState({ icon, message }: { icon: string; message: string }) {
   return (
@@ -121,13 +148,13 @@ const LOAN_COLS: TableCol<LoanRow>[] = [
   { key: 'product', label: 'Product', sortable: true,
     render: r => <span style={{ fontSize: 13, color: 'var(--txt)' }}>{r.product || '—'}</span> },
   { key: 'disbursed_amount_kobo', label: 'Disbursed', align: 'right', sortable: true,
-    render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.disbursed_amount_kobo)}</span> },
+    render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKoboExact(r.disbursed_amount_kobo)}</span> },
   { key: 'rate_pct', label: 'Rate %', align: 'right', sortable: true,
     render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{Number(r.rate_pct).toFixed(2)}%</span> },
   { key: 'days_active', label: 'Days Active', align: 'right',
     render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{r.days_active}</span> },
   { key: 'interest_earned_kobo', label: 'Interest Earned', align: 'right', sortable: true,
-    render: r => <span style={{ ...NUM, fontWeight: 600, color: GREEN }}>{fmtKobo(r.interest_earned_kobo)}</span> },
+    render: r => <span style={{ ...NUM, fontWeight: 600, color: GREEN }}>{fmtKoboExact(r.interest_earned_kobo)}</span> },
   { key: 'disbursed_at', label: 'Disbursed', sortable: true,
     render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.disbursed_at)}</span> },
   { key: 'maturity_date', label: 'Matures', sortable: true,
@@ -160,7 +187,7 @@ export default function FinanceIncome() {
       .catch(e => setError(e.message))
   }, [])
 
-  // Load summary KPIs + chart whenever cycle changes
+  // Load summary KPIs + chart + cycle rows whenever cycle changes
   useEffect(() => {
     if (!selectedDate) return
     setLoading(true)
@@ -178,14 +205,12 @@ export default function FinanceIncome() {
       .finally(() => setLoading(false))
   }, [selectedDate])
 
-  // Load loans when tab active
   const loadLoans = useCallback(() => {
     apiFetch<LoanRow[]>('/api/finance/income/loans')
       .then(d => setLoans(d ?? []))
       .catch(() => {})
   }, [])
 
-  // Load fee types when tab active
   const loadFees = useCallback(() => {
     const params = feeTypeFilter ? `?fee_type=${feeTypeFilter}` : ''
     apiFetch<FeeTypeResponse>(`/api/finance/income/fee-types${params}`)
@@ -196,24 +221,30 @@ export default function FinanceIncome() {
   useEffect(() => { if (tab === 'loans') loadLoans() }, [tab, loadLoans])
   useEffect(() => { if (tab === 'fees') loadFees() }, [tab, loadFees])
 
-  // Cards breakdown: sort by interest desc
-  const productRows = useMemo(() =>
-    [...cycleData].sort((a, b) => b.total_interest_kobo - a.total_interest_kobo),
-    [cycleData]
-  )
+  // NGN rows sorted by outstanding desc; USD rows after
+  const ngnRows = useMemo(() =>
+    cycleData.filter(r => r.currency === 'NGN').sort((a, b) => n(b.total_outstanding_kobo) - n(a.total_outstanding_kobo)),
+    [cycleData])
+
+  const usdRows = useMemo(() =>
+    cycleData.filter(r => r.currency === 'USD').sort((a, b) => n(b.total_outstanding_kobo) - n(a.total_outstanding_kobo)),
+    [cycleData])
+
+  const allProductRows = useMemo(() => [...ngnRows, ...usdRows], [ngnRows, usdRows])
 
   const chartProducts = useMemo(() =>
-    productRows
-      .filter(r => r.total_interest_kobo > 0 || r.total_fees_kobo > 0)
+    ngnRows
+      .filter(r => n(r.total_interest_kobo) > 0 || n(r.total_fees_kobo) > 0)
       .slice(0, 12)
       .map(r => ({
         product: r.product_name,
-        interest: r.total_interest_kobo,
-        fees: r.total_fees_kobo,
-        penalty: r.total_penalty_kobo,
+        interest: n(r.total_interest_kobo),
+        fees: n(r.total_fees_kobo),
+        penalty: n(r.total_penalty_kobo),
       })),
-    [productRows]
-  )
+    [ngnRows])
+
+  const s = summary
 
   return (
     <Page
@@ -233,17 +264,31 @@ export default function FinanceIncome() {
     >
       <ErrBanner error={error} onRetry={() => setError(null)} />
 
-      {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
-        <KpiCard label="Card Interest" value={fmtKobo(summary?.card_interest_kobo ?? 0)} icon="trending_up" accent={GREEN} loading={loading} />
-        <KpiCard label="Card Fees & Penalties" value={fmtKobo((summary?.card_fees_kobo ?? 0) + (summary?.card_penalty_kobo ?? 0))} icon="receipt_long" accent={AMBER} loading={loading} />
-        <KpiCard label="Fee Type Income" value={fmtKobo(summary?.fee_type_income_kobo ?? 0)} icon="loyalty" accent={NAVY} loading={loading} />
-        <KpiCard label="Loan Interest Earned" value={loading ? '…' : loans.length ? fmtKobo(loans.reduce((s, r) => s + r.interest_earned_kobo, 0)) : '₦0'} icon="account_balance" accent={BLUE ?? GREEN} loading={loading} />
+      {/* ── Top KPI strip — income items ────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>
+        <KpiCard
+          label="Card Interest (NGN)"
+          value={fmtKoboExact(s?.card_interest_ngn ?? 0)}
+          icon="trending_up" accent={GREEN} loading={loading} />
+        <KpiCard
+          label="Card Fees & Penalty (NGN)"
+          value={fmtKoboExact(n(s?.card_fees_ngn) + n(s?.card_penalty_ngn))}
+          icon="receipt_long" accent={AMBER} loading={loading} />
+        <KpiCard
+          label="Card Income (USD)"
+          value={fmtCurrencyMinor(n(s?.card_interest_usd) + n(s?.card_fees_usd) + n(s?.card_penalty_usd), 'USD')}
+          icon="attach_money" accent={BLUE} loading={loading} />
+        <KpiCard
+          label="Loan Interest Earned"
+          value={loading ? '…' : loans.length
+            ? fmtKoboExact(loans.reduce((acc, r) => acc + n(r.interest_earned_kobo), 0))
+            : '₦0.00'}
+          icon="account_balance" accent={NAVY} loading={loading} />
       </div>
 
       <Tabs
         tabs={[
-          { key: 'cards',  label: 'Card Interest & Charges' },
+          { key: 'cards',  label: 'Cards' },
           { key: 'loans',  label: 'Loans' },
           { key: 'fees',   label: 'Fee Types' },
         ]}
@@ -254,8 +299,30 @@ export default function FinanceIncome() {
       {/* ── CARDS TAB ───────────────────────────────────────────────────────── */}
       {tab === 'cards' && (
         <>
-          {/* Current vs previous chart */}
-          <SectionCard title="Income by Type" subtitle="Current cycle vs previous cycle" style={{ marginBottom: 16 }}>
+          {/* Balance KPI section — NGN vs USD separated */}
+          <SectionCard title="Card Balances" subtitle="Outstanding, billed & credit limits" style={{ marginBottom: 16 }}>
+            {loading ? <Sk h={100} /> : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
+                {/* NGN balances */}
+                {[
+                  { label: 'NGN Outstanding',   value: fmtKoboExact(s?.card_outstanding_ngn ?? 0),   color: NAVY },
+                  { label: 'NGN Billed Balance', value: fmtKoboExact(s?.card_billed_ngn ?? 0),       color: NAVY },
+                  { label: 'NGN Credit Limits',  value: fmtKoboExact(s?.card_credit_limit_ngn ?? 0), color: 'var(--txt2)' },
+                  { label: 'USD Outstanding',    value: fmtCurrencyMinor(s?.card_outstanding_usd ?? 0, 'USD'),   color: BLUE },
+                  { label: 'USD Billed Balance', value: fmtCurrencyMinor(s?.card_billed_usd ?? 0, 'USD'),       color: BLUE },
+                  { label: 'USD Credit Limits',  value: fmtCurrencyMinor(s?.card_credit_limit_usd ?? 0, 'USD'), color: 'var(--txt2)' },
+                ].map(k => (
+                  <div key={k.label} style={{ background: 'var(--bg)', borderRadius: 8, padding: '12px 14px', border: '1px solid var(--bdr)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 4 }}>{k.label}</div>
+                    <div style={{ ...NUM, fontSize: 15, fontWeight: 700, color: k.color }}>{k.value}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SectionCard>
+
+          {/* Current vs previous chart — NGN only */}
+          <SectionCard title="Income by Type" subtitle="NGN · Current cycle vs previous cycle" style={{ marginBottom: 16 }}>
             {loading ? <Sk h={200} /> : !chart.length ? (
               <EmptyState icon="bar_chart" message="No chart data available" />
             ) : (
@@ -263,7 +330,7 @@ export default function FinanceIncome() {
                 <BarChart data={chart} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
                   <XAxis dataKey="type" tick={{ fontSize: 12, fill: '#9AA4B8' }} axisLine={false} tickLine={false} />
-                  <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: '#9AA4B8' }} axisLine={false} tickLine={false} width={84} />
+                  <YAxis tickFormatter={v => fmtKoboExact(v)} tick={{ fontSize: 10, fill: '#9AA4B8' }} axisLine={false} tickLine={false} width={110} />
                   <Tooltip content={<ChartTip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Bar dataKey="current"  name="Current cycle"  fill={NAVY}    radius={[3,3,0,0]} />
@@ -273,16 +340,14 @@ export default function FinanceIncome() {
             )}
           </SectionCard>
 
-          {/* By product chart */}
-          <SectionCard title="By Product" subtitle="Interest · Fees · Penalty" style={{ marginBottom: 16 }}>
-            {loading ? <Sk h={240} /> : !chartProducts.length ? (
-              <EmptyState icon="donut_large" message="No product data for this cycle" />
-            ) : (
+          {/* By product chart — NGN only */}
+          {chartProducts.length > 0 && (
+            <SectionCard title="Income by Product" subtitle="NGN interest · fees · penalty" style={{ marginBottom: 16 }}>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={chartProducts} margin={{ top: 4, right: 4, left: 0, bottom: 48 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
                   <XAxis dataKey="product" tick={{ fontSize: 10, fill: '#9AA4B8' }} angle={-35} textAnchor="end" interval={0} axisLine={false} tickLine={false} />
-                  <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: '#9AA4B8' }} axisLine={false} tickLine={false} width={84} />
+                  <YAxis tickFormatter={v => fmtKoboExact(v)} tick={{ fontSize: 10, fill: '#9AA4B8' }} axisLine={false} tickLine={false} width={110} />
                   <Tooltip content={<ChartTip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Bar dataKey="interest" name="Interest"  fill={GREEN} radius={[3,3,0,0]} />
@@ -290,55 +355,93 @@ export default function FinanceIncome() {
                   <Bar dataKey="penalty"  name="Penalty"   fill={RED}   radius={[3,3,0,0]} />
                 </BarChart>
               </ResponsiveContainer>
-            )}
-          </SectionCard>
+            </SectionCard>
+          )}
 
-          {/* Product table */}
+          {/* Aggregate KPI cards per currency */}
+          {!loading && allProductRows.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
+              {[
+                { label: 'NGN Accounts',   value: ngnRows.reduce((s,r) => s + n(r.account_count), 0).toLocaleString(), icon: 'credit_card',   color: NAVY },
+                { label: 'NGN Interest',   value: fmtKoboExact(ngnRows.reduce((s,r) => s + n(r.total_interest_kobo), 0)), icon: 'trending_up', color: GREEN },
+                { label: 'NGN Fees',       value: fmtKoboExact(ngnRows.reduce((s,r) => s + n(r.total_fees_kobo), 0)),     icon: 'receipt_long', color: AMBER },
+                { label: 'NGN Penalty',    value: fmtKoboExact(ngnRows.reduce((s,r) => s + n(r.total_penalty_kobo), 0)),  icon: 'warning_amber', color: RED },
+              ].map(k => (
+                <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10, padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 11 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 24, color: k.color, opacity: 0.8 }}>{k.icon}</span>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 2 }}>{k.label}</div>
+                    <div style={{ ...NUM, fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{k.value}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!loading && usdRows.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
+              {[
+                { label: 'USD Accounts',  value: usdRows.reduce((s,r) => s + n(r.account_count), 0).toLocaleString(),                                                          icon: 'credit_card',   color: BLUE },
+                { label: 'USD Interest',  value: fmtCurrencyMinor(usdRows.reduce((s,r) => s + n(r.total_interest_kobo), 0), 'USD'), icon: 'trending_up',  color: BLUE },
+                { label: 'USD Fees',      value: fmtCurrencyMinor(usdRows.reduce((s,r) => s + n(r.total_fees_kobo), 0),     'USD'), icon: 'receipt_long', color: BLUE },
+                { label: 'USD Outstanding', value: fmtCurrencyMinor(usdRows.reduce((s,r) => s + n(r.total_outstanding_kobo), 0), 'USD'), icon: 'account_balance', color: BLUE },
+              ].map(k => (
+                <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10, padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 11 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 24, color: k.color, opacity: 0.8 }}>{k.icon}</span>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 2 }}>{k.label}</div>
+                    <div style={{ ...NUM, fontSize: 14, fontWeight: 700, color: k.color }}>{k.value}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Product table — NGN first, then USD, with exact values */}
           <SectionCard padding={false}>
             {loading ? <Sk h={260} /> : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: 'var(--th-bg)' }}>
-                    {['Product', 'Category', 'Accounts', 'Interest', 'Fees', 'Penalty', 'Purchases', 'Cash Advance'].map(h => (
-                      <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Product' || h === 'Category' ? 'left' : 'right', color: 'var(--txt2)', fontWeight: 600, fontSize: 12 }}>{h}</th>
+                    {['Product', 'CCY', 'Category', 'Accounts', 'Outstanding', 'Interest', 'Fees', 'Penalty', 'Credit Limit'].map(h => (
+                      <th key={h} style={{
+                        padding: '11px 14px',
+                        textAlign: ['Product', 'CCY', 'Category'].includes(h) ? 'left' : 'right',
+                        color: 'var(--txt2)', fontWeight: 600, fontSize: 12,
+                        borderBottom: '1px solid var(--bdr)',
+                        whiteSpace: 'nowrap',
+                      }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {productRows.map(r => (
-                    <tr key={r.product_code}
+                  {allProductRows.length === 0 ? (
+                    <tr><td colSpan={9} style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>No data for this cycle</td></tr>
+                  ) : allProductRows.map(r => (
+                    <tr key={`${r.product_code}-${r.currency}`}
                       style={{ borderBottom: '1px solid var(--bdr)' }}
                       onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
                       onMouseLeave={e => (e.currentTarget.style.background = '')}
                     >
-                      <td style={{ padding: '10px 14px', fontWeight: 500, color: 'var(--txt)' }}>{r.product_name}</td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12,
-                          background: r.category === 'prepaid' ? 'rgba(14,40,65,.08)' : 'rgba(192,0,0,.08)',
-                          color: r.category === 'prepaid' ? NAVY : RED, textTransform: 'capitalize' }}>
-                          {r.category}
-                        </span>
+                      <td style={{ padding: '11px 14px', fontWeight: 500, color: 'var(--txt)' }}>{r.product_name || r.product_code}</td>
+                      <td style={{ padding: '11px 14px' }}><CurrencyBadge currency={r.currency} /></td>
+                      <td style={{ padding: '11px 14px' }}>
+                        {r.category ? (
+                          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12,
+                            background: r.category === 'prepaid' ? 'rgba(14,40,65,.08)' : 'rgba(192,0,0,.08)',
+                            color: r.category === 'prepaid' ? NAVY : RED, textTransform: 'capitalize' as const }}>
+                            {r.category}
+                          </span>
+                        ) : <span style={{ color: 'var(--txt2)' }}>—</span>}
                       </td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, color: 'var(--txt2)' }}>{Number(r.account_count).toLocaleString()}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, color: GREEN, fontWeight: 600 }}>{fmtKobo(r.total_interest_kobo)}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, color: AMBER }}>{fmtKobo(r.total_fees_kobo)}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, color: RED }}>{fmtKobo(r.total_penalty_kobo)}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, color: 'var(--txt2)' }}>{fmtKobo(r.total_purchases_kobo)}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, color: 'var(--txt2)' }}>{fmtKobo(r.total_cash_advance_kobo)}</td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, color: 'var(--txt2)' }}>{n(r.account_count).toLocaleString()}</td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, fontWeight: 600 }}>{fmtCurrencyMinor(r.total_outstanding_kobo, r.currency)}</td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, color: GREEN, fontWeight: 600 }}>{fmtCurrencyMinor(r.total_interest_kobo, r.currency)}</td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, color: AMBER }}>{fmtCurrencyMinor(r.total_fees_kobo, r.currency)}</td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, color: RED }}>{fmtCurrencyMinor(r.total_penalty_kobo, r.currency)}</td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, color: 'var(--txt2)' }}>{fmtCurrencyMinor(r.total_credit_limit_kobo, r.currency)}</td>
                     </tr>
                   ))}
                 </tbody>
-                <tfoot>
-                  <tr style={{ background: 'var(--th-bg)', fontWeight: 700 }}>
-                    <td style={{ padding: '10px 14px', color: 'var(--txt)' }} colSpan={2}>Total</td>
-                    <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM }}>{productRows.reduce((s,r) => s + Number(r.account_count), 0).toLocaleString()}</td>
-                    <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, color: GREEN }}>{fmtKobo(productRows.reduce((s,r) => s + r.total_interest_kobo, 0))}</td>
-                    <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, color: AMBER }}>{fmtKobo(productRows.reduce((s,r) => s + r.total_fees_kobo, 0))}</td>
-                    <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, color: RED }}>{fmtKobo(productRows.reduce((s,r) => s + r.total_penalty_kobo, 0))}</td>
-                    <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, color: 'var(--txt2)' }}>{fmtKobo(productRows.reduce((s,r) => s + r.total_purchases_kobo, 0))}</td>
-                    <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, color: 'var(--txt2)' }}>{fmtKobo(productRows.reduce((s,r) => s + r.total_cash_advance_kobo, 0))}</td>
-                  </tr>
-                </tfoot>
               </table>
             )}
           </SectionCard>
@@ -366,10 +469,9 @@ export default function FinanceIncome() {
       {/* ── FEE TYPES TAB ───────────────────────────────────────────────────── */}
       {tab === 'fees' && (
         <>
-          {/* Fee type summary cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 16 }}>
             {FEE_TYPES.map(ft => {
-              const s = feeData?.summary?.find(r => r.fee_type === ft)
+              const fs = feeData?.summary?.find(r => r.fee_type === ft)
               const color = FEE_COLORS[ft]
               return (
                 <div key={ft}
@@ -382,16 +484,16 @@ export default function FinanceIncome() {
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color }}>{FEE_LABELS[ft]}</span>
-                    {s ? (
-                      <span style={{ fontSize: 11, color: 'var(--txt2)' }}>{Number(s.count).toLocaleString()} txns</span>
+                    {fs ? (
+                      <span style={{ fontSize: 11, color: 'var(--txt2)' }}>{n(fs.count).toLocaleString()} txns</span>
                     ) : (
                       <span style={{ fontSize: 11, color: 'var(--txt2)' }}>—</span>
                     )}
                   </div>
-                  <div style={{ ...NUM, fontSize: 18, fontWeight: 700, color: s ? color : 'var(--txt2)' }}>
-                    {s ? fmtKobo(s.total_kobo) : '₦0'}
+                  <div style={{ ...NUM, fontSize: 18, fontWeight: 700, color: fs ? color : 'var(--txt2)' }}>
+                    {fs ? fmtKoboExact(fs.total_kobo) : '₦0.00'}
                   </div>
-                  {!s && (
+                  {!fs && (
                     <div style={{ fontSize: 10, color: 'var(--txt2)', marginTop: 4 }}>Pending data source</div>
                   )}
                 </div>
@@ -423,7 +525,7 @@ export default function FinanceIncome() {
                 <thead>
                   <tr style={{ background: 'var(--th-bg)' }}>
                     {['Date', 'Fee Type', 'Product', 'Amount', 'Currency'].map(h => (
-                      <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Amount' ? 'right' : 'left', color: 'var(--txt2)', fontWeight: 600, fontSize: 12 }}>{h}</th>
+                      <th key={h} style={{ padding: '11px 14px', textAlign: h === 'Amount' ? 'right' : 'left', color: 'var(--txt2)', fontWeight: 600, fontSize: 12, borderBottom: '1px solid var(--bdr)' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -433,13 +535,13 @@ export default function FinanceIncome() {
                       onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
                       onMouseLeave={e => (e.currentTarget.style.background = '')}
                     >
-                      <td style={{ padding: '10px 14px', ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.fee_date)}</td>
-                      <td style={{ padding: '10px 14px' }}>
+                      <td style={{ padding: '11px 14px', ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.fee_date)}</td>
+                      <td style={{ padding: '11px 14px' }}>
                         <TypePill type={FEE_LABELS[r.fee_type] ?? r.fee_type} color={FEE_COLORS[r.fee_type] ?? '#9AA4B8'} />
                       </td>
-                      <td style={{ padding: '10px 14px', color: 'var(--txt)' }}>{r.product_name || '—'}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, fontWeight: 600, color: NAVY }}>{fmtKobo(r.amount_kobo)}</td>
-                      <td style={{ padding: '10px 14px', ...NUM, fontSize: 11.5, color: 'var(--txt2)' }}>{r.currency}</td>
+                      <td style={{ padding: '11px 14px', color: 'var(--txt)' }}>{r.product_name || '—'}</td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, fontWeight: 600, color: NAVY }}>{fmtCurrencyMinor(r.amount_kobo, r.currency || 'NGN')}</td>
+                      <td style={{ padding: '11px 14px' }}><CurrencyBadge currency={r.currency || 'NGN'} /></td>
                     </tr>
                   ))}
                 </tbody>

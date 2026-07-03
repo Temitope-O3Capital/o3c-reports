@@ -740,7 +740,8 @@ func finIncomeChart(db *core.DB) http.HandlerFunc {
 				}
 			}
 		}
-		respond(w, out, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out) //nolint:errcheck
 	}
 }
 
@@ -762,15 +763,24 @@ func finIncomeSummary(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		cardRows, err := db.PGQuery(r.Context(), `
+		// Per-currency card totals — exact values, no rounding
+		cardQ := `
 			SELECT
-			  COALESCE(SUM(interest_charged_kobo), 0) AS card_interest_kobo,
-			  COALESCE(SUM(fees_kobo),             0) AS card_fees_kobo,
-			  COALESCE(SUM(penalty_kobo),          0) AS card_penalty_kobo,
-			  COALESCE(SUM(purchase_amount_kobo),  0) AS card_purchases_kobo,
-			  COALESCE(SUM(cash_advance_kobo),     0) AS card_cash_advance_kobo
+			  currency,
+			  COALESCE(SUM(interest_charged_kobo),   0)::BIGINT AS card_interest,
+			  COALESCE(SUM(fees_kobo),               0)::BIGINT AS card_fees,
+			  COALESCE(SUM(penalty_kobo),            0)::BIGINT AS card_penalty,
+			  COALESCE(SUM(outstanding_balance_kobo),0)::BIGINT AS card_outstanding,
+			  COALESCE(SUM(billed_balance_kobo),     0)::BIGINT AS card_billed,
+			  COALESCE(SUM(credit_limit_kobo),       0)::BIGINT AS card_credit_limit,
+			  COALESCE(SUM(purchase_amount_kobo),    0)::BIGINT AS card_purchases,
+			  COALESCE(SUM(cash_advance_kobo),       0)::BIGINT AS card_cash_advance,
+			  COUNT(*)::BIGINT                                   AS card_accounts
 			FROM card_cycle_data
-			WHERE cycle_date = $1::date`, cycleDate)
+			WHERE cycle_date = $1::date
+			GROUP BY currency`
+
+		cardRows, err := db.PGQuery(r.Context(), cardQ, cycleDate)
 		if err != nil {
 			respondErr(w, 500, "summary query failed")
 			return
@@ -778,40 +788,53 @@ func finIncomeSummary(db *core.DB) http.HandlerFunc {
 
 		loanRows, _ := db.PGQuery(r.Context(), `
 			SELECT
-			  COALESCE(SUM(disbursed_amount_kobo), 0) AS total_disbursed_kobo,
-			  COUNT(*) FILTER (WHERE disbursed_at IS NOT NULL) AS active_loans
+			  COALESCE(SUM(disbursed_amount_kobo), 0)::BIGINT AS total_disbursed_kobo,
+			  COUNT(*) FILTER (WHERE disbursed_at IS NOT NULL)::BIGINT AS active_loans
 			FROM loan_applications
 			WHERE status IN ('disbursed','active')`)
 
 		feeRows, _ := db.PGQuery(r.Context(), `
-			SELECT COALESCE(SUM(amount_kobo), 0) AS fee_type_income_kobo
+			SELECT COALESCE(SUM(amount_kobo), 0)::BIGINT AS fee_type_income_kobo
 			FROM fee_income`)
 
-		summary := map[string]any{
-			"cycle_date":             cycleDate,
-			"card_interest_kobo":     int64(0),
-			"card_fees_kobo":         int64(0),
-			"card_penalty_kobo":      int64(0),
-			"card_purchases_kobo":    int64(0),
-			"card_cash_advance_kobo": int64(0),
-			"loan_disbursed_kobo":    int64(0),
-			"active_loans":           int64(0),
-			"fee_type_income_kobo":   int64(0),
+		// Flatten by currency suffix: _ngn / _usd
+		summary := map[string]any{"cycle_date": cycleDate}
+		for _, cr := range cardRows {
+			sfx := "_" + strings.ToLower(fmt.Sprintf("%v", cr["currency"]))
+			summary["card_interest"+sfx]    = toInt64(cr["card_interest"])
+			summary["card_fees"+sfx]        = toInt64(cr["card_fees"])
+			summary["card_penalty"+sfx]     = toInt64(cr["card_penalty"])
+			summary["card_outstanding"+sfx] = toInt64(cr["card_outstanding"])
+			summary["card_billed"+sfx]      = toInt64(cr["card_billed"])
+			summary["card_credit_limit"+sfx]= toInt64(cr["card_credit_limit"])
+			summary["card_purchases"+sfx]   = toInt64(cr["card_purchases"])
+			summary["card_cash_advance"+sfx]= toInt64(cr["card_cash_advance"])
+			summary["card_accounts"+sfx]    = toInt64(cr["card_accounts"])
 		}
-		if len(cardRows) > 0 {
-			for k, v := range cardRows[0] {
-				summary[k] = toInt64(v)
+		// Ensure NGN and USD keys always present so frontend never gets undefined
+		for _, sfx := range []string{"_ngn", "_usd"} {
+			for _, k := range []string{"card_interest","card_fees","card_penalty",
+				"card_outstanding","card_billed","card_credit_limit",
+				"card_purchases","card_cash_advance","card_accounts"} {
+				if _, ok := summary[k+sfx]; !ok {
+					summary[k+sfx] = int64(0)
+				}
 			}
 		}
+
+		summary["loan_disbursed_kobo"]  = int64(0)
+		summary["active_loans"]         = int64(0)
+		summary["fee_type_income_kobo"] = int64(0)
 		if len(loanRows) > 0 {
 			summary["loan_disbursed_kobo"] = toInt64(loanRows[0]["total_disbursed_kobo"])
-			summary["active_loans"] = toInt64(loanRows[0]["active_loans"])
+			summary["active_loans"]        = toInt64(loanRows[0]["active_loans"])
 		}
 		if len(feeRows) > 0 {
 			summary["fee_type_income_kobo"] = toInt64(feeRows[0]["fee_type_income_kobo"])
 		}
 
-		respond(w, summary, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(summary) //nolint:errcheck
 	}
 }
 
@@ -906,9 +929,10 @@ func finIncomeFeeTypes(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		respond(w, map[string]any{
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"summary": summaryRows,
 			"detail":  detailRows,
-		}, "pg")
+		})
 	}
 }

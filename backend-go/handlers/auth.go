@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -450,6 +451,10 @@ func toInt64(v any) int64 {
 		return int64(t)
 	case float64:
 		return int64(t)
+	case string:
+		// pgx returns SUM(bigint) as numeric → []byte → string after normalizeVal
+		n, _ := strconv.ParseInt(t, 10, 64)
+		return n
 	}
 	return 0
 }

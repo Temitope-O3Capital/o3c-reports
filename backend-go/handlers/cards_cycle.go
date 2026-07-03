@@ -42,7 +42,7 @@ func cardProducts(db *core.DB) http.HandlerFunc {
 func cardCycleDates(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.PGQuery(r.Context(),
-			`SELECT DISTINCT cycle_date FROM card_cycle_data ORDER BY cycle_date DESC`)
+			`SELECT DISTINCT TO_CHAR(cycle_date,'YYYY-MM-DD') AS cycle_date FROM card_cycle_data ORDER BY cycle_date DESC`)
 		if err != nil {
 			respondErr(w, 500, "Query failed"); return
 		}
@@ -131,26 +131,27 @@ func cardCycleSummary(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
-			  d.cycle_date,
+			  TO_CHAR(d.cycle_date,'YYYY-MM-DD')                        AS cycle_date,
 			  d.product_code,
 			  p.product_name,
 			  p.category,
 			  p.card_type,
-			  COUNT(*)                                           AS account_count,
-			  COUNT(*) FILTER (WHERE d.overdue_amount_kobo > 0) AS overdue_accounts,
-			  COALESCE(SUM(d.outstanding_balance_kobo), 0)      AS total_outstanding_kobo,
-			  COALESCE(SUM(d.overdue_amount_kobo),      0)      AS total_overdue_kobo,
-			  COALESCE(SUM(d.total_interest_kobo),      0)      AS total_interest_kobo,
-			  COALESCE(SUM(d.fees_kobo),                0)      AS total_fees_kobo,
-			  COALESCE(SUM(d.penalty_kobo),             0)      AS total_penalty_kobo,
-			  COALESCE(SUM(d.credit_limit_kobo),        0)      AS total_credit_limit_kobo,
-			  COALESCE(SUM(d.purchase_amount_kobo),     0)      AS total_purchases_kobo,
-			  COALESCE(SUM(d.cash_advance_kobo),        0)      AS total_cash_advance_kobo
+			  d.currency,
+			  COUNT(*)::BIGINT                                           AS account_count,
+			  COUNT(*) FILTER (WHERE d.overdue_amount_kobo > 0)::BIGINT AS overdue_accounts,
+			  COALESCE(SUM(d.outstanding_balance_kobo), 0)::BIGINT      AS total_outstanding_kobo,
+			  COALESCE(SUM(d.overdue_amount_kobo),      0)::BIGINT      AS total_overdue_kobo,
+			  COALESCE(SUM(d.total_interest_kobo),      0)::BIGINT      AS total_interest_kobo,
+			  COALESCE(SUM(d.fees_kobo),                0)::BIGINT      AS total_fees_kobo,
+			  COALESCE(SUM(d.penalty_kobo),             0)::BIGINT      AS total_penalty_kobo,
+			  COALESCE(SUM(d.credit_limit_kobo),        0)::BIGINT      AS total_credit_limit_kobo,
+			  COALESCE(SUM(d.purchase_amount_kobo),     0)::BIGINT      AS total_purchases_kobo,
+			  COALESCE(SUM(d.cash_advance_kobo),        0)::BIGINT      AS total_cash_advance_kobo
 			FROM card_cycle_data d
 			LEFT JOIN card_products p ON p.product_code = d.product_code
 			WHERE %s
-			GROUP BY d.cycle_date, d.product_code, p.product_name, p.category, p.card_type
-			ORDER BY d.cycle_date DESC, total_outstanding_kobo DESC`, where), args...)
+			GROUP BY d.cycle_date, d.product_code, p.product_name, p.category, p.card_type, d.currency
+			ORDER BY d.cycle_date DESC, d.currency, total_outstanding_kobo DESC`, where), args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed"); return
 		}

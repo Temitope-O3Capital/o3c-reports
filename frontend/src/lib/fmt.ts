@@ -26,6 +26,18 @@ export function fmtKoboExact(n: unknown): string {
   return fmtExact(raw / 100)
 }
 
+// Formats a minor-unit value (kobo for NGN, cents for USD) with exact precision.
+// Always shows 2 decimal places; never abbreviates.
+export function fmtCurrencyMinor(n: unknown, currency: string): string {
+  const raw = Number(n)
+  if (!isFinite(raw)) return '—'
+  const amount = raw / 100
+  if (currency === 'USD') {
+    return '$' + amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+  return '₦' + amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 export function fmtNum(n: unknown): string {
   if (n === null || n === undefined) return '—'
   const x = Number(n)
