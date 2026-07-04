@@ -526,10 +526,19 @@ func changePasswordPublic(db *core.DB) http.HandlerFunc {
 
 func logoutHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		claims := core.UserFromCtx(r.Context())
+		ctx := r.Context()
+		claims := core.UserFromCtx(ctx)
 		if claims != nil && claims.JTI != "" && claims.ExpiresAt != nil {
-			if err := core.RevokeToken(r.Context(), claims.JTI, claims.ID, claims.ExpiresAt.Time); err != nil {
-				slog.Warn("logout: denylist insert failed", "err", err)
+			if err := core.RevokeToken(ctx, claims.JTI, claims.ID, claims.ExpiresAt.Time); err != nil {
+				slog.Warn("logout: access token denylist insert failed", "err", err)
+			}
+		}
+		// Revoke the refresh token so it cannot be replayed after logout.
+		if cookie, err := r.Cookie("o3c_refresh"); err == nil {
+			if rc, verr := core.VerifyRefreshToken(cookie.Value); verr == nil && rc.JTI != "" && rc.ExpiresAt != nil {
+				if err := core.RevokeToken(ctx, rc.JTI, rc.ID, rc.ExpiresAt.Time); err != nil {
+					slog.Warn("logout: refresh token denylist insert failed", "err", err)
+				}
 			}
 		}
 		handlers.ClearAuthCookies(w, r)

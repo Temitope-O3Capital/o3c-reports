@@ -259,9 +259,12 @@ func mfaChallenge(db *core.DB) http.HandlerFunc {
 
 		setAuthCookie(w, r, token)
 
-		if refreshTok, refErr := core.CreateRefreshToken(toInt64(u["id"])); refErr == nil {
-			setRefreshCookie(w, r, refreshTok)
+		refreshTok, refErr := core.CreateRefreshToken(toInt64(u["id"]))
+		if refErr != nil {
+			respondErr(w, 500, "Token generation failed")
+			return
 		}
+		setRefreshCookie(w, r, refreshTok)
 
 		mustChange, _ := u["must_change_password"].(bool)
 		w.Header().Set("Content-Type", "application/json")

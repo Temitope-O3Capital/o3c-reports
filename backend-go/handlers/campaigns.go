@@ -1169,14 +1169,17 @@ func campaignPushToTelemarketing(db *core.DB) http.HandlerFunc {
 			if v := str(c["cif_number"]); v != "" {
 				cif = &v
 			}
-			_, err := db.PGExec(ctx,
+			// RETURNING id so we can count only rows actually inserted;
+			// ON CONFLICT DO NOTHING returns nothing when a duplicate is skipped.
+			inserted, err := db.PGQuery(ctx,
 				`INSERT INTO telemarketing_leads
 				   (campaign_id, customer_cif, customer_name, customer_phone, lead_score, assigned_to, status)
 				 VALUES ($1,$2,$3,$4,50,$5,'pending')
-				 ON CONFLICT DO NOTHING`,
+				 ON CONFLICT DO NOTHING
+				 RETURNING id`,
 				tmCampaignID, cif, fullName, phone, b.AssignedTo)
 			if err == nil {
-				created++
+				created += int64(len(inserted))
 			}
 		}
 

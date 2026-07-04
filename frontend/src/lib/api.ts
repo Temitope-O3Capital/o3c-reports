@@ -70,6 +70,12 @@ export async function apiFetch<T = any>(path: string, init?: RequestInit): Promi
     })
 
     if (res.status === 401) {
+      // Never retry a mutation — the request body is consumed and the operation
+      // may have partially succeeded on the server before returning 401.
+      if (isMutation) {
+        signOut()
+        throw new Error('Session expired')
+      }
       const ok = await refreshSession()
       if (ok) {
         const retry = await fetch(`${API}${path}`, {

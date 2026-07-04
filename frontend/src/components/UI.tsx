@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import type { ReactNode, CSSProperties } from 'react'
 import { NAVY, RED, GREEN, INTER, NUM } from '../lib/design'
 
@@ -420,6 +420,9 @@ export function DataTable<T extends Record<string, any>>({
   const [internalSel, setInternalSel] = useState<Set<string | number>>(new Set())
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+
+  // Reset to page 1 whenever the rows array reference changes (parent re-fetch or filter).
+  useEffect(() => { setPage(1) }, [rows])
 
   const selectedIds = extSel ?? internalSel
   const setSelectedIds = onSelect ?? setInternalSel

@@ -76,7 +76,7 @@ func setRefreshCookie(w http.ResponseWriter, r *http.Request, token string) {
 // ClearAuthCookies expires all auth cookies — called on logout.
 func ClearAuthCookies(w http.ResponseWriter, r *http.Request) {
 	secure, sameSite := cookieAttrs(r)
-	for _, name := range []string{"o3c_token", "o3c_csrf", "o3c_refresh"} {
+	for _, name := range []string{"o3c_token", "o3c_refresh"} {
 		http.SetCookie(w, &http.Cookie{
 			Name:     name,
 			Value:    "",
@@ -87,11 +87,23 @@ func ClearAuthCookies(w http.ResponseWriter, r *http.Request) {
 			SameSite: sameSite,
 		})
 	}
+	// o3c_csrf is non-HttpOnly by design; deletion must match the original attributes.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "o3c_csrf",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: false,
+		Secure:   secure,
+		SameSite: sameSite,
+	})
 }
 
 func newCSRFToken() string {
 	b := make([]byte, 16)
-	rand.Read(b) //nolint:errcheck
+	if _, err := rand.Read(b); err != nil {
+		slog.Error("newCSRFToken: rand.Read failed; CSRF token entropy degraded", "err", err)
+	}
 	return hex.EncodeToString(b)
 }
 

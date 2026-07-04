@@ -108,6 +108,7 @@ const AdminNotificationSettings  = lazy(() => import('./pages/admin/Notification
 const AdminIntegrations          = lazy(() => import('./pages/admin/Integrations'))
 const AdminAuditLog              = lazy(() => import('./pages/admin/AuditLog'))
 const AdminSyncStatus            = lazy(() => import('./pages/admin/SyncStatus'))
+const AdminHelpdeskSettings      = lazy(() => import('./pages/admin/HelpdeskSettings'))
 
 // Finance
 const FinanceOverview     = lazy(() => import('./pages/finance/Overview'))
@@ -653,6 +654,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/admin/integrations"          element={<PageErrorBoundary><AdminIntegrations /></PageErrorBoundary>} />
                   <Route path="/admin/audit"                 element={<PageErrorBoundary><AdminAuditLog /></PageErrorBoundary>} />
                   <Route path="/admin/sync"                  element={<PageErrorBoundary><AdminSyncStatus /></PageErrorBoundary>} />
+                  <Route path="/admin/helpdesk-settings"     element={<PageErrorBoundary><AdminHelpdeskSettings /></PageErrorBoundary>} />
 
                   {/* Mail */}
                   <Route path="/mail/inbox"   element={<PageErrorBoundary><MailInbox /></PageErrorBoundary>} />
@@ -766,12 +768,9 @@ export default function App() {
       if (!u?.name || !u?.role) { setLoading(false); return }
     } catch { setLoading(false); return }
 
-    // Fast path: if the CSRF cookie is present the access token is still live.
-    if (/(?:^|;\s*)o3c_csrf=/.test(document.cookie)) {
-      setUser(u); setLoading(false); return
-    }
-
-    // Access token may be expired — try a silent refresh.
+    // Always verify via a silent refresh — the CSRF cookie alone is not a
+    // reliable proxy because the HttpOnly access token may have been cleared
+    // independently (e.g., by a browser privacy extension).
     refreshSession().then(ok => {
       if (ok) { setUser(u) } else { localStorage.removeItem('o3c_user') }
       setLoading(false)
