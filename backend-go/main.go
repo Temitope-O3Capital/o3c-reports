@@ -349,6 +349,7 @@ func main() {
 		r.Route("/api/payroll", func(r chi.Router) {
 			handlers.RegisterPayroll(r, db)
 		})
+		r.Get("/api/search", handlers.GlobalSearch(db))
 
 	})
 

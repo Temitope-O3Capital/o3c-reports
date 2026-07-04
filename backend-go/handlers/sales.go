@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -22,6 +23,13 @@ func RegisterSales(r chi.Router, db *core.DB) {
 	r.Get("/manager-performance", salesManagerPerformance(db))
 	r.Get("/product-mix", salesProductMix(db))
 	r.Get("/customers", salesCustomers(db))
+
+	// Sales Targets (Wave 5G)
+	r.Get("/targets",         salesTargetList(db))
+	r.Post("/targets",        salesTargetCreate(db))
+	r.Patch("/targets/{id}",  salesTargetUpdate(db))
+	r.Delete("/targets/{id}", salesTargetDelete(db))
+	r.Get("/targets/actuals", salesTargetActuals(db))
 }
 
 // salesLoanKPIs returns LOS-based KPIs for the Sales Overview page.
@@ -351,5 +359,114 @@ func salesCustomers(db *core.DB) http.HandlerFunc {
 			return
 		}
 		respond(w, data, src)
+	}
+}
+
+// ── Sales Targets (Wave 5G) ───────────────────────────────────────────────────
+
+func salesTargetList(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		period := qstr(r, "period")
+		where, args := "WHERE 1=1", []any{}
+		if period != "" {
+			where += fmt.Sprintf(" AND st.period=$%d", len(args)+1)
+			args = append(args, period)
+		}
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT st.id, st.user_id, u.full_name, u.email, st.period,
+			       st.loan_count, st.disbursement_kobo, st.notes, st.updated_at
+			FROM sales_targets st
+			JOIN o3c_users u ON u.id = st.user_id
+			%s ORDER BY st.period DESC, u.full_name`, where), args...)
+		if err != nil {
+			respondErr(w, 500, "DB error"); return
+		}
+		if rows == nil { rows = []core.Row{} }
+		respond(w, rows, "pg")
+	}
+}
+
+func salesTargetCreate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			UserID           int64  `json:"user_id"`
+			Period           string `json:"period"`
+			LoanCount        int    `json:"loan_count"`
+			DisbursementKobo int64  `json:"disbursement_kobo"`
+			Notes            string `json:"notes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		user := core.UserFromCtx(r.Context())
+		rows, err := db.PGQuery(r.Context(),
+			`INSERT INTO sales_targets (user_id, period, loan_count, disbursement_kobo, notes, created_by)
+			 VALUES ($1,$2,$3,$4,$5,$6)
+			 ON CONFLICT (user_id, period) DO UPDATE
+			   SET loan_count=$3, disbursement_kobo=$4, notes=$5, updated_at=NOW()
+			 RETURNING *`,
+			body.UserID, body.Period, body.LoanCount, body.DisbursementKobo, body.Notes, user.ID)
+		if err != nil {
+			respondErr(w, 500, "DB error"); return
+		}
+		if len(rows) > 0 { respond(w, rows[0], "pg") }
+	}
+}
+
+func salesTargetUpdate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var body struct {
+			LoanCount        int    `json:"loan_count"`
+			DisbursementKobo int64  `json:"disbursement_kobo"`
+			Notes            string `json:"notes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		rows, err := db.PGQuery(r.Context(),
+			`UPDATE sales_targets SET loan_count=$1, disbursement_kobo=$2, notes=$3, updated_at=NOW()
+			 WHERE id=$4 RETURNING *`,
+			body.LoanCount, body.DisbursementKobo, body.Notes, id)
+		if err != nil || len(rows) == 0 { respondErr(w, 404, "Not found"); return }
+		respond(w, rows[0], "pg")
+	}
+}
+
+func salesTargetDelete(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		db.PGExec(r.Context(), `DELETE FROM sales_targets WHERE id=$1`, id) //nolint:errcheck
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func salesTargetActuals(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		period := qstr(r, "period")
+		periodExpr := "DATE_TRUNC('month', NOW())"
+		if period != "" && period != "current" {
+			periodExpr = fmt.Sprintf("DATE_TRUNC('month', '%s'::date)", period)
+		}
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT u.id AS user_id, u.full_name,
+			       COALESCE(t.loan_count,0)        AS target_loans,
+			       COALESCE(t.disbursement_kobo,0) AS target_kobo,
+			       COUNT(a.id)                     AS actual_loans,
+			       COALESCE(SUM(a.amount_approved_kobo),0) AS actual_kobo
+			FROM o3c_users u
+			LEFT JOIN sales_targets t
+			    ON t.user_id=u.id AND DATE_TRUNC('month',(t.period||'-01')::date)=%s
+			LEFT JOIN loan_applications a
+			    ON a.created_by_user_id=u.id
+			    AND DATE_TRUNC('month',a.created_at)=%s
+			    AND a.stage NOT IN ('withdrawn')
+			WHERE u.role IN ('sales_officer','sales_head','bd_officer','bd_head')
+			  AND u.deleted_at IS NULL
+			GROUP BY u.id, u.full_name, t.loan_count, t.disbursement_kobo
+			ORDER BY actual_kobo DESC`, periodExpr, periodExpr))
+		if err != nil { respondErr(w, 500, "DB error"); return }
+		if rows == nil { rows = []core.Row{} }
+		respond(w, rows, "pg")
 	}
 }

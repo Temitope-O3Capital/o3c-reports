@@ -16,6 +16,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -48,6 +49,13 @@ func RegisterAdmin(r chi.Router, db *core.DB) {
 	r.With(adminOnly).Put("/api-keys/{name}", updateApiKey(db))
 	r.With(adminOnly).Post("/api-keys/{name}/test", testApiKey(db))
 	r.With(adminOnly).Post("/upload-logo", uploadEmailLogo(db))
+
+	// Vendor Integration Registry (5I)
+	r.Get("/integrations",            listIntegrations(db))
+	r.Post("/integrations",           createIntegration(db))
+	r.Patch("/integrations/{id}",     updateIntegration(db))
+	r.Delete("/integrations/{id}",    deleteIntegration(db))
+	r.Post("/integrations/{id}/ping", pingIntegration(db))
 }
 
 // RegisterActivityLog is mounted outside the admin guard (any authenticated user can log).
@@ -1036,5 +1044,148 @@ func uploadEmailLogo(db *core.DB) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
+	}
+}
+
+// ── Vendor Integration Registry (Wave 5I) ─────────────────────────────────────
+
+func listIntegrations(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(),
+			`SELECT id, name, type, status, COALESCE(health_url,'') AS health_url,
+			        last_ping, last_status_code, key_expiry, owner, notes, updated_at
+			 FROM vendor_integrations ORDER BY name`)
+		if err != nil {
+			respondErr(w, 500, "DB error")
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+func createIntegration(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Name       string `json:"name"`
+			Type       string `json:"type"`
+			Status     string `json:"status"`
+			HealthURL  string `json:"health_url"`
+			KeyExpiry  string `json:"key_expiry"`
+			Owner      string `json:"owner"`
+			Notes      string `json:"notes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if body.Status == "" {
+			body.Status = "unknown"
+		}
+		rows, err := db.PGQuery(r.Context(),
+			`INSERT INTO vendor_integrations (name, type, status, health_url, key_expiry, owner, notes)
+			 VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,'')::timestamptz,$6,$7)
+			 RETURNING *`,
+			body.Name, body.Type, body.Status, body.HealthURL, body.KeyExpiry, body.Owner, body.Notes)
+		if err != nil {
+			slog.Error("createIntegration", "err", err)
+			respondErr(w, 500, "DB error")
+			return
+		}
+		if len(rows) > 0 {
+			respond(w, rows[0], "pg")
+		}
+	}
+}
+
+func updateIntegration(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var body struct {
+			Name      string `json:"name"`
+			Type      string `json:"type"`
+			Status    string `json:"status"`
+			HealthURL string `json:"health_url"`
+			KeyExpiry string `json:"key_expiry"`
+			Owner     string `json:"owner"`
+			Notes     string `json:"notes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		rows, err := db.PGQuery(r.Context(),
+			`UPDATE vendor_integrations
+			 SET name=$1, type=$2, status=$3, health_url=NULLIF($4,''),
+			     key_expiry=NULLIF($5,'')::timestamptz, owner=$6, notes=$7, updated_at=NOW()
+			 WHERE id=$8 RETURNING *`,
+			body.Name, body.Type, body.Status, body.HealthURL, body.KeyExpiry, body.Owner, body.Notes, id)
+		if err != nil {
+			respondErr(w, 500, "DB error")
+			return
+		}
+		if len(rows) == 0 {
+			respondErr(w, 404, "Not found")
+			return
+		}
+		respond(w, rows[0], "pg")
+	}
+}
+
+func deleteIntegration(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		db.PGExec(r.Context(), `DELETE FROM vendor_integrations WHERE id=$1`, id) //nolint:errcheck
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func pingIntegration(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+
+		rows, err := db.PGQuery(r.Context(),
+			`SELECT health_url FROM vendor_integrations WHERE id=$1`, id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Not found")
+			return
+		}
+		healthURL := str(rows[0]["health_url"])
+		if healthURL == "" {
+			// No URL — mark status as unknown and return
+			db.PGExec(r.Context(), //nolint:errcheck
+				`UPDATE vendor_integrations SET last_ping=NOW(), status='unknown', updated_at=NOW() WHERE id=$1`, id)
+			respond(w, map[string]any{"status": "unknown", "note": "no health_url configured"}, "pg")
+			return
+		}
+
+		// Ping with a short timeout
+		client := &http.Client{Timeout: 8 * time.Second}
+		resp, pingErr := client.Get(healthURL) //nolint:noctx
+		statusCode := 0
+		newStatus := "down"
+		if pingErr == nil {
+			resp.Body.Close()
+			statusCode = resp.StatusCode
+			if statusCode >= 200 && statusCode < 400 {
+				newStatus = "active"
+			} else if statusCode >= 400 && statusCode < 500 {
+				newStatus = "degraded"
+			}
+		}
+
+		db.PGExec(r.Context(), //nolint:errcheck
+			`UPDATE vendor_integrations
+			 SET last_ping=NOW(), last_status_code=$1, status=$2, updated_at=NOW()
+			 WHERE id=$3`,
+			statusCode, newStatus, id)
+
+		respond(w, map[string]any{
+			"status":      newStatus,
+			"status_code": statusCode,
+			"pinged_at":   time.Now(),
+		}, "pg")
 	}
 }

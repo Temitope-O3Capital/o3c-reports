@@ -7,7 +7,7 @@ import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
 import { NAVY, BLUE, PURPLE, GREEN, NUM, INTER } from '../../lib/design'
-import EmailBlockEditor, { blocksToHtml, type Block } from '../../components/EmailBlockEditor'
+import EmailBlockEditor, { blocksToHtml, type EmailBlock } from '../../components/EmailBlockEditor'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -19,7 +19,7 @@ interface Template {
   sms_body?: string
   email_subject?: string
   email_body_html?: string
-  email_blocks?: Block[]
+  email_blocks?: EmailBlock[]
   created_at: string
   created_by_name?: string
 }
@@ -31,7 +31,7 @@ interface FormState {
   category: string
   sms_body: string
   email_subject: string
-  email_blocks: Block[]
+  email_blocks: EmailBlock[]
 }
 
 const BLANK: FormState = {
@@ -397,8 +397,8 @@ export default function CampaignTemplates() {
             {/* Main editor — fills remaining height */}
             {form.channel === 'email' ? (
               <EmailBlockEditor
-                blocks={form.email_blocks}
-                onChange={blocks => setForm(f => f && { ...f, email_blocks: blocks })}
+                value={{ blocks: form.email_blocks }}
+                onChange={v => setForm(f => f && { ...f, email_blocks: v.blocks })}
               />
             ) : (
               <SMSComposer value={form.sms_body} onChange={v => setForm(f => f && { ...f, sms_body: v })} />

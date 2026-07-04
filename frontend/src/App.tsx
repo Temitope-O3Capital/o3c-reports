@@ -9,6 +9,7 @@ import { Toaster, toast } from 'sonner'
 
 import Sidebar          from './components/Sidebar'
 import NotificationBell from './components/NotificationBell'
+import GlobalSearch     from './components/GlobalSearch'
 import { type AuthUser, ROLE_PAGES } from './hooks/useAuth'
 import { roleLabel }    from './lib/roles'
 import { API, apiFetch, apiLogout, refreshSession } from './lib/api'
@@ -51,6 +52,7 @@ const MailThread     = lazy(() => import('./pages/mail/ThreadDetail'))
 const SalesOverview  = lazy(() => import('./pages/sales/Overview'))
 const SalesCohort    = lazy(() => import('./pages/sales/Cohort'))
 const SalesReports   = lazy(() => import('./pages/sales/Reports'))
+const SalesTargets   = lazy(() => import('./pages/sales/Targets'))
 const CRMContacts    = lazy(() => import('./pages/sales/Customers'))
 const CRMPipelinePg  = lazy(() => import('./pages/sales/CRMPipeline'))
 const CRMTasks       = lazy(() => import('./pages/sales/Tasks'))
@@ -469,9 +471,10 @@ const IDLE_LOGOUT_MS = 30 * 60 * 1000
 // ── App shell ─────────────────────────────────────────────────────────────────
 
 const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
-  const [c360Open, setC360Open] = useState(false)
-  const [idleWarn, setIdleWarn] = useState(false)
-  const [dark,     setDark]     = useState(() => localStorage.getItem('o3c_theme') === 'dark')
+  const [c360Open,    setC360Open]    = useState(false)
+  const [searchOpen,  setSearchOpen]  = useState(false)
+  const [idleWarn,    setIdleWarn]    = useState(false)
+  const [dark,        setDark]        = useState(() => localStorage.getItem('o3c_theme') === 'dark')
 
   const toggleDark = useCallback(() => {
     setDark(d => {
@@ -499,6 +502,18 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
     }
   }, [onLogout])
 
+  // Cmd+K / Ctrl+K → open global search
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setSearchOpen(o => !o)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   const role = user.role as string
 
   return (
@@ -516,6 +531,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
           user={user}
           onLogout={onLogout}
           utilities={<>
+            <TbBtn onClick={() => setSearchOpen(true)} icon="search" title="Search (⌘K)" />
             <TbBtn onClick={() => setC360Open(true)} icon="manage_search" title="Customer 360°" />
             <ApprovalsButton user={user} />
             <NotificationBell />
@@ -554,6 +570,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/sales"           element={<PageErrorBoundary><SalesOverview /></PageErrorBoundary>} />
                   <Route path="/sales/cohort"    element={<PageErrorBoundary><SalesCohort /></PageErrorBoundary>} />
                   <Route path="/sales/reports"   element={<PageErrorBoundary><SalesReports /></PageErrorBoundary>} />
+                  <Route path="/sales/targets"   element={<PageErrorBoundary><SalesTargets /></PageErrorBoundary>} />
                   <Route path="/sales/customers" element={<PageErrorBoundary><CRMContacts /></PageErrorBoundary>} />
                   <Route path="/sales/crm"       element={<PageErrorBoundary><CRMPipelinePg /></PageErrorBoundary>} />
                   <Route path="/sales/tasks"     element={<PageErrorBoundary><CRMTasks /></PageErrorBoundary>} />
@@ -694,6 +711,9 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
         <Suspense fallback={null}>
           <C360 open={c360Open} onClose={() => setC360Open(false)} />
         </Suspense>
+
+        {/* Global search (Cmd+K) */}
+        <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
 
         {/* Idle warning */}
         {idleWarn && (

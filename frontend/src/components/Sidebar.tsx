@@ -56,6 +56,7 @@ const SECTIONS: Section[] = [
         subs: [
           { label: 'Overview',        to: '/sales' },
           { label: 'Cohort Analysis', to: '/sales/cohort' },
+          { label: 'Targets',         to: '/sales/targets' },
           { label: 'Reports',         to: '/sales/reports' },
         ],
       },
