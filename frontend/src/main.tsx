@@ -4,6 +4,17 @@ import * as Sentry from '@sentry/react'
 import './index.css'
 import App from './App'
 
+async function enableMocking() {
+  if (import.meta.env.VITE_MOCK !== 'true') return
+  // Seed a mock session so App.tsx skips the login screen
+  localStorage.setItem('o3c_user', JSON.stringify({
+    id: 1, name: 'Temitope Posi', email: 'admin@o3capital.com',
+    role: 'md', pages: [], must_change_password: false,
+  }))
+  const { worker } = await import('./mocks/browser')
+  return worker.start({ onUnhandledRequest: 'bypass' })
+}
+
 if (import.meta.env.VITE_SENTRY_DSN) {
   Sentry.init({
     dsn: import.meta.env.VITE_SENTRY_DSN,
@@ -48,15 +59,17 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   }
 }
 
-const root = document.getElementById('root')
-if (!root) {
-  document.body.innerHTML = '<pre style="color:red;padding:32px">FATAL: #root element not found</pre>'
-} else {
-  createRoot(root).render(
-    <StrictMode>
-      <ErrorBoundary>
-        <App />
-      </ErrorBoundary>
-    </StrictMode>
-  )
-}
+enableMocking().then(() => {
+  const root = document.getElementById('root')
+  if (!root) {
+    document.body.innerHTML = '<pre style="color:red;padding:32px">FATAL: #root element not found</pre>'
+  } else {
+    createRoot(root).render(
+      <StrictMode>
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
+      </StrictMode>
+    )
+  }
+})

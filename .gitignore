@@ -35,5 +35,8 @@ setup_db.js
 package.json
 package-lock.json
 
+# Go build output
+backend-go/reports
+
 # Claude Code local settings
 .claude/
