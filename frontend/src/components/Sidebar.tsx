@@ -70,6 +70,14 @@ const SECTIONS: Section[] = [
         ],
       },
       {
+        icon: 'bar_chart_4_bars', label: 'Marketing', to: '/marketing/attribution',
+        vis: ['sales_head','bd_head','telemarketing_head'],
+        subs: [
+          { label: 'Campaign Attribution', to: '/marketing/attribution' },
+          { label: 'Acquisition Funnel',   to: '/marketing/funnel' },
+        ],
+      },
+      {
         icon: 'receipt_long', label: 'Loan Origination', to: '/sales/applications',
         vis: ['sales_officer','sales_head','bd_officer','bd_head'],
         subs: [
@@ -279,8 +287,9 @@ const SECTIONS: Section[] = [
         icon: 'admin_panel_settings', label: 'Admin', to: '/admin',
         vis: ['it_admin'],
         subs: [
-          { label: 'Overview',           to: '/admin' },
-          { label: 'Helpdesk Settings',  to: '/admin/helpdesk-settings' },
+          { label: 'Overview',            to: '/admin' },
+          { label: 'Helpdesk Settings',   to: '/admin/helpdesk-settings' },
+          { label: 'Workflow Templates',  to: '/admin/workflow-templates' },
         ],
       },
     ],

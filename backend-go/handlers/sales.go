@@ -30,6 +30,10 @@ func RegisterSales(r chi.Router, db *core.DB) {
 	r.Patch("/targets/{id}",  salesTargetUpdate(db))
 	r.Delete("/targets/{id}", salesTargetDelete(db))
 	r.Get("/targets/actuals", salesTargetActuals(db))
+
+	// Marketing analytics (Wave 5G)
+	r.Get("/by-lead-source",       salesByLeadSource(db))
+	r.Get("/campaign-attribution", salesCampaignAttribution(db))
 }
 
 // salesLoanKPIs returns LOS-based KPIs for the Sales Overview page.
@@ -466,6 +470,57 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			GROUP BY u.id, u.full_name, t.loan_count, t.disbursement_kobo
 			ORDER BY actual_kobo DESC`, periodExpr, periodExpr))
 		if err != nil { respondErr(w, 500, "DB error"); return }
+		if rows == nil { rows = []core.Row{} }
+		respond(w, rows, "pg")
+	}
+}
+
+func salesByLeadSource(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to := qstr(r, "to")
+		where, args := "WHERE 1=1", []any{}
+		if from != "" { where += fmt.Sprintf(" AND created_at::date >= $%d", len(args)+1); args = append(args, from) }
+		if to != "" { where += fmt.Sprintf(" AND created_at::date <= $%d", len(args)+1); args = append(args, to) }
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT
+			    COALESCE(lead_source,'unknown') AS lead_source,
+			    COUNT(*)                        AS total_applications,
+			    COUNT(CASE WHEN status NOT IN ('declined') THEN 1 END) AS approved,
+			    COALESCE(SUM(CASE WHEN status NOT IN ('declined') THEN amount_approved_kobo END),0) AS disbursement_kobo
+			FROM loan_applications
+			%s
+			GROUP BY COALESCE(lead_source,'unknown')
+			ORDER BY total_applications DESC`, where), args...)
+		if err != nil { respondErr(w, 500, "Query failed"); return }
+		if rows == nil { rows = []core.Row{} }
+		respond(w, rows, "pg")
+	}
+}
+
+func salesCampaignAttribution(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to := qstr(r, "to")
+		where, args := "WHERE la.campaign_id IS NOT NULL", []any{}
+		if from != "" { where += fmt.Sprintf(" AND la.created_at::date >= $%d", len(args)+1); args = append(args, from) }
+		if to != "" { where += fmt.Sprintf(" AND la.created_at::date <= $%d", len(args)+1); args = append(args, to) }
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT
+			    c.id                            AS campaign_id,
+			    c.name                          AS campaign_name,
+			    c.type                          AS campaign_type,
+			    COUNT(DISTINCT cc.contact_id)   AS contacts_reached,
+			    COUNT(la.id)                    AS applications,
+			    COUNT(CASE WHEN la.status NOT IN ('declined') THEN la.id END) AS loans_disbursed,
+			    COALESCE(SUM(CASE WHEN la.status NOT IN ('declined') THEN la.amount_approved_kobo END),0) AS disbursement_kobo
+			FROM campaigns c
+			LEFT JOIN campaign_contacts cc ON cc.campaign_id = c.id
+			LEFT JOIN loan_applications la ON la.campaign_id = c.id
+			%s
+			GROUP BY c.id, c.name, c.type
+			ORDER BY applications DESC`, where), args...)
+		if err != nil { respondErr(w, 500, "Query failed"); return }
 		if rows == nil { rows = []core.Row{} }
 		respond(w, rows, "pg")
 	}

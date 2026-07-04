@@ -38,9 +38,10 @@ const BDAnalytics  = lazy(() => import('./pages/bd/Analytics'))
 // Campaigns
 const CampaignsList     = lazy(() => import('./pages/campaigns/List'))
 const CampaignAnalytics = lazy(() => import('./pages/campaigns/Analytics'))
-const CampaignTemplates = lazy(() => import('./pages/campaigns/Templates'))
-const CampaignLists     = lazy(() => import('./pages/campaigns/ContactLists'))
-const CampaignReport    = lazy(() => import('./pages/campaigns/Report'))
+const CampaignTemplates      = lazy(() => import('./pages/campaigns/Templates'))
+const CampaignTemplateEditor = lazy(() => import('./pages/campaigns/TemplateEditor'))
+const CampaignLists          = lazy(() => import('./pages/campaigns/ContactLists'))
+const CampaignReport         = lazy(() => import('./pages/campaigns/Report'))
 
 // Approvals & Mail
 const ApprovalsPage  = lazy(() => import('./pages/Approvals'))
@@ -117,6 +118,7 @@ const AdminIntegrations          = lazy(() => import('./pages/admin/Integrations
 const AdminAuditLog              = lazy(() => import('./pages/admin/AuditLog'))
 const AdminSyncStatus            = lazy(() => import('./pages/admin/SyncStatus'))
 const AdminHelpdeskSettings      = lazy(() => import('./pages/admin/HelpdeskSettings'))
+const AdminWorkflowTemplates     = lazy(() => import('./pages/admin/WorkflowTemplates'))
 
 // Finance
 const FinanceOverview     = lazy(() => import('./pages/finance/Overview'))
@@ -148,6 +150,10 @@ const TelemarketingPerformance = lazy(() => import('./pages/telemarketing/Perfor
 const DialerCampaigns          = lazy(() => import('./pages/telemarketing/DialerCampaigns'))
 const DialerAgent              = lazy(() => import('./pages/telemarketing/DialerAgent'))
 const DialerSupervisor         = lazy(() => import('./pages/telemarketing/DialerSupervisor'))
+
+// Marketing
+const MarketingAttribution = lazy(() => import('./pages/marketing/Attribution'))
+const MarketingFunnel      = lazy(() => import('./pages/marketing/Funnel'))
 
 // Payroll
 const PayrollOverview = lazy(() => import('./pages/payroll/PayrollOverview'))
@@ -570,7 +576,9 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/bd/analytics"   element={<PageErrorBoundary><BDAnalytics /></PageErrorBoundary>} />
 
                   <Route path="/campaigns"            element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignsList /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/campaigns/templates"  element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignTemplates /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/campaigns/templates"          element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignTemplates /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/campaigns/templates/new"      element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignTemplateEditor /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/campaigns/templates/:id/edit" element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignTemplateEditor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/campaigns/lists"      element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignLists /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/campaigns/analytics"  element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignAnalytics /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/campaigns/:id/report" element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignReport /></PageErrorBoundary></RequireAccess>} />
@@ -587,6 +595,10 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/sales/applications"     element={<PageErrorBoundary><LOSQueue /></PageErrorBoundary>} />
                   <Route path="/sales/applications/new" element={<PageErrorBoundary><LOSNewApp /></PageErrorBoundary>} />
                   <Route path="/sales/applications/:id" element={<PageErrorBoundary><LOSAppDetail /></PageErrorBoundary>} />
+
+                  {/* Marketing */}
+                  <Route path="/marketing/attribution" element={<PageErrorBoundary><MarketingAttribution /></PageErrorBoundary>} />
+                  <Route path="/marketing/funnel"      element={<PageErrorBoundary><MarketingFunnel /></PageErrorBoundary>} />
 
                   {/* Contact Centre */}
                   <Route path="/telemarketing"             element={<PageErrorBoundary><TelemarketingQueue /></PageErrorBoundary>} />
@@ -708,6 +720,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/admin/audit"                 element={<PageErrorBoundary><AdminAuditLog /></PageErrorBoundary>} />
                   <Route path="/admin/sync"                  element={<PageErrorBoundary><AdminSyncStatus /></PageErrorBoundary>} />
                   <Route path="/admin/helpdesk-settings"     element={<PageErrorBoundary><AdminHelpdeskSettings /></PageErrorBoundary>} />
+                  <Route path="/admin/workflow-templates"   element={<PageErrorBoundary><AdminWorkflowTemplates /></PageErrorBoundary>} />
 
                   {/* Mail */}
                   <Route path="/mail/inbox"   element={<PageErrorBoundary><MailInbox /></PageErrorBoundary>} />
