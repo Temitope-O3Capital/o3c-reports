@@ -51,6 +51,21 @@ func RegisterHR(r chi.Router, db *core.DB) {
 
 	// Dashboard
 	r.With(read).Get("/dashboard", hrDashboard(db))
+
+	// Wave 5J — HR Advanced
+	r.With(read).Get("/org-chart",                            hrOrgChart(db))
+	r.With(read).Get("/jobs",                                 hrJobList(db))
+	r.With(mgr).Post("/jobs",                                 hrJobCreate(db))
+	r.With(mgr).Patch("/jobs/{id}",                           hrJobUpdate(db))
+	r.With(read).Get("/applicants",                           hrApplicantList(db))
+	r.With(mgr).Post("/applicants",                           hrApplicantCreate(db))
+	r.With(mgr).Patch("/applicants/{id}/stage",               hrApplicantStage(db))
+	r.With(read).Get("/employees/{id}/onboarding",            hrOnboardingGet(db))
+	r.With(mgr).Post("/employees/{id}/onboarding",            hrOnboardingInit(db))
+	r.With(mgr).Patch("/employees/{id}/onboarding/{itemId}",  hrOnboardingItem(db))
+	r.With(read).Get("/employees/{id}/offboarding",           hrOffboardingGet(db))
+	r.With(mgr).Post("/employees/{id}/exit",                  hrExitCreate(db))
+	r.With(mgr).Patch("/employees/{id}/offboarding/{itemId}", hrOffboardingItem(db))
 }
 
 // ── Employees ─────────────────────────────────────────────────────────────────
@@ -844,5 +859,301 @@ func hrDashboard(db *core.DB) http.HandlerFunc {
 		dashboard["upcoming_training"] = trainRows
 
 		respond(w, dashboard, "pg")
+	}
+}
+
+// ── Wave 5J: HR Advanced ──────────────────────────────────────────────────────
+
+// hrOrgChart returns the employee tree using manager_id self-join.
+func hrOrgChart(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT e.id,
+			       COALESCE(e.employee_number, e.staff_id) AS employee_number,
+			       e.first_name, e.last_name,
+			       e.first_name || ' ' || e.last_name AS full_name,
+			       e.job_title                         AS title,
+			       COALESCE(d.name,'')                 AS department,
+			       e.status,
+			       e.manager_id,
+			       COALESCE(m.first_name||' '||m.last_name,'') AS manager_name
+			FROM employees e
+			LEFT JOIN departments d ON d.id = e.department_id
+			LEFT JOIN employees m ON m.id = e.manager_id
+			WHERE e.status = 'active'
+			ORDER BY d.name, e.last_name`)
+		if err != nil {
+			respondErr(w, 500, "DB error"); return
+		}
+		if rows == nil { rows = []core.Row{} }
+		respond(w, rows, "pg")
+	}
+}
+
+// hrJobList lists open/paused/closed job postings.
+func hrJobList(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		status := qstr(r, "status")
+		where, args := "WHERE 1=1", []any{}
+		if status != "" {
+			where += fmt.Sprintf(" AND j.status=$%d", len(args)+1)
+			args = append(args, status)
+		}
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT j.*,
+			       (SELECT COUNT(*) FROM hr_applicants a WHERE a.job_id=j.id) AS applicant_count
+			FROM hr_jobs j %s ORDER BY j.created_at DESC`, where), args...)
+		if err != nil { respondErr(w, 500, "DB error"); return }
+		if rows == nil { rows = []core.Row{} }
+		respond(w, rows, "pg")
+	}
+}
+
+func hrJobCreate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			Title          string `json:"title"`
+			Department     string `json:"department"`
+			Location       string `json:"location"`
+			JobType        string `json:"job_type"`
+			Description    string `json:"description"`
+			MinSalaryKobo  int64  `json:"min_salary_kobo"`
+			MaxSalaryKobo  int64  `json:"max_salary_kobo"`
+			TargetDate     string `json:"target_date"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		user := core.UserFromCtx(r.Context())
+		rows, err := db.PGQuery(r.Context(),
+			`INSERT INTO hr_jobs (title,department,location,job_type,description,
+			                      min_salary_kobo,max_salary_kobo,target_date,created_by)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8,'')::date,$9) RETURNING *`,
+			b.Title, b.Department, b.Location, b.JobType, b.Description,
+			b.MinSalaryKobo, b.MaxSalaryKobo, b.TargetDate, user.ID)
+		if err != nil { respondErr(w, 500, "DB error"); return }
+		if len(rows) > 0 { respond(w, rows[0], "pg") }
+	}
+}
+
+func hrJobUpdate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var b struct {
+			Status      string `json:"status"`
+			Description string `json:"description"`
+			TargetDate  string `json:"target_date"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		rows, err := db.PGQuery(r.Context(),
+			`UPDATE hr_jobs SET status=$1, description=$2,
+			        target_date=NULLIF($3,'')::date, updated_at=NOW()
+			 WHERE id=$4 RETURNING *`,
+			b.Status, b.Description, b.TargetDate, id)
+		if err != nil || len(rows) == 0 { respondErr(w, 404, "Not found"); return }
+		respond(w, rows[0], "pg")
+	}
+}
+
+func hrApplicantList(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		jobID := qstr(r, "job_id")
+		stage := qstr(r, "stage")
+		where, args := "WHERE 1=1", []any{}
+		if jobID != "" {
+			where += fmt.Sprintf(" AND a.job_id=$%d", len(args)+1)
+			args = append(args, jobID)
+		}
+		if stage != "" {
+			where += fmt.Sprintf(" AND a.stage=$%d", len(args)+1)
+			args = append(args, stage)
+		}
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT a.*, j.title AS job_title,
+			       COALESCE(u.full_name,'') AS assignee_name
+			FROM hr_applicants a
+			JOIN hr_jobs j ON j.id = a.job_id
+			LEFT JOIN o3c_users u ON u.id = a.assigned_to
+			%s ORDER BY a.created_at DESC`, where), args...)
+		if err != nil { respondErr(w, 500, "DB error"); return }
+		if rows == nil { rows = []core.Row{} }
+		respond(w, rows, "pg")
+	}
+}
+
+func hrApplicantCreate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			JobID         int64  `json:"job_id"`
+			FullName      string `json:"full_name"`
+			Email         string `json:"email"`
+			Phone         string `json:"phone"`
+			Source        string `json:"source"`
+			Notes         string `json:"notes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		rows, err := db.PGQuery(r.Context(),
+			`INSERT INTO hr_applicants (job_id,full_name,email,phone,source,notes)
+			 VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+			b.JobID, b.FullName, b.Email, b.Phone, b.Source, b.Notes)
+		if err != nil { respondErr(w, 500, "DB error"); return }
+		if len(rows) > 0 { respond(w, rows[0], "pg") }
+	}
+}
+
+func hrApplicantStage(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var b struct {
+			Stage         string `json:"stage"`
+			InterviewDate string `json:"interview_date"`
+			Notes         string `json:"notes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		rows, err := db.PGQuery(r.Context(),
+			`UPDATE hr_applicants
+			 SET stage=$1, notes=CASE WHEN $2='' THEN notes ELSE $2 END,
+			     interview_date=NULLIF($3,'')::timestamptz, updated_at=NOW()
+			 WHERE id=$4 RETURNING *`,
+			b.Stage, b.Notes, b.InterviewDate, id)
+		if err != nil || len(rows) == 0 { respondErr(w, 404, "Not found"); return }
+		respond(w, rows[0], "pg")
+	}
+}
+
+// Default onboarding checklist tasks
+var defaultOnboardingTasks = []struct{ cat, task string }{
+	{"it_setup", "Create O3 email account"},
+	{"it_setup", "Set up laptop / workstation"},
+	{"it_setup", "Grant system access (ERP, workspace)"},
+	{"hr", "Complete employment documentation"},
+	{"hr", "NDA signed"},
+	{"hr", "Employee handbook acknowledged"},
+	{"finance", "Bank account details collected for payroll"},
+	{"finance", "Pension RSA pin collected"},
+	{"compliance", "CBN compliance training completed"},
+	{"compliance", "AML/KYC training completed"},
+	{"general", "Office tour and introductions"},
+	{"general", "1-week probation check-in scheduled"},
+}
+
+func hrOnboardingInit(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		empID := chi.URLParam(r, "id")
+		// Upsert default checklist
+		for i, t := range defaultOnboardingTasks {
+			db.PGExec(r.Context(), //nolint:errcheck
+				`INSERT INTO hr_onboarding_items (employee_id,category,task,sort_order)
+				 VALUES ($1,$2,$3,$4)
+				 ON CONFLICT DO NOTHING`,
+				empID, t.cat, t.task, i)
+		}
+		hrOnboardingGet(db)(w, r)
+	}
+}
+
+func hrOnboardingGet(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		empID := chi.URLParam(r, "id")
+		rows, _ := db.PGQuery(r.Context(),
+			`SELECT * FROM hr_onboarding_items WHERE employee_id=$1 ORDER BY sort_order`, empID)
+		if rows == nil { rows = []core.Row{} }
+		respond(w, rows, "pg")
+	}
+}
+
+func hrOnboardingItem(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		itemID := chi.URLParam(r, "itemId")
+		var b struct {
+			Status string `json:"status"`
+			Notes  string `json:"notes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		completedAt := "NULL"
+		if b.Status == "done" { completedAt = "NOW()" }
+		db.PGExec(r.Context(), fmt.Sprintf( //nolint:errcheck
+			`UPDATE hr_onboarding_items
+			 SET status=$1, notes=$2, completed_at=%s WHERE id=$3`, completedAt),
+			b.Status, b.Notes, itemID)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+var defaultOffboardingTasks = []struct{ cat, task string }{
+	{"finance", "Final payroll run completed"},
+	{"finance", "Staff loan clearance confirmed"},
+	{"it_setup", "System accounts deactivated"},
+	{"it_setup", "Equipment and access cards returned"},
+	{"hr", "Exit interview conducted"},
+	{"hr", "Relieving letter issued"},
+	{"compliance", "NDA reminder sent for post-employment obligations"},
+	{"general", "Handover notes completed"},
+}
+
+func hrExitCreate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		empID := chi.URLParam(r, "id")
+		var b struct {
+			ExitType       string `json:"exit_type"`
+			ExitDate       string `json:"exit_date"`
+			InterviewDate  string `json:"interview_date"`
+			InterviewNotes string `json:"interview_notes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		user := core.UserFromCtx(r.Context())
+		db.PGExec(r.Context(), //nolint:errcheck
+			`INSERT INTO hr_exits (employee_id,exit_type,exit_date,interview_date,interview_notes,created_by)
+			 VALUES ($1,$2,$3::date,NULLIF($4,'')::date,$5,$6)
+			 ON CONFLICT DO NOTHING`,
+			empID, b.ExitType, b.ExitDate, b.InterviewDate, b.InterviewNotes, user.ID)
+		// Auto-generate offboarding checklist
+		for i, t := range defaultOffboardingTasks {
+			db.PGExec(r.Context(), //nolint:errcheck
+				`INSERT INTO hr_offboarding_items (employee_id,category,task,sort_order)
+				 VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+				empID, t.cat, t.task, i)
+		}
+		hrOffboardingGet(db)(w, r)
+	}
+}
+
+func hrOffboardingGet(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		empID := chi.URLParam(r, "id")
+		rows, _ := db.PGQuery(r.Context(),
+			`SELECT * FROM hr_offboarding_items WHERE employee_id=$1 ORDER BY sort_order`, empID)
+		if rows == nil { rows = []core.Row{} }
+		respond(w, rows, "pg")
+	}
+}
+
+func hrOffboardingItem(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		itemID := chi.URLParam(r, "itemId")
+		var b struct {
+			Status string `json:"status"`
+			Notes  string `json:"notes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		completedAt := "NULL"
+		if b.Status == "done" { completedAt = "NOW()" }
+		db.PGExec(r.Context(), fmt.Sprintf( //nolint:errcheck
+			`UPDATE hr_offboarding_items
+			 SET status=$1, notes=$2, completed_at=%s WHERE id=$3`, completedAt),
+			b.Status, b.Notes, itemID)
+		w.WriteHeader(http.StatusNoContent)
 	}
 }

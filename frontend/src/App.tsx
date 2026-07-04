@@ -131,8 +131,11 @@ const FinanceCosts        = lazy(() => import('./pages/finance/CostTracking'))
 const FinanceBudget       = lazy(() => import('./pages/finance/Budget'))
 
 // Settlements
+const SettleOverview   = lazy(() => import('./pages/settlements/Overview'))
 const SettleBatches    = lazy(() => import('./pages/settlements/Batches'))
 const SettleNIP        = lazy(() => import('./pages/settlements/NIP'))
+const SettleNIPRecon   = lazy(() => import('./pages/settlements/NIPReconciliation'))
+const SettleRecon      = lazy(() => import('./pages/settlements/Reconciliation'))
 const SettleFailed     = lazy(() => import('./pages/settlements/FailedTransactions'))
 const SettleManualPost = lazy(() => import('./pages/settlements/ManualPostings'))
 
@@ -165,6 +168,10 @@ const HRLeave        = lazy(() => import('./pages/hr/Leave'))
 const HRPerformance  = lazy(() => import('./pages/hr/Performance'))
 const HRDisciplinary = lazy(() => import('./pages/hr/Disciplinary'))
 const HRTraining     = lazy(() => import('./pages/hr/Training'))
+const HRRecruitment  = lazy(() => import('./pages/hr/Recruitment'))
+const HROrgChart     = lazy(() => import('./pages/hr/OrgChart'))
+const HROnboarding   = lazy(() => import('./pages/hr/Onboarding'))
+const HROffboarding  = lazy(() => import('./pages/hr/Offboarding'))
 
 // ── Role → home ───────────────────────────────────────────────────────────────
 
@@ -632,10 +639,13 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/collections-ops/agent" element={<PageErrorBoundary><CollOpsAgentDash /></PageErrorBoundary>} />
 
                   {/* Settlements */}
-                  <Route path="/settlements"                 element={<PageErrorBoundary><SettleBatches /></PageErrorBoundary>} />
-                  <Route path="/settlements/nip"             element={<PageErrorBoundary><SettleNIP /></PageErrorBoundary>} />
-                  <Route path="/settlements/failed"          element={<PageErrorBoundary><SettleFailed /></PageErrorBoundary>} />
-                  <Route path="/settlements/manual-postings" element={<PageErrorBoundary><SettleManualPost /></PageErrorBoundary>} />
+                  <Route path="/settlements"                          element={<PageErrorBoundary><SettleOverview /></PageErrorBoundary>} />
+                  <Route path="/settlements/batches"                  element={<PageErrorBoundary><SettleBatches /></PageErrorBoundary>} />
+                  <Route path="/settlements/nip"                      element={<PageErrorBoundary><SettleNIP /></PageErrorBoundary>} />
+                  <Route path="/settlements/nip-recon"                element={<PageErrorBoundary><SettleNIPRecon /></PageErrorBoundary>} />
+                  <Route path="/settlements/reconciliation"           element={<PageErrorBoundary><SettleRecon /></PageErrorBoundary>} />
+                  <Route path="/settlements/failed"                   element={<PageErrorBoundary><SettleFailed /></PageErrorBoundary>} />
+                  <Route path="/settlements/manual-postings"          element={<PageErrorBoundary><SettleManualPost /></PageErrorBoundary>} />
 
                   {/* Finance */}
                   <Route path="/finance"                    element={<PageErrorBoundary><FinanceOverview /></PageErrorBoundary>} />
@@ -667,6 +677,10 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/hr/performance"   element={<PageErrorBoundary><HRPerformance /></PageErrorBoundary>} />
                   <Route path="/hr/disciplinary"  element={<PageErrorBoundary><HRDisciplinary /></PageErrorBoundary>} />
                   <Route path="/hr/training"      element={<PageErrorBoundary><HRTraining /></PageErrorBoundary>} />
+                  <Route path="/hr/recruitment"   element={<PageErrorBoundary><HRRecruitment /></PageErrorBoundary>} />
+                  <Route path="/hr/org-chart"     element={<PageErrorBoundary><HROrgChart /></PageErrorBoundary>} />
+                  <Route path="/hr/employees/:id/onboarding"  element={<PageErrorBoundary><HROnboarding /></PageErrorBoundary>} />
+                  <Route path="/hr/employees/:id/offboarding" element={<PageErrorBoundary><HROffboarding /></PageErrorBoundary>} />
 
                   <Route path="/payroll"                          element={<PageErrorBoundary><PayrollOverview /></PageErrorBoundary>} />
                   <Route path="/payroll/runs/:id"                 element={<PageErrorBoundary><PayrollRunDetail /></PageErrorBoundary>} />
