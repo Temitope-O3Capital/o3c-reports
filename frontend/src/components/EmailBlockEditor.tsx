@@ -458,23 +458,27 @@ function TemplateGallery({ onPick, onClose }: { onPick(t: typeof TEMPLATES[0]): 
 }
 
 // ── Preview Modal ──────────────────────────────────────────────────────────────
-function PreviewModal({ html, onClose }: { html: string; onClose(): void }) {
+function PreviewModal({ html, subject, onClose }: { html: string; subject: string; onClose(): void }) {
   const [mode, setMode] = useState<'desktop' | 'mobile'>('desktop')
   const [copied, setCopied] = useState(false)
+  const ff = '-apple-system, BlinkMacSystemFont, sans-serif'
+
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', zIndex: 3000, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 3000, display: 'flex', flexDirection: 'column' }}>
+
+      {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 20px', background: NAVY, flexShrink: 0 }}>
-        <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Email Preview</span>
+        <span style={{ fontSize: 14, fontWeight: 700, color: '#fff', letterSpacing: -0.2 }}>Email Preview</span>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <div style={{ display: 'flex', background: 'rgba(255,255,255,0.1)', borderRadius: 7, padding: 3 }}>
             {(['desktop', 'mobile'] as const).map(m => (
-              <button key={m} onClick={() => setMode(m)} style={{ padding: '4px 12px', borderRadius: 5, border: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5, transition: 'all 0.12s', background: mode === m ? '#fff' : 'transparent', color: mode === m ? NAVY : 'rgba(255,255,255,0.65)' }}>
+              <button key={m} onClick={() => setMode(m)} style={{ padding: '5px 14px', borderRadius: 5, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5, transition: 'all 0.15s', background: mode === m ? '#fff' : 'transparent', color: mode === m ? NAVY : 'rgba(255,255,255,0.6)' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{m === 'desktop' ? 'desktop_windows' : 'smartphone'}</span>
-                {m === 'desktop' ? 'Desktop' : 'Mobile'}
+                {m === 'desktop' ? 'Desktop (Gmail)' : 'Mobile (Gmail)'}
               </button>
             ))}
           </div>
-          <button onClick={() => { navigator.clipboard.writeText(html); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+          <button onClick={() => { navigator.clipboard.writeText(html); setCopied(true); setTimeout(() => setCopied(false), 2200) }}
             style={{ padding: '5px 14px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.22)', background: 'rgba(255,255,255,0.08)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
             <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{copied ? 'check' : 'content_copy'}</span>
             {copied ? 'Copied!' : 'Copy HTML'}
@@ -482,20 +486,128 @@ function PreviewModal({ html, onClose }: { html: string; onClose(): void }) {
           <button onClick={onClose} style={{ padding: '5px 14px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.22)', background: 'none', color: '#fff', cursor: 'pointer', fontSize: 12 }}>Close</button>
         </div>
       </div>
-      <div style={{ flex: 1, overflow: 'auto', background: '#C8CDD8', padding: 28, display: 'flex', justifyContent: 'center' }}>
-        <div style={{ width: mode === 'mobile' ? 375 : '100%', maxWidth: mode === 'desktop' ? 780 : 375, background: '#fff', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,.18)', overflow: 'hidden', transition: 'all 0.25s' }}>
-          {mode === 'mobile' && <div style={{ background: '#1e293b', padding: '10px 0 0', display: 'flex', justifyContent: 'center' }}><div style={{ width: 56, height: 5, background: '#475569', borderRadius: 3 }} /></div>}
-          <iframe srcDoc={html} style={{ width: '100%', minHeight: 680, border: 'none', display: 'block' }} title="Email preview" />
-        </div>
+
+      {/* Canvas */}
+      <div style={{ flex: 1, overflow: 'auto', background: '#b8bcc8', display: 'flex', alignItems: mode === 'mobile' ? 'center' : 'flex-start', justifyContent: 'center', padding: mode === 'mobile' ? '36px 20px' : '28px 28px' }}>
+
+        {mode === 'desktop' ? (
+          /* ── Gmail desktop ── */
+          <div style={{ width: '100%', maxWidth: 1060, background: '#fff', borderRadius: 10, overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,.3)' }}>
+            {/* Browser chrome */}
+            <div style={{ background: '#f1f3f4', padding: '10px 14px', display: 'flex', gap: 10, alignItems: 'center', borderBottom: '1px solid #dadce0' }}>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {['#ff5f57', '#febc2e', '#28c840'].map(c => <div key={c} style={{ width: 12, height: 12, borderRadius: '50%', background: c }} />)}
+              </div>
+              <div style={{ flex: 1, background: '#fff', borderRadius: 20, padding: '5px 14px', fontSize: 12, color: '#5f6368', border: '1px solid #dadce0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 11, color: '#aaa' }}>🔒</span> mail.google.com
+              </div>
+            </div>
+
+            {/* Gmail layout */}
+            <div style={{ display: 'flex', height: 680 }}>
+              {/* Sidebar */}
+              <div style={{ width: 200, background: '#fff', borderRight: '1px solid #f1f3f4', padding: '10px 0', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ padding: '4px 18px 14px', display: 'flex', gap: 1, fontSize: 18, fontWeight: 700, letterSpacing: -0.5 }}>
+                  {[['G','#4285f4'],['m','#ea4335'],['a','#fbbc04'],['i','#4285f4'],['l','#34a853']].map(([ch,c]) => <span key={ch + c} style={{ color: c as string }}>{ch}</span>)}
+                </div>
+                {[['Inbox', true], ['Starred', false], ['Sent', false], ['Drafts', false]].map(([label, active]) => (
+                  <div key={label as string} style={{ padding: '7px 16px', fontSize: 13.5, fontWeight: active ? 700 : 400, background: active ? '#d3e3fd' : 'transparent', borderRadius: active ? '0 20px 20px 0' : 0, color: active ? '#001d35' : '#444746', cursor: 'default', marginRight: active ? 8 : 0 }}>{label}</div>
+                ))}
+              </div>
+
+              {/* Email open */}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: 'Roboto, Arial, sans-serif' }}>
+                {/* Subject + meta */}
+                <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid #f1f3f4', flexShrink: 0 }}>
+                  <div style={{ fontSize: 20, fontWeight: 500, color: '#202124', marginBottom: 12 }}>{subject || '(no subject)'}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: NAVY, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, flexShrink: 0 }}>O</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, color: '#202124' }}>
+                        <strong>O3 Capital</strong>
+                        <span style={{ color: '#5f6368', fontWeight: 400 }}> &lt;noreply@o3capital.ng&gt;</span>
+                      </div>
+                      <div style={{ fontSize: 12.5, color: '#5f6368', marginTop: 2 }}>to me</div>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: '#5f6368' }}>9:41 AM</div>
+                  </div>
+                </div>
+                {/* Body */}
+                <div style={{ flex: 1, overflow: 'auto' }}>
+                  <iframe srcDoc={html} style={{ width: '100%', height: '100%', border: 'none', display: 'block' }} title="Email preview" />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* ── Gmail on iPhone ── */
+          <div style={{ position: 'relative', width: 295 }}>
+            {/* Side buttons */}
+            <div style={{ position: 'absolute', left: -3, top: 88, width: 3, height: 28, background: '#3a3a3c', borderRadius: '2px 0 0 2px' }} />
+            <div style={{ position: 'absolute', left: -3, top: 126, width: 3, height: 54, background: '#3a3a3c', borderRadius: '2px 0 0 2px' }} />
+            <div style={{ position: 'absolute', left: -3, top: 190, width: 3, height: 54, background: '#3a3a3c', borderRadius: '2px 0 0 2px' }} />
+            <div style={{ position: 'absolute', right: -3, top: 148, width: 3, height: 72, background: '#3a3a3c', borderRadius: '0 2px 2px 0' }} />
+
+            {/* Body */}
+            <div style={{ background: 'linear-gradient(160deg, #2d2d2f 0%, #1c1c1e 100%)', borderRadius: 50, padding: 10, boxShadow: '0 0 0 1px rgba(255,255,255,0.08), 0 0 0 2px #0a0a0a, 0 60px 120px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.1)' }}>
+              {/* Screen */}
+              <div style={{ borderRadius: 40, overflow: 'hidden', background: '#fff', height: 620, display: 'flex', flexDirection: 'column' }}>
+                {/* Dynamic Island */}
+                <div style={{ position: 'relative', height: 54, flexShrink: 0 }}>
+                  <div style={{ position: 'absolute', top: 13, left: '50%', transform: 'translateX(-50%)', width: 116, height: 33, background: '#000', borderRadius: 20, zIndex: 2 }} />
+                  {/* Status bar */}
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'flex-end', padding: '0 22px 8px', justifyContent: 'space-between', fontFamily: ff, zIndex: 1 }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 700, letterSpacing: -0.3 }}>9:41</span>
+                    <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                      <svg width="17" height="12" viewBox="0 0 17 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="#000"/><rect x="4.5" y="5.5" width="3" height="6.5" rx="1" fill="#000"/><rect x="9" y="2.5" width="3" height="9.5" rx="1" fill="#000"/><rect x="13.5" y="0" width="3" height="12" rx="1" fill="#000" opacity="0.25"/></svg>
+                      <svg width="16" height="12" viewBox="0 0 16 12"><path d="M8 9.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z" fill="#000"/><path d="M3.2 6.3C4.6 4.9 6.2 4.2 8 4.2s3.4.7 4.8 2.1" stroke="#000" strokeWidth="1.5" fill="none" strokeLinecap="round"/><path d="M.5 3.5C2.4 1.6 5 .5 8 .5s5.6 1.1 7.5 3" stroke="#000" strokeWidth="1.5" fill="none" strokeLinecap="round"/></svg>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <div style={{ width: 23, height: 12, borderRadius: 3.5, border: '1px solid rgba(0,0,0,0.3)', padding: '1.5px' }}><div style={{ width: '82%', height: '100%', background: '#34C759', borderRadius: 2 }} /></div>
+                        <div style={{ width: 2, height: 5, background: 'rgba(0,0,0,0.3)', borderRadius: '0 1.5px 1.5px 0', marginLeft: -1 }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Gmail app */}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, fontFamily: 'Roboto, Arial, sans-serif' }}>
+                  {/* Header */}
+                  <div style={{ padding: '6px 12px 8px', display: 'flex', alignItems: 'center', gap: 8, background: '#fff', borderBottom: '1px solid #f1f3f4', flexShrink: 0 }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="#5f6368"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                    <div style={{ flex: 1, fontSize: 14, fontWeight: 500, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subject || '(no subject)'}</div>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="#5f6368"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+                  </div>
+                  {/* Sender */}
+                  <div style={{ padding: '8px 12px 6px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '0.5px solid #f1f3f4', flexShrink: 0 }}>
+                    <div style={{ width: 34, height: 34, borderRadius: '50%', background: NAVY, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>O</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: '#202124' }}>O3 Capital</div>
+                      <div style={{ fontSize: 11, color: '#5f6368' }}>to me · 9:41 AM</div>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="#5f6368"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 3l5 5h-3v5h-4v-5H7l5-5z"/></svg>
+                  </div>
+                  {/* Body */}
+                  <div style={{ flex: 1, overflow: 'auto' }}>
+                    <iframe srcDoc={html} style={{ width: '100%', height: '100%', border: 'none', display: 'block' }} title="Email mobile preview" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 // ── Main export ────────────────────────────────────────────────────────────────
-interface EmailBlockEditorProps { value?: EditorValue; onChange?: (v: EditorValue) => void }
+interface EmailBlockEditorProps {
+  value?: EditorValue
+  onChange?: (v: EditorValue) => void
+  previewSubject?: string
+}
 
-export default function EmailBlockEditor({ value, onChange }: EmailBlockEditorProps) {
+export default function EmailBlockEditor({ value, onChange, previewSubject = '' }: EmailBlockEditorProps) {
   const [settings, setSettings]           = useState<EmailSettings>(value?.settings || { background: '#E8ECF2', contentWidth: 660 })
   const { value: blocks, push, undo, redo, canUndo, canRedo } = useHistory<EmailBlock[]>((value?.blocks || []).map(b => ({ ...b, id: b.id || uid() })))
   const [selectedId, setSelectedId]       = useState<string | null>(null)
@@ -647,7 +759,7 @@ export default function EmailBlockEditor({ value, onChange }: EmailBlockEditorPr
       </div>
 
       {showTemplates && <TemplateGallery onPick={t => { push(t.blocks.map(b => ({ ...b, id: uid() }))); setSelectedId(null); setShowTemplates(false) }} onClose={() => setShowTemplates(false)} />}
-      {preview && <PreviewModal html={previewHtml} onClose={() => setPreview(false)} />}
+      {preview && <PreviewModal html={previewHtml} subject={previewSubject} onClose={() => setPreview(false)} />}
     </div>
   )
 }
