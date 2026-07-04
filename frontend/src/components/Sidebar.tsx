@@ -89,6 +89,9 @@ const SECTIONS: Section[] = [
           { label: 'Marketing Leads',  to: '/telemarketing/leads' },
           { label: 'DNC List',         to: '/telemarketing/dnc' },
           { label: 'Performance',      to: '/telemarketing/performance' },
+          { label: 'Dialer Campaigns', to: '/telemarketing/dialer' },
+          { label: 'Dialer Agent',     to: '/telemarketing/dialer/agent' },
+          { label: 'Dialer Supervisor',to: '/telemarketing/dialer/supervisor' },
         ],
       },
       {
@@ -139,6 +142,7 @@ const SECTIONS: Section[] = [
           { label: 'Portfolio Health', to: '/operations/risk/portfolio' },
           { label: 'Eye Credit Score', to: '/operations/risk/eye' },
           { label: 'Vintage Analysis', to: '/operations/risk/vintage' },
+          { label: 'Credit File',      to: '/operations/risk/credit-file' },
         ],
       },
       {
@@ -150,6 +154,7 @@ const SECTIONS: Section[] = [
           { label: 'Promises to Pay', to: '/collections/promises' },
           { label: 'Repayment Plans', to: '/collections/repayment-plans' },
           { label: 'Write-off Queue', to: '/collections/writeoffs' },
+          { label: 'My Dashboard',    to: '/collections-ops/agent' },
         ],
       },
       {
@@ -160,6 +165,7 @@ const SECTIONS: Section[] = [
           { label: 'Cases',          to: '/recovery/cases' },
           { label: 'Legal Tracker',  to: '/recovery/legal' },
           { label: 'TPA Management', to: '/recovery/tpa' },
+          { label: 'Debt Sales',     to: '/recovery/debt-sales' },
         ],
       },
       {
@@ -210,6 +216,8 @@ const SECTIONS: Section[] = [
           { label: 'Findings',            to: '/compliance/findings' },
           { label: 'Checklists',          to: '/compliance/checklists' },
           { label: 'Audit Trail',         to: '/compliance/audit-trail' },
+          { label: 'KYC Expiry',          to: '/compliance/kyc-expiry' },
+          { label: 'AML Rules',           to: '/compliance/aml-rules' },
         ],
       },
     ],

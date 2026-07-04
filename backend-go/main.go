@@ -82,6 +82,7 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware(cfg.AllowedOrigins))
 	r.Use(securityHeaders)
+	r.Use(bodySizeLimit(8 << 20)) // 8 MB cap on request bodies
 	// Use rightmost X-Forwarded-For IP as the rate-limit key (Railway appends the real IP last).
 	r.Use(httprate.Limit(300, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
 		return rightmostIP(r), nil
@@ -151,6 +152,16 @@ func main() {
 			r.Use(core.AuthMiddleware)
 			r.Use(activityLogger(db))
 			handlers.RegisterZoho(r, db)
+		})
+	})
+
+	// Predictive dialer — webhook is unauthenticated (Zoho Voice fires it)
+	r.Post("/api/dialer/webhook", handlers.RegisterDialerWebhookOnly(db))
+	r.Route("/api/dialer", func(r chi.Router) {
+		r.Group(func(r chi.Router) {
+			r.Use(core.AuthMiddleware)
+			r.Use(activityLogger(db))
+			handlers.RegisterDialer(r, db)
 		})
 	})
 
@@ -453,8 +464,26 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'none'; "+
+				"script-src 'self'; "+
+				"connect-src 'self'; "+
+				"img-src 'self' data:; "+
+				"style-src 'self' 'unsafe-inline'; "+
+				"font-src 'self' data:; "+
+				"frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// bodySizeLimit caps request body at maxBytes to prevent memory exhaustion.
+func bodySizeLimit(maxBytes int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // ── Health ─────────────────────────────────────────────────────────────────────

@@ -85,7 +85,7 @@ function openRate(c: Campaign): number {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-const BLANK = { name: '', type: 'email', list_id: '', scheduled_at: '' }
+const BLANK = { name: '', description: '', type: 'email', list_id: '', scheduled_at: '' }
 
 // BD roles can view campaigns but cannot create, start, pause, or cancel them.
 const CAMPAIGN_READ_ONLY = new Set(['bd_officer', 'bd_head'])
@@ -137,7 +137,8 @@ export default function CampaignsList() {
     if (!form.name.trim()) return
     setSaving(true); setActionErr(null)
     try {
-      const body: Record<string, any> = { name: form.name, type: form.type }
+      const body: Record<string, any> = { name: form.name.trim(), type: form.type }
+      if (form.description.trim()) body.description = form.description.trim()
       if (form.list_id) body.list_id = Number(form.list_id)
       if (form.scheduled_at) body.scheduled_at = form.scheduled_at
       await apiPost('/api/campaigns', body)
@@ -314,60 +315,93 @@ export default function CampaignsList() {
         open={showCreate}
         onClose={() => { setShowCreate(false); setForm(BLANK); setActionErr(null) }}
         title="New Campaign"
-        width={460}
+        width={580}
         footer={
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={() => { setShowCreate(false); setForm(BLANK); setActionErr(null) }} style={btnSecondary}>Cancel</button>
-            <button onClick={create} disabled={saving || !form.name.trim()} style={btnPrimary}>
-              {saving ? 'Creating…' : 'Create Campaign'}
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ fontSize: 12, color: RED }}>{actionErr || ''}</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => { setShowCreate(false); setForm(BLANK); setActionErr(null) }} style={btnSecondary}>Cancel</button>
+              <button onClick={create} disabled={saving || !form.name.trim()} style={btnPrimary}>
+                {saving ? 'Creating…' : 'Create Campaign'}
+              </button>
+            </div>
           </div>
         }
       >
-        {actionErr && <div style={{ color: RED, fontSize: 12.5, marginBottom: 10 }}>{actionErr}</div>}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Name */}
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
-              Campaign Name *
-            </label>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>CAMPAIGN NAME *</div>
             <input
               value={form.name}
               onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
               placeholder="e.g. July Card Activation Drive"
-              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }}
+              autoFocus
+              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', height: 36 }}
             />
           </div>
+
+          {/* Description */}
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
-              Channel
-            </label>
-            <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} style={filterInputStyle}>
-              <option value="email">Email</option>
-              <option value="sms">SMS</option>
-              <option value="multi">Multi-channel</option>
-            </select>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>DESCRIPTION <span style={{ fontWeight: 400, color: 'var(--txt3)' }}>(optional)</span></div>
+            <textarea
+              value={form.description}
+              onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+              placeholder="Brief description of this campaign's goal"
+              rows={2}
+              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', height: 'auto', resize: 'none', lineHeight: 1.6, padding: '8px 12px' }}
+            />
           </div>
+
+          {/* Channel */}
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
-              Contact List
-            </label>
-            <select value={form.list_id} onChange={e => setForm(f => ({ ...f, list_id: e.target.value }))} style={filterInputStyle}>
-              <option value="">— Select a list —</option>
-              {lists.map(l => (
-                <option key={l.id} value={l.id}>{l.name} ({fmtNum(Number(l.member_count ?? 0))} members)</option>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 8 }}>CHANNEL</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {([
+                { value: 'email', icon: 'mail',       label: 'Email' },
+                { value: 'sms',   icon: 'smartphone', label: 'SMS' },
+                { value: 'multi', icon: 'hub',        label: 'Multi-channel' },
+              ] as const).map(ch => (
+                <button
+                  key={ch.value}
+                  onClick={() => setForm(f => ({ ...f, type: ch.value }))}
+                  style={{
+                    flex: 1, padding: '10px 8px', borderRadius: 8, cursor: 'pointer',
+                    border: `1.5px solid ${form.type === ch.value ? BLUE : 'var(--bdr)'}`,
+                    background: form.type === ch.value ? `${BLUE}10` : 'var(--card)',
+                    color: form.type === ch.value ? BLUE : 'var(--txt2)',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                    fontSize: 12, fontWeight: 600, fontFamily: INTER, transition: 'all 0.12s',
+                  }}
+                >
+                  <span className="material-symbols-rounded" style={{ fontSize: 20 }}>{ch.icon}</span>
+                  {ch.label}
+                </button>
               ))}
-            </select>
+            </div>
           </div>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
-              Schedule Date (optional)
-            </label>
-            <input
-              type="datetime-local"
-              value={form.scheduled_at}
-              onChange={e => setForm(f => ({ ...f, scheduled_at: e.target.value }))}
-              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }}
-            />
+
+          {/* Contact list + Schedule (2-col) */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>CONTACT LIST</div>
+              <select value={form.list_id} onChange={e => setForm(f => ({ ...f, list_id: e.target.value }))}
+                style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', height: 36 }}>
+                <option value="">— Select a list —</option>
+                {lists.map(l => (
+                  <option key={l.id} value={l.id}>{l.name} ({fmtNum(Number(l.member_count ?? 0))})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>SCHEDULE <span style={{ fontWeight: 400 }}>(optional)</span></div>
+              <input
+                type="datetime-local"
+                value={form.scheduled_at}
+                onChange={e => setForm(f => ({ ...f, scheduled_at: e.target.value }))}
+                style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', height: 36 }}
+              />
+            </div>
           </div>
         </div>
       </Modal>

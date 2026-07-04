@@ -251,6 +251,11 @@ func startDispatch(db *core.DB, campaignID int64) {
 	}
 	go func() {
 		defer campaignDispatchWorkers.Delete(campaignID)
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("Campaign dispatch panic recovered", "campaign_id", campaignID, "panic", r)
+			}
+		}()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 		defer cancel()
 		if !acquireCampaignDispatchLock(ctx, db, campaignID) {

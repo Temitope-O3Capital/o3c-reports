@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,6 +40,7 @@ func RegisterAdmin(r chi.Router, db *core.DB) {
 	r.Put("/roles/{name}", updateRole(db))
 	r.Delete("/roles/{name}", deleteRole(db))
 	r.Get("/activity", getActivity(db))
+	r.Get("/activity/export", exportActivityCSV(db))
 	r.Get("/users/{id}/activity", getUserActivity(db))
 	r.Get("/users/{id}/sessions", getUserSessions(db))
 
@@ -568,6 +570,59 @@ func getActivity(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// exportActivityCSV streams the activity log as a CSV file with chunked
+// transfer encoding — no row cap, no full-table load into memory.
+func exportActivityCSV(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID := r.URL.Query().Get("user_id")
+		from   := r.URL.Query().Get("from")
+		to     := r.URL.Query().Get("to")
+
+		q := `SELECT a.ts, u.full_name, u.email, u.role, a.page, a.action, a.detail, a.ip
+		      FROM o3c_activity_log a LEFT JOIN o3c_users u ON u.id = a.user_id WHERE 1=1`
+		var args []any
+		if userID != "" {
+			args = append(args, userID)
+			q += " AND a.user_id=$" + itoa(len(args))
+		}
+		if from != "" {
+			args = append(args, from)
+			q += " AND a.ts >= $" + itoa(len(args)) + "::timestamptz"
+		}
+		if to != "" {
+			args = append(args, to)
+			q += " AND a.ts <= $" + itoa(len(args)) + "::timestamptz"
+		}
+		q += " ORDER BY a.ts DESC"
+
+		rows, err := db.PGQuery(r.Context(), q, args...)
+		if err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="activity_export.csv"`)
+		w.Header().Set("Transfer-Encoding", "chunked")
+
+		cw := csv.NewWriter(w)
+		cw.Write([]string{"timestamp", "user_name", "email", "role", "page", "action", "detail", "ip"}) //nolint:errcheck
+		for _, row := range rows {
+			cw.Write([]string{ //nolint:errcheck
+				str(row["ts"]),
+				str(row["full_name"]),
+				str(row["email"]),
+				str(row["role"]),
+				str(row["page"]),
+				str(row["action"]),
+				str(row["detail"]),
+				str(row["ip"]),
+			})
+		}
+		cw.Flush()
+	}
+}
+
 // ── small utils ───────────────────────────────────────────────────────────────
 
 const pwAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%"
@@ -883,6 +938,7 @@ func pingExternalAPI(keyName, category, value string) (status, detail string) {
 func getUserActivity(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
+		limit := qint(r, "limit", 200, 1, 5000)
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT id, page, action, detail, ip,
 			       COALESCE(resource,'') AS resource,
@@ -891,7 +947,7 @@ func getUserActivity(db *core.DB) http.HandlerFunc {
 			FROM o3c_activity_log
 			WHERE user_id = $1
 			ORDER BY ts DESC
-			LIMIT 200`, id)
+			LIMIT $2`, id, limit)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return

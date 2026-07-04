@@ -72,12 +72,17 @@ const RiskAppReview    = lazy(() => import('./pages/risk/AppReview'))
 const RiskPortfolio    = lazy(() => import('./pages/risk/PortfolioHealth'))
 const RiskEyeScore     = lazy(() => import('./pages/risk/EyeScore'))
 const RiskVintage      = lazy(() => import('./pages/risk/VintageAnalysis'))
+const RiskCreditFile   = lazy(() => import('./pages/risk/CreditFile'))
 
 // Recovery
 const RecoveryOverview = lazy(() => import('./pages/recovery/Overview'))
 const RecoveryCases    = lazy(() => import('./pages/recovery/Cases'))
 const RecoveryLegal    = lazy(() => import('./pages/recovery/Legal'))
 const RecoveryTPA      = lazy(() => import('./pages/recovery/TPA'))
+const RecoveryDebtSale = lazy(() => import('./pages/recovery/DebtSale'))
+
+// Collections Ops
+const CollOpsAgentDash = lazy(() => import('./pages/collections-ops/AgentDashboard'))
 
 // Helpdesk
 const HelpdeskTickets     = lazy(() => import('./pages/helpdesk/Tickets'))
@@ -134,6 +139,9 @@ const TelemarketingQueue       = lazy(() => import('./pages/telemarketing/Queue'
 const TelemarketingLeads       = lazy(() => import('./pages/telemarketing/Leads'))
 const TelemarketingDNC         = lazy(() => import('./pages/telemarketing/DNC'))
 const TelemarketingPerformance = lazy(() => import('./pages/telemarketing/Performance'))
+const DialerCampaigns          = lazy(() => import('./pages/telemarketing/DialerCampaigns'))
+const DialerAgent              = lazy(() => import('./pages/telemarketing/DialerAgent'))
+const DialerSupervisor         = lazy(() => import('./pages/telemarketing/DialerSupervisor'))
 
 // Payroll
 const PayrollOverview = lazy(() => import('./pages/payroll/PayrollOverview'))
@@ -146,6 +154,8 @@ const ComplianceRegCalendar = lazy(() => import('./pages/compliance/RegulatoryCa
 const ComplianceFindings    = lazy(() => import('./pages/compliance/Findings'))
 const ComplianceChecklists  = lazy(() => import('./pages/compliance/Checklists'))
 const ComplianceAuditTrail  = lazy(() => import('./pages/compliance/AuditTrail'))
+const ComplianceKYCExpiry   = lazy(() => import('./pages/compliance/KYCExpiry'))
+const ComplianceAMLRules    = lazy(() => import('./pages/compliance/AMLRules'))
 
 // HR
 const HREmployees    = lazy(() => import('./pages/hr/Employees'))
@@ -557,7 +567,10 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/telemarketing/queue"       element={<PageErrorBoundary><TelemarketingQueue /></PageErrorBoundary>} />
                   <Route path="/telemarketing/leads"       element={<PageErrorBoundary><TelemarketingLeads /></PageErrorBoundary>} />
                   <Route path="/telemarketing/dnc"         element={<PageErrorBoundary><TelemarketingDNC /></PageErrorBoundary>} />
-                  <Route path="/telemarketing/performance" element={<PageErrorBoundary><TelemarketingPerformance /></PageErrorBoundary>} />
+                  <Route path="/telemarketing/performance"        element={<PageErrorBoundary><TelemarketingPerformance /></PageErrorBoundary>} />
+                  <Route path="/telemarketing/dialer"            element={<PageErrorBoundary><DialerCampaigns /></PageErrorBoundary>} />
+                  <Route path="/telemarketing/dialer/agent"      element={<PageErrorBoundary><DialerAgent /></PageErrorBoundary>} />
+                  <Route path="/telemarketing/dialer/supervisor" element={<PageErrorBoundary><DialerSupervisor /></PageErrorBoundary>} />
 
                   <Route path="/helpdesk"                element={<PageErrorBoundary><HelpdeskTickets /></PageErrorBoundary>} />
                   <Route path="/helpdesk/tickets"        element={<PageErrorBoundary><HelpdeskTickets /></PageErrorBoundary>} />
@@ -582,6 +595,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/operations/risk/portfolio"    element={<PageErrorBoundary><RiskPortfolio /></PageErrorBoundary>} />
                   <Route path="/operations/risk/eye"          element={<PageErrorBoundary><RiskEyeScore /></PageErrorBoundary>} />
                   <Route path="/operations/risk/vintage"      element={<PageErrorBoundary><RiskVintage /></PageErrorBoundary>} />
+                  <Route path="/operations/risk/credit-file"  element={<PageErrorBoundary><RiskCreditFile /></PageErrorBoundary>} />
 
                   {/* Collections */}
                   <Route path="/collections"                 element={<PageErrorBoundary><CollectionsOverview /></PageErrorBoundary>} />
@@ -591,10 +605,14 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/collections/writeoffs"       element={<PageErrorBoundary><CollectionsWriteoffs /></PageErrorBoundary>} />
 
                   {/* Recovery */}
-                  <Route path="/recovery"       element={<PageErrorBoundary><RecoveryOverview /></PageErrorBoundary>} />
-                  <Route path="/recovery/cases" element={<PageErrorBoundary><RecoveryCases /></PageErrorBoundary>} />
-                  <Route path="/recovery/legal" element={<PageErrorBoundary><RecoveryLegal /></PageErrorBoundary>} />
-                  <Route path="/recovery/tpa"   element={<PageErrorBoundary><RecoveryTPA /></PageErrorBoundary>} />
+                  <Route path="/recovery"            element={<PageErrorBoundary><RecoveryOverview /></PageErrorBoundary>} />
+                  <Route path="/recovery/cases"      element={<PageErrorBoundary><RecoveryCases /></PageErrorBoundary>} />
+                  <Route path="/recovery/legal"      element={<PageErrorBoundary><RecoveryLegal /></PageErrorBoundary>} />
+                  <Route path="/recovery/tpa"        element={<PageErrorBoundary><RecoveryTPA /></PageErrorBoundary>} />
+                  <Route path="/recovery/debt-sales" element={<PageErrorBoundary><RecoveryDebtSale /></PageErrorBoundary>} />
+
+                  {/* Collections Ops */}
+                  <Route path="/collections-ops/agent" element={<PageErrorBoundary><CollOpsAgentDash /></PageErrorBoundary>} />
 
                   {/* Settlements */}
                   <Route path="/settlements"                 element={<PageErrorBoundary><SettleBatches /></PageErrorBoundary>} />
@@ -622,6 +640,8 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/compliance/findings"    element={<PageErrorBoundary><ComplianceFindings /></PageErrorBoundary>} />
                   <Route path="/compliance/checklists"  element={<PageErrorBoundary><ComplianceChecklists /></PageErrorBoundary>} />
                   <Route path="/compliance/audit-trail" element={<PageErrorBoundary><ComplianceAuditTrail /></PageErrorBoundary>} />
+                  <Route path="/compliance/kyc-expiry"  element={<PageErrorBoundary><ComplianceKYCExpiry /></PageErrorBoundary>} />
+                  <Route path="/compliance/aml-rules"   element={<PageErrorBoundary><ComplianceAMLRules /></PageErrorBoundary>} />
 
                   {/* People */}
                   <Route path="/hr"               element={<Navigate to="/hr/employees" replace />} />
