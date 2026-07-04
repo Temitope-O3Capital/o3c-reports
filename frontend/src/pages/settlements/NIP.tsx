@@ -2,9 +2,9 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, ErrBanner, FilterBar, filterInputStyle, StatusBadge, Modal } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { DataTable } from '../../components/UI'
-import { apiFetch, apiPut } from '../../lib/api'
-import { fmtKobo, fmtDate, today } from '../../lib/fmt'
-import { GREEN, RED, AMBER, NUM } from '../../lib/design'
+import { apiFetch, apiPut, apiPost } from '../../lib/api'
+import { fmtKobo, fmtKoboExact, fmtNum, fmtDate, today } from '../../lib/fmt'
+import { GREEN, RED, AMBER, NAVY, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -106,6 +106,117 @@ function ResolveModal({ open, rowId, onClose, onSuccess }: ResolveModalProps) {
   )
 }
 
+// ── KPI strip ─────────────────────────────────────────────────────────────────
+
+function NipKpis({ rows }: { rows: NIPRow[] }) {
+  const total   = rows.length
+  const matched = rows.filter(r => r.match_status.toLowerCase() === 'matched').length
+  const unmatched = rows.filter(r => r.match_status.toLowerCase() === 'unmatched').length
+  const exceptions = rows.filter(r => r.match_status.toLowerCase() === 'exception').length
+  const rate = total > 0 ? (matched / total) * 100 : 100
+  const rateColor = rate >= 99 ? GREEN : rate >= 95 ? AMBER : RED
+
+  const nipTotal = rows.reduce((s, r) => s + r.amount_kobo, 0)
+  const cbTotal  = rows.filter(r => r.core_banking_credited).reduce((s, r) => s + r.amount_kobo, 0)
+  const delta    = nipTotal - cbTotal
+  const deltaColor = delta === 0 ? GREEN : delta < 500000 ? AMBER : RED
+
+  // Exception aging (computed from value_date)
+  const now = new Date()
+  const aging = { same: 0, d1: 0, d2_7: 0, gt7: 0 }
+  rows.filter(r => r.match_status.toLowerCase() === 'exception').forEach(r => {
+    const days = (now.getTime() - new Date(r.value_date).getTime()) / 86400000
+    if (days < 1) aging.same++
+    else if (days < 2) aging.d1++
+    else if (days <= 7) aging.d2_7++
+    else aging.gt7++
+  })
+
+  const kpis = [
+    { label: 'Total Entries', value: fmtNum(total), icon: 'receipt_long', accent: NAVY },
+    { label: 'Matched', value: fmtNum(matched), icon: 'check_circle', accent: GREEN },
+    { label: 'Unmatched', value: fmtNum(unmatched), icon: 'hourglass_empty', accent: AMBER },
+    { label: 'Exceptions', value: fmtNum(exceptions), icon: 'warning', accent: RED },
+    { label: 'Recon Rate', value: `${rate.toFixed(1)}%`, icon: 'analytics', accent: rateColor },
+  ]
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+      {/* KPI row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 10 }}>
+        {kpis.map(k => (
+          <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 11, padding: '12px 14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 7 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--txt2)' }}>{k.label}</span>
+              <div style={{ width: 24, height: 24, borderRadius: 6, background: `${k.accent}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 13, color: k.accent }}>{k.icon}</span>
+              </div>
+            </div>
+            <div style={{ ...NUM, fontSize: 19, fontWeight: 700, color: 'var(--txt)' }}>{k.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Volume comparison + exception aging */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        {/* Volume comparison */}
+        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 11, padding: '12px 14px' }}>
+          <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', margin: '0 0 10px' }}>Volume Comparison</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {[
+              { label: 'NIP Total', value: nipTotal, color: NAVY },
+              { label: 'Core Banking Credited', value: cbTotal, color: GREEN },
+            ].map(row => (
+              <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: row.color, display: 'inline-block' }} />
+                  <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{row.label}</span>
+                </div>
+                <span style={{ ...NUM, fontSize: 13, fontWeight: 700, color: row.color }}>{fmtKoboExact(row.value)}</span>
+              </div>
+            ))}
+            <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>Delta (at risk)</span>
+              <span style={{ ...NUM, fontSize: 13, fontWeight: 700, color: deltaColor }}>{delta === 0 ? '₦0.00' : fmtKoboExact(delta)}</span>
+            </div>
+          </div>
+          {/* Recon rate bar */}
+          <div style={{ marginTop: 10 }}>
+            <div style={{ height: 5, borderRadius: 3, background: 'var(--bdr)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${rate}%`, background: rateColor, borderRadius: 3, transition: 'width 0.5s ease' }} />
+            </div>
+          </div>
+        </div>
+
+        {/* Exception aging */}
+        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 11, padding: '12px 14px' }}>
+          <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', margin: '0 0 10px' }}>Exception Aging</p>
+          {exceptions === 0 ? (
+            <div style={{ textAlign: 'center', padding: '10px 0', color: GREEN }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 24, display: 'block', marginBottom: 4 }}>check_circle</span>
+              <span style={{ fontSize: 12 }}>No open exceptions</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {[
+                { label: 'Today (< 1 day)', count: aging.same, color: AMBER },
+                { label: '1–2 days', count: aging.d1, color: AMBER },
+                { label: '2–7 days', count: aging.d2_7, color: RED },
+                { label: '> 7 days (stale)', count: aging.gt7, color: RED },
+              ].map(b => b.count > 0 && (
+                <div key={b.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: '1px solid var(--bdr)' }}>
+                  <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{b.label}</span>
+                  <span style={{ ...NUM, fontSize: 13, fontWeight: 700, color: b.color }}>{b.count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function NIPReconciliation() {
@@ -167,9 +278,16 @@ export default function NIPReconciliation() {
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
-  function handleMarkResolved() {
-    toast.info('Marked as resolved')
-    setCheckedIds(new Set())
+  async function handleMarkResolved() {
+    const ids = Array.from(checkedIds)
+    try {
+      await apiPost('/api/settlements/nip/bulk-resolve', { ids, resolution_type: 'Manual Match' })
+      toast.success(`${ids.length} exception${ids.length > 1 ? 's' : ''} resolved`)
+      setCheckedIds(new Set())
+      load()
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Bulk resolve failed')
+    }
   }
 
   const cols: TableCol<NIPRow>[] = [
@@ -235,8 +353,10 @@ export default function NIPReconciliation() {
   ) : undefined
 
   return (
-    <Page title="NIP Reconciliation" subtitle="Match and resolve NIP settlement entries">
+    <Page title="NIP Reconciliation" subtitle="Match and resolve NIP settlement entries against core banking credits">
       <ErrBanner error={error} onRetry={load} />
+
+      <NipKpis rows={rows} />
 
       <SectionCard title="NIP Entries" badge={sorted.length} padding={false}>
         <div style={{ padding: '12px 16px 0' }}>

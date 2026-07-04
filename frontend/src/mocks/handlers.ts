@@ -1280,10 +1280,138 @@ const SETTLEMENTS = [
     }))
   )),
   http.put(u('/api/settlements/nip/:id'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/settlements/nip/bulk-resolve'), () => new HttpResponse(null, { status: 204 })),
   http.get(u('/api/settlements/nip-recon'), () => ok({
-    batches: [], exceptions: [],
+    batches: Array.from({ length: 8 }, (_, i) => ({
+      id: i+1, batch_date: isoDate(i), batch_ref: `NIP-BATCH-${2025_07_00+i}`,
+      batch_type: pick(['incoming','outgoing']), txn_count: rng(80,400),
+      total_credits: rng(50,500)*1_000_000_00, total_debits: rng(10,100)*1_000_000_00,
+      exception_count: rng(0,5), status: pick(['reconciled','pending','exceptions']),
+    })),
+    exceptions: Array.from({ length: 12 }, (_, i) => ({
+      id: i+1, batch_id: rng(1,8), txn_date: isoDate(rng(0,5)),
+      txn_ref: `TXN${rng(10000000,99999999)}`,
+      batch_ref: `NIP-BATCH-${2025_07_00+rng(0,7)}`,
+      amount_kobo: rng(1,20)*1_000_000_00,
+      exception_type: pick(['UNMATCHED_CREDIT','DUPLICATE_POSTING','AMOUNT_MISMATCH','MISSING_CIF']),
+      description: 'Core banking credit not found for inbound NIP transfer',
+      status: pick(['open','open','open','resolved']),
+      resolved_by_name: '', resolved_at: '', resolution_note: '',
+    })),
   })),
   http.post(u('/api/settlements/nip-recon'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/settlements/nip-recon/exceptions/:id/resolve'), () => new HttpResponse(null, { status: 204 })),
+
+  // Settlements overview
+  http.get(u('/api/settlements/overview'), () => ok({
+    settled_today_kobo: 1_240_000_000_00,
+    pending_kobo:         32_500_000_00,
+    failed_count: 4,
+    success_rate_pct: 98.7,
+    nip: {
+      total: 1847,
+      matched: 1832,
+      unmatched: 8,
+      exception_count: 7,
+      exception_value_kobo: 14_250_000_00,
+      reconciliation_rate_pct: 99.2,
+    },
+    paystack: {
+      configured: true,
+      wallet_balance_kobo: 87_300_000_00,
+      last_sync_at: new Date(Date.now() - 12*60*1000).toISOString(),
+      open_disputes: 2,
+    },
+    interswitch: { configured: false },
+  })),
+
+  // Paystack reconciliation endpoints
+  http.get(u('/api/reconciliation/paystack/summary'), () => ok({
+    configured: true,
+    paystack: {
+      configured: true,
+      total_count: 3241,
+      success: 3198,
+      failed: 43,
+      total_volume_kobo: 2_847_650_000_00,
+    },
+    eod: {
+      txn_count: 3199,
+      total_vol_kobo: 2_846_980_000_00,
+    },
+  })),
+  http.get(u('/api/reconciliation/paystack/balance'), () => ok({
+    data: [{ balance: 87_300_000_00, closing_balance: 87_300_000_00 }],
+    meta: { total: 1, page: 1, perPage: 50 },
+  })),
+  http.get(u('/api/reconciliation/paystack/transactions'), () => ok({
+    data: Array.from({ length: 20 }, (_, i) => ({
+      id: i+1, reference: `TRF${rng(10000000,99999999)}`,
+      amount: rng(5,500)*1_000_00, fees: rng(5,50)*100,
+      status: pick(['success','success','success','failed','abandoned']),
+      channel: pick(['card','bank_transfer','ussd','mobile_money']),
+      currency: 'NGN',
+      customer: { email: `customer${i}@email.com`, first_name: name().split(' ')[0], last_name: name().split(' ')[1] },
+      authorization: { last4: String(rng(1000,9999)), card_type: pick(['Visa','Mastercard','Verve']), bank: pick(BANKS) },
+      created_at: isoDate(rng(0,30)), paid_at: isoDate(rng(0,30)),
+    })),
+    meta: { total: 3241, page: 1, perPage: 50 },
+  })),
+  http.get(u('/api/reconciliation/paystack/settlements'), () => ok({
+    data: Array.from({ length: 15 }, (_, i) => ({
+      id: i+1, settlement_date: isoDate(i),
+      status: pick(['success','success','pending']),
+      total_processed: rng(50,500)*1_000_000_00,
+      total_fees: rng(1,20)*1_000_000_00,
+      effective_amount: rng(45,490)*1_000_000_00,
+    })),
+    meta: { total: 15, page: 1, perPage: 50 },
+  })),
+  http.get(u('/api/reconciliation/paystack/transfers'), () => ok({
+    data: Array.from({ length: 10 }, (_, i) => ({
+      id: i+1, reference: `TRF-OUT-${rng(10000,99999)}`,
+      amount: rng(100,5000)*1_000_00, fee_charged: 0,
+      status: pick(['success','success','pending','failed']),
+      reason: pick(['Salary disbursement','Vendor payment','Refund','Loan disbursement']),
+      transferred_at: isoDate(rng(0,14)),
+      recipient: { name: name(), type: 'nuban', details: { account_name: name(), bank_name: pick(BANKS), account_number: String(rng(1000000000,9999999999)) } },
+    })),
+    meta: { total: 10, page: 1, perPage: 50 },
+  })),
+  http.get(u('/api/reconciliation/paystack/ledger'), () => ok({
+    data: Array.from({ length: 30 }, (_, i) => ({
+      id: i+1, model_responsible: pick(['Transfer','Transfer_Charge','Transfer_Stamp_Duty_Charge','Settlement']),
+      reason: pick(['Monthly salary transfer','Stamp duty charge','Settlement payout','Transfer fee']),
+      difference: pick([1,1,-1,-1])*rng(5,500)*1_000_00,
+      balance: 87_300_000_00 - i*500_000_00,
+      closing_balance: 87_300_000_00 - i*500_000_00,
+      createdAt: isoDate(rng(0,30)), created_at: isoDate(rng(0,30)),
+    })),
+    meta: { total: 300, page: 1, perPage: 50 },
+  })),
+  http.get(u('/api/reconciliation/paystack/refunds'), () => ok({
+    data: Array.from({ length: 5 }, (_, i) => ({
+      id: i+1, amount: rng(5,200)*1_000_00,
+      status: pick(['processed','pending']),
+      customer: { email: `refund${i}@email.com`, first_name: name().split(' ')[0], last_name: name().split(' ')[1] },
+      transaction_reference: `TRF${rng(10000000,99999999)}`,
+      refunded_at: isoDate(rng(0,14)),
+    })),
+    meta: { total: 5, page: 1, perPage: 50 },
+  })),
+  http.get(u('/api/reconciliation/paystack/disputes'), () => ok({
+    data: Array.from({ length: 3 }, (_, i) => ({
+      id: i+1,
+      transaction_reference: `TRF${rng(10000000,99999999)}`,
+      customer: { email: `dispute${i}@email.com` },
+      refund_amount: rng(10,500)*1_000_00,
+      category: pick(['chargeback','retrieval','fraud']),
+      status: pick(['pending','awaiting-merchant-feedback','resolved']),
+      resolution: pick(['merchant-accepted','declined','']),
+      dueAt: isoDate(-rng(1,5)), resolvedAt: i === 0 ? isoDate(0) : '',
+    })),
+    meta: { total: 3, page: 1, perPage: 50 },
+  })),
 ]
 
 // ── Reports / Statements / KPI ────────────────────────────────────────────────

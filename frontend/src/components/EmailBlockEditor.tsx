@@ -140,6 +140,39 @@ function useHistory<T>(initial: T) {
 
 const fi: CSSProperties = { width: '100%', padding: '5px 9px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.13)', outline: 'none', fontSize: 12, fontFamily: 'inherit', background: '#fff', color: '#1e293b', boxSizing: 'border-box' }
 
+// ── PropsPanel helper components (module-level — MUST stay outside PropsPanel
+//    so React sees a stable function reference on every render and never remounts
+//    the underlying DOM inputs, which would kill focus after every keystroke) ──
+const PPField = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <div style={{ marginBottom: 13 }}>
+    <label style={{ display: 'block', fontSize: 9.5, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 5 }}>{label}</label>
+    {children}
+  </div>
+)
+const PPInp = (props: React.InputHTMLAttributes<HTMLInputElement>) =>
+  <input style={{ ...fi, ...props.style }} {...props} />
+
+const ColorField = ({ label, value, def, onPick }: { label: string; value?: string; def: string; onPick: (v: string) => void }) => (
+  <PPField label={label}>
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      <input type="color" value={value || def} onChange={e => onPick(e.target.value)}
+        style={{ width: 30, height: 28, borderRadius: 5, cursor: 'pointer', border: '1px solid rgba(0,0,0,0.13)', flexShrink: 0, padding: 1 }} />
+      <PPInp value={value || def} onChange={e => onPick(e.target.value)} />
+    </div>
+  </PPField>
+)
+
+const SegBtn = ({ label, opts, value, onPick }: { label: string; opts: [string, string][]; value: string; onPick: (v: string) => void }) => (
+  <PPField label={label}>
+    <div style={{ display: 'flex', gap: 4 }}>
+      {opts.map(([k, l]) => { const on = value === k; return (
+        <button key={k} type="button" onClick={() => onPick(k)}
+          style={{ flex: 1, padding: '5px 0', borderRadius: 6, fontSize: 10.5, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${on ? BLUE : 'rgba(0,0,0,0.13)'}`, background: on ? `${BLUE}12` : 'transparent', color: on ? BLUE : '#64748b' }}>{l}</button>
+      )})}
+    </div>
+  </PPField>
+)
+
 // ── PropsPanel ─────────────────────────────────────────────────────────────────
 function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (p: Partial<EmailBlock>) => void }) {
   if (!block) return (
@@ -148,38 +181,21 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
       <p style={{ fontSize: 12, lineHeight: 1.65, margin: 0 }}>Click any block in the canvas to edit its properties</p>
     </div>
   )
-  const F = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <div style={{ marginBottom: 13 }}><label style={{ display: 'block', fontSize: 9.5, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 5 }}>{label}</label>{children}</div>
-  )
-  const Inp = (props: React.InputHTMLAttributes<HTMLInputElement>) => <input style={{ ...fi, ...props.style }} {...props} />
-  const Col = ({ label, field, def }: { label: string; field: keyof EmailBlock; def: string }) => (
-    <F label={label}><div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-      <input type="color" value={(block[field] as string) || def} onChange={e => onUpdate({ [field]: e.target.value })} style={{ width: 30, height: 28, borderRadius: 5, cursor: 'pointer', border: '1px solid rgba(0,0,0,0.13)', flexShrink: 0, padding: 1 }} />
-      <Inp value={(block[field] as string) || def} onChange={e => onUpdate({ [field]: e.target.value })} />
-    </div></F>
-  )
-  const Btn3 = ({ label, opts, field, def }: { label: string; opts: [string, string][]; field: keyof EmailBlock; def: string }) => (
-    <F label={label}><div style={{ display: 'flex', gap: 4 }}>
-      {opts.map(([k, l]) => { const on = (block[field] || def) === k; return (
-        <button key={k} type="button" onClick={() => onUpdate({ [field]: k })}
-          style={{ flex: 1, padding: '5px 0', borderRadius: 6, fontSize: 10.5, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${on ? BLUE : 'rgba(0,0,0,0.13)'}`, background: on ? `${BLUE}12` : 'transparent', color: on ? BLUE : '#64748b' }}>{l}</button>
-      )})}
-    </div></F>
-  )
 
   switch (block.type) {
     case 'header':
-      return <><F label="Brand Name"><Inp value={block.logoText || ''} onChange={e => onUpdate({ logoText: e.target.value })} /></F>
-        <F label="Tagline"><Inp value={block.tagline || ''} placeholder="optional" onChange={e => onUpdate({ tagline: e.target.value })} /></F>
-        <Col label="Background" field="bg" def={NAVY} /><Col label="Text Color" field="textColor" def="#ffffff" />
-        <F label="Padding (px)"><Inp type="number" value={block.padding || 36} style={{ width: 80 }} onChange={e => onUpdate({ padding: Number(e.target.value) })} /></F></>
+      return <><PPField label="Brand Name"><PPInp value={block.logoText || ''} onChange={e => onUpdate({ logoText: e.target.value })} /></PPField>
+        <PPField label="Tagline"><PPInp value={block.tagline || ''} placeholder="optional" onChange={e => onUpdate({ tagline: e.target.value })} /></PPField>
+        <ColorField label="Background" value={block.bg} def={NAVY} onPick={v => onUpdate({ bg: v })} />
+        <ColorField label="Text Color" value={block.textColor} def="#ffffff" onPick={v => onUpdate({ textColor: v })} />
+        <PPField label="Padding (px)"><PPInp type="number" value={block.padding || 36} style={{ width: 80 }} onChange={e => onUpdate({ padding: Number(e.target.value) })} /></PPField></>
     case 'text':
       return <div style={{ padding: 14, background: '#F1F5F9', borderRadius: 8, textAlign: 'center' }}>
         <span className="material-symbols-rounded" style={{ fontSize: 28, color: BLUE, display: 'block', marginBottom: 8 }}>edit</span>
         <p style={{ fontSize: 12, color: '#334155', lineHeight: 1.6, margin: 0 }}>Click the text block in the canvas to edit directly. Use the toolbar that appears for formatting.</p>
       </div>
     case 'image':
-      return <><F label="Upload Image">
+      return <><PPField label="Upload Image">
         <label style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 12px', background: '#F8FAFC', borderRadius: 7, border: '1.5px dashed rgba(0,0,0,0.15)', cursor: 'pointer', fontSize: 12, color: '#475569' }}>
           <span className="material-symbols-rounded" style={{ fontSize: 16 }}>upload</span>Choose file
           <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
@@ -188,42 +204,43 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
             try { const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/campaigns/upload-image`, { method: 'POST', credentials: 'include', body: fd }); if (!res.ok) throw new Error(`Upload failed (${res.status})`); onUpdate({ src: (await res.json()).url }) }
             catch (err: any) { alert(err?.message || 'Upload failed') }
           }} />
-        </label></F>
-        <F label="Or paste URL"><Inp value={block.src || ''} placeholder="https://…" onChange={e => onUpdate({ src: e.target.value })} /></F>
-        <F label="Alt Text"><Inp value={block.alt || ''} onChange={e => onUpdate({ alt: e.target.value })} /></F>
-        <F label="Click Link"><Inp value={block.link || ''} placeholder="https://…" onChange={e => onUpdate({ link: e.target.value })} /></F>
-        <Btn3 label="Alignment" opts={[['left', 'Left'], ['center', 'Center'], ['right', 'Right']]} field="align" def="center" />
-        <F label="Rounded Corners"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={!!block.rounded} onChange={e => onUpdate({ rounded: e.target.checked })} />Apply 8px radius</label></F></>
+        </label></PPField>
+        <PPField label="Or paste URL"><PPInp value={block.src || ''} placeholder="https://…" onChange={e => onUpdate({ src: e.target.value })} /></PPField>
+        <PPField label="Alt Text"><PPInp value={block.alt || ''} onChange={e => onUpdate({ alt: e.target.value })} /></PPField>
+        <PPField label="Click Link"><PPInp value={block.link || ''} placeholder="https://…" onChange={e => onUpdate({ link: e.target.value })} /></PPField>
+        <SegBtn label="Alignment" opts={[['left', 'Left'], ['center', 'Center'], ['right', 'Right']]} value={(block.align as string) || 'center'} onPick={v => onUpdate({ align: v })} />
+        <PPField label="Rounded Corners"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={!!block.rounded} onChange={e => onUpdate({ rounded: e.target.checked })} />Apply 8px radius</label></PPField></>
     case 'button':
-      return <><F label="Label"><Inp value={block.text || ''} onChange={e => onUpdate({ text: e.target.value })} /></F>
-        <F label="Link URL"><Inp value={block.url || ''} placeholder="{{cta_url}}" onChange={e => onUpdate({ url: e.target.value })} /></F>
-        <Col label="Background" field="bg" def={NAVY} /><Col label="Text Color" field="textColor" def="#ffffff" />
-        <Btn3 label="Alignment" opts={[['left', 'Left'], ['center', 'Center'], ['right', 'Right']]} field="align" def="center" />
-        <Btn3 label="Size" opts={[['sm', 'Small'], ['md', 'Normal'], ['lg', 'Large']]} field="size" def="md" />
-        <F label="Shape"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={block.rounded !== false} onChange={e => onUpdate({ rounded: e.target.checked })} />Rounded corners</label></F></>
+      return <><PPField label="Label"><PPInp value={block.text || ''} onChange={e => onUpdate({ text: e.target.value })} /></PPField>
+        <PPField label="Link URL"><PPInp value={block.url || ''} placeholder="{{cta_url}}" onChange={e => onUpdate({ url: e.target.value })} /></PPField>
+        <ColorField label="Background" value={block.bg} def={NAVY} onPick={v => onUpdate({ bg: v })} />
+        <ColorField label="Text Color" value={block.textColor} def="#ffffff" onPick={v => onUpdate({ textColor: v })} />
+        <SegBtn label="Alignment" opts={[['left', 'Left'], ['center', 'Center'], ['right', 'Right']]} value={(block.align as string) || 'center'} onPick={v => onUpdate({ align: v })} />
+        <SegBtn label="Size" opts={[['sm', 'Small'], ['md', 'Normal'], ['lg', 'Large']]} value={(block.size as string) || 'md'} onPick={v => onUpdate({ size: v })} />
+        <PPField label="Shape"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={block.rounded !== false} onChange={e => onUpdate({ rounded: e.target.checked })} />Rounded corners</label></PPField></>
     case 'divider':
-      return <><Col label="Line Color" field="color" def="#E5E7EB" />
+      return <><ColorField label="Line Color" value={block.color} def="#E5E7EB" onPick={v => onUpdate({ color: v })} />
         <div style={{ display: 'flex', gap: 10 }}>
-          <F label="Thickness (px)"><Inp type="number" value={block.thickness || 1} min={1} max={8} style={{ width: 70 }} onChange={e => onUpdate({ thickness: Number(e.target.value) })} /></F>
-          <F label="Margin (px)"><Inp type="number" value={block.margin || 20} style={{ width: 70 }} onChange={e => onUpdate({ margin: Number(e.target.value) })} /></F>
+          <PPField label="Thickness (px)"><PPInp type="number" value={block.thickness || 1} min={1} max={8} style={{ width: 70 }} onChange={e => onUpdate({ thickness: Number(e.target.value) })} /></PPField>
+          <PPField label="Margin (px)"><PPInp type="number" value={block.margin || 20} style={{ width: 70 }} onChange={e => onUpdate({ margin: Number(e.target.value) })} /></PPField>
         </div></>
     case 'spacer':
-      return <F label={`Height: ${block.height || 32}px`}><input type="range" min={8} max={120} step={8} value={block.height || 32} onChange={e => onUpdate({ height: Number(e.target.value) })} style={{ width: '100%' }} /></F>
+      return <PPField label={`Height: ${block.height || 32}px`}><input type="range" min={8} max={120} step={8} value={block.height || 32} onChange={e => onUpdate({ height: Number(e.target.value) })} style={{ width: '100%' }} /></PPField>
     case 'two_col':
-      return <><F label="Split">
+      return <><PPField label="Split">
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
           {['50/50', '60/40', '40/60', '70/30'].map(v => { const on = block.split === v; return (
             <button key={v} type="button" onClick={() => onUpdate({ split: v })}
               style={{ flex: '1 1 calc(50% - 4px)', padding: '5px 0', borderRadius: 6, fontSize: 10.5, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${on ? BLUE : 'rgba(0,0,0,0.13)'}`, background: on ? `${BLUE}12` : 'transparent', color: on ? BLUE : '#64748b' }}>{v}</button>
           )})}
-        </div></F>
-        <F label="Left HTML"><textarea style={{ ...fi, fontFamily: 'monospace', fontSize: 11, resize: 'vertical' }} rows={4} value={block.leftHtml || ''} onChange={e => onUpdate({ leftHtml: e.target.value })} /></F>
-        <F label="Right HTML"><textarea style={{ ...fi, fontFamily: 'monospace', fontSize: 11, resize: 'vertical' }} rows={4} value={block.rightHtml || ''} onChange={e => onUpdate({ rightHtml: e.target.value })} /></F></>
+        </div></PPField>
+        <PPField label="Left HTML"><textarea style={{ ...fi, fontFamily: 'monospace', fontSize: 11, resize: 'vertical' }} rows={4} value={block.leftHtml || ''} onChange={e => onUpdate({ leftHtml: e.target.value })} /></PPField>
+        <PPField label="Right HTML"><textarea style={{ ...fi, fontFamily: 'monospace', fontSize: 11, resize: 'vertical' }} rows={4} value={block.rightHtml || ''} onChange={e => onUpdate({ rightHtml: e.target.value })} /></PPField></>
     case 'footer':
-      return <><F label="Footer Text"><textarea style={{ ...fi, resize: 'vertical', fontSize: 12 }} rows={3} value={block.text || ''} onChange={e => onUpdate({ text: e.target.value })} /></F>
-        <F label="Unsubscribe"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={block.unsubscribe !== false} onChange={e => onUpdate({ unsubscribe: e.target.checked })} />Include unsubscribe link</label></F></>
+      return <><PPField label="Footer Text"><textarea style={{ ...fi, resize: 'vertical', fontSize: 12 }} rows={3} value={block.text || ''} onChange={e => onUpdate({ text: e.target.value })} /></PPField>
+        <PPField label="Unsubscribe"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={block.unsubscribe !== false} onChange={e => onUpdate({ unsubscribe: e.target.checked })} />Include unsubscribe link</label></PPField></>
     case 'callout':
-      return <><F label="Theme">
+      return <><PPField label="Theme">
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
           {[['warning', '⚠️ Warning', '#D97706'], ['info', 'ℹ️ Info', BLUE], ['success', '✅ Success', '#16A34A'], ['error', '🚨 Error', '#EF4444']].map(([k, l, c]) => {
             const on = (block.theme || 'warning') === k; return (
@@ -231,28 +248,28 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
                 style={{ flex: '1 1 calc(50% - 5px)', padding: '7px 4px', borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${on ? c : 'rgba(0,0,0,0.13)'}`, background: on ? c + '14' : 'transparent', color: on ? c : '#64748b' }}>{l}</button>
             )
           })}
-        </div></F>
-        <F label="Icon (emoji)"><Inp value={block.icon || ''} placeholder="⚠️" onChange={e => onUpdate({ icon: e.target.value })} /></F>
-        <F label="Title"><Inp value={block.title || ''} onChange={e => onUpdate({ title: e.target.value })} /></F>
-        <F label="Body"><textarea style={{ ...fi, resize: 'vertical', fontSize: 12, lineHeight: 1.6 }} rows={3} value={block.body || ''} onChange={e => onUpdate({ body: e.target.value })} /></F></>
+        </div></PPField>
+        <PPField label="Icon (emoji)"><PPInp value={block.icon || ''} placeholder="⚠️" onChange={e => onUpdate({ icon: e.target.value })} /></PPField>
+        <PPField label="Title"><PPInp value={block.title || ''} onChange={e => onUpdate({ title: e.target.value })} /></PPField>
+        <PPField label="Body"><textarea style={{ ...fi, resize: 'vertical', fontSize: 12, lineHeight: 1.6 }} rows={3} value={block.body || ''} onChange={e => onUpdate({ body: e.target.value })} /></PPField></>
     case 'stats': {
       const sc = block.cols || []
-      return <><F label="Columns">
+      return <><PPField label="Columns">
         <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
           {[2, 3].map(n => { const on = sc.length === n; return (
             <button key={n} type="button" onClick={() => { const next = [...sc]; while (next.length < n) next.push({ value: '—', label: 'Metric', color: NAVY }); onUpdate({ cols: next.slice(0, n) }) }}
               style={{ flex: 1, padding: '6px 0', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${on ? BLUE : 'rgba(0,0,0,0.13)'}`, background: on ? `${BLUE}12` : 'transparent', color: on ? BLUE : '#64748b' }}>{n} cols</button>
           )})}
-        </div></F>
+        </div></PPField>
         {sc.map((col, i) => (
           <div key={i} style={{ marginBottom: 12, padding: '10px 12px', background: '#F8FAFC', borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)' }}>
             <div style={{ fontSize: 9.5, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Column {i + 1}</div>
-            <F label="Value"><Inp value={col.value} onChange={e => { const n = [...sc]; n[i] = { ...n[i], value: e.target.value }; onUpdate({ cols: n }) }} /></F>
-            <F label="Label"><Inp value={col.label} onChange={e => { const n = [...sc]; n[i] = { ...n[i], label: e.target.value }; onUpdate({ cols: n }) }} /></F>
-            <F label="Color"><div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <PPField label="Value"><PPInp value={col.value} onChange={e => { const n = [...sc]; n[i] = { ...n[i], value: e.target.value }; onUpdate({ cols: n }) }} /></PPField>
+            <PPField label="Label"><PPInp value={col.label} onChange={e => { const n = [...sc]; n[i] = { ...n[i], label: e.target.value }; onUpdate({ cols: n }) }} /></PPField>
+            <PPField label="Color"><div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <input type="color" value={col.color || NAVY} onChange={e => { const n = [...sc]; n[i] = { ...n[i], color: e.target.value }; onUpdate({ cols: n }) }} style={{ width: 30, height: 28, borderRadius: 5, cursor: 'pointer', border: '1px solid rgba(0,0,0,0.13)', flexShrink: 0, padding: 1 }} />
-              <Inp value={col.color || NAVY} onChange={e => { const n = [...sc]; n[i] = { ...n[i], color: e.target.value }; onUpdate({ cols: n }) }} />
-            </div></F>
+              <PPInp value={col.color || NAVY} onChange={e => { const n = [...sc]; n[i] = { ...n[i], color: e.target.value }; onUpdate({ cols: n }) }} />
+            </div></PPField>
           </div>
         ))}</>
     }
@@ -372,13 +389,13 @@ function CanvasBlock({ block, selected, idx, total, isDragging, dropAbove, onSel
   }
 
   return (
-    <div draggable
-      onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart() }}
+    <div draggable={!selected}
+      onDragStart={e => { if (selected) { e.preventDefault(); return; } e.dataTransfer.effectAllowed = 'move'; onDragStart() }}
       onDragEnd={onDragEnd}
       onDragOver={e => { e.preventDefault(); onDragOver(e) }}
       onDrop={e => { e.preventDefault(); onDrop() }}
       onClick={e => { e.stopPropagation(); onSelect() }}
-      style={{ position: 'relative', opacity: isDragging ? 0.35 : 1, cursor: 'grab' }}
+      style={{ position: 'relative', opacity: isDragging ? 0.35 : 1, cursor: selected ? 'default' : 'grab' }}
     >
       {dropAbove === true  && <div style={{ position: 'absolute', top: 0,    left: 0, right: 0, height: 3, background: BLUE, zIndex: 10, borderRadius: 2 }} />}
       <div style={{ outline: selected ? `2px solid ${BLUE}` : '2px solid transparent', outlineOffset: -1, position: 'relative', transition: 'outline 0.1s' }}>
@@ -406,7 +423,7 @@ function CanvasBlock({ block, selected, idx, total, isDragging, dropAbove, onSel
 }
 
 // ── Template Gallery ───────────────────────────────────────────────────────────
-function TemplateGallery({ onPick, onClose, hasBlocks }: { onPick(t: typeof TEMPLATES[0]): void; onClose(): void; hasBlocks: boolean }) {
+function TemplateGallery({ onPick, onClose }: { onPick(t: typeof TEMPLATES[0]): void; onClose(): void }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div style={{ width: '100%', maxWidth: 780, maxHeight: '90vh', display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 14, boxShadow: '0 24px 64px rgba(0,0,0,.22)', overflow: 'hidden' }}>
@@ -415,9 +432,9 @@ function TemplateGallery({ onPick, onClose, hasBlocks }: { onPick(t: typeof TEMP
             <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', margin: '0 0 3px' }}>Choose a Starting Template</h2>
             <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>Pick a preset or start blank — you can change anything after</p>
           </div>
-          {hasBlocks && <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 }}>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 }}>
             <span className="material-symbols-rounded" style={{ fontSize: 20 }}>close</span>
-          </button>}
+          </button>
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: 20 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
@@ -629,7 +646,7 @@ export default function EmailBlockEditor({ value, onChange }: EmailBlockEditorPr
         </div>
       </div>
 
-      {showTemplates && <TemplateGallery hasBlocks={blocks.length > 0} onPick={t => { push(t.blocks.map(b => ({ ...b, id: uid() }))); setSelectedId(null); setShowTemplates(false) }} onClose={() => setShowTemplates(false)} />}
+      {showTemplates && <TemplateGallery onPick={t => { push(t.blocks.map(b => ({ ...b, id: uid() }))); setSelectedId(null); setShowTemplates(false) }} onClose={() => setShowTemplates(false)} />}
       {preview && <PreviewModal html={previewHtml} onClose={() => setPreview(false)} />}
     </div>
   )

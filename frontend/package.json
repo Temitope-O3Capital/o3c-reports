@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 3100",
+    "dev:mock": "VITE_MOCK=true vite --port 3101",
     "build": "tsc && vite build",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -38,10 +39,16 @@
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.20",
     "jsdom": "^29.1.1",
+    "msw": "^2.14.6",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
     "typescript": "^5.5.3",
     "vite": "^5.4.2",
     "vitest": "^2.1.9"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
   }
 }
