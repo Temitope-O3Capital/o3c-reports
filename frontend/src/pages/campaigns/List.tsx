@@ -87,8 +87,13 @@ function openRate(c: Campaign): number {
 
 const BLANK = { name: '', type: 'email', list_id: '', scheduled_at: '' }
 
+// BD roles can view campaigns but cannot create, start, pause, or cancel them.
+const CAMPAIGN_READ_ONLY = new Set(['bd_officer', 'bd_head'])
+
 export default function CampaignsList() {
   const navigate = useNavigate()
+  const role = (() => { try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}').role ?? '' } catch { return '' } })()
+  const canWrite = !CAMPAIGN_READ_ONLY.has(role)
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [total, setTotal]         = useState(0)
   const [lists, setLists]         = useState<ContactList[]>([])
@@ -216,9 +221,9 @@ export default function CampaignsList() {
         ? <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDatetime(r.scheduled_at)}</span>
         : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
-    {
-      key: 'id', label: 'Actions', align: 'right',
-      render: r => (
+    ...(canWrite ? [{
+      key: 'id', label: 'Actions', align: 'right' as const,
+      render: (r: Campaign) => (
         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
           {r.status === 'draft' || r.status === 'scheduled' ? (
             <button onClick={e => { e.stopPropagation(); doAction(r.id, 'start') }}
@@ -246,19 +251,19 @@ export default function CampaignsList() {
           ) : null}
         </div>
       ),
-    },
+    }] : []),
   ]
 
   return (
     <Page
       title="Campaigns"
       subtitle={`${fmtNum(total)} total campaigns`}
-      actions={
+      actions={canWrite ? (
         <button onClick={() => setShowCreate(true)} style={btnPrimary}>
           <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
           New Campaign
         </button>
-      }
+      ) : undefined}
     >
       <ErrBanner error={err} onRetry={load} />
       {actionErr && <ErrBanner error={actionErr} />}

@@ -535,11 +535,11 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/bd/employers"   element={<PageErrorBoundary><BDEmployers /></PageErrorBoundary>} />
                   <Route path="/bd/analytics"   element={<PageErrorBoundary><BDAnalytics /></PageErrorBoundary>} />
 
-                  <Route path="/campaigns"            element={<PageErrorBoundary><CampaignsList /></PageErrorBoundary>} />
-                  <Route path="/campaigns/templates"  element={<PageErrorBoundary><CampaignTemplates /></PageErrorBoundary>} />
-                  <Route path="/campaigns/lists"      element={<PageErrorBoundary><CampaignLists /></PageErrorBoundary>} />
-                  <Route path="/campaigns/analytics"  element={<PageErrorBoundary><CampaignAnalytics /></PageErrorBoundary>} />
-                  <Route path="/campaigns/:id/report" element={<PageErrorBoundary><CampaignReport /></PageErrorBoundary>} />
+                  <Route path="/campaigns"            element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignsList /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/campaigns/templates"  element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignTemplates /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/campaigns/lists"      element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignLists /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/campaigns/analytics"  element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignAnalytics /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/campaigns/:id/report" element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignReport /></PageErrorBoundary></RequireAccess>} />
 
                   <Route path="/sales"           element={<PageErrorBoundary><SalesOverview /></PageErrorBoundary>} />
                   <Route path="/sales/cohort"    element={<PageErrorBoundary><SalesCohort /></PageErrorBoundary>} />

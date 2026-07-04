@@ -22,7 +22,11 @@ interface ContactList {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
+const CAMPAIGN_READ_ONLY = new Set(['bd_officer', 'bd_head'])
+
 export default function ContactLists() {
+  const role = (() => { try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}').role ?? '' } catch { return '' } })()
+  const canWrite = !CAMPAIGN_READ_ONLY.has(role)
   const [lists, setLists]       = useState<ContactList[]>([])
   const [loading, setLoading]   = useState(true)
   const [err, setErr]           = useState<string | null>(null)
@@ -101,27 +105,27 @@ export default function ContactLists() {
     },
     { key: 'created_by_name', label: 'Created By', render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.created_by_name ?? '—'}</span> },
     { key: 'created_at', label: 'Created', render: r => <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{fmtDatetime(r.created_at)}</span> },
-    {
-      key: 'id', label: '', align: 'right',
-      render: r => (
+    ...(canWrite ? [{
+      key: 'id', label: '', align: 'right' as const,
+      render: (r: ContactList) => (
         <button onClick={e => { e.stopPropagation(); setDeleteTarget(r) }}
           style={{ ...btnSecondary, fontSize: 11, padding: '3px 10px', color: '#EF4444', borderColor: '#EF444440' }}>
           Delete
         </button>
       ),
-    },
+    }] : []),
   ]
 
   return (
     <Page
       title="Contact Lists"
       subtitle={`${lists.length} lists · ${fmtNum(totalMembers)} total members`}
-      actions={
+      actions={canWrite ? (
         <button onClick={() => setShowCreate(true)} style={btnPrimary}>
           <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
           New List
         </button>
-      }
+      ) : undefined}
     >
       <ErrBanner error={err} onRetry={load} />
 

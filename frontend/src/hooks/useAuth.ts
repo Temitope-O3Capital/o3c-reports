@@ -80,11 +80,11 @@ export const ROLE_PAGES: Record<string, string[]> = {
 
   // Telemarketing
   telemarketing_agent:   ['overview','telemarketing','customer360'],
-  telemarketing_head:    ['overview','telemarketing','telemarketing_stats','customer360','kpi_dashboard'],
+  telemarketing_head:    ['overview','telemarketing','telemarketing_stats','customer360','kpi_dashboard','campaigns','contact_lists','message_templates'],
 
   // Business Development
-  bd_officer:            ['overview','bd','bd_employers','bd_pipeline','customer360','crm_contacts'],
-  bd_head:               ['overview','bd','bd_employers','bd_pipeline','customer360','crm_contacts','kpi_dashboard','statements'],
+  bd_officer:            ['overview','bd','bd_employers','bd_pipeline','customer360','crm_contacts','campaigns','contact_lists','message_templates'],
+  bd_head:               ['overview','bd','bd_employers','bd_pipeline','customer360','crm_contacts','kpi_dashboard','statements','campaigns','contact_lists','message_templates'],
 
   // Payroll
   payroll_officer:       ['overview','payroll'],

@@ -42,7 +42,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'campaign', label: 'Campaigns', to: '/campaigns',
-        vis: ['sales_officer','sales_head','bd_officer','bd_head','telemarketing_agent','telemarketing_head'],
+        vis: ['sales_head','bd_officer','bd_head','telemarketing_head'],
         subs: [
           { label: 'All Campaigns', to: '/campaigns' },
           { label: 'Templates',     to: '/campaigns/templates' },

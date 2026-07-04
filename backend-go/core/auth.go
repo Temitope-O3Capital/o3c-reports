@@ -609,7 +609,6 @@ var RolePages = map[string][]string{
 	// ── Telemarketing ─────────────────────────────────────────────────────────
 	"telemarketing_agent": {
 		"overview", "telemarketing", "customer360",
-		"campaigns", "contact_lists", "message_templates",
 	},
 	"telemarketing_head": {
 		"overview", "telemarketing", "telemarketing_stats", "customer360",
@@ -619,11 +618,12 @@ var RolePages = map[string][]string{
 	// ── Business Development ──────────────────────────────────────────────────
 	"bd_officer": {
 		"overview", "bd", "bd_employers", "bd_pipeline", "customer360",
-		"crm_contacts",
+		"crm_contacts", "campaigns", "contact_lists", "message_templates",
 	},
 	"bd_head": {
 		"overview", "bd", "bd_employers", "bd_pipeline", "customer360",
 		"crm_contacts", "kpi_dashboard", "statements",
+		"campaigns", "contact_lists", "message_templates",
 	},
 
 	// ── Payroll ───────────────────────────────────────────────────────────────

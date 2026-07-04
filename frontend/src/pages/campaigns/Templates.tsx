@@ -46,7 +46,11 @@ const BLANK = { name: '', channel: 'sms', category: 'marketing', sms_body: '', e
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
+const CAMPAIGN_READ_ONLY = new Set(['bd_officer', 'bd_head'])
+
 export default function CampaignTemplates() {
+  const role = (() => { try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}').role ?? '' } catch { return '' } })()
+  const canWrite = !CAMPAIGN_READ_ONLY.has(role)
   const [templates, setTemplates] = useState<Template[]>([])
   const [loading, setLoading]     = useState(true)
   const [err, setErr]             = useState<string | null>(null)
@@ -138,12 +142,14 @@ export default function CampaignTemplates() {
     { key: 'created_at', label: 'Created', render: r => <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{fmtDatetime(r.created_at)}</span> },
     {
       key: 'id', label: '', align: 'right',
-      render: r => (
+      render: (r: Template) => (
         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
           <button onClick={e => { e.stopPropagation(); setPreview(r) }}
             style={{ ...btnSecondary, fontSize: 11, padding: '3px 10px' }}>Preview</button>
-          <button onClick={e => { e.stopPropagation(); setDeleteTarget(r) }}
-            style={{ ...btnSecondary, fontSize: 11, padding: '3px 10px', color: '#EF4444', borderColor: '#EF444440' }}>Delete</button>
+          {canWrite && (
+            <button onClick={e => { e.stopPropagation(); setDeleteTarget(r) }}
+              style={{ ...btnSecondary, fontSize: 11, padding: '3px 10px', color: '#EF4444', borderColor: '#EF444440' }}>Delete</button>
+          )}
         </div>
       ),
     },
@@ -153,12 +159,12 @@ export default function CampaignTemplates() {
     <Page
       title="Message Templates"
       subtitle="Reusable SMS and email campaign templates"
-      actions={
+      actions={canWrite ? (
         <button onClick={() => setShowCreate(true)} style={btnPrimary}>
           <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
           New Template
         </button>
-      }
+      ) : undefined}
     >
       <ErrBanner error={err} onRetry={load} />
 

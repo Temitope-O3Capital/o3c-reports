@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Page, SectionCard, KpiCard, ErrBanner } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { Page, SectionCard, KpiCard, ErrBanner, Modal, btnPrimary, btnSecondary, filterInputStyle } from '../../components/UI'
+import { apiFetch, apiPost } from '../../lib/api'
 import { fmtNum, fmtPct, fmtDatetime } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, INTER } from '../../lib/design'
+import { toast } from 'sonner'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
@@ -105,6 +106,131 @@ function PipelineBar({ stats, total }: { stats: ContactStats; total: number }) {
   )
 }
 
+// ── Push to Telemarketers modal ────────────────────────────────────────────────
+
+interface TMCampaign { id: number; name: string }
+
+interface PushModalProps {
+  campaignId: string
+  open: boolean
+  onClose: () => void
+}
+
+const SEGMENTS = [
+  { value: 'all',            label: 'All contacts' },
+  { value: 'email_opened',   label: 'Email opened only' },
+  { value: 'email_clicked',  label: 'Email clicked only' },
+  { value: 'sms_delivered',  label: 'SMS delivered only' },
+]
+
+function PushToTelemarketingModal({ campaignId, open, onClose }: PushModalProps) {
+  const [tmCampaigns, setTmCampaigns]     = useState<TMCampaign[]>([])
+  const [selectedTmId, setSelectedTmId]   = useState('')
+  const [newCampaignName, setNewCampaignName] = useState('')
+  const [segment, setSegment]             = useState('all')
+  const [assignedTo, setAssignedTo]       = useState('')
+  const [agents, setAgents]               = useState<{ id: number; full_name: string }[]>([])
+  const [pushing, setPushing]             = useState(false)
+  const [pushErr, setPushErr]             = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    apiFetch<TMCampaign[]>('/api/telemarketing/campaigns').then(r => setTmCampaigns(Array.isArray(r) ? r : [])).catch(() => {})
+    apiFetch<{ id: number; full_name: string }[]>('/api/admin/users?role=telemarketing_agent&limit=100').then(r => setAgents(Array.isArray(r) ? r : [])).catch(() => {})
+  }, [open])
+
+  async function push() {
+    setPushing(true); setPushErr(null)
+    try {
+      const body: Record<string, any> = { segment }
+      if (selectedTmId === 'new') {
+        body.new_campaign_name = newCampaignName || undefined
+      } else if (selectedTmId) {
+        body.telemarketing_campaign_id = Number(selectedTmId)
+      }
+      if (assignedTo) body.assigned_to = Number(assignedTo)
+      const res = await apiPost<{ created: number; skipped_dnc: number; telemarketing_campaign_id: number }>(
+        `/api/campaigns/${campaignId}/push-to-telemarketing`, body
+      )
+      toast.success(`${res.created} lead${res.created !== 1 ? 's' : ''} pushed to telemarketers${res.skipped_dnc > 0 ? ` · ${res.skipped_dnc} skipped (DNC)` : ''}`)
+      onClose()
+    } catch (ex: any) { setPushErr(ex.message) }
+    finally { setPushing(false) }
+  }
+
+  function handleClose() {
+    setSelectedTmId(''); setNewCampaignName(''); setSegment('all'); setAssignedTo(''); setPushErr(null)
+    onClose()
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={handleClose}
+      title="Push to Telemarketers"
+      width={460}
+      footer={
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={handleClose} style={btnSecondary}>Cancel</button>
+          <button onClick={push} disabled={pushing} style={{ ...btnPrimary, background: '#7C3AED' }}>
+            {pushing ? 'Pushing…' : 'Push Contacts'}
+          </button>
+        </div>
+      }
+    >
+      {pushErr && <div style={{ color: '#EF4444', fontSize: 12.5, marginBottom: 12 }}>{pushErr}</div>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
+            Contact Segment
+          </label>
+          <select value={segment} onChange={e => setSegment(e.target.value)} style={{ ...filterInputStyle, width: '100%' }}>
+            {SEGMENTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+          <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 4 }}>
+            Choose which contacts from this campaign to hand off. Only contacts with a phone number are included; DNC numbers are automatically excluded.
+          </div>
+        </div>
+
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
+            Telemarketing Campaign
+          </label>
+          <select value={selectedTmId} onChange={e => setSelectedTmId(e.target.value)} style={{ ...filterInputStyle, width: '100%' }}>
+            <option value="">Auto-create from campaign name</option>
+            <option value="new">Create new…</option>
+            {tmCampaigns.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+          </select>
+        </div>
+
+        {selectedTmId === 'new' && (
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
+              New Campaign Name
+            </label>
+            <input
+              value={newCampaignName}
+              onChange={e => setNewCampaignName(e.target.value)}
+              placeholder="e.g. Q3 Follow-up Calls"
+              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }}
+            />
+          </div>
+        )}
+
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
+            Assign to Agent (optional)
+          </label>
+          <select value={assignedTo} onChange={e => setAssignedTo(e.target.value)} style={{ ...filterInputStyle, width: '100%' }}>
+            <option value="">Unassigned — pool pickup</option>
+            {agents.map(a => <option key={a.id} value={String(a.id)}>{a.full_name}</option>)}
+          </select>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function CampaignReport() {
@@ -113,6 +239,7 @@ export default function CampaignReport() {
   const [report, setReport] = useState<ReportResp | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr]         = useState<string | null>(null)
+  const [pushOpen, setPushOpen] = useState(false)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -148,11 +275,20 @@ export default function CampaignReport() {
       title={c?.name ?? 'Campaign Report'}
       subtitle={subtitle}
       actions={
-        <button onClick={() => navigate('/campaigns')}
-          style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>arrow_back</span>
-          All Campaigns
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => navigate('/campaigns')}
+            style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>arrow_back</span>
+            All Campaigns
+          </button>
+          {c && (
+            <button onClick={() => setPushOpen(true)}
+              style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: '#7C3AED', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: INTER }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>call</span>
+              Push to Telemarketers
+            </button>
+          )}
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />
@@ -259,6 +395,14 @@ export default function CampaignReport() {
             })}
           </div>
         </SectionCard>
+      )}
+
+      {id && (
+        <PushToTelemarketingModal
+          campaignId={id}
+          open={pushOpen}
+          onClose={() => setPushOpen(false)}
+        />
       )}
     </Page>
   )
