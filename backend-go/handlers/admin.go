@@ -147,6 +147,14 @@ func createUser(db *core.DB) http.HandlerFunc {
 		mailRes := SendTemporaryPasswordEmail(r.Context(), db,
 			str(result["email"]), str(result["full_name"]), tempPW, toInt64(result["id"]))
 		result["email_sent"] = mailRes.OK
+		newUID := toInt64(result["id"])
+		go NotifyRole(r.Context(), db, "it_admin", NotifPayload{
+			EventType: EvtNewAccountCreated,
+			Title:     "New account created",
+			Body:      fmt.Sprintf("%s (%s) was added with role %s.", fullName, b.Email, b.Role),
+			ActionURL: "/admin/users/" + fmt.Sprint(newUID),
+			EntityRef: fmt.Sprint(newUID),
+		})
 		if !mailRes.OK && mailRes.Error != "" {
 			result["email_error"] = mailRes.Error
 		}

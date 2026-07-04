@@ -1302,7 +1302,7 @@ func hdCSATSubmit(db *core.DB) http.HandlerFunc {
 		if b.Score <= 2 {
 			ticketRef := str(tRows[0]["ticket_ref"])
 			go NotifyRole(context.Background(), db, "call_center_head", NotifPayload{
-				EventType: "csat_low",
+				EventType: EvtCSATLowScore,
 				Title:     fmt.Sprintf("Low CSAT score (%d/5) on %s", b.Score, ticketRef),
 				Body:      fmt.Sprintf("Customer rated %d/5 for ticket %s. Comment: %s", b.Score, ticketRef, b.Comment),
 				ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),

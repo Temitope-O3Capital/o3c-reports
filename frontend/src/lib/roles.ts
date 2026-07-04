@@ -64,6 +64,10 @@ export const ROLE_LABELS: Record<string, string> = {
   // IT
   it_admin:                 'IT Administrator',
 
+  // Settlements / Treasury
+  settlement_officer:       'Settlement Officer',
+  treasury_officer:         'Treasury Officer',
+
   // Telemarketing
   telemarketing_agent:      'Telemarketing Agent',
   telemarketing_head:       'Head of Telemarketing',

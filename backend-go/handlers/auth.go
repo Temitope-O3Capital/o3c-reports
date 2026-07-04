@@ -186,7 +186,8 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			        COALESCE(must_change_password, false) AS must_change_password,
 			        COALESCE(is_active, true)             AS is_active,
 			        COALESCE(totp_enabled, false)         AS totp_enabled,
-			        deleted_at
+			        deleted_at,
+			        last_login
 			 FROM o3c_users WHERE email = $1`, email)
 		if err != nil {
 			respondErr(w, 503, "Database unavailable — please try again")
@@ -207,7 +208,17 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 		}
 
 		// Update last_login and record session (best-effort)
+		isFirstLogin := u["last_login"] == nil
 		db.PGExec(r.Context(), `UPDATE o3c_users SET last_login = NOW() WHERE id = $1`, u["id"]) //nolint:errcheck
+		if isFirstLogin {
+			go Notify(r.Context(), db, NotifPayload{
+				EventType: EvtFirstLogin,
+				UserID:    toInt64(u["id"]),
+				Title:     "Welcome to O3 Capital Workspace!",
+				Body:      "Your account is ready. Explore your dashboard to get started.",
+				ActionURL: "/",
+			})
+		}
 		// Rightmost X-Forwarded-For — Railway appends real IP last
 		ip := ""
 		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {

@@ -78,7 +78,7 @@ const SECTIONS: Section[] = [
         ],
       },
       {
-        icon: 'receipt_long', label: 'Loan Origination', to: '/sales/applications',
+        icon: 'receipt_long', label: 'Credit Applications', to: '/sales/applications',
         vis: ['sales_officer','sales_head','bd_officer','bd_head'],
         subs: [
           { label: 'My Queue', to: '/sales/applications' },

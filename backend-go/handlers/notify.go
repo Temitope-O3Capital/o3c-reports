@@ -26,6 +26,23 @@ const (
 	EvtTicketSLABreach   = "ticket_sla_breach"
 	EvtDealStageChanged  = "deal_stage_changed"
 	EvtCRMRequestCreated = "crm_request_created"
+
+	// Wave 5H — extended event matrix
+	EvtTicketSLAWarning      = "ticket_sla_warning"
+	EvtTicketUnassignedAlert = "ticket_unassigned_alert"
+	EvtCSATLowScore          = "csat_low_score"
+	EvtAMLWatchlistHit       = "aml_watchlist_hit"
+	EvtSARFiled              = "sar_filed"
+	EvtPTPDueToday           = "ptp_due_today"
+	EvtPTPBroken             = "ptp_broken"
+	EvtAccountDPD90          = "account_dpd90"
+	EvtFDMaturing7Days       = "fd_maturing_7days"
+	EvtFDMaturedUnactioned   = "fd_matured_unactioned"
+	EvtCampaignDeliveryFailed = "campaign_delivery_failed"
+	EvtAPIKeyExpiry          = "api_key_expiry"
+	EvtSystemAlert           = "system_alert"
+	EvtNewAccountCreated     = "new_account_created"
+	EvtFirstLogin            = "first_login"
 )
 
 // NotifPayload carries everything needed to dispatch a notification.

@@ -1179,6 +1179,16 @@ const ADMIN = [
 
   http.get(u('/api/admin/notification-settings'), () => ok({ email_enabled: true, sms_enabled: false, push_enabled: true })),
   http.put(u('/api/admin/notification-settings'), () => new HttpResponse(null, { status: 204 })),
+
+  // Workflow templates
+  http.get(u('/api/admin/workflow-templates'), () => ok([
+    { id: 1, name: 'Treasury Standard', description: 'Routine settlement shortfall and fee adjustments — Finance Head approves, Settlement Officer posts', notify_roles: ['finance_head','treasury_officer'], approver_roles: ['finance_head','treasury_officer'], poster_roles: ['settlement_officer'], created_at: isoDate(30) },
+    { id: 2, name: 'CFO Approval', description: 'High-value or exceptional postings requiring CFO sign-off before posting', notify_roles: ['cfo','finance_head'], approver_roles: ['cfo'], poster_roles: ['settlement_officer','treasury_officer'], created_at: isoDate(25) },
+    { id: 3, name: 'Quick Post', description: 'Low-risk minor adjustments — Finance Officer approves and posts directly', notify_roles: ['finance_officer'], approver_roles: ['finance_officer'], poster_roles: ['finance_officer'], created_at: isoDate(10) },
+  ])),
+  http.post(u('/api/admin/workflow-templates'), () => ok({ id: 99 })),
+  http.put(u('/api/admin/workflow-templates/:id'), () => new HttpResponse(null, { status: 204 })),
+  http.delete(u('/api/admin/workflow-templates/:id'), () => new HttpResponse(null, { status: 204 })),
 ]
 
 // ── Settings ─────────────────────────────────────────────────────────────────
@@ -1256,14 +1266,19 @@ const SETTLEMENTS = [
   )),
   http.get(u('/api/settlements/:id/transactions'), () => wd([])),
   http.get(u('/api/settlements/manual-postings'), () => wd(
-    Array.from({ length: 10 }, (_, i) => ({
-      id: i+1, reference: `MP-SET-${i+100}`, amount_kobo: rng(10,100)*1_000_000_00,
-      status: pick(['pending','settled','failed']), bank: pick(BANKS),
-      initiated_by: name(), created_at: isoDate(rng(0,14)),
-    }))
+    [
+      { id:1, ref:'MP-SET-001', workflow_template_id:1, workflow_template_name:'Treasury Standard', type:'Debit', amount_kobo:25_000_000_00, account:'0123456789', description:'EOD interbank settlement shortfall', initiated_by:'Emeka Obi', stage:'pending_approval', approver_roles:['finance_head','treasury_officer'], poster_roles:['settlement_officer'], approved_by:null, approved_at:null, posted_by:null, posted_at:null, rejected_by:null, rejected_at:null, rejection_reason:null, created_at:isoDate(0.2) },
+      { id:2, ref:'MP-SET-002', workflow_template_id:2, workflow_template_name:'CFO Approval', type:'Credit', amount_kobo:8_500_000_00, account:'0987654321', description:'Reversal of duplicate debit', initiated_by:'Adaeze Nwosu', stage:'approved', approver_roles:['cfo'], poster_roles:['settlement_officer','treasury_officer'], approved_by:'Olumide Akin', approved_at:isoDate(0.1), posted_by:null, posted_at:null, rejected_by:null, rejected_at:null, rejection_reason:null, created_at:isoDate(1) },
+      { id:3, ref:'MP-SET-003', workflow_template_id:1, workflow_template_name:'Treasury Standard', type:'Debit', amount_kobo:3_000_000_00, account:'0123456789', description:'Charge-back settlement', initiated_by:'Tunde Posi', stage:'posted', approver_roles:['finance_head','treasury_officer'], poster_roles:['settlement_officer'], approved_by:'Olumide Akin', approved_at:isoDate(2.1), posted_by:'Ngozi Eze', posted_at:isoDate(2), rejected_by:null, rejected_at:null, rejection_reason:null, created_at:isoDate(2.5) },
+      { id:4, ref:'MP-SET-004', workflow_template_id:2, workflow_template_name:'CFO Approval', type:'Credit', amount_kobo:12_750_000_00, account:'0246813579', description:'Interswitch fees reconciliation credit', initiated_by:'Emeka Obi', stage:'rejected', approver_roles:['cfo'], poster_roles:['settlement_officer','treasury_officer'], approved_by:null, approved_at:null, posted_by:null, posted_at:null, rejected_by:'Olumide Akin', rejected_at:isoDate(3.2), rejection_reason:'Supporting document missing — request re-raised', created_at:isoDate(3.5) },
+      { id:5, ref:'MP-SET-005', workflow_template_id:1, workflow_template_name:'Treasury Standard', type:'Debit', amount_kobo:500_000_00, account:'0135792468', description:'Bank charges adjustment', initiated_by:'Adaeze Nwosu', stage:'pending_approval', approver_roles:['finance_head','treasury_officer'], poster_roles:['settlement_officer'], approved_by:null, approved_at:null, posted_by:null, posted_at:null, rejected_by:null, rejected_at:null, rejection_reason:null, created_at:isoDate(0.5) },
+    ]
   )),
   http.post(u('/api/settlements/manual-postings'), () => ok({ id: 99 })),
-  http.put(u('/api/settlements/manual-postings/:id'), () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/settlements/manual-postings/:id/approve'), () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/settlements/manual-postings/:id/reject'),  () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/settlements/manual-postings/:id/post'),    () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/settlements/manual-postings/:id/return'),  () => new HttpResponse(null, { status: 204 })),
   http.get(u('/api/settlements/failed'), () => wd(
     Array.from({ length: 5 }, (_, i) => ({
       id: i+1, reference: `FAIL-${i+100}`, amount_kobo: rng(5,50)*1_000_000_00,

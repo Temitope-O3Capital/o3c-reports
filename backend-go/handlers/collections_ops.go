@@ -274,6 +274,10 @@ func collectionsOpsBrokenPromise(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		pRows, _ := db.PGQuery(r.Context(),
+			`SELECT agent_user_id, cif_number, promised_amount_kobo, promised_date
+			 FROM collection_promises WHERE id=$1`, pid)
+
 		_, err = db.PGExec(r.Context(), `
 			UPDATE collection_promises
 			SET is_kept = FALSE
@@ -282,6 +286,28 @@ func collectionsOpsBrokenPromise(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Update failed")
 			return
 		}
+
+		if len(pRows) > 0 {
+			p := pRows[0]
+			agentID := toInt64(p["agent_user_id"])
+			cif := str(p["cif_number"])
+			go Notify(r.Context(), db, NotifPayload{
+				EventType: EvtPTPBroken,
+				UserID:    agentID,
+				Title:     "PTP broken — " + cif,
+				Body:      fmt.Sprintf("Customer %s missed their promise-to-pay due %v.", cif, p["promised_date"]),
+				ActionURL: "/collections",
+				EntityRef: fmt.Sprint(pid),
+			})
+			go NotifyRole(r.Context(), db, "collections_head", NotifPayload{
+				EventType: EvtPTPBroken,
+				Title:     "PTP broken — " + cif,
+				Body:      fmt.Sprintf("Customer %s missed their promise-to-pay due %v.", cif, p["promised_date"]),
+				ActionURL: "/collections",
+				EntityRef: fmt.Sprint(pid),
+			})
+		}
+
 		respondErr(w, 200, "Promise marked as broken")
 	}
 }
