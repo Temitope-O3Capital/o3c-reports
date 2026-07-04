@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
   ErrBanner, Spinner,
@@ -66,6 +67,7 @@ function StatusPill({ status }: { status?: string }) {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function CRMContacts() {
+  const navigate = useNavigate()
   const [contacts, setContacts] = useState<Contact[]>([])
   const [total, setTotal]       = useState(0)
   const [users, setUsers]       = useState<CRMUser[]>([])
@@ -129,8 +131,8 @@ export default function CRMContacts() {
     {
       key: 'first_name', label: 'Name',
       render: r => (
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
+        <div onClick={() => navigate(`/sales/customers/${r.id}`)} style={{ cursor: 'pointer' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: NAVY }}>
             {r.first_name} {r.last_name}
           </div>
           {r.email && <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{r.email}</div>}

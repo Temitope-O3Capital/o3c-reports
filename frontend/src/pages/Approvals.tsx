@@ -80,6 +80,8 @@ export default function Approvals() {
   const [loading, setLoading] = useState(true)
   const [err, setErr]         = useState<string | null>(null)
   const [moduleFilter, setModuleFilter] = useState('')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [batchBusy, setBatchBusy] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -102,7 +104,55 @@ export default function Approvals() {
 
   const modules = Array.from(new Set(items.map(i => i.module)))
 
+  function rowKey(r: ApprovalItem) { return `${r.module}:${r.item_id}` }
+
+  function toggleRow(r: ApprovalItem) {
+    const k = rowKey(r)
+    setSelected(prev => { const s = new Set(prev); s.has(k) ? s.delete(k) : s.add(k); return s })
+  }
+
+  function toggleAll() {
+    if (selected.size === filtered.length) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(filtered.map(rowKey)))
+    }
+  }
+
+  async function runBatch(action: 'approve' | 'reject') {
+    const payload = filtered
+      .filter(r => selected.has(rowKey(r)))
+      .map(r => ({ module: r.module, item_id: r.item_id }))
+    if (!payload.length) return
+    setBatchBusy(true)
+    try {
+      const token = localStorage.getItem('token') ?? ''
+      await fetch('/api/approvals/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action, notes: '', items: payload }),
+      })
+      setSelected(new Set())
+      load()
+    } catch (e: any) { setErr(e.message) }
+    finally { setBatchBusy(false) }
+  }
+
+  const allSelected = filtered.length > 0 && selected.size === filtered.length
+
   const cols: TableCol<ApprovalItem>[] = [
+    {
+      key: 'module', label: (
+        <input type="checkbox" checked={allSelected} onChange={toggleAll}
+          style={{ cursor: 'pointer', width: 15, height: 15 }} />
+      ) as any,
+      render: r => (
+        <input type="checkbox" checked={selected.has(rowKey(r))}
+          onChange={() => toggleRow(r)}
+          onClick={e => e.stopPropagation()}
+          style={{ cursor: 'pointer', width: 15, height: 15 }} />
+      ),
+    },
     {
       key: 'module', label: 'Module',
       render: r => <ModulePill module={r.module} />,
@@ -190,6 +240,25 @@ export default function Approvals() {
               </button>
             )
           })}
+        </div>
+      )}
+
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#F0F4FF', borderRadius: 10, border: `1px solid ${NAVY}20`, marginBottom: 10 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: NAVY }}>{selected.size} selected</span>
+          <button onClick={() => runBatch('approve')} disabled={batchBusy}
+            style={{ padding: '6px 16px', borderRadius: 7, border: 'none', background: GREEN, color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: batchBusy ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>check_circle</span>Approve ({selected.size})
+          </button>
+          <button onClick={() => runBatch('reject')} disabled={batchBusy}
+            style={{ padding: '6px 16px', borderRadius: 7, border: 'none', background: RED, color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: batchBusy ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>cancel</span>Reject ({selected.size})
+          </button>
+          <button onClick={() => setSelected(new Set())}
+            style={{ marginLeft: 'auto', padding: '4px 10px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'none', fontSize: 12, color: 'var(--txt2)', cursor: 'pointer' }}>
+            Clear
+          </button>
         </div>
       )}
 

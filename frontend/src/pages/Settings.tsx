@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { toast } from 'sonner'
 import { Page, SectionCard, Spinner } from '../components/UI'
 import { apiFetch, apiPost } from '../lib/api'
-import { NAVY, RED, GREEN, AMBER } from '../lib/design'
+import { NAVY, RED, GREEN, AMBER, INTER } from '../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -323,6 +323,134 @@ function ChangePasswordSection() {
   )
 }
 
+// ── Notification Preferences Section ─────────────────────────────────────────
+
+interface NotifPref {
+  event_type:   string
+  channel:      string
+  label:        string
+  description:  string
+  user_enabled: boolean
+  has_override: boolean
+}
+
+const CHANNEL_ICON: Record<string, string> = {
+  in_app: 'notifications', email: 'mail', sms: 'sms',
+}
+
+function NotificationPrefsSection() {
+  const [prefs,   setPrefs]   = useState<NotifPref[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving,  setSaving]  = useState(false)
+  const [dirty,   setDirty]   = useState<Record<string, boolean>>({})
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await apiFetch<NotifPref[]>('/api/user/notification-preferences')
+      setPrefs(data ?? [])
+    } catch { /* silently ignore — table may not exist yet */ }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  function toggle(eventType: string, channel: string) {
+    const key = `${eventType}:${channel}`
+    setPrefs(prev => prev.map(p =>
+      p.event_type === eventType && p.channel === channel
+        ? { ...p, user_enabled: !p.user_enabled }
+        : p
+    ))
+    setDirty(d => ({ ...d, [key]: true }))
+  }
+
+  async function save() {
+    setSaving(true)
+    try {
+      const changes = prefs
+        .filter(p => dirty[`${p.event_type}:${p.channel}`])
+        .map(p => ({ event_type: p.event_type, channel: p.channel, enabled: p.user_enabled }))
+      const token = localStorage.getItem('token') ?? ''
+      await fetch('/api/user/notification-preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(changes),
+      })
+      toast.success('Preferences saved')
+      setDirty({})
+    } catch (e: any) { toast.error(e.message) }
+    finally { setSaving(false) }
+  }
+
+  if (loading) return <div style={{ padding: 24, display: 'flex', justifyContent: 'center' }}><Spinner size={22} /></div>
+  if (prefs.length === 0) return <div style={{ padding: '16px 0', color: 'var(--txt3)', fontSize: 13 }}>No notification events configured yet.</div>
+
+  // Group by event_type
+  const grouped: Record<string, NotifPref[]> = {}
+  prefs.forEach(p => { if (!grouped[p.event_type]) grouped[p.event_type] = []; grouped[p.event_type].push(p) })
+  const channels = ['in_app', 'email', 'sms']
+
+  return (
+    <div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: 'var(--th-bg)' }}>
+              <th style={{ padding: '9px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', width: '55%' }}>Event</th>
+              {channels.map(ch => (
+                <th key={ch} style={{ padding: '9px 12px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 15, verticalAlign: 'middle' }}>{CHANNEL_ICON[ch] ?? ch}</span>
+                  <span style={{ marginLeft: 4 }}>{ch.replace('_', ' ')}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(grouped).map(([eventType, eventPrefs]) => {
+              const first = eventPrefs[0]
+              return (
+                <tr key={eventType} style={{ borderBottom: '1px solid var(--bdr)' }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background='var(--row-hvr)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background='transparent'}
+                >
+                  <td style={{ padding: '10px 12px' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--txt)' }}>{first.label || eventType.replace(/_/g,' ')}</div>
+                    {first.description && <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 2 }}>{first.description}</div>}
+                  </td>
+                  {channels.map(ch => {
+                    const pref = eventPrefs.find(p => p.channel === ch)
+                    if (!pref) return <td key={ch} style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--txt3)' }}>—</td>
+                    return (
+                      <td key={ch} style={{ padding: '10px 12px', textAlign: 'center' }}>
+                        <button
+                          onClick={() => toggle(eventType, ch)}
+                          style={{ width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer', background: pref.user_enabled ? NAVY : '#D1D5DB', position: 'relative', transition: 'background .2s', padding: 0 }}
+                        >
+                          <span style={{ position: 'absolute', top: 3, left: pref.user_enabled ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .2s', display: 'block' }} />
+                        </button>
+                      </td>
+                    )
+                  })}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      {Object.keys(dirty).length > 0 && (
+        <div style={{ marginTop: 16, display: 'flex', gap: 10, alignItems: 'center' }}>
+          <button onClick={save} disabled={saving}
+            style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: INTER }}>
+            {saving && <Spinner size={13} color="#fff" />}Save Preferences
+          </button>
+          <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{Object.keys(dirty).length} unsaved change{Object.keys(dirty).length !== 1 ? 's' : ''}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function Settings() {
@@ -336,6 +464,10 @@ export default function Settings() {
 
         <SectionCard title="Change Password">
           <ChangePasswordSection />
+        </SectionCard>
+
+        <SectionCard title="Notification Preferences" subtitle="Choose how you receive each type of notification">
+          <NotificationPrefsSection />
         </SectionCard>
 
       </div>

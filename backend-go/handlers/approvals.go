@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -11,8 +12,94 @@ import (
 // Returns pending items across LOS, write-offs, and leave requests
 // relevant to the authenticated user's role.
 func RegisterApprovals(r chi.Router, db *core.DB) {
-	r.Get("/pending", approvalsPending(db))
-	r.Get("/summary", approvalsSummary(db))
+	r.Get("/pending",     approvalsPending(db))
+	r.Get("/summary",     approvalsSummary(db))
+	r.Post("/batch",      approvalsBatch(db))
+}
+
+// approvalsBatch processes multiple approval actions in one call.
+// Body: {"action":"approve"|"reject","notes":"...","items":[{"module":"LOS","item_id":123},...]}
+func approvalsBatch(db *core.DB) http.HandlerFunc {
+	type batchItem struct {
+		Module string `json:"module"`
+		ItemID int64  `json:"item_id"`
+	}
+	type batchReq struct {
+		Action string      `json:"action"` // "approve" or "reject"
+		Notes  string      `json:"notes"`
+		Items  []batchItem `json:"items"`
+	}
+	type result struct {
+		Module  string `json:"module"`
+		ItemID  int64  `json:"item_id"`
+		Success bool   `json:"success"`
+		Error   string `json:"error,omitempty"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		ctx := r.Context()
+		var req batchReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		if req.Action != "approve" && req.Action != "reject" {
+			respondErr(w, 422, "action must be approve or reject"); return
+		}
+
+		results := make([]result, 0, len(req.Items))
+		for _, item := range req.Items {
+			var err error
+			switch item.Module {
+			case "LOS":
+				var toStage string
+				if req.Action == "approve" {
+					// Determine next stage by looking up current stage
+					rows, qe := db.PGQuery(ctx, `SELECT stage FROM loan_applications WHERE id=$1`, item.ItemID)
+					if qe != nil || len(rows) == 0 {
+						results = append(results, result{Module: item.Module, ItemID: item.ItemID, Success: false, Error: "not found"})
+						continue
+					}
+					fromStage := str(rows[0]["stage"])
+					allowed := allowedTransitions[fromStage]
+					if len(allowed) > 0 {
+						toStage = allowed[0]
+					}
+				} else {
+					toStage = "declined"
+				}
+				if toStage == "" {
+					results = append(results, result{Module: item.Module, ItemID: item.ItemID, Success: false, Error: "no valid transition"})
+					continue
+				}
+				_, err = db.PGExec(ctx, `UPDATE loan_applications SET stage=$1, updated_at=NOW(), updated_by=$2 WHERE id=$3`,
+					toStage, user.ID, item.ItemID)
+			case "Leave":
+				newStatus := "approved"
+				if req.Action == "reject" { newStatus = "rejected" }
+				_, err = db.PGExec(ctx, `UPDATE leave_applications SET status=$1, reviewed_by=$2, reviewed_at=NOW() WHERE id=$3`,
+					newStatus, user.ID, item.ItemID)
+			case "Write-off":
+				newStatus := "approved"
+				if req.Action == "reject" { newStatus = "rejected" }
+				_, err = db.PGExec(ctx, `UPDATE recovery_write_offs SET status=$1, reviewed_by=$2, reviewed_at=NOW() WHERE id=$3`,
+					newStatus, user.ID, item.ItemID)
+			case "Compliance":
+				newStatus := "closed"
+				if req.Action == "reject" { newStatus = "open" }
+				_, err = db.PGExec(ctx, `UPDATE audit_findings SET status=$1, updated_at=NOW() WHERE id=$2`,
+					newStatus, item.ItemID)
+			default:
+				results = append(results, result{Module: item.Module, ItemID: item.ItemID, Success: false, Error: "unknown module"})
+				continue
+			}
+			if err != nil {
+				results = append(results, result{Module: item.Module, ItemID: item.ItemID, Success: false, Error: err.Error()})
+			} else {
+				results = append(results, result{Module: item.Module, ItemID: item.ItemID, Success: true})
+			}
+		}
+		respond(w, results, "pg")
+	}
 }
 
 // approvalsPending returns all items pending the user's approval action,

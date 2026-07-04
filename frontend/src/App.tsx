@@ -54,6 +54,7 @@ const SalesCohort    = lazy(() => import('./pages/sales/Cohort'))
 const SalesReports   = lazy(() => import('./pages/sales/Reports'))
 const SalesTargets   = lazy(() => import('./pages/sales/Targets'))
 const CRMContacts    = lazy(() => import('./pages/sales/Customers'))
+const CRMContactDetail = lazy(() => import('./pages/sales/ContactDetail'))
 const CRMPipelinePg  = lazy(() => import('./pages/sales/CRMPipeline'))
 const CRMTasks       = lazy(() => import('./pages/sales/Tasks'))
 
@@ -578,9 +579,10 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/sales/cohort"    element={<PageErrorBoundary><SalesCohort /></PageErrorBoundary>} />
                   <Route path="/sales/reports"   element={<PageErrorBoundary><SalesReports /></PageErrorBoundary>} />
                   <Route path="/sales/targets"   element={<PageErrorBoundary><SalesTargets /></PageErrorBoundary>} />
-                  <Route path="/sales/customers" element={<PageErrorBoundary><CRMContacts /></PageErrorBoundary>} />
-                  <Route path="/sales/crm"       element={<PageErrorBoundary><CRMPipelinePg /></PageErrorBoundary>} />
-                  <Route path="/sales/tasks"     element={<PageErrorBoundary><CRMTasks /></PageErrorBoundary>} />
+                  <Route path="/sales/customers"     element={<PageErrorBoundary><CRMContacts /></PageErrorBoundary>} />
+                  <Route path="/sales/customers/:id" element={<PageErrorBoundary><CRMContactDetail /></PageErrorBoundary>} />
+                  <Route path="/sales/crm"           element={<PageErrorBoundary><CRMPipelinePg /></PageErrorBoundary>} />
+                  <Route path="/sales/tasks"         element={<PageErrorBoundary><CRMTasks /></PageErrorBoundary>} />
 
                   <Route path="/sales/applications"     element={<PageErrorBoundary><LOSQueue /></PageErrorBoundary>} />
                   <Route path="/sales/applications/new" element={<PageErrorBoundary><LOSNewApp /></PageErrorBoundary>} />
