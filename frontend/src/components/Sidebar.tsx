@@ -42,7 +42,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'campaign', label: 'Campaigns', to: '/campaigns',
-        vis: ['sales_officer','sales_head','bd_officer','bd_head'],
+        vis: ['sales_officer','sales_head','bd_officer','bd_head','telemarketing_agent','telemarketing_head'],
         subs: [
           { label: 'All Campaigns', to: '/campaigns' },
           { label: 'Templates',     to: '/campaigns/templates' },
@@ -85,9 +85,10 @@ const SECTIONS: Section[] = [
         icon: 'call', label: 'Telemarketing', to: '/telemarketing',
         vis: ['telemarketing_agent','telemarketing_head'],
         subs: [
-          { label: 'Outbound Queue', to: '/telemarketing/queue' },
-          { label: 'DNC List',       to: '/telemarketing/dnc' },
-          { label: 'Performance',    to: '/telemarketing/performance' },
+          { label: 'Outbound Queue',   to: '/telemarketing/queue' },
+          { label: 'Marketing Leads',  to: '/telemarketing/leads' },
+          { label: 'DNC List',         to: '/telemarketing/dnc' },
+          { label: 'Performance',      to: '/telemarketing/performance' },
         ],
       },
       {
@@ -263,6 +264,10 @@ const SECTIONS: Section[] = [
       {
         icon: 'admin_panel_settings', label: 'Admin', to: '/admin',
         vis: ['it_admin'],
+        subs: [
+          { label: 'Overview',           to: '/admin' },
+          { label: 'Helpdesk Settings',  to: '/admin/helpdesk-settings' },
+        ],
       },
     ],
   },

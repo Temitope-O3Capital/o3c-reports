@@ -171,8 +171,8 @@ export default function Supervisor() {
 
   useEffect(() => {
     load()
-    // Auto-refresh every 30 seconds
-    intervalRef.current = setInterval(() => load(true), 30_000)
+    // Auto-refresh every 10 seconds
+    intervalRef.current = setInterval(() => load(true), 10_000)
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [load])
 

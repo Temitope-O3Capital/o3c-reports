@@ -73,8 +73,49 @@ func ensureHelpdeskColumns(ctx context.Context, db *core.DB) {
 	}
 }
 
+// StartSLABreachMonitor runs every 60 s, finds tickets whose SLA has expired but
+// sla_breached is not yet set, marks them, and notifies the assigned agent + call_center_head.
+func StartSLABreachMonitor(db *core.DB) {
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			ctx := context.Background()
+			rows, err := db.PGQuery(ctx, `
+				UPDATE helpdesk_tickets
+				SET sla_breached=true, updated_at=NOW()
+				WHERE sla_due_at < NOW()
+				  AND (sla_breached IS NULL OR sla_breached=false)
+				  AND status NOT IN ('resolved','closed','merged')
+				RETURNING id, ticket_ref, assigned_to`)
+			if err != nil {
+				slog.Error("SLA breach monitor: update failed", "err", err)
+				continue
+			}
+			for _, row := range rows {
+				ticketID := toInt64(row["id"])
+				ticketRef := str(row["ticket_ref"])
+				assignedTo := toInt64(row["assigned_to"])
+				hdRecordEvent(ctx, db, ticketID, 0, "sla_breached", "", ticketRef)
+				payload := NotifPayload{
+					EventType: EvtTicketSLABreach,
+					Title:     fmt.Sprintf("SLA breached: %s", ticketRef),
+					Body:      fmt.Sprintf("Ticket %s has breached its SLA and requires immediate attention.", ticketRef),
+					ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
+					EntityRef: ticketRef,
+				}
+				if assignedTo > 0 {
+					go Notify(ctx, db, NotifPayload{EventType: payload.EventType, UserID: assignedTo, Title: payload.Title, Body: payload.Body, ActionURL: payload.ActionURL, EntityRef: payload.EntityRef})
+				}
+				go NotifyRole(ctx, db, "call_center_head", payload)
+			}
+		}
+	}()
+}
+
 func RegisterHelpdesk(r chi.Router, db *core.DB) {
 	go ensureHelpdeskColumns(context.Background(), db)
+	go StartSLABreachMonitor(db)
 	r.Get("/stats", hdStats(db))
 	r.Get("/supervisor", hdSupervisor(db))
 	r.Post("/tickets", hdCreateTicket(db))
@@ -124,6 +165,8 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 
 	// KB article feedback
 	r.Post("/kb/{id}/feedback", hdKBFeedback(db))
+	// KB compliance approval
+	r.Put("/kb/{id}/approve", hdKBApprove(db))
 
 	// Extended stats analytics
 	r.Get("/stats/leaderboard", hdStatsLeaderboard(db))
@@ -1255,6 +1298,17 @@ func hdCSATSubmit(db *core.DB) http.HandlerFunc {
 
 		hdRecordEvent(r.Context(), db, ticketID, 0, "csat_submitted",
 			"", fmt.Sprintf("score=%d", b.Score))
+
+		if b.Score <= 2 {
+			ticketRef := str(tRows[0]["ticket_ref"])
+			go NotifyRole(context.Background(), db, "call_center_head", NotifPayload{
+				EventType: "csat_low",
+				Title:     fmt.Sprintf("Low CSAT score (%d/5) on %s", b.Score, ticketRef),
+				Body:      fmt.Sprintf("Customer rated %d/5 for ticket %s. Comment: %s", b.Score, ticketRef, b.Comment),
+				ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
+				EntityRef: ticketRef,
+			})
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true}) //nolint:errcheck
@@ -2625,9 +2679,12 @@ func hdKBFeedback(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Schema setup failed")
 			return
 		}
-		// Ensure feedback columns exist
-		db.PGExec(r.Context(), `ALTER TABLE helpdesk_knowledge_base ADD COLUMN IF NOT EXISTS helpful_count INT NOT NULL DEFAULT 0`)     //nolint:errcheck
+		// Ensure extended columns exist
+		db.PGExec(r.Context(), `ALTER TABLE helpdesk_knowledge_base ADD COLUMN IF NOT EXISTS helpful_count INT NOT NULL DEFAULT 0`)      //nolint:errcheck
 		db.PGExec(r.Context(), `ALTER TABLE helpdesk_knowledge_base ADD COLUMN IF NOT EXISTS not_helpful_count INT NOT NULL DEFAULT 0`) //nolint:errcheck
+		db.PGExec(r.Context(), `ALTER TABLE helpdesk_knowledge_base ADD COLUMN IF NOT EXISTS version INT NOT NULL DEFAULT 1`)           //nolint:errcheck
+		db.PGExec(r.Context(), `ALTER TABLE helpdesk_knowledge_base ADD COLUMN IF NOT EXISTS approved_by BIGINT`)                      //nolint:errcheck
+		db.PGExec(r.Context(), `ALTER TABLE helpdesk_knowledge_base ADD COLUMN IF NOT EXISTS kb_status TEXT NOT NULL DEFAULT 'draft'`) //nolint:errcheck
 
 		id := chi.URLParam(r, "id")
 		var b struct {
@@ -2648,6 +2705,39 @@ func hdKBFeedback(db *core.DB) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(204)
+	}
+}
+
+// hdKBApprove allows a compliance officer/head to approve a KB article for publication.
+// Sets is_public=true, kb_status='live', approved_by=current_user, version+=1.
+func hdKBApprove(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "Unauthorized")
+			return
+		}
+		if user.Role != "compliance_officer" && user.Role != "compliance_head" && user.Role != "admin" {
+			respondErr(w, 403, "Only compliance officers can approve KB articles")
+			return
+		}
+		id := chi.URLParam(r, "id")
+		rows, err := db.PGQuery(r.Context(),
+			`UPDATE helpdesk_knowledge_base
+			 SET is_public=true, kb_status='live', approved_by=$1, version=version+1, updated_at=NOW()
+			 WHERE id=$2
+			 RETURNING id, title, version, kb_status`,
+			user.ID, id)
+		if err != nil {
+			respondErr(w, 500, "Approve failed")
+			return
+		}
+		if len(rows) == 0 {
+			respondErr(w, 404, "Article not found")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "article": rows[0]}) //nolint:errcheck
 	}
 }
 

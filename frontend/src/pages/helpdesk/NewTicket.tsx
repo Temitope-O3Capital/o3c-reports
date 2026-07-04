@@ -6,8 +6,9 @@ import { RED, NAVY } from '../../lib/design'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 const TICKET_TYPES = [
-  'Card Dispute', 'Loan Query', 'Account Freeze', 'Transfer Issue',
-  'POS Complaint', 'App Issue', 'General Inquiry', 'Complaint', 'Other',
+  'General Enquiry', 'Balance Enquiry', 'Payment Confirmation', 'Card Dispute',
+  'Statement Request', 'Loan Complaint', 'FD Enquiry', 'Technical / App Issue',
+  'Complaint (CBN reportable)',
 ] as const
 
 type TicketType = typeof TICKET_TYPES[number]
@@ -94,7 +95,93 @@ function DynamicFields({
     )
   }
 
-  if (type === 'Loan Query') {
+  if (type === 'Balance Enquiry') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Field label="Account Number (optional)">
+          <input
+            type="text" placeholder="e.g. 0123456789"
+            value={custom.account_number ?? ''}
+            onChange={e => set('account_number', e.target.value)}
+            style={inputStyle}
+          />
+        </Field>
+        <Field label="Description">
+          <textarea
+            placeholder="Describe the balance enquiry…"
+            rows={3}
+            value={custom.description ?? ''}
+            onChange={e => set('description', e.target.value)}
+            style={{ ...inputStyle, height: 'auto', padding: '10px 12px', resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
+          />
+        </Field>
+      </div>
+    )
+  }
+
+  if (type === 'Payment Confirmation') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Field label="Transaction Reference">
+          <input
+            type="text" placeholder="e.g. TXN-000123"
+            value={custom.transaction_ref ?? ''}
+            onChange={e => set('transaction_ref', e.target.value)}
+            style={inputStyle}
+          />
+        </Field>
+        <Field label="Transaction Date">
+          <input
+            type="date"
+            value={custom.transaction_date ?? ''}
+            onChange={e => set('transaction_date', e.target.value)}
+            style={inputStyle}
+          />
+        </Field>
+        <Field label="Amount (₦)">
+          <input
+            type="number" placeholder="e.g. 50000"
+            value={custom.amount ?? ''}
+            onChange={e => set('amount', e.target.value)}
+            style={inputStyle}
+          />
+        </Field>
+      </div>
+    )
+  }
+
+  if (type === 'Statement Request') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Field label="Statement Period From">
+          <input
+            type="date"
+            value={custom.period_from ?? ''}
+            onChange={e => set('period_from', e.target.value)}
+            style={inputStyle}
+          />
+        </Field>
+        <Field label="Statement Period To">
+          <input
+            type="date"
+            value={custom.period_to ?? ''}
+            onChange={e => set('period_to', e.target.value)}
+            style={inputStyle}
+          />
+        </Field>
+        <Field label="Delivery Email">
+          <input
+            type="email" placeholder="Email to send statement to"
+            value={custom.delivery_email ?? ''}
+            onChange={e => set('delivery_email', e.target.value)}
+            style={inputStyle}
+          />
+        </Field>
+      </div>
+    )
+  }
+
+  if (type === 'Loan Complaint') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <Field label="Loan Reference">
@@ -105,12 +192,12 @@ function DynamicFields({
             style={inputStyle}
           />
         </Field>
-        <Field label="Query Details">
+        <Field label="Complaint Details">
           <textarea
-            placeholder="Describe the loan query…"
+            placeholder="Describe the loan complaint…"
             rows={3}
-            value={custom.query_details ?? ''}
-            onChange={e => set('query_details', e.target.value)}
+            value={custom.complaint_details ?? ''}
+            onChange={e => set('complaint_details', e.target.value)}
             style={{ ...inputStyle, height: 'auto', padding: '10px 12px', resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
           />
         </Field>
@@ -118,24 +205,84 @@ function DynamicFields({
     )
   }
 
-  if (type === 'Account Freeze') {
+  if (type === 'FD Enquiry') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <Field label="Reason">
+        <Field label="FD Reference (optional)">
+          <input
+            type="text" placeholder="e.g. FD-000456"
+            value={custom.fd_reference ?? ''}
+            onChange={e => set('fd_reference', e.target.value)}
+            style={inputStyle}
+          />
+        </Field>
+        <Field label="Enquiry Details">
           <textarea
-            placeholder="Reason for account freeze…"
+            placeholder="Describe the FD enquiry…"
             rows={3}
-            value={custom.reason ?? ''}
-            onChange={e => set('reason', e.target.value)}
+            value={custom.enquiry_details ?? ''}
+            onChange={e => set('enquiry_details', e.target.value)}
             style={{ ...inputStyle, height: 'auto', padding: '10px 12px', resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
           />
         </Field>
-        <Field label="Authorised By">
-          <input
-            type="text" placeholder="Name of authorising officer"
-            value={custom.authorised_by ?? ''}
-            onChange={e => set('authorised_by', e.target.value)}
-            style={inputStyle}
+      </div>
+    )
+  }
+
+  if (type === 'Technical / App Issue') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Field label="Device / Platform">
+          <select
+            value={custom.platform ?? ''}
+            onChange={e => set('platform', e.target.value)}
+            style={{ ...inputStyle, height: 38 }}
+          >
+            <option value="">— Select —</option>
+            <option value="iOS">iOS</option>
+            <option value="Android">Android</option>
+            <option value="Web">Web</option>
+            <option value="USSD">USSD</option>
+          </select>
+        </Field>
+        <Field label="Issue Description">
+          <textarea
+            placeholder="Describe the technical issue…"
+            rows={3}
+            value={custom.issue_description ?? ''}
+            onChange={e => set('issue_description', e.target.value)}
+            style={{ ...inputStyle, height: 'auto', padding: '10px 12px', resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
+          />
+        </Field>
+      </div>
+    )
+  }
+
+  if (type === 'Complaint (CBN reportable)') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Field label="Complaint Category">
+          <select
+            value={custom.complaint_category ?? ''}
+            onChange={e => set('complaint_category', e.target.value)}
+            style={{ ...inputStyle, height: 38 }}
+          >
+            <option value="">— Select —</option>
+            <option value="Fraud / Unauthorized Transaction">Fraud / Unauthorized Transaction</option>
+            <option value="Customer Service Failure">Customer Service Failure</option>
+            <option value="Product / Service Defect">Product / Service Defect</option>
+            <option value="Billing / Charges Dispute">Billing / Charges Dispute</option>
+            <option value="Account Management">Account Management</option>
+            <option value="Other">Other</option>
+          </select>
+        </Field>
+        <Field label="Complaint Details">
+          <textarea
+            placeholder="Describe the complaint in detail…"
+            rows={4}
+            value={custom.complaint_details ?? ''}
+            onChange={e => set('complaint_details', e.target.value)}
+            style={{ ...inputStyle, height: 'auto', padding: '10px 12px', resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
           />
         </Field>
       </div>

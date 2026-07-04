@@ -185,6 +185,33 @@ function DetailRow({ label, value, mono }: { label: string; value?: string | num
   )
 }
 
+function CallButton({ phone, ticketId }: { phone: string; ticketId?: number }) {
+  const [calling, setCalling] = useState(false)
+  async function call() {
+    setCalling(true)
+    try {
+      await apiPost('/api/zoho/voice/call', { phone_number: phone, ...(ticketId ? { ticket_id: ticketId } : {}) })
+      toast.success(`Calling ${phone}…`)
+    } catch (e: any) {
+      toast.error(e.message ?? 'Call failed')
+    } finally {
+      setCalling(false)
+    }
+  }
+  return (
+    <button onClick={call} disabled={calling} title={`Call ${phone}`} style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      padding: '2px 8px', borderRadius: 6, border: '1px solid var(--bdr)',
+      background: calling ? 'var(--th-bg)' : `${GREEN}12`, color: GREEN,
+      fontSize: 11.5, fontWeight: 600, cursor: calling ? 'wait' : 'pointer',
+      verticalAlign: 'middle',
+    }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 13 }}>call</span>
+      {calling ? 'Calling…' : 'Call'}
+    </button>
+  )
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function TicketDetail() {
@@ -232,6 +259,11 @@ export default function TicketDetail() {
   const [ptpAmount, setPtpAmount] = useState('')
   const [ptpDate, setPtpDate] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
+
+  // Statement form state
+  const [stmtDateFrom, setStmtDateFrom] = useState('')
+  const [stmtDateTo, setStmtDateTo] = useState('')
+  const [stmtEmail, setStmtEmail] = useState('')
 
   // Merge state
   const [mergeQuery, setMergeQuery] = useState('')
@@ -708,7 +740,15 @@ export default function TicketDetail() {
               {!ctxLoading && tab === 'customer' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <DetailRow label="Name" value={ticket.customer_name} />
-                  <DetailRow label="Phone" value={ticket.customer_phone} />
+                  {ticket.customer_phone ? (
+                    <div style={{ display: 'flex', gap: 10, fontSize: 13, alignItems: 'center' }}>
+                      <span style={{ color: 'var(--txt2)', minWidth: 110, flexShrink: 0 }}>Phone</span>
+                      <span style={{ color: 'var(--txt)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {ticket.customer_phone}
+                        <CallButton phone={ticket.customer_phone} ticketId={ticket.id} />
+                      </span>
+                    </div>
+                  ) : null}
                   <DetailRow label="Email" value={ticket.customer_email} />
                   <DetailRow label="CIF" value={ticket.customer_cif} mono />
                   <DetailRow label="Account Status" value={ctx?.cif ? 'Active' : undefined} />
@@ -845,7 +885,14 @@ export default function TicketDetail() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[
                 { label: 'Log PTP', icon: 'handshake', color: BLUE, onClick: () => setPtpOpen(true) },
-                { label: 'Request Statement', icon: 'description', color: BLUE, onClick: () => setStatementOpen(true) },
+                { label: 'Request Statement', icon: 'description', color: BLUE, onClick: () => {
+                  const today = new Date().toISOString().slice(0, 10)
+                  const from90 = new Date(Date.now() - 90 * 86400_000).toISOString().slice(0, 10)
+                  setStmtDateFrom(from90)
+                  setStmtDateTo(today)
+                  setStmtEmail(ticket.customer_email ?? '')
+                  setStatementOpen(true)
+                }},
                 { label: 'Raise Card Dispute', icon: 'credit_card_off', color: AMBER, onClick: () => setDisputeOpen(true) },
                 { label: 'Escalate to Collections', icon: 'collections_bookmark', color: AMBER, onClick: () => setCollectionsEscOpen(true) },
                 { label: 'Create New Application', icon: 'add_circle', color: GREEN, onClick: () => setNewAppOpen(true) },
@@ -953,23 +1000,62 @@ export default function TicketDetail() {
       </Modal>
 
       {/* ── Request Statement ────────────────────────────────────────────────── */}
-      <ConfirmModal open={statementOpen} title="Request Account Statement"
-        body={`Send an account statement request for ${ticket.customer_name ?? 'this customer'}? This will be logged as an internal note.`}
-        confirmLabel="Request" loading={actionLoading}
-        onConfirm={async () => {
-          setActionLoading(true)
-          try {
-            await apiPost(`/api/helpdesk/tickets/${id}/messages`, {
-              body_text: '[Statement Requested] Account statement has been requested for this customer.',
-              is_internal_note: true,
-            })
-            setStatementOpen(false)
-            toast.success('Statement requested')
-            await load()
-          } catch (e: any) { toast.error(e.message) } finally { setActionLoading(false) }
-        }}
-        onClose={() => setStatementOpen(false)}
-      />
+      <Modal open={statementOpen} onClose={() => setStatementOpen(false)} title="Send Account Statement" width={420}
+        footer={
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button disabled={actionLoading || !stmtEmail || !stmtDateFrom || !stmtDateTo || !ticket.customer_cif}
+              onClick={async () => {
+                if (!ticket.customer_cif) { toast.error('No CIF — cannot generate statement'); return }
+                setActionLoading(true)
+                try {
+                  await apiPost('/api/statements/send', {
+                    cif: ticket.customer_cif,
+                    date_from: stmtDateFrom,
+                    date_to: stmtDateTo,
+                    recipient_email: stmtEmail,
+                    subject: `Account Statement — ${ticket.customer_name ?? ticket.customer_cif}`,
+                    message: `Requested via helpdesk ticket ${ticket.ticket_ref ?? id}.`,
+                  })
+                  await apiPost(`/api/helpdesk/tickets/${id}/messages`, {
+                    body_text: `[Statement Sent] Account statement (${stmtDateFrom} – ${stmtDateTo}) emailed to ${stmtEmail}.`,
+                    is_internal_note: true,
+                  })
+                  setStatementOpen(false)
+                  toast.success('Statement sent')
+                  await load()
+                } catch (e: any) { toast.error(e.message) } finally { setActionLoading(false) }
+              }}
+              style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: actionLoading ? 'wait' : 'pointer', opacity: actionLoading ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+              {actionLoading && <Spinner size={13} color="#fff" />}
+              Send Statement
+            </button>
+            <button onClick={() => setStatementOpen(false)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          </div>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontSize: 13 }}>
+          {!ticket.customer_cif && (
+            <p style={{ color: AMBER, margin: 0, fontSize: 12.5 }}>No CIF on this ticket — statement cannot be generated without a CIF.</p>
+          )}
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 4 }}>Recipient Email</label>
+            <input type="email" value={stmtEmail} onChange={e => setStmtEmail(e.target.value)} placeholder="customer@email.com"
+              style={{ width: '100%', height: 36, padding: '0 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 4 }}>Date From</label>
+              <input type="date" value={stmtDateFrom} onChange={e => setStmtDateFrom(e.target.value)}
+                style={{ width: '100%', height: 36, padding: '0 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 4 }}>Date To</label>
+              <input type="date" value={stmtDateTo} onChange={e => setStmtDateTo(e.target.value)}
+                style={{ width: '100%', height: 36, padding: '0 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
+            </div>
+          </div>
+        </div>
+      </Modal>
 
       {/* ── Raise Card Dispute ───────────────────────────────────────────────── */}
       <ConfirmModal open={disputeOpen} title="Raise Card Dispute"

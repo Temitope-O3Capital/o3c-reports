@@ -23,7 +23,7 @@ interface KBArticle {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const CATEGORIES = ['Account', 'Loans', 'Cards', 'Transfers', 'App', 'General']
-const STATUSES = ['Draft', 'Live', 'Archived']
+const STATUSES = ['Draft', 'Pending Approval', 'Live', 'Archived']
 
 // ── Category pill ──────────────────────────────────────────────────────────────
 
@@ -43,9 +43,10 @@ function CatPill({ cat }: { cat: string }) {
 // ── Status pill ────────────────────────────────────────────────────────────────
 
 const STATUS_STYLE: Record<string, { bg: string; txt: string }> = {
-  live:     { bg: 'rgba(22,163,74,.12)',  txt: GREEN },
-  draft:    { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280' },
-  archived: { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280' },
+  live:             { bg: 'rgba(22,163,74,.12)',   txt: GREEN },
+  draft:            { bg: 'rgba(75,85,99,.1)',     txt: '#6B7280' },
+  archived:         { bg: 'rgba(75,85,99,.1)',     txt: '#6B7280' },
+  'pending approval': { bg: 'rgba(217,119,6,.12)', txt: AMBER },
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -129,7 +130,8 @@ function ArticleForm({ form, onChange }: {
           >
             <option value="">— Select —</option>
             <option value="Draft">Draft</option>
-            <option value="Live">Live</option>
+            <option value="Pending Approval">Submit for Approval</option>
+            <option value="Live">Live (direct publish)</option>
           </select>
         </div>
       </div>
@@ -307,6 +309,18 @@ export default function KnowledgeBase() {
     }
   }
 
+  // Approve (compliance officer only — backend enforces role)
+  async function handleApprove(a: KBArticle, e: React.MouseEvent) {
+    e.stopPropagation()
+    try {
+      await apiPut(`/api/helpdesk/kb/${a.id}/approve`, {})
+      toast.success('Article approved and published')
+      load()
+    } catch (e: any) {
+      toast.error(e.message)
+    }
+  }
+
   // KB article feedback
   async function handleFeedback(articleId: number, helpful: boolean, e: React.MouseEvent) {
     e.stopPropagation()
@@ -442,6 +456,20 @@ export default function KnowledgeBase() {
                     >
                       {a.status === 'Live' ? 'Unpublish' : 'Publish'}
                     </button>
+                    {a.status.toLowerCase() === 'pending approval' && (
+                      <button
+                        onClick={e => handleApprove(a, e)}
+                        title="Approve article for publication"
+                        style={{
+                          ...NUM,
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: '3px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 11.5, fontWeight: 600,
+                          border: `1.5px solid ${GREEN}40`, background: `${GREEN}0d`, color: GREEN,
+                        }}
+                      >
+                        Approve
+                      </button>
+                    )}
                     {a.status !== 'Archived' && (
                       <ActionBtn icon="archive" label="Archive" onClick={() => setArchiveArticle(a)} />
                     )}
