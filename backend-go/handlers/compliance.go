@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -57,6 +59,14 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 
 	// Dashboard
 	r.With(all).Get("/dashboard", complianceDashboard(db))
+
+	// Phase 12 — Regulatory
+	r.With(cbn).Get("/prudential-ratios",            compliancePrudentialRatios(db))
+	r.With(cbn).Get("/credit-bureau-export",         complianceCreditBureauExport(db))
+	r.With(all).Get("/data-subject-requests",         complianceDSARList(db))
+	r.With(all).Post("/data-subject-requests",        complianceDSARCreate(db))
+	r.With(all).Patch("/data-subject-requests/{id}", complianceDSARUpdate(db))
+	r.With(all).Get("/retention-schedule",           complianceRetentionSchedule(db))
 }
 
 // ── Audit Log ─────────────────────────────────────────────────────────────────
@@ -956,3 +966,260 @@ func complianceDashboard(db *core.DB) http.HandlerFunc {
 		respond(w, dash, "pg")
 	}
 }
+
+// ── Phase 12: Prudential Ratios ───────────────────────────────────────────────
+
+func compliancePrudentialRatios(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// NPL ratio: loans with DPD > 90 / total active loan book
+		nplRows, _ := db.PGQuery(ctx, `
+			SELECT
+			  COALESCE(SUM(outstanding_balance_kobo) FILTER (WHERE days_past_due > 90), 0) AS npl_kobo,
+			  COALESCE(SUM(outstanding_balance_kobo), 0)                                   AS total_kobo
+			FROM loan_accounts WHERE status = 'active'`)
+
+		// PAR30, PAR60, PAR90
+		parRows, _ := db.PGQuery(ctx, `
+			SELECT
+			  COALESCE(SUM(outstanding_balance_kobo) FILTER (WHERE days_past_due > 30), 0) AS par30_kobo,
+			  COALESCE(SUM(outstanding_balance_kobo) FILTER (WHERE days_past_due > 60), 0) AS par60_kobo,
+			  COALESCE(SUM(outstanding_balance_kobo) FILTER (WHERE days_past_due > 90), 0) AS par90_kobo,
+			  COALESCE(SUM(outstanding_balance_kobo), 0)                                   AS total_kobo
+			FROM loan_accounts WHERE status = 'active'`)
+
+		// Fixed deposit liabilities (liquidity denominator proxy)
+		fdRows, _ := db.PGQuery(ctx, `
+			SELECT COALESCE(SUM(principal_kobo), 0) AS total_fd_kobo
+			FROM fixed_deposits WHERE status = 'active'`)
+
+		// Total disbursed (loan book)
+		bookRows, _ := db.PGQuery(ctx, `
+			SELECT COALESCE(SUM(loan_amount_kobo), 0) AS total_disbursed_kobo,
+			       COUNT(*) AS active_loans
+			FROM loan_accounts WHERE status = 'active'`)
+
+		result := map[string]any{}
+
+		if len(nplRows) > 0 {
+			nplKobo := toFloat64(nplRows[0]["npl_kobo"])
+			totalKobo := toFloat64(nplRows[0]["total_kobo"])
+			nplRatio := 0.0
+			if totalKobo > 0 {
+				nplRatio = nplKobo / totalKobo * 100
+			}
+			result["npl_kobo"] = int64(nplKobo)
+			result["total_loan_book_kobo"] = int64(totalKobo)
+			result["npl_ratio_pct"] = round2(nplRatio)
+		}
+
+		if len(parRows) > 0 {
+			total := toFloat64(parRows[0]["total_kobo"])
+			calcPAR := func(key string) float64 {
+				if total == 0 {
+					return 0
+				}
+				return toFloat64(parRows[0][key]) / total * 100
+			}
+			result["par30_pct"] = round2(calcPAR("par30_kobo"))
+			result["par60_pct"] = round2(calcPAR("par60_kobo"))
+			result["par90_pct"] = round2(calcPAR("par90_kobo"))
+		}
+
+		if len(fdRows) > 0 {
+			result["total_fd_liabilities_kobo"] = fdRows[0]["total_fd_kobo"]
+		}
+		if len(bookRows) > 0 {
+			result["total_disbursed_kobo"] = bookRows[0]["total_disbursed_kobo"]
+			result["active_loans"] = bookRows[0]["active_loans"]
+		}
+
+		// CBN thresholds for reference
+		result["cbn_thresholds"] = map[string]any{
+			"npl_max_pct":  5.0,
+			"par90_max_pct": 5.0,
+			"car_min_pct":  10.0,
+		}
+
+		respond(w, result, "json")
+	}
+}
+
+// ── Phase 12: Credit Bureau Export ───────────────────────────────────────────
+
+func complianceCreditBureauExport(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		month := qstr(r, "month") // YYYY-MM format
+		if month == "" {
+			now := time.Now().UTC()
+			month = fmt.Sprintf("%d-%02d", now.Year(), int(now.Month()))
+		}
+
+		// Fetch active and closed loan accounts for bureau submission
+		rows, err := db.PGQuery(ctx, `
+			SELECT
+			  la.id,
+			  c.cif_number,
+			  c.full_name,
+			  c.bvn,
+			  la.loan_amount_kobo,
+			  la.outstanding_balance_kobo,
+			  la.days_past_due,
+			  la.status,
+			  la.created_at::date AS open_date,
+			  la.closed_at::date  AS close_date
+			FROM loan_accounts la
+			JOIN customers c ON c.cif_number = la.cif_number
+			WHERE la.status IN ('active','closed')
+			ORDER BY la.id`)
+		if err != nil {
+			respondErr(w, 500, "Query failed"); return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+
+		fname := fmt.Sprintf("credit_bureau_%s.csv", month)
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+fname+`"`)
+
+		enc := csv.NewWriter(w)
+		enc.Write([]string{ //nolint:errcheck
+			"AccountID", "CIFNumber", "FullName", "BVN",
+			"LoanAmountKobo", "OutstandingKobo", "DaysPastDue", "Status",
+			"OpenDate", "CloseDate",
+		})
+		for _, row := range rows {
+			enc.Write([]string{ //nolint:errcheck
+				fmt.Sprint(row["id"]),
+				str(row["cif_number"]),
+				str(row["full_name"]),
+				str(row["bvn"]),
+				fmt.Sprint(row["loan_amount_kobo"]),
+				fmt.Sprint(row["outstanding_balance_kobo"]),
+				fmt.Sprint(row["days_past_due"]),
+				str(row["status"]),
+				func(v any) string { if v == nil { return "" }; return fmt.Sprint(v) }(row["open_date"]),
+				func(v any) string { if v == nil { return "" }; return fmt.Sprint(v) }(row["close_date"]),
+			})
+		}
+		enc.Flush()
+	}
+}
+
+// ── Phase 12: DSAR (Data Subject Access Requests) ────────────────────────────
+
+func complianceDSARList(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		status := qstr(r, "status")
+		query := `
+			SELECT d.id, d.subject_cif, d.subject_name, d.subject_email,
+			       d.request_type, d.status, d.notes, d.created_at, d.resolved_at,
+			       u.full_name AS assigned_to_name
+			FROM data_subject_requests d
+			LEFT JOIN o3c_users u ON d.assigned_to = u.id
+			WHERE 1=1`
+		args := []any{}
+		if status != "" {
+			query += " AND d.status=$1"
+			args = append(args, status)
+		}
+		query += " ORDER BY d.created_at DESC LIMIT 200"
+		rows, err := db.PGQuery(r.Context(), query, args...)
+		if err != nil {
+			respondErr(w, 500, "Query failed"); return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+func complianceDSARCreate(db *core.DB) http.HandlerFunc {
+	type body struct {
+		SubjectCIF   string `json:"subject_cif"`
+		SubjectName  string `json:"subject_name"`
+		SubjectEmail string `json:"subject_email"`
+		RequestType  string `json:"request_type"` // access, erasure, rectification, portability
+		Notes        string `json:"notes"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.RequestType == "" {
+			respondErr(w, 400, "request_type is required"); return
+		}
+		rows, err := db.PGQuery(ctx, `
+			INSERT INTO data_subject_requests (subject_cif, subject_name, subject_email, request_type, notes, status)
+			VALUES ($1,$2,$3,$4,$5,'pending')
+			RETURNING id, request_type, status, created_at`,
+			b.SubjectCIF, b.SubjectName, b.SubjectEmail, b.RequestType, b.Notes)
+		if err != nil {
+			respondErr(w, 500, "Create failed"); return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+func complianceDSARUpdate(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Status     *string `json:"status"`
+		Notes      *string `json:"notes"`
+		AssignedTo *int64  `json:"assigned_to"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		set := "updated_at=NOW()"
+		args := []any{}
+		n := 1
+		add := func(col string, v any) {
+			set += fmt.Sprintf(", %s=$%d", col, n); args = append(args, v); n++
+		}
+		if b.Status != nil {
+			add("status", *b.Status)
+			if *b.Status == "resolved" {
+				set += ", resolved_at=NOW()"
+			}
+		}
+		if b.Notes != nil      { add("notes", *b.Notes)           }
+		if b.AssignedTo != nil { add("assigned_to", *b.AssignedTo) }
+		args = append(args, id)
+		_, err := db.PGExec(r.Context(), fmt.Sprintf(`UPDATE data_subject_requests SET %s WHERE id=$%d`, set, n), args...)
+		if err != nil {
+			respondErr(w, 500, "Update failed"); return
+		}
+		respond(w, map[string]any{"ok": true}, "json")
+	}
+}
+
+// ── Phase 12: Retention Schedule ─────────────────────────────────────────────
+
+func complianceRetentionSchedule(_ *core.DB) http.HandlerFunc {
+	// Static retention policy per NDPR / CBN guidelines.
+	schedule := []map[string]any{
+		{"category": "Loan Applications",      "table": "loan_applications",   "retention_years": 7,  "basis": "CBN Prudential Guidelines"},
+		{"category": "KYC Documents",          "table": "kyc_documents",        "retention_years": 7,  "basis": "CBN KYC Circular"},
+		{"category": "Transaction Records",    "table": "financial_transactions","retention_years": 7,  "basis": "CBN & CAMA"},
+		{"category": "Customer PII",           "table": "customers",            "retention_years": 7,  "basis": "NDPR Art. 2.1(1)(b)"},
+		{"category": "Audit Logs",             "table": "audit_logs",           "retention_years": 5,  "basis": "CBN Guidelines"},
+		{"category": "Staff Records",          "table": "employees",            "retention_years": 7,  "basis": "Labour Act"},
+		{"category": "Compliance Findings",    "table": "compliance_findings",  "retention_years": 10, "basis": "CBN Examination"},
+		{"category": "SAR Records",            "table": "sars",                 "retention_years": 10, "basis": "EFCC Act"},
+		{"category": "Helpdesk Tickets",       "table": "helpdesk_tickets",     "retention_years": 3,  "basis": "NDPR proportionality"},
+		{"category": "Marketing Contacts",     "table": "campaign_contacts",    "retention_years": 2,  "basis": "NDPR consent-based"},
+		{"category": "Session Logs",           "table": "user_sessions",        "retention_years": 1,  "basis": "Security best practice"},
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		respond(w, schedule, "json")
+	}
+}
+

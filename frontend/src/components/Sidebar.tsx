@@ -238,6 +238,8 @@ const SECTIONS: Section[] = [
           { label: 'Audit Trail',         to: '/compliance/audit-trail' },
           { label: 'KYC Expiry',          to: '/compliance/kyc-expiry' },
           { label: 'AML Rules',           to: '/compliance/aml-rules' },
+          { label: 'Prudential Ratios',   to: '/compliance/prudential' },
+          { label: 'Data Subject (DSAR)', to: '/compliance/dsar' },
         ],
       },
     ],

@@ -164,11 +164,13 @@ const PayrollRunDetail = lazy(() => import('./pages/payroll/RunDetail'))
 const PayslipView     = lazy(() => import('./pages/payroll/PayslipView'))
 
 // Compliance
-const ComplianceWatchlist   = lazy(() => import('./pages/compliance/WatchList'))
-const ComplianceRegCalendar = lazy(() => import('./pages/compliance/RegulatoryCalendar'))
-const ComplianceFindings    = lazy(() => import('./pages/compliance/Findings'))
-const ComplianceChecklists  = lazy(() => import('./pages/compliance/Checklists'))
-const ComplianceAuditTrail  = lazy(() => import('./pages/compliance/AuditTrail'))
+const ComplianceWatchlist      = lazy(() => import('./pages/compliance/WatchList'))
+const ComplianceRegCalendar    = lazy(() => import('./pages/compliance/RegulatoryCalendar'))
+const ComplianceFindings       = lazy(() => import('./pages/compliance/Findings'))
+const ComplianceChecklists     = lazy(() => import('./pages/compliance/Checklists'))
+const ComplianceAuditTrail     = lazy(() => import('./pages/compliance/AuditTrail'))
+const CompliancePrudential     = lazy(() => import('./pages/compliance/PrudentialRatios'))
+const ComplianceDSAR           = lazy(() => import('./pages/compliance/DataSubjectRequests'))
 const ComplianceKYCExpiry   = lazy(() => import('./pages/compliance/KYCExpiry'))
 const ComplianceAMLRules    = lazy(() => import('./pages/compliance/AMLRules'))
 
@@ -684,8 +686,10 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/compliance/findings"    element={<PageErrorBoundary><ComplianceFindings /></PageErrorBoundary>} />
                   <Route path="/compliance/checklists"  element={<PageErrorBoundary><ComplianceChecklists /></PageErrorBoundary>} />
                   <Route path="/compliance/audit-trail" element={<PageErrorBoundary><ComplianceAuditTrail /></PageErrorBoundary>} />
-                  <Route path="/compliance/kyc-expiry"  element={<PageErrorBoundary><ComplianceKYCExpiry /></PageErrorBoundary>} />
-                  <Route path="/compliance/aml-rules"   element={<PageErrorBoundary><ComplianceAMLRules /></PageErrorBoundary>} />
+                  <Route path="/compliance/kyc-expiry"   element={<PageErrorBoundary><ComplianceKYCExpiry /></PageErrorBoundary>} />
+                  <Route path="/compliance/aml-rules"    element={<PageErrorBoundary><ComplianceAMLRules /></PageErrorBoundary>} />
+                  <Route path="/compliance/prudential"   element={<PageErrorBoundary><CompliancePrudential /></PageErrorBoundary>} />
+                  <Route path="/compliance/dsar"         element={<PageErrorBoundary><ComplianceDSAR /></PageErrorBoundary>} />
 
                   {/* People */}
                   <Route path="/hr"               element={<Navigate to="/hr/employees" replace />} />
