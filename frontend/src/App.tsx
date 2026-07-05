@@ -21,9 +21,12 @@ const CSATSurvey   = lazy(() => import('./pages/helpdesk/CSATSurvey'))
 const UserSettings = lazy(() => import('./pages/Settings'))
 
 // Intelligence
-const ReportsBI     = lazy(() => import('./pages/reports/BI'))
-const ReportsKPI    = lazy(() => import('./pages/reports/KPITracker'))
-const ReportsExport = lazy(() => import('./pages/reports/Export'))
+const ReportsBI       = lazy(() => import('./pages/reports/BI'))
+const ReportsKPI      = lazy(() => import('./pages/reports/KPITracker'))
+const ReportsExport   = lazy(() => import('./pages/reports/Export'))
+const BIOverview      = lazy(() => import('./pages/bi/BIOverview'))
+const BIBuilder       = lazy(() => import('./pages/bi/ReportBuilder'))
+const BIScheduled     = lazy(() => import('./pages/bi/ScheduledReports'))
 const Statements    = lazy(() => import('./pages/statements/Statements'))
 const Login    = lazy(() => import('./pages/Login'))
 const Overview = lazy(() => import('./pages/Overview'))
@@ -704,6 +707,10 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/reports"        element={<PageErrorBoundary><ReportsBI /></PageErrorBoundary>} />
                   <Route path="/reports/kpi"    element={<PageErrorBoundary><ReportsKPI /></PageErrorBoundary>} />
                   <Route path="/reports/export" element={<PageErrorBoundary><ReportsExport /></PageErrorBoundary>} />
+                  <Route path="/bi"             element={<PageErrorBoundary><BIOverview /></PageErrorBoundary>} />
+                  <Route path="/bi/builder"     element={<PageErrorBoundary><BIBuilder /></PageErrorBoundary>} />
+                  <Route path="/bi/builder/:id" element={<PageErrorBoundary><BIBuilder /></PageErrorBoundary>} />
+                  <Route path="/bi/scheduled"   element={<PageErrorBoundary><BIScheduled /></PageErrorBoundary>} />
                   <Route path="/statements"     element={<PageErrorBoundary><Statements /></PageErrorBoundary>} />
 
                   {/* Admin */}

@@ -274,6 +274,15 @@ const SECTIONS: Section[] = [
         ],
       },
       {
+        icon: 'table_chart', label: 'BI Studio', to: '/bi',
+        vis: ['bi_analyst','bi_head','internal_control_head'],
+        subs: [
+          { label: 'Saved Reports',     to: '/bi' },
+          { label: 'Report Builder',    to: '/bi/builder' },
+          { label: 'Scheduled Reports', to: '/bi/scheduled' },
+        ],
+      },
+      {
         icon: 'receipt_long', label: 'Statements', to: '/statements',
         vis: ['bi_analyst','bi_head','internal_control_head','finance_officer','finance_head'],
       },
