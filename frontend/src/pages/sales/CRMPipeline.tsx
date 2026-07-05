@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
@@ -241,6 +241,8 @@ export default function CRMPipeline() {
   const [view, setView]         = useState<'table' | 'kanban'>('table')
   const [selected, setSelected] = useState<Deal | null>(null)
   const [newDealOpen, setNewDealOpen] = useState(false)
+  const dragDealId  = useRef<number | null>(null)
+  const [dragOverStage, setDragOverStage] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -256,6 +258,17 @@ export default function CRMPipeline() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const moveDeal = useCallback(async (dealId: number, targetStageId: number) => {
+    try {
+      await apiFetch(`/api/crm/deals/${dealId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ stage_id: targetStageId }),
+        headers: { 'Content-Type': 'application/json' },
+      })
+      load()
+    } catch (e: any) { toast.error(e.message) }
+  }, [load])
 
   const tableCols: TableCol<Deal>[] = [
     {
@@ -342,26 +355,49 @@ export default function CRMPipeline() {
             {stages.map(stage => {
               const deals = pipeline?.deals?.[String(stage.id)] ?? []
               const headerColor = stage.is_won ? GREEN : stage.is_lost ? '#6B7280' : (stage.color || NAVY)
+              const isOver = dragOverStage === stage.id
               return (
-                <div key={stage.id} style={{ flex: '0 0 230px', minWidth: 230 }}>
+                <div key={stage.id} style={{ flex: '0 0 230px', minWidth: 230 }}
+                  onDragOver={e => { e.preventDefault(); setDragOverStage(stage.id) }}
+                  onDragLeave={() => setDragOverStage(null)}
+                  onDrop={e => {
+                    e.preventDefault()
+                    setDragOverStage(null)
+                    if (dragDealId.current !== null) {
+                      moveDeal(dragDealId.current, stage.id)
+                      dragDealId.current = null
+                    }
+                  }}
+                >
                   {/* Stage header */}
                   <div style={{
                     padding: '8px 12px', borderRadius: '10px 10px 0 0', marginBottom: 8,
-                    background: `${headerColor}14`, borderBottom: `2px solid ${headerColor}40`,
+                    background: isOver ? `${headerColor}28` : `${headerColor}14`,
+                    borderBottom: `2px solid ${isOver ? headerColor : headerColor + '40'}`,
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    transition: 'background .15s, border-color .15s',
                   }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: headerColor }}>{stage.name}</span>
                     <span style={{ fontSize: 11, fontWeight: 600, padding: '1px 7px', borderRadius: 12, background: `${headerColor}20`, color: headerColor }}>
                       {deals.length}
                     </span>
                   </div>
+                  {/* Drop zone indicator */}
+                  {isOver && (
+                    <div style={{ height: 3, background: headerColor, borderRadius: 2, marginBottom: 8, opacity: 0.6 }} />
+                  )}
                   {/* Deal cards */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 60 }}>
                     {deals.map(deal => (
-                      <div key={deal.id} onClick={() => setSelected(deal)}
+                      <div key={deal.id}
+                        draggable
+                        onDragStart={() => { dragDealId.current = deal.id }}
+                        onDragEnd={() => setDragOverStage(null)}
+                        onClick={() => setSelected(deal)}
                         style={{
                           background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10,
-                          padding: '12px 14px', cursor: 'pointer', transition: 'box-shadow .15s',
+                          padding: '12px 14px', cursor: 'grab', transition: 'box-shadow .15s, opacity .15s',
+                          userSelect: 'none',
                         }}
                         onMouseEnter={e => (e.currentTarget.style.boxShadow = 'var(--card-shadow)')}
                         onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}

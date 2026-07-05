@@ -240,6 +240,7 @@ const SECTIONS: Section[] = [
           { label: 'AML Rules',           to: '/compliance/aml-rules' },
           { label: 'Prudential Ratios',   to: '/compliance/prudential' },
           { label: 'Data Subject (DSAR)', to: '/compliance/dsar' },
+          { label: 'Concentration Risk',  to: '/compliance/concentration' },
         ],
       },
     ],

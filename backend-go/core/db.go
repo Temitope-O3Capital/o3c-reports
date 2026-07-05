@@ -94,6 +94,7 @@ func Open(cfg *Config) (*DB, error) {
 	pg.SetMaxOpenConns(25)
 	pg.SetMaxIdleConns(5)
 	pg.SetConnMaxLifetime(5 * time.Minute)
+	pg.SetConnMaxIdleTime(5 * time.Minute)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

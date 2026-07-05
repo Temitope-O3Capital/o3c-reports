@@ -250,12 +250,15 @@ func startDispatch(db *core.DB, campaignID int64) {
 		return
 	}
 	go func() {
-		defer campaignDispatchWorkers.Delete(campaignID)
+		// Defers run LIFO. Order: (1) release DB lock, (2) recover, (3) remove from in-process map.
+		// Releasing the DB lock before removing the map entry prevents a same-pod duplicate from
+		// winning the DB lock while the map still shows this goroutine as active.
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("Campaign dispatch panic recovered", "campaign_id", campaignID, "panic", r)
 			}
 		}()
+		defer campaignDispatchWorkers.Delete(campaignID)
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 		defer cancel()
 		if !acquireCampaignDispatchLock(ctx, db, campaignID) {

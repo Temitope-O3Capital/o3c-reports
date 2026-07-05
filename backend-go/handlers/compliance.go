@@ -67,6 +67,7 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 	r.With(all).Post("/data-subject-requests",        complianceDSARCreate(db))
 	r.With(all).Patch("/data-subject-requests/{id}", complianceDSARUpdate(db))
 	r.With(all).Get("/retention-schedule",           complianceRetentionSchedule(db))
+	r.With(cbn).Get("/concentration-risk",           complianceConcentrationRisk(db))
 }
 
 // ── Audit Log ─────────────────────────────────────────────────────────────────
@@ -1220,6 +1221,93 @@ func complianceRetentionSchedule(_ *core.DB) http.HandlerFunc {
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		respond(w, schedule, "json")
+	}
+}
+
+// complianceConcentrationRisk returns the CBN-required concentration risk metrics:
+// top obligors by exposure, loan book breakdown by loan type, and employer concentration.
+func complianceConcentrationRisk(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// Total active loan book for percentage calculations.
+		bookRows, _ := db.PGQuery(ctx,
+			`SELECT COALESCE(SUM(disbursed_amount_kobo), 0) AS total FROM loan_applications WHERE status='disbursed'`)
+		var totalKobo int64
+		if len(bookRows) > 0 {
+			totalKobo = toInt64(bookRows[0]["total"])
+		}
+
+		// Top 10 obligors (by applicant_cif, falling back to applicant_name).
+		obligorRows, _ := db.PGQuery(ctx, `
+			SELECT
+			    COALESCE(NULLIF(applicant_cif,''), applicant_name) AS obligor,
+			    applicant_name                                      AS name,
+			    SUM(disbursed_amount_kobo)                          AS exposure_kobo,
+			    COUNT(*)                                            AS loan_count
+			FROM loan_applications
+			WHERE status = 'disbursed' AND disbursed_amount_kobo > 0
+			GROUP BY 1, 2
+			ORDER BY 3 DESC
+			LIMIT 10`)
+
+		for i, row := range obligorRows {
+			exp := toInt64(row["exposure_kobo"])
+			pct := 0.0
+			if totalKobo > 0 {
+				pct = float64(exp) / float64(totalKobo) * 100
+			}
+			obligorRows[i]["exposure_pct"] = pct
+		}
+
+		// Loan type breakdown (salary, personal, business, etc.)
+		typeRows, _ := db.PGQuery(ctx, `
+			SELECT
+			    COALESCE(NULLIF(loan_type,''), NULLIF(product_type,''), 'Other') AS loan_type,
+			    SUM(disbursed_amount_kobo)                                        AS exposure_kobo,
+			    COUNT(*)                                                          AS count
+			FROM loan_applications
+			WHERE status = 'disbursed' AND disbursed_amount_kobo > 0
+			GROUP BY 1
+			ORDER BY 2 DESC`)
+
+		for i, row := range typeRows {
+			exp := toInt64(row["exposure_kobo"])
+			pct := 0.0
+			if totalKobo > 0 {
+				pct = float64(exp) / float64(totalKobo) * 100
+			}
+			typeRows[i]["exposure_pct"] = pct
+		}
+
+		// Employer concentration — top 10 employers.
+		empRows, _ := db.PGQuery(ctx, `
+			SELECT
+			    COALESCE(NULLIF(employer,''), 'Unknown') AS employer,
+			    SUM(disbursed_amount_kobo)               AS exposure_kobo,
+			    COUNT(*)                                 AS borrower_count
+			FROM loan_applications
+			WHERE status = 'disbursed' AND disbursed_amount_kobo > 0
+			GROUP BY 1
+			ORDER BY 2 DESC
+			LIMIT 10`)
+
+		for i, row := range empRows {
+			exp := toInt64(row["exposure_kobo"])
+			pct := 0.0
+			if totalKobo > 0 {
+				pct = float64(exp) / float64(totalKobo) * 100
+			}
+			empRows[i]["exposure_pct"] = pct
+		}
+
+		respond(w, map[string]any{
+			"total_loan_book_kobo": totalKobo,
+			"cbn_single_obligor_limit_pct": 20,
+			"top_obligors":    obligorRows,
+			"by_loan_type":    typeRows,
+			"by_employer":     empRows,
+		}, "json")
 	}
 }
 

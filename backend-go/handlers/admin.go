@@ -586,8 +586,8 @@ func getActivity(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// exportActivityCSV streams the activity log as a CSV file with chunked
-// transfer encoding — no row cap, no full-table load into memory.
+// exportActivityCSV streams the activity log row-by-row as CSV using sql.Rows
+// chunked transfer — never loads the full result set into memory.
 func exportActivityCSV(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := r.URL.Query().Get("user_id")
@@ -611,29 +611,26 @@ func exportActivityCSV(db *core.DB) http.HandlerFunc {
 		}
 		q += " ORDER BY a.ts DESC"
 
-		rows, err := db.PGQuery(r.Context(), q, args...)
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+		defer cancel()
+		sqlRows, err := db.PG.QueryContext(ctx, q, args...)
 		if err != nil {
 			respondErr(w, 500, err.Error())
 			return
 		}
+		defer sqlRows.Close()
 
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="activity_export.csv"`)
-		w.Header().Set("Transfer-Encoding", "chunked")
 
 		cw := csv.NewWriter(w)
 		cw.Write([]string{"timestamp", "user_name", "email", "role", "page", "action", "detail", "ip"}) //nolint:errcheck
-		for _, row := range rows {
-			cw.Write([]string{ //nolint:errcheck
-				str(row["ts"]),
-				str(row["full_name"]),
-				str(row["email"]),
-				str(row["role"]),
-				str(row["page"]),
-				str(row["action"]),
-				str(row["detail"]),
-				str(row["ip"]),
-			})
+		var ts, fullName, email, role, page, action, detail, ip any
+		for sqlRows.Next() {
+			if err := sqlRows.Scan(&ts, &fullName, &email, &role, &page, &action, &detail, &ip); err != nil {
+				break
+			}
+			cw.Write([]string{str(ts), str(fullName), str(email), str(role), str(page), str(action), str(detail), str(ip)}) //nolint:errcheck
 		}
 		cw.Flush()
 	}

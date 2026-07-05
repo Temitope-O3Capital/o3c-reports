@@ -74,6 +74,10 @@ func main() {
 	// Birthday worker — fires daily at 08:00.
 	go handlers.ScheduleBirthdayWorker(db)
 
+	// Activity log worker pool — 3 goroutines drain a 1000-entry buffered channel.
+	activityCh := make(chan activityLogEntry, 1000)
+	startActivityWorkers(db, activityCh, 3)
+
 	r := chi.NewRouter()
 
 	// ── Global middleware ──────────────────────────────────────────────────────
@@ -83,6 +87,10 @@ func main() {
 	r.Use(corsMiddleware(cfg.AllowedOrigins))
 	r.Use(securityHeaders)
 	r.Use(bodySizeLimit(8 << 20)) // 8 MB cap on request bodies
+	// P9-01: /api/v1/* is the versioned alias — rewrite to /api/* before routing.
+	r.Use(apiVersionRewrite)
+	// 5A: Prometheus request metrics
+	r.Use(handlers.PrometheusMiddleware)
 	// Use rightmost X-Forwarded-For IP as the rate-limit key (Railway appends the real IP last).
 	r.Use(httprate.Limit(300, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
 		return rightmostIP(r), nil
@@ -90,6 +98,7 @@ func main() {
 
 	// ── Public endpoints ───────────────────────────────────────────────────────
 	r.Get("/api/health", healthHandler(db))
+	r.Get("/metrics", handlers.MetricsHandler().ServeHTTP) // Prometheus scrape endpoint
 
 	// Mount auth routes (token is public, me/change-password require auth)
 	r.Route("/api/auth", func(r chi.Router) {
@@ -136,7 +145,7 @@ func main() {
 		handlers.RegisterHelpdeskPublic(r, db)
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
-			r.Use(activityLogger(db))
+			r.Use(activityLogger(activityCh))
 			handlers.RegisterHelpdesk(r, db)
 		})
 	})
@@ -150,7 +159,7 @@ func main() {
 	r.Route("/api/zoho", func(r chi.Router) {
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
-			r.Use(activityLogger(db))
+			r.Use(activityLogger(activityCh))
 			handlers.RegisterZoho(r, db)
 		})
 	})
@@ -160,7 +169,7 @@ func main() {
 	r.Route("/api/dialer", func(r chi.Router) {
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
-			r.Use(activityLogger(db))
+			r.Use(activityLogger(activityCh))
 			handlers.RegisterDialer(r, db)
 		})
 	})
@@ -177,7 +186,7 @@ func main() {
 		handlers.RegisterMailPublic(r, db)
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
-			r.Use(activityLogger(db))
+			r.Use(activityLogger(activityCh))
 			handlers.RegisterMail(r, db)
 		})
 	})
@@ -187,7 +196,7 @@ func main() {
 		handlers.RegisterNotificationsSSE(r, db)
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
-			r.Use(activityLogger(db))
+			r.Use(activityLogger(activityCh))
 			handlers.RegisterNotifications(r, db)
 		})
 	})
@@ -195,7 +204,7 @@ func main() {
 	// ── Protected routes (all require valid JWT) ───────────────────────────────
 	r.Group(func(r chi.Router) {
 		r.Use(core.AuthMiddleware)
-		r.Use(activityLogger(db))
+		r.Use(activityLogger(activityCh))
 
 		r.Route("/api/overview", func(r chi.Router) {
 			handlers.RegisterOverview(r, db)
@@ -385,8 +394,33 @@ func main() {
 
 // ── Activity logger middleware ────────────────────────────────────────────────
 // Logs every non-GET authenticated request to o3c_activity_log.
+// Uses a bounded worker pool (buffered channel + 3 goroutines) instead of
+// spawning a new goroutine per request, preventing goroutine accumulation
+// under DB slowdowns.
 
-func activityLogger(db *core.DB) func(http.Handler) http.Handler {
+type activityLogEntry struct {
+	userID int64
+	page, action, ip, resource, method string
+}
+
+// startActivityWorkers drains activityCh and writes each entry to the DB.
+// Runs until the channel is closed (on graceful shutdown).
+func startActivityWorkers(db *core.DB, ch <-chan activityLogEntry, n int) {
+	for i := 0; i < n; i++ {
+		go func() {
+			for e := range ch {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				db.PGExec(ctx, //nolint:errcheck
+					`INSERT INTO o3c_activity_log (user_id, page, action, detail, ip, resource, method)
+					 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+					e.userID, e.page, e.action, "", e.ip, e.resource, e.method)
+				cancel()
+			}
+		}()
+	}
+}
+
+func activityLogger(ch chan<- activityLogEntry) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			next.ServeHTTP(w, r)
@@ -405,11 +439,9 @@ func activityLogger(db *core.DB) func(http.Handler) http.Handler {
 			if ip == "" {
 				ip = r.RemoteAddr
 			}
-			// Derive a human-readable action from method + path
 			path := r.URL.Path
 			action := r.Method + " " + path
 			page := ""
-			// Map path prefix to page key for display
 			for _, seg := range []string{
 				"transactions", "collections", "recovery", "sales", "cards",
 				"loans", "los", "admin", "crm", "hr", "compliance", "reports",
@@ -422,14 +454,12 @@ func activityLogger(db *core.DB) func(http.Handler) http.Handler {
 					break
 				}
 			}
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				db.PGExec(ctx, //nolint:errcheck
-					`INSERT INTO o3c_activity_log (user_id, page, action, detail, ip, resource, method)
-					 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-					user.ID, page, action, "", ip, path, r.Method)
-			}()
+			select {
+			case ch <- activityLogEntry{userID: user.ID, page: page, action: action, ip: ip, resource: path, method: r.Method}:
+			default:
+				// Channel full — drop log entry rather than blocking the request handler.
+				slog.Warn("activity log channel full; dropping entry", "path", path)
+			}
 		})
 	}
 }
@@ -458,6 +488,22 @@ func corsMiddleware(allowed []string) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// ── API versioning ─────────────────────────────────────────────────────────────
+// P9-01: /api/v1/* is transparently rewritten to /api/* before route matching.
+// Clients on v1 receive an API-Version response header for introspection.
+func apiVersionRewrite(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/") {
+			r.URL.Path = "/api/" + r.URL.Path[len("/api/v1/"):]
+			if r.URL.RawPath != "" {
+				r.URL.RawPath = "/api/" + r.URL.RawPath[len("/api/v1/"):]
+			}
+			w.Header().Set("API-Version", "v1")
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ── Security headers ──────────────────────────────────────────────────────────

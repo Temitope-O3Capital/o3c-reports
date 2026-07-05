@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, filterInputStyle, SearchInput } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, SearchInput, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDatetime } from '../../lib/fmt'
@@ -48,10 +48,8 @@ const STAGE_COLORS: Record<string, { bg: string; txt: string }> = {
 
 const STAGES = [
   'draft', 'submitted', 'document_collection', 'risk_review',
-  'risk_head_review', 'pending_conditions', 'finance_approval', 'booking', 'active',
+  'risk_head_review', 'pending_conditions', 'finance_approval', 'booking', 'active', 'declined',
 ]
-
-const PRODUCTS = ['Salary Loan', 'Business Loan', 'Personal Loan']
 
 function StagePill({ stage }: { stage: string }) {
   const s = STAGE_COLORS[stage] ?? { bg: 'rgba(75,85,99,.1)', txt: '#6B7280' }
@@ -126,6 +124,8 @@ export default function LOSQueue() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [fStages,    setFStages]    = useState<Set<string>>(new Set())
   const [fProducts,  setFProducts]  = useState<Set<string>>(new Set())
+  const [fStatuses,  setFStatuses]  = useState<Set<string>>(new Set())
+  const [fOfficers,  setFOfficers]  = useState<Set<string>>(new Set())
   const [dateFrom,   setDateFrom]   = useState('')
   const [dateTo,     setDateTo]     = useState('')
   const [page,       setPage]       = useState(1)
@@ -148,19 +148,27 @@ export default function LOSQueue() {
 
   useEffect(() => { load() }, [load])
 
-  const activeFilterCount = fStages.size + fProducts.size + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0)
+  // Derive filter options from actual data
+  const products = useMemo(() => [...new Set(rows.map(r => r.product_type).filter(Boolean))].sort(), [rows])
+  const officers = useMemo(() => [...new Set(rows.map(r => r.assigned_officer_name).filter((n): n is string => !!n))].sort(), [rows])
+  const statuses = useMemo(() => [...new Set(rows.map(r => r.status).filter(Boolean))].sort(), [rows])
+
+  const activeFilterCount = fStages.size + fProducts.size + fStatuses.size + fOfficers.size + ((dateFrom || dateTo) ? 1 : 0)
 
   const filtered = useMemo(() => rows.filter(r => {
-    if (fStages.size && !fStages.has(r.stage)) return false
-    if (fProducts.size && !fProducts.has(r.product_type)) return false
-    if (dateFrom && r.updated_at < dateFrom) return false
-    if (dateTo && r.updated_at.slice(0, 10) > dateTo) return false
+    if (fStages.size   && !fStages.has(r.stage))                 return false
+    if (fProducts.size && !fProducts.has(r.product_type))        return false
+    if (fStatuses.size && !fStatuses.has(r.status))              return false
+    if (fOfficers.size && !fOfficers.has(r.assigned_officer_name ?? '')) return false
+    const date = (r.submitted_at ?? r.created_at).slice(0, 10)
+    if (dateFrom && date < dateFrom) return false
+    if (dateTo   && date > dateTo)   return false
     if (search) {
       const q = search.toLowerCase()
       if (!(r.applicant_name.toLowerCase().includes(q) || r.reference?.toLowerCase().includes(q))) return false
     }
     return true
-  }), [rows, fStages, fProducts, dateFrom, dateTo, search])
+  }), [rows, fStages, fProducts, fStatuses, fOfficers, dateFrom, dateTo, search])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE))
   const safePage   = Math.min(page, totalPages)
@@ -168,7 +176,7 @@ export default function LOSQueue() {
   const showStart  = filtered.length === 0 ? 0 : (safePage - 1) * PER_PAGE + 1
   const showEnd    = Math.min(safePage * PER_PAGE, filtered.length)
 
-  useEffect(() => { setPage(1) }, [search, fStages, fProducts, dateFrom, dateTo])
+  useEffect(() => { setPage(1) }, [search, fStages, fProducts, fStatuses, fOfficers, dateFrom, dateTo])
 
   function toggleSet<T>(set: Set<T>, value: T): Set<T> {
     const next = new Set(set)
@@ -177,7 +185,8 @@ export default function LOSQueue() {
   }
 
   function resetFilters() {
-    setSearch(''); setFStages(new Set()); setFProducts(new Set()); setDateFrom(''); setDateTo('')
+    setSearch(''); setFStages(new Set()); setFProducts(new Set())
+    setFStatuses(new Set()); setFOfficers(new Set()); setDateFrom(''); setDateTo('')
   }
 
   const inQueue      = stats?.open_count ?? 0
@@ -245,7 +254,7 @@ export default function LOSQueue() {
         <KpiCard label="In Queue"          value={inQueue}      icon="inbox"         loading={loading} />
         <KpiCard label="Pending Docs"      value={pendingDocs}  icon="description"   loading={loading} />
         <KpiCard label="Awaiting Risk"     value={awaitingRisk} icon="shield"        loading={loading} />
-        <KpiCard label="Disbursed Today"    value={activeCount}  icon="check_circle"  accent="#16A34A" loading={loading} />
+        <KpiCard label="Active Loans"        value={activeCount}  icon="check_circle"  accent="#16A34A" loading={loading} />
       </div>
 
       <SectionCard
@@ -292,6 +301,8 @@ export default function LOSQueue() {
             )}
           </button>
 
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
+
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
               {filtered.length} of {rows.length}
@@ -302,7 +313,7 @@ export default function LOSQueue() {
         {/* Expandable filter panel */}
         {filterOpen && (
           <div style={{ borderBottom: '1px solid var(--bdr)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '20px 20px 0' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', padding: '20px 20px 0' }}>
 
               {/* Stage */}
               <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
@@ -322,37 +333,56 @@ export default function LOSQueue() {
                 })}
               </div>
 
-              {/* Product */}
+              {/* Status */}
               <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>PRODUCT</div>
-                {PRODUCTS.map(p => {
-                  const count = rows.filter(r => r.product_type.toLowerCase().includes(p.toLowerCase())).length
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>STATUS</div>
+                {statuses.map(s => {
+                  const count = rows.filter(r => r.status === s).length
+                  const label = s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
                   return (
-                    <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={fProducts.has(p)} onChange={() => setFProducts(toggleSet(fProducts, p))}
-                        style={{ accentColor: BLUE, width: 14, height: 14, cursor: 'pointer' }} />
-                      <span style={{ fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA }}>{p}</span>
+                    <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={fStatuses.has(s)} onChange={() => setFStatuses(toggleSet(fStatuses, s))}
+                        style={{ accentColor: NAVY, width: 14, height: 14, cursor: 'pointer' }} />
+                      <span style={{ fontSize: 12, color: 'var(--txt)', fontFamily: INTER }}>{label}</span>
                       <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
                     </label>
                   )
                 })}
               </div>
 
-              {/* Date range */}
+              {/* Product */}
+              <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>PRODUCT</div>
+                {products.map(p => {
+                  const count = rows.filter(r => r.product_type === p).length
+                  const label = p.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                  return (
+                    <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={fProducts.has(p)} onChange={() => setFProducts(toggleSet(fProducts, p))}
+                        style={{ accentColor: BLUE, width: 14, height: 14, cursor: 'pointer' }} />
+                      <span style={{ fontSize: 12, color: 'var(--txt)', fontFamily: SORA }}>{label}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
+                    </label>
+                  )
+                })}
+              </div>
+
+              {/* Officer */}
               <div style={{ paddingLeft: 20 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>DATE RANGE</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div>
-                    <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>From</label>
-                    <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>To</label>
-                    <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
-                  </div>
-                </div>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>OFFICER</div>
+                {officers.length === 0
+                  ? <span style={{ fontSize: 12, color: 'var(--txt3)' }}>No assignments yet</span>
+                  : officers.map(o => {
+                  const count = rows.filter(r => r.assigned_officer_name === o).length
+                  return (
+                    <label key={o} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={fOfficers.has(o)} onChange={() => setFOfficers(toggleSet(fOfficers, o))}
+                        style={{ accentColor: NAVY, width: 14, height: 14, cursor: 'pointer' }} />
+                      <span style={{ fontSize: 12, color: 'var(--txt)', fontFamily: INTER, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER, flexShrink: 0 }}>{count}</span>
+                    </label>
+                  )
+                })}
               </div>
 
             </div>
@@ -376,7 +406,7 @@ export default function LOSQueue() {
                 fontSize: 12, fontWeight: 600,
                 border: 'none', background: RED, color: '#fff',
                 cursor: 'pointer', fontFamily: SORA,
-              }}>Apply · {filtered.length} results</button>
+              }}>Done · {filtered.length} results</button>
             </div>
           </div>
         )}
@@ -401,14 +431,21 @@ export default function LOSQueue() {
                 {p}<span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setFProducts(toggleSet(fProducts, p))}>close</span>
               </span>
             ))}
-            {dateFrom && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
-                From {dateFrom}<span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setDateFrom('')}>close</span>
+            {[...fStatuses].map(s => (
+              <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
+                {s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setFStatuses(toggleSet(fStatuses, s))}>close</span>
               </span>
-            )}
-            {dateTo && (
+            ))}
+            {[...fOfficers].map(o => (
+              <span key={o} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: `${AMBER}18`, color: AMBER }}>
+                {o}<span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setFOfficers(toggleSet(fOfficers, o))}>close</span>
+              </span>
+            ))}
+            {(dateFrom || dateTo) && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
-                To {dateTo}<span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setDateTo('')}>close</span>
+                {dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : dateFrom || dateTo}
+                <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => { setDateFrom(''); setDateTo('') }}>close</span>
               </span>
             )}
             <button onClick={resetFilters} style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--txt3)', padding: 0, fontFamily: SORA }}>Clear all</button>

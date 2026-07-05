@@ -1,6 +1,7 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import type { ReactNode, CSSProperties } from 'react'
 import { NAVY, RED, GREEN, INTER, NUM } from '../lib/design'
+import { today, monthStart, yearStart, fmtDate } from '../lib/fmt'
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 
@@ -694,6 +695,104 @@ export function Modal({ open, onClose, title, width = 520, children, footer }: M
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ── Date filter ───────────────────────────────────────────────────────────────
+
+const DATE_PRESETS = [
+  { label: 'All time',   get: (): [string, string] => ['', ''] },
+  { label: 'Today',      get: (): [string, string] => { const t = today(); return [t, t] } },
+  { label: 'This week',  get: (): [string, string] => {
+    const d = new Date(), day = d.getDay()
+    const mon = new Date(d); mon.setDate(d.getDate() - (day === 0 ? 6 : day - 1))
+    const p = (n: number) => String(n).padStart(2, '0')
+    const start = `${mon.getFullYear()}-${p(mon.getMonth() + 1)}-${p(mon.getDate())}`
+    return [start, today()]
+  }},
+  { label: 'This month', get: (): [string, string] => [monthStart(), today()] },
+  { label: 'Last month', get: (): [string, string] => {
+    const d = new Date()
+    const p = (n: number) => String(n).padStart(2, '0')
+    const prevM = d.getMonth() === 0 ? 12 : d.getMonth()
+    const prevY = d.getMonth() === 0 ? d.getFullYear() - 1 : d.getFullYear()
+    const lastDay = new Date(d.getFullYear(), d.getMonth(), 0).getDate()
+    return [`${prevY}-${p(prevM)}-01`, `${prevY}-${p(prevM)}-${p(lastDay)}`]
+  }},
+  { label: 'This year',  get: (): [string, string] => [yearStart(), today()] },
+]
+
+export function DateFilter({ from, to, onChange }: {
+  from: string; to: string; onChange: (f: string, t: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const label = !from && !to
+    ? 'All time'
+    : from === to
+      ? fmtDate(from)
+      : `${fmtDate(from)} – ${fmtDate(to)}`
+
+  const inputStyle: CSSProperties = {
+    flex: 1, padding: '5px 8px', border: '1px solid var(--input-bdr)', borderRadius: 6,
+    fontSize: 12, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none',
+  }
+
+  return (
+    <div style={{ position: 'relative' }} ref={ref}>
+      <button onClick={() => setOpen(o => !o)} style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '5px 10px', borderRadius: 7, fontSize: 12.5, fontWeight: 500,
+        border: `1.5px solid ${open ? NAVY : 'var(--input-bdr)'}`,
+        background: 'var(--card)', color: 'var(--txt)', cursor: 'pointer',
+        whiteSpace: 'nowrap',
+      }}>
+        <span className="material-symbols-rounded" style={{ fontSize: 15, color: 'var(--txt3)' }}>calendar_month</span>
+        {label}
+        <span className="material-symbols-rounded" style={{ fontSize: 15, color: 'var(--txt3)' }}>
+          {open ? 'expand_less' : 'expand_more'}
+        </span>
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 300,
+          background: 'var(--card)', border: '1px solid var(--card-bdr)',
+          borderRadius: 10, boxShadow: 'var(--card-shadow)', minWidth: 220, padding: '8px 0',
+        }}>
+          {DATE_PRESETS.map(p => {
+            const [f, t] = p.get()
+            const active = f === from && t === to
+            return (
+              <button key={p.label} onClick={() => { onChange(f, t); setOpen(false) }} style={{
+                display: 'block', width: '100%', textAlign: 'left',
+                padding: '7px 14px', fontSize: 13, fontWeight: active ? 600 : 400,
+                background: active ? 'var(--th-bg)' : 'transparent',
+                color: active ? NAVY : 'var(--txt)', border: 'none', cursor: 'pointer',
+              }}>
+                {p.label}
+              </button>
+            )
+          })}
+          <div style={{ borderTop: '1px solid var(--bdr)', margin: '6px 0', padding: '8px 14px 4px' }}>
+            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--txt3)', marginBottom: 6 }}>Custom range</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input type="date" value={from} onChange={e => onChange(e.target.value, to)} style={inputStyle} />
+              <span style={{ color: 'var(--txt3)', fontSize: 12 }}>–</span>
+              <input type="date" value={to}   onChange={e => onChange(from, e.target.value)} style={inputStyle} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

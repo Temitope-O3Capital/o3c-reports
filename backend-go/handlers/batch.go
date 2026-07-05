@@ -154,6 +154,22 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, "los_sla:ok")
 	}
 
+	// 5. KPI daily snapshot
+	if err := batchKPISnapshot(ctx, db); err != nil {
+		slog.Error("Batch: KPI snapshot failed", "err", err)
+		steps = append(steps, "kpi_snapshot:FAILED")
+	} else {
+		steps = append(steps, "kpi_snapshot:ok")
+	}
+
+	// 6. NDPR data retention purge (P12-01)
+	if err := batchNDPRRetentionPurge(ctx, db); err != nil {
+		slog.Error("Batch: NDPR purge failed", "err", err)
+		steps = append(steps, "ndpr_purge:FAILED")
+	} else {
+		steps = append(steps, "ndpr_purge:ok")
+	}
+
 	status := "success"
 	if batchErr != nil {
 		status = "partial"
@@ -422,6 +438,133 @@ func batchLOSSLACheck(ctx context.Context, db *core.DB) error {
 		if len(overdueApps) > 0 {
 			slog.Warn("Batch: LOS SLA breach", "stage", stage, "count", len(overdueApps))
 		}
+	}
+	return nil
+}
+
+// batchKPISnapshot writes a summary of today's key business metrics into kpi_daily_snapshot.
+// Uses INSERT … ON CONFLICT DO UPDATE so re-running the batch is idempotent.
+func batchKPISnapshot(ctx context.Context, db *core.DB) error {
+	today := time.Now().Format("2006-01-02")
+
+	type metric struct {
+		col string
+		q   string
+	}
+	metrics := []metric{
+		{"new_applications",     `SELECT COUNT(*) FROM loan_applications WHERE created_at::date = $1`},
+		{"approved_applications",`SELECT COUNT(*) FROM loan_applications WHERE status='approved' AND updated_at::date = $1`},
+		{"disbursements_count",  `SELECT COUNT(*) FROM loan_applications WHERE status='disbursed' AND disbursed_at::date = $1`},
+		{"disbursements_kobo",   `SELECT COALESCE(SUM(disbursed_amount_kobo),0) FROM loan_applications WHERE status='disbursed' AND disbursed_at::date = $1`},
+		{"repayments_count",     `SELECT COUNT(*) FROM loan_repayments WHERE payment_date::date = $1`},
+		{"repayments_kobo",      `SELECT COALESCE(SUM(amount_kobo),0) FROM loan_repayments WHERE payment_date::date = $1`},
+		{"ptp_set",              `SELECT COUNT(*) FROM collection_promises WHERE created_at::date = $1`},
+		{"ptp_broken",           `SELECT COUNT(*) FROM collection_promises WHERE status='broken' AND updated_at::date = $1`},
+		{"tickets_opened",       `SELECT COUNT(*) FROM helpdesk_tickets WHERE created_at::date = $1`},
+		{"tickets_closed",       `SELECT COUNT(*) FROM helpdesk_tickets WHERE status='resolved' AND updated_at::date = $1`},
+		{"active_loans",         `SELECT COUNT(*) FROM loan_applications WHERE status='active'`},
+		{"total_book_kobo",      `SELECT COALESCE(SUM(disbursed_amount_kobo),0) FROM loan_applications WHERE status='active'`},
+	}
+
+	vals := map[string]int64{}
+	for _, m := range metrics {
+		var rows []map[string]any
+		var err error
+		if m.col == "active_loans" || m.col == "total_book_kobo" {
+			rows, err = db.PGQuery(ctx, m.q)
+		} else {
+			rows, err = db.PGQuery(ctx, m.q, today)
+		}
+		if err != nil || len(rows) == 0 {
+			vals[m.col] = 0
+			continue
+		}
+		for _, v := range rows[0] {
+			vals[m.col] = toInt64(v)
+			break
+		}
+	}
+
+	_, err := db.PGExec(ctx, `
+		INSERT INTO kpi_daily_snapshot
+			(snapshot_date, new_applications, approved_applications,
+			 disbursements_count, disbursements_kobo,
+			 repayments_count, repayments_kobo,
+			 ptp_set, ptp_broken,
+			 tickets_opened, tickets_closed,
+			 active_loans, total_book_kobo)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		ON CONFLICT (snapshot_date) DO UPDATE SET
+			new_applications     = EXCLUDED.new_applications,
+			approved_applications= EXCLUDED.approved_applications,
+			disbursements_count  = EXCLUDED.disbursements_count,
+			disbursements_kobo   = EXCLUDED.disbursements_kobo,
+			repayments_count     = EXCLUDED.repayments_count,
+			repayments_kobo      = EXCLUDED.repayments_kobo,
+			ptp_set              = EXCLUDED.ptp_set,
+			ptp_broken           = EXCLUDED.ptp_broken,
+			tickets_opened       = EXCLUDED.tickets_opened,
+			tickets_closed       = EXCLUDED.tickets_closed,
+			active_loans         = EXCLUDED.active_loans,
+			total_book_kobo      = EXCLUDED.total_book_kobo`,
+		today,
+		vals["new_applications"], vals["approved_applications"],
+		vals["disbursements_count"], vals["disbursements_kobo"],
+		vals["repayments_count"], vals["repayments_kobo"],
+		vals["ptp_set"], vals["ptp_broken"],
+		vals["tickets_opened"], vals["tickets_closed"],
+		vals["active_loans"], vals["total_book_kobo"])
+	return err
+}
+
+// batchNDPRRetentionPurge enforces the data retention schedules required by NDPR / CBN (P12-01).
+// Marketing contacts older than 2 years are deleted; activity logs older than 5 years are purged.
+// Each purge is logged to retention_purge_log for audit purposes.
+func batchNDPRRetentionPurge(ctx context.Context, db *core.DB) error {
+	today := time.Now().Format("2006-01-02")
+	type purgeRule struct {
+		table   string
+		where   string
+		archive bool
+	}
+	rules := []purgeRule{
+		// Marketing contacts: 2-year NDPR consent-based retention
+		{table: "campaign_contacts", where: "created_at < NOW() - INTERVAL '2 years'", archive: false},
+		// Activity / session logs: 5-year operational retention
+		{table: "o3c_activity_log", where: "ts < NOW() - INTERVAL '5 years'", archive: false},
+	}
+
+	for _, rule := range rules {
+		countRows, err := db.PGQuery(ctx, fmt.Sprintf("SELECT COUNT(*) AS n FROM %s WHERE %s", rule.table, rule.where))
+		if err != nil {
+			slog.Warn("NDPR purge: count query failed", "table", rule.table, "err", err)
+			continue
+		}
+		n := int64(0)
+		if len(countRows) > 0 {
+			n = toInt64(countRows[0]["n"])
+		}
+		if n == 0 {
+			db.PGExec(ctx, //nolint:errcheck
+				`INSERT INTO retention_purge_log (run_date, table_name, records_purged, records_archived, notes)
+				 VALUES ($1, $2, 0, 0, 'no records eligible')`, today, rule.table)
+			continue
+		}
+
+		_, delErr := db.PGExec(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s", rule.table, rule.where))
+		if delErr != nil {
+			slog.Error("NDPR purge: delete failed", "table", rule.table, "err", delErr)
+		}
+		purged := n
+		if delErr != nil {
+			purged = 0
+		}
+		db.PGExec(ctx, //nolint:errcheck
+			`INSERT INTO retention_purge_log (run_date, table_name, records_purged, records_archived, notes)
+			 VALUES ($1, $2, $3, 0, $4)`,
+			today, rule.table, purged,
+			fmt.Sprintf("auto-purge: %d records deleted per NDPR retention policy", purged))
+		slog.Info("NDPR purge completed", "table", rule.table, "deleted", purged)
 	}
 	return nil
 }

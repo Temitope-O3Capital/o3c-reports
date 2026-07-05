@@ -173,6 +173,7 @@ const CompliancePrudential     = lazy(() => import('./pages/compliance/Prudentia
 const ComplianceDSAR           = lazy(() => import('./pages/compliance/DataSubjectRequests'))
 const ComplianceKYCExpiry   = lazy(() => import('./pages/compliance/KYCExpiry'))
 const ComplianceAMLRules    = lazy(() => import('./pages/compliance/AMLRules'))
+const ComplianceConcentration = lazy(() => import('./pages/compliance/ConcentrationRisk'))
 
 // HR
 const HREmployees    = lazy(() => import('./pages/hr/Employees'))
@@ -688,8 +689,9 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/compliance/audit-trail" element={<PageErrorBoundary><ComplianceAuditTrail /></PageErrorBoundary>} />
                   <Route path="/compliance/kyc-expiry"   element={<PageErrorBoundary><ComplianceKYCExpiry /></PageErrorBoundary>} />
                   <Route path="/compliance/aml-rules"    element={<PageErrorBoundary><ComplianceAMLRules /></PageErrorBoundary>} />
-                  <Route path="/compliance/prudential"   element={<PageErrorBoundary><CompliancePrudential /></PageErrorBoundary>} />
-                  <Route path="/compliance/dsar"         element={<PageErrorBoundary><ComplianceDSAR /></PageErrorBoundary>} />
+                  <Route path="/compliance/prudential"      element={<PageErrorBoundary><CompliancePrudential /></PageErrorBoundary>} />
+                  <Route path="/compliance/dsar"            element={<PageErrorBoundary><ComplianceDSAR /></PageErrorBoundary>} />
+                  <Route path="/compliance/concentration"   element={<PageErrorBoundary><ComplianceConcentration /></PageErrorBoundary>} />
 
                   {/* People */}
                   <Route path="/hr"               element={<Navigate to="/hr/employees" replace />} />
