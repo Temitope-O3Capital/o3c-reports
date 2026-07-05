@@ -41,6 +41,14 @@ const SECTIONS: Section[] = [
         ],
       },
       {
+        icon: 'mark_email_read', label: 'Mail', to: '/mail/inbox',
+        vis: ['sales_officer','sales_head','bd_officer','bd_head'],
+        subs: [
+          { label: 'Inbox',   to: '/mail/inbox' },
+          { label: 'Compose', to: '/mail/compose' },
+        ],
+      },
+      {
         icon: 'campaign', label: 'Campaigns', to: '/campaigns',
         vis: ['sales_head','bd_officer','bd_head','telemarketing_head'],
         subs: [

@@ -87,6 +87,10 @@ func RegisterMail(r chi.Router, db *core.DB) {
 	r.With(access).Post("/send", sendSingleMail(db))
 	r.With(access).Get("/messages", listMailMessages(db))
 	r.With(access).Get("/messages/{id}", getMailMessage(db))
+	r.With(access).Get("/messages/{id}/replies", listMessageReplies(db))
+	r.With(access).Post("/messages/{id}/reply", replyToMessage(db))
+	r.With(access).Get("/messages/{id}/events", listMessageEvents(db))
+	r.With(access).Put("/inbox/{id}/read", markInboundRead(db))
 	r.With(access).Get("/inbox", listInboundMail(db))
 	r.With(admin).Get("/metrics", mailMetrics(db))
 	r.With(admin).Get("/campaign-health", mailCampaignHealth(db))
@@ -2023,4 +2027,172 @@ func hmacSHA256(key, data []byte) []byte {
 	h := hmac.New(sha256.New, key)
 	h.Write(data)
 	return h.Sum(nil)
+}
+
+// ── Thread reply endpoints ─────────────────────────────────────────────────────
+
+func listMessageReplies(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed")
+			return
+		}
+		id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if id <= 0 {
+			respondErr(w, 400, "invalid id")
+			return
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT id, from_email, from_name, subject, body_text, body_html,
+			       is_read, received_at, message_id, in_reply_to
+			FROM inbound_mail
+			WHERE mail_message_id=$1
+			ORDER BY received_at ASC`, id)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		// Mark all replies as read now that the thread is being viewed
+		_, _ = db.PGExec(r.Context(), `UPDATE inbound_mail SET is_read=true WHERE mail_message_id=$1`, id)
+		jsonRows(w, rows)
+	}
+}
+
+func replyToMessage(db *core.DB) http.HandlerFunc {
+	type reqBody struct {
+		HTMLBody string        `json:"html_body"`
+		TextBody string        `json:"text_body"`
+		CC       []MailAddress `json:"cc"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed")
+			return
+		}
+		id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if id <= 0 {
+			respondErr(w, 400, "invalid id")
+			return
+		}
+		var b reqBody
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if strings.TrimSpace(b.HTMLBody) == "" && strings.TrimSpace(b.TextBody) == "" {
+			respondErr(w, 422, "html_body or text_body is required")
+			return
+		}
+		// Load original message
+		orig, err := db.PGQuery(r.Context(), `
+			SELECT id, subject, recipients, from_email, from_name, created_by
+			FROM mail_messages WHERE id=$1`, id)
+		if err != nil || len(orig) == 0 {
+			respondErr(w, 404, "message not found")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		// Reply to most recent inbound sender, or fall back to original TO recipient
+		replyTo := firstToAddress(orig[0]["recipients"])
+		if latest, _ := db.PGQuery(r.Context(), `
+			SELECT from_email, from_name FROM inbound_mail
+			WHERE mail_message_id=$1 ORDER BY received_at DESC LIMIT 1`, id); len(latest) > 0 {
+			replyTo = MailAddress{Email: str(latest[0]["from_email"]), Name: str(latest[0]["from_name"])}
+		}
+		subject := str(orig[0]["subject"])
+		if !strings.HasPrefix(strings.ToLower(subject), "re:") {
+			subject = "Re: " + subject
+		}
+		res := SendMail(r.Context(), db, SendMailOptions{
+			To:                 []MailAddress{replyTo},
+			CC:                 b.CC,
+			Subject:            subject,
+			HTMLBody:           b.HTMLBody,
+			TextBody:           b.TextBody,
+			ReplyToEmail:       user.Sub,
+			ReplyToName:        user.FullName,
+			Kind:               "single",
+			Category:           "single",
+			CreatedBy:          user.ID,
+			SendCopyToSender:   true,
+			SenderCopyEmail:    user.Sub,
+			SenderCopyName:     user.FullName,
+			SendViaUserMailbox: true,
+		})
+		if !res.OK {
+			slog.Warn("Reply send failed", "user_id", user.ID, "error", res.Error)
+			respondErr(w, 502, res.Error)
+			return
+		}
+		// Link reply to parent thread
+		if res.MailID > 0 {
+			_, _ = db.PGExec(r.Context(), `UPDATE mail_messages SET parent_id=$1 WHERE id=$2`, id, res.MailID)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(res) //nolint:errcheck
+	}
+}
+
+func listMessageEvents(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed")
+			return
+		}
+		id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if id <= 0 {
+			respondErr(w, 400, "invalid id")
+			return
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT id, event_type, event_data, occurred_at
+			FROM mail_events
+			WHERE mail_message_id=$1
+			ORDER BY occurred_at ASC`, id)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		jsonRows(w, rows)
+	}
+}
+
+func markInboundRead(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed")
+			return
+		}
+		id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if id <= 0 {
+			respondErr(w, 400, "invalid id")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		_, _ = db.PGExec(r.Context(), `
+			UPDATE inbound_mail im
+			SET is_read=true
+			FROM mail_messages mm
+			WHERE im.id=$1
+			  AND im.mail_message_id=mm.id
+			  AND (mm.created_by=$2 OR mm.recipients::text ILIKE $3)`,
+			id, user.ID, "%"+user.Sub+"%")
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func firstToAddress(raw any) MailAddress {
+	var payload map[string][]map[string]string
+	switch v := raw.(type) {
+	case []byte:
+		json.Unmarshal(v, &payload) //nolint:errcheck
+	case string:
+		json.Unmarshal([]byte(v), &payload) //nolint:errcheck
+	}
+	for _, item := range payload["to"] {
+		if email := strings.TrimSpace(item["email"]); email != "" {
+			return MailAddress{Email: email, Name: item["name"]}
+		}
+	}
+	return MailAddress{}
 }
