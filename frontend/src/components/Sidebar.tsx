@@ -241,6 +241,7 @@ const SECTIONS: Section[] = [
           { label: 'Prudential Ratios',   to: '/compliance/prudential' },
           { label: 'Data Subject (DSAR)', to: '/compliance/dsar' },
           { label: 'Concentration Risk',  to: '/compliance/concentration' },
+          { label: 'Data Processing Reg', to: '/compliance/dpa-register' },
         ],
       },
     ],

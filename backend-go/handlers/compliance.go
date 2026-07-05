@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -68,6 +69,9 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 	r.With(all).Patch("/data-subject-requests/{id}", complianceDSARUpdate(db))
 	r.With(all).Get("/retention-schedule",           complianceRetentionSchedule(db))
 	r.With(cbn).Get("/concentration-risk",           complianceConcentrationRisk(db))
+	r.With(all).Get("/dpa-register",                 complianceDPARegister(db))
+	r.With(all).Post("/dpa-register",                complianceDPARegisterCreate(db))
+	r.With(all).Patch("/dpa-register/{id}",          complianceDPARegisterUpdate(db))
 }
 
 // ── Audit Log ─────────────────────────────────────────────────────────────────
@@ -1221,6 +1225,94 @@ func complianceRetentionSchedule(_ *core.DB) http.HandlerFunc {
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		respond(w, schedule, "json")
+	}
+}
+
+// ── DPA Processing Register (P12-07) ──────────────────────────────────────────
+
+func complianceDPARegister(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(),
+			`SELECT d.*, u.full_name AS created_by_name
+			 FROM dpa_processing_register d
+			 LEFT JOIN o3c_users u ON u.id = d.created_by
+			 ORDER BY d.created_at DESC`)
+		if err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+		respond(w, rows, "json")
+	}
+}
+
+func complianceDPARegisterCreate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			ProcessingName         string   `json:"processing_name"`
+			Purpose                string   `json:"purpose"`
+			LegalBasis             string   `json:"legal_basis"`
+			DataCategories         []string `json:"data_categories"`
+			DataSubjects           string   `json:"data_subjects"`
+			Recipients             string   `json:"recipients"`
+			ThirdCountryTransfers  bool     `json:"third_country_transfers"`
+			RetentionPeriod        string   `json:"retention_period"`
+			SecurityMeasures       string   `json:"security_measures"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.ProcessingName == "" || b.Purpose == "" || b.LegalBasis == "" {
+			respondErr(w, 400, "processing_name, purpose, legal_basis required")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		rows, err := db.PGQuery(r.Context(),
+			`INSERT INTO dpa_processing_register
+			   (processing_name, purpose, legal_basis, data_categories, data_subjects,
+			    recipients, third_country_transfers, retention_period, security_measures, created_by)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+			b.ProcessingName, b.Purpose, b.LegalBasis, b.DataCategories, b.DataSubjects,
+			b.Recipients, b.ThirdCountryTransfers, b.RetentionPeriod, b.SecurityMeasures, user.ID)
+		if err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+		if len(rows) > 0 {
+			respond(w, rows[0], "json")
+		}
+	}
+}
+
+func complianceDPARegisterUpdate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var b struct {
+			Status       string `json:"status"`
+			DPOReviewed  bool   `json:"dpo_reviewed"`
+			SecurityMeasures string `json:"security_measures"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "invalid body")
+			return
+		}
+		sets := []string{"updated_at=NOW()"}
+		args := []any{}
+		if b.Status != "" {
+			args = append(args, b.Status)
+			sets = append(sets, fmt.Sprintf("status=$%d", len(args)))
+		}
+		args = append(args, b.DPOReviewed)
+		sets = append(sets, fmt.Sprintf("dpo_reviewed=$%d", len(args)))
+		if b.SecurityMeasures != "" {
+			args = append(args, b.SecurityMeasures)
+			sets = append(sets, fmt.Sprintf("security_measures=$%d", len(args)))
+		}
+		args = append(args, id)
+		_, err := db.PGExec(r.Context(),
+			fmt.Sprintf("UPDATE dpa_processing_register SET %s WHERE id=$%d",
+				strings.Join(sets, ","), len(args)), args...)
+		if err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 

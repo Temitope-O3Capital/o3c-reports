@@ -174,6 +174,7 @@ const ComplianceDSAR           = lazy(() => import('./pages/compliance/DataSubje
 const ComplianceKYCExpiry   = lazy(() => import('./pages/compliance/KYCExpiry'))
 const ComplianceAMLRules    = lazy(() => import('./pages/compliance/AMLRules'))
 const ComplianceConcentration = lazy(() => import('./pages/compliance/ConcentrationRisk'))
+const ComplianceDPARegister   = lazy(() => import('./pages/compliance/DPARegister'))
 
 // HR
 const HREmployees    = lazy(() => import('./pages/hr/Employees'))
@@ -692,6 +693,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/compliance/prudential"      element={<PageErrorBoundary><CompliancePrudential /></PageErrorBoundary>} />
                   <Route path="/compliance/dsar"            element={<PageErrorBoundary><ComplianceDSAR /></PageErrorBoundary>} />
                   <Route path="/compliance/concentration"   element={<PageErrorBoundary><ComplianceConcentration /></PageErrorBoundary>} />
+                  <Route path="/compliance/dpa-register"   element={<PageErrorBoundary><ComplianceDPARegister /></PageErrorBoundary>} />
 
                   {/* People */}
                   <Route path="/hr"               element={<Navigate to="/hr/employees" replace />} />

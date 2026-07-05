@@ -699,98 +699,310 @@ export function Modal({ open, onClose, title, width = 520, children, footer }: M
   )
 }
 
-// ── Date filter ───────────────────────────────────────────────────────────────
+// ── Date filter (calendar range picker) ──────────────────────────────────────
 
-const DATE_PRESETS = [
-  { label: 'All time',   get: (): [string, string] => ['', ''] },
-  { label: 'Today',      get: (): [string, string] => { const t = today(); return [t, t] } },
-  { label: 'This week',  get: (): [string, string] => {
-    const d = new Date(), day = d.getDay()
-    const mon = new Date(d); mon.setDate(d.getDate() - (day === 0 ? 6 : day - 1))
-    const p = (n: number) => String(n).padStart(2, '0')
-    const start = `${mon.getFullYear()}-${p(mon.getMonth() + 1)}-${p(mon.getDate())}`
-    return [start, today()]
-  }},
-  { label: 'This month', get: (): [string, string] => [monthStart(), today()] },
-  { label: 'Last month', get: (): [string, string] => {
-    const d = new Date()
-    const p = (n: number) => String(n).padStart(2, '0')
-    const prevM = d.getMonth() === 0 ? 12 : d.getMonth()
-    const prevY = d.getMonth() === 0 ? d.getFullYear() - 1 : d.getFullYear()
-    const lastDay = new Date(d.getFullYear(), d.getMonth(), 0).getDate()
-    return [`${prevY}-${p(prevM)}-01`, `${prevY}-${p(prevM)}-${p(lastDay)}`]
-  }},
-  { label: 'This year',  get: (): [string, string] => [yearStart(), today()] },
+function _dfPad(n: number) { return String(n).padStart(2, '0') }
+function _dfIso(y: number, m: number, d: number) { return `${y}-${_dfPad(m)}-${_dfPad(d)}` }
+function _dfPrevYM(ym: string) {
+  const [y, m] = ym.split('-').map(Number)
+  return m === 1 ? `${y - 1}-12` : `${y}-${_dfPad(m - 1)}`
+}
+function _dfNextYM(ym: string) {
+  const [y, m] = ym.split('-').map(Number)
+  return m === 12 ? `${y + 1}-01` : `${y}-${_dfPad(m + 1)}`
+}
+function _dfMonthLabel(ym: string) {
+  const [y, m] = ym.split('-').map(Number)
+  return new Date(y, m - 1).toLocaleString('en-GB', { month: 'long', year: 'numeric' })
+}
+function _dfRelDay(offset: number) {
+  const d = new Date(); d.setDate(d.getDate() + offset)
+  return _dfIso(d.getFullYear(), d.getMonth() + 1, d.getDate())
+}
+function _dfThisQuarter(): [string, string] {
+  const d = new Date(), y = d.getFullYear(), q = Math.floor(d.getMonth() / 3)
+  return [_dfIso(y, q * 3 + 1, 1), today()]
+}
+function _dfLastQuarter(): [string, string] {
+  const d = new Date()
+  let y = d.getFullYear(), q = Math.floor(d.getMonth() / 3) - 1
+  if (q < 0) { q = 3; y -= 1 }
+  const sm = q * 3 + 1, em = sm + 2
+  return [_dfIso(y, sm, 1), _dfIso(y, em, new Date(y, em, 0).getDate())]
+}
+
+const DF_PRESET_GROUPS: { label: string; get: () => [string, string] }[][] = [
+  [{ label: 'All time', get: () => ['', ''] }],
+  [
+    { label: 'Today',        get: () => { const t = today(); return [t, t] } },
+    { label: 'Last 7 days',  get: () => [_dfRelDay(-6), today()] },
+    { label: 'Last 30 days', get: () => [_dfRelDay(-29), today()] },
+    { label: 'Last 90 days', get: () => [_dfRelDay(-89), today()] },
+  ],
+  [
+    { label: 'This week', get: () => {
+      const d = new Date(), dow = d.getDay()
+      const mon = new Date(d); mon.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1))
+      return [_dfIso(mon.getFullYear(), mon.getMonth() + 1, mon.getDate()), today()]
+    }},
+    { label: 'This month',   get: () => [monthStart(), today()] },
+    { label: 'Last month',   get: () => {
+      const d = new Date()
+      const pm = d.getMonth() === 0 ? 12 : d.getMonth()
+      const py = d.getMonth() === 0 ? d.getFullYear() - 1 : d.getFullYear()
+      return [_dfIso(py, pm, 1), _dfIso(py, pm, new Date(d.getFullYear(), d.getMonth(), 0).getDate())]
+    }},
+  ],
+  [
+    { label: 'This quarter', get: _dfThisQuarter },
+    { label: 'Last quarter', get: _dfLastQuarter },
+    { label: 'This year',    get: () => [yearStart(), today()] },
+  ],
 ]
+
+const DF_WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+const CELL = 30  // px per calendar cell
+
+function DFMonthGrid({ ym, lo, hi, pendingStart, onDay, onHover }: {
+  ym: string; lo: string; hi: string; pendingStart: string | null
+  onDay: (iso: string) => void; onHover: (iso: string | null) => void
+}) {
+  const [y, m] = ym.split('-').map(Number)
+  const firstDow = new Date(y, m - 1, 1).getDay()           // 0 = Sun
+  const offset   = firstDow === 0 ? 6 : firstDow - 1        // Mon-based
+  const daysCount = new Date(y, m, 0).getDate()
+  const t = today()
+
+  const cells: (number | null)[] = [
+    ...Array(offset).fill(null),
+    ...Array.from({ length: daysCount }, (_, i) => i + 1),
+  ]
+  while (cells.length % 7 !== 0) cells.push(null)
+
+  return (
+    <div style={{ userSelect: 'none' }}>
+      <p style={{ textAlign: 'center', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)', marginBottom: 8, letterSpacing: '-0.1px' }}>
+        {_dfMonthLabel(ym)}
+      </p>
+      {/* Weekday headers */}
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(7, ${CELL}px)`, marginBottom: 2 }}>
+        {DF_WEEKDAYS.map(d => (
+          <div key={d} style={{ textAlign: 'center', fontSize: 10, fontWeight: 700, color: 'var(--txt3)', height: 22, lineHeight: '22px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{d}</div>
+        ))}
+      </div>
+      {/* Day rows */}
+      {Array.from({ length: cells.length / 7 }, (_, wi) => (
+        <div key={wi} style={{ display: 'grid', gridTemplateColumns: `repeat(7, ${CELL}px)` }}>
+          {cells.slice(wi * 7, wi * 7 + 7).map((day, di) => {
+            if (!day) return <div key={di} style={{ height: CELL }} />
+            const iso   = _dfIso(y, m, day)
+            const isLo  = !!lo && iso === lo
+            const isHi  = !!hi && iso === hi && lo !== hi
+            const mid   = !!lo && !!hi && lo !== hi && iso > lo && iso < hi
+            const single = !!lo && lo === hi && iso === lo
+            const filled = isLo || isHi || single
+            const hasBg  = isLo || isHi || mid          // range strip shown
+            const isToday = iso === t
+            const isPend  = !!pendingStart && iso === pendingStart && !lo
+
+            return (
+              <div key={di}
+                style={{ position: 'relative', height: CELL, cursor: 'pointer' }}
+                onClick={() => onDay(iso)}
+                onMouseEnter={() => onHover(iso)}
+                onMouseLeave={() => onHover(null)}
+              >
+                {/* Range strip — connects start to end with a background band */}
+                {hasBg && (
+                  <div style={{
+                    position: 'absolute', top: 4, bottom: 4,
+                    left:  isLo ? '50%' : 0,
+                    right: isHi ? '50%' : 0,
+                    background: 'rgba(14,40,65,0.09)',
+                    zIndex: 0,
+                  }} />
+                )}
+                {/* Day circle */}
+                <div style={{
+                  position: 'relative', zIndex: 1,
+                  width: 26, height: 26, borderRadius: '50%',
+                  margin: '2px auto',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 12, fontWeight: filled || isToday ? 700 : 400,
+                  background: filled ? NAVY : isPend ? 'rgba(14,40,65,0.12)' : 'transparent',
+                  color: filled ? '#fff' : isToday ? NAVY : 'var(--txt)',
+                  border: isToday && !filled ? `1.5px solid ${NAVY}` : 'none',
+                  boxSizing: 'border-box' as const,
+                  transition: 'background 80ms',
+                }}>
+                  {day}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export function DateFilter({ from, to, onChange }: {
   from: string; to: string; onChange: (f: string, t: string) => void
 }) {
-  const [open, setOpen] = useState(false)
+  const now     = new Date()
+  const initYM  = from ? from.slice(0, 7) : `${now.getFullYear()}-${_dfPad(now.getMonth() + 1)}`
+
+  const [open,         setOpen]         = useState(false)
+  const [viewYM,       setViewYM]       = useState(initYM)
+  const [pendingStart, setPendingStart] = useState<string | null>(null)
+  const [hover,        setHover]        = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
 
+  // Close on outside click
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false); setPendingStart(null); setHover(null)
+      }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const label = !from && !to
+  // Reset view to 'from' month whenever it changes
+  useEffect(() => { if (from && open) setViewYM(from.slice(0, 7)) }, [from])
+
+  // Effective lo/hi: during range selection show hover preview
+  const effFrom = pendingStart ?? from
+  const effTo   = pendingStart ? (hover ?? pendingStart) : to
+  const lo = effFrom && effTo ? (effFrom <= effTo ? effFrom : effTo) : (effFrom || effTo)
+  const hi = effFrom && effTo ? (effFrom <= effTo ? effTo   : effFrom) : (effFrom || effTo)
+
+  function handleDayClick(iso: string) {
+    if (!pendingStart) {
+      setPendingStart(iso)
+    } else {
+      const [f, t] = iso >= pendingStart ? [pendingStart, iso] : [iso, pendingStart]
+      onChange(f, t); setPendingStart(null); setHover(null); setOpen(false)
+    }
+  }
+
+  function applyPreset(f: string, t: string) {
+    onChange(f, t); setPendingStart(null); setHover(null); setOpen(false)
+  }
+
+  const month2 = _dfNextYM(viewYM)
+
+  const btnLabel = !from && !to
     ? 'All time'
     : from === to
       ? fmtDate(from)
       : `${fmtDate(from)} – ${fmtDate(to)}`
 
-  const inputStyle: CSSProperties = {
-    flex: 1, padding: '5px 8px', border: '1px solid var(--input-bdr)', borderRadius: 6,
-    fontSize: 12, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none',
+  const navBtn: CSSProperties = {
+    width: 28, height: 28, borderRadius: 6, border: '1px solid var(--bdr)',
+    background: 'var(--card)', cursor: 'pointer', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', color: 'var(--txt2)',
   }
 
   return (
     <div style={{ position: 'relative' }} ref={ref}>
+      {/* Trigger button */}
       <button onClick={() => setOpen(o => !o)} style={{
         display: 'flex', alignItems: 'center', gap: 6,
         padding: '5px 10px', borderRadius: 7, fontSize: 12.5, fontWeight: 500,
         border: `1.5px solid ${open ? NAVY : 'var(--input-bdr)'}`,
-        background: 'var(--card)', color: 'var(--txt)', cursor: 'pointer',
-        whiteSpace: 'nowrap',
+        background: open ? `rgba(14,40,65,0.04)` : 'var(--card)',
+        color: 'var(--txt)', cursor: 'pointer', whiteSpace: 'nowrap',
+        transition: 'border-color 120ms, background 120ms',
       }}>
-        <span className="material-symbols-rounded" style={{ fontSize: 15, color: 'var(--txt3)' }}>calendar_month</span>
-        {label}
-        <span className="material-symbols-rounded" style={{ fontSize: 15, color: 'var(--txt3)' }}>
+        <span className="material-symbols-rounded" style={{ fontSize: 15, color: open ? NAVY : 'var(--txt3)', transition: 'color 120ms' }}>calendar_month</span>
+        <span style={{ color: !from && !to ? 'var(--txt3)' : 'var(--txt)' }}>{btnLabel}</span>
+        <span className="material-symbols-rounded" style={{ fontSize: 14, color: 'var(--txt3)' }}>
           {open ? 'expand_less' : 'expand_more'}
         </span>
       </button>
+
+      {/* Dropdown panel */}
       {open && (
         <div style={{
-          position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 300,
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 500,
           background: 'var(--card)', border: '1px solid var(--card-bdr)',
-          borderRadius: 10, boxShadow: 'var(--card-shadow)', minWidth: 220, padding: '8px 0',
+          borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.14)',
+          display: 'flex', overflow: 'hidden',
         }}>
-          {DATE_PRESETS.map(p => {
-            const [f, t] = p.get()
-            const active = f === from && t === to
-            return (
-              <button key={p.label} onClick={() => { onChange(f, t); setOpen(false) }} style={{
-                display: 'block', width: '100%', textAlign: 'left',
-                padding: '7px 14px', fontSize: 13, fontWeight: active ? 600 : 400,
-                background: active ? 'var(--th-bg)' : 'transparent',
-                color: active ? NAVY : 'var(--txt)', border: 'none', cursor: 'pointer',
-              }}>
-                {p.label}
+
+          {/* Presets column */}
+          <div style={{ width: 136, borderRight: '1px solid var(--bdr)', padding: '10px 0', flexShrink: 0 }}>
+            {DF_PRESET_GROUPS.map((group, gi) => (
+              <div key={gi}>
+                {gi > 0 && <div style={{ height: 1, background: 'var(--bdr)', margin: '4px 0' }} />}
+                {group.map(p => {
+                  const [f, t] = p.get()
+                  const active = f === from && t === to
+                  return (
+                    <button key={p.label} onClick={() => applyPreset(f, t)} style={{
+                      display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+                      padding: '6px 12px', background: 'transparent', border: 'none',
+                      cursor: 'pointer', fontSize: 12.5, fontWeight: active ? 600 : 400,
+                      color: active ? NAVY : 'var(--txt)', textAlign: 'left',
+                    }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: 13, color: active ? NAVY : 'transparent', flexShrink: 0 }}>check</span>
+                      {p.label}
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+
+          {/* Calendar area */}
+          <div style={{ padding: '14px 16px 12px' }}>
+            {/* Month navigation */}
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+              <button onClick={() => setViewYM(_dfPrevYM(viewYM))} style={navBtn}>
+                <span className="material-symbols-rounded" style={{ fontSize: 16 }}>chevron_left</span>
               </button>
-            )
-          })}
-          <div style={{ borderTop: '1px solid var(--bdr)', margin: '6px 0', padding: '8px 14px 4px' }}>
-            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--txt3)', marginBottom: 6 }}>Custom range</p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input type="date" value={from} onChange={e => onChange(e.target.value, to)} style={inputStyle} />
-              <span style={{ color: 'var(--txt3)', fontSize: 12 }}>–</span>
-              <input type="date" value={to}   onChange={e => onChange(from, e.target.value)} style={inputStyle} />
+              <div style={{ flex: 1 }} />
+              <button onClick={() => setViewYM(_dfNextYM(viewYM))} style={navBtn}>
+                <span className="material-symbols-rounded" style={{ fontSize: 16 }}>chevron_right</span>
+              </button>
+            </div>
+
+            {/* Two months side by side */}
+            <div style={{ display: 'flex', gap: 16 }}>
+              <DFMonthGrid ym={viewYM} lo={lo} hi={hi} pendingStart={pendingStart}
+                onDay={handleDayClick} onHover={setHover} />
+              <div style={{ width: 1, background: 'var(--bdr)', flexShrink: 0 }} />
+              <DFMonthGrid ym={month2} lo={lo} hi={hi} pendingStart={pendingStart}
+                onDay={handleDayClick} onHover={setHover} />
+            </div>
+
+            {/* Footer */}
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', gap: 8, minHeight: 34 }}>
+              {pendingStart ? (
+                <span style={{ fontSize: 12, color: 'var(--txt3)', flex: 1 }}>
+                  Click a second day to complete the range
+                </span>
+              ) : (from || to) ? (
+                <>
+                  <span style={{ fontSize: 12.5, color: 'var(--txt2)', flex: 1 }}>
+                    {from === to ? fmtDate(from) : `${fmtDate(from)} – ${fmtDate(to)}`}
+                  </span>
+                  <button onClick={() => applyPreset('', '')} style={{
+                    padding: '4px 10px', borderRadius: 6, border: '1px solid var(--bdr)',
+                    background: 'var(--card)', color: 'var(--txt2)', fontSize: 12,
+                    cursor: 'pointer', fontWeight: 500,
+                  }}>Clear</button>
+                </>
+              ) : (
+                <span style={{ fontSize: 12, color: 'var(--txt3)', flex: 1 }}>
+                  Click a day to start selecting a range
+                </span>
+              )}
             </div>
           </div>
+
         </div>
       )}
     </div>
