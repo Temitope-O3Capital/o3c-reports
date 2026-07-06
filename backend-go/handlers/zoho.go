@@ -33,6 +33,8 @@ import (
 func RegisterZoho(r chi.Router, db *core.DB) {
 	r.Post("/voice/import-logs", zohoImportVoiceLogs(db))
 	r.Post("/voice/call", zohoInitiateCall(db))
+	r.Post("/import-tickets", zohoImportTickets(db))
+	r.Post("/import-calls", zohoImportDeskCalls(db))
 }
 
 // ── Credential helpers ────────────────────────────────────────────────────────
@@ -270,6 +272,255 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 			out["date_to"] = maxStartedAt.Format("2006-01-02")
 		}
 		json.NewEncoder(w).Encode(out) //nolint:errcheck
+	}
+}
+
+// ── Zoho Desk — import tickets ────────────────────────────────────────────────
+
+func zohoImportTickets(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		if !zohoEnsureConfigured(ctx, db) {
+			respondErr(w, 503, "Zoho credentials not configured")
+			return
+		}
+
+		from := r.URL.Query().Get("from_date")
+		to := r.URL.Query().Get("to_date")
+		var dateFrom, dateTo time.Time
+		if from != "" {
+			dateFrom, _ = time.Parse("2006-01-02", from)
+		}
+		if to != "" {
+			dateTo, _ = time.Parse("2006-01-02", to)
+		}
+
+		tickets, err := zohoFetchTickets(ctx, dateFrom, dateTo, url.Values{"include": {"contacts,assignee,departments,team,isRead,customFields"}}, 2000)
+		if err != nil {
+			respondErr(w, 502, "Zoho API error: "+err.Error())
+			return
+		}
+
+		statusMap := map[string]string{
+			"open": "open", "on hold": "pending", "escalated": "open",
+			"resolved": "resolved", "closed": "closed",
+		}
+		priorityMap := map[string]string{
+			"low": "low", "medium": "normal", "high": "high", "urgent": "urgent",
+		}
+		channelMap := map[string]string{
+			"email": "email", "phone": "phone", "chat": "chat",
+			"web": "web", "twitter": "social", "facebook": "social",
+		}
+
+		var imported, skipped, failed int
+		for _, t := range tickets {
+			zohoID := zohoStr(t["id"])
+			if zohoID == "" {
+				skipped++
+				continue
+			}
+			ref := "ZOHO-" + zohoID
+
+			subject := zohoStr(t["subject"])
+			if subject == "" {
+				subject = "(no subject)"
+			}
+			body := zohoStr(t["description"])
+
+			rawStatus := strings.ToLower(zohoStr(t["status"]))
+			status := statusMap[rawStatus]
+			if status == "" {
+				status = "open"
+			}
+			rawPriority := strings.ToLower(zohoStr(t["priority"]))
+			priority := priorityMap[rawPriority]
+			if priority == "" {
+				priority = "normal"
+			}
+			rawChannel := strings.ToLower(zohoStr(t["channel"]))
+			channel := channelMap[rawChannel]
+			if channel == "" {
+				channel = "web"
+			}
+
+			dept := zohoStr(t["departmentName"])
+			createdAt := zohoParseTime(t["createdTime"])
+			if createdAt.IsZero() {
+				createdAt = time.Now()
+			}
+			var resolvedAt, closedAt *time.Time
+			if ra := zohoParseTime(t["resolvedTime"]); !ra.IsZero() {
+				resolvedAt = &ra
+			}
+			if ca := zohoParseTime(t["closedTime"]); !ca.IsZero() {
+				closedAt = &ca
+			}
+
+			// Contact info — nested under "contact"
+			var custName, custEmail, custPhone string
+			if contact, ok := t["contact"].(map[string]any); ok {
+				fn := zohoStr(contact["firstName"])
+				ln := zohoStr(contact["lastName"])
+				custName = strings.TrimSpace(fn + " " + ln)
+				custEmail = zohoStr(contact["email"])
+				custPhone = zohoStr(contact["phone"])
+			}
+
+			_, err := db.PGExec(ctx, `
+				INSERT INTO helpdesk_tickets
+				  (subject, body, channel, status, priority, department,
+				   customer_name, customer_email, customer_phone,
+				   ticket_ref, resolved_at, closed_at, created_at, updated_at)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
+				ON CONFLICT (ticket_ref) DO NOTHING`,
+				subject, body, channel, status, priority, dept,
+				custName, custEmail, custPhone,
+				ref, resolvedAt, closedAt, createdAt)
+			if err != nil {
+				slog.Warn("zohoImportTickets: insert", "ref", ref, "err", err)
+				failed++
+			} else {
+				imported++
+			}
+		}
+		// skipped = tickets with no Zoho ID (rare)
+		skipped = len(tickets) - imported - failed
+
+		slog.Info("zohoImportTickets done", "imported", imported, "skipped", skipped, "failed", failed)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"imported": imported, "skipped": skipped, "failed": failed,
+		})
+	}
+}
+
+// ── Zoho Desk — import call logs ─────────────────────────────────────────────
+
+func zohoImportDeskCalls(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		if !zohoEnsureConfigured(ctx, db) {
+			respondErr(w, 503, "Zoho credentials not configured")
+			return
+		}
+		if err := ensureCallLogSchema(ctx, db); err != nil {
+			respondErr(w, 500, "Call log schema error")
+			return
+		}
+
+		from := r.URL.Query().Get("from_date")
+		to := r.URL.Query().Get("to_date")
+		if from == "" {
+			from = time.Now().AddDate(0, 0, -30).Format("2006-01-02")
+		}
+		if to == "" {
+			to = time.Now().Format("2006-01-02")
+		}
+
+		var imported, skipped, failed int
+		offset := 0
+		pageSize := 100
+
+		for {
+			params := url.Values{
+				"from":  {fmt.Sprintf("%d", offset)},
+				"limit": {fmt.Sprintf("%d", pageSize)},
+			}
+			result, err := zohoFetch(ctx, "calls", params)
+			if err != nil {
+				respondErr(w, 502, "Zoho API error: "+err.Error())
+				return
+			}
+			batch := zohoItems(result)
+			if len(batch) == 0 {
+				break
+			}
+
+			for _, c := range batch {
+				zohoID := zohoStr(c["id"])
+				if zohoID == "" {
+					skipped++
+					continue
+				}
+
+				// Filter by date range on callStartTime
+				startedAt := zohoParseTime(c["callStartTime"])
+				if startedAt.IsZero() {
+					startedAt = time.Now()
+				}
+				dateStr := startedAt.Format("2006-01-02")
+				if dateStr < from || dateStr > to {
+					skipped++
+					continue
+				}
+
+				rawType := strings.ToLower(zohoStr(c["callType"]))
+				direction := "inbound"
+				if strings.Contains(rawType, "outbound") || strings.Contains(rawType, "outgoing") {
+					direction = "outbound"
+				}
+
+				outcome := "resolved"
+				rawStatus := strings.ToLower(zohoStr(c["callStatus"]))
+				if strings.Contains(rawStatus, "miss") || strings.Contains(rawStatus, "abandon") {
+					outcome = "missed"
+				}
+
+				durSec := zohoParseDurationSec(c["callDuration"])
+
+				agentName := zohoStr(c["agentName"])
+				if agentName == "" {
+					if owner, ok := c["owner"].(map[string]any); ok {
+						agentName = zohoStr(owner["name"])
+					}
+				}
+
+				custPhone := zohoStr(c["customerNumber"])
+				if custPhone == "" {
+					custPhone = zohoStr(c["from"])
+				}
+				if custPhone == "" {
+					if contact, ok := c["contact"].(map[string]any); ok {
+						custPhone = zohoStr(contact["phone"])
+					}
+				}
+
+				callTo := zohoStr(c["to"])
+				if callTo == "" {
+					callTo = zohoStr(c["didNumber"])
+				}
+
+				_, err := db.PGExec(ctx, `
+					INSERT INTO helpdesk_calls
+					  (agent_name, customer_phone, call_to, direction,
+					   duration_sec, outcome, started_at, zoho_call_id)
+					VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+					ON CONFLICT DO NOTHING`,
+					agentName, custPhone, callTo, direction,
+					durSec, outcome, startedAt, zohoID)
+				if err != nil {
+					slog.Warn("zohoImportDeskCalls: insert", "zoho_id", zohoID, "err", err)
+					failed++
+				} else {
+					imported++
+				}
+			}
+
+			if len(batch) < pageSize {
+				break
+			}
+			offset += pageSize
+			if offset > 5000 {
+				break
+			}
+		}
+
+		slog.Info("zohoImportDeskCalls done", "imported", imported, "skipped", skipped, "failed", failed)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"imported": imported, "skipped": skipped, "failed": failed,
+		})
 	}
 }
 
