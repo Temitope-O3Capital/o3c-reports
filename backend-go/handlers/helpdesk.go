@@ -158,6 +158,7 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 	r.Get("/type-distribution", hdTypeDistribution(db))
 
 	// Inbound call auto-ticket webhook (Zoho Voice)
+	r.Get("/inbound/call", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	r.Post("/inbound/call", hdInboundCall(db))
 
 	// Ticket enriched context (customer360 data)
@@ -2509,18 +2510,50 @@ func hdTypeDistribution(db *core.DB) http.HandlerFunc {
 
 func hdInboundCall(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			Phone       string `json:"phone"`
-			AgentID     int64  `json:"agent_id"`
-			AgentName   string `json:"agent_name"`
-			CallID      string `json:"call_id"`
-			QueueName   string `json:"queue_name"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		// Accept our internal format AND Zoho Desk's native call-center webhook format.
+		// Zoho sends: callerNumber / callerId, callId / id, agentId / agentName, queueName / queue.
+		var raw map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 			respondErr(w, 400, "invalid json")
 			return
 		}
-		if b.Phone == "" {
+
+		pick := func(keys ...string) string {
+			for _, k := range keys {
+				if v, ok := raw[k]; ok {
+					if s, ok := v.(string); ok && s != "" {
+						return s
+					}
+				}
+			}
+			return ""
+		}
+		pickInt := func(keys ...string) int64 {
+			for _, k := range keys {
+				if v, ok := raw[k]; ok {
+					switch n := v.(type) {
+					case float64:
+						return int64(n)
+					case string:
+						if n != "" {
+							var i int64
+							if _, err := fmt.Sscan(n, &i); err == nil {
+								return i
+							}
+						}
+					}
+				}
+			}
+			return 0
+		}
+
+		phone := pick("phone", "callerNumber", "caller_number", "callerId", "from")
+		callID := pick("call_id", "callId", "id")
+		agentName := pick("agent_name", "agentName")
+		queueName := pick("queue_name", "queueName", "queue")
+		agentID := pickInt("agent_id", "agentId")
+
+		if phone == "" {
 			respondErr(w, 400, "phone required")
 			return
 		}
@@ -2528,25 +2561,20 @@ func hdInboundCall(db *core.DB) http.HandlerFunc {
 
 		// Determine queue from routing rules (default: general)
 		queue := "general"
-		if b.QueueName != "" {
-			queue = b.QueueName
+		if queueName != "" {
+			queue = queueName
 		}
 
 		// Auto-create ticket
-		subject := "Inbound Call — " + b.Phone
-		body := "Auto-created from inbound call. Caller: " + b.Phone
-		if b.CallID != "" {
-			body += ". Call ID: " + b.CallID
+		subject := "Inbound Call — " + phone
+		body := "Auto-created from inbound call. Caller: " + phone
+		if callID != "" {
+			body += ". Call ID: " + callID
 		}
 
 		assignedTo := (*int64)(nil)
-		if b.AgentID != 0 {
-			assignedTo = &b.AgentID
-		}
-
-		var agentName *string
-		if b.AgentName != "" {
-			agentName = &b.AgentName
+		if agentID != 0 {
+			assignedTo = &agentID
 		}
 		_ = agentName
 
@@ -2566,9 +2594,9 @@ func hdInboundCall(db *core.DB) http.HandlerFunc {
 		if len(rows) > 0 {
 			ticketID := toInt64(rows[0]["id"])
 			bgCtx := context.Background()
-			if b.AgentID != 0 {
-				go sendNotification(bgCtx, db, b.AgentID, "inbound_call",
-					"Incoming Call", "Caller: "+b.Phone, "ticket", ticketID)
+			if agentID != 0 {
+				go sendNotification(bgCtx, db, agentID, "inbound_call",
+					"Incoming Call", "Caller: "+phone, "ticket", ticketID)
 			} else {
 				// No specific agent — ring all active call center staff.
 				go func() {
@@ -2578,7 +2606,7 @@ func hdInboundCall(db *core.DB) http.HandlerFunc {
 					for _, ar := range agentRows {
 						if uid := toInt64(ar["id"]); uid > 0 {
 							sendNotification(bgCtx, db, uid, "inbound_call",
-								"Incoming Call", "Caller: "+b.Phone, "ticket", ticketID)
+								"Incoming Call", "Caller: "+phone, "ticket", ticketID)
 						}
 					}
 				}()

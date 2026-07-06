@@ -169,6 +169,7 @@ func main() {
 	})
 
 	// Predictive dialer — webhook is unauthenticated (Zoho Voice fires it)
+	r.Get("/api/dialer/webhook", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	r.Post("/api/dialer/webhook", handlers.RegisterDialerWebhookOnly(db))
 	r.Route("/api/dialer", func(r chi.Router) {
 		r.Group(func(r chi.Router) {
