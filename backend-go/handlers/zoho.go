@@ -389,7 +389,7 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 				custPhone = zohoStr(contact["phone"])
 			}
 
-			_, err := db.PGExec(ctx, `
+			res, err := db.PGExec(ctx, `
 				INSERT INTO helpdesk_tickets
 				  (subject, description, channel, status, priority, department,
 				   customer_name, customer_email, customer_phone,
@@ -402,12 +402,12 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 			if err != nil {
 				slog.Warn("zohoImportTickets: insert", "ref", ref, "err", err)
 				failed++
-			} else {
+			} else if n, _ := res.RowsAffected(); n > 0 {
 				imported++
+			} else {
+				skipped++ // already exists (ON CONFLICT DO NOTHING)
 			}
 		}
-		// skipped = tickets with no Zoho ID (rare)
-		skipped = len(tickets) - imported - failed
 
 		slog.Info("zohoImportTickets done", "imported", imported, "skipped", skipped, "failed", failed)
 		w.Header().Set("Content-Type", "application/json")
