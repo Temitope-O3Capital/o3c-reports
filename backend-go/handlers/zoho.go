@@ -328,9 +328,11 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 		priorityMap := map[string]string{
 			"low": "low", "medium": "normal", "high": "high", "urgent": "urgent",
 		}
+		// Only values allowed by the DB CHECK constraint
 		channelMap := map[string]string{
-			"email": "email", "phone": "phone", "chat": "chat",
-			"web": "web", "twitter": "social", "facebook": "social",
+			"email": "email", "phone": "phone", "sms": "sms",
+			"whatsapp": "whatsapp", "chat": "in_app", "web": "in_app",
+			"twitter": "in_app", "facebook": "in_app",
 		}
 
 		var imported, skipped, failed int
@@ -389,11 +391,11 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 
 			_, err := db.PGExec(ctx, `
 				INSERT INTO helpdesk_tickets
-				  (subject, body, channel, status, priority, department,
+				  (subject, description, channel, status, priority, department,
 				   customer_name, customer_email, customer_phone,
 				   ticket_ref, resolved_at, closed_at, created_at, updated_at)
 				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
-				ON CONFLICT (ticket_ref) WHERE ticket_ref IS NOT NULL DO NOTHING`,
+				ON CONFLICT (ticket_ref) DO NOTHING`,
 				subject, body, channel, status, priority, dept,
 				custName, custEmail, custPhone,
 				ref, resolvedAt, closedAt, createdAt)

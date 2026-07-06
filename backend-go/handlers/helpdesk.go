@@ -2580,7 +2580,7 @@ func hdInboundCall(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(ctx, `
 			INSERT INTO helpdesk_tickets
-			  (subject, body, channel, status, priority, queue, ticket_type, assigned_to)
+			  (subject, description, channel, status, priority, queue, ticket_type, assigned_to)
 			VALUES ($1, $2, 'phone', 'open', 'normal', $3, 'inbound_call', $4)
 			RETURNING id, subject, status, queue, ticket_type, created_at`,
 			subject, body, queue, assignedTo)
