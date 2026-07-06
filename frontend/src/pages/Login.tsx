@@ -475,6 +475,7 @@ export default function Login({ onLogin }: LoginProps) {
     try {
       const res  = await fetch(`${API}/api/auth/token`, {
         method: 'POST',
+        credentials: 'include',
         body: new URLSearchParams({ username: email.trim(), password }),
       })
       const data = await res.json()
@@ -493,6 +494,7 @@ export default function Login({ onLogin }: LoginProps) {
     try {
       const res  = await fetch(`${API}/api/auth/totp/challenge`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mfa_token: mfaToken, code }),
       })
