@@ -363,7 +363,7 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 			rawChannel := strings.ToLower(zohoStr(t["channel"]))
 			channel := channelMap[rawChannel]
 			if channel == "" {
-				channel = "web"
+				channel = "in_app"
 			}
 
 			dept := zohoStr(t["departmentName"])
