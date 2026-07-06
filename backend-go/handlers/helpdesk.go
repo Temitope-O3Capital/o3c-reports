@@ -2561,6 +2561,30 @@ func hdInboundCall(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "failed to create ticket")
 			return
 		}
+
+		// Push real-time SSE notification so the call widget shows a ringing alert.
+		if len(rows) > 0 {
+			ticketID := toInt64(rows[0]["id"])
+			bgCtx := context.Background()
+			if b.AgentID != 0 {
+				go sendNotification(bgCtx, db, b.AgentID, "inbound_call",
+					"Incoming Call", "Caller: "+b.Phone, "ticket", ticketID)
+			} else {
+				// No specific agent — ring all active call center staff.
+				go func() {
+					agentRows, _ := db.PGQuery(bgCtx, `
+						SELECT id FROM o3c_users
+						WHERE role IN ('call_center_agent','call_center_head') AND is_active=TRUE`)
+					for _, ar := range agentRows {
+						if uid := toInt64(ar["id"]); uid > 0 {
+							sendNotification(bgCtx, db, uid, "inbound_call",
+								"Incoming Call", "Caller: "+b.Phone, "ticket", ticketID)
+						}
+					}
+				}()
+			}
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		if len(rows) > 0 {

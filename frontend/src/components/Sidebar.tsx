@@ -2,18 +2,22 @@ import { useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { useLocation, Link, useNavigate } from 'react-router-dom'
 import { roleLabel } from '../lib/roles'
-import { INTER } from '../lib/design'
+import { SORA, PLEX, MONO } from '../lib/design'
 import type { AuthUser } from '../hooks/useAuth'
+
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface SubItem { label: string; to: string }
+interface SubItem { label: string; to: string; badge?: number }
 interface NavItem {
-  icon:  string
-  label: string
-  to:    string
-  subs?: SubItem[]
-  vis?:  string[] | 'all'
+  icon:   string
+  label:  string
+  to:     string
+  subs?:  SubItem[]
+  vis?:   string[] | 'all'
+  badge?: number
+  hot?:   boolean
 }
 interface Section { key: string; header?: string; items: NavItem[] }
 
@@ -48,17 +52,16 @@ const SECTIONS: Section[] = [
           { label: 'Compose', to: '/mail/compose' },
         ],
       },
-      // Campaigns + Marketing attribution merged — same function, same audience
       {
         icon: 'campaign', label: 'Campaigns & Marketing', to: '/campaigns',
         vis: ['sales_head','bd_officer','bd_head','telemarketing_head'],
         subs: [
-          { label: 'All Campaigns',        to: '/campaigns' },
-          { label: 'Templates',            to: '/campaigns/templates' },
-          { label: 'Contact Lists',        to: '/campaigns/lists' },
-          { label: 'Campaign Analytics',   to: '/campaigns/analytics' },
-          { label: 'Attribution Report',   to: '/marketing/attribution' },
-          { label: 'Acquisition Funnel',   to: '/marketing/funnel' },
+          { label: 'All Campaigns',      to: '/campaigns' },
+          { label: 'Templates',          to: '/campaigns/templates' },
+          { label: 'Contact Lists',      to: '/campaigns/lists' },
+          { label: 'Campaign Analytics', to: '/campaigns/analytics' },
+          { label: 'Attribution Report', to: '/marketing/attribution' },
+          { label: 'Acquisition Funnel', to: '/marketing/funnel' },
         ],
       },
       {
@@ -102,6 +105,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'support_agent', label: 'Customer Service', to: '/helpdesk',
+        badge: 4,
         vis: [
           'call_center_agent','call_center_head',
           'telemarketing_agent','telemarketing_head',
@@ -137,7 +141,6 @@ const SECTIONS: Section[] = [
     ],
   },
   {
-    // Renamed from "Operations" — Settlements moved to Finance; this is now purely lending lifecycle
     key: 'lending',
     header: 'Credit Management',
     items: [
@@ -154,6 +157,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'collections_bookmark', label: 'Collections', to: '/collections',
+        badge: 9, hot: true,
         vis: ['collections_agent','collections_head'],
         subs: [
           { label: 'Overview',        to: '/collections' },
@@ -197,7 +201,6 @@ const SECTIONS: Section[] = [
           { label: 'Budget',            to: '/finance/budget' },
         ],
       },
-      // Settlements moved here from Loan Management — it is a financial back-office function
       {
         icon: 'compare_arrows', label: 'Settlements', to: '/settlements',
         vis: ['settlement_officer','finance_head'],
@@ -232,9 +235,9 @@ const SECTIONS: Section[] = [
           { label: 'Data Subject (DSAR)', to: '/compliance/dsar' },
           { label: 'Concentration Risk',  to: '/compliance/concentration' },
           { label: 'Data Processing Reg', to: '/compliance/dpa-register' },
-          { label: 'SOC 2 Controls',       to: '/compliance/soc2'         },
-          { label: 'Pentest Tracker',      to: '/compliance/pentest'      },
-          { label: 'Policy Documents',     to: '/compliance/policies'     },
+          { label: 'SOC 2 Controls',      to: '/compliance/soc2' },
+          { label: 'Pentest Tracker',     to: '/compliance/pentest' },
+          { label: 'Policy Documents',    to: '/compliance/policies' },
         ],
       },
     ],
@@ -263,7 +266,6 @@ const SECTIONS: Section[] = [
     ],
   },
   {
-    // Reports & BI and BI Studio merged — same function, same roles, no reason to split
     key: 'analytics',
     header: 'Analytics',
     items: [
@@ -271,12 +273,12 @@ const SECTIONS: Section[] = [
         icon: 'analytics', label: 'Reports & BI', to: '/reports',
         vis: ['bi_analyst','bi_head','internal_control_head'],
         subs: [
-          { label: 'KPI Tracker',          to: '/reports/kpi' },
-          { label: 'Analytics Dashboard',  to: '/reports' },
-          { label: 'Data Export',          to: '/reports/export' },
-          { label: 'Report Builder',       to: '/bi/builder' },
-          { label: 'Saved Reports',        to: '/bi' },
-          { label: 'Scheduled Reports',    to: '/bi/scheduled' },
+          { label: 'KPI Tracker',         to: '/reports/kpi' },
+          { label: 'Analytics Dashboard', to: '/reports' },
+          { label: 'Data Export',         to: '/reports/export' },
+          { label: 'Report Builder',      to: '/bi/builder' },
+          { label: 'Saved Reports',       to: '/bi' },
+          { label: 'Scheduled Reports',   to: '/bi/scheduled' },
         ],
       },
       {
@@ -289,7 +291,6 @@ const SECTIONS: Section[] = [
     key: 'admin',
     header: 'Admin',
     items: [
-      // Admin uses a grid/tile overview page for sub-module navigation — no sidebar sub-items needed
       {
         icon: 'admin_panel_settings', label: 'System Admin', to: '/admin',
         vis: ['it_admin'],
@@ -324,39 +325,41 @@ function SubLink({ sub, active }: { sub: SubItem; active: boolean }) {
     <Link
       to={sub.to}
       style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        height: 32, padding: '0 9px 0 10px',
-        margin: '2px 0', borderRadius: 6,
+        display: 'flex', alignItems: 'center',
+        padding: '6px 14px 6px 40px',
+        fontSize: 12, fontFamily: PLEX,
+        color: active ? '#7DD3FC' : 'rgba(255,255,255,.5)',
+        borderLeft: active ? '3px solid #0EA5E9' : '3px solid transparent',
         textDecoration: 'none',
-        color: active ? 'var(--sub-act)' : 'var(--sub-txt)',
-        fontSize: 13,
-        fontWeight: active ? 600 : 500,
-        background: active ? 'rgba(0,0,0,.02)' : 'transparent',
-        transition: 'color 120ms, background 120ms',
+        transition: 'color .12s',
+        whiteSpace: 'nowrap',
       }}
-      onMouseEnter={e => {
-        const el = e.currentTarget as HTMLElement
-        if (!active) {
-          el.style.background = 'var(--nav-hvr-bg)'
-          el.style.color = 'var(--sub-hvr)'
-        }
-      }}
-      onMouseLeave={e => {
-        const el = e.currentTarget as HTMLElement
-        el.style.background = active ? 'rgba(0,0,0,.02)' : 'transparent'
-        el.style.color = active ? 'var(--sub-act)' : 'var(--sub-txt)'
-      }}
+      onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.color = '#fff' }}
+      onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.5)' }}
     >
-      {/* 1px vertical line indicator — matches demo */}
-      <div style={{
-        width: 1, height: 14, flexShrink: 0, borderRadius: 1,
-        background: active ? 'var(--nav-dot)' : 'var(--bdr)',
-        transition: 'background 120ms',
-      }} />
-      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {sub.label}
-      </span>
+      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{sub.label}</span>
+      {sub.badge != null && sub.badge > 0 && (
+        <span style={{ fontFamily: MONO, fontSize: 10, color: 'rgba(255,255,255,.4)', marginLeft: 'auto' }}>
+          {sub.badge}
+        </span>
+      )}
     </Link>
+  )
+}
+
+// ── Nav badge ─────────────────────────────────────────────────────────────────
+
+function NavBadge({ n, hot }: { n: number; hot?: boolean }) {
+  return (
+    <span style={{
+      fontFamily: MONO, fontSize: 10, fontWeight: 500,
+      background: hot ? 'rgba(192,0,0,.35)' : 'rgba(14,165,233,.18)',
+      color: hot ? '#FCA5A5' : '#7DD3FC',
+      borderRadius: 3, padding: '1px 6px',
+      marginLeft: 'auto', flexShrink: 0,
+    }}>
+      {n > 99 ? '99+' : n}
+    </span>
   )
 }
 
@@ -372,95 +375,95 @@ function NavRow({
   const highlighted = isActive || hasActiveSub
   const { pathname } = useLocation()
 
-  return (
-    <div>
-      <Link
-        to={hasSubs ? '#' : item.to}
-        onClick={hasSubs ? (e) => { e.preventDefault(); onToggle() } : undefined}
-        title={collapsed ? item.label : undefined}
-        style={{
-          position: 'relative',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          height: 36,
-          margin: '2px 7px',
-          borderRadius: 8,
-          padding: collapsed ? '0' : '0 9px 0 12px',
-          justifyContent: collapsed ? 'center' : undefined,
-          textDecoration: 'none',
-          background: highlighted ? 'var(--nav-act-bg)' : 'transparent',
-          color: highlighted ? 'var(--nav-act-txt)' : 'var(--nav-txt)',
-          fontSize: 13.5,
-          fontWeight: highlighted ? 600 : 500,
-          transition: 'background 120ms, color 120ms',
-          userSelect: 'none',
-        }}
-        onMouseEnter={e => {
-          if (!highlighted) {
-            (e.currentTarget as HTMLElement).style.background = 'var(--nav-hvr-bg)'
-            ;(e.currentTarget as HTMLElement).style.color = 'var(--nav-hvr-txt)'
-          }
-        }}
-        onMouseLeave={e => {
-          if (!highlighted) {
-            (e.currentTarget as HTMLElement).style.background = 'transparent'
-            ;(e.currentTarget as HTMLElement).style.color = 'var(--nav-txt)'
-          }
-        }}
-      >
-        {/* Active indicator bar on left edge */}
-        {highlighted && (
-          <div style={{
-            position: 'absolute', left: -7, top: '50%', transform: 'translateY(-50%)',
-            width: 3, height: 16, background: 'var(--nav-dot)',
-            borderRadius: '0 3px 3px 0',
-          }} />
-        )}
+  const rowStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center',
+    gap: 10,
+    padding: collapsed ? '10px 0' : '8px 12px 8px 11px',
+    justifyContent: collapsed ? 'center' : undefined,
+    borderLeft: collapsed ? 'none' : (highlighted ? '3px solid #0EA5E9' : '3px solid transparent'),
+    fontSize: 12.5, fontFamily: SORA, fontWeight: 500,
+    color: highlighted ? '#fff' : 'rgba(255,255,255,.66)',
+    background: highlighted ? 'rgba(14,165,233,.10)' : 'transparent',
+    cursor: 'pointer',
+    textDecoration: 'none',
+    whiteSpace: 'nowrap',
+    userSelect: 'none',
+    transition: 'background .12s, color .12s',
+  }
 
-        <span
-          className="material-symbols-rounded"
-          style={{ fontSize: 18, flexShrink: 0 }}
-        >
-          {item.icon}
-        </span>
-
-        {!collapsed && (
-          <>
-            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {item.label}
+  const content = (
+    <>
+      <span className="material-symbols-rounded" style={{ fontSize: 16, flexShrink: 0, opacity: 0.85 }}>
+        {item.icon}
+      </span>
+      {!collapsed && (
+        <>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {item.label}
+          </span>
+          {item.badge != null && item.badge > 0 && (
+            <NavBadge n={item.badge} hot={item.hot} />
+          )}
+          {hasSubs && (
+            <span style={{
+              fontSize: 9, opacity: 0.5, flexShrink: 0,
+              marginLeft: item.badge != null && item.badge > 0 ? 6 : 'auto',
+              display: 'inline-block',
+              transform: open ? 'rotate(90deg)' : 'none',
+              transition: 'transform .15s',
+              lineHeight: 1,
+            }}>
+              ▶
             </span>
-            {hasSubs && (
-              <span
-                className="material-symbols-rounded"
-                style={{
-                  fontSize: 13, flexShrink: 0,
-                  color: 'var(--grp)',
-                  transform: open ? 'rotate(180deg)' : 'none',
-                  transition: 'transform 200ms',
-                }}
-              >
-                expand_more
-              </span>
-            )}
-          </>
-        )}
-      </Link>
-
-      {/* Accordion sub-items */}
-      {hasSubs && !collapsed && (
-        <div style={{
-          overflow: 'hidden',
-          maxHeight: open ? `${item.subs!.length * 34 + 8}px` : 0,
-          transition: 'max-height 220ms ease',
-          padding: '0 7px 0 16px',
-        }}>
-          {item.subs!.map(sub => (
-            <SubLink key={sub.to} sub={sub} active={pathname === sub.to} />
-          ))}
-        </div>
+          )}
+        </>
       )}
-    </div>
+    </>
+  )
+
+  function handleHover(el: HTMLElement, enter: boolean) {
+    if (!highlighted) {
+      el.style.color = enter ? '#fff' : 'rgba(255,255,255,.66)'
+      el.style.background = enter ? 'rgba(255,255,255,.03)' : 'transparent'
+    }
+  }
+
+  if (hasSubs) {
+    return (
+      <div>
+        <div
+          style={rowStyle}
+          onClick={onToggle}
+          onMouseEnter={e => handleHover(e.currentTarget as HTMLElement, true)}
+          onMouseLeave={e => handleHover(e.currentTarget as HTMLElement, false)}
+        >
+          {content}
+        </div>
+        {!collapsed && (
+          <div style={{
+            overflow: 'hidden',
+            maxHeight: open ? `${item.subs!.length * 34}px` : 0,
+            transition: 'max-height .18s ease',
+          }}>
+            {item.subs!.map(sub => (
+              <SubLink key={sub.to} sub={sub} active={pathname === sub.to} />
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <Link
+      to={item.to}
+      title={collapsed ? item.label : undefined}
+      style={rowStyle}
+      onMouseEnter={e => handleHover(e.currentTarget as HTMLElement, true)}
+      onMouseLeave={e => handleHover(e.currentTarget as HTMLElement, false)}
+    >
+      {content}
+    </Link>
   )
 }
 
@@ -471,9 +474,11 @@ function SectionHeader({ label, collapsed }: { label?: string; collapsed: boolea
   if (collapsed) return <div style={{ height: 8 }} />
   return (
     <div style={{
-      fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
-      letterSpacing: '1px', color: 'var(--grp)',
-      padding: '12px 14px 4px', fontFamily: INTER,
+      padding: '14px 14px 4px',
+      fontSize: 10, fontWeight: 600,
+      letterSpacing: '.12em', textTransform: 'uppercase',
+      color: 'rgba(255,255,255,.32)',
+      whiteSpace: 'nowrap', fontFamily: SORA,
     }}>
       {label}
     </div>
@@ -482,7 +487,9 @@ function SectionHeader({ label, collapsed }: { label?: string; collapsed: boolea
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
-export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser; onLogout: () => void; utilities?: ReactNode }) {
+export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
+  user: AuthUser; onLogout: () => void; utilities?: ReactNode; onCmdK?: () => void
+}) {
   const { pathname } = useLocation()
   const navigate = useNavigate()
 
@@ -520,7 +527,7 @@ export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser;
     .slice(0, 2)
     .toUpperCase()
 
-  const W = collapsed ? 60 : 252
+  const W = collapsed ? 60 : 238
 
   return (
     <aside style={{
@@ -528,49 +535,43 @@ export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser;
       display: 'flex', flexDirection: 'column',
       height: '100vh', flexShrink: 0,
       background: 'var(--sb)',
-      borderRight: '1px solid var(--sb-bdr)',
-      overflow: 'visible',
-      transition: 'width 240ms cubic-bezier(0.4,0,0.2,1), min-width 240ms cubic-bezier(0.4,0,0.2,1)',
+      color: 'rgba(255,255,255,.72)',
+      overflow: 'hidden',
+      transition: 'width 180ms ease, min-width 180ms ease',
       position: 'relative', zIndex: 10,
     }}>
 
-      {/* ── Logo row ──────────────────────────────────────────────────────── */}
+      {/* ── Brand row ─────────────────────────────────────────────────────── */}
       <div style={{
-        height: 50, flexShrink: 0,
-        display: 'flex', alignItems: 'center',
-        padding: collapsed ? '0 14px' : '0 14px',
-        gap: 9,
-        borderBottom: '1px solid var(--sb-bdr)',
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: collapsed ? '16px 8px 14px' : '16px 14px 14px',
+        borderBottom: '1px solid rgba(255,255,255,.08)',
         justifyContent: collapsed ? 'center' : undefined,
+        flexShrink: 0,
       }}>
-        {/* O3 box logo */}
+        {/* O3 red square logo */}
         <div style={{
-          width: 28, height: 28, borderRadius: 7,
+          width: 28, height: 28, minWidth: 28, borderRadius: 4,
           background: '#C00000',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 11, fontWeight: 800, color: '#fff',
-          flexShrink: 0, fontFamily: INTER,
+          fontWeight: 700, fontSize: 13, color: '#fff', fontFamily: SORA,
         }}>
           O3
         </div>
 
         {!collapsed && (
-          <>
-            <div style={{ fontSize: 13.5, fontWeight: 800, color: '#FFFFFF', letterSpacing: -0.4, whiteSpace: 'nowrap' }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 13, color: '#fff', whiteSpace: 'nowrap', fontFamily: SORA }}>
               O3 <span style={{ color: '#C00000' }}>Capital</span>
             </div>
-            <div style={{
-              marginLeft: 'auto', fontSize: 8.5, fontWeight: 700, letterSpacing: 0.5,
-              color: 'rgba(255,255,255,0.45)', background: 'rgba(255,255,255,0.10)',
-              padding: '2px 6px', borderRadius: 4, fontFamily: INTER, whiteSpace: 'nowrap',
-            }}>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,.45)', letterSpacing: '.04em', whiteSpace: 'nowrap', fontFamily: SORA }}>
               WORKSPACE
             </div>
-          </>
+          </div>
         )}
       </div>
 
-      {/* Floating collapse tab — sits on the right edge of the sidebar */}
+      {/* Floating collapse tab */}
       <div
         onClick={() => setCollapsed(c => !c)}
         title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -578,23 +579,17 @@ export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser;
           position: 'absolute', right: -12, top: '50%', transform: 'translateY(-50%)',
           width: 20, height: 40,
           background: 'var(--sb)',
-          border: '1px solid var(--sb-bdr)',
+          border: '1px solid rgba(255,255,255,.08)',
           borderLeft: 'none',
           borderRadius: '0 8px 8px 0',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           cursor: 'pointer', zIndex: 20,
-          color: 'var(--nav-txt)',
-          transition: 'background 120ms, color 120ms',
-          boxShadow: '2px 0 6px rgba(0,0,0,.15)',
+          color: 'rgba(255,255,255,.4)',
+          transition: 'color 120ms',
+          boxShadow: '2px 0 6px rgba(0,0,0,.2)',
         }}
-        onMouseEnter={e => {
-          (e.currentTarget as HTMLElement).style.background = 'var(--nav-hvr-bg)'
-          ;(e.currentTarget as HTMLElement).style.color = '#fff'
-        }}
-        onMouseLeave={e => {
-          (e.currentTarget as HTMLElement).style.background = 'var(--sb)'
-          ;(e.currentTarget as HTMLElement).style.color = 'var(--nav-txt)'
-        }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#fff' }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.4)' }}
       >
         <span className="material-symbols-rounded" style={{
           fontSize: 13,
@@ -605,10 +600,51 @@ export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser;
         </span>
       </div>
 
-      {/* ── Nav ────────────────────────────────────────────────────────────── */}
-      <nav style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '6px 0 12px' }}>
+      {/* ── ⌘K bar ────────────────────────────────────────────────────────── */}
+      {!collapsed && (
+        <button
+          onClick={onCmdK}
+          style={{
+            margin: '12px 12px 4px', flexShrink: 0,
+            display: 'flex', alignItems: 'center', gap: 8,
+            background: 'var(--sb2)', border: '1px solid rgba(255,255,255,.08)',
+            borderRadius: 4, padding: '7px 10px',
+            color: 'rgba(255,255,255,.45)', fontSize: 12,
+            fontFamily: SORA, cursor: 'pointer', whiteSpace: 'nowrap',
+            transition: 'border-color .12s, color .12s',
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLElement).style.borderColor = 'rgba(14,165,233,.5)'
+            ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.7)'
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,.08)'
+            ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.45)'
+          }}
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 14, opacity: 0.6, flexShrink: 0 }}>search</span>
+          <span style={{ flex: 1, textAlign: 'left' }}>Jump to…</span>
+          <kbd style={{
+            fontFamily: MONO, fontSize: 10,
+            border: '1px solid rgba(255,255,255,.08)',
+            borderRadius: 3, padding: '1px 5px',
+            color: 'rgba(255,255,255,.4)',
+            background: 'transparent',
+          }}>
+            {IS_MAC ? '⌘K' : 'Ctrl K'}
+          </kbd>
+        </button>
+      )}
+
+      {/* ── Nav ───────────────────────────────────────────────────────────── */}
+      <nav style={{
+        flex: 1, overflowY: 'auto', overflowX: 'hidden',
+        padding: '8px 0',
+        scrollbarWidth: 'thin',
+        scrollbarColor: 'var(--sb2) transparent',
+      }}>
         {sections.map((section, i) => (
-          <div key={section.key} style={{ marginBottom: 4 }}>
+          <div key={section.key}>
             {(section.header || i > 0) && (
               <SectionHeader label={section.header} collapsed={collapsed} />
             )}
@@ -627,32 +663,28 @@ export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser;
         ))}
       </nav>
 
-      {/* ── User footer ────────────────────────────────────────────────────── */}
-      <div style={{
-        flexShrink: 0,
-        borderTop: '1px solid var(--sb-bdr)',
-        padding: collapsed ? '8px 7px 6px' : '8px 7px 6px',
-      }}>
-        {/* Utility buttons (C360, approvals, notifications, theme) */}
+      {/* ── User footer ───────────────────────────────────────────────────── */}
+      <div style={{ flexShrink: 0, borderTop: '1px solid rgba(255,255,255,.08)' }}>
         {utilities && (
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexWrap: 'wrap', gap: 2, padding: '2px 2px 6px',
+            flexWrap: 'wrap', gap: 2, padding: '6px 6px 4px',
           }}>
             {utilities}
           </div>
         )}
-        {/* User row */}
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          padding: '8px 10px 2px',
-          borderTop: '1px solid var(--sb-bdr)', marginTop: 4,
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: collapsed ? '12px 8px' : '12px 14px',
+          justifyContent: collapsed ? 'center' : undefined,
         }}>
+          {/* Avatar */}
           <div style={{
-            width: 26, height: 26, borderRadius: '50%',
-            background: 'rgba(255,255,255,0.15)',
+            width: 30, height: 30, minWidth: 30, borderRadius: '50%',
+            background: '#0EA5E9',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 10, fontWeight: 700, color: '#fff', flexShrink: 0, fontFamily: INTER,
+            fontWeight: 600, fontSize: 12, color: '#fff', flexShrink: 0,
+            fontFamily: SORA,
           }}>
             {initials}
           </div>
@@ -660,25 +692,25 @@ export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser;
           {!collapsed && (
             <>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--nav-act-txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: SORA }}>
                   {user.name}
                 </div>
-                <div style={{ fontSize: 9.5, color: 'var(--nav-txt)', fontFamily: INTER }}>
+                <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.45)', whiteSpace: 'nowrap', fontFamily: PLEX }}>
                   {roleLabel(user.role as string)}
                 </div>
               </div>
 
               <button
                 onClick={() => navigate('/settings')}
-                title="Settings & Security"
+                title="Settings"
                 style={{
-                  width: 24, height: 24, borderRadius: 6, border: 'none',
+                  width: 24, height: 24, borderRadius: 4, border: 'none',
                   background: 'transparent', cursor: 'pointer', flexShrink: 0,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: 'var(--txt3)', transition: 'color 120ms',
+                  color: 'rgba(255,255,255,.35)', transition: 'color 120ms',
                 }}
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#fff' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--txt3)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.35)' }}
               >
                 <span className="material-symbols-rounded" style={{ fontSize: 17 }}>settings</span>
               </button>
