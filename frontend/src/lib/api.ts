@@ -49,8 +49,14 @@ export async function apiLogout(): Promise<void> {
   } catch { /* best-effort */ }
 }
 
-export async function apiFetch<T = any>(path: string, init?: RequestInit): Promise<T> {
-  const method = (init?.method ?? 'GET').toUpperCase()
+// silent: true suppresses signOut() on auth failure — use for background polling
+// effects so a stale token doesn't log the user out without their action.
+export async function apiFetch<T = any>(
+  path: string,
+  init?: RequestInit & { silent?: boolean },
+): Promise<T> {
+  const { silent, ...fetchInit } = init ?? {}
+  const method = (fetchInit.method ?? 'GET').toUpperCase()
   const isMutation = method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE'
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30_000)
@@ -58,14 +64,14 @@ export async function apiFetch<T = any>(path: string, init?: RequestInit): Promi
   const makeHeaders = (): HeadersInit => ({
     'Content-Type': 'application/json',
     ...(isMutation ? { 'X-CSRF-Token': getCsrfToken() } : {}),
-    ...(init?.headers ?? {}),
+    ...(fetchInit.headers ?? {}),
   })
 
   try {
     const res = await fetch(`${API}${path}`, {
-      ...init,
+      ...fetchInit,
       credentials: 'include',
-      signal: init?.signal ?? controller.signal,
+      signal: fetchInit.signal ?? controller.signal,
       headers: makeHeaders(),
     })
 
@@ -73,18 +79,21 @@ export async function apiFetch<T = any>(path: string, init?: RequestInit): Promi
       // Never retry a mutation — the request body is consumed and the operation
       // may have partially succeeded on the server before returning 401.
       if (isMutation) {
-        signOut()
+        if (!silent) signOut()
         throw new Error('Session expired')
       }
       const ok = await refreshSession()
       if (ok) {
         const retry = await fetch(`${API}${path}`, {
-          ...init,
+          ...fetchInit,
           credentials: 'include',
           signal: controller.signal,
           headers: makeHeaders(),
         })
-        if (retry.status === 401) { signOut(); throw new Error('Session expired') }
+        if (retry.status === 401) {
+          if (!silent) signOut()
+          throw new Error('Session expired')
+        }
         if (!retry.ok) {
           const err = await retry.json().catch(() => ({}))
           throw new Error((err as any).detail || `Request failed (${retry.status})`)
@@ -92,7 +101,7 @@ export async function apiFetch<T = any>(path: string, init?: RequestInit): Promi
         if (retry.status === 204) return undefined as T
         return retry.json()
       }
-      signOut()
+      if (!silent) signOut()
       throw new Error('Session expired')
     }
 

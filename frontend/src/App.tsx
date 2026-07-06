@@ -11,10 +11,12 @@ import Sidebar          from './components/Sidebar'
 import NotificationBell from './components/NotificationBell'
 import GlobalSearch     from './components/GlobalSearch'
 import CallWidget       from './components/CallWidget'
+import C360Drawer       from './components/C360Drawer'
 import { type AuthUser, ROLE_PAGES } from './hooks/useAuth'
 import { roleLabel }    from './lib/roles'
 import { API, apiFetch, apiLogout, refreshSession } from './lib/api'
-import { LIGHT, DARK, GREEN, BLUE, NAVY, INTER, RED }  from './lib/design'
+import { LIGHT, DARK, GREEN, BLUE, NAVY, PLEX, MONO, RED }  from './lib/design'
+import { IcoSearch, IcoApprove, IcoSun, IcoMoon } from './lib/icons'
 import { fmtKobo } from './lib/fmt'
 import { ConfirmModal } from './components/UI'
 
@@ -33,7 +35,7 @@ const BIScheduled     = lazy(() => import('./pages/bi/ScheduledReports'))
 const Statements    = lazy(() => import('./pages/statements/Statements'))
 const Login    = lazy(() => import('./pages/Login'))
 const Overview = lazy(() => import('./pages/Overview'))
-const C360     = lazy(() => import('./components/C360Drawer'))
+// C360Drawer imported directly (not lazy) so slide animation works on first open
 
 // BD
 const BDOverview   = lazy(() => import('./pages/bd/Overview'))
@@ -278,96 +280,83 @@ class PageErrorBoundary extends Component<{ children: ReactNode }, { err: string
   }
 }
 
-// ── Module title map (topbar left zone) ───────────────────────────────────────
+// ── Module title + breadcrumb map ────────────────────────────────────────────
 
-const MODULE_TITLES: [string, string][] = [
-  ['/approvals',         'Approvals'],
-  ['/bd',                'Business Development'],
-  ['/campaigns',         'Campaigns'],
-  ['/sales',             'Sales'],
-  ['/telemarketing',     'Telemarketing'],
-  ['/helpdesk',          'Customer Service'],
-  ['/cards',             'Card Operations'],
-  ['/operations/risk',   'Risk'],
-  ['/collections',       'Collections'],
-  ['/recovery',          'Recovery'],
-  ['/settlements',       'Settlements'],
-  ['/finance',           'Finance'],
-  ['/compliance',        'Compliance'],
-  ['/hr',                'People & HR'],
-  ['/payroll',           'Payroll'],
-  ['/reports',           'Reports & BI'],
-  ['/statements',        'Statements'],
-  ['/admin',             'Admin'],
-  ['/mail',              'Mail'],
-  ['/',                  'Overview'],
+const MODULE_TITLES: [string, string, string][] = [
+  ['/approvals',       'Workspace',         'Approvals'],
+  ['/bd',              'Sales & BD',        'Business Dev'],
+  ['/mail',            'Sales & BD',        'Mail'],
+  ['/campaigns',       'Sales & BD',        'Campaigns & Marketing'],
+  ['/marketing',       'Sales & BD',        'Marketing'],
+  ['/sales/crm',       'Sales & BD',        'CRM'],
+  ['/sales/customers', 'Sales & BD',        'Contacts'],
+  ['/sales',           'Sales & BD',        'Sales'],
+  ['/telemarketing',   'Contact Centre',    'Telemarketing'],
+  ['/helpdesk',        'Contact Centre',    'Customer Service'],
+  ['/cards',           'Cards',             'Card Operations'],
+  ['/operations/risk', 'Credit Management', 'Risk'],
+  ['/collections',     'Credit Management', 'Collections'],
+  ['/recovery',        'Credit Management', 'Recovery'],
+  ['/finance',         'Finance',           'Finance'],
+  ['/settlements',     'Finance',           'Settlements'],
+  ['/compliance',      'Compliance',        'Compliance'],
+  ['/hr',              'People',            'HR'],
+  ['/payroll',         'People',            'Payroll'],
+  ['/reports',         'Analytics',         'Reports & BI'],
+  ['/bi',              'Analytics',         'Reports & BI'],
+  ['/statements',      'Analytics',         'Statements'],
+  ['/admin',           'Admin',             'System Admin'],
+  ['/settings',        'Workspace',         'Settings'],
+  ['/',                '',                  'Overview'],
 ]
 
-function ModuleTitle() {
+function useModuleTitle() {
   const { pathname } = useLocation()
-  const title = MODULE_TITLES.find(([prefix]) =>
+  const match = MODULE_TITLES.find(([prefix]) =>
     prefix === '/' ? pathname === '/' : pathname.startsWith(prefix)
-  )?.[1] ?? 'Workspace'
+  )
+  return { crumb: match?.[1] ?? '', title: match?.[2] ?? 'Workspace' }
+}
 
+function HeadTitles() {
+  const { crumb, title } = useModuleTitle()
   return (
-    <span style={{
-      fontSize: 14, fontWeight: 600,
-      color: 'var(--txt)',
-      letterSpacing: '-0.2px',
-      whiteSpace: 'nowrap',
-    }}>
-      {title}
-    </span>
+    <div style={{ flexShrink: 0 }}>
+      {crumb && (
+        <div style={{ fontSize: 11, color: 'var(--txt3)', marginBottom: 2, fontFamily: PLEX }}>
+          {crumb}
+        </div>
+      )}
+      <h1 style={{ margin: 0, fontSize: 16, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--txt)', whiteSpace: 'nowrap' }}>
+        {title}
+      </h1>
+    </div>
   )
 }
 
-// ── ⌘K Search trigger ─────────────────────────────────────────────────────────
-
-function SearchTrigger() {
-  return (
-    <button style={{
-      display: 'flex', alignItems: 'center', gap: 8,
-      height: 34, padding: '0 12px 0 10px',
-      width: '100%', maxWidth: 340,
-      borderRadius: 8, border: '1px solid var(--input-bdr)',
-      background: 'var(--input-bg)', cursor: 'text',
-      color: 'var(--txt3)', fontSize: 13, fontFamily: 'inherit',
-      textAlign: 'left', outline: 'none',
-    }}>
-      <span className="material-symbols-rounded" style={{ fontSize: 16, flexShrink: 0 }}>search</span>
-      <span style={{ flex: 1 }}>Search workspace…</span>
-      <kbd style={{
-        fontSize: 10, fontFamily: 'inherit', fontWeight: 600,
-        padding: '2px 6px', borderRadius: 5, lineHeight: 1.5,
-        background: 'var(--chip-bg)', color: 'var(--chip-txt)',
-        border: '1px solid var(--bdr)', flexShrink: 0,
-      }}>⌘K</kbd>
-    </button>
-  )
-}
 
 // ── TopBar icon button ─────────────────────────────────────────────────────────
 
-function TbBtn({ onClick, icon, title }: { onClick: () => void; icon: string; title: string }) {
+function TbBtn({ onClick, title, children }: { onClick: () => void; title: string; children: ReactNode }) {
   return (
     <button onClick={onClick} title={title} style={{
-      width: 34, height: 34, borderRadius: 8, border: 'none',
-      background: 'transparent', cursor: 'pointer',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      color: 'var(--txt2)', transition: 'background 120ms, color 120ms',
+      position: 'relative', width: 34, height: 34, borderRadius: 5,
+      border: '1px solid var(--bdr)', background: 'var(--card)',
+      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      color: 'var(--txt2)', transition: 'border-color .12s, color .12s',
     }}
       onMouseEnter={e => {
         const el = e.currentTarget as HTMLElement
-        el.style.background = 'var(--row-hvr)'
+        el.style.borderColor = 'var(--txt3)'
         el.style.color = 'var(--txt)'
       }}
       onMouseLeave={e => {
         const el = e.currentTarget as HTMLElement
-        el.style.background = 'transparent'
+        el.style.borderColor = 'var(--bdr)'
         el.style.color = 'var(--txt2)'
       }}
     >
-      <span className="material-symbols-rounded" style={{ fontSize: 20 }}>{icon}</span>
+      {children}
     </button>
   )
 }
@@ -429,7 +418,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
 
   const loadApprovals = useCallback(() => {
     if (!canApprove) return
-    apiFetch<{ total: number; items: ApprovalItem[] }>('/api/approvals/summary')
+    apiFetch<{ total: number; items: ApprovalItem[] }>('/api/approvals/summary', { silent: true })
       .then(d => { setCount(d.total ?? 0); setItems(d.items ?? []) })
       .catch(() => {})
   }, [canApprove])
@@ -484,31 +473,30 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
         title="Approvals"
         style={{
           position: 'relative', width: 34, height: 34,
-          borderRadius: 8, border: 'none',
-          background: open ? 'var(--row-hvr)' : 'transparent',
+          borderRadius: 5, border: '1px solid var(--bdr)',
+          background: 'var(--card)',
           cursor: 'pointer', display: 'flex', alignItems: 'center',
-          justifyContent: 'center', color: open ? 'var(--txt)' : 'var(--txt2)',
-          transition: 'background 120ms, color 120ms',
+          justifyContent: 'center', color: 'var(--txt2)',
+          transition: 'border-color .12s, color .12s',
         }}
         onMouseEnter={e => {
           const el = e.currentTarget as HTMLElement
-          el.style.background = 'var(--row-hvr)'; el.style.color = 'var(--txt)'
+          el.style.borderColor = 'var(--txt3)'; el.style.color = 'var(--txt)'
         }}
         onMouseLeave={e => {
           const el = e.currentTarget as HTMLElement
-          el.style.background = open ? 'var(--row-hvr)' : 'transparent'
-          el.style.color = open ? 'var(--txt)' : 'var(--txt2)'
+          el.style.borderColor = 'var(--bdr)'; el.style.color = 'var(--txt2)'
         }}
       >
-        <span className="material-symbols-rounded" style={{ fontSize: 20 }}>task_alt</span>
+        <IcoApprove width={18} height={18} />
         {pendingCount > 0 && (
           <span style={{
-            position: 'absolute', top: 5, right: 5,
-            minWidth: 14, height: 14, borderRadius: 7,
+            position: 'absolute', top: -5, right: -5,
+            minWidth: 16, height: 16, borderRadius: 8,
             background: RED, color: '#fff',
-            fontSize: 8, fontWeight: 700, fontFamily: INTER,
+            fontSize: 9.5, fontWeight: 600, fontFamily: MONO,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: '0 3px',
+            padding: '0 4px',
           }}>
             {pendingCount > 99 ? '99+' : pendingCount}
           </span>
@@ -519,7 +507,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
         <div style={{
           position: 'absolute', top: 'calc(100% + 6px)', right: 0,
           width: 340, background: 'var(--card)',
-          border: '1px solid var(--bdr)', borderRadius: 14,
+          border: '1px solid var(--bdr)', borderRadius: 6,
           boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
           zIndex: 9500, overflow: 'hidden',
         }}>
@@ -533,14 +521,14 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
 
           <div style={{ maxHeight: 380, overflowY: 'auto' }}>
             {items.length === 0 ? (
-              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--txt3)', fontSize: 13, fontFamily: INTER }}>
+              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--txt3)', fontSize: 13, fontFamily: PLEX }}>
                 No pending approvals
               </div>
             ) : items.map(item => (
               <div key={item.id} style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)' }}>
                 {acted[item.id] ? (
                   <div style={{
-                    fontSize: 12.5, fontWeight: 600, fontFamily: INTER,
+                    fontSize: 12.5, fontWeight: 600, fontFamily: PLEX,
                     color: acted[item.id] === 'approved' ? GREEN : RED,
                   }}>
                     {acted[item.id] === 'approved' ? '✓ Approved' : '✗ Rejected'}
@@ -551,7 +539,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginBottom: 4, fontFamily: "'Sora', sans-serif", lineHeight: 1.3 }}>
                       {item.title}
                     </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginBottom: 10, fontFamily: INTER, lineHeight: 1.4 }}>
+                    <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginBottom: 10, fontFamily: PLEX, lineHeight: 1.4 }}>
                       {item.entity_name}
                       {item.amount_kobo != null && <> · <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtKobo(item.amount_kobo)}</span></>}
                       {(item.maker_name ?? item.requested_by) && <> · raised by {item.maker_name ?? item.requested_by}</>}
@@ -562,7 +550,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
                         style={{
                           padding: '4px 14px', borderRadius: 6, border: 'none',
                           background: GREEN, color: '#fff', fontSize: 12, fontWeight: 600,
-                          cursor: 'pointer', fontFamily: INTER,
+                          cursor: 'pointer', fontFamily: PLEX,
                         }}
                       >
                         Approve
@@ -572,7 +560,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
                         style={{
                           padding: '4px 14px', borderRadius: 6,
                           border: '1px solid var(--bdr)', background: 'transparent',
-                          color: 'var(--txt2)', fontSize: 12, cursor: 'pointer', fontFamily: INTER,
+                          color: 'var(--txt2)', fontSize: 12, cursor: 'pointer', fontFamily: PLEX,
                         }}
                       >
                         Reject
@@ -587,7 +575,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
           <div style={{ padding: '10px 16px', borderTop: '1px solid var(--bdr)' }}>
             <button
               onClick={() => { setOpen(false); navigate('/approvals') }}
-              style={{ fontSize: 12, color: BLUE, border: 'none', background: 'none', cursor: 'pointer', fontFamily: INTER, padding: 0, fontWeight: 500 }}
+              style={{ fontSize: 12, color: BLUE, border: 'none', background: 'none', cursor: 'pointer', fontFamily: PLEX, padding: 0, fontWeight: 500 }}
             >
               View all approvals →
             </button>
@@ -626,89 +614,146 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
 
 function ThemeToggle({ dark, onToggle }: { dark: boolean; onToggle: () => void }) {
   return (
-    <button
-      onClick={onToggle}
-      title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-      style={{
-        width: 34, height: 34, borderRadius: 8, border: 'none',
-        background: 'transparent', cursor: 'pointer',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: 'var(--txt2)', transition: 'background 120ms, color 120ms',
-      }}
-      onMouseEnter={e => {
-        const el = e.currentTarget as HTMLElement
-        el.style.background = 'var(--row-hvr)'
-        el.style.color = 'var(--txt)'
-      }}
-      onMouseLeave={e => {
-        const el = e.currentTarget as HTMLElement
-        el.style.background = 'transparent'
-        el.style.color = 'var(--txt2)'
-      }}
-    >
-      <span className="material-symbols-rounded" style={{ fontSize: 20 }}>
-        {dark ? 'light_mode' : 'dark_mode'}
-      </span>
-    </button>
+    <TbBtn onClick={onToggle} title={dark ? 'Switch to light mode' : 'Switch to dark mode'}>
+      {dark ? <IcoSun width={18} height={18} /> : <IcoMoon width={18} height={18} />}
+    </TbBtn>
   )
 }
 
-// ── C360 search trigger (center of topbar) ────────────────────────────────────
+// ── C360 inline search bar ────────────────────────────────────────────────────
 
-function C360SearchTrigger({ onOpen }: { onOpen: () => void }) {
+interface C360Hit { cif: string; name: string; phone: string; email: string }
+
+function C360Bar({ onOpen, onPick }: { onOpen: () => void; onPick: (r: C360Hit) => void }) {
+  const [q,       setQ]       = useState('')
+  const [results, setResults] = useState<C360Hit[]>([])
+  const [focused, setFocused] = useState(false)
+  const [show,    setShow]    = useState(false)
+  const wrapRef   = useRef<HTMLDivElement>(null)
+  const debounce  = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setShow(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  function handleChange(val: string) {
+    setQ(val)
+    if (debounce.current) clearTimeout(debounce.current)
+    if (val.trim().length < 2) { setResults([]); setShow(false); return }
+    debounce.current = setTimeout(async () => {
+      try {
+        const token = localStorage.getItem('token') ?? ''
+        const res = await fetch(`/api/customer360/search?q=${encodeURIComponent(val.trim())}&limit=6`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const data = res.ok ? await res.json() : { data: [] }
+        const hits: C360Hit[] = (data?.data ?? []).map((r: C360Hit) => ({ cif: r.cif, name: r.name, phone: r.phone, email: r.email }))
+        setResults(hits)
+        setShow(hits.length > 0)
+      } catch {
+        setResults([]); setShow(false)
+      }
+    }, 250)
+  }
+
+  function pick(r: C360Hit) {
+    setQ(''); setShow(false); setResults([])
+    onPick(r)
+  }
+
+  const borderColor = focused ? '#0EA5E9' : 'var(--bdr)'
+
   return (
-    <button
-      onClick={onOpen}
-      style={{
+    <div ref={wrapRef} style={{ flex: 1, maxWidth: 380, position: 'relative' }}>
+      <div style={{
         display: 'flex', alignItems: 'center', gap: 8,
-        height: 34, padding: '0 12px 0 10px',
-        width: '100%', maxWidth: 360,
-        borderRadius: 8, border: '1px solid var(--input-bdr)',
-        background: 'var(--input-bg)', cursor: 'text',
-        color: 'var(--txt3)', fontSize: 12.5, fontFamily: INTER,
-        textAlign: 'left', outline: 'none',
-      }}
-    >
-      <span className="material-symbols-rounded" style={{ fontSize: 15, flexShrink: 0 }}>manage_search</span>
-      <span style={{ flex: 1 }}>Customer 360 — search name or CIF…</span>
-    </button>
+        border: `1px solid ${borderColor}`,
+        borderRadius: 4, background: 'var(--card)',
+        padding: '7px 11px', color: 'var(--txt3)',
+        transition: 'border-color .12s',
+      }}>
+        <IcoSearch width={14} height={14} style={{ flexShrink: 0 }} />
+        <input
+          value={q}
+          onChange={e => handleChange(e.target.value)}
+          onFocus={() => { setFocused(true); if (q.length < 2) onOpen() }}
+          onBlur={() => setFocused(false)}
+          onKeyDown={e => { if (e.key === 'Escape') { setShow(false); setQ('') } }}
+          placeholder="Customer 360 — search name or CIF…"
+          style={{
+            border: 'none', outline: 'none', background: 'none', flex: 1,
+            fontFamily: PLEX, fontSize: 12.5, color: 'var(--txt)',
+            minWidth: 0,
+          }}
+        />
+      </div>
+
+      {show && results.length > 0 && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
+          background: 'var(--card)', border: '1px solid var(--bdr)',
+          borderRadius: 6, boxShadow: '0 12px 40px rgba(0,0,0,.18)',
+          zIndex: 30, overflow: 'hidden',
+        }}>
+          {results.map(r => (
+            <div
+              key={r.cif}
+              onClick={() => pick(r)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '9px 13px', cursor: 'pointer',
+                fontSize: 12.5, color: 'var(--txt)',
+                transition: 'background .1s',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+            >
+              <strong style={{ flex: 1 }}>{r.name}</strong>
+              <span style={{ fontSize: 11, color: 'var(--txt3)' }}>{r.phone}</span>
+              <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--txt3)', marginLeft: 'auto' }}>{r.cif}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
 // ── Top bar ───────────────────────────────────────────────────────────────────
 
 function TopBar({
-  user, dark, onToggleDark, onOpenSearch, onOpenC360,
+  user, dark, onToggleDark, onOpenC360, onPickC360,
 }: {
   user: AuthUser
   dark: boolean
   onToggleDark: () => void
-  onOpenSearch: () => void
   onOpenC360:  () => void
+  onPickC360:  (r: C360Hit) => void
 }) {
   return (
     <div style={{
-      height: 52, flexShrink: 0,
+      flexShrink: 0,
       display: 'flex', alignItems: 'center',
-      padding: '0 16px', gap: 12,
-      background: 'var(--topbar-bg)',
+      padding: '14px 24px', gap: 14,
+      background: 'var(--card)',
       borderBottom: '1px solid var(--bdr)',
+      boxShadow: '0 1px 0 var(--bdr)',
     }}>
-      {/* Left: module label */}
-      <ModuleTitle />
+      {/* Left: breadcrumb + h1 */}
+      <HeadTitles />
 
-      {/* Centre: C360 search */}
-      <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-        <C360SearchTrigger onOpen={onOpenC360} />
-      </div>
+      {/* Centre: C360 inline search */}
+      <C360Bar onOpen={onOpenC360} onPick={onPickC360} />
 
-      {/* Right: utility buttons */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-        <TbBtn onClick={onOpenSearch} icon="search" title="Search (⌘K)" />
+      {/* Right: icon buttons */}
+      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <ThemeToggle dark={dark} onToggle={onToggleDark} />
         <ApprovalsDropdown user={user} />
         <NotificationBell />
-        <TbDivider />
-        <ThemeToggle dark={dark} onToggle={onToggleDark} />
       </div>
     </div>
   )
@@ -723,6 +768,7 @@ const IDLE_LOGOUT_MS = 30 * 60 * 1000
 
 const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const [c360Open,    setC360Open]    = useState(false)
+  const [c360Customer, setC360Customer] = useState<{ cif: string; name: string; phone: string; email: string } | null>(null)
   const [searchOpen,  setSearchOpen]  = useState(false)
   const [idleWarn,    setIdleWarn]    = useState(false)
   const [dark,        setDark]        = useState(() => {
@@ -782,7 +828,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
         <Toaster richColors position="top-right" />
 
         {/* Sidebar */}
-        <Sidebar user={user} onLogout={onLogout} />
+        <Sidebar user={user} onLogout={onLogout} onCmdK={() => setSearchOpen(true)} />
 
         {/* Main column */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
@@ -792,12 +838,12 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
             user={user}
             dark={dark}
             onToggleDark={toggleDark}
-            onOpenSearch={() => setSearchOpen(true)}
-            onOpenC360={() => setC360Open(true)}
+            onOpenC360={() => { setC360Customer(null); setC360Open(true) }}
+            onPickC360={(r: C360Hit) => { setC360Customer(r); setC360Open(true) }}
           />
 
           {/* Page area */}
-          <main style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <main style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--bg)' }}>
             <Suspense fallback={<PageLoader />}>
               <PageFade>
                 <Routes>
@@ -988,9 +1034,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
         </div>
 
         {/* C360 drawer */}
-        <Suspense fallback={null}>
-          <C360 open={c360Open} onClose={() => setC360Open(false)} />
-        </Suspense>
+        <C360Drawer open={c360Open} onClose={() => { setC360Open(false); setC360Customer(null) }} initialCustomer={c360Customer} />
 
         {/* Global search (Cmd+K) */}
         <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />

@@ -47,7 +47,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   // ── Voice status ─────────────────────────────────────────────────────────
 
   useEffect(() => {
-    apiFetch<{ connected: boolean }>('/api/voice/status')
+    apiFetch<{ connected: boolean }>('/api/voice/status', { silent: true })
       .then(d => setVoiceConnected(d.connected ?? false))
       .catch(() => {})
   }, [])

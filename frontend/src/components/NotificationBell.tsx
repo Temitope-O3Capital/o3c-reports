@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { INTER, RED, BLUE, AMBER, GREEN } from '../lib/design'
+import { IcoBell } from '../lib/icons'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -45,7 +46,7 @@ export default function NotificationBell() {
 
   const load = useCallback(async () => {
     try {
-      const data = await apiFetch<{ items: Notification[]; unread_count: number }>('/api/notifications')
+      const data = await apiFetch<{ items: Notification[]; unread_count: number }>('/api/notifications', { silent: true })
       setItems(data.items ?? [])
       setUnread(data.unread_count ?? 0)
     } catch {}
@@ -107,7 +108,7 @@ export default function NotificationBell() {
           el.style.color = open ? 'var(--txt)' : 'var(--txt2)'
         }}
       >
-        <span className="material-symbols-rounded" style={{ fontSize: 20 }}>notifications</span>
+        <IcoBell width={18} height={18} />
         {unread > 0 && (
           <span style={{
             position: 'absolute', top: 5, right: 5,
