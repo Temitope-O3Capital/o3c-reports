@@ -624,7 +624,7 @@ function ThemeToggle({ dark, onToggle }: { dark: boolean; onToggle: () => void }
 
 interface C360Hit { cif: string; name: string; phone: string; email: string }
 
-function C360Bar({ onOpen, onPick }: { onOpen: () => void; onPick: (r: C360Hit) => void }) {
+function C360Bar({ onPick }: { onPick: (r: C360Hit) => void }) {
   const [q,       setQ]       = useState('')
   const [results, setResults] = useState<C360Hit[]>([])
   const [focused, setFocused] = useState(false)
@@ -640,7 +640,7 @@ function C360Bar({ onOpen, onPick }: { onOpen: () => void; onPick: (r: C360Hit) 
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  function handleChange(val: string) {
+  function search(val: string) {
     setQ(val)
     if (debounce.current) clearTimeout(debounce.current)
     if (val.trim().length < 2) { setResults([]); setShow(false); return }
@@ -653,7 +653,7 @@ function C360Bar({ onOpen, onPick }: { onOpen: () => void; onPick: (r: C360Hit) 
         const data = res.ok ? await res.json() : { data: [] }
         const hits: C360Hit[] = (data?.data ?? []).map((r: C360Hit) => ({ cif: r.cif, name: r.name, phone: r.phone, email: r.email }))
         setResults(hits)
-        setShow(hits.length > 0)
+        setShow(true)
       } catch {
         setResults([]); setShow(false)
       }
@@ -665,13 +665,11 @@ function C360Bar({ onOpen, onPick }: { onOpen: () => void; onPick: (r: C360Hit) 
     onPick(r)
   }
 
-  const borderColor = focused ? '#0EA5E9' : 'var(--bdr)'
-
   return (
-    <div ref={wrapRef} style={{ flex: 1, maxWidth: 380, position: 'relative' }}>
+    <div ref={wrapRef} style={{ flex: 1, maxWidth: 380, marginLeft: 16, position: 'relative', cursor: 'text' }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8,
-        border: `1px solid ${borderColor}`,
+        border: `1px solid ${focused ? '#0EA5E9' : 'var(--bdr)'}`,
         borderRadius: 4, background: 'var(--card)',
         padding: '7px 11px', color: 'var(--txt3)',
         transition: 'border-color .12s',
@@ -679,27 +677,27 @@ function C360Bar({ onOpen, onPick }: { onOpen: () => void; onPick: (r: C360Hit) 
         <IcoSearch width={14} height={14} style={{ flexShrink: 0 }} />
         <input
           value={q}
-          onChange={e => handleChange(e.target.value)}
-          onFocus={() => { setFocused(true); if (q.length < 2) onOpen() }}
+          onChange={e => search(e.target.value)}
+          onFocus={() => { setFocused(true); if (results.length > 0) setShow(true) }}
           onBlur={() => setFocused(false)}
           onKeyDown={e => { if (e.key === 'Escape') { setShow(false); setQ('') } }}
           placeholder="Customer 360 — search name or CIF…"
           style={{
             border: 'none', outline: 'none', background: 'none', flex: 1,
-            fontFamily: PLEX, fontSize: 12.5, color: 'var(--txt)',
+            fontFamily: "'Sora', sans-serif", fontSize: 12.5, color: 'var(--txt)',
             minWidth: 0,
           }}
         />
       </div>
 
-      {show && results.length > 0 && (
+      {show && q.trim().length >= 2 && (
         <div style={{
           position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
           background: 'var(--card)', border: '1px solid var(--bdr)',
           borderRadius: 6, boxShadow: '0 12px 40px rgba(0,0,0,.18)',
           zIndex: 30, overflow: 'hidden',
         }}>
-          {results.map(r => (
+          {results.length > 0 ? results.map(r => (
             <div
               key={r.cif}
               onClick={() => pick(r)}
@@ -707,16 +705,19 @@ function C360Bar({ onOpen, onPick }: { onOpen: () => void; onPick: (r: C360Hit) 
                 display: 'flex', alignItems: 'center', gap: 10,
                 padding: '9px 13px', cursor: 'pointer',
                 fontSize: 12.5, color: 'var(--txt)',
-                transition: 'background .1s',
               }}
               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
             >
-              <strong style={{ flex: 1 }}>{r.name}</strong>
+              <strong>{r.name}</strong>
               <span style={{ fontSize: 11, color: 'var(--txt3)' }}>{r.phone}</span>
-              <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--txt3)', marginLeft: 'auto' }}>{r.cif}</span>
+              <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 11, color: 'var(--txt3)' }}>{r.cif}</span>
             </div>
-          ))}
+          )) : (
+            <div style={{ padding: '9px 13px', color: 'var(--txt3)', fontSize: 12.5, cursor: 'default' }}>
+              No customers match &ldquo;{q}&rdquo;
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -726,19 +727,18 @@ function C360Bar({ onOpen, onPick }: { onOpen: () => void; onPick: (r: C360Hit) 
 // ── Top bar ───────────────────────────────────────────────────────────────────
 
 function TopBar({
-  user, dark, onToggleDark, onOpenC360, onPickC360,
+  user, dark, onToggleDark, onPickC360,
 }: {
   user: AuthUser
   dark: boolean
   onToggleDark: () => void
-  onOpenC360:  () => void
   onPickC360:  (r: C360Hit) => void
 }) {
   return (
     <div style={{
       flexShrink: 0,
       display: 'flex', alignItems: 'center',
-      padding: '14px 24px', gap: 14,
+      padding: '14px 24px', gap: 0,
       background: 'var(--card)',
       borderBottom: '1px solid var(--bdr)',
       boxShadow: '0 1px 0 var(--bdr)',
@@ -746,8 +746,8 @@ function TopBar({
       {/* Left: breadcrumb + h1 */}
       <HeadTitles />
 
-      {/* Centre: C360 inline search */}
-      <C360Bar onOpen={onOpenC360} onPick={onPickC360} />
+      {/* Centre: C360 inline search — margin-left:16px matches demo */}
+      <C360Bar onPick={onPickC360} />
 
       {/* Right: icon buttons */}
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -838,7 +838,6 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
             user={user}
             dark={dark}
             onToggleDark={toggleDark}
-            onOpenC360={() => { setC360Customer(null); setC360Open(true) }}
             onPickC360={(r: C360Hit) => { setC360Customer(r); setC360Open(true) }}
           />
 

@@ -43,7 +43,7 @@ export type ThemeVars = React.CSSProperties & {
 
 // ── Light theme ───────────────────────────────────────────────────────────────
 export const LIGHT: ThemeVars = {
-  '--bg': '#F4F6FA',
+  '--bg': '#FAFBFC',
   '--sb': '#0E2841',                       // sidebar: O3 navy
   '--sb2': '#14324F',                      // sidebar secondary (cmdk bg, hover)
   '--sb-bdr': '#0A1E33',
@@ -70,11 +70,11 @@ export const LIGHT: ThemeVars = {
 
 // ── Dark theme ────────────────────────────────────────────────────────────────
 export const DARK: ThemeVars = {
-  '--bg': '#07090F',
+  '--bg': '#0E1722',
   '--sb': '#0A1E33',
   '--sb2': '#102A44',
   '--sb-bdr': '#0D2240',
-  '--topbar-bg': '#07090F',  // topbar: same as page bg in dark — unified dark shell
+  '--topbar-bg': '#131F2D',
   '--grp': 'rgba(255,255,255,0.18)',
   '--nav-txt': 'rgba(255,255,255,0.38)',
   '--nav-act-txt': '#FFFFFF',
@@ -85,11 +85,11 @@ export const DARK: ThemeVars = {
   '--sub-txt': 'rgba(255,255,255,0.28)',
   '--sub-hvr': 'rgba(255,255,255,0.60)',
   '--sub-act': '#FFFFFF',
-  '--card': '#0A0E1A', '--card-bdr': '#121C30',
+  '--card': '#131F2D', '--card-bdr': '#1E2E42',
   '--card-shadow': '0 1px 3px rgba(0,0,0,0.5), 0 8px 28px rgba(0,0,0,0.3)',
-  '--txt': '#D5DDED', '--txt2': '#384A68', '--txt3': '#1C2438',
-  '--bdr': '#121C30', '--row-hvr': '#0C1220', '--row-sel': '#180E1C',
-  '--th-bg': '#060910', '--input-bg': '#0A0E1A', '--input-bdr': '#121C30',
+  '--txt': '#E8EDF2', '--txt2': '#9FB0C0', '--txt3': '#64788C',
+  '--bdr': '#22303F', '--row-hvr': '#182635', '--row-sel': '#1C1830',
+  '--th-bg': '#0E1722', '--input-bg': '#131F2D', '--input-bdr': '#22303F',
   '--chip-bg': '#0F1A30', '--chip-txt': '#506898',
   '--chart-grid': '#0F1626', '--chart-lbl': '#242E44',
   '--fp-bg': '#0A0E1A', '--fp-bdr': '#121C30',

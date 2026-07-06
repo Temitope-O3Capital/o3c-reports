@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { useLocation, Link, useNavigate } from 'react-router-dom'
 import { roleLabel } from '../lib/roles'
 import { SORA, PLEX, MONO } from '../lib/design'
+import { NAV_ICONS } from '../lib/icons'
 import type { AuthUser } from '../hooks/useAuth'
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
@@ -391,11 +392,14 @@ function NavRow({
     transition: 'background .12s, color .12s',
   }
 
+  const Ico = NAV_ICONS[item.icon]
+
   const content = (
     <>
-      <span className="material-symbols-rounded" style={{ fontSize: 16, flexShrink: 0, opacity: 0.85 }}>
-        {item.icon}
-      </span>
+      {Ico
+        ? <Ico width={16} height={16} style={{ flexShrink: 0 }} />
+        : <span className="material-symbols-rounded" style={{ fontSize: 16, flexShrink: 0, opacity: 0.85 }}>{item.icon}</span>
+      }
       {!collapsed && (
         <>
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -495,15 +499,14 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
 
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('o3c_sb') === '1')
 
-  const [openKeys, setOpenKeys] = useState<Set<string>>(() => {
-    const open = new Set<string>()
-    SECTIONS.forEach(s =>
-      s.items.forEach(item => {
+  const [openKey, setOpenKey] = useState<string | null>(() => {
+    for (const s of SECTIONS) {
+      for (const item of s.items) {
         const subMatch = item.subs?.some(sub => sub.to !== '/' && pathname.startsWith(sub.to))
-        if (subMatch || (item.to !== '/' && pathname.startsWith(item.to))) open.add(item.to)
-      })
-    )
-    return open
+        if (subMatch || (item.to !== '/' && pathname.startsWith(item.to))) return item.to
+      }
+    }
+    return null
   })
 
   useEffect(() => {
@@ -513,11 +516,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
   const sections = visibleSections(user.role as string)
 
   function toggleItem(to: string) {
-    setOpenKeys(prev => {
-      const next = new Set(prev)
-      next.has(to) ? next.delete(to) : next.add(to)
-      return next
-    })
+    setOpenKey(prev => prev === to ? null : to)
   }
 
   const initials = user.name
@@ -655,7 +654,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
                 isActive={item.to === '/' ? pathname === '/' : item.subs?.length ? pathname === item.to : pathname.startsWith(item.to)}
                 hasActiveSub={item.subs?.some(s => s.to !== '/' && pathname.startsWith(s.to)) ?? false}
                 collapsed={collapsed}
-                open={openKeys.has(item.to)}
+                open={openKey === item.to}
                 onToggle={() => toggleItem(item.to)}
               />
             ))}
