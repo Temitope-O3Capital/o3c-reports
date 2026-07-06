@@ -51,8 +51,8 @@ func RegisterZohoAdmin(r chi.Router, db *core.DB, adminSecret string) {
 			next.ServeHTTP(w, r)
 		})
 	}
-	r.With(guard).Post("/import-tickets", zohoImportTickets(db))
-	r.With(guard).Post("/import-calls", zohoImportDeskCalls(db))
+	r.With(guard).Post("/admin/import-tickets", zohoImportTickets(db))
+	r.With(guard).Post("/admin/import-calls", zohoImportDeskCalls(db))
 }
 
 // ── Credential helpers ────────────────────────────────────────────────────────
