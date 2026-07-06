@@ -203,7 +203,7 @@ export default function Approvals() {
 
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard label="Loan Applications" value={fmtNum(summary?.los        ?? 0)} accent={BLUE}   loading={loading} />
+        <KpiCard label="Credit Applications" value={fmtNum(summary?.los        ?? 0)} accent={BLUE}   loading={loading} />
         <KpiCard label="Write-off Requests" value={fmtNum(summary?.write_offs ?? 0)} accent={RED}    loading={loading} />
         <KpiCard label="Leave Requests"     value={fmtNum(summary?.leave      ?? 0)} accent={PURPLE} loading={loading} />
         <KpiCard label="Compliance Findings" value={fmtNum(summary?.compliance ?? 0)} accent={AMBER}  loading={loading} />

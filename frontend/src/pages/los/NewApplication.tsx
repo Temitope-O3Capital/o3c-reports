@@ -53,7 +53,7 @@ const INIT: FormData = {
 
 // ── Step indicator ────────────────────────────────────────────────────────────
 
-const STEPS = ['Personal Info', 'Employment', 'Loan Request', 'Documents', 'Review']
+const STEPS = ['Personal Info', 'Employment', 'Credit Request', 'Documents', 'Review']
 
 function StepIndicator({ current }: { current: number }) {
   return (
@@ -404,7 +404,7 @@ function Step5({ form, goTo }: { form: FormData; goTo: (s: number) => void }) {
         }}
       />
       <ReviewSection
-        title="Loan Request"
+        title="Credit Request"
         step={2}
         onEdit={() => goTo(2)}
         data={{
@@ -515,7 +515,7 @@ export default function NewApplication() {
 
   return (
     <Page
-      title="New Loan Application"
+      title="New Credit Application"
       subtitle="Applications / New"
     >
       <div style={{ maxWidth: 760, margin: '0 auto' }}>

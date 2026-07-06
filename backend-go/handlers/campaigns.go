@@ -809,8 +809,8 @@ func createCampaign(db *core.DB) http.HandlerFunc {
 		if b.ListID != nil && total > 0 {
 			db.PGExec(r.Context(), //nolint:errcheck
 				`INSERT INTO campaign_contacts
-				    (campaign_id, first_name, last_name, phone, email, cif_number, merge_data, position)
-				SELECT $1, first_name, last_name, phone, email, cif_number, merge_data,
+				    (campaign_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data, position)
+				SELECT $1, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data,
 				       ROW_NUMBER() OVER (ORDER BY id) - 1
 				FROM contact_list_members WHERE list_id=$2 AND status='active'`,
 				campID, *b.ListID)
@@ -922,8 +922,8 @@ func startCampaign(db *core.DB) http.HandlerFunc {
 			if lid := camp["list_id"]; lid != nil {
 				db.PGExec(r.Context(), //nolint:errcheck
 					`INSERT INTO campaign_contacts
-					    (campaign_id, first_name, last_name, phone, email, cif_number, merge_data, position)
-					SELECT $1, first_name, last_name, phone, email, cif_number, merge_data,
+					    (campaign_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data, position)
+					SELECT $1, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data,
 					       ROW_NUMBER() OVER (ORDER BY id) - 1
 					FROM contact_list_members WHERE list_id=$2 AND status='active'`,
 					campID, lid)

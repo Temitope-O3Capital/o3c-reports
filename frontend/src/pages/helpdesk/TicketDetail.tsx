@@ -1075,7 +1075,7 @@ export default function TicketDetail() {
 
       {/* ── New Application ──────────────────────────────────────────────────── */}
       <ConfirmModal open={newAppOpen} title="Create New Application"
-        body={`Open a new loan application for ${ticket.customer_name ?? 'this customer'}${ticket.customer_cif ? ` (CIF: ${ticket.customer_cif})` : ''}? You will be taken to the LOS new application form.`}
+        body={`Open a new credit application for ${ticket.customer_name ?? 'this customer'}${ticket.customer_cif ? ` (CIF: ${ticket.customer_cif})` : ''}? You will be taken to the credit application form.`}
         confirmLabel="Open LOS" loading={false}
         onConfirm={() => {
           setNewAppOpen(false)

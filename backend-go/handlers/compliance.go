@@ -72,6 +72,9 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 	r.With(all).Get("/dpa-register",                 complianceDPARegister(db))
 	r.With(all).Post("/dpa-register",                complianceDPARegisterCreate(db))
 	r.With(all).Patch("/dpa-register/{id}",          complianceDPARegisterUpdate(db))
+
+	// P12-08/09 — SOC 2 readiness + pentest tracker
+	RegisterSOC2(r, db)
 }
 
 // ── Audit Log ─────────────────────────────────────────────────────────────────

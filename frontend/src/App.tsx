@@ -13,7 +13,9 @@ import GlobalSearch     from './components/GlobalSearch'
 import { type AuthUser, ROLE_PAGES } from './hooks/useAuth'
 import { roleLabel }    from './lib/roles'
 import { API, apiFetch, apiLogout, refreshSession } from './lib/api'
-import { LIGHT, DARK }  from './lib/design'
+import { LIGHT, DARK, GREEN, BLUE, NAVY, INTER, RED }  from './lib/design'
+import { fmtKobo } from './lib/fmt'
+import { ConfirmModal } from './components/UI'
 
 // ── Lazy imports ──────────────────────────────────────────────────────────────
 const CS           = lazy(() => import('./pages/ComingSoon'))
@@ -175,6 +177,10 @@ const ComplianceKYCExpiry   = lazy(() => import('./pages/compliance/KYCExpiry'))
 const ComplianceAMLRules    = lazy(() => import('./pages/compliance/AMLRules'))
 const ComplianceConcentration = lazy(() => import('./pages/compliance/ConcentrationRisk'))
 const ComplianceDPARegister   = lazy(() => import('./pages/compliance/DPARegister'))
+const ComplianceSOC2          = lazy(() => import('./pages/compliance/SOC2'))
+const ComplianceSOC2Detail    = lazy(() => import('./pages/compliance/SOC2ControlDetail'))
+const CompliancePentest       = lazy(() => import('./pages/compliance/PentestDashboard'))
+const CompliancePolicies      = lazy(() => import('./pages/compliance/PolicyDocuments'))
 
 // HR
 const HREmployees    = lazy(() => import('./pages/hr/Employees'))
@@ -393,63 +399,225 @@ function TbDivider() {
   return <div style={{ width: 1, height: 18, background: 'var(--bdr)', margin: '0 4px', flexShrink: 0 }} />
 }
 
-// ── Approvals badge button ────────────────────────────────────────────────────
+// ── Approvals dropdown ────────────────────────────────────────────────────────
 
-interface ApprovalItem { id: number; module: string; title: string; type: string; url: string }
+interface ApprovalItem {
+  id:          number
+  module:      string
+  title:       string
+  entity_name?: string
+  amount_kobo?: number
+  maker_name?:  string
+  requested_by?: string
+  url?:        string
+}
 
-function ApprovalsButton({ user }: { user: AuthUser }) {
-  const [count, setCount] = useState(0)
-  const navigate          = useNavigate()
+function ApprovalsDropdown({ user }: { user: AuthUser }) {
+  const navigate = useNavigate()
+  const [open,         setOpen]         = useState(false)
+  const [items,        setItems]        = useState<ApprovalItem[]>([])
+  const [count,        setCount]        = useState(0)
+  const [acted,        setActed]        = useState<Record<number, 'approved' | 'rejected'>>({})
+  const [rejectTarget, setRejectTarget] = useState<ApprovalItem | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
+  const [rejectLoading, setRejectLoading] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  const role = user.role as string
+  const canApprove = MGMT.has(role) || role === 'finance_head' || role === 'compliance_head'
+
+  const loadApprovals = useCallback(() => {
+    if (!canApprove) return
+    apiFetch<{ total: number; items: ApprovalItem[] }>('/api/approvals/summary')
+      .then(d => { setCount(d.total ?? 0); setItems(d.items ?? []) })
+      .catch(() => {})
+  }, [canApprove])
 
   useEffect(() => {
-    const role = user.role as string
-    if (!MGMT.has(role) && role !== 'finance_head' && role !== 'compliance_head') return
-    const load = () => {
-      apiFetch<{ total: number; items: ApprovalItem[] }>('/api/approvals/summary')
-        .then(d => setCount(d.total))
-        .catch(() => {})
-    }
-    load()
-    const t = setInterval(load, 60_000)
+    loadApprovals()
+    const t = setInterval(loadApprovals, 60_000)
     return () => clearInterval(t)
-  }, [user.role])
+  }, [loadApprovals])
+
+  useEffect(() => {
+    if (!open) return
+    function handler(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  async function handleApprove(id: number) {
+    try {
+      await apiFetch(`/api/approvals/${id}/approve`, { method: 'POST' })
+      setActed(a => ({ ...a, [id]: 'approved' }))
+      setCount(c => Math.max(0, c - 1))
+    } catch {}
+  }
+
+  async function handleReject() {
+    if (!rejectTarget) return
+    setRejectLoading(true)
+    try {
+      await apiFetch(`/api/approvals/${rejectTarget.id}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: rejectReason }),
+      })
+      setActed(a => ({ ...a, [rejectTarget.id]: 'rejected' }))
+      setCount(c => Math.max(0, c - 1))
+    } catch {}
+    setRejectLoading(false)
+    setRejectTarget(null)
+    setRejectReason('')
+  }
+
+  if (!canApprove) return null
+
+  const pendingCount = Math.max(0, count - Object.keys(acted).length)
 
   return (
-    <button
-      onClick={() => navigate('/approvals')}
-      title="Approvals"
-      style={{
-        position: 'relative', width: 34, height: 34,
-        borderRadius: 8, border: 'none', background: 'transparent',
-        cursor: 'pointer', display: 'flex', alignItems: 'center',
-        justifyContent: 'center', color: 'var(--txt2)',
-        transition: 'background 120ms, color 120ms',
-      }}
-      onMouseEnter={e => {
-        const el = e.currentTarget as HTMLElement
-        el.style.background = 'var(--row-hvr)'
-        el.style.color = 'var(--txt)'
-      }}
-      onMouseLeave={e => {
-        const el = e.currentTarget as HTMLElement
-        el.style.background = 'transparent'
-        el.style.color = 'var(--txt2)'
-      }}
-    >
-      <span className="material-symbols-rounded" style={{ fontSize: 20 }}>task_alt</span>
-      {count > 0 && (
-        <span style={{
-          position: 'absolute', top: 5, right: 5,
-          minWidth: 13, height: 13, borderRadius: 7,
-          background: 'var(--nav-dot)', color: 'var(--card)',
-          fontSize: 8, fontWeight: 700,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: '0 3px',
+    <div ref={panelRef} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        title="Approvals"
+        style={{
+          position: 'relative', width: 34, height: 34,
+          borderRadius: 8, border: 'none',
+          background: open ? 'var(--row-hvr)' : 'transparent',
+          cursor: 'pointer', display: 'flex', alignItems: 'center',
+          justifyContent: 'center', color: open ? 'var(--txt)' : 'var(--txt2)',
+          transition: 'background 120ms, color 120ms',
+        }}
+        onMouseEnter={e => {
+          const el = e.currentTarget as HTMLElement
+          el.style.background = 'var(--row-hvr)'; el.style.color = 'var(--txt)'
+        }}
+        onMouseLeave={e => {
+          const el = e.currentTarget as HTMLElement
+          el.style.background = open ? 'var(--row-hvr)' : 'transparent'
+          el.style.color = open ? 'var(--txt)' : 'var(--txt2)'
+        }}
+      >
+        <span className="material-symbols-rounded" style={{ fontSize: 20 }}>task_alt</span>
+        {pendingCount > 0 && (
+          <span style={{
+            position: 'absolute', top: 5, right: 5,
+            minWidth: 14, height: 14, borderRadius: 7,
+            background: RED, color: '#fff',
+            fontSize: 8, fontWeight: 700, fontFamily: INTER,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '0 3px',
+          }}>
+            {pendingCount > 99 ? '99+' : pendingCount}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', right: 0,
+          width: 340, background: 'var(--card)',
+          border: '1px solid var(--bdr)', borderRadius: 14,
+          boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
+          zIndex: 9500, overflow: 'hidden',
         }}>
-          {count > 99 ? '99+' : count}
-        </span>
+          <div style={{
+            padding: '12px 16px', borderBottom: '1px solid var(--bdr)',
+          }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: "'Sora', sans-serif" }}>
+              Pending approvals
+            </span>
+          </div>
+
+          <div style={{ maxHeight: 380, overflowY: 'auto' }}>
+            {items.length === 0 ? (
+              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--txt3)', fontSize: 13, fontFamily: INTER }}>
+                No pending approvals
+              </div>
+            ) : items.map(item => (
+              <div key={item.id} style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)' }}>
+                {acted[item.id] ? (
+                  <div style={{
+                    fontSize: 12.5, fontWeight: 600, fontFamily: INTER,
+                    color: acted[item.id] === 'approved' ? GREEN : RED,
+                  }}>
+                    {acted[item.id] === 'approved' ? '✓ Approved' : '✗ Rejected'}
+                    <span style={{ fontWeight: 400, color: 'var(--txt3)', marginLeft: 6 }}>{item.title}</span>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginBottom: 4, fontFamily: "'Sora', sans-serif", lineHeight: 1.3 }}>
+                      {item.title}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginBottom: 10, fontFamily: INTER, lineHeight: 1.4 }}>
+                      {item.entity_name}
+                      {item.amount_kobo != null && <> · <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtKobo(item.amount_kobo)}</span></>}
+                      {(item.maker_name ?? item.requested_by) && <> · raised by {item.maker_name ?? item.requested_by}</>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        onClick={() => handleApprove(item.id)}
+                        style={{
+                          padding: '4px 14px', borderRadius: 6, border: 'none',
+                          background: GREEN, color: '#fff', fontSize: 12, fontWeight: 600,
+                          cursor: 'pointer', fontFamily: INTER,
+                        }}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => setRejectTarget(item)}
+                        style={{
+                          padding: '4px 14px', borderRadius: 6,
+                          border: '1px solid var(--bdr)', background: 'transparent',
+                          color: 'var(--txt2)', fontSize: 12, cursor: 'pointer', fontFamily: INTER,
+                        }}
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ padding: '10px 16px', borderTop: '1px solid var(--bdr)' }}>
+            <button
+              onClick={() => { setOpen(false); navigate('/approvals') }}
+              style={{ fontSize: 12, color: BLUE, border: 'none', background: 'none', cursor: 'pointer', fontFamily: INTER, padding: 0, fontWeight: 500 }}
+            >
+              View all approvals →
+            </button>
+          </div>
+        </div>
       )}
-    </button>
+
+      <ConfirmModal
+        open={!!rejectTarget}
+        title="Reject approval"
+        body={rejectTarget ? `Rejecting: ${rejectTarget.title}` : ''}
+        confirmLabel="Reject"
+        danger
+        loading={rejectLoading}
+        onConfirm={handleReject}
+        onClose={() => { setRejectTarget(null); setRejectReason('') }}
+      >
+        <textarea
+          value={rejectReason}
+          onChange={e => setRejectReason(e.target.value)}
+          placeholder="Enter rejection reason…"
+          rows={3}
+          style={{
+            width: '100%', padding: '8px 10px', borderRadius: 8,
+            border: '1px solid var(--bdr)', background: 'var(--input-bg)',
+            color: 'var(--txt)', fontSize: 13, fontFamily: 'inherit',
+            resize: 'none', boxSizing: 'border-box',
+          }}
+        />
+      </ConfirmModal>
+    </div>
   )
 }
 
@@ -484,6 +652,67 @@ function ThemeToggle({ dark, onToggle }: { dark: boolean; onToggle: () => void }
   )
 }
 
+// ── C360 search trigger (center of topbar) ────────────────────────────────────
+
+function C360SearchTrigger({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      onClick={onOpen}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        height: 34, padding: '0 12px 0 10px',
+        width: '100%', maxWidth: 360,
+        borderRadius: 8, border: '1px solid var(--input-bdr)',
+        background: 'var(--input-bg)', cursor: 'text',
+        color: 'var(--txt3)', fontSize: 12.5, fontFamily: INTER,
+        textAlign: 'left', outline: 'none',
+      }}
+    >
+      <span className="material-symbols-rounded" style={{ fontSize: 15, flexShrink: 0 }}>manage_search</span>
+      <span style={{ flex: 1 }}>Customer 360 — search name or CIF…</span>
+    </button>
+  )
+}
+
+// ── Top bar ───────────────────────────────────────────────────────────────────
+
+function TopBar({
+  user, dark, onToggleDark, onOpenSearch, onOpenC360,
+}: {
+  user: AuthUser
+  dark: boolean
+  onToggleDark: () => void
+  onOpenSearch: () => void
+  onOpenC360:  () => void
+}) {
+  return (
+    <div style={{
+      height: 52, flexShrink: 0,
+      display: 'flex', alignItems: 'center',
+      padding: '0 16px', gap: 12,
+      background: 'var(--topbar-bg)',
+      borderBottom: '1px solid var(--bdr)',
+    }}>
+      {/* Left: module label */}
+      <ModuleTitle />
+
+      {/* Centre: C360 search */}
+      <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+        <C360SearchTrigger onOpen={onOpenC360} />
+      </div>
+
+      {/* Right: utility buttons */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <TbBtn onClick={onOpenSearch} icon="search" title="Search (⌘K)" />
+        <ApprovalsDropdown user={user} />
+        <NotificationBell />
+        <TbDivider />
+        <ThemeToggle dark={dark} onToggle={onToggleDark} />
+      </div>
+    </div>
+  )
+}
+
 // ── Idle timer ────────────────────────────────────────────────────────────────
 
 const IDLE_WARN_MS   = 25 * 60 * 1000
@@ -495,7 +724,11 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
   const [c360Open,    setC360Open]    = useState(false)
   const [searchOpen,  setSearchOpen]  = useState(false)
   const [idleWarn,    setIdleWarn]    = useState(false)
-  const [dark,        setDark]        = useState(() => localStorage.getItem('o3c_theme') === 'dark')
+  const [dark,        setDark]        = useState(() => {
+    const stored = localStorage.getItem('o3c_theme')
+    if (stored) return stored === 'dark'
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+  })
 
   const toggleDark = useCallback(() => {
     setDark(d => {
@@ -548,21 +781,19 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
         <Toaster richColors position="top-right" />
 
         {/* Sidebar */}
-        <Sidebar
-          user={user}
-          onLogout={onLogout}
-          utilities={<>
-            <TbBtn onClick={() => setSearchOpen(true)} icon="search" title="Search (⌘K)" />
-            <TbBtn onClick={() => setC360Open(true)} icon="manage_search" title="Customer 360°" />
-            <ApprovalsButton user={user} />
-            <NotificationBell />
-            <TbDivider />
-            <ThemeToggle dark={dark} onToggle={toggleDark} />
-          </>}
-        />
+        <Sidebar user={user} onLogout={onLogout} />
 
         {/* Main column */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+
+          {/* Top bar */}
+          <TopBar
+            user={user}
+            dark={dark}
+            onToggleDark={toggleDark}
+            onOpenSearch={() => setSearchOpen(true)}
+            onOpenC360={() => setC360Open(true)}
+          />
 
           {/* Page area */}
           <main style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -694,6 +925,10 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/compliance/dsar"            element={<PageErrorBoundary><ComplianceDSAR /></PageErrorBoundary>} />
                   <Route path="/compliance/concentration"   element={<PageErrorBoundary><ComplianceConcentration /></PageErrorBoundary>} />
                   <Route path="/compliance/dpa-register"   element={<PageErrorBoundary><ComplianceDPARegister /></PageErrorBoundary>} />
+                  <Route path="/compliance/soc2"           element={<PageErrorBoundary><ComplianceSOC2 /></PageErrorBoundary>} />
+                  <Route path="/compliance/soc2/:id"       element={<PageErrorBoundary><ComplianceSOC2Detail /></PageErrorBoundary>} />
+                  <Route path="/compliance/pentest"        element={<PageErrorBoundary><CompliancePentest /></PageErrorBoundary>} />
+                  <Route path="/compliance/policies"       element={<PageErrorBoundary><CompliancePolicies /></PageErrorBoundary>} />
 
                   {/* People */}
                   <Route path="/hr"               element={<Navigate to="/hr/employees" replace />} />
@@ -889,6 +1124,28 @@ export default function App() {
       <BrowserRouter>
         <Suspense fallback={null}>
           <Routes><Route path="/csat/:token" element={<CSATSurvey />} /></Routes>
+        </Suspense>
+      </BrowserRouter>
+    )
+  }
+
+  if (typeof window !== 'undefined' && window.location.pathname === '/workspace') {
+    const O3CWorkspace = lazy(() => import('./pages/O3CWorkspace'))
+    return (
+      <BrowserRouter>
+        <Suspense fallback={null}>
+          <Routes><Route path="/workspace" element={<O3CWorkspace />} /></Routes>
+        </Suspense>
+      </BrowserRouter>
+    )
+  }
+
+  if (typeof window !== 'undefined' && window.location.pathname === '/demo') {
+    const WorkspaceDemo = lazy(() => import('./pages/WorkspaceDemo'))
+    return (
+      <BrowserRouter>
+        <Suspense fallback={null}>
+          <Routes><Route path="/demo" element={<WorkspaceDemo />} /></Routes>
         </Suspense>
       </BrowserRouter>
     )

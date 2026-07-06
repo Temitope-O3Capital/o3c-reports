@@ -100,6 +100,10 @@ func main() {
 	r.Get("/api/health", healthHandler(db))
 	r.Get("/metrics", handlers.MetricsHandler().ServeHTTP) // Prometheus scrape endpoint
 
+	// P9-07: OpenAPI developer reference (no auth — internal developer tool)
+	r.Get("/api/docs", handlers.APIDocs())
+	r.Get("/api/docs/spec", handlers.APISpec())
+
 	// Mount auth routes (token is public, me/change-password require auth)
 	r.Route("/api/auth", func(r chi.Router) {
 		r.With(httprate.Limit(5, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {

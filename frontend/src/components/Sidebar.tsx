@@ -48,24 +48,28 @@ const SECTIONS: Section[] = [
           { label: 'Compose', to: '/mail/compose' },
         ],
       },
+      // Campaigns + Marketing attribution merged — same function, same audience
       {
-        icon: 'campaign', label: 'Campaigns', to: '/campaigns',
+        icon: 'campaign', label: 'Campaigns & Marketing', to: '/campaigns',
         vis: ['sales_head','bd_officer','bd_head','telemarketing_head'],
         subs: [
-          { label: 'All Campaigns', to: '/campaigns' },
-          { label: 'Templates',     to: '/campaigns/templates' },
-          { label: 'Contact Lists', to: '/campaigns/lists' },
-          { label: 'Analytics',     to: '/campaigns/analytics' },
+          { label: 'All Campaigns',        to: '/campaigns' },
+          { label: 'Templates',            to: '/campaigns/templates' },
+          { label: 'Contact Lists',        to: '/campaigns/lists' },
+          { label: 'Campaign Analytics',   to: '/campaigns/analytics' },
+          { label: 'Attribution Report',   to: '/marketing/attribution' },
+          { label: 'Acquisition Funnel',   to: '/marketing/funnel' },
         ],
       },
       {
         icon: 'trending_up', label: 'Sales', to: '/sales',
         vis: ['sales_officer','sales_head'],
         subs: [
-          { label: 'Overview',        to: '/sales' },
-          { label: 'Cohort Analysis', to: '/sales/cohort' },
-          { label: 'Targets',         to: '/sales/targets' },
-          { label: 'Reports',         to: '/sales/reports' },
+          { label: 'Overview',         to: '/sales' },
+          { label: 'Cohort Analysis',  to: '/sales/cohort' },
+          { label: 'Targets',          to: '/sales/targets' },
+          { label: 'Reports',          to: '/sales/reports' },
+          { label: 'All Applications', to: '/sales/applications' },
         ],
       },
       {
@@ -75,21 +79,6 @@ const SECTIONS: Section[] = [
           { label: 'Contacts', to: '/sales/customers' },
           { label: 'Pipeline', to: '/sales/crm' },
           { label: 'Tasks',    to: '/sales/tasks' },
-        ],
-      },
-      {
-        icon: 'bar_chart_4_bars', label: 'Marketing', to: '/marketing/attribution',
-        vis: ['sales_head','bd_head','telemarketing_head'],
-        subs: [
-          { label: 'Campaign Attribution', to: '/marketing/attribution' },
-          { label: 'Acquisition Funnel',   to: '/marketing/funnel' },
-        ],
-      },
-      {
-        icon: 'receipt_long', label: 'Credit Applications', to: '/sales/applications',
-        vis: ['sales_officer','sales_head','bd_officer','bd_head'],
-        subs: [
-          { label: 'My Queue', to: '/sales/applications' },
         ],
       },
     ],
@@ -102,13 +91,13 @@ const SECTIONS: Section[] = [
         icon: 'call', label: 'Telemarketing', to: '/telemarketing',
         vis: ['telemarketing_agent','telemarketing_head'],
         subs: [
-          { label: 'Outbound Queue',   to: '/telemarketing/queue' },
-          { label: 'Marketing Leads',  to: '/telemarketing/leads' },
-          { label: 'DNC List',         to: '/telemarketing/dnc' },
-          { label: 'Performance',      to: '/telemarketing/performance' },
-          { label: 'Dialer Campaigns', to: '/telemarketing/dialer' },
-          { label: 'Dialer Agent',     to: '/telemarketing/dialer/agent' },
-          { label: 'Dialer Supervisor',to: '/telemarketing/dialer/supervisor' },
+          { label: 'Outbound Queue',    to: '/telemarketing/queue' },
+          { label: 'Marketing Leads',   to: '/telemarketing/leads' },
+          { label: 'DNC List',          to: '/telemarketing/dnc' },
+          { label: 'Performance',       to: '/telemarketing/performance' },
+          { label: 'Dialer Campaigns',  to: '/telemarketing/dialer' },
+          { label: 'Dialer Agent View', to: '/telemarketing/dialer/agent' },
+          { label: 'Dialer Supervisor', to: '/telemarketing/dialer/supervisor' },
         ],
       },
       {
@@ -148,8 +137,9 @@ const SECTIONS: Section[] = [
     ],
   },
   {
-    key: 'operations',
-    header: 'Operations',
+    // Renamed from "Operations" — Settlements moved to Finance; this is now purely lending lifecycle
+    key: 'lending',
+    header: 'Credit Management',
     items: [
       {
         icon: 'shield', label: 'Risk', to: '/operations/risk',
@@ -185,19 +175,6 @@ const SECTIONS: Section[] = [
           { label: 'Debt Sales',     to: '/recovery/debt-sales' },
         ],
       },
-      {
-        icon: 'compare_arrows', label: 'Settlements', to: '/settlements',
-        vis: ['settlement_officer'],
-        subs: [
-          { label: 'Overview',                  to: '/settlements' },
-          { label: 'Batches',                   to: '/settlements/batches' },
-          { label: 'NIP Reconciliation',        to: '/settlements/nip' },
-          { label: 'NIP Batch Exceptions',      to: '/settlements/nip-recon' },
-          { label: 'Processor Reconciliation',  to: '/settlements/reconciliation' },
-          { label: 'Failed Transactions',       to: '/settlements/failed' },
-          { label: 'Manual Postings',           to: '/settlements/manual-postings' },
-        ],
-      },
     ],
   },
   {
@@ -208,17 +185,30 @@ const SECTIONS: Section[] = [
         icon: 'account_balance', label: 'Finance', to: '/finance',
         vis: ['finance_officer','finance_head'],
         subs: [
-          { label: 'Overview',        to: '/finance' },
-          { label: 'Transactions',    to: '/finance/transactions' },
-          { label: 'Income',          to: '/finance/income' },
-          { label: 'Fixed Deposits',  to: '/finance/fixed-deposit' },
-          { label: 'EOD / EOB',       to: '/finance/eod' },
-          { label: 'P&L',             to: '/finance/pnl' },
-          { label: 'Manual Postings', to: '/finance/manual-postings' },
+          { label: 'Overview',          to: '/finance' },
+          { label: 'Transactions',      to: '/finance/transactions' },
+          { label: 'Income',            to: '/finance/income' },
+          { label: 'Fixed Deposits',    to: '/finance/fixed-deposit' },
+          { label: 'EOD / EOB',         to: '/finance/eod' },
+          { label: 'P&L',               to: '/finance/pnl' },
+          { label: 'Manual Postings',   to: '/finance/manual-postings' },
           { label: 'Chart of Accounts', to: '/finance/gl-accounts' },
-          { label: 'FD Maturity',     to: '/finance/fd-maturity' },
-          { label: 'Cost Tracking',   to: '/finance/costs' },
-          { label: 'Budget',          to: '/finance/budget' },
+          { label: 'Cost Tracking',     to: '/finance/costs' },
+          { label: 'Budget',            to: '/finance/budget' },
+        ],
+      },
+      // Settlements moved here from Loan Management — it is a financial back-office function
+      {
+        icon: 'compare_arrows', label: 'Settlements', to: '/settlements',
+        vis: ['settlement_officer','finance_head'],
+        subs: [
+          { label: 'Overview',                 to: '/settlements' },
+          { label: 'Batches',                  to: '/settlements/batches' },
+          { label: 'NIP Reconciliation',       to: '/settlements/nip' },
+          { label: 'NIP Batch Exceptions',     to: '/settlements/nip-recon' },
+          { label: 'Processor Reconciliation', to: '/settlements/reconciliation' },
+          { label: 'Failed Transactions',      to: '/settlements/failed' },
+          { label: 'Manual Postings',          to: '/settlements/manual-postings' },
         ],
       },
     ],
@@ -242,6 +232,9 @@ const SECTIONS: Section[] = [
           { label: 'Data Subject (DSAR)', to: '/compliance/dsar' },
           { label: 'Concentration Risk',  to: '/compliance/concentration' },
           { label: 'Data Processing Reg', to: '/compliance/dpa-register' },
+          { label: 'SOC 2 Controls',       to: '/compliance/soc2'         },
+          { label: 'Pentest Tracker',      to: '/compliance/pentest'      },
+          { label: 'Policy Documents',     to: '/compliance/policies'     },
         ],
       },
     ],
@@ -266,32 +259,24 @@ const SECTIONS: Section[] = [
       {
         icon: 'payments', label: 'Payroll', to: '/payroll',
         vis: ['hr_officer','hr_manager','payroll_officer','payroll_manager'],
-        subs: [
-          { label: 'Overview', to: '/payroll' },
-        ],
       },
     ],
   },
   {
-    key: 'intelligence',
-    header: 'Intelligence',
+    // Reports & BI and BI Studio merged — same function, same roles, no reason to split
+    key: 'analytics',
+    header: 'Analytics',
     items: [
       {
-        icon: 'bar_chart', label: 'Reports & BI', to: '/reports',
+        icon: 'analytics', label: 'Reports & BI', to: '/reports',
         vis: ['bi_analyst','bi_head','internal_control_head'],
         subs: [
-          { label: 'Cross-Module', to: '/reports' },
-          { label: 'KPI Tracker',  to: '/reports/kpi' },
-          { label: 'Data Export',  to: '/reports/export' },
-        ],
-      },
-      {
-        icon: 'table_chart', label: 'BI Studio', to: '/bi',
-        vis: ['bi_analyst','bi_head','internal_control_head'],
-        subs: [
-          { label: 'Saved Reports',     to: '/bi' },
-          { label: 'Report Builder',    to: '/bi/builder' },
-          { label: 'Scheduled Reports', to: '/bi/scheduled' },
+          { label: 'KPI Tracker',          to: '/reports/kpi' },
+          { label: 'Analytics Dashboard',  to: '/reports' },
+          { label: 'Data Export',          to: '/reports/export' },
+          { label: 'Report Builder',       to: '/bi/builder' },
+          { label: 'Saved Reports',        to: '/bi' },
+          { label: 'Scheduled Reports',    to: '/bi/scheduled' },
         ],
       },
       {
@@ -304,14 +289,10 @@ const SECTIONS: Section[] = [
     key: 'admin',
     header: 'Admin',
     items: [
+      // Admin uses a grid/tile overview page for sub-module navigation — no sidebar sub-items needed
       {
-        icon: 'admin_panel_settings', label: 'Admin', to: '/admin',
+        icon: 'admin_panel_settings', label: 'System Admin', to: '/admin',
         vis: ['it_admin'],
-        subs: [
-          { label: 'Overview',            to: '/admin' },
-          { label: 'Helpdesk Settings',   to: '/admin/helpdesk-settings' },
-          { label: 'Workflow Templates',  to: '/admin/workflow-templates' },
-        ],
       },
     ],
   },
@@ -548,7 +529,7 @@ export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser;
       height: '100vh', flexShrink: 0,
       background: 'var(--sb)',
       borderRight: '1px solid var(--sb-bdr)',
-      overflow: 'hidden',
+      overflow: 'visible',
       transition: 'width 240ms cubic-bezier(0.4,0,0.2,1), min-width 240ms cubic-bezier(0.4,0,0.2,1)',
       position: 'relative', zIndex: 10,
     }}>
@@ -589,6 +570,41 @@ export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser;
         )}
       </div>
 
+      {/* Floating collapse tab — sits on the right edge of the sidebar */}
+      <div
+        onClick={() => setCollapsed(c => !c)}
+        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        style={{
+          position: 'absolute', right: -12, top: '50%', transform: 'translateY(-50%)',
+          width: 20, height: 40,
+          background: 'var(--sb)',
+          border: '1px solid var(--sb-bdr)',
+          borderLeft: 'none',
+          borderRadius: '0 8px 8px 0',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer', zIndex: 20,
+          color: 'var(--nav-txt)',
+          transition: 'background 120ms, color 120ms',
+          boxShadow: '2px 0 6px rgba(0,0,0,.15)',
+        }}
+        onMouseEnter={e => {
+          (e.currentTarget as HTMLElement).style.background = 'var(--nav-hvr-bg)'
+          ;(e.currentTarget as HTMLElement).style.color = '#fff'
+        }}
+        onMouseLeave={e => {
+          (e.currentTarget as HTMLElement).style.background = 'var(--sb)'
+          ;(e.currentTarget as HTMLElement).style.color = 'var(--nav-txt)'
+        }}
+      >
+        <span className="material-symbols-rounded" style={{
+          fontSize: 13,
+          transform: collapsed ? 'none' : 'rotate(180deg)',
+          transition: 'transform 240ms cubic-bezier(0.4,0,0.2,1)',
+        }}>
+          chevron_right
+        </span>
+      </div>
+
       {/* ── Nav ────────────────────────────────────────────────────────────── */}
       <nav style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '6px 0 12px' }}>
         {sections.map((section, i) => (
@@ -626,50 +642,6 @@ export default function Sidebar({ user, onLogout, utilities }: { user: AuthUser;
             {utilities}
           </div>
         )}
-        {/* Collapse / expand toggle */}
-        {!collapsed && (
-          <div
-            onClick={() => setCollapsed(true)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '7px 10px', borderRadius: 7,
-              color: 'var(--nav-txt)', fontSize: 12, fontWeight: 500,
-              cursor: 'pointer', marginBottom: 2,
-              transition: 'all 120ms',
-            }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLElement).style.background = 'var(--nav-hvr-bg)'
-              ;(e.currentTarget as HTMLElement).style.color = 'var(--nav-hvr-txt)'
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLElement).style.background = 'transparent'
-              ;(e.currentTarget as HTMLElement).style.color = 'var(--nav-txt)'
-            }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>chevron_left</span>
-            <span style={{ flex: 1 }}>Collapse</span>
-          </div>
-        )}
-
-        {collapsed && (
-          <div
-            onClick={() => setCollapsed(false)}
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              padding: '7px', borderRadius: 7, cursor: 'pointer', marginBottom: 2,
-              color: 'var(--nav-txt)', transition: 'all 120ms',
-            }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLElement).style.background = 'var(--nav-hvr-bg)'
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLElement).style.background = 'transparent'
-            }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>chevron_right</span>
-          </div>
-        )}
-
         {/* User row */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8,

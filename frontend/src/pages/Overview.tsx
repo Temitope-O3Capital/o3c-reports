@@ -606,7 +606,7 @@ export default function Overview() {
           <PipelineSegments
             stages={LOS_STAGES}
             data={losStages as unknown as Record<keyof LOSStages, number>}
-            label="Loan Applications"
+            label="Credit Applications"
           />
         </div>
         <div style={{ borderTop: '1px solid var(--bdr)', margin: '16px 0 6px' }} />

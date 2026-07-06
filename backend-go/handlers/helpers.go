@@ -2,12 +2,16 @@ package handlers
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -17,6 +21,27 @@ import (
 )
 
 var dateRE = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+
+// nullStr returns a *string pointer for s, or nil if s is empty (stores as SQL NULL).
+func nullStr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// blindContactHMAC computes HMAC-SHA256(lower(trim(value)), ENCRYPTION_KEY) as a hex string.
+// Returns "" if value or the key is empty — callers should store NULL in that case.
+func blindContactHMAC(value string) string {
+	key := os.Getenv("ENCRYPTION_KEY")
+	value = strings.ToLower(strings.TrimSpace(value))
+	if key == "" || value == "" {
+		return ""
+	}
+	mac := hmac.New(sha256.New, []byte(key))
+	mac.Write([]byte(value))
+	return hex.EncodeToString(mac.Sum(nil))
+}
 
 // respond writes a standard {data, data_source, data_as_of} JSON response.
 // data_as_of is the server time the response was generated — frontends should

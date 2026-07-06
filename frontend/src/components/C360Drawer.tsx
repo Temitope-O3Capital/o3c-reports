@@ -166,7 +166,7 @@ function OverviewTab({ profile }: { profile: Profile }) {
 function LoansTab({ profile }: { profile: Profile }) {
   const loans = profile.loan_applications ?? []
   if (loans.length === 0) {
-    return <div style={{ fontSize: 13, color: 'var(--txt3)', fontFamily: INTER }}>No loan applications</div>
+    return <div style={{ fontSize: 13, color: 'var(--txt3)', fontFamily: INTER }}>No credit applications</div>
   }
   return (
     <div>

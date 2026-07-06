@@ -20,6 +20,7 @@ func RegisterContactLists(r chi.Router, db *core.DB) {
 	r.With(access).Put("/{id}", updateContactList(db))
 	r.With(access).Delete("/{id}", deleteContactList(db))
 	r.With(access).Post("/{id}/members", addListMember(db))
+	r.With(access).Get("/{id}/members/search", searchListMembers(db))
 	r.With(access).Post("/{id}/upload", uploadListCSV(db))
 	r.With(access).Delete("/{id}/members/{mid}", removeListMember(db))
 }
@@ -175,11 +176,16 @@ func addListMember(db *core.DB) http.HandlerFunc {
 			return
 		}
 		mergeJSON, _ := json.Marshal(b.MergeData)
+		var phoneVal, emailVal string
+		if b.Phone != nil { phoneVal = *b.Phone }
+		if b.Email != nil { emailVal = *b.Email }
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO contact_list_members
-			    (list_id, first_name, last_name, phone, email, cif_number, merge_data)
-			VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb) RETURNING *`,
-			id, b.FirstName, b.LastName, b.Phone, b.Email, b.CIFNumber, string(mergeJSON))
+			    (list_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) RETURNING *`,
+			id, b.FirstName, b.LastName, b.Phone, b.Email,
+			nullStr(blindContactHMAC(phoneVal)), nullStr(blindContactHMAC(emailVal)),
+			b.CIFNumber, string(mergeJSON))
 		if err != nil {
 			respondErr(w, 500, "Create failed")
 			return
@@ -249,12 +255,14 @@ func uploadListCSV(db *core.DB) http.HandlerFunc {
 				}
 			}
 			mergeJSON, _ := json.Marshal(merge)
+			phoneHMAC := nullStr(blindContactHMAC(row["phone"]))
+			emailHMAC := nullStr(blindContactHMAC(row["email"]))
 			_, err := db.PGExec(r.Context(), `
 				INSERT INTO contact_list_members
-				    (list_id, first_name, last_name, phone, email, cif_number, merge_data)
-				VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
+				    (list_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
 				id, emptyToNil(row["first_name"]), emptyToNil(row["last_name"]),
-				phone, email, emptyToNil(row["cif_number"]), string(mergeJSON))
+				phone, email, phoneHMAC, emailHMAC, emptyToNil(row["cif_number"]), string(mergeJSON))
 			if err != nil {
 				errors = append(errors, fmt.Sprintf("Row %d: %s", i+2, err.Error()[:80]))
 				continue
@@ -273,6 +281,36 @@ func uploadListCSV(db *core.DB) http.HandlerFunc {
 			"inserted": inserted,
 			"errors":   errors[:maxErrors],
 		})
+	}
+}
+
+func searchListMembers(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		phone := strings.TrimSpace(r.URL.Query().Get("phone"))
+		email := strings.TrimSpace(r.URL.Query().Get("email"))
+		if phone == "" && email == "" {
+			respondErr(w, 400, "phone or email query parameter required")
+			return
+		}
+		var rows []map[string]any
+		var err error
+		if phone != "" {
+			h := blindContactHMAC(phone)
+			rows, err = db.PGQuery(r.Context(),
+				`SELECT * FROM contact_list_members WHERE list_id=$1 AND phone_hmac=$2 ORDER BY id`,
+				id, h)
+		} else {
+			h := blindContactHMAC(email)
+			rows, err = db.PGQuery(r.Context(),
+				`SELECT * FROM contact_list_members WHERE list_id=$1 AND email_hmac=$2 ORDER BY id`,
+				id, h)
+		}
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		respond(w, rows, "supabase")
 	}
 }
 
