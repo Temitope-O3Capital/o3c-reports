@@ -38,6 +38,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: none !important;
   box-shadow: 0 0 0 2px rgba(14, 40, 65, 0.2);
 }
+/* Search inputs inside a container that already shows focus via border-color — suppress inner shadow */
+input.srch-input:focus-visible {
+  box-shadow: none !important;
+}
 
 /* Page fade-in on route change */
 @keyframes pageFadeIn {

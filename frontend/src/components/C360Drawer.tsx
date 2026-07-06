@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { fmtKobo, fmtDate } from '../lib/fmt'
-import { RED, GREEN, AMBER, NAVY, SORA, MONO, PLEX } from '../lib/design'
+import { RED, GREEN, AMBER, NAVY, SORA, MONO } from '../lib/design'
 import { IcoClose } from '../lib/icons'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -135,7 +135,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
         zIndex: 56,
         display: 'flex', flexDirection: 'column',
         transition: 'right .22s ease',
-        fontFamily: PLEX,
+        fontFamily: SORA,
         fontSize: 13,
       }}>
 
@@ -282,7 +282,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
                 fontSize: 12.5, fontWeight: 600, fontFamily: SORA, cursor: 'pointer',
               }}
             >
-              Log PTP
+              Log Promise
             </button>
             {profile.phone && (
               <a

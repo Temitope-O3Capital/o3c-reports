@@ -446,7 +446,7 @@ export default function TicketDetail() {
       const cif = data?.ticket?.customer_cif
       // Post internal note on the ticket
       await apiPost(`/api/helpdesk/tickets/${id}/messages`, {
-        body_text: `[PTP Logged] Amount: ₦${ptpAmount} — Date: ${ptpDate}`,
+        body_text: `[Promise Logged] Amount: ₦${ptpAmount} — Date: ${ptpDate}`,
         is_internal_note: true,
       })
       // Also create a real promise in Collections if CIF is available
@@ -468,7 +468,7 @@ export default function TicketDetail() {
       setPtpOpen(false)
       setPtpAmount('')
       setPtpDate('')
-      toast.success('PTP logged')
+      toast.success('Promise logged')
       await load()
     } catch (e: any) {
       toast.error(e.message)
@@ -884,7 +884,7 @@ export default function TicketDetail() {
           <SectionCard title="Quick Actions">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[
-                { label: 'Log PTP', icon: 'handshake', color: BLUE, onClick: () => setPtpOpen(true) },
+                { label: 'Log Promise', icon: 'handshake', color: BLUE, onClick: () => setPtpOpen(true) },
                 { label: 'Request Statement', icon: 'description', color: BLUE, onClick: () => {
                   const today = new Date().toISOString().slice(0, 10)
                   const from90 = new Date(Date.now() - 90 * 86400_000).toISOString().slice(0, 10)
@@ -979,12 +979,12 @@ export default function TicketDetail() {
           style={{ ...inputStyle, height: 'auto', padding: '10px 12px', resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }} />
       </Modal>
 
-      {/* ── Log PTP ─────────────────────────────────────────────────────────── */}
-      <Modal open={ptpOpen} onClose={() => { setPtpOpen(false); setPtpAmount(''); setPtpDate('') }} title="Log Promise to Pay (PTP)" width={420}
-        footer={<ModalFooter onConfirm={handleLogPTP} label="Log PTP" disabled={!ptpAmount || !ptpDate} />}>
+      {/* ── Log Promise ──────────────────────────────────────────────────────── */}
+      <Modal open={ptpOpen} onClose={() => { setPtpOpen(false); setPtpAmount(''); setPtpDate('') }} title="Log Promise to Pay" width={420}
+        footer={<ModalFooter onConfirm={handleLogPTP} label="Log Promise" disabled={!ptpAmount || !ptpDate} />}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>PTP Amount (₦)</label>
+            <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>Promise Amount (₦)</label>
             <input type="number" placeholder="e.g. 50000" value={ptpAmount} onChange={e => setPtpAmount(e.target.value)} style={inputStyle} />
           </div>
           <div>

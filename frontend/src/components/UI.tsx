@@ -380,6 +380,53 @@ export function SearchInput({
   )
 }
 
+// ── Table toolbar search box (demo .srch pattern) ────────────────────────────
+// border: var(--bdr) normally → #0EA5E9 (sky) on focus; background: var(--card)
+
+export function TblSearch({
+  value, onChange, placeholder = 'Search…', width = 160, style,
+}: {
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  /** input width in px, or pass 0 to let the input flex-grow (full-width usage) */
+  width?: number
+  /** additional styles merged onto the wrapper div */
+  style?: CSSProperties
+}) {
+  const [focused, setFocused] = useState(false)
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+      border: `1.5px solid ${focused ? '#0EA5E9' : 'var(--bdr)'}`,
+      borderRadius: 8, padding: '5px 10px',
+      background: 'var(--card)',
+      transition: 'border-color .12s',
+      ...style,
+    }}>
+      {/* search icon — inline so UI.tsx stays free of icons import */}
+      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+        style={{ color: 'var(--txt3)', flexShrink: 0 }}>
+        <circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/>
+      </svg>
+      <input
+        className="srch-input"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder={placeholder}
+        style={{
+          border: 'none', outline: 'none', background: 'none',
+          fontFamily: "'Sora', ui-sans-serif, sans-serif",
+          fontSize: 12.5, color: 'var(--txt)',
+          ...(width ? { width } : { flex: 1, minWidth: 0 }),
+        }}
+      />
+    </div>
+  )
+}
+
 // ── DataTable ─────────────────────────────────────────────────────────────────
 
 export interface TableCol<T = any> {

@@ -323,7 +323,7 @@ function HeadTitles() {
   return (
     <div style={{ flexShrink: 0 }}>
       {crumb && (
-        <div style={{ fontSize: 11, color: 'var(--txt3)', marginBottom: 2, fontFamily: PLEX }}>
+        <div style={{ fontSize: 11, color: 'var(--txt3)', marginBottom: 2 }}>
           {crumb}
         </div>
       )}
@@ -488,7 +488,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
           el.style.borderColor = 'var(--bdr)'; el.style.color = 'var(--txt2)'
         }}
       >
-        <IcoApprove width={18} height={18} />
+        <IcoApprove width={16} height={16} />
         {pendingCount > 0 && (
           <span style={{
             position: 'absolute', top: -5, right: -5,
@@ -521,14 +521,14 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
 
           <div style={{ maxHeight: 380, overflowY: 'auto' }}>
             {items.length === 0 ? (
-              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--txt3)', fontSize: 13, fontFamily: PLEX }}>
+              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--txt3)', fontSize: 13, fontFamily: "'Sora', sans-serif" }}>
                 No pending approvals
               </div>
             ) : items.map(item => (
               <div key={item.id} style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)' }}>
                 {acted[item.id] ? (
                   <div style={{
-                    fontSize: 12.5, fontWeight: 600, fontFamily: PLEX,
+                    fontSize: 12.5, fontWeight: 600, fontFamily: "'Sora', sans-serif",
                     color: acted[item.id] === 'approved' ? GREEN : RED,
                   }}>
                     {acted[item.id] === 'approved' ? '✓ Approved' : '✗ Rejected'}
@@ -539,7 +539,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginBottom: 4, fontFamily: "'Sora', sans-serif", lineHeight: 1.3 }}>
                       {item.title}
                     </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginBottom: 10, fontFamily: PLEX, lineHeight: 1.4 }}>
+                    <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginBottom: 10, fontFamily: "'Sora', sans-serif", lineHeight: 1.4 }}>
                       {item.entity_name}
                       {item.amount_kobo != null && <> · <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtKobo(item.amount_kobo)}</span></>}
                       {(item.maker_name ?? item.requested_by) && <> · raised by {item.maker_name ?? item.requested_by}</>}
@@ -550,7 +550,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
                         style={{
                           padding: '4px 14px', borderRadius: 6, border: 'none',
                           background: GREEN, color: '#fff', fontSize: 12, fontWeight: 600,
-                          cursor: 'pointer', fontFamily: PLEX,
+                          cursor: 'pointer', fontFamily: "'Sora', sans-serif",
                         }}
                       >
                         Approve
@@ -560,7 +560,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
                         style={{
                           padding: '4px 14px', borderRadius: 6,
                           border: '1px solid var(--bdr)', background: 'transparent',
-                          color: 'var(--txt2)', fontSize: 12, cursor: 'pointer', fontFamily: PLEX,
+                          color: 'var(--txt2)', fontSize: 12, cursor: 'pointer', fontFamily: "'Sora', sans-serif",
                         }}
                       >
                         Reject
@@ -575,7 +575,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
           <div style={{ padding: '10px 16px', borderTop: '1px solid var(--bdr)' }}>
             <button
               onClick={() => { setOpen(false); navigate('/approvals') }}
-              style={{ fontSize: 12, color: BLUE, border: 'none', background: 'none', cursor: 'pointer', fontFamily: PLEX, padding: 0, fontWeight: 500 }}
+              style={{ fontSize: 12, color: BLUE, border: 'none', background: 'none', cursor: 'pointer', fontFamily: "'Sora', sans-serif", padding: 0, fontWeight: 500 }}
             >
               View all approvals →
             </button>
@@ -615,7 +615,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
 function ThemeToggle({ dark, onToggle }: { dark: boolean; onToggle: () => void }) {
   return (
     <TbBtn onClick={onToggle} title={dark ? 'Switch to light mode' : 'Switch to dark mode'}>
-      {dark ? <IcoSun width={18} height={18} /> : <IcoMoon width={18} height={18} />}
+      {dark ? <IcoSun width={16} height={16} /> : <IcoMoon width={16} height={16} />}
     </TbBtn>
   )
 }
@@ -666,29 +666,32 @@ function C360Bar({ onPick }: { onPick: (r: C360Hit) => void }) {
   }
 
   return (
-    <div ref={wrapRef} style={{ flex: 1, maxWidth: 380, marginLeft: 16, position: 'relative', cursor: 'text' }}>
-      <div style={{
+    <div
+      ref={wrapRef}
+      style={{
+        flex: 1, maxWidth: 380, marginLeft: 16, position: 'relative', cursor: 'text',
         display: 'flex', alignItems: 'center', gap: 8,
         border: `1px solid ${focused ? '#0EA5E9' : 'var(--bdr)'}`,
         borderRadius: 4, background: 'var(--card)',
         padding: '7px 11px', color: 'var(--txt3)',
         transition: 'border-color .12s',
-      }}>
-        <IcoSearch width={14} height={14} style={{ flexShrink: 0 }} />
-        <input
-          value={q}
-          onChange={e => search(e.target.value)}
-          onFocus={() => { setFocused(true); if (results.length > 0) setShow(true) }}
-          onBlur={() => setFocused(false)}
-          onKeyDown={e => { if (e.key === 'Escape') { setShow(false); setQ('') } }}
-          placeholder="Customer 360 — search name or CIF…"
-          style={{
-            border: 'none', outline: 'none', background: 'none', flex: 1,
-            fontFamily: "'Sora', sans-serif", fontSize: 12.5, color: 'var(--txt)',
-            minWidth: 0,
-          }}
-        />
-      </div>
+      }}
+    >
+      <IcoSearch width={14} height={14} style={{ flexShrink: 0 }} />
+      <input
+        className="srch-input"
+        value={q}
+        onChange={e => search(e.target.value)}
+        onFocus={() => { setFocused(true); if (results.length > 0) setShow(true) }}
+        onBlur={() => setFocused(false)}
+        onKeyDown={e => { if (e.key === 'Escape') { setShow(false); setQ('') } }}
+        placeholder="Customer 360 — search name or CIF…"
+        style={{
+          border: 'none', outline: 'none', background: 'none', flex: 1,
+          fontFamily: "'Sora', sans-serif", fontSize: 12.5, color: 'var(--txt)',
+          minWidth: 0,
+        }}
+      />
 
       {show && q.trim().length >= 2 && (
         <div style={{
@@ -734,11 +737,12 @@ function TopBar({
   onToggleDark: () => void
   onPickC360:  (r: C360Hit) => void
 }) {
+  const navigate = useNavigate()
   return (
     <div style={{
       flexShrink: 0,
       display: 'flex', alignItems: 'center',
-      padding: '14px 24px', gap: 0,
+      padding: '14px 24px', gap: 14,
       background: 'var(--card)',
       borderBottom: '1px solid var(--bdr)',
       boxShadow: '0 1px 0 var(--bdr)',
@@ -749,7 +753,7 @@ function TopBar({
       {/* Centre: C360 inline search — margin-left:16px matches demo */}
       <C360Bar onPick={onPickC360} />
 
-      {/* Right: icon buttons */}
+      {/* Right: icon buttons + primary action */}
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
         <ThemeToggle dark={dark} onToggle={onToggleDark} />
         <ApprovalsDropdown user={user} />

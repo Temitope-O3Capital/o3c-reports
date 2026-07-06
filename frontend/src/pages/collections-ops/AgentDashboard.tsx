@@ -1,270 +1,305 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, Spinner, Modal } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
-import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDate } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER } from '../../lib/design'
-import { toast } from 'sonner'
+import { apiFetch } from '../../lib/api'
+import { fmtKobo, fmtNum } from '../../lib/fmt'
+import { RED, GREEN, AMBER, NAVY, MONO, SORA } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface AgentDashboard {
-  agent_name: string
-  queue_count: number
-  ptps_due_today: number
-  broken_ptps: number
-  calls_today: number
-  calls_target: number
-  dpd_distribution: Array<{ band: string; count: number }>
-  my_accounts: Array<{
-    id: number
-    customer_name: string
-    phone: string
-    outstanding_kobo: number
-    dpd: number
-    last_contact: string | null
-    next_action: string | null
-  }>
+interface AgentRow {
+  id: number
+  full_name: string
+  assigned: number
+  contacts_today: number
+  ptps_today: number
+  ptps_honoured_today: number
+  portfolio_kobo: number
 }
 
-const OUTCOMES = [
-  { value: 'reached',       label: 'Reached' },
-  { value: 'not_reached',   label: 'Not Reached' },
-  { value: 'ptp',           label: 'Promise to Pay' },
-  { value: 'broken_ptp',    label: 'Promise Broken' },
-  { value: 'wrong_number',  label: 'Wrong Number' },
-]
+interface TeamDash {
+  total_assigned: number
+  overdue_promises: number
+  honoured_today: number
+  collected_today_kobo: number
+  contacts_today: number
+  target_kobo: number
+  ptp_kept_rate_pct: number
+  contact_rate_pct: number
+  cure_rate_pct: number
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function dpdColour(dpd: number): string {
-  if (dpd >= 90) return '#7F1D1D'
-  if (dpd >= 60) return RED
-  if (dpd >= 30) return '#EA580C'
-  if (dpd > 0)   return AMBER
-  return GREEN
+function getCurrentUser(): { id?: number; full_name?: string; role?: string } {
+  try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}') }
+  catch { return {} }
 }
 
-function fmtNaira(kobo: number): string {
-  return `₦${(kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+function isHead(role?: string) {
+  return role === 'collections_head' || role === 'admin'
 }
 
-// ── Stat tile ─────────────────────────────────────────────────────────────────
+// ── Stat card ─────────────────────────────────────────────────────────────────
 
-function Tile({ label, value, colour, sub }: { label: string; value: string | number; colour?: string; sub?: string }) {
+function Stat({ label, value, sub, accent }: { label: string; value: string | number; sub?: string; accent?: string }) {
   return (
-    <div style={{ flex: 1, minWidth: 110, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10, padding: '12px 16px' }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt3)', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 800, color: colour ?? 'var(--txt)', lineHeight: 1 }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--txt3)', marginTop: 3 }}>{sub}</div>}
+    <div style={{ flex: 1, minWidth: 130 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 5, fontFamily: MONO }}>{label}</div>
+      <div style={{ fontFamily: MONO, fontSize: 28, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: accent ?? 'var(--txt)', lineHeight: 1 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--txt2)', marginTop: 4, fontFamily: SORA }}>{sub}</div>}
     </div>
   )
 }
 
-// ── DPD Distribution ──────────────────────────────────────────────────────────
+// ── Progress bar ──────────────────────────────────────────────────────────────
 
-const DPD_BANDS = ['1-30', '31-60', '61-90', '90+']
-const DPD_COLOURS: Record<string, string> = { '1-30': AMBER, '31-60': '#EA580C', '61-90': RED, '90+': '#7F1D1D' }
-
-function DPDBar({ dist }: { dist: Array<{ band: string; count: number }> }) {
-  const total = dist.reduce((s, d) => s + Number(d.count), 0)
-  if (total === 0) return <div style={{ color: 'var(--txt3)', fontSize: 12.5 }}>No accounts in queue</div>
-
+function ProgressBar({ value, max, color }: { value: number; max: number; color: string }) {
+  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {DPD_BANDS.map(band => {
-        const entry = dist.find(d => d.band === band)
-        const count = Number(entry?.count ?? 0)
-        const pct   = Math.round((count / total) * 100)
-        const colour = DPD_COLOURS[band] ?? AMBER
-        return (
-          <div key={band} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 50, fontSize: 12, fontWeight: 600, color: colour, flexShrink: 0 }}>{band}</div>
-            <div style={{ flex: 1, height: 12, background: 'var(--th-bg)', borderRadius: 4, overflow: 'hidden' }}>
-              <div style={{ width: `${pct}%`, height: '100%', background: colour, borderRadius: 4, transition: 'width .4s' }} />
-            </div>
-            <div style={{ width: 32, fontSize: 12, fontWeight: 700, color: colour, textAlign: 'right', flexShrink: 0 }}>{count}</div>
-          </div>
-        )
-      })}
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12, fontFamily: MONO, fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{fmtNum(value)}</span>
+        <span style={{ color: 'var(--txt3)' }}>target {fmtNum(max)}</span>
+      </div>
+      <div style={{ height: 8, borderRadius: 99, background: 'var(--bdr)', overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 99, transition: 'width .5s ease' }} />
+      </div>
+      <div style={{ marginTop: 5, fontSize: 11, color, fontFamily: MONO, fontWeight: 600 }}>{pct}%</div>
     </div>
   )
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
+// ── Agent performance row ─────────────────────────────────────────────────────
+
+const COL: React.CSSProperties = { padding: '0 14px', height: 40, fontSize: 12.5, borderBottom: '1px solid var(--bdr)', verticalAlign: 'middle' }
+
+function AgentRow({ a }: { a: AgentRow }) {
+  const contactPct = a.assigned > 0 ? Math.round((a.contacts_today / a.assigned) * 100) : 0
+  const keptPct    = a.ptps_today > 0 ? Math.round((a.ptps_honoured_today / a.ptps_today) * 100) : 0
+  return (
+    <tr
+      onMouseEnter={e => { const cells = (e.currentTarget as HTMLElement).querySelectorAll('td'); cells.forEach(td => { (td as HTMLElement).style.background = 'var(--row-hvr)' }) }}
+      onMouseLeave={e => { const cells = (e.currentTarget as HTMLElement).querySelectorAll('td'); cells.forEach(td => { (td as HTMLElement).style.background = '' }) }}
+    >
+      <td style={{ ...COL, paddingLeft: 24, fontWeight: 600, color: 'var(--txt)' }}>{a.full_name}</td>
+      <td style={{ ...COL, fontFamily: MONO, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>{fmtNum(a.assigned)}</td>
+      <td style={{ ...COL, fontFamily: MONO, textAlign: 'right' }}>
+        <span style={{ fontWeight: 600, color: a.contacts_today > 0 ? GREEN : 'var(--txt2)' }}>{fmtNum(a.contacts_today)}</span>
+        {a.assigned > 0 && <span style={{ color: 'var(--txt3)', fontSize: 11, marginLeft: 4 }}>{contactPct}%</span>}
+      </td>
+      <td style={{ ...COL, fontFamily: MONO, textAlign: 'right' }}>
+        <span style={{ fontWeight: 600, color: a.ptps_today > 0 ? AMBER : 'var(--txt2)' }}>{fmtNum(a.ptps_today)}</span>
+      </td>
+      <td style={{ ...COL, fontFamily: MONO, textAlign: 'right' }}>
+        <span style={{ fontWeight: 600, color: keptPct >= 70 ? GREEN : keptPct >= 40 ? AMBER : RED }}>{fmtNum(a.ptps_honoured_today)}</span>
+        {a.ptps_today > 0 && <span style={{ color: 'var(--txt3)', fontSize: 11, marginLeft: 4 }}>{keptPct}%</span>}
+      </td>
+      <td style={{ ...COL, fontFamily: MONO, textAlign: 'right', paddingRight: 24 }}>{fmtKobo(a.portfolio_kobo)}</td>
+    </tr>
+  )
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+
+const AGENT_PAGE_SIZE = 25
 
 export default function AgentDashboard() {
-  const [data, setData]   = useState<AgentDashboard | null>(null)
+  const [agents, setAgents]   = useState<AgentRow[]>([])
+  const [team,   setTeam]     = useState<TeamDash | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [agentPage, setAgentPage] = useState(1)
 
-  // Log call modal
-  const [logAccount, setLogAccount] = useState<AgentDashboard['my_accounts'][0] | null>(null)
-  const [outcome, setOutcome]       = useState('reached')
-  const [notes, setNotes]           = useState('')
-  const [logging, setLogging]       = useState(false)
+  const user = getCurrentUser()
+  const head = isHead(user.role)
 
   const load = useCallback(async () => {
-    setLoading(true); setError(null)
+    setLoading(true)
     try {
-      const d = await apiFetch<AgentDashboard>('/api/collections-ops/agent-dashboard')
-      setData(d)
-    } catch (e: any) { setError(e.message) }
+      const [agentRes, teamRes] = await Promise.all([
+        apiFetch<{ data: AgentRow[] } | AgentRow[]>('/api/collections-ops/agent-dashboard'),
+        apiFetch<TeamDash | { data: TeamDash }>('/api/collections-ops/dashboard'),
+      ])
+      // Handle both array-direct and {data: ...} wrapper
+      const agentArr = Array.isArray(agentRes)
+        ? agentRes as AgentRow[]
+        : (agentRes as { data: AgentRow[] }).data ?? []
+      setAgents(agentArr)
+
+      const teamData = (teamRes as { data?: TeamDash }).data ?? teamRes as TeamDash
+      setTeam(teamData)
+    } catch { /* silent — show empty state */ }
     finally { setLoading(false) }
   }, [])
 
   useEffect(() => { load() }, [load])
 
-  async function handleLogCall() {
-    if (!logAccount) return
-    setLogging(true)
-    try {
-      await apiPost('/api/collections-ops/log-call', {
-        account_id: logAccount.id,
-        outcome,
-        notes,
-      })
-      toast.success('Call logged')
-      setLogAccount(null)
-      setNotes('')
-      load()
-    } catch (e: any) { toast.error(e.message) }
-    finally { setLogging(false) }
+  // Personal stats — for agents: first (only) row; for heads: find own row
+  const me = head
+    ? agents.find(a => a.id === user.id) ?? agents[0]
+    : agents[0]
+
+  const contactTarget = team?.total_assigned ?? 0
+  const collectedPct  = team && team.target_kobo > 0
+    ? Math.min(100, Math.round((team.collected_today_kobo / team.target_kobo) * 100))
+    : 0
+  const collectedColor = collectedPct >= 100 ? GREEN : collectedPct >= 60 ? AMBER : RED
+
+  const TH: React.CSSProperties = {
+    padding: '8px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700,
+    letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--txt3)',
+    borderTop: '1px solid var(--bdr)', borderBottom: '1px solid var(--bdr)',
+    background: 'var(--bg)', whiteSpace: 'nowrap', position: 'sticky', top: 0, zIndex: 1,
   }
 
-  const callsTarget = data?.calls_target ?? 0
-  const callsToday  = data?.calls_today  ?? 0
-  const callsPct    = callsTarget > 0 ? Math.min(Math.round((callsToday / callsTarget) * 100), 100) : 0
-  const callsColour = callsPct >= 100 ? GREEN : callsPct >= 50 ? AMBER : RED
-
-  const cols: TableCol<AgentDashboard['my_accounts'][0]>[] = [
-    { key: 'customer_name', label: 'Customer', render: r => r.customer_name || '—' },
-    {
-      key: 'phone', label: 'Phone',
-      render: r => (
-        <a href={`tel:${r.phone}`} style={{ color: NAVY, fontWeight: 600, textDecoration: 'none' }}>{r.phone}</a>
-      ),
-    },
-    {
-      key: 'outstanding_kobo', label: 'Outstanding',
-      render: r => <span style={{ fontWeight: 600 }}>{fmtNaira(r.outstanding_kobo)}</span>,
-    },
-    {
-      key: 'dpd', label: 'DPD',
-      render: r => (
-        <span style={{ fontWeight: 700, color: dpdColour(r.dpd) }}>
-          {r.dpd > 0 ? `${r.dpd}d` : 'Current'}
-        </span>
-      ),
-    },
-    {
-      key: 'last_contact', label: 'Last Contact',
-      render: r => r.last_contact ? fmtDate(r.last_contact) : <span style={{ color: 'var(--txt3)' }}>Never</span>,
-    },
-    {
-      key: 'next_action', label: 'Next Action',
-      render: r => r.next_action || <span style={{ color: 'var(--txt3)' }}>—</span>,
-    },
-    {
-      key: 'id', label: '',
-      render: r => (
-        <button
-          onClick={() => { setLogAccount(r); setOutcome('reached'); setNotes('') }}
-          style={{ padding: '4px 11px', borderRadius: 6, border: `1.5px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-        >
-          Log Call
-        </button>
-      ),
-    },
-  ]
-
-  if (loading) return <Page title="My Collections Dashboard"><div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner size={32} /></div></Page>
-
   return (
-    <Page title="My Collections Dashboard" subtitle="Personal queue and performance">
-      <ErrBanner error={error} onRetry={load} />
+    <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, fontFamily: SORA }}>
 
-      {data && (
-        <>
-          {/* Stat strip */}
-          <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-            <Tile label="Queue Size"      value={data.queue_count} />
-            <Tile label="PTPs Due Today"  value={data.ptps_due_today}  colour={data.ptps_due_today > 0 ? AMBER : GREEN} />
-            <Tile label="Broken PTPs"     value={data.broken_ptps}     colour={data.broken_ptps > 0 ? RED : GREEN} />
-            <div style={{ flex: 1, minWidth: 160, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10, padding: '12px 16px' }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt3)', marginBottom: 4 }}>Calls Today</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: callsColour, lineHeight: 1, marginBottom: 6 }}>
-                {callsToday} / {callsTarget}
-              </div>
-              <div style={{ height: 6, borderRadius: 3, background: 'var(--th-bg)', overflow: 'hidden' }}>
-                <div style={{ width: `${callsPct}%`, height: '100%', background: callsColour, borderRadius: 3, transition: 'width .4s' }} />
-              </div>
+      {/* ── Personal hero ── */}
+      <section style={{ padding: '26px 28px 24px', borderBottom: '1px solid var(--bdr)' }}>
+        <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 6, fontFamily: MONO }}>
+          My Dashboard · Today
+        </div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', marginBottom: 20 }}>
+          {loading ? '—' : (me?.full_name ?? user.full_name ?? 'Collections Agent')}
+        </div>
+
+        <div style={{ display: 'flex', gap: 44, flexWrap: 'wrap' }}>
+          <Stat label="Assigned" value={loading ? '—' : fmtNum(me?.assigned ?? 0)} sub="active accounts" />
+          <Stat label="Contacts Today" value={loading ? '—' : fmtNum(me?.contacts_today ?? 0)} sub="calls & messages logged" accent={me?.contacts_today ? GREEN : undefined} />
+          <Stat label="Promises Today" value={loading ? '—' : fmtNum(me?.ptps_today ?? 0)} sub="recorded today" accent={me?.ptps_today ? AMBER : undefined} />
+          <Stat label="Promises Kept" value={loading ? '—' : fmtNum(me?.ptps_honoured_today ?? 0)} sub="honoured today" accent={me?.ptps_honoured_today ? GREEN : undefined} />
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 5, fontFamily: MONO }}>Portfolio</div>
+            <div style={{ fontFamily: MONO, fontSize: 20, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', lineHeight: 1 }}>
+              {loading ? '—' : fmtKobo(me?.portfolio_kobo ?? 0)}
             </div>
-          </div>
-
-          {/* DPD distribution */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16, marginBottom: 16 }}>
-            <SectionCard title="DPD Distribution">
-              <DPDBar dist={data.dpd_distribution} />
-            </SectionCard>
-
-            <SectionCard title="My Accounts">
-              {data.my_accounts.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt3)', fontSize: 13 }}>
-                  No accounts assigned to you.
-                </div>
-              ) : (
-                <DataTable cols={cols} rows={data.my_accounts} />
-              )}
-            </SectionCard>
-          </div>
-        </>
-      )}
-
-      {/* Log Call modal */}
-      <Modal
-        open={!!logAccount}
-        onClose={() => setLogAccount(null)}
-        title={`Log Call — ${logAccount?.customer_name ?? ''}`}
-        width={420}
-        footer={
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={handleLogCall} disabled={logging}
-              style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: logging ? 'wait' : 'pointer', opacity: logging ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {logging && <Spinner size={13} color="#fff" />}
-              Save
-            </button>
-            <button onClick={() => setLogAccount(null)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-          </div>
-        }
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 6 }}>Outcome</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-              {OUTCOMES.map(o => (
-                <button key={o.value} onClick={() => setOutcome(o.value)}
-                  style={{
-                    padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                    border: `1.5px solid ${outcome === o.value ? NAVY : 'var(--bdr)'}`,
-                    background: outcome === o.value ? NAVY : 'var(--card)',
-                    color: outcome === o.value ? '#fff' : 'var(--txt)',
-                  }}>
-                  {o.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>Notes</label>
-            <textarea
-              value={notes} onChange={e => setNotes(e.target.value)}
-              rows={3} placeholder="Optional call notes…"
-              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', boxSizing: 'border-box' }}
-            />
+            <div style={{ fontSize: 11, color: 'var(--txt2)', marginTop: 4 }}>total outstanding in queue</div>
           </div>
         </div>
-      </Modal>
-    </Page>
+      </section>
+
+      {/* ── Team-level KPIs (visible to all, context for agents) ── */}
+      <section style={{ padding: '20px 28px', borderBottom: '1px solid var(--bdr)', background: 'var(--bg)' }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 16, fontFamily: MONO }}>
+          {head ? 'Team Performance · Today' : 'Team Targets · Today'}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 20 }}>
+          {[
+            { label: 'Total Assigned',    val: team ? fmtNum(team.total_assigned)                   : '—', sub: 'active accounts' },
+            { label: 'Contacts Today',    val: team ? fmtNum(team.contacts_today)                  : '—', sub: `${team?.contact_rate_pct?.toFixed(1) ?? '—'}% contact rate` },
+            { label: 'Overdue Promises',  val: team ? fmtNum(team.overdue_promises)                : '—', sub: 'past due date',    accent: (team?.overdue_promises ?? 0) > 0 ? AMBER : undefined },
+            { label: 'Honoured Today',    val: team ? fmtNum(team.honoured_today)                  : '—', sub: `${team?.ptp_kept_rate_pct?.toFixed(1) ?? '—'}% kept rate`,  accent: GREEN },
+            { label: 'Collected Today',   val: team ? fmtKobo(team.collected_today_kobo)           : '—', sub: `vs ₦${team ? (team.target_kobo/100).toLocaleString('en-NG',{maximumFractionDigits:0}) : '—'} target`, accent: collectedColor },
+            { label: 'Cure Rate',         val: team ? `${team.cure_rate_pct?.toFixed(1) ?? 0}%`   : '—', sub: 'moved to current bucket' },
+          ].map(({ label, val, sub, accent }) => (
+            <div key={label}>
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 5, fontFamily: MONO }}>{label}</div>
+              <div style={{ fontFamily: MONO, fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: accent ?? 'var(--txt)' }}>{loading ? '—' : val}</div>
+              <div style={{ fontSize: 11, color: 'var(--txt2)', marginTop: 3 }}>{sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Collection target progress */}
+        {team && team.target_kobo > 0 && (
+          <div style={{ marginTop: 20, maxWidth: 480 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 8, fontFamily: MONO }}>Collection target progress</div>
+            <ProgressBar value={team.collected_today_kobo / 100} max={team.target_kobo / 100} color={collectedColor} />
+          </div>
+        )}
+      </section>
+
+      {/* ── Agent performance table (heads only) ── */}
+      {head && (
+        <section style={{ paddingBottom: 40 }}>
+          <div style={{ padding: '14px 24px', borderBottom: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>Agent Performance</span>
+            <span style={{ fontFamily: MONO, fontSize: 12, color: 'var(--txt3)' }}>{agents.length} agents</span>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {[
+                    { label: 'Agent',            pl: 24 },
+                    { label: 'Assigned',         r: true },
+                    { label: 'Contacts Today',   r: true },
+                    { label: 'Promises Today',   r: true },
+                    { label: 'Kept Today',       r: true },
+                    { label: 'Portfolio',        r: true, pr: 24 },
+                  ].map(col => (
+                    <th key={col.label} style={{ ...TH, ...(col.r ? { textAlign: 'right' } : {}), ...(col.pl ? { paddingLeft: col.pl } : {}), ...((col as any).pr ? { paddingRight: (col as any).pr } : {}) }}>
+                      {col.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  Array.from({ length: 5 }).map((_, i) => (
+                    <tr key={i}>{Array.from({ length: 6 }).map((_, j) => (
+                      <td key={j} style={COL}><div style={{ height: 12, borderRadius: 4, background: 'var(--bdr)', width: '70%' }} /></td>
+                    ))}</tr>
+                  ))
+                ) : agents.length === 0 ? (
+                  <tr><td colSpan={6} style={{ ...COL, textAlign: 'center', padding: 32, color: 'var(--txt3)' }}>No agent data available</td></tr>
+                ) : (
+                  agents.slice((agentPage - 1) * AGENT_PAGE_SIZE, agentPage * AGENT_PAGE_SIZE).map(a => <AgentRow key={a.id} a={a} />)
+                )}
+              </tbody>
+            </table>
+          </div>
+          {agents.length > AGENT_PAGE_SIZE && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderTop: '1px solid var(--bdr)' }}>
+              <span style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: MONO }}>
+                {(agentPage - 1) * AGENT_PAGE_SIZE + 1}–{Math.min(agentPage * AGENT_PAGE_SIZE, agents.length)} of {agents.length}
+              </span>
+              <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                <button onClick={() => setAgentPage(p => Math.max(1, p - 1))} disabled={agentPage === 1}
+                  style={{ padding: '5px 12px', borderRadius: 7, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt)', fontSize: 12, fontWeight: 600, cursor: agentPage === 1 ? 'default' : 'pointer', fontFamily: SORA, opacity: agentPage === 1 ? 0.4 : 1 }}>
+                  ← Prev
+                </button>
+                <span style={{ fontSize: 12, fontFamily: MONO, fontWeight: 600, color: 'var(--txt)', minWidth: 64, textAlign: 'center' }}>
+                  {agentPage} / {Math.ceil(agents.length / AGENT_PAGE_SIZE)}
+                </span>
+                <button onClick={() => setAgentPage(p => Math.min(Math.ceil(agents.length / AGENT_PAGE_SIZE), p + 1))} disabled={agentPage >= Math.ceil(agents.length / AGENT_PAGE_SIZE)}
+                  style={{ padding: '5px 12px', borderRadius: 7, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt)', fontSize: 12, fontWeight: 600, cursor: agentPage >= Math.ceil(agents.length / AGENT_PAGE_SIZE) ? 'default' : 'pointer', fontFamily: SORA, opacity: agentPage >= Math.ceil(agents.length / AGENT_PAGE_SIZE) ? 0.4 : 1 }}>
+                  Next →
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ── Non-head: contact prompt ── */}
+      {!head && !loading && (
+        <section style={{ padding: '28px', borderTop: '1px solid var(--bdr)' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 12, fontFamily: MONO }}>
+            Contact Rate Breakdown
+          </div>
+          <div style={{ display: 'flex', gap: 40, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 6, fontFamily: MONO }}>Contacts vs Assigned</div>
+              <ProgressBar
+                value={me?.contacts_today ?? 0}
+                max={Math.max(me?.assigned ?? 0, 1)}
+                color={contactTarget > 0 ? GREEN : AMBER}
+              />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 6, fontFamily: MONO }}>Promises Kept Today</div>
+              <ProgressBar
+                value={me?.ptps_honoured_today ?? 0}
+                max={Math.max(me?.ptps_today ?? 0, 1)}
+                color={me?.ptps_today ? GREEN : AMBER}
+              />
+            </div>
+          </div>
+          <div style={{ marginTop: 20, padding: '14px 16px', background: `${NAVY}08`, borderRadius: 8, border: `1px solid ${NAVY}18`, fontSize: 13, color: 'var(--txt)', lineHeight: 1.6 }}>
+            <strong>Quick tip:</strong> Head to <a href="/collections/queue" style={{ color: NAVY, fontWeight: 600 }}>Agent Queue</a> to view and action your assigned accounts, or <a href="/collections/promises" style={{ color: NAVY, fontWeight: 600 }}>Promises to Pay</a> to update promise statuses.
+          </div>
+        </section>
+      )}
+    </div>
   )
 }

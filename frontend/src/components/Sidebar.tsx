@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { useLocation, Link, useNavigate } from 'react-router-dom'
 import { roleLabel } from '../lib/roles'
 import { SORA, PLEX, MONO } from '../lib/design'
-import { NAV_ICONS } from '../lib/icons'
+import { NAV_ICONS, IcoSearch } from '../lib/icons'
 import type { AuthUser } from '../hooks/useAuth'
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
@@ -328,7 +328,7 @@ function SubLink({ sub, active }: { sub: SubItem; active: boolean }) {
       style={{
         display: 'flex', alignItems: 'center',
         padding: '6px 14px 6px 40px',
-        fontSize: 12, fontFamily: PLEX,
+        fontSize: 12, fontFamily: SORA,
         color: active ? '#7DD3FC' : 'rgba(255,255,255,.5)',
         borderLeft: active ? '3px solid #0EA5E9' : '3px solid transparent',
         textDecoration: 'none',
@@ -397,7 +397,7 @@ function NavRow({
   const content = (
     <>
       {Ico
-        ? <Ico width={16} height={16} style={{ flexShrink: 0 }} />
+        ? <Ico width={16} height={16} style={{ flexShrink: 0, opacity: 0.85 }} />
         : <span className="material-symbols-rounded" style={{ fontSize: 16, flexShrink: 0, opacity: 0.85 }}>{item.icon}</span>
       }
       {!collapsed && (
@@ -535,7 +535,6 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
       height: '100vh', flexShrink: 0,
       background: 'var(--sb)',
       color: 'rgba(255,255,255,.72)',
-      overflow: 'hidden',
       transition: 'width 180ms ease, min-width 180ms ease',
       position: 'relative', zIndex: 10,
     }}>
@@ -546,12 +545,12 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
         padding: collapsed ? '16px 8px 14px' : '16px 14px 14px',
         borderBottom: '1px solid rgba(255,255,255,.08)',
         justifyContent: collapsed ? 'center' : undefined,
-        flexShrink: 0,
+        flexShrink: 0, overflow: 'hidden',
       }}>
-        {/* O3 red square logo */}
+        {/* Brand mark — sky gradient matching demo */}
         <div style={{
           width: 28, height: 28, minWidth: 28, borderRadius: 4,
-          background: '#C00000',
+          background: 'linear-gradient(135deg,#0EA5E9,#0369A1)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontWeight: 700, fontSize: 13, color: '#fff', fontFamily: SORA,
         }}>
@@ -559,18 +558,20 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
         </div>
 
         {!collapsed && (
-          <div>
-            <div style={{ fontWeight: 600, fontSize: 13, color: '#fff', whiteSpace: 'nowrap', fontFamily: SORA }}>
-              O3 <span style={{ color: '#C00000' }}>Capital</span>
+          <>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 13, color: '#fff', whiteSpace: 'nowrap', fontFamily: SORA }}>
+                O3 Capital
+              </div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,.45)', letterSpacing: '.04em', whiteSpace: 'nowrap', fontFamily: SORA }}>
+                WORKSPACE
+              </div>
             </div>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,.45)', letterSpacing: '.04em', whiteSpace: 'nowrap', fontFamily: SORA }}>
-              WORKSPACE
-            </div>
-          </div>
+          </>
         )}
       </div>
 
-      {/* Floating collapse tab */}
+      {/* Floating collapse/expand tab */}
       <div
         onClick={() => setCollapsed(c => !c)}
         title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -621,7 +622,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
             ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.45)'
           }}
         >
-          <span className="material-symbols-rounded" style={{ fontSize: 14, opacity: 0.6, flexShrink: 0 }}>search</span>
+          <IcoSearch width={14} height={14} style={{ opacity: 0.6, flexShrink: 0 }} />
           <span style={{ flex: 1, textAlign: 'left' }}>Jump to…</span>
           <kbd style={{
             fontFamily: MONO, fontSize: 10,
@@ -637,7 +638,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
 
       {/* ── Nav ───────────────────────────────────────────────────────────── */}
       <nav style={{
-        flex: 1, overflowY: 'auto', overflowX: 'hidden',
+        flex: 1, overflowY: 'auto', overflowX: 'clip',
         padding: '8px 0',
         scrollbarWidth: 'thin',
         scrollbarColor: 'var(--sb2) transparent',
@@ -663,7 +664,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
       </nav>
 
       {/* ── User footer ───────────────────────────────────────────────────── */}
-      <div style={{ flexShrink: 0, borderTop: '1px solid rgba(255,255,255,.08)' }}>
+      <div style={{ flexShrink: 0, borderTop: '1px solid rgba(255,255,255,.08)', overflow: 'hidden' }}>
         {utilities && (
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -694,7 +695,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
                 <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: SORA }}>
                   {user.name}
                 </div>
-                <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.45)', whiteSpace: 'nowrap', fontFamily: PLEX }}>
+                <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.45)', whiteSpace: 'nowrap', fontFamily: SORA }}>
                   {roleLabel(user.role as string)}
                 </div>
               </div>
@@ -716,6 +717,24 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
             </>
           )}
         </div>
+
+        {/* Sync strip — shown only when expanded */}
+        {!collapsed && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 7,
+            padding: '8px 14px', fontSize: 10.5,
+            background: 'rgba(0,0,0,.22)', color: 'rgba(255,255,255,.5)',
+            whiteSpace: 'nowrap', fontFamily: MONO,
+          }}>
+            <span style={{
+              width: 6, height: 6, minWidth: 6, borderRadius: '50%',
+              background: '#2FB673',
+              boxShadow: '0 0 0 3px rgba(47,182,115,.2)',
+              display: 'inline-block', flexShrink: 0,
+            }} />
+            DB sync · live · recon OK
+          </div>
+        )}
       </div>
     </aside>
   )

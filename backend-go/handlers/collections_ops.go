@@ -18,7 +18,9 @@ func RegisterCollectionsOps(r chi.Router, db *core.DB) {
 	r.With(head).Put("/{id}/assign", collectionsOpsAssign(db))
 	r.With(base).Post("/{id}/contact", collectionsOpsContact(db))
 	r.With(base).Post("/{id}/promise", collectionsOpsPromise(db))
-	r.With(base).Put("/promises/{pid}/honour", collectionsOpsHonourPromise(db))
+	r.With(base).Get("/promises", collectionsOpsListPromises(db))
+	r.With(base).Put("/promises/{pid}/kept", collectionsOpsHonourPromise(db))
+	r.With(base).Put("/promises/{pid}/honour", collectionsOpsHonourPromise(db)) // legacy alias
 	r.With(base).Put("/promises/{pid}/broken", collectionsOpsBrokenPromise(db))
 	r.With(base).Get("/targets", collectionsOpsTargets(db))
 	r.With(head).Put("/targets", collectionsOpsUpsertTarget(db))
@@ -30,6 +32,11 @@ func RegisterCollectionsOps(r chi.Router, db *core.DB) {
 	r.With(base).Post("/repayment-plans", collectionsOpsCreatePlan(db))
 	r.With(base).Get("/repayment-plans/{pid}/instalments", collectionsOpsListInstalments(db))
 	r.With(base).Put("/repayment-plans/instalments/{iid}/paid", collectionsOpsMarkPaid(db))
+
+	r.With(base).Get("/writeoffs", collectionsOpsListWriteoffs(db))
+	r.With(head).Post("/writeoffs/{id}/approve", collectionsOpsApproveWriteoff(db))
+	r.With(head).Post("/writeoffs/{id}/return-recovery", collectionsOpsReturnWriteoff(db))
+	r.With(head).Post("/writeoffs/bulk-approve", collectionsOpsBulkApproveWriteoff(db))
 }
 
 func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
@@ -731,5 +738,220 @@ func collectionsOpsMarkPaid(db *core.DB) http.HandlerFunc {
 			 WHERE id=$1`, planID)
 
 		respond(w, map[string]any{"status": "paid"}, "json")
+	}
+}
+
+/* ── Promise list ─────────────────────────────────────────────────────────── */
+
+func collectionsOpsListPromises(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		dateFrom, _ := validDate(r, "date_from")
+		dateTo, _   := validDate(r, "date_to")
+		status      := qstr(r, "status")
+		limit       := qint(r, "limit", 200, 1, 500)
+
+		query := `
+			SELECT
+				cp.id,
+				cp.cif_number                                        AS account_cif,
+				ca.customer_name,
+				COALESCE(ca.outstanding_kobo, 0)                    AS outstanding_kobo,
+				cp.promised_amount_kobo                             AS promise_amount_kobo,
+				cp.promised_date                                     AS promise_date,
+				CASE
+					WHEN cp.is_kept IS NULL  THEN 'Pending'
+					WHEN cp.is_kept = TRUE   THEN 'Kept'
+					ELSE 'Broken'
+				END                                                  AS status,
+				u.full_name                                          AS agent_name,
+				cp.created_at
+			FROM collection_promises cp
+			LEFT JOIN o3c_users u ON cp.agent_user_id = u.id
+			LEFT JOIN LATERAL (
+				SELECT outstanding_kobo, customer_name
+				FROM collection_assignments
+				WHERE account_cif = cp.cif_number
+				ORDER BY updated_at DESC LIMIT 1
+			) ca ON TRUE
+			WHERE 1=1`
+		args := []any{}
+		n := 1
+
+		if dateFrom != "" {
+			query += fmt.Sprintf(" AND cp.promised_date >= $%d", n)
+			args = append(args, dateFrom); n++
+		}
+		if dateTo != "" {
+			query += fmt.Sprintf(" AND cp.promised_date <= $%d", n)
+			args = append(args, dateTo); n++
+		}
+		if status != "" {
+			switch status {
+			case "Pending":
+				query += " AND cp.is_kept IS NULL"
+			case "Kept":
+				query += " AND cp.is_kept = TRUE"
+			case "Broken":
+				query += " AND cp.is_kept = FALSE"
+			}
+		}
+
+		query += fmt.Sprintf(" ORDER BY cp.promised_date ASC LIMIT $%d", n)
+		args = append(args, limit)
+
+		rows, err := db.PGQuery(ctx, query, args...)
+		if err != nil {
+			respondErr(w, 500, "Query failed"); return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, map[string]any{"data": rows}, "pg")
+	}
+}
+
+/* ── Write-off queue ─────────────────────────────────────────────────────── */
+
+func collectionsOpsListWriteoffs(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		dateFrom, _ := validDate(r, "date_from")
+		dateTo, _   := validDate(r, "date_to")
+		dpdRange    := qstr(r, "dpd_range")
+		limit       := qint(r, "limit", 100, 1, 500)
+
+		query := `
+			SELECT
+				wo.id,
+				rc.account_cif,
+				NULL::text                                    AS customer_name,
+				rc.outstanding_kobo,
+				CAST(REGEXP_REPLACE(COALESCE(rc.dpd_at_handoff,'0'),'\D','','g') AS INT)
+				                                              AS dpd,
+				NULL::date                                    AS last_payment_date,
+				(SELECT COUNT(*) FROM recovery_visits rv WHERE rv.case_id = rc.id)
+				                                              AS recovery_attempts,
+				req.full_name                                 AS recommended_by
+			FROM recovery_write_off_approvals wo
+			JOIN recovery_cases rc ON wo.case_id = rc.id
+			LEFT JOIN o3c_users req ON wo.requested_by = req.id
+			WHERE wo.status = 'pending'`
+		args := []any{}
+		n := 1
+
+		if dateFrom != "" {
+			query += fmt.Sprintf(" AND wo.created_at::date >= $%d", n)
+			args = append(args, dateFrom); n++
+		}
+		if dateTo != "" {
+			query += fmt.Sprintf(" AND wo.created_at::date <= $%d", n)
+			args = append(args, dateTo); n++
+		}
+		if dpdRange != "" {
+			switch dpdRange {
+			case "181-360":
+				query += " AND CAST(REGEXP_REPLACE(COALESCE(rc.dpd_at_handoff,'0'),'\\D','','g') AS INT) BETWEEN 181 AND 360"
+			case "361-720":
+				query += " AND CAST(REGEXP_REPLACE(COALESCE(rc.dpd_at_handoff,'0'),'\\D','','g') AS INT) BETWEEN 361 AND 720"
+			case "720+":
+				query += " AND CAST(REGEXP_REPLACE(COALESCE(rc.dpd_at_handoff,'0'),'\\D','','g') AS INT) > 720"
+			}
+		}
+
+		query += fmt.Sprintf(" ORDER BY wo.created_at DESC LIMIT $%d", n)
+		args = append(args, limit)
+
+		rows, err := db.PGQuery(ctx, query, args...)
+		if err != nil {
+			respondErr(w, 500, "Query failed"); return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, map[string]any{"data": rows}, "pg")
+	}
+}
+
+func collectionsOpsApproveWriteoff(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Invalid write-off ID"); return
+		}
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+
+		rows, err := db.PGQuery(ctx,
+			`SELECT status FROM recovery_write_off_approvals WHERE id=$1`, id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Write-off not found"); return
+		}
+		if str(rows[0]["status"]) != "pending" {
+			respondErr(w, 422, "Write-off already processed"); return
+		}
+
+		_, err = db.PGExec(ctx,
+			`UPDATE recovery_write_off_approvals
+			 SET status='approved', approved_by=$1, approved_at=NOW()
+			 WHERE id=$2`,
+			user.ID, id)
+		if err != nil {
+			respondErr(w, 500, "Approve failed"); return
+		}
+		respondErr(w, 200, "Write-off approved")
+	}
+}
+
+func collectionsOpsReturnWriteoff(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Invalid write-off ID"); return
+		}
+		ctx := r.Context()
+
+		caseRows, err := db.PGQuery(ctx,
+			`SELECT case_id FROM recovery_write_off_approvals WHERE id=$1`, id)
+		if err != nil || len(caseRows) == 0 {
+			respondErr(w, 404, "Write-off not found"); return
+		}
+
+		// Reject the write-off and reopen the recovery case
+		db.PGExec(ctx, //nolint:errcheck
+			`UPDATE recovery_write_off_approvals SET status='rejected' WHERE id=$1`, id)
+		db.PGExec(ctx, //nolint:errcheck
+			`UPDATE recovery_cases SET status='open', updated_at=NOW() WHERE id=$1`,
+			caseRows[0]["case_id"])
+
+		respondErr(w, 200, "Returned to recovery")
+	}
+}
+
+func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
+	type body struct {
+		IDs []int64 `json:"ids"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || len(b.IDs) == 0 {
+			respondErr(w, 400, "ids array required"); return
+		}
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+
+		count := 0
+		for _, id := range b.IDs {
+			res, err := db.PGQuery(ctx,
+				`UPDATE recovery_write_off_approvals
+				 SET status='approved', approved_by=$1, approved_at=NOW()
+				 WHERE id=$2 AND status='pending'
+				 RETURNING id`,
+				user.ID, id)
+			if err == nil && len(res) > 0 {
+				count++
+			}
+		}
+		respond(w, map[string]any{"approved": count}, "json")
 	}
 }

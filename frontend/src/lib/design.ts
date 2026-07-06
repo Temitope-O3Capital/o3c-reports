@@ -6,9 +6,9 @@ import type React from 'react'
 
 // ── Typography ────────────────────────────────────────────────────────────────
 export const SORA  = "'Sora', ui-sans-serif, sans-serif"
-export const INTER = "'Inter', ui-sans-serif, sans-serif"
-export const PLEX  = "'IBM Plex Sans', ui-sans-serif, sans-serif"
-export const MONO  = "'Roboto Mono', ui-monospace, monospace"
+export const INTER = "'Sora', ui-sans-serif, sans-serif"   // alias → Sora
+export const PLEX  = "'Sora', ui-sans-serif, sans-serif"   // alias → Sora
+export const MONO  = "'Roboto', ui-sans-serif, sans-serif"
 export const NUM: React.CSSProperties = {
   fontFamily: MONO,
   fontVariantNumeric: 'tabular-nums',
@@ -60,7 +60,7 @@ export const LIGHT: ThemeVars = {
   '--sub-act': '#FFFFFF',
   '--card': '#FFFFFF', '--card-bdr': '#E8EBF2',
   '--card-shadow': '0 1px 2px rgba(0,0,0,0.04), 0 4px 18px rgba(0,0,0,0.05)',
-  '--txt': '#0F1623', '--txt2': '#798094', '--txt3': '#C0C8D8',
+  '--txt': '#0F1623', '--txt2': '#5A6672', '--txt3': '#8A95A1',
   '--bdr': '#E8EBF2', '--row-hvr': '#F8F9FC', '--row-sel': '#FFF2F2',
   '--th-bg': '#F6F8FC', '--input-bg': '#F2F4F9', '--input-bdr': '#DDE0EA',
   '--chip-bg': '#EEF0F8', '--chip-txt': '#4A5270',

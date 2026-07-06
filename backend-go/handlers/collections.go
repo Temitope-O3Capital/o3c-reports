@@ -19,6 +19,9 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Get("/roll-rate", collectionsRollRate(db))
 	r.Get("/log", collectionsLog(db))
 	r.Get("/export", collectionsExport(db))
+	r.Get("/promise-kpis", collectionsPromiseKPIs(db))
+	r.Get("/repayment-kpis", collectionsRepaymentKPIs(db))
+	r.Get("/writeoff-kpis", collectionsWriteoffKPIs(db))
 }
 
 // collectionsPortfolioKPIs returns PAR-based KPIs from collection_assignments.
@@ -349,5 +352,82 @@ func collectionsExport(db *core.DB) http.HandlerFunc {
 		name := fmt.Sprintf("collections_%s_%s.csv",
 			coalesce(dateFrom, "all"), coalesce(dateTo, "all"))
 		streamCSV(w, name, data)
+	}
+}
+
+func collectionsPromiseKPIs(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+				COUNT(*)                                                      AS total,
+				COUNT(*) FILTER (WHERE is_kept = TRUE)                        AS kept,
+				COUNT(*) FILTER (WHERE is_kept = FALSE)                       AS broken,
+				COALESCE(SUM(promised_amount_kobo), 0)                        AS amount_promised_kobo
+			FROM collection_promises`)
+		if err != nil || len(rows) == 0 {
+			respond(w, map[string]any{
+				"total": int64(0), "kept": int64(0), "broken": int64(0),
+				"amount_promised_kobo": int64(0),
+			}, "pg")
+			return
+		}
+		respond(w, rows[0], "pg")
+	}
+}
+
+func collectionsRepaymentKPIs(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+				COUNT(*) FILTER (WHERE status = 'Active')                         AS active,
+				COUNT(*) FILTER (WHERE status = 'Active'
+				                   AND (next_payment_date IS NULL
+				                        OR next_payment_date >= CURRENT_DATE))    AS on_track,
+				COUNT(*) FILTER (WHERE status = 'Active'
+				                   AND next_payment_date < CURRENT_DATE)          AS behind,
+				COALESCE(SUM(
+					CASE WHEN status = 'Active'
+					THEN (SELECT COALESCE(SUM(ri.amount_kobo),0)
+					      FROM repayment_instalments ri
+					      WHERE ri.plan_id = rp.id
+					        AND ri.due_date >= DATE_TRUNC('month', CURRENT_DATE)
+					        AND ri.due_date <  DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month'
+					        AND ri.status != 'Paid')
+					ELSE 0 END
+				), 0)                                                              AS monthly_due_kobo
+			FROM repayment_plans rp`)
+		if err != nil || len(rows) == 0 {
+			respond(w, map[string]any{
+				"active": int64(0), "on_track": int64(0),
+				"behind": int64(0), "monthly_due_kobo": int64(0),
+			}, "pg")
+			return
+		}
+		respond(w, rows[0], "pg")
+	}
+}
+
+func collectionsWriteoffKPIs(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+				COUNT(*)                                                          AS total,
+				COALESCE(SUM(wo.amount_kobo), 0)                                 AS amount_kobo,
+				CASE WHEN SUM(wo.amount_kobo) = 0 OR SUM(wo.amount_kobo) IS NULL THEN 0
+				     ELSE ROUND(
+				       100.0 * SUM(rc.recovered_kobo) / NULLIF(SUM(wo.amount_kobo), 0), 1
+				     )
+				END                                                               AS recovery_rate_pct,
+				COUNT(*) FILTER (WHERE wo.status = 'pending')                    AS pending
+			FROM recovery_write_off_approvals wo
+			JOIN recovery_cases rc ON wo.case_id = rc.id`)
+		if err != nil || len(rows) == 0 {
+			respond(w, map[string]any{
+				"total": int64(0), "amount_kobo": int64(0),
+				"recovery_rate_pct": 0.0, "pending": int64(0),
+			}, "pg")
+			return
+		}
+		respond(w, rows[0], "pg")
 	}
 }

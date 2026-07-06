@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
-import { INTER, RED, BLUE, AMBER, GREEN } from '../lib/design'
+import { MONO, RED, BLUE, AMBER, GREEN } from '../lib/design'
 import { IcoBell } from '../lib/icons'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -93,30 +93,29 @@ export default function NotificationBell() {
         title="Notifications"
         style={{
           position: 'relative', width: 34, height: 34,
-          borderRadius: 8, border: 'none', background: open ? 'var(--row-hvr)' : 'transparent',
+          borderRadius: 5, border: '1px solid var(--bdr)', background: 'var(--card)',
           cursor: 'pointer', display: 'flex', alignItems: 'center',
-          justifyContent: 'center', color: open ? 'var(--txt)' : 'var(--txt2)',
-          transition: 'background 120ms, color 120ms',
+          justifyContent: 'center', color: 'var(--txt2)',
+          transition: 'border-color .12s, color .12s',
         }}
         onMouseEnter={e => {
           const el = e.currentTarget as HTMLElement
-          el.style.background = 'var(--row-hvr)'; el.style.color = 'var(--txt)'
+          el.style.borderColor = 'var(--txt3)'; el.style.color = 'var(--txt)'
         }}
         onMouseLeave={e => {
           const el = e.currentTarget as HTMLElement
-          el.style.background = open ? 'var(--row-hvr)' : 'transparent'
-          el.style.color = open ? 'var(--txt)' : 'var(--txt2)'
+          el.style.borderColor = 'var(--bdr)'; el.style.color = 'var(--txt2)'
         }}
       >
-        <IcoBell width={18} height={18} />
+        <IcoBell width={16} height={16} />
         {unread > 0 && (
           <span style={{
-            position: 'absolute', top: 5, right: 5,
-            minWidth: 14, height: 14, borderRadius: 7,
+            position: 'absolute', top: -5, right: -5,
+            minWidth: 16, height: 16, borderRadius: 8,
             background: RED, color: '#fff',
-            fontSize: 8, fontWeight: 700, fontFamily: INTER,
+            fontSize: 9.5, fontWeight: 600, fontFamily: MONO,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: '0 3px',
+            padding: '0 4px',
           }}>
             {unread > 99 ? '99+' : unread}
           </span>
@@ -145,7 +144,7 @@ export default function NotificationBell() {
                 onClick={markAllRead}
                 style={{
                   fontSize: 12, color: BLUE, border: 'none', background: 'none',
-                  cursor: 'pointer', fontFamily: INTER, padding: 0, fontWeight: 500,
+                  cursor: 'pointer', fontFamily: "'Sora', sans-serif", padding: 0, fontWeight: 500,
                 }}
               >
                 Mark all read
@@ -156,7 +155,7 @@ export default function NotificationBell() {
           {/* Items */}
           <div style={{ maxHeight: 400, overflowY: 'auto' }}>
             {items.length === 0 ? (
-              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--txt3)', fontSize: 13, fontFamily: INTER }}>
+              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--txt3)', fontSize: 13 }}>
                 No notifications
               </div>
             ) : items.map(n => (
@@ -189,13 +188,13 @@ export default function NotificationBell() {
                   </div>
                   <div style={{
                     fontSize: 11.5, color: 'var(--txt2)', lineHeight: 1.4,
-                    marginBottom: 5, fontFamily: INTER,
+                    marginBottom: 5,
                     overflow: 'hidden', textOverflow: 'ellipsis',
                     display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
                   }}>
                     {n.body}
                   </div>
-                  <div style={{ fontSize: 10.5, color: 'var(--txt3)', fontFamily: INTER }}>
+                  <div style={{ fontSize: 10.5, color: 'var(--txt3)', fontFamily: MONO }}>
                     {fmtTime(n.created_at)}
                   </div>
                 </div>
