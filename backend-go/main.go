@@ -161,6 +161,8 @@ func main() {
 
 	// Zoho Voice routes (call initiation, voice log import)
 	r.Route("/api/zoho", func(r chi.Router) {
+		// Admin-secret protected import routes (no JWT needed)
+		handlers.RegisterZohoAdmin(r, db, cfg.ResetAdminSecret)
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
 			r.Use(activityLogger(activityCh))

@@ -14,6 +14,7 @@ package handlers
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -35,6 +36,23 @@ func RegisterZoho(r chi.Router, db *core.DB) {
 	r.Post("/voice/call", zohoInitiateCall(db))
 	r.Post("/import-tickets", zohoImportTickets(db))
 	r.Post("/import-calls", zohoImportDeskCalls(db))
+}
+
+// RegisterZohoAdmin mounts the import endpoints outside the JWT auth group,
+// protected by X-Admin-Secret header (same secret as RESET_ADMIN_SECRET).
+func RegisterZohoAdmin(r chi.Router, db *core.DB, adminSecret string) {
+	guard := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if adminSecret == "" || subtle.ConstantTimeCompare(
+				[]byte(r.Header.Get("X-Admin-Secret")), []byte(adminSecret)) != 1 {
+				http.Error(w, `{"detail":"Forbidden"}`, http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+	r.With(guard).Post("/import-tickets", zohoImportTickets(db))
+	r.With(guard).Post("/import-calls", zohoImportDeskCalls(db))
 }
 
 // ── Credential helpers ────────────────────────────────────────────────────────
