@@ -313,6 +313,8 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 			dateTo, _ = time.Parse("2006-01-02", to)
 		}
 
+		ensureHelpdeskColumns(ctx, db)
+
 		tickets, err := zohoFetchTickets(ctx, dateFrom, dateTo, url.Values{"include": {"contacts,assignee"}}, 2000)
 		if err != nil {
 			respondErr(w, 502, "Zoho API error: "+err.Error())
@@ -391,7 +393,7 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 				   customer_name, customer_email, customer_phone,
 				   ticket_ref, resolved_at, closed_at, created_at, updated_at)
 				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
-				ON CONFLICT (ticket_ref) DO NOTHING`,
+				ON CONFLICT (ticket_ref) WHERE ticket_ref IS NOT NULL DO NOTHING`,
 				subject, body, channel, status, priority, dept,
 				custName, custEmail, custPhone,
 				ref, resolvedAt, closedAt, createdAt)
