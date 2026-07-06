@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, FilterBar, filterInputStyle, Spinner } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, FilterBar, filterInputStyle, Spinner, KpiCard } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtNum, today } from '../../lib/fmt'
@@ -18,6 +18,13 @@ interface LegalCase {
   solicitor: string | null
   next_court_date: string | null
   days_in_legal: number
+}
+
+interface LegalKPIs {
+  total_cases: number
+  active: number
+  won: number
+  total_debt_recovered_kobo: number
 }
 
 interface Milestone {
@@ -249,6 +256,9 @@ export default function RecoveryLegal() {
   const [milestoneFilter, setMilestoneFilter] = useState('')
   const [solicitorFilter, setSolicitorFilter] = useState('')
 
+  const [kpis, setKpis]         = useState<LegalKPIs | null>(null)
+  const [kpiLoading, setKpiLoading] = useState(true)
+
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     const params = new URLSearchParams({ limit: '100' })
@@ -265,6 +275,14 @@ export default function RecoveryLegal() {
   }, [milestoneFilter, solicitorFilter])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    setKpiLoading(true)
+    apiFetch<{ data: LegalKPIs }>('/api/recovery/legal-kpis')
+      .then(r => setKpis(r.data))
+      .catch(() => {})
+      .finally(() => setKpiLoading(false))
+  }, [])
 
   async function loadMilestones(caseId: number) {
     if (expandedData[caseId] && expandedData[caseId] !== 'loading') return
@@ -377,31 +395,37 @@ export default function RecoveryLegal() {
     >
       <ErrBanner error={err} onRetry={load} />
 
+      {/* Page-level filter */}
+      <FilterBar onReset={() => { setMilestoneFilter(''); setSolicitorFilter('') }}>
+        <select value={milestoneFilter} onChange={e => setMilestoneFilter(e.target.value)} style={filterInputStyle}>
+          <option value="">All Milestones</option>
+          {MILESTONE_ORDER.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <input
+          value={solicitorFilter}
+          onChange={e => setSolicitorFilter(e.target.value)}
+          placeholder="Search solicitor…"
+          style={{ ...filterInputStyle, minWidth: 200 }}
+        />
+        <button onClick={() => load()} style={{
+          height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)',
+          background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+        }}>Apply</button>
+      </FilterBar>
+
+      {/* KPI cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+        <KpiCard label="Total Cases" value={kpis ? fmtNum(kpis.total_cases) : '—'} icon="gavel" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Active" value={kpis ? fmtNum(kpis.active) : '—'} icon="pending_actions" accent={AMBER} loading={kpiLoading} />
+        <KpiCard label="Won" value={kpis ? fmtNum(kpis.won) : '—'} icon="verified" accent={GREEN} loading={kpiLoading} />
+        <KpiCard label="Debt Recovered" value={kpis ? fmtKobo(kpis.total_debt_recovered_kobo) : '—'} icon="savings" accent={BLUE} loading={kpiLoading} />
+      </div>
+
       <SectionCard
         title="Legal Cases"
         badge={filtered.length}
         padding={false}
       >
-        {/* Filter bar */}
-        <div style={{ padding: '12px 16px 0' }}>
-          <FilterBar onReset={() => { setMilestoneFilter(''); setSolicitorFilter('') }}>
-            <select value={milestoneFilter} onChange={e => setMilestoneFilter(e.target.value)} style={filterInputStyle}>
-              <option value="">All Milestones</option>
-              {MILESTONE_ORDER.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-            <input
-              value={solicitorFilter}
-              onChange={e => setSolicitorFilter(e.target.value)}
-              placeholder="Search solicitor…"
-              style={{ ...filterInputStyle, minWidth: 200 }}
-            />
-            <button onClick={() => load()} style={{
-              height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)',
-              background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
-            }}>Apply</button>
-          </FilterBar>
-        </div>
-
         {/* Table with inline expand */}
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>

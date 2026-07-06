@@ -381,15 +381,66 @@ func psTransfers(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		// Enrich each transfer with its fee breakdown
+		// Enrich each transfer with its fee breakdown and internal customer data.
+		// For loan disbursements the reason is "Loan disbursement — {loanRef}";
+		// parse the ref, batch-query loan_applications, attach applicant details.
+		const disbPrefix = "Loan disbursement — "
 		transfers := txfRes.data["data"]
 		if items, ok := transfers.([]any); ok {
+			// Collect distinct loan refs from all transfer reasons
+			loanRefs := []string{}
 			for _, item := range items {
 				t, ok := item.(map[string]any)
 				if !ok { continue }
+				reason := zohoStr(t["reason"])
+				if idx := strings.Index(reason, disbPrefix); idx >= 0 {
+					ref := strings.TrimSpace(reason[idx+len(disbPrefix):])
+					if ref != "" {
+						loanRefs = append(loanRefs, ref)
+					}
+				}
+			}
+
+			// Batch-lookup applicant details keyed by loan reference
+			applicants := map[string]map[string]any{}
+			if len(loanRefs) > 0 {
+				placeholders := ""
+				args := make([]any, len(loanRefs))
+				for i, ref := range loanRefs {
+					if i > 0 { placeholders += "," }
+					placeholders += fmt.Sprintf("$%d", i+1)
+					args[i] = ref
+				}
+				rows, _ := db.PGQuery(ctx,
+					`SELECT reference, applicant_name, applicant_cif
+					 FROM loan_applications WHERE reference IN (`+placeholders+`)`,
+					args...)
+				for _, row := range rows {
+					ref := zohoStr(row["reference"])
+					applicants[ref] = row
+				}
+			}
+
+			for _, item := range items {
+				t, ok := item.(map[string]any)
+				if !ok { continue }
+				// Attach fee breakdown
 				code := zohoStr(t["transfer_code"])
 				if fb, found := fees[code]; found {
 					t["actual_fees"] = fb
+				}
+				// Attach internal customer info if this is a loan disbursement
+				reason := zohoStr(t["reason"])
+				if idx := strings.Index(reason, disbPrefix); idx >= 0 {
+					ref := strings.TrimSpace(reason[idx+len(disbPrefix):])
+					if app, found := applicants[ref]; found {
+						t["o3c_initiator"] = map[string]any{
+							"loan_ref":       ref,
+							"applicant_name": app["applicant_name"],
+							"applicant_cif":  app["applicant_cif"],
+							"source_type":    "loan_disbursement",
+						}
+					}
 				}
 			}
 		}

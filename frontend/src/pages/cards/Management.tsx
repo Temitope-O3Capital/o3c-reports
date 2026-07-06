@@ -318,7 +318,7 @@ export default function CardsManagement() {
 
       <ErrBanner error={error} onRetry={() => load(page)} />
 
-      <SectionCard title="Cardholders" badge={total} padding={false}>
+      <SectionCard title="Cardholders" badge={total} padding={false} actions={<button onClick={() => exportCardholdersCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
 
         {/* Toolbar */}
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -422,7 +422,7 @@ export default function CardsManagement() {
           </div>
         )}
 
-        <DataTable cols={makeCols(() => load(page))} rows={displayed} keyFn={r => r.cif_number} loading={loading} emptyText="No cardholders found" onExport={() => exportCardholdersCsv(displayed)} />
+        <DataTable cols={makeCols(() => load(page))} rows={displayed} keyFn={r => r.cif_number} loading={loading} emptyText="No cardholders found" />
 
         {/* Pagination */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderTop: '1px solid var(--bdr)' }}>

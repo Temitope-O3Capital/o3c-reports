@@ -1,15 +1,22 @@
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  ErrBanner, ConfirmModal, btnSecondary,
+  Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle,
+  ErrBanner, ConfirmModal, btnSecondary, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPut } from '../../lib/api'
-import { fmtKobo, fmtDate, today, monthStart } from '../../lib/fmt'
+import { fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
 import { AMBER, GREEN, RED, NAVY, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+interface PromiseKPIs {
+  total: number
+  kept: number
+  broken: number
+  amount_promised_kobo: number
+}
 
 interface PTPane {
   id: number
@@ -69,6 +76,7 @@ function exportPromisesCsv(rows: PTPane[]) {
 
 export default function CollectionsPromises() {
   const [rows, setRows]       = useState<PTPane[]>([])
+  const [kpis, setKpis]       = useState<PromiseKPIs | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
 
@@ -95,12 +103,16 @@ export default function CollectionsPromises() {
     if (dateTo)   p.set('date_to', dateTo)
     if (q.trim()) p.set('q', q.trim())
     try {
-      const res = await apiFetch<{ data: PTPane[] }>(`/api/collections-ops/promises?${p}`)
+      const [res, kpiRes] = await Promise.all([
+        apiFetch<{ data: PTPane[] }>(`/api/collections-ops/promises?${p}`),
+        apiFetch<{ data: PromiseKPIs }>('/api/collections/promise-kpis'),
+      ])
       // Sort by promise_date asc (soonest first)
       const sorted = (res.data ?? []).slice().sort(
         (a, b) => new Date(a.promise_date).getTime() - new Date(b.promise_date).getTime()
       )
       setRows(sorted)
+      setKpis(kpiRes.data)
     } catch (e: any) {
       setError(e.message ?? 'Failed to load promises')
     } finally {
@@ -230,14 +242,27 @@ export default function CollectionsPromises() {
     </div>
   ) : undefined
 
+  const kpiLoading = loading && !kpis
+
   return (
     <Page
       title="Promises to Pay"
       subtitle="Track and manage customer payment commitments"
+      actions={
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+      }
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="Promises" badge={rows.length} padding={false}>
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+        <KpiCard label="Total Promises" value={kpis ? fmtNum(kpis.total) : '—'} icon="handshake" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Kept" value={kpis ? fmtNum(kpis.kept) : '—'} icon="check_circle" accent={GREEN} loading={kpiLoading} />
+        <KpiCard label="Broken" value={kpis ? fmtNum(kpis.broken) : '—'} icon="cancel" accent={RED} loading={kpiLoading} />
+        <KpiCard label="Amount Promised ₦" value={kpis ? fmtKobo(kpis.amount_promised_kobo) : '—'} icon="payments" accent={AMBER} loading={kpiLoading} />
+      </div>
+
+      <SectionCard title="Promises" badge={rows.length} padding={false} actions={<button onClick={() => exportPromisesCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <div style={{ padding: '12px 16px 0' }}>
           <FilterBar onReset={() => { setStatus(''); setDateFrom(monthStart()); setDateTo(today()); setQ('') }}>
             <select value={status} onChange={e => setStatus(e.target.value)} style={filterInputStyle}>
@@ -246,20 +271,6 @@ export default function CollectionsPromises() {
               <option value="Kept">Kept</option>
               <option value="Broken">Broken</option>
             </select>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={e => setDateFrom(e.target.value)}
-              style={filterInputStyle}
-              title="Due date from"
-            />
-            <input
-              type="date"
-              value={dateTo}
-              onChange={e => setDateTo(e.target.value)}
-              style={filterInputStyle}
-              title="Due date to"
-            />
             <input
               placeholder="Search agent…"
               value={q}
@@ -281,7 +292,6 @@ export default function CollectionsPromises() {
           keyFn={r => r.id}
           loading={loading}
           pageSize={20}
-          onExport={() => exportPromisesCsv(rows)}
           selectable
           selectedIds={selectedIds}
           onSelect={setSelectedIds}

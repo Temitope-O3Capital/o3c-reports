@@ -575,7 +575,7 @@ export default function ManualPostings() {
         </div>
       )}
 
-      <SectionCard title="Manual Postings" badge={rows.length} padding={false}>
+      <SectionCard title="Manual Postings" badge={rows.length} padding={false} actions={<button onClick={() => exportCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <div style={{ padding: '12px 16px 0' }}>
           <FilterBar onReset={() => { setStatusFilter(''); setInitiatorSearch('') }}>
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
@@ -596,7 +596,6 @@ export default function ManualPostings() {
           searchKeys={['ref', 'account', 'description', 'initiated_by', 'workflow_template_name', 'stage']}
           searchPlaceholder="Search ref, account, workflow…"
           pageSize={20}
-          onExport={() => exportCsv(rows)}
         />
       </SectionCard>
 

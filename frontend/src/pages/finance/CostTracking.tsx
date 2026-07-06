@@ -244,7 +244,12 @@ export default function FinanceCostTracking() {
             </div>
           )}
 
-          <SectionCard title="Cost Entries" badge={filtered.length} padding={false}>
+          <SectionCard title="Cost Entries" badge={filtered.length} padding={false} actions={
+            <button onClick={() => exportCostsCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
+              Export CSV
+            </button>
+          }>
 
             {/* Filter bar */}
             <div style={{
@@ -373,7 +378,6 @@ export default function FinanceCostTracking() {
               keyFn={r => r.id}
               emptyText="No cost entries yet — click 'Add Entry' to record costs"
               pageSize={20}
-              onExport={() => exportCostsCsv(filtered)}
             />
 
           </SectionCard>

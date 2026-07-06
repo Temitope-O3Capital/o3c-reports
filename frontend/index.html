@@ -37,6 +37,18 @@
     </style>
   </head>
   <body>
+    <script>
+      ;(function(){
+        var t=localStorage.getItem('o3c_theme')||(window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')
+        if(t==='dark'){
+          var r=document.documentElement.style
+          r.setProperty('--bg','#07090F');r.setProperty('--card','#0A0E1A')
+          r.setProperty('--txt','#D5DDED');r.setProperty('--txt2','#384A68');r.setProperty('--txt3','#1C2438')
+          r.setProperty('--bdr','#121C30');r.setProperty('--row-hvr','#0C1220')
+          r.setProperty('--topbar-bg','#07090F');r.setProperty('--input-bg','#0A0E1A');r.setProperty('--input-bdr','#121C30')
+        }
+      })()
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script src="https://js.zohostatic.com/zvoice_plugin/latest/js/zohovoice-ui.min.js"></script>

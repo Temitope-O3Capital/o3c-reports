@@ -200,7 +200,7 @@ export default function Disciplinary() {
         </select>
       </FilterBar>
 
-      <SectionCard title="Cases" badge={cases.length} padding={false}>
+      <SectionCard title="Cases" badge={cases.length} padding={false} actions={<button onClick={() => exportDisciplinaryCsv(cases)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <DataTable<DisciplinaryCase>
           cols={cols}
           rows={cases}
@@ -211,7 +211,7 @@ export default function Disciplinary() {
           searchKeys={['employee_name', 'case_type', 'outcome', 'status', 'issued_by_name']}
           searchPlaceholder="Search cases…"
           pageSize={20}
-          onExport={() => exportDisciplinaryCsv(cases)}
+
           selectable
           selectedIds={sel}
           onSelect={setSel}

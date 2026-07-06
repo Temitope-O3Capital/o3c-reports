@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { Page, KpiCard, SectionCard, ErrBanner, FilterBar, filterInputStyle, StatusBadge } from '../../components/UI'
+import { Page, KpiCard, SectionCard, ErrBanner, FilterBar, filterInputStyle, StatusBadge, DateFilter } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtDatetime, fmtNum, today, monthStart } from '../../lib/fmt'
 import { GREEN, RED, AMBER, NAVY, NUM } from '../../lib/design'
@@ -189,8 +189,7 @@ export default function SettlementBatches() {
               <option value="Settled">Settled</option>
               <option value="Failed">Failed</option>
             </select>
-            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={filterInputStyle} />
-            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={filterInputStyle} />
+            <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
             <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Apply</button>
           </FilterBar>
         </div>

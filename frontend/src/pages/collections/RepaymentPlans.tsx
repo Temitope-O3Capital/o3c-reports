@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  ErrBanner, Modal, Spinner, StatusBadge, btnPrimary,
+  Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle,
+  ErrBanner, Modal, Spinner, StatusBadge, btnPrimary, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtKobo, fmtDate, n } from '../../lib/fmt'
+import { fmtKobo, fmtDate, fmtNum, n, today, monthStart } from '../../lib/fmt'
 import { BLUE, GREEN, RED, NAVY, AMBER, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -30,6 +30,13 @@ interface Instalment {
   due_date: string
   amount_kobo: number
   status: string
+}
+
+interface RepaymentKPIs {
+  active: number
+  on_track: number
+  behind: number
+  monthly_due_kobo: number
 }
 
 // ── Status pill for plan ──────────────────────────────────────────────────────
@@ -372,12 +379,15 @@ function PlanDetailModal({ plan, open, onClose, onUpdated }: {
 
 export default function RepaymentPlans() {
   const [rows, setRows]         = useState<PlanRow[]>([])
+  const [kpis, setKpis]         = useState<RepaymentKPIs | null>(null)
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState<string | null>(null)
 
   // Filters
-  const [status, setStatus] = useState('')
-  const [q, setQ]           = useState('')
+  const [status, setStatus]     = useState('')
+  const [q, setQ]               = useState('')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo, setDateTo]     = useState(today())
 
   // Modals
   const [showNewPlan, setShowNewPlan]   = useState(false)
@@ -389,8 +399,13 @@ export default function RepaymentPlans() {
     const p = new URLSearchParams({ limit: '100' })
     if (status)   p.set('status', status)
     if (q.trim()) p.set('q', q.trim())
+    if (dateFrom) p.set('date_from', dateFrom)
+    if (dateTo)   p.set('date_to', dateTo)
     try {
-      const res = await apiFetch<{ data: PlanRow[] }>(`/api/collections-ops/repayment-plans?${p}`)
+      const [res, kpiRes] = await Promise.all([
+        apiFetch<{ data: PlanRow[] }>(`/api/collections-ops/repayment-plans?${p}`),
+        apiFetch<{ data: RepaymentKPIs }>('/api/collections/repayment-kpis'),
+      ])
       // Sort: next_payment_date asc, nulls last
       const sorted = (res.data ?? []).slice().sort((a, b) => {
         if (!a.next_payment_date && !b.next_payment_date) return 0
@@ -399,12 +414,13 @@ export default function RepaymentPlans() {
         return new Date(a.next_payment_date).getTime() - new Date(b.next_payment_date).getTime()
       })
       setRows(sorted)
+      setKpis(kpiRes.data)
     } catch (e: any) {
       setError(e.message ?? 'Failed to load repayment plans')
     } finally {
       setLoading(false)
     }
-  }, [status, q])
+  }, [status, q, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -469,18 +485,31 @@ export default function RepaymentPlans() {
     },
   ]
 
+  const kpiLoading = loading && !kpis
+
   return (
     <Page
       title="Repayment Plans"
       subtitle="Structured repayment arrangements for delinquent accounts"
       actions={
-        <button onClick={() => setShowNewPlan(true)} style={btnPrimary}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
-          New Plan
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => setShowNewPlan(true)} style={btnPrimary}>
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+            New Plan
+          </button>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />
+
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+        <KpiCard label="Active Plans" value={kpis ? fmtNum(kpis.active) : '—'} icon="schedule" accent={BLUE} loading={kpiLoading} />
+        <KpiCard label="On Track" value={kpis ? fmtNum(kpis.on_track) : '—'} icon="check_circle" accent={GREEN} loading={kpiLoading} />
+        <KpiCard label="Behind" value={kpis ? fmtNum(kpis.behind) : '—'} icon="warning" accent={AMBER} loading={kpiLoading} />
+        <KpiCard label="Monthly Due ₦" value={kpis ? fmtKobo(kpis.monthly_due_kobo) : '—'} icon="payments" accent={NAVY} loading={kpiLoading} />
+      </div>
 
       <SectionCard title="Plans" badge={rows.length} padding={false}>
         <div style={{ padding: '12px 16px 0' }}>

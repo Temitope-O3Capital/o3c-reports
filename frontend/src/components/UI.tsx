@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import type { ReactNode, CSSProperties } from 'react'
-import { NAVY, RED, GREEN, INTER, NUM } from '../lib/design'
+import { NAVY, RED, GREEN, INTER, SORA, NUM } from '../lib/design'
 import { today, monthStart, yearStart, fmtDate } from '../lib/fmt'
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -391,6 +391,14 @@ export interface TableCol<T = any> {
   render?: (row: T, idx: number) => ReactNode
 }
 
+export interface FilterDef<T = any> {
+  key: string           // data field to filter on
+  label: string         // panel column header
+  accentColor?: string  // checkbox accent (defaults to NAVY)
+  getLabel?: (val: string) => string                        // transform raw value for display
+  chipStyle?: (val: string) => { bg: string; txt: string } // per-value chip colours (e.g. status pills)
+}
+
 interface DataTableProps<T> {
   cols: TableCol<T>[]
   rows: T[]
@@ -407,31 +415,71 @@ interface DataTableProps<T> {
   searchKeys?: string[]
   searchPlaceholder?: string
   pageSize?: number
-  onExport?: () => void
+  filters?: FilterDef<T>[]
+}
+
+function _PgBtn({ children, active, disabled, onClick, icon }: {
+  children?: ReactNode; active?: boolean; disabled?: boolean
+  onClick?: () => void; icon?: string
+}) {
+  return (
+    <button onClick={onClick} disabled={disabled} style={{
+      width: 28, height: 28, borderRadius: 6,
+      border: active ? 'none' : '1.5px solid var(--input-bdr)',
+      background: active ? RED : 'transparent',
+      color: active ? '#fff' : disabled ? 'var(--txt3)' : 'var(--txt2)',
+      fontSize: 12, fontWeight: 600, cursor: disabled ? 'default' : 'pointer',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: INTER,
+    }}>
+      {icon
+        ? <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{icon}</span>
+        : children}
+    </button>
+  )
+}
+
+function _toggleFSet(prev: Record<string, Set<string>>, key: string, val: string): Record<string, Set<string>> {
+  const cur = prev[key] ?? new Set<string>()
+  const next = new Set(cur)
+  next.has(val) ? next.delete(val) : next.add(val)
+  return { ...prev, [key]: next }
 }
 
 export function DataTable<T extends Record<string, any>>({
   cols, rows, keyFn, onRowClick,
   selectable, selectedIds: extSel, onSelect,
   bulkBar, emptyText = 'No records found', loading, skeletonRows = 8, rowStyle,
-  searchKeys, searchPlaceholder = 'Search…', pageSize, onExport,
+  searchKeys, searchPlaceholder = 'Search…', pageSize, filters,
 }: DataTableProps<T>) {
-  const [sortKey, setSortKey] = useState<string | null>(null)
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
-  const [internalSel, setInternalSel] = useState<Set<string | number>>(new Set())
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
+  const [sortKey,       setSortKey]       = useState<string | null>(null)
+  const [sortDir,       setSortDir]       = useState<'asc' | 'desc'>('asc')
+  const [internalSel,   setInternalSel]   = useState<Set<string | number>>(new Set())
+  const [search,        setSearch]        = useState('')
+  const [page,          setPage]          = useState(1)
+  const [filterOpen,    setFilterOpen]    = useState(false)
+  const [activeFilters, setActiveFilters] = useState<Record<string, Set<string>>>({})
 
-  // Reset to page 1 whenever the rows array reference changes (parent re-fetch or filter).
-  useEffect(() => { setPage(1) }, [rows])
+  useEffect(() => { setPage(1) }, [rows, search, activeFilters])
 
-  const selectedIds = extSel ?? internalSel
+  const selectedIds   = extSel ?? internalSel
   const setSelectedIds = onSelect ?? setInternalSel
 
   const toggleSort = useCallback((key: string) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortKey(key); setSortDir('asc') }
   }, [sortKey])
+
+  // Derive unique options for each filter from the base rows (unfiltered)
+  const filterOptions = useMemo(() => {
+    if (!filters?.length) return {} as Record<string, string[]>
+    const opts: Record<string, string[]> = {}
+    for (const f of filters) {
+      opts[f.key] = [...new Set(rows.map(r => String(r[f.key] ?? '')).filter(Boolean))].sort()
+    }
+    return opts
+  }, [rows, filters])
+
+  const activeFilterCount = Object.values(activeFilters).reduce((n, s) => n + s.size, 0)
 
   const sorted = useMemo(() => {
     if (!sortKey) return rows
@@ -443,13 +491,22 @@ export function DataTable<T extends Record<string, any>>({
   }, [rows, sortKey, sortDir])
 
   const filtered = useMemo(() => {
-    if (!searchKeys?.length || !search.trim()) return sorted
-    const q = search.toLowerCase()
-    return sorted.filter(row => searchKeys.some(k => String(row[k] ?? '').toLowerCase().includes(q)))
-  }, [sorted, search, searchKeys])
+    let result = sorted
+    if (filters?.length) {
+      for (const f of filters) {
+        const sel = activeFilters[f.key]
+        if (sel?.size) result = result.filter(r => sel.has(String(r[f.key] ?? '')))
+      }
+    }
+    if (searchKeys?.length && search.trim()) {
+      const q = search.toLowerCase()
+      result = result.filter(row => searchKeys.some(k => String(row[k] ?? '').toLowerCase().includes(q)))
+    }
+    return result
+  }, [sorted, search, searchKeys, activeFilters, filters])
 
-  const totalPages = pageSize ? Math.max(1, Math.ceil(filtered.length / pageSize)) : 1
-  const safePage = pageSize ? Math.min(Math.max(1, page), totalPages) : 1
+  const totalPages  = pageSize ? Math.max(1, Math.ceil(filtered.length / pageSize)) : 1
+  const safePage    = pageSize ? Math.min(Math.max(1, page), totalPages) : 1
   const displayRows = pageSize ? filtered.slice((safePage - 1) * pageSize, safePage * pageSize) : filtered
 
   const getKey = (row: T, i: number) => keyFn ? keyFn(row, i) : (row.id ?? i)
@@ -458,10 +515,11 @@ export function DataTable<T extends Record<string, any>>({
     setSelectedIds(selectedIds.size === rows.length ? new Set() : new Set(rows.map((r, i) => getKey(r, i))))
   }
   function toggleRow(id: string | number) {
-    const next = new Set(selectedIds)
-    next.has(id) ? next.delete(id) : next.add(id)
-    setSelectedIds(next)
+    const next = new Set(selectedIds); next.has(id) ? next.delete(id) : next.add(id); setSelectedIds(next)
   }
+  function resetFilters() { setSearch(''); setActiveFilters({}) }
+
+  const showBar = !!(searchKeys?.length || filters?.length)
 
   const thBase: CSSProperties = {
     padding: '11px 14px', fontSize: 10, fontWeight: 700,
@@ -476,38 +534,179 @@ export function DataTable<T extends Record<string, any>>({
 
   return (
     <div style={{ overflow: 'hidden' }}>
-      {(!!searchKeys?.length || !!onExport) && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--bdr)' }}>
+
+      {/* Filter bar */}
+      {showBar && (
+        <div style={{
+          padding: '12px 18px',
+          borderBottom: filterOpen ? 'none' : '1px solid var(--bdr)',
+          display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+        }}>
           {!!searchKeys?.length && (
-            <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>
-              <span className="material-symbols-rounded" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: 'var(--txt2)', pointerEvents: 'none' }}>search</span>
-              <input
-                type="text"
-                placeholder={searchPlaceholder}
-                value={search}
-                onChange={e => { setSearch(e.target.value); setPage(1) }}
-                style={{ width: '100%', boxSizing: 'border-box' as const, paddingLeft: 30, paddingRight: 8, paddingTop: 7, paddingBottom: 7, fontSize: 13, borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--bg)', color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}
-              />
-            </div>
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder={searchPlaceholder}
+            />
           )}
-          <div style={{ flex: 1 }} />
-          {!!onExport && (
-            <button onClick={onExport} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
-              Export CSV
+
+          {!!filters?.length && (
+            <button
+              onClick={() => setFilterOpen(o => !o)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 600,
+                border: `1.5px solid ${activeFilterCount > 0 ? RED : 'var(--input-bdr)'}`,
+                background: 'transparent',
+                color: activeFilterCount > 0 ? RED : 'var(--txt2)',
+                cursor: 'pointer', fontFamily: SORA, position: 'relative',
+              }}
+            >
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>tune</span>
+              Filters
+              {activeFilterCount > 0 && (
+                <span style={{
+                  position: 'absolute', top: -6, right: -6,
+                  width: 16, height: 16, borderRadius: '50%',
+                  background: RED, color: '#fff',
+                  fontSize: 9, fontWeight: 700, fontFamily: INTER,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>{activeFilterCount}</span>
+              )}
             </button>
           )}
+
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+              {filtered.length} of {rows.length}
+            </span>
+          </div>
         </div>
       )}
+
+      {/* Expandable filter panel */}
+      {filterOpen && !!filters?.length && (
+        <div style={{ borderBottom: '1px solid var(--bdr)' }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(${Math.min(filters.length, 4)}, 1fr)`,
+            padding: '20px 20px 0',
+          }}>
+            {filters.map((f, fi) => {
+              const opts = filterOptions[f.key] ?? []
+              const sel  = activeFilters[f.key] ?? new Set<string>()
+              const isLast = fi === filters.length - 1
+              return (
+                <div key={f.key} style={{
+                  ...(fi > 0 ? { paddingLeft: 20 } : {}),
+                  ...(!isLast ? { paddingRight: 20, borderRight: '1px solid var(--bdr)' } : {}),
+                }}>
+                  <div style={{
+                    fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
+                    letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER,
+                  }}>{f.label}</div>
+                  {opts.length === 0
+                    ? <span style={{ fontSize: 12, color: 'var(--txt3)' }}>No values</span>
+                    : opts.map(val => {
+                      const display = f.getLabel
+                        ? f.getLabel(val)
+                        : val.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                      const chip  = f.chipStyle?.(val)
+                      const count = rows.filter(r => String(r[f.key] ?? '') === val).length
+                      return (
+                        <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={sel.has(val)}
+                            onChange={() => setActiveFilters(p => _toggleFSet(p, f.key, val))}
+                            style={{ accentColor: f.accentColor ?? chip?.txt ?? NAVY, width: 14, height: 14, cursor: 'pointer' }}
+                          />
+                          {chip ? (
+                            <span style={{
+                              fontSize: 11.5, fontWeight: 600, padding: '2px 8px',
+                              borderRadius: 20, background: chip.bg, color: chip.txt,
+                            }}>{display}</span>
+                          ) : (
+                            <span style={{ fontSize: 12, color: 'var(--txt)', fontFamily: INTER }}>{display}</span>
+                          )}
+                          <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER, flexShrink: 0 }}>{count}</span>
+                        </label>
+                      )
+                    })
+                  }
+                </div>
+              )
+            })}
+          </div>
+
+          <div style={{
+            padding: '14px 20px', borderTop: '1px solid var(--bdr)', marginTop: 16,
+            display: 'flex', alignItems: 'center', gap: 12,
+          }}>
+            <span style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>
+              {activeFilterCount === 0
+                ? `No filters applied — showing all ${rows.length} rows`
+                : `${activeFilterCount} filter${activeFilterCount !== 1 ? 's' : ''} active`}
+            </span>
+            <button onClick={resetFilters} style={{
+              padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+              border: '1.5px solid var(--input-bdr)', background: 'transparent',
+              color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA,
+            }}>Reset</button>
+            <button onClick={() => setFilterOpen(false)} style={{
+              marginLeft: 'auto', padding: '5px 16px', borderRadius: 7,
+              fontSize: 12, fontWeight: 600,
+              border: 'none', background: RED, color: '#fff',
+              cursor: 'pointer', fontFamily: SORA,
+            }}>Done · {filtered.length} results</button>
+          </div>
+        </div>
+      )}
+
+      {/* Active filter chips */}
+      {!filterOpen && activeFilterCount > 0 && !!filters?.length && (
+        <div style={{
+          padding: '8px 18px', borderBottom: '1px solid var(--bdr)',
+          display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
+        }}>
+          {filters.map(f =>
+            [...(activeFilters[f.key] ?? new Set<string>())].map(val => {
+              const display = f.getLabel
+                ? f.getLabel(val)
+                : val.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+              const chip = f.chipStyle?.(val)
+              return (
+                <span key={`${f.key}:${val}`} style={{
+                  display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px',
+                  borderRadius: 20, fontSize: 11.5, fontWeight: 600,
+                  background: chip?.bg ?? 'var(--chip-bg)',
+                  color: chip?.txt ?? 'var(--chip-txt)',
+                }}>
+                  {display}
+                  <span
+                    className="material-symbols-rounded"
+                    style={{ fontSize: 12, cursor: 'pointer' }}
+                    onClick={() => setActiveFilters(p => _toggleFSet(p, f.key, val))}
+                  >close</span>
+                </span>
+              )
+            })
+          )}
+          <button onClick={resetFilters} style={{
+            marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer',
+            fontSize: 11.5, fontWeight: 600, color: 'var(--txt3)', padding: 0, fontFamily: SORA,
+          }}>Clear all</button>
+        </div>
+      )}
+
+      {/* Bulk selection bar */}
       {selectable && selectedIds.size > 0 && (
         <div style={{
           background: '#F0F4FF', borderBottom: '1px solid var(--bdr)',
           padding: '10px 18px', display: 'flex', alignItems: 'center', gap: 10,
         }}>
           <span style={{ ...NUM, fontSize: 12.5, fontWeight: 700, color: NAVY }}>{selectedIds.size} selected</span>
-          <div style={{ display: 'flex', gap: 7 }}>
-            {bulkBar}
-          </div>
+          <div style={{ display: 'flex', gap: 7 }}>{bulkBar}</div>
           <button onClick={() => setSelectedIds(new Set())} style={{
             marginLeft: 'auto', border: 'none', background: 'none', cursor: 'pointer',
             color: 'var(--txt2)', display: 'flex', alignItems: 'center', gap: 3,
@@ -518,6 +717,7 @@ export function DataTable<T extends Record<string, any>>({
         </div>
       )}
 
+      {/* Table */}
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -571,9 +771,9 @@ export function DataTable<T extends Record<string, any>>({
               </tr>
             ) : (
               displayRows.map((row, i) => {
-                const id = getKey(row, i)
+                const id    = getKey(row, i)
                 const isSel = selectedIds.has(id)
-                const rs = rowStyle?.(row, i)
+                const rs    = rowStyle?.(row, i)
                 const rowBg = (isSel ? 'var(--row-sel)' : rs?.background) as string | undefined
                 return (
                   <tr
@@ -600,23 +800,27 @@ export function DataTable<T extends Record<string, any>>({
           </tbody>
         </table>
       </div>
+
+      {/* Pagination */}
       {!!pageSize && filtered.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderTop: '1px solid var(--bdr)' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 18px', borderTop: '1px solid var(--bdr)',
+        }}>
           <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
             {`Showing ${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, filtered.length)} of ${filtered.length.toLocaleString()}`}
           </span>
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-            <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={safePage === 1}
-              style={{ padding: '5px 10px', fontSize: 12, borderRadius: 6, border: '1px solid var(--bdr)', background: safePage === 1 ? 'var(--bg)' : 'var(--card)', color: safePage === 1 ? 'var(--txt2)' : 'var(--txt)', cursor: safePage === 1 ? 'default' : 'pointer', fontFamily: INTER }}
-            >‹ Prev</button>
-            <span style={{ fontSize: 12, color: 'var(--txt2)', padding: '0 8px', fontFamily: INTER }}>{safePage} / {totalPages}</span>
-            <button
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-              disabled={safePage === totalPages}
-              style={{ padding: '5px 10px', fontSize: 12, borderRadius: 6, border: '1px solid var(--bdr)', background: safePage === totalPages ? 'var(--bg)' : 'var(--card)', color: safePage === totalPages ? 'var(--txt2)' : 'var(--txt)', cursor: safePage === totalPages ? 'default' : 'pointer', fontFamily: INTER }}
-            >Next ›</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <_PgBtn icon="chevron_left" disabled={safePage === 1} onClick={() => setPage(p => p - 1)} />
+            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+              let pg: number
+              if (totalPages <= 7)          pg = i + 1
+              else if (safePage <= 4)        pg = i + 1
+              else if (safePage >= totalPages - 3) pg = totalPages - 6 + i
+              else                           pg = safePage - 3 + i
+              return <_PgBtn key={pg} active={pg === safePage} onClick={() => setPage(pg)}>{pg}</_PgBtn>
+            })}
+            <_PgBtn icon="chevron_right" disabled={safePage === totalPages} onClick={() => setPage(p => p + 1)} />
           </div>
         </div>
       )}
@@ -846,8 +1050,8 @@ function DFMonthGrid({ ym, lo, hi, pendingStart, onDay, onHover }: {
   )
 }
 
-export function DateFilter({ from, to, onChange }: {
-  from: string; to: string; onChange: (f: string, t: string) => void
+export function DateFilter({ from, to, onChange, align = 'left' }: {
+  from: string; to: string; onChange: (f: string, t: string) => void; align?: 'left' | 'right'
 }) {
   const now     = new Date()
   const initYM  = from ? from.slice(0, 7) : `${now.getFullYear()}-${_dfPad(now.getMonth() + 1)}`
@@ -926,7 +1130,7 @@ export function DateFilter({ from, to, onChange }: {
       {/* Dropdown panel */}
       {open && (
         <div style={{
-          position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 500,
+          position: 'absolute', top: 'calc(100% + 6px)', ...(align === 'right' ? { right: 0 } : { left: 0 }), zIndex: 500,
           background: 'var(--card)', border: '1px solid var(--card-bdr)',
           borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.14)',
           display: 'flex', overflow: 'hidden',

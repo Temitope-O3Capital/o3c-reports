@@ -1,11 +1,18 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, DataTable, ErrBanner, Modal, filterInputStyle, SearchInput } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Modal, filterInputStyle, SearchInput, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKobo, fmtNum, fmtDate, today } from '../../lib/fmt'
+import { fmtKobo, fmtNum, fmtDate, today, monthStart } from '../../lib/fmt'
 import { RED, AMBER, GREEN, BLUE, NAVY, INTER, SORA, NUM } from '../../lib/design'
 import { toast } from 'sonner'
+
+interface PipelineKPIs {
+  total_leads: number
+  this_month: number
+  conversion_rate_pct: number
+  avg_deal_kobo: number
+}
 
 type EntityType = 'company' | 'individual' | 'individual_at_company'
 
@@ -149,6 +156,7 @@ const ENTITY_ICONS: Record<EntityType, string> = {
 export default function BDPipeline() {
   const navigate = useNavigate()
   const [leads,      setLeads]      = useState<Lead[]>([])
+  const [kpis,       setKpis]       = useState<PipelineKPIs | null>(null)
   const [loading,    setLoading]    = useState(true)
   const [err,        setErr]        = useState<string | null>(null)
   const [search,     setSearch]     = useState('')
@@ -156,8 +164,8 @@ export default function BDPipeline() {
   const [fStages,    setFStages]    = useState<Set<string>>(new Set())
   const [fTypes,     setFTypes]     = useState<Set<string>>(new Set())
   const [fAssignees, setFAssignees] = useState<Set<string>>(new Set())
-  const [dateFrom,   setDateFrom]   = useState('')
-  const [dateTo,     setDateTo]     = useState('')
+  const [dateFrom,   setDateFrom]   = useState(monthStart())
+  const [dateTo,     setDateTo]     = useState(today())
   const [page,       setPage]       = useState(1)
   const [selected,   setSelected]   = useState<Set<string | number>>(new Set())
   const [view,       setView]       = useState<'table' | 'kanban'>('table')
@@ -169,8 +177,12 @@ export default function BDPipeline() {
   async function load() {
     setLoading(true); setErr(null)
     try {
-      const data = await apiFetch<Lead[]>('/api/bd/leads?limit=500')
+      const [data, kpiRes] = await Promise.all([
+        apiFetch<Lead[]>('/api/bd/leads?limit=500'),
+        apiFetch<{ data: PipelineKPIs }>('/api/bd/pipeline-kpis'),
+      ])
       setLeads(data ?? [])
+      setKpis(kpiRes.data)
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load leads')
     } finally {
@@ -183,7 +195,7 @@ export default function BDPipeline() {
   const uniqueTypes     = useMemo(() => [...new Set(leads.map(l => l.lead_type).filter(Boolean))] as string[], [leads])
   const uniqueAssignees = useMemo(() => [...new Set(leads.map(l => l.assigned_name).filter(Boolean))] as string[], [leads])
 
-  const activeFilterCount = fStages.size + fTypes.size + fAssignees.size + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0)
+  const activeFilterCount = fStages.size + fTypes.size + fAssignees.size
 
   const filtered = useMemo(() => leads.filter(l => {
     if (fStages.size && !fStages.has(l.stage)) return false
@@ -214,7 +226,7 @@ export default function BDPipeline() {
   }
 
   function resetFilters() {
-    setSearch(''); setFStages(new Set()); setFTypes(new Set()); setFAssignees(new Set()); setDateFrom(''); setDateTo('')
+    setSearch(''); setFStages(new Set()); setFTypes(new Set()); setFAssignees(new Set())
   }
 
   function exportLeadsCsv(data: Lead[]) {
@@ -390,12 +402,15 @@ export default function BDPipeline() {
 
   const byStage = (s: string) => filtered.filter(l => l.stage === s)
 
+  const kpiLoading = loading && !kpis
+
   return (
     <Page
       title="BD Pipeline"
       subtitle={`${fmtNum(filtered.length)} leads · ${fmtKobo(totalValue)} total value`}
       actions={
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           <button
             onClick={() => setView(v => v === 'table' ? 'kanban' : 'table')}
             style={{
@@ -426,9 +441,17 @@ export default function BDPipeline() {
     >
       <ErrBanner error={err} onRetry={load} />
 
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+        <KpiCard label="Total Leads" value={kpis ? fmtNum(kpis.total_leads) : '—'} icon="groups" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="This Month" value={kpis ? fmtNum(kpis.this_month) : '—'} icon="today" accent={BLUE} loading={kpiLoading} />
+        <KpiCard label="Conversion Rate" value={kpis ? `${kpis.conversion_rate_pct.toFixed(1)}%` : '—'} icon="trending_up" accent={GREEN} loading={kpiLoading} />
+        <KpiCard label="Avg Deal Value ₦" value={kpis ? fmtKobo(kpis.avg_deal_kobo) : '—'} icon="monetization_on" accent={AMBER} loading={kpiLoading} />
+      </div>
+
       {view === 'table' ? (
 
-        <SectionCard title="All Leads" badge={leads.length} padding={false}>
+        <SectionCard title="All Leads" badge={leads.length} padding={false} actions={<button onClick={() => exportLeadsCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
 
           {/* ── Filter bar ─────────────────────────────────────────────────── */}
           <div style={{
@@ -478,7 +501,7 @@ export default function BDPipeline() {
           {/* ── Expandable filter panel ───────────────────────────────────── */}
           {filterOpen && (
             <div style={{ borderBottom: '1px solid var(--bdr)' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', padding: '20px 20px 0' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '20px 20px 0' }}>
 
                 {/* Stage */}
                 <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
@@ -524,23 +547,6 @@ export default function BDPipeline() {
                       </label>
                     )
                   })}
-                </div>
-
-                {/* Date Added */}
-                <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>DATE ADDED</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div>
-                      <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>From</label>
-                      <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                        style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const }} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>To</label>
-                      <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                        style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const }} />
-                    </div>
-                  </div>
                 </div>
 
                 {/* Assignee */}
@@ -643,18 +649,6 @@ export default function BDPipeline() {
                   <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setFAssignees(toggleSet(fAssignees, name))}>close</span>
                 </span>
               ))}
-              {dateFrom && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
-                  From {dateFrom}
-                  <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setDateFrom('')}>close</span>
-                </span>
-              )}
-              {dateTo && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
-                  To {dateTo}
-                  <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setDateTo('')}>close</span>
-                </span>
-              )}
               <button
                 onClick={resetFilters}
                 style={{
@@ -677,7 +671,6 @@ export default function BDPipeline() {
             selectable
             selectedIds={selected}
             onSelect={setSelected}
-            onExport={() => exportLeadsCsv(filtered)}
             bulkBar={
               <>
                 {BULK_ACTIONS.map(b => (

@@ -318,13 +318,13 @@ export default function PortfolioHealth() {
       {/* Charts row 2 — sector concentration bar */}
       <ChartCard title="Sector Concentration" sub="Top 8 sectors by share of loan book">
         <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={sectors.slice(0, 8)} margin={{ top: 4, right: 8, bottom: 32, left: -18 }} barCategoryGap="28%">
+          <BarChart data={sectors.slice(0, 8)} margin={{ top: 4, right: 8, bottom: 4, left: -18 }} barCategoryGap="28%">
             <CartesianGrid stroke="#E8EBF2" strokeDasharray="0" vertical={false} strokeWidth={1} />
             <XAxis
               dataKey="sector"
               tick={{ fontSize: 9.5, fill: '#9AA4B8', fontFamily: INTER }}
               axisLine={false} tickLine={false}
-              angle={-30} textAnchor="end" interval={0}
+              interval={0} textAnchor="middle"
             />
             <YAxis
               tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }}
@@ -348,6 +348,7 @@ export default function PortfolioHealth() {
         subtitle="Sorted by book value — flag concentrations above 10%"
         padding={false}
         style={{ marginTop: 16 }}
+        actions={<button onClick={() => exportEmployersCsv(employers)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}
       >
         <DataTable
           cols={EMPLOYER_COLS}
@@ -359,7 +360,6 @@ export default function PortfolioHealth() {
           searchKeys={['company']}
           searchPlaceholder="Search employers…"
           pageSize={20}
-          onExport={() => exportEmployersCsv(employers)}
         />
       </SectionCard>
     </Page>

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, Modal, Sk, btnPrimary, btnSecondary } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, Modal, Sk, btnPrimary, btnSecondary, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtNum, today, monthStart } from '../../lib/fmt'
@@ -290,10 +290,7 @@ export default function ReportsBI() {
           {/* Date range */}
           <div>
             <label style={labelStyle}>Date Range</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={inputStyle} />
-              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={inputStyle} />
-            </div>
+            <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
           </div>
 
           {/* Granularity */}

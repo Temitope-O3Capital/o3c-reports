@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, FilterBar, filterInputStyle, ErrBanner, Spinner } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Spinner, DateFilter } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { today, monthStart } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, RED, BLUE, PURPLE, INTER, NUM } from '../../lib/design'
@@ -155,21 +155,18 @@ export default function HelpdeskStats() {
   )
 
   return (
-    <Page title="Helpdesk Stats" subtitle="CSAT, handle time and resolution metrics">
-      <ErrBanner error={error} onRetry={load} />
-
-      <FilterBar onReset={() => { setDateFrom(monthStart()); setDateTo(today()); setAgentFilter('') }}>
-        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={filterInputStyle} />
-        <input type="date" value={dateTo}   onChange={e => setDateTo(e.target.value)}   style={filterInputStyle} />
-        <select value={agentFilter} onChange={e => setAgentFilter(e.target.value)} style={{ ...filterInputStyle, minWidth: 160 }}>
-          <option value="">All Agents</option>
+    <Page title="Customer Support Stats" subtitle="CSAT, handle time and resolution metrics">
+      {/* Page-level filters */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
+        <select value={agentFilter} onChange={e => setAgentFilter(e.target.value)}
+          style={{ height: 32, borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, padding: '0 10px', cursor: 'pointer' }}>
+          <option value="">All agents</option>
           {agents.map(a => <option key={a.id} value={String(a.id)}>{a.full_name}</option>)}
         </select>
-        <button onClick={() => load()}
-          style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
-          Apply
-        </button>
-      </FilterBar>
+      </div>
+
+      <ErrBanner error={error} onRetry={load} />
 
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}>

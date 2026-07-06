@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner } from '../../components/UI'
+import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiExport } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
@@ -156,10 +156,7 @@ export default function AuditTrail() {
           style={{ ...filterInputStyle, width: 140 }} />
         <input placeholder="Action…" value={actionFilter} onChange={e => { setActionFilter(e.target.value); setPage(1) }}
           style={{ ...filterInputStyle, width: 140 }} />
-        <input type="date" value={from} onChange={e => { setFrom(e.target.value); setPage(1) }}
-          style={{ ...filterInputStyle, width: 140 }} />
-        <input type="date" value={to} onChange={e => { setTo(e.target.value); setPage(1) }}
-          style={{ ...filterInputStyle, width: 140 }} />
+        <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); setPage(1) }} />
       </FilterBar>
 
       <SectionCard

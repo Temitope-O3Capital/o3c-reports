@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, ErrBanner, Spinner, DataTable } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Spinner, DataTable, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtPct } from '../../lib/fmt'
@@ -109,21 +109,7 @@ export default function Attribution() {
     <Page title="Campaign Attribution" subtitle="Track campaign impact on loan origination">
       <ErrBanner error={error} onRetry={load} />
 
-      {/* Date filter */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20 }}>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)' }}>From</label>
-        <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-          style={{ padding: '6px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)' }} />
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)' }}>To</label>
-        <input type="date" value={to} onChange={e => setTo(e.target.value)}
-          style={{ padding: '6px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)' }} />
-        {(from || to) && (
-          <button onClick={() => { setFrom(''); setTo('') }}
-            style={{ padding: '6px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'none', fontSize: 12, color: 'var(--txt2)', cursor: 'pointer', fontFamily: INTER }}>
-            Clear
-          </button>
-        )}
-      </div>
+      <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
 
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>

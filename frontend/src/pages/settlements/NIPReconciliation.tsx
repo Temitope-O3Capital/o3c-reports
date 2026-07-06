@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, StatusBadge, FilterBar, filterInputStyle } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, StatusBadge, FilterBar, filterInputStyle, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, today } from '../../lib/fmt'
@@ -246,7 +246,7 @@ export default function NIPReconciliation() {
 
       {/* Filters */}
       <FilterBar onReset={() => { setStatusFilter('open'); setDate(today()) }}>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)} style={filterInputStyle} />
+        <DateFilter from={date} to={date} onChange={(f, _t) => setDate(f)} />
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
           <option value="open">Open exceptions</option>
           <option value="resolved">Resolved</option>
@@ -273,7 +273,7 @@ export default function NIPReconciliation() {
       </div>
 
       {tab === 'exceptions' && (
-        <SectionCard padding={false}>
+        <SectionCard padding={false} actions={<button onClick={() => exportExceptionsCsv(exceptions)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
           <DataTable
             cols={excCols}
             rows={exceptions}
@@ -283,13 +283,12 @@ export default function NIPReconciliation() {
             searchKeys={['txn_ref', 'batch_ref', 'exception_type', 'status']}
             searchPlaceholder="Search ref, type, status…"
             pageSize={20}
-            onExport={() => exportExceptionsCsv(exceptions)}
           />
         </SectionCard>
       )}
 
       {tab === 'batches' && (
-        <SectionCard padding={false}>
+        <SectionCard padding={false} actions={<button onClick={() => exportBatchesCsv(batches)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
           <DataTable
             cols={BATCH_COLS}
             rows={batches}
@@ -299,7 +298,6 @@ export default function NIPReconciliation() {
             searchKeys={['batch_ref', 'batch_type', 'status']}
             searchPlaceholder="Search ref, type, status…"
             pageSize={20}
-            onExport={() => exportBatchesCsv(batches)}
           />
         </SectionCard>
       )}

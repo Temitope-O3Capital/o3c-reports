@@ -236,7 +236,7 @@ export default function Leave() {
         </select>
       </FilterBar>
 
-      <SectionCard title="Leave Requests" badge={leaves.length} padding={false}>
+      <SectionCard title="Leave Requests" badge={leaves.length} padding={false} actions={<button onClick={() => exportLeaveCsv(leaves)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <DataTable<Leave>
           cols={cols}
           rows={leaves}
@@ -246,7 +246,7 @@ export default function Leave() {
           searchKeys={['employee_name', 'leave_type', 'status']}
           searchPlaceholder="Search leave requests…"
           pageSize={20}
-          onExport={() => exportLeaveCsv(leaves)}
+
           selectable
           selectedIds={sel}
           onSelect={setSel}

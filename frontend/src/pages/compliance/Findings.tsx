@@ -255,7 +255,12 @@ export default function Findings() {
         </select>
       </FilterBar>
 
-      <SectionCard title="Findings" badge={findings.length} padding={false}>
+      <SectionCard title="Findings" badge={findings.length} padding={false} actions={
+        <button onClick={() => exportFindingsCsv(findings)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
+          Export CSV
+        </button>
+      }>
         <DataTable<Finding>
           cols={cols}
           rows={findings}
@@ -266,7 +271,6 @@ export default function Findings() {
           searchKeys={['summary', 'status', 'severity']}
           searchPlaceholder="Search findings…"
           pageSize={20}
-          onExport={() => exportFindingsCsv(findings)}
           selectable
           selectedIds={sel}
           onSelect={setSel}

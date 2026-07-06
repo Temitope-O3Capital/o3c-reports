@@ -326,7 +326,7 @@ export default function AdminRoles() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="All Roles" badge={roles.length} padding={false}>
+      <SectionCard title="All Roles" badge={roles.length} padding={false} actions={<button onClick={() => exportRolesCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <DataTable
           cols={COLS}
           rows={displayed}
@@ -337,7 +337,6 @@ export default function AdminRoles() {
           searchKeys={['name', 'label']}
           searchPlaceholder="Search roles…"
           pageSize={20}
-          onExport={() => exportRolesCsv(displayed)}
         />
       </SectionCard>
 

@@ -290,14 +290,14 @@ export default function CollectionsOverview() {
             <ResponsiveContainer width="100%" height={200}>
               <BarChart
                 data={agents.slice(0, 10)}
-                margin={{ top: 4, right: 8, left: 0, bottom: 40 }}
+                margin={{ top: 4, right: 8, left: 0, bottom: 20 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
                 <XAxis
                   dataKey="Agent"
                   tick={{ fontSize: 10, fill: '#9AA4B8' }}
                   axisLine={false} tickLine={false}
-                  angle={-35} textAnchor="end" interval={0}
+                  interval={0} textAnchor="middle"
                 />
                 <YAxis
                   tickFormatter={v => fmtKobo(v)}

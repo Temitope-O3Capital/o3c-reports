@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtPct, fmtNum, today, monthStart } from '../../lib/fmt'
@@ -167,6 +167,9 @@ export default function EyeScore() {
     <Page
       title="Eye Credit Scores"
       subtitle="Credit scoring requests — scores, bands, and key risk factors"
+      actions={
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+      }
     >
       <ErrBanner error={error} onRetry={() => load(0)} />
 
@@ -208,8 +211,6 @@ export default function EyeScore() {
       <SectionCard title="Score Requests" badge={total} padding={false}>
         <div style={{ padding: '12px 18px 0' }}>
           <FilterBar onReset={resetFilters}>
-            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={filterInputStyle} />
-            <input type="date" value={dateTo}   onChange={e => setDateTo(e.target.value)}   style={filterInputStyle} />
             <select value={product} onChange={e => setProduct(e.target.value)} style={filterInputStyle}>
               <option value="">All products</option>
               <option value="Salary Loan">Salary Loan</option>

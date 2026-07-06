@@ -1,12 +1,19 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiExport } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtPct, today, monthStart } from '../../lib/fmt'
+import { fmtKobo, fmtDate, fmtPct, fmtNum, today, monthStart } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, RED, INTER, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+interface ReviewKPIs {
+  reviewed: number
+  approved: number
+  declined: number
+  pending: number
+}
 
 interface RiskApp {
   id: number
@@ -69,6 +76,7 @@ export default function RiskAppReview() {
   const navigate = useNavigate()
 
   const [rows,     setRows]     = useState<RiskApp[]>([])
+  const [kpis,     setKpis]     = useState<ReviewKPIs | null>(null)
   const [total,    setTotal]    = useState(0)
   const [offset,   setOffset]   = useState(0)
   const [loading,  setLoading]  = useState(true)
@@ -100,13 +108,17 @@ export default function RiskAppReview() {
     setLoading(true)
     setError(null)
     try {
-      const res = await apiFetch<{ data: RiskApp[]; total: number }>(
-        `/api/risk/applications?${buildQS(off)}`,
-        { signal: abortRef.current.signal },
-      )
+      const [res, kpiRes] = await Promise.all([
+        apiFetch<{ data: RiskApp[]; total: number }>(
+          `/api/risk/applications?${buildQS(off)}`,
+          { signal: abortRef.current.signal },
+        ),
+        apiFetch<{ data: ReviewKPIs }>('/api/risk/review-kpis'),
+      ])
       setRows(res.data ?? [])
       setTotal(res.total ?? 0)
       setOffset(off)
+      setKpis(kpiRes.data)
     } catch (e: any) {
       if (e.name !== 'AbortError') setError(e.message ?? 'Failed to load')
     } finally {
@@ -190,20 +202,33 @@ export default function RiskAppReview() {
     </div>
   ) : null
 
+  const kpiLoading = loading && !kpis
+
   return (
     <Page
       title="App Review"
       subtitle="Risk review queue — applications pending credit decision"
       actions={
-        <button
-          onClick={() => apiExport(`/api/risk/applications/export?${buildQS(0)}`, 'risk-applications.csv')}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt)', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>Export CSV
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button
+            onClick={() => apiExport(`/api/risk/applications/export?${buildQS(0)}`, 'risk-applications.csv')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt)', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>Export CSV
+          </button>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={() => load(0)} />
+
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+        <KpiCard label="Reviewed" value={kpis ? fmtNum(kpis.reviewed) : '—'} icon="fact_check" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Approved" value={kpis ? fmtNum(kpis.approved) : '—'} icon="check_circle" accent={GREEN} loading={kpiLoading} />
+        <KpiCard label="Declined" value={kpis ? fmtNum(kpis.declined) : '—'} icon="cancel" accent={RED} loading={kpiLoading} />
+        <KpiCard label="Pending" value={kpis ? fmtNum(kpis.pending) : '—'} icon="pending" accent={AMBER} loading={kpiLoading} />
+      </div>
 
       <SectionCard title="Applications" badge={total} padding={false}>
         <div style={{ padding: '12px 18px 0' }}>
@@ -227,8 +252,6 @@ export default function RiskAppReview() {
               <option value="Sub-Prime">Sub-Prime</option>
               <option value="High-Risk">High-Risk</option>
             </select>
-            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={filterInputStyle} />
-            <input type="date" value={dateTo}   onChange={e => setDateTo(e.target.value)}   style={filterInputStyle} />
             <button
               onClick={() => load(0)}
               style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}

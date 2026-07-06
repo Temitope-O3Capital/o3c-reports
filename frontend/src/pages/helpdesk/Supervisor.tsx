@@ -381,9 +381,9 @@ export default function Supervisor() {
             <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)', fontSize: 13 }}>No data yet.</div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={supervisor!.by_type} margin={{ top: 4, right: 8, bottom: 40, left: 0 }}>
+              <BarChart data={supervisor!.by_type} margin={{ top: 4, right: 8, bottom: 20, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-                <XAxis dataKey="ticket_type" tick={{ fontSize: 11, fill: 'var(--txt2)' }} angle={-35} textAnchor="end" interval={0} />
+                <XAxis dataKey="ticket_type" tick={{ fontSize: 11, fill: 'var(--txt2)' }} interval={0} textAnchor="middle" />
                 <YAxis tick={{ fontSize: 11, fill: 'var(--txt2)' }} allowDecimals={false} />
                 <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
                 <Bar dataKey="count" fill={NAVY} radius={[4, 4, 0, 0]} name="Tickets" />
@@ -397,9 +397,9 @@ export default function Supervisor() {
             <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)', fontSize: 13 }}>No data yet.</div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={supervisor!.hourly_queue} margin={{ top: 4, right: 8, bottom: 40, left: 0 }}>
+              <LineChart data={supervisor!.hourly_queue} margin={{ top: 4, right: 8, bottom: 20, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-                <XAxis dataKey="hour" tick={{ fontSize: 11, fill: 'var(--txt2)' }} angle={-35} textAnchor="end" interval={0} />
+                <XAxis dataKey="hour" tick={{ fontSize: 11, fill: 'var(--txt2)' }} interval={0} textAnchor="middle" />
                 <YAxis tick={{ fontSize: 11, fill: 'var(--txt2)' }} allowDecimals={false} />
                 <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
                 <Line type="monotone" dataKey="count" stroke={RED} strokeWidth={2} dot={{ r: 3 }} name="Open" />

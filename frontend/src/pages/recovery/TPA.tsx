@@ -548,7 +548,7 @@ export default function RecoveryTPA() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <SectionCard title="Registered Agencies" badge={agencies.length} padding={false}>
+      <SectionCard title="Registered Agencies" badge={agencies.length} padding={false} actions={<button onClick={() => exportTPACsv(agencies)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <DataTable
           cols={cols}
           rows={agencies}
@@ -560,7 +560,6 @@ export default function RecoveryTPA() {
           searchKeys={['name', 'licence_no', 'contact_name', 'contact_phone']}
           searchPlaceholder="Search by agency name, licence, contact…"
           pageSize={20}
-          onExport={() => exportTPACsv(agencies)}
         />
       </SectionCard>
 

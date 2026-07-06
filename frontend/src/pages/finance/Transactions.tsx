@@ -1,10 +1,17 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, filterInputStyle, SearchInput } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, filterInputStyle, SearchInput, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, API } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtDatetime, today, monthStart } from '../../lib/fmt'
+import { fmtKobo, fmtDate, fmtDatetime, fmtNum, today, monthStart } from '../../lib/fmt'
 import { GREEN, RED, NAVY, INTER, SORA, NUM } from '../../lib/design'
 import { toast } from 'sonner'
+
+interface TxnKPIs {
+  total_count: number
+  total_credits_kobo: number
+  total_debits_kobo: number
+  net_position_kobo: number
+}
 
 interface TxnRow {
   id: number
@@ -83,6 +90,7 @@ const PAGE_SIZE = 50
 
 export default function FinanceTransactions() {
   const [rows,       setRows]       = useState<TxnRow[]>([])
+  const [kpis,       setKpis]       = useState<TxnKPIs | null>(null)
   const [total,      setTotal]      = useState(0)
   const [offset,     setOffset]     = useState(0)
   const [loading,    setLoading]    = useState(true)
@@ -119,10 +127,14 @@ export default function FinanceTransactions() {
     abortRef.current = new AbortController()
     setLoading(true); setError(null)
     try {
-      const res = await apiFetch<TxnResponse>(`/api/eod/transactions?${buildQS(off)}`, { signal: abortRef.current.signal })
+      const [res, kpiRes] = await Promise.all([
+        apiFetch<TxnResponse>(`/api/eod/transactions?${buildQS(off)}`, { signal: abortRef.current.signal }),
+        apiFetch<{ data: TxnKPIs }>('/api/finance/transaction-kpis'),
+      ])
       setRows(res.data ?? [])
       setTotal(res.total ?? 0)
       setOffset(off)
+      setKpis(kpiRes.data)
     } catch (e: any) {
       if (e.name !== 'AbortError') setError(e.message)
     } finally {
@@ -163,27 +175,40 @@ export default function FinanceTransactions() {
   const showEnd      = Math.min(offset + PAGE_SIZE, total)
 
   const activeFilterCount = useMemo(
-    () => (sign ? 1 : 0) + (branch ? 1 : 0) + (dateFrom !== monthStart() ? 1 : 0) + (dateTo !== today() ? 1 : 0) + (amountMin ? 1 : 0) + (amountMax ? 1 : 0),
-    [sign, branch, dateFrom, dateTo, amountMin, amountMax]
+    () => (sign ? 1 : 0) + (branch ? 1 : 0) + (amountMin ? 1 : 0) + (amountMax ? 1 : 0),
+    [sign, branch, amountMin, amountMax]
   )
+
+  const kpiLoading = loading && !kpis
 
   return (
     <Page
       title="Transactions"
       subtitle={total > 0 ? `${total.toLocaleString()} transactions` : undefined}
       actions={
-        <button onClick={handleExport} disabled={exporting} style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          padding: '6px 14px', borderRadius: 8, border: '1px solid var(--bdr)',
-          background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600,
-          cursor: exporting ? 'not-allowed' : 'pointer', opacity: exporting ? 0.6 : 1,
-        }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
-          {exporting ? 'Exporting…' : 'Export CSV'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={handleExport} disabled={exporting} style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '6px 14px', borderRadius: 8, border: '1px solid var(--bdr)',
+            background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600,
+            cursor: exporting ? 'not-allowed' : 'pointer', opacity: exporting ? 0.6 : 1,
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
+            {exporting ? 'Exporting…' : 'Export CSV'}
+          </button>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={() => load(0)} />
+
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+        <KpiCard label="Total Transactions" value={kpis ? fmtNum(kpis.total_count) : '—'} icon="receipt_long" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Total Credits ₦" value={kpis ? fmtKobo(kpis.total_credits_kobo) : '—'} icon="south_east" accent={GREEN} loading={kpiLoading} />
+        <KpiCard label="Total Debits ₦" value={kpis ? fmtKobo(kpis.total_debits_kobo) : '—'} icon="north_west" accent={RED} loading={kpiLoading} />
+        <KpiCard label="Net Position ₦" value={kpis ? fmtKobo(kpis.net_position_kobo) : '—'} icon="account_balance_wallet" accent={GREEN} loading={kpiLoading} />
+      </div>
 
       <SectionCard title="Transactions" badge={total} padding={false}>
 
@@ -235,7 +260,7 @@ export default function FinanceTransactions() {
         {/* Expandable filter panel */}
         {filterOpen && (
           <div style={{ borderBottom: '1px solid var(--bdr)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', padding: '20px 20px 0' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '20px 20px 0' }}>
 
               {/* Channel (sign) */}
               <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
@@ -263,23 +288,6 @@ export default function FinanceTransactions() {
                   placeholder="Filter by branch name…"
                   style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }}
                 />
-              </div>
-
-              {/* Date range */}
-              <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>DATE RANGE</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div>
-                    <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>From</label>
-                    <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>To</label>
-                    <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
-                  </div>
-                </div>
               </div>
 
               {/* Amount range */}
@@ -340,12 +348,6 @@ export default function FinanceTransactions() {
               <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
                 Branch: {branch}
                 <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => { setBranch(''); load(0) }}>close</span>
-              </span>
-            )}
-            {(dateFrom !== monthStart() || dateTo !== today()) && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
-                {dateFrom} → {dateTo}
-                <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => { setDateFrom(monthStart()); setDateTo(today()); load(0) }}>close</span>
               </span>
             )}
             {(amountMin || amountMax) && (

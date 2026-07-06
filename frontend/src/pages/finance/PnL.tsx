@@ -190,7 +190,12 @@ export default function FinancePnL() {
       </div>
 
       {/* Product breakdown table */}
-      <SectionCard title="P&L by Product" subtitle="Revenue, cost and net per product" padding={false}>
+      <SectionCard title="P&L by Product" subtitle="Revenue, cost and net per product" padding={false} actions={lines.length > 0 ? (
+        <button onClick={() => exportPnlCsv(lines)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
+          Export CSV
+        </button>
+      ) : undefined}>
         <DataTable
           cols={LINE_COLS}
           rows={lines}
@@ -198,7 +203,6 @@ export default function FinancePnL() {
           emptyText={loading ? 'Loading…' : 'No P&L data available for this period'}
           searchKeys={['product']}
           pageSize={20}
-          onExport={lines.length > 0 ? () => exportPnlCsv(lines) : undefined}
         />
       </SectionCard>
     </Page>

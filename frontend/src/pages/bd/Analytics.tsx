@@ -183,9 +183,9 @@ export default function BDAnalytics() {
       {officerPerf.length > 0 && (
         <SectionCard title="Conversion by Officer" subtitle="Total leads vs won" style={{ marginBottom: 14 }}>
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={officerPerf} margin={{ top: 4, right: 8, bottom: 30, left: 0 }}>
+            <BarChart data={officerPerf} margin={{ top: 4, right: 8, bottom: 20, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--txt2)' }} angle={-25} textAnchor="end" interval={0} />
+              <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--txt2)' }} interval={0} textAnchor="middle" />
               <YAxis tick={{ fontSize: 10.5, fill: 'var(--txt2)' }} allowDecimals={false} />
               <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
               <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />

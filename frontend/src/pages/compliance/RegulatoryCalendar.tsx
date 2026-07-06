@@ -201,7 +201,12 @@ export default function RegulatoryCalendar() {
         </select>
       </FilterBar>
 
-      <SectionCard title="Regulatory Requirements" badge={items.length} padding={false}>
+      <SectionCard title="Regulatory Requirements" badge={items.length} padding={false} actions={
+        <button onClick={() => exportCalendarCsv(items)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
+          Export CSV
+        </button>
+      }>
         <DataTable<CBNReport>
           cols={cols}
           rows={items}
@@ -211,7 +216,6 @@ export default function RegulatoryCalendar() {
           searchKeys={['report_name', 'regulatory_body', 'owner_name']}
           searchPlaceholder="Search requirements…"
           pageSize={20}
-          onExport={() => exportCalendarCsv(items)}
         />
       </SectionCard>
 

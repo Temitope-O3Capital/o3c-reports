@@ -4,7 +4,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from 'recharts'
 import {
-  Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner,
+  Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -248,18 +248,7 @@ export default function TelemarketingPerformance() {
           onKeyDown={e => e.key === 'Enter' && load()}
           style={{ ...filterInputStyle, minWidth: 180 }}
         />
-        <input
-          type="date"
-          value={dateFrom}
-          onChange={e => setDateFrom(e.target.value)}
-          style={filterInputStyle}
-        />
-        <input
-          type="date"
-          value={dateTo}
-          onChange={e => setDateTo(e.target.value)}
-          style={filterInputStyle}
-        />
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
         <button
           onClick={() => load()}
           style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
@@ -319,9 +308,7 @@ export default function TelemarketingPerformance() {
                 axisLine={false}
                 tickLine={false}
                 interval={0}
-                angle={-20}
-                textAnchor="end"
-                height={40}
+                textAnchor="middle"
               />
               <YAxis
                 tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }}
@@ -380,6 +367,7 @@ export default function TelemarketingPerformance() {
         badge={agents.length}
         subtitle="Sorted by calls — conversion % colour: ≥10% green · 5–9% amber · <5% red"
         padding={false}
+        actions={<button onClick={() => exportAgentPerfCsv(agents)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}
       >
         <DataTable
           cols={AGENT_COLS}
@@ -391,7 +379,6 @@ export default function TelemarketingPerformance() {
           searchKeys={['agent_name']}
           searchPlaceholder="Search agents…"
           pageSize={20}
-          onExport={() => exportAgentPerfCsv(agents)}
         />
       </SectionCard>
     </Page>

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, filterInputStyle, SearchInput } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, filterInputStyle, SearchInput, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtPct, today, monthStart } from '../../lib/fmt'
@@ -40,6 +40,13 @@ interface FDSummary {
   total_interest: number
   total_transactions: number
   net_position: number
+}
+
+interface FDKPIs {
+  total_fds: number
+  total_principal_kobo: number
+  avg_rate_pct: number
+  maturing_this_month: number
 }
 
 interface TrendPoint { month: string; inflow: number; liquidation: number }
@@ -235,6 +242,7 @@ const PER_PAGE = 25
 export default function FinanceFixedDeposit() {
   const [rows, setRows] = useState<FDRecord[]>([])
   const [summary, setSummary] = useState<FDSummary | null>(null)
+  const [fdKpis, setFdKpis] = useState<FDKPIs | null>(null)
   const [trend, setTrend] = useState<TrendPoint[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -253,14 +261,16 @@ export default function FinanceFixedDeposit() {
     setError(null)
     try {
       const qs = `date_from=${dateFrom}&date_to=${dateTo}`
-      const [txRes, sumRes, trendRes] = await Promise.allSettled([
+      const [txRes, sumRes, trendRes, kpiRes] = await Promise.allSettled([
         apiFetch<{ data: FDRecord[] }>(`/api/fixed-deposit/transactions?${qs}`),
         apiFetch<FDSummary>(`/api/fixed-deposit/summary?${qs}`),
         apiFetch<TrendPoint[]>('/api/fixed-deposit/trend'),
+        apiFetch<{ data: FDKPIs }>('/api/finance/fd-kpis'),
       ])
       if (txRes.status === 'fulfilled') setRows(txRes.value?.data ?? [])
       if (sumRes.status === 'fulfilled') setSummary(sumRes.value)
       if (trendRes.status === 'fulfilled') setTrend(trendRes.value ?? [])
+      if (kpiRes.status === 'fulfilled') setFdKpis(kpiRes.value?.data ?? null)
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -270,7 +280,7 @@ export default function FinanceFixedDeposit() {
 
   useEffect(() => { load() }, [load])
 
-  const activeFilterCount = (statusFilter !== 'all' ? 1 : 0) + (dateFrom !== monthStart() ? 1 : 0) + (dateTo !== today() ? 1 : 0) + (matFrom ? 1 : 0) + (matTo ? 1 : 0)
+  const activeFilterCount = (statusFilter !== 'all' ? 1 : 0) + ((matFrom || matTo) ? 1 : 0)
 
   const filtered = useMemo(() => rows.filter(r => {
     if (statusFilter !== 'all' && r.transaction_type !== statusFilter) return false
@@ -317,28 +327,40 @@ export default function FinanceFixedDeposit() {
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
+  const kpiLoading = loading && !fdKpis
+
   return (
     <Page
       title="Fixed Deposits"
       subtitle={summary ? `${summary.inflow_count} active · ${summary.liquidation_count} liquidated` : undefined}
       actions={
-        <button onClick={() => setShowNew(true)} style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          padding: '6px 14px', borderRadius: 8, border: 'none',
-          background: NAVY, color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
-        }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>New FD
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>Txn Date:</span>
+            <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>Maturity:</span>
+            <DateFilter from={matFrom} to={matTo} onChange={(f, t) => { setMatFrom(f); setMatTo(t) }} align="right" />
+          </div>
+          <button onClick={() => setShowNew(true)} style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '6px 14px', borderRadius: 8, border: 'none',
+            background: NAVY, color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>New FD
+          </button>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
-        <KpiCard label="Total Inflow NGN" value={fmtKobo(summary?.total_inflow_ngn ?? 0)} icon="south_east" accent={GREEN} loading={loading} />
-        <KpiCard label="Total Liquidated" value={fmtKobo(summary?.total_liquidated ?? 0)} icon="north_west" accent={AMBER} loading={loading} />
-        <KpiCard label="Net FD Position" value={fmtKobo(summary?.net_position ?? 0)} icon="savings" accent={BLUE} loading={loading} />
-        <KpiCard label="Interest Paid" value={fmtKobo(summary?.total_interest ?? 0)} icon="paid" accent={NAVY} loading={loading} />
+        <KpiCard label="Total FDs" value={fdKpis ? String(fdKpis.total_fds) : '—'} icon="savings" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Total Principal ₦" value={fdKpis ? fmtKobo(fdKpis.total_principal_kobo) : '—'} icon="account_balance" accent={GREEN} loading={kpiLoading} />
+        <KpiCard label="Avg Rate %" value={fdKpis ? `${fdKpis.avg_rate_pct.toFixed(1)}%` : '—'} icon="percent" accent={BLUE} loading={kpiLoading} />
+        <KpiCard label="Maturing This Month" value={fdKpis ? String(fdKpis.maturing_this_month) : '—'} icon="event" accent={AMBER} loading={kpiLoading} />
       </div>
 
       {/* Trend chart */}
@@ -369,7 +391,12 @@ export default function FinanceFixedDeposit() {
         )}
       </SectionCard>
 
-      <SectionCard title="FD Records" badge={filtered.length} padding={false}>
+      <SectionCard title="FD Records" badge={filtered.length} padding={false} actions={
+        <button onClick={() => exportFDRecordsCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
+          Export CSV
+        </button>
+      }>
 
         {/* Filter bar */}
         <div style={{
@@ -411,7 +438,7 @@ export default function FinanceFixedDeposit() {
         {/* Expandable filter panel */}
         {filterOpen && (
           <div style={{ borderBottom: '1px solid var(--bdr)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', padding: '20px 20px 0' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: '20px 20px 0' }}>
 
               {/* Status */}
               <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
@@ -430,40 +457,6 @@ export default function FinanceFixedDeposit() {
                     </span>
                   </label>
                 ))}
-              </div>
-
-              {/* Date range — triggers reload */}
-              <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>TRANSACTION DATE</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div>
-                    <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>From</label>
-                    <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>To</label>
-                    <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
-                  </div>
-                </div>
-              </div>
-
-              {/* Maturity date range */}
-              <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>MATURITY DATE</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div>
-                    <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>From</label>
-                    <input type="date" value={matFrom} onChange={e => setMatFrom(e.target.value)}
-                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 11, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>To</label>
-                    <input type="date" value={matTo} onChange={e => setMatTo(e.target.value)}
-                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
-                  </div>
-                </div>
               </div>
 
               {/* Quick stats */}
@@ -517,12 +510,6 @@ export default function FinanceFixedDeposit() {
                 <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setStatusFilter('all')}>close</span>
               </span>
             )}
-            {(dateFrom !== monthStart() || dateTo !== today()) && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
-                {dateFrom} → {dateTo}
-                <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => { setDateFrom(monthStart()); setDateTo(today()); load() }}>close</span>
-              </span>
-            )}
             <button onClick={resetFilters} style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--txt3)', padding: 0, fontFamily: SORA }}>Clear all</button>
           </div>
         )}
@@ -533,7 +520,6 @@ export default function FinanceFixedDeposit() {
           keyFn={r => r.id}
           loading={loading}
           emptyText="No fixed deposit records found"
-          onExport={() => exportFDRecordsCsv(filtered)}
         />
 
         {/* Pagination footer */}

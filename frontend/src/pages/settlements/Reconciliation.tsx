@@ -326,25 +326,45 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
             </div>
           </div>
 
-          {/* KPI grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
-            <MiniKpi label="Total Transactions" icon="receipt_long" accent={NAVY} value={fmtNum(n(ps?.total_count))} sub="Incoming payments" />
-            <MiniKpi label="Successful" icon="check_circle" accent={GREEN} value={fmtNum(n(ps?.success))} sub="Fully settled" />
-            <MiniKpi label="Failed / Abandoned" icon="cancel" accent={RED} value={fmtNum(n(ps?.total_count) - n(ps?.success))} sub="Not completed" />
-            <MiniKpi label="Gross Volume ₦" icon="payments" accent="#7C3AED" value={fmtKobo(n(ps?.total_volume_kobo))} sub="Total collected" />
-          </div>
+          {/* KPI grid — Total In / Total Out / Unmatched Credits / Unmatched Debits */}
+          {(() => {
+            const psCount  = n(ps?.total_count)
+            const eodCount = n(eod?.txn_count)
+            const psVol    = n(ps?.total_volume_kobo)
+            const eodVol   = n(eod?.total_vol_kobo)
+            const countDiff = psCount - eodCount
+            const volDiff   = psVol - eodVol
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
+                <MiniKpi label="Total In (Paystack)" icon="arrow_downward" accent={GREEN}
+                  value={fmtKobo(psVol)} sub={`${fmtNum(psCount)} transactions`} />
+                <MiniKpi label="Total In (Ledger)" icon="account_balance" accent={NAVY}
+                  value={fmtKoboExact(eodVol)} sub={`${fmtNum(eodCount)} ledger entries`} />
+                <MiniKpi label="Unmatched Credits"
+                  icon={countDiff > 0 ? 'warning' : 'check_circle'}
+                  accent={countDiff > 0 ? RED : GREEN}
+                  value={countDiff > 0 ? `+${fmtNum(countDiff)}` : '0'}
+                  sub={countDiff > 0 ? 'Paystack shows more' : 'Counts match'} />
+                <MiniKpi label="Unmatched Debits"
+                  icon={countDiff < 0 ? 'warning' : 'check_circle'}
+                  accent={countDiff < 0 ? RED : GREEN}
+                  value={countDiff < 0 ? fmtNum(Math.abs(countDiff)) : '0'}
+                  sub={countDiff < 0 ? 'Ledger shows more' : volDiff !== 0 ? `₦ diff: ${fmtKoboExact(Math.abs(volDiff))}` : 'Volumes match'} />
+              </div>
+            )
+          })()}
 
           {/* Compare panel */}
           <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden', marginBottom: 16 }}>
             <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)' }}>
-              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Processor vs Ledger</p>
-              <p style={{ fontSize: 12, color: 'var(--txt2)', margin: 0 }}>Paystack API totals vs internal EOD ledger</p>
+              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Processor vs Ledger — Reconciliation</p>
+              <p style={{ fontSize: 12, color: 'var(--txt2)', margin: 0 }}>Paystack API totals vs internal EOD ledger · matched = <span style={{ color: GREEN, fontWeight: 600 }}>green</span> · gap ≥ 5% = <span style={{ color: RED, fontWeight: 600 }}>red</span></p>
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    {['Metric', 'Paystack (Source)', 'EOD Ledger', 'Delta'].map((h, i) => (
+                    {['Metric', 'Paystack (Source)', 'EOD Ledger', 'Match Status'].map((h, i) => (
                       <th key={h} style={{ ...TH_STYLE, textAlign: i > 0 ? 'right' : 'left' }}>{h}</th>
                     ))}
                   </tr>
@@ -500,7 +520,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr>{['Reference & Date', 'Recipient', 'Bank / Account', 'Amount', 'Fee *', 'Wallet Debited', 'Status', 'Reason'].map(h => (
+            <thead><tr>{['Reference & Date', 'Initiated By', 'Recipient', 'Bank / Account', 'Amount', 'Fee *', 'Wallet Debited', 'Status'].map(h => (
               <th key={h} style={TH_STYLE}>{h}</th>
             ))}</tr></thead>
             <tbody>
@@ -509,6 +529,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                 : xfrData!.data.map((t, i) => {
                   const recip = (t.recipient as Record<string, unknown>) || {}
                   const details = (recip.details as Record<string, unknown>) || {}
+                  const o3ci = t.o3c_initiator as Record<string, unknown> | null | undefined
                   const amt = n(t.amount)
                   const feeActual = n(t.fee_charged)
                   const xferEst = amt <= 500000 ? 1000 : amt <= 5000000 ? 2500 : 5000
@@ -516,13 +537,28 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                   const fee = feeActual > 0 ? feeActual : (t.status === 'success' ? (xferEst + stampEst) : 0)
                   const isEst = feeActual === 0 && t.status === 'success'
                   const net = amt + fee
+                  const narration = String(t.reason || '—')
+                  const initName = o3ci ? String(o3ci.applicant_name || '—') : null
+                  const initCif  = o3ci ? String(o3ci.applicant_cif  || '') : null
+                  const initRef  = o3ci ? String(o3ci.loan_ref        || '') : null
                   return (
                     <tr key={i} style={{ borderBottom: '1px solid var(--bdr)' }}
                       onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'var(--row-hvr)' }}
                       onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = '' }}>
                       <td style={TD_STYLE}>
                         <p style={{ ...NUM, fontSize: 11.5, color: 'var(--txt2)', margin: '0 0 2px' }}>{String(t.reference || '—')}</p>
-                        <p style={{ fontSize: 11, color: 'var(--txt3)', margin: 0 }}>{fmtTs(String(t.transferred_at || t.createdAt || ''))}</p>
+                        <p style={{ fontSize: 11, color: 'var(--txt3)', margin: '0 0 2px' }}>{fmtTs(String(t.transferred_at || t.createdAt || ''))}</p>
+                        <p style={{ fontSize: 10.5, color: 'var(--txt3)', margin: 0, fontStyle: 'italic', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{narration}</p>
+                      </td>
+                      <td style={TD_STYLE}>
+                        {initName
+                          ? <>
+                              <p style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>{initName}</p>
+                              {initCif  && <p style={{ ...NUM, fontSize: 11, color: 'var(--txt2)', margin: '0 0 2px' }}>{initCif}</p>}
+                              {initRef  && <p style={{ ...NUM, fontSize: 10.5, color: 'var(--txt3)', margin: 0 }}>{initRef}</p>}
+                            </>
+                          : <p style={{ fontSize: 11.5, color: 'var(--txt3)', fontStyle: 'italic', margin: 0 }}>{narration}</p>
+                        }
                       </td>
                       <td style={TD_STYLE}>
                         <p style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>{String(details.account_name || (recip.name as string) || '—')}</p>
@@ -538,7 +574,6 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                       </td>
                       <td style={{ ...TD_STYLE, ...NUM, fontWeight: 700, fontSize: 14, color: t.status === 'success' ? RED : 'var(--txt3)' }}>{t.status === 'success' ? fmtKoboExact(net) : '—'}</td>
                       <td style={TD_STYLE}><StatusBadge status={String(t.status || 'pending')} /></td>
-                      <td style={{ ...TD_STYLE, fontSize: 11.5, color: 'var(--txt2)', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(t.reason || '—')}</td>
                     </tr>
                   )
                 })}
@@ -547,7 +582,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
         </div>
         <Pager page={xfrPage} total={n(xfrData?.meta?.total)} perPage={PER_PAGE} onChange={setXfrPage} />
         <p style={{ fontSize: 11, color: 'var(--txt2)', padding: '0 14px 10px' }}>
-          * Paystack does not return per-transfer fees via API — fees marked <em>est.</em> are calculated from the standard schedule (₦10 / ₦25 / ₦50).
+          * Fees marked <em>est.</em> are estimated from the standard schedule (₦10 / ₦25 / ₦50) — Paystack does not return per-transfer fee breakdowns via the transfers API. "Initiated By" shows the borrower name, CIF, and loan reference for loan disbursements; non-loan transfers (salary, vendor, etc.) show the transfer narration instead.
         </p>
       </div>
     </div>

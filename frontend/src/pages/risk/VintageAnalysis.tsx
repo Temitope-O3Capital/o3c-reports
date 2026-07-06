@@ -24,9 +24,9 @@ interface VintageKPIs {
 
 function parCell(value: number | null): { bg: string; color: string; text: string } {
   if (value === null) return { bg: 'transparent', color: 'var(--txt3)', text: 'N/A' }
-  if (value < 3)  return { bg: 'rgba(22,163,74,.08)',  color: GREEN, text: fmtPct(value, 1) }
-  if (value <= 8) return { bg: 'rgba(217,119,6,.08)',  color: AMBER, text: fmtPct(value, 1) }
-  return           { bg: 'rgba(192,0,0,.08)',           color: RED,   text: fmtPct(value, 1) }
+  if (value < 5)   return { bg: 'rgba(22,163,74,.10)',  color: GREEN, text: fmtPct(value, 1) }
+  if (value <= 15) return { bg: 'rgba(217,119,6,.10)',  color: AMBER, text: fmtPct(value, 1) }
+  return            { bg: 'rgba(192,0,0,.10)',           color: RED,   text: fmtPct(value, 1) }
 }
 
 // ── PAR % table cell ──────────────────────────────────────────────────────────
@@ -47,19 +47,33 @@ function ParCell({ value }: { value: number | null }) {
   )
 }
 
-// ── KPI strip (inline, 2-value) ───────────────────────────────────────────────
+// ── KPI card ─────────────────────────────────────────────────────────────────
 
-function InlineKpi({ label, value, loading }: { label: string; value: string; loading: boolean }) {
+function InlineKpi({ label, value, loading, accent, icon, sub }: {
+  label: string; value: string; loading: boolean; accent?: string; icon?: string; sub?: string
+}) {
+  const ac = accent ?? NAVY
   return (
     <div style={{
       background: 'var(--card)', border: '1px solid var(--card-bdr)', boxShadow: 'var(--card-shadow)',
-      borderRadius: 12, padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 4,
+      borderRadius: 12, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 6,
+      borderTop: `3px solid ${ac}`,
     }}>
-      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', letterSpacing: '0.3px', textTransform: 'uppercase' }}>{label}</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', letterSpacing: '0.4px', textTransform: 'uppercase' }}>{label}</span>
+        {icon && (
+          <div style={{ width: 26, height: 26, borderRadius: 7, background: `${ac}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 14, color: ac }}>{icon}</span>
+          </div>
+        )}
+      </div>
       {loading
-        ? <Sk h={26} w="50%" />
-        : <span style={{ ...NUM, fontSize: 22, fontWeight: 700, color: 'var(--txt)', letterSpacing: '-0.6px', lineHeight: 1.2 }}>{value}</span>
+        ? <Sk h={28} w="55%" />
+        : <span style={{ ...NUM, fontSize: 24, fontWeight: 700, color: 'var(--txt)', letterSpacing: '-0.7px', lineHeight: 1.2 }}>{value}</span>
       }
+      {sub && !loading && (
+        <span style={{ fontSize: 11, color: 'var(--txt3)' }}>{sub}</span>
+      )}
     </div>
   )
 }
@@ -128,6 +142,25 @@ export default function VintageAnalysis() {
   const avg6m  = kpis?.avg_par30_6m  !== null && kpis?.avg_par30_6m  !== undefined ? fmtPct(kpis.avg_par30_6m,  1) : 'N/A'
   const avg12m = kpis?.avg_par30_12m !== null && kpis?.avg_par30_12m !== undefined ? fmtPct(kpis.avg_par30_12m, 1) : 'N/A'
 
+  // Accent colour based on PAR rate value
+  function parAccent(val: number | null | undefined): string {
+    if (val === null || val === undefined) return NAVY
+    if (val < 5)   return GREEN
+    if (val <= 15) return AMBER
+    return RED
+  }
+
+  // Best performing vintage = row with lowest non-null par30_12m (fallback: par30_6m)
+  const bestVintage = (() => {
+    if (!rows.length) return 'N/A'
+    const scored = rows
+      .map(r => ({ month: r.booking_month, rate: r.par30_12m ?? r.par30_6m }))
+      .filter(r => r.rate !== null)
+    if (!scored.length) return 'N/A'
+    scored.sort((a, b) => (a.rate as number) - (b.rate as number))
+    return scored[0].month
+  })()
+
   return (
     <Page
       title="Vintage Analysis"
@@ -135,10 +168,40 @@ export default function VintageAnalysis() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      {/* Inline KPI strip — 2 values */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 20, maxWidth: 480 }}>
-        <InlineKpi label="Avg PAR30 at 6m" value={avg6m}  loading={kpiLoading} />
-        <InlineKpi label="Avg PAR30 at 12m" value={avg12m} loading={kpiLoading} />
+      {/* 4-card KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+        <InlineKpi
+          label="Total Cohorts Analyzed"
+          value={loading ? '…' : fmtNum(rows.length)}
+          loading={false}
+          accent={NAVY}
+          icon="calendar_month"
+          sub="Booking month cohorts"
+        />
+        <InlineKpi
+          label="Avg 30-DPD Rate (6m)"
+          value={avg6m}
+          loading={kpiLoading}
+          accent={parAccent(kpis?.avg_par30_6m)}
+          icon="monitoring"
+          sub="PAR30 at 6-month mark"
+        />
+        <InlineKpi
+          label="Avg 30-DPD Rate (12m)"
+          value={avg12m}
+          loading={kpiLoading}
+          accent={parAccent(kpis?.avg_par30_12m)}
+          icon="error_outline"
+          sub="PAR30 at 12-month mark"
+        />
+        <InlineKpi
+          label="Best Performing Vintage"
+          value={loading ? '…' : bestVintage}
+          loading={false}
+          accent={GREEN}
+          icon="emoji_events"
+          sub="Lowest long-term DPD"
+        />
       </div>
 
       <SectionCard title="Vintage Cohort Matrix" badge={rows.length} padding={false}>
@@ -223,10 +286,10 @@ export default function VintageAnalysis() {
         <div style={{ padding: '12px 18px', borderTop: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', gap: 16 }}>
           <span style={{ fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>PAR30 colour guide:</span>
           {([
-            { label: '< 3%',  bg: 'rgba(22,163,74,.08)',  color: GREEN },
-            { label: '3–8%',  bg: 'rgba(217,119,6,.08)',  color: AMBER },
-            { label: '> 8%',  bg: 'rgba(192,0,0,.08)',    color: RED   },
-            { label: 'N/A',   bg: 'transparent',          color: 'var(--txt3)' },
+            { label: '< 5%',   bg: 'rgba(22,163,74,.10)',  color: GREEN },
+            { label: '5–15%',  bg: 'rgba(217,119,6,.10)',  color: AMBER },
+            { label: '> 15%',  bg: 'rgba(192,0,0,.10)',    color: RED   },
+            { label: 'N/A',    bg: 'transparent',          color: 'var(--txt3)' },
           ] as const).map(item => (
             <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <div style={{ width: 24, height: 14, borderRadius: 3, background: item.bg, border: '1px solid var(--bdr)' }} />

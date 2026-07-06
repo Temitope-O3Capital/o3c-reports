@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  ErrBanner, Modal, ConfirmModal, btnPrimary, btnDanger,
+  Page, SectionCard, DataTable,
+  ErrBanner, Modal, ConfirmModal, btnPrimary, btnDanger, DateFilter, KpiCard,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDate, today, monthStart } from '../../lib/fmt'
-import { INTER, NAVY, NUM } from '../../lib/design'
+import { fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
+import { INTER, NAVY, NUM, GREEN, AMBER, RED } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -17,6 +17,12 @@ interface DNCEntry {
   reason: string
   added_by: string
   added_at: string
+}
+
+interface DncKPIs {
+  total_dnc: number
+  added_this_month: number
+  bulk_removes: number
 }
 
 // ── Field style ───────────────────────────────────────────────────────────────
@@ -36,6 +42,8 @@ export default function TelemarketingDNC() {
   const [err, setErr] = useState<string | null>(null)
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo] = useState(today())
+  const [kpis, setKpis] = useState<DncKPIs | null>(null)
+  const [kpiLoading, setKpiLoading] = useState(true)
 
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set())
@@ -68,6 +76,14 @@ export default function TelemarketingDNC() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    setKpiLoading(true)
+    apiFetch<{ data: DncKPIs }>('/api/telemarketing/dnc-kpis')
+      .then(r => setKpis(r.data))
+      .catch(() => {})
+      .finally(() => setKpiLoading(false))
+  }, [])
 
   async function handleAdd() {
     if (!addPhone.trim() || !addReason.trim()) return
@@ -196,28 +212,19 @@ export default function TelemarketingDNC() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <FilterBar onReset={() => { setDateFrom(monthStart()); setDateTo(today()) }}>
-        <input
-          type="date"
-          value={dateFrom}
-          onChange={e => setDateFrom(e.target.value)}
-          style={filterInputStyle}
-        />
-        <input
-          type="date"
-          value={dateTo}
-          onChange={e => setDateTo(e.target.value)}
-          style={filterInputStyle}
-        />
-        <button
-          onClick={() => load()}
-          style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
-        >
-          Apply
-        </button>
-      </FilterBar>
+      {/* Page-level filter */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
+      </div>
 
-      <SectionCard title="DNC Entries" badge={rows.length} padding={false}>
+      {/* KPI cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
+        <KpiCard label="Total DNC" value={kpis ? fmtNum(kpis.total_dnc) : '—'} icon="do_not_disturb_on" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Added This Month" value={kpis ? fmtNum(kpis.added_this_month) : '—'} icon="add_circle" accent={AMBER} loading={kpiLoading} />
+        <KpiCard label="Bulk Removes" value={kpis ? fmtNum(kpis.bulk_removes) : '—'} icon="remove_circle" accent={RED} loading={kpiLoading} />
+      </div>
+
+      <SectionCard title="DNC Entries" badge={rows.length} padding={false} actions={<button onClick={() => exportDncCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <DataTable
           cols={cols}
           rows={rows}
@@ -232,7 +239,6 @@ export default function TelemarketingDNC() {
           searchKeys={['phone', 'reason', 'added_by']}
           searchPlaceholder="Search phone, reason…"
           pageSize={20}
-          onExport={() => exportDncCsv(rows)}
         />
       </SectionCard>
 

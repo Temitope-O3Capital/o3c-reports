@@ -203,9 +203,9 @@ export default function Performance() {
       {deptScores.length > 0 && (
         <SectionCard title="Avg Score by Department" subtitle="0–5 scale">
           <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={deptScores} margin={{ top: 4, right: 8, bottom: 30, left: 0 }}>
+            <BarChart data={deptScores} margin={{ top: 4, right: 8, bottom: 20, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-              <XAxis dataKey="dept" tick={{ fontSize: 11, fill: 'var(--txt2)' }} angle={-30} textAnchor="end" interval={0} />
+              <XAxis dataKey="dept" tick={{ fontSize: 11, fill: 'var(--txt2)' }} interval={0} textAnchor="middle" />
               <YAxis domain={[0, 5]} tick={{ fontSize: 11, fill: 'var(--txt2)' }} />
               <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
               <Bar dataKey="avg" fill={NAVY} radius={[4, 4, 0, 0]} name="Avg Score" />
@@ -214,7 +214,7 @@ export default function Performance() {
         </SectionCard>
       )}
 
-      <SectionCard title="Appraisals" badge={appraisals.length} padding={false}>
+      <SectionCard title="Appraisals" badge={appraisals.length} padding={false} actions={<button onClick={() => exportAppraisalsCsv(appraisals)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <DataTable<Appraisal>
           cols={cols}
           rows={appraisals}
@@ -224,7 +224,7 @@ export default function Performance() {
           searchKeys={['employee_name', 'department', 'period', 'status', 'reviewer_name']}
           searchPlaceholder="Search appraisals…"
           pageSize={20}
-          onExport={() => exportAppraisalsCsv(appraisals)}
+
         />
       </SectionCard>
 

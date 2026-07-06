@@ -177,7 +177,7 @@ export default function Training() {
         </select>
       </FilterBar>
 
-      <SectionCard title="Training Records" badge={trainings.length} padding={false}>
+      <SectionCard title="Training Records" badge={trainings.length} padding={false} actions={<button onClick={() => exportTrainingCsv(trainings)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <DataTable<Training>
           cols={cols}
           rows={trainings}
@@ -188,7 +188,7 @@ export default function Training() {
           searchKeys={['name', 'training_type', 'trainer', 'status']}
           searchPlaceholder="Search training…"
           pageSize={20}
-          onExport={() => exportTrainingCsv(trainings)}
+
         />
       </SectionCard>
 

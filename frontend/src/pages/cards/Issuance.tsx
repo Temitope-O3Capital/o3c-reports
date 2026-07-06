@@ -259,7 +259,7 @@ export default function CardsIssuance() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="Issuance Requests" badge={displayed.length} padding={false}>
+      <SectionCard title="Issuance Requests" badge={displayed.length} padding={false} actions={<button onClick={() => exportIssuanceCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 10, alignItems: 'center' }}>
           <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
           <select
@@ -278,7 +278,6 @@ export default function CardsIssuance() {
           loading={loading}
           emptyText="No issuance requests yet"
           pageSize={20}
-          onExport={() => exportIssuanceCsv(displayed)}
           selectable
           selectedIds={sel}
           onSelect={setSel}

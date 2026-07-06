@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, ErrBanner, FilterBar, filterInputStyle, StatusBadge, Modal } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, FilterBar, filterInputStyle, StatusBadge, Modal, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { DataTable } from '../../components/UI'
 import { apiFetch, apiPut, apiPost } from '../../lib/api'
@@ -358,10 +358,10 @@ export default function NIPReconciliation() {
 
       <NipKpis rows={rows} />
 
-      <SectionCard title="NIP Entries" badge={sorted.length} padding={false}>
+      <SectionCard title="NIP Entries" badge={sorted.length} padding={false} actions={<button onClick={handleExportExceptions} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <div style={{ padding: '12px 16px 0' }}>
           <FilterBar onReset={() => { setDateFilter(today()); setStatusFilter('') }}>
-            <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} style={filterInputStyle} />
+            <DateFilter from={dateFilter} to={dateFilter} onChange={(f) => setDateFilter(f)} />
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
               <option value="">All statuses</option>
               <option value="Matched">Matched</option>
@@ -384,7 +384,6 @@ export default function NIPReconciliation() {
           searchKeys={['nip_ref', 'customer_name', 'match_status', 'exception_type']}
           searchPlaceholder="Search ref, customer, status…"
           pageSize={20}
-          onExport={handleExportExceptions}
         />
       </SectionCard>
 

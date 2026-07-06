@@ -288,7 +288,7 @@ export default function Canned() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard padding={false} badge={rows.length}>
+      <SectionCard padding={false} badge={rows.length} actions={<button onClick={() => exportCannedCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <DataTable<CannedResponse>
           cols={cols}
           rows={rows}
@@ -298,7 +298,7 @@ export default function Canned() {
           searchKeys={['title', 'category', 'created_by']}
           searchPlaceholder="Search responses…"
           pageSize={20}
-          onExport={() => exportCannedCsv(rows)}
+
         />
       </SectionCard>
 

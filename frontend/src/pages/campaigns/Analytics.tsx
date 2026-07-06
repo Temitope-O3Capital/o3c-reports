@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, KpiCard, DataTable, FilterBar, filterInputStyle, ErrBanner } from '../../components/UI'
+import { Page, SectionCard, KpiCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtPct } from '../../lib/fmt'
@@ -134,10 +134,7 @@ export default function CampaignAnalytics() {
       <ErrBanner error={err} onRetry={load} />
 
       <FilterBar onReset={() => { setDateFrom(''); setDateTo(''); setChannel('') }}>
-        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-          placeholder="From" style={{ ...filterInputStyle }} />
-        <input type="date" value={dateTo}   onChange={e => setDateTo(e.target.value)}
-          placeholder="To"   style={{ ...filterInputStyle }} />
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
         <select value={channel} onChange={e => setChannel(e.target.value)} style={filterInputStyle}>
           <option value="">All Channels</option>
           <option value="email">Email</option>

@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
-import { Page, SectionCard, DataTable, Tabs, ErrBanner } from '../../components/UI'
+import { Page, SectionCard, DataTable, Tabs, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtDatetime, monthStart, today } from '../../lib/fmt'
@@ -262,14 +262,7 @@ function SingleSendTab({ onSent }: { onSent: () => void }) {
           <CustomerSearch onSelect={c => { setCustomer(c); if (c.email) setEmail(c.email) }} />
         </Field>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          <Field label="Date From">
-            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={INPUT} />
-          </Field>
-          <Field label="Date To">
-            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={INPUT} />
-          </Field>
-        </div>
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
 
         {/* Optional fields toggle */}
         <button onClick={() => setShowOpts(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: 12.5, fontWeight: 600, padding: 0, fontFamily: INTER, width: 'fit-content' }}>
@@ -422,13 +415,8 @@ function BulkSendTab({ onLaunched }: { onLaunched: () => void }) {
 
       <SectionCard title="Configure Bulk Send" subtitle="Sends a statement PDF to every customer who has an email address on file">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-            <Field label="Date From">
-              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={INPUT} />
-            </Field>
-            <Field label="Date To">
-              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={INPUT} />
-            </Field>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
             <Field label="Limit" hint="Max customers to include. Leave blank for all.">
               <input type="number" value={limit} onChange={e => setLimit(e.target.value)} placeholder="All eligible" min={1} style={INPUT} />
             </Field>

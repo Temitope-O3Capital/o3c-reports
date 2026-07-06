@@ -129,7 +129,7 @@ export default function ContactLists() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <SectionCard title="All Lists" badge={lists.length} padding={false}>
+      <SectionCard title="All Lists" badge={lists.length} padding={false} actions={<button onClick={() => exportListsCsv(lists)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <DataTable<ContactList>
           cols={cols}
           rows={lists}
@@ -139,7 +139,6 @@ export default function ContactLists() {
           searchKeys={['name', 'description', 'created_by_name']}
           searchPlaceholder="Search lists…"
           pageSize={20}
-          onExport={() => exportListsCsv(lists)}
         />
       </SectionCard>
 

@@ -182,6 +182,9 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 	r.Post("/routing-rules", hdCreateRoutingRule(db))
 	r.Put("/routing-rules/{id}", hdUpdateRoutingRule(db))
 	r.Delete("/routing-rules/{id}", hdDeleteRoutingRule(db))
+
+	// MS Graph email ingest — poll helpdesk inbox and create tickets
+	r.Post("/email-ingest", hdMSGraphIngest(db))
 }
 
 // ── Tickets ───────────────────────────────────────────────────────────────────
@@ -3012,4 +3015,187 @@ func hdDeleteRoutingRule(db *core.DB) http.HandlerFunc {
 		db.PGExec(r.Context(), `DELETE FROM helpdesk_routing_rules WHERE id=$1`, id) //nolint:errcheck
 		w.WriteHeader(204)
 	}
+}
+
+// hdMSGraphIngest polls the configured helpdesk inbox via Microsoft Graph for unread emails
+// and creates or updates helpdesk tickets. Idempotent: marks each email read after processing.
+// Requires MS_GRAPH_TENANT_ID, MS_GRAPH_CLIENT_ID, MS_GRAPH_CLIENT_SECRET, and
+// HELPDESK_INBOX_ADDRESS to be set in api_credentials.
+func hdMSGraphIngest(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		token, err := graphToken(ctx, db)
+		if err != nil {
+			respondErr(w, 503, "Microsoft Graph not configured: "+err.Error())
+			return
+		}
+
+		inbox := resolveCredKey(ctx, db, "HELPDESK_INBOX_ADDRESS")
+		if inbox == "" {
+			respondErr(w, 503, "HELPDESK_INBOX_ADDRESS not configured")
+			return
+		}
+
+		processed, skipped, newTickets := hdPollGraphInbox(ctx, db, token, inbox)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"ok":          true,
+			"processed":   processed,
+			"skipped":     skipped,
+			"new_tickets": newTickets,
+		})
+	}
+}
+
+// hdPollGraphInbox fetches unread messages from the mailbox, creates/updates tickets,
+// then marks each message as read. Returns (processed, skipped, new_ticket_count).
+func hdPollGraphInbox(ctx context.Context, db *core.DB, token, mailbox string) (int, int, int) {
+	// Fetch up to 50 unread messages
+	endpoint := fmt.Sprintf(
+		"https://graph.microsoft.com/v1.0/users/%s/mailFolders/Inbox/messages?$filter=isRead%%20eq%%20false&$top=50&$select=id,subject,from,body,receivedDateTime,internetMessageId,conversationId",
+		mailbox)
+
+	resp, err := httpGetBearer(endpoint, token, 30*time.Second)
+	if err != nil {
+		slog.Error("hdMSGraphIngest: fetch messages failed", "err", err)
+		return 0, 0, 0
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Value []struct {
+			ID                 string `json:"id"`
+			Subject            string `json:"subject"`
+			InternetMessageID  string `json:"internetMessageId"`
+			ConversationID     string `json:"conversationId"`
+			ReceivedDateTime   string `json:"receivedDateTime"`
+			From               struct {
+				EmailAddress struct {
+					Name    string `json:"name"`
+					Address string `json:"address"`
+				} `json:"emailAddress"`
+			} `json:"from"`
+			Body struct {
+				ContentType string `json:"contentType"`
+				Content     string `json:"content"`
+			} `json:"body"`
+		} `json:"value"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		slog.Error("hdMSGraphIngest: decode failed", "err", err)
+		return 0, 0, 0
+	}
+
+	processed, skipped, newTickets := 0, 0, 0
+	for _, msg := range result.Value {
+		senderEmail := msg.From.EmailAddress.Address
+		senderName := msg.From.EmailAddress.Name
+		if senderEmail == "" {
+			skipped++
+			continue
+		}
+
+		subject := msg.Subject
+		if subject == "" {
+			subject = "Inbound email from " + senderEmail
+		}
+
+		bodyText := msg.Body.Content
+		if msg.Body.ContentType == "html" {
+			// Strip HTML tags for plain text storage; keep HTML in body_html
+		}
+
+		var ticketID int64
+
+		// Match by internet message ID (In-Reply-To on previous messages)
+		if msg.InternetMessageID != "" {
+			if rows, _ := db.PGQuery(ctx, `
+				SELECT t.id FROM helpdesk_messages m
+				JOIN helpdesk_tickets t ON m.ticket_id=t.id
+				WHERE m.email_message_id=$1 LIMIT 1`, msg.InternetMessageID); len(rows) > 0 {
+				ticketID = toInt64(rows[0]["id"])
+			}
+		}
+
+		// Match by sender email to most recent open ticket
+		if ticketID == 0 {
+			if rows, _ := db.PGQuery(ctx, `
+				SELECT id FROM helpdesk_tickets
+				WHERE customer_email=$1 AND status NOT IN ('resolved','closed')
+				ORDER BY created_at DESC LIMIT 1`, senderEmail); len(rows) > 0 {
+				ticketID = toInt64(rows[0]["id"])
+			}
+		}
+
+		// Create new ticket
+		if ticketID == 0 {
+			rows, err := db.PGQuery(ctx, `
+				INSERT INTO helpdesk_tickets
+				    (channel, status, priority, subject, customer_name, customer_email, email_thread_id)
+				VALUES ('email','open','normal',$1,$2,$3,$4)
+				RETURNING id, ticket_ref`,
+				subject, ptrOrNilStr(senderName), senderEmail, ptrOrNilStr(msg.ConversationID))
+			if err != nil {
+				slog.Error("hdMSGraphIngest: create ticket", "err", err, "from", senderEmail)
+				skipped++
+				continue
+			}
+			ticketID = toInt64(rows[0]["id"])
+			hdRecordEvent(ctx, db, ticketID, 0, "created_inbound", "", str(rows[0]["ticket_ref"]))
+			newTickets++
+		}
+
+		bodyHTML := ""
+		if msg.Body.ContentType == "html" {
+			bodyHTML = msg.Body.Content
+		}
+
+		db.PGExec(ctx, //nolint:errcheck
+			`INSERT INTO helpdesk_messages
+			    (ticket_id, direction, channel, author_name, body_text, body_html, email_message_id)
+			VALUES ($1,'inbound','email',$2,$3,$4,NULLIF($5,''))`,
+			ticketID, senderName, bodyText, bodyHTML, msg.InternetMessageID)
+
+		db.PGExec(ctx, "UPDATE helpdesk_tickets SET updated_at=NOW() WHERE id=$1", ticketID) //nolint:errcheck
+
+		// Mark message as read in Graph
+		markEndpoint := fmt.Sprintf("https://graph.microsoft.com/v1.0/users/%s/messages/%s", mailbox, msg.ID)
+		httpPatchBearer(markEndpoint, token, map[string]any{"isRead": true}) //nolint:errcheck
+
+		processed++
+	}
+
+	slog.Info("hdMSGraphIngest: done", "processed", processed, "skipped", skipped, "new_tickets", newTickets)
+	return processed, skipped, newTickets
+}
+
+// httpGetBearer performs a GET request with a Bearer token.
+func httpGetBearer(url, token string, timeout time.Duration) (*http.Response, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	client := &http.Client{Timeout: timeout}
+	return client.Do(req)
+}
+
+// httpPatchBearer performs a PATCH request with a Bearer token and JSON body.
+func httpPatchBearer(url, token string, body map[string]any) error {
+	b, _ := json.Marshal(body)
+	req, err := http.NewRequest("PATCH", url, strings.NewReader(string(b)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
 }

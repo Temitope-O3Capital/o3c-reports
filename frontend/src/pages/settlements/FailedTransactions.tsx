@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, ErrBanner, FilterBar, filterInputStyle, Modal, ConfirmModal } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, FilterBar, filterInputStyle, Modal, ConfirmModal, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { DataTable } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -280,14 +280,13 @@ export default function FailedTransactions() {
     <Page title="Failed Transactions" subtitle="Investigate and action failed settlement transactions">
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="Failed Transactions" badge={filtered.length} padding={false}>
+      <SectionCard title="Failed Transactions" badge={filtered.length} padding={false} actions={<button onClick={handleExportCsv} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <div style={{ padding: '12px 16px 0' }}>
           <FilterBar onReset={() => { setReasonFilter(''); setDateFrom(monthStart()); setDateTo(today()); setMinNaira(''); setMaxNaira('') }}>
             <select value={reasonFilter} onChange={e => setReasonFilter(e.target.value)} style={filterInputStyle}>
               {REASON_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
-            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={filterInputStyle} />
-            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={filterInputStyle} />
+            <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
             <input
               type="number"
               placeholder="Min ₦ (naira)"
@@ -316,7 +315,6 @@ export default function FailedTransactions() {
           pageSize={20}
           searchKeys={['txn_ref', 'customer_name', 'channel', 'failure_reason']}
           searchPlaceholder="Search ref, customer, channel…"
-          onExport={handleExportCsv}
           selectable
           selectedIds={checkedIds}
           onSelect={setCheckedIds}

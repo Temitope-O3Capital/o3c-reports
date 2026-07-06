@@ -1,15 +1,22 @@
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  ErrBanner, ConfirmModal,
+  Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle,
+  ErrBanner, ConfirmModal, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtNum } from '../../lib/fmt'
-import { RED, NAVY, NUM } from '../../lib/design'
+import { fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
+import { RED, GREEN, AMBER, NAVY, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+interface WriteoffKPIs {
+  total: number
+  amount_kobo: number
+  recovery_rate_pct: number
+  pending: number
+}
 
 interface WriteoffRow {
   id: number
@@ -74,12 +81,15 @@ type ActionModal =
 
 export default function WriteoffQueue() {
   const [rows, setRows]         = useState<WriteoffRow[]>([])
+  const [kpis, setKpis]         = useState<WriteoffKPIs | null>(null)
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState<string | null>(null)
 
   // Filters
   const [dpdRange, setDpdRange] = useState('')
   const [q, setQ]               = useState('')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo, setDateTo]     = useState(today())
 
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set())
@@ -97,16 +107,22 @@ export default function WriteoffQueue() {
     const p = new URLSearchParams({ limit: '100' })
     if (dpdRange) p.set('dpd_range', dpdRange)
     if (q.trim()) p.set('q', q.trim())
+    if (dateFrom) p.set('date_from', dateFrom)
+    if (dateTo)   p.set('date_to', dateTo)
     try {
-      const res = await apiFetch<{ data: WriteoffRow[] }>(`/api/collections-ops/writeoffs?${p}`)
+      const [res, kpiRes] = await Promise.all([
+        apiFetch<{ data: WriteoffRow[] }>(`/api/collections-ops/writeoffs?${p}`),
+        apiFetch<{ data: WriteoffKPIs }>('/api/collections/writeoff-kpis'),
+      ])
       setRows(res.data ?? [])
+      setKpis(kpiRes.data)
       setSelectedIds(new Set())
     } catch (e: any) {
       setError(e.message ?? 'Failed to load write-off queue')
     } finally {
       setLoading(false)
     }
-  }, [dpdRange, q])
+  }, [dpdRange, q, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -263,12 +279,25 @@ export default function WriteoffQueue() {
 
   const isDanger = modal?.type === 'approve' || modal?.type === 'bulk-approve'
 
+  const kpiLoading = loading && !kpis
+
   return (
     <Page
       title="Write-off Queue"
       subtitle="Accounts recommended for write-off after exhausting collection attempts"
+      actions={
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+      }
     >
       <ErrBanner error={error} onRetry={load} />
+
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+        <KpiCard label="Total Write-offs" value={kpis ? fmtNum(kpis.total) : '—'} icon="delete_forever" accent={RED} loading={kpiLoading} />
+        <KpiCard label="Total Amount ₦" value={kpis ? fmtKobo(kpis.amount_kobo) : '—'} icon="account_balance" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Recovery Rate %" value={kpis ? `${kpis.recovery_rate_pct.toFixed(1)}%` : '—'} icon="trending_up" accent={GREEN} loading={kpiLoading} />
+        <KpiCard label="Pending Approval" value={kpis ? fmtNum(kpis.pending) : '—'} icon="pending_actions" accent={AMBER} loading={kpiLoading} />
+      </div>
 
       {/* Info banner */}
       <SectionCard padding style={{ marginBottom: 16 }}>
@@ -281,7 +310,7 @@ export default function WriteoffQueue() {
         </div>
       </SectionCard>
 
-      <SectionCard title="Write-off Queue" badge={rows.length} padding={false}>
+      <SectionCard title="Write-off Queue" badge={rows.length} padding={false} actions={<button onClick={() => exportWriteoffCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <div style={{ padding: '12px 16px 0' }}>
           <FilterBar onReset={() => { setDpdRange(''); setQ('') }}>
             <select value={dpdRange} onChange={e => setDpdRange(e.target.value)} style={filterInputStyle}>
@@ -311,7 +340,6 @@ export default function WriteoffQueue() {
           keyFn={r => r.id}
           loading={loading}
           pageSize={20}
-          onExport={() => exportWriteoffCsv(rows)}
           selectable={canAct}
           selectedIds={selectedIds}
           onSelect={canAct ? setSelectedIds : undefined}

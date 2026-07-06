@@ -191,7 +191,12 @@ export default function Watchlist() {
         </select>
       </FilterBar>
 
-      <SectionCard title="Watchlist Entries" badge={entries.length} padding={false}>
+      <SectionCard title="Watchlist Entries" badge={entries.length} padding={false} actions={
+        <button onClick={() => exportWatchlistCsv(entries)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
+          Export CSV
+        </button>
+      }>
         <DataTable<WatchEntry>
           cols={cols}
           rows={entries}
@@ -201,7 +206,6 @@ export default function Watchlist() {
           searchKeys={['name', 'watch_type', 'source', 'status']}
           searchPlaceholder="Search entries…"
           pageSize={20}
-          onExport={() => exportWatchlistCsv(entries)}
         />
       </SectionCard>
 

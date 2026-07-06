@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner } from '../../components/UI'
+import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, today, monthStart } from '../../lib/fmt'
@@ -194,7 +194,7 @@ export default function Calls() {
     <Page title="Call Log" subtitle="All inbound and outbound calls">
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard padding={false} badge={rows.length}>
+      <SectionCard padding={false} badge={rows.length} actions={<button onClick={() => exportCallsCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <div style={{ padding: '12px 16px 0' }}>
           <FilterBar onReset={() => { setAgentFilter(''); setOutcome(''); setDateFrom(monthStart()); setDateTo(today()) }}>
             <input
@@ -211,8 +211,7 @@ export default function Calls() {
               <option value="transferred">Transferred</option>
               <option value="escalated">Escalated</option>
             </select>
-            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={filterInputStyle} />
-            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={filterInputStyle} />
+            <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
             <button
               onClick={() => load()}
               style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
@@ -230,7 +229,7 @@ export default function Calls() {
           searchKeys={['agent_name', 'customer_name', 'outcome', 'direction']}
           searchPlaceholder="Search agent, customer, outcome…"
           pageSize={20}
-          onExport={() => exportCallsCsv(rows)}
+
         />
       </SectionCard>
     </Page>

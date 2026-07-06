@@ -57,18 +57,25 @@ const AUTH = [
 
 // ── Notifications & Approvals ─────────────────────────────────────────────────
 
-const APPROVALS_DATA = Array.from({ length: 6 }, (_, i) => ({
-  id: i + 1, module: pick(['finance','collections','los']),
-  title: pick(['₦2.5M Payment Approval','LOS Disbursement #LA-2026-0142','Write-off Request']),
-  type: 'approval', url: '#', requested_by: name(), created_at: isoDate(rng(0, 5)),
-}))
+const APPROVALS_DATA = [
+  { id: 1, module: 'los',         title: 'Loan disbursement — Maker-Checker',   entity_name: 'Greenfield Pharma Ltd',       amount_kobo: 732_000_000, maker_name: 'Kehinde Adebayo', url: '/los',                     created_at: isoDate(0.3) },
+  { id: 2, module: 'collections', title: 'PAR 90 write-off recommendation',     entity_name: 'Chiamaka Eze',                amount_kobo: 110_475_000, maker_name: 'Doris Nwosu',      url: '/collections',             created_at: isoDate(1.1) },
+  { id: 3, module: 'finance',     title: 'Manual GL posting approval',           entity_name: 'EOD interbank settlement',    amount_kobo: 250_000_000, maker_name: 'Emeka Obi',         url: '/finance/manual-postings', created_at: isoDate(0.8) },
+]
+
+const NOTIF_ITEMS = [
+  { id: 1, type: 'risk',       severity: 'red',   title: 'PTP broken — Chiamaka Eze',        body: '₦280,000 promised 01 Jul was not received. Account moved to 90+ bucket.', link: '/collections/promises',         read_at: null,                          created_at: new Date(Date.now() - 3_600_000).toISOString() },
+  { id: 2, type: 'settlement', severity: 'blue',  title: 'NIP settlement received',           body: '₦1,200,000 from Adebayo Trading Ltd matched to loan LN-2214.',            link: '/settlements/nip',              read_at: null,                          created_at: new Date(Date.now() - 4_800_000).toISOString() },
+  { id: 3, type: 'threshold',  severity: 'amber', title: 'PAR 30 threshold breach — Ikeja',  body: 'Branch PAR 30 crossed 7.5%. BI alert rule #14.',                           link: '/reports/kpi',                  read_at: null,                          created_at: new Date(Date.now() - 7_200_000).toISOString() },
+  { id: 4, type: 'system',     severity: 'green', title: 'Nightly recon completed',           body: 'Bevertec ↔ app DB ↔ Paystack: 0 unmatched entries.',                       link: '/settlements/reconciliation',   read_at: new Date().toISOString(),      created_at: new Date(Date.now() - 21_600_000).toISOString() },
+]
 
 const NOTIF_APPROVALS = [
-  http.get(u('/api/notifications'), () => ok({ items: [], unread_count: 0 })),
+  http.get(u('/api/notifications'), () => ok({ items: NOTIF_ITEMS, unread_count: 3 })),
   http.post(u('/api/notifications/sse-ticket'), () => ok({ ticket: 'mock-ticket' })),
   http.post(u('/api/notifications/read-all'),   () => new HttpResponse(null, { status: 204 })),
   http.get(u('/api/approvals/pending'),  () => ok(APPROVALS_DATA)),
-  http.get(u('/api/approvals/summary'),  () => ok({ total: 6, items: APPROVALS_DATA })),
+  http.get(u('/api/approvals/summary'),  () => ok({ total: APPROVALS_DATA.length, items: APPROVALS_DATA })),
   http.post(u('/api/approvals/:id/approve'), () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/approvals/:id/reject'),  () => new HttpResponse(null, { status: 204 })),
 ]
@@ -134,6 +141,12 @@ const SALES = [
   http.get(u('/api/sales/loan-kpis'), () => wd({
     disbursements_mtd_kobo: 267_000_000_00, disbursements_ytd_kobo: 1_840_000_000_00,
     active_loans: 4218, avg_loan_kobo: 62_500_00, npl_rate_pct: 4.2,
+  })),
+  http.get(u('/api/sales/contact-kpis'), () => wd({
+    total: 842, active_this_month: 156, new_this_month: 23, conversion_rate_pct: 18.4,
+  })),
+  http.get(u('/api/sales/task-kpis'), () => wd({
+    total: 214, open: 87, overdue: 12, completed_this_month: 45,
   })),
   http.get(u('/api/sales/monthly-disbursements'), () => wd(
     MONTHS_ISO.map(m => ({ month: m, disbursements_kobo: rng(180, 380) * 1_000_000_00 }))
@@ -342,6 +355,9 @@ const COLLECTIONS = [
   http.post(u('/api/collections-ops/promises'), () => ok({ id: 99 })),
   http.put(u('/api/collections-ops/promises/:id'), () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/collections-ops/queue/bulk-assign'), () => new HttpResponse(null, { status: 204 })),
+  http.get(u('/api/collections/promise-kpis'), () => wd({ total: 247, kept: 138, broken: 64, amount_promised_kobo: 8_420_000_000_00 })),
+  http.get(u('/api/collections/repayment-kpis'), () => wd({ active: 86, on_track: 61, behind: 25, monthly_due_kobo: 1_240_000_000_00 })),
+  http.get(u('/api/collections/writeoff-kpis'), () => wd({ total: 42, amount_kobo: 3_200_000_000_00, recovery_rate_pct: 18.4, pending: 8 })),
 ]
 
 // ── Recovery ──────────────────────────────────────────────────────────────────
@@ -384,6 +400,9 @@ const RECOVERY = [
     }))
   )),
   http.get(u('/api/recovery/cases/:id/legal-milestones'), () => wd([])),
+  http.get(u('/api/recovery/legal-kpis'), () => wd({
+    total_cases: 38, active: 24, won: 7, total_debt_recovered_kobo: 142_500_000_00,
+  })),
   http.get(u('/api/recovery/debt-sales'), () => ok([])),
   // recovery-ops cases
   http.get(u('/api/recovery-ops/cases'), () => wd(
@@ -427,12 +446,39 @@ const CARDS = [
   http.get(u('/api/cards/volume-by-type'), () => ok(
     MONTHS_ISO.map(m => ({ month: m, credit_kobo: rng(40,120)*1_000_000_00, prepaid_kobo: rng(20,60)*1_000_000_00 }))
   )),
-  http.get(u('/api/cards/cycle-summary'), () => ok(
-    MONTHS_ISO.slice(0,6).map(m => ({
-      month: m, total_billed_kobo: rng(80,200)*1_000_000_00,
-      total_paid_kobo: rng(70,190)*1_000_000_00, accounts: rng(1200,2000),
-    }))
-  )),
+  http.get(u('/api/cards/cycle-summary'), () => {
+    const PRODUCTS = [
+      { product_code:'CC-NGN-GRN', product_name:'Green Card', category:'credit', card_type:'Mastercard' },
+      { product_code:'CC-NGN-GLD', product_name:'Gold Card', category:'credit', card_type:'Visa' },
+      { product_code:'PP-NGN-STD', product_name:'Standard Prepaid', category:'prepaid', card_type:'Verve' },
+    ]
+    const CYCLE_DATES = ['2026-06-25','2026-05-25','2026-04-25']
+    return ok(CYCLE_DATES.flatMap(d => PRODUCTS.map(p => ({
+      cycle_date: d, ...p,
+      account_count: rng(1200,3000),
+      overdue_accounts: rng(50,200),
+      total_outstanding_kobo: rng(800,2000)*1_000_000_00,
+      total_overdue_kobo: rng(50,200)*1_000_000_00,
+      total_interest_kobo: rng(20,80)*1_000_000_00,
+      total_fees_kobo: rng(5,20)*1_000_000_00,
+      total_penalty_kobo: rng(2,10)*1_000_000_00,
+      total_credit_limit_kobo: rng(2000,5000)*1_000_000_00,
+    }))))
+  }),
+  http.get(u('/api/cards/cycle-data'), () => ok({
+    data: Array.from({ length: 20 }, (_, i) => ({
+      id: i+1,
+      account_number: `ACC${String(i+100000).padStart(9,'0')}`,
+      cif: `CIF${String(i+200000).padStart(7,'0')}`,
+      currency: 'NGN',
+      outstanding_balance_kobo: rng(50,500)*100_000,
+      overdue_amount_kobo: pick([0, 0, rng(5,50)*100_000]),
+      interest_charged_kobo: rng(1,10)*100_000,
+      fees_kobo: rng(0,5)*100_000,
+      credit_limit_kobo: rng(200,1000)*100_000,
+    })),
+    total: 1500,
+  })),
   http.get(u('/api/cards/credit-limits'), () => ok(
     Array.from({ length: 20 }, (_, i) => ({
       id: i+1, customer_name: name(), credit_limit_kobo: rng(50,500)*1_000_00,
@@ -546,6 +592,8 @@ const FINANCE = [
   http.post(u('/api/fixed-deposit/transactions/:id/rollover'), () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/fixed-deposit/transactions'), () => ok({ id: 99 })),
   http.get(u('/api/fixed-deposit/maturity'), () => wd([])),
+  http.get(u('/api/finance/transaction-kpis'), () => wd({ total_count: 18420, total_credits_kobo: 3_120_000_000_00, total_debits_kobo: 2_840_000_000_00, net_position_kobo: 280_000_000_00 })),
+  http.get(u('/api/finance/fd-kpis'), () => wd({ total_fds: 84, total_principal_kobo: 1_180_000_000_00, avg_rate_pct: 10.2, maturing_this_month: 11 })),
 
   // Finance GL / postings / income / treasury
   http.get(u('/api/finance/gl-accounts'), () => ok(
@@ -640,8 +688,10 @@ const RISK = [
     }))
   )),
   http.get(u('/api/risk/eye-kpis'), () => wd({
-    avg_score: 682, high_risk_pct: 12.4, medium_risk_pct: 38.1, low_risk_pct: 49.5,
-    models_active: 2, last_run: isoDate(0),
+    scored_today: 42, avg_score_month: 682, high_risk_count: 124, requests_month: 847,
+  })),
+  http.get(u('/api/risk/review-kpis'), () => wd({
+    reviewed: 184, approved: 127, declined: 42, pending: 15,
   })),
   http.get(u('/api/risk/eye-scores'), () => ok({
     data: Array.from({ length: 20 }, (_, i) => ({
@@ -893,8 +943,11 @@ const HELPDESK = [
   http.post(u('/api/helpdesk/tickets/bulk-close'),  () => new HttpResponse(null, { status: 204 })),
   http.get(u('/api/helpdesk/tickets/search'), () => ok([])),
   http.get(u('/api/helpdesk/stats'), () => ok({
-    open: 48, in_progress: 21, resolved_today: 37, avg_handle_time_mins: 12.4,
-    sla_compliance_pct: 92.1, csat_avg: 4.3, escalations: 3,
+    open: 48, sla_breached: 7, avg_first_response_hours: 0.28, avg_csat: 4.3,
+    agents: Array.from({ length: 6 }, () => ({
+      agent_name: name(), open_tickets: rng(2,8), resolved_today: rng(3,10),
+      avg_csat: rng(38,50)/10, avg_handle_time_min: rng(8,25), escalations: rng(0,2),
+    })),
     by_channel: [
       { channel:'email', count: 18 }, { channel:'phone', count: 14 },
       { channel:'walk_in', count: 8 }, { channel:'web', count: 6 },
@@ -912,16 +965,44 @@ const HELPDESK = [
   )),
   http.put(u('/api/helpdesk/agents/:id/status'), () => new HttpResponse(null, { status: 204 })),
   http.get(u('/api/helpdesk/supervisor'), () => ok({
-    queue_length: 11, oldest_ticket_mins: 47, avg_wait_mins: 8.2,
-    agents_online: 6, tickets_breached: 3,
+    totals: { open: 48, sla_breached: 7, unassigned: 12, active_agents: 6 },
     agents: Array.from({ length: 6 }, (_, i) => ({
-      id: i+1, full_name: name(), open_tickets: rng(2,8), status: pick(['available','busy']),
+      id: i+1, full_name: name(), open_tickets: rng(2,8), sla_breached: rng(0,2),
+      last_reply: isoDate(rng(0,1)),
+      current_ticket_ref: `TKT-${rng(1000,9999)}`,
+      helpdesk_status: pick(['available','on_call','busy','offline']),
     })),
+    queues: [
+      { queue: 'General', open: 18, sla_breached: 3, unassigned: 5 },
+      { queue: 'Cards', open: 12, sla_breached: 2, unassigned: 4 },
+      { queue: 'Loans', open: 10, sla_breached: 1, unassigned: 2 },
+      { queue: 'Compliance', open: 8, sla_breached: 1, unassigned: 1 },
+    ],
+    recent_breaches: Array.from({ length: 5 }, (_, i) => ({
+      id: i+1, ticket_ref: `TKT-${rng(1000,9999)}`,
+      subject: pick(['Card blocked without reason','Loan repayment not reflected','Account locked']),
+      priority: pick(['high','critical','medium']),
+      sla_due_at: isoDate(0),
+      assigned_to_name: name(),
+    })),
+    by_type: [
+      { ticket_type: 'complaint', count: 24 }, { ticket_type: 'enquiry', count: 16 },
+      { ticket_type: 'request', count: 6 }, { ticket_type: 'feedback', count: 2 },
+    ],
+    hourly_queue: Array.from({ length: 10 }, (_, h) => ({ hour: String(h+8), count: rng(2,15) })),
   })),
   http.get(u('/api/helpdesk/kb'), () => ok(
     Array.from({ length: 12 }, (_, i) => ({
-      id: i+1, title: pick(['How to unblock your card','Understanding your statement','Loan repayment process']),
-      category: pick(['Cards','Loans','Account','Compliance']), views: rng(40,400), last_updated: dateStr(rng(0,60)),
+      id: i+1,
+      title: pick(['How to unblock your card','Understanding your statement','Loan repayment process','Card limit increase request','How to dispute a transaction']),
+      category: pick(['Cards','Loans','Account','Compliance','General']),
+      status: pick(['Live','Live','Draft','Pending Approval']),
+      helpful_pct: rng(60,98),
+      helpful_count: rng(10,80),
+      not_helpful_count: rng(1,10),
+      body: 'To complete this process, please follow the steps below. First, ensure your account is active. Then, navigate to the relevant section in the app or visit any O3 Capital branch. A representative will assist you within 24 hours.',
+      last_updated: dateStr(rng(0,30)),
+      created_by: name(),
     }))
   )),
   http.get(u('/api/helpdesk/kb/search'), () => ok([])),
@@ -1008,6 +1089,7 @@ const BD = [
   http.get(u('/api/bd/leads'), () => ok(BD_LEADS)),
   http.post(u('/api/bd/leads'), () => ok({ id: 99 })),
   http.put(u('/api/bd/leads/:id'), () => new HttpResponse(null, { status: 204 })),
+  http.get(u('/api/bd/pipeline-kpis'), () => wd({ total_leads: 117, this_month: 24, conversion_rate_pct: 11.97, avg_deal_kobo: 148_000_000_00 })),
 ]
 
 // ── Campaigns / Telemarketing ─────────────────────────────────────────────────
@@ -1092,8 +1174,11 @@ const CAMPAIGNS = [
   )),
   http.post(u('/api/telemarketing/dnc'), () => ok({ id: 99 })),
   http.post(u('/api/telemarketing/dnc/bulk-remove'), () => new HttpResponse(null, { status: 204 })),
+  http.get(u('/api/telemarketing/dnc-kpis'), () => wd({
+    total_dnc: 1842, added_this_month: 47, bulk_removes: 8,
+  })),
   http.get(u('/api/telemarketing/performance-kpis'), () => wd({
-    calls_today: 142, calls_mtd: 2840, conversions_mtd: 312, conversion_rate_pct: 11.0, avg_call_duration_mins: 4.2,
+    total_calls: rng(200,400), connected: rng(140,280), ptp_count: rng(30,80), conversion_rate_pct: rng(10,25),
   })),
   http.get(u('/api/telemarketing/by-disposition'), () => wd([
     { disposition:'converted', count: 312 }, { disposition:'not_interested', count: 840 },
@@ -1104,7 +1189,8 @@ const CAMPAIGNS = [
   )),
   http.get(u('/api/telemarketing/agent-performance'), () => wd(
     Array.from({ length: 6 }, () => ({
-      agent_name: name(), calls: rng(20,80), converted: rng(3,20), conversion_rate_pct: rng(8,25),
+      agent_name: name(), calls: rng(20,80), connected: rng(12,60), ptp_count: rng(3,20),
+      conversion_pct: rng(8,25), avg_handle_seconds: rng(120,420),
     }))
   )),
 
@@ -1280,10 +1366,19 @@ const SETTLEMENTS = [
   http.put(u('/api/settlements/manual-postings/:id/post'),    () => new HttpResponse(null, { status: 204 })),
   http.put(u('/api/settlements/manual-postings/:id/return'),  () => new HttpResponse(null, { status: 204 })),
   http.get(u('/api/settlements/failed'), () => wd(
-    Array.from({ length: 5 }, (_, i) => ({
-      id: i+1, reference: `FAIL-${i+100}`, amount_kobo: rng(5,50)*1_000_000_00,
-      error: 'Insufficient funds', bank: pick(BANKS), created_at: isoDate(rng(0,7)),
+    Array.from({ length: 12 }, (_, i) => ({
+      id: i+1,
+      txn_ref: `TXN-${String(2026070000+i).padStart(12,'0')}`,
+      amount_kobo: rng(5,500)*100_000,
+      customer_name: name(),
+      channel: pick(['NIP','CARD','USSD','Web']),
+      failure_reason: pick(['Insufficient funds','Invalid account','Bank timeout','Duplicate transaction','Card blocked']),
+      failed_at: isoDate(rng(0,14)),
+      retry_count: rng(0,3),
     }))
+  )),
+  http.get(u('/api/settlements/failed/kpis'), () => ok(
+    { total_failed: 127, total_amount_kobo: 45_000_000_00, retry_success_rate_pct: 34.2, top_reason: 'Insufficient funds' }
   )),
   http.post(u('/api/settlements/failed/:id/retry'), () => new HttpResponse(null, { status: 204 })),
   http.get(u('/api/settlements/nip'), () => wd(
@@ -1389,7 +1484,14 @@ const SETTLEMENTS = [
       status: pick(['success','success','pending','failed']),
       reason: pick(['Salary disbursement','Vendor payment','Refund','Loan disbursement']),
       transferred_at: isoDate(rng(0,14)),
+      transfer_code: `TRF_${Math.random().toString(36).slice(2,18)}`,
+      source: 'balance', source_details: null,
       recipient: { name: name(), type: 'nuban', details: { account_name: name(), bank_name: pick(BANKS), account_number: String(rng(1000000000,9999999999)) } },
+      o3c_initiator: pick([
+        { loan_ref: `LN-2026-${String(rng(1000,9999))}`, applicant_name: name(), applicant_cif: `CIF${rng(100000,999999)}`, source_type: 'loan_disbursement' },
+        { loan_ref: `LN-2026-${String(rng(1000,9999))}`, applicant_name: name(), applicant_cif: `CIF${rng(100000,999999)}`, source_type: 'loan_disbursement' },
+        null, // non-loan transfer (salary, vendor, etc.) — no internal customer link
+      ]),
     })),
     meta: { total: 10, page: 1, perPage: 50 },
   })),

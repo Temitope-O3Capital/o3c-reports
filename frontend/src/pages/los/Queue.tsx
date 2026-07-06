@@ -148,27 +148,35 @@ export default function LOSQueue() {
 
   useEffect(() => { load() }, [load])
 
-  // Derive filter options from actual data
-  const products = useMemo(() => [...new Set(rows.map(r => r.product_type).filter(Boolean))].sort(), [rows])
-  const officers = useMemo(() => [...new Set(rows.map(r => r.assigned_officer_name).filter((n): n is string => !!n))].sort(), [rows])
-  const statuses = useMemo(() => [...new Set(rows.map(r => r.status).filter(Boolean))].sort(), [rows])
+  // Page-level date scope — drives KPIs and table together
+  const dateFiltered = useMemo(() => {
+    if (!dateFrom && !dateTo) return rows
+    return rows.filter(r => {
+      const date = (r.submitted_at ?? r.created_at).slice(0, 10)
+      if (dateFrom && date < dateFrom) return false
+      if (dateTo   && date > dateTo)   return false
+      return true
+    })
+  }, [rows, dateFrom, dateTo])
 
-  const activeFilterCount = fStages.size + fProducts.size + fStatuses.size + fOfficers.size + ((dateFrom || dateTo) ? 1 : 0)
+  // Derive filter options from date-scoped data
+  const products = useMemo(() => [...new Set(dateFiltered.map(r => r.product_type).filter(Boolean))].sort(), [dateFiltered])
+  const officers = useMemo(() => [...new Set(dateFiltered.map(r => r.assigned_officer_name).filter((n): n is string => !!n))].sort(), [dateFiltered])
+  const statuses = useMemo(() => [...new Set(dateFiltered.map(r => r.status).filter(Boolean))].sort(), [dateFiltered])
 
-  const filtered = useMemo(() => rows.filter(r => {
-    if (fStages.size   && !fStages.has(r.stage))                 return false
-    if (fProducts.size && !fProducts.has(r.product_type))        return false
-    if (fStatuses.size && !fStatuses.has(r.status))              return false
+  const activeFilterCount = fStages.size + fProducts.size + fStatuses.size + fOfficers.size
+
+  const filtered = useMemo(() => dateFiltered.filter(r => {
+    if (fStages.size   && !fStages.has(r.stage))                        return false
+    if (fProducts.size && !fProducts.has(r.product_type))               return false
+    if (fStatuses.size && !fStatuses.has(r.status))                     return false
     if (fOfficers.size && !fOfficers.has(r.assigned_officer_name ?? '')) return false
-    const date = (r.submitted_at ?? r.created_at).slice(0, 10)
-    if (dateFrom && date < dateFrom) return false
-    if (dateTo   && date > dateTo)   return false
     if (search) {
       const q = search.toLowerCase()
       if (!(r.applicant_name.toLowerCase().includes(q) || r.reference?.toLowerCase().includes(q))) return false
     }
     return true
-  }), [rows, fStages, fProducts, fStatuses, fOfficers, dateFrom, dateTo, search])
+  }), [dateFiltered, fStages, fProducts, fStatuses, fOfficers, search])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE))
   const safePage   = Math.min(page, totalPages)
@@ -186,14 +194,14 @@ export default function LOSQueue() {
 
   function resetFilters() {
     setSearch(''); setFStages(new Set()); setFProducts(new Set())
-    setFStatuses(new Set()); setFOfficers(new Set()); setDateFrom(''); setDateTo('')
+    setFStatuses(new Set()); setFOfficers(new Set())
   }
 
-  const inQueue      = stats?.open_count ?? 0
-  const pendingDocs  = stats?.by_stage?.find(s => s.stage === 'document_collection')?.count ?? 0
-  const awaitingRisk = (stats?.by_stage?.find(s => s.stage === 'risk_review')?.count ?? 0)
-                     + (stats?.by_stage?.find(s => s.stage === 'risk_head_review')?.count ?? 0)
-  const activeCount  = stats?.by_stage?.find(s => s.stage === 'active')?.count ?? 0
+  const dateScopedKpi = !!(dateFrom || dateTo)
+  const inQueue      = dateScopedKpi ? dateFiltered.length                                                                                         : stats?.open_count ?? 0
+  const pendingDocs  = dateScopedKpi ? dateFiltered.filter(r => r.stage === 'document_collection').length                                          : stats?.by_stage?.find(s => s.stage === 'document_collection')?.count ?? 0
+  const awaitingRisk = dateScopedKpi ? dateFiltered.filter(r => r.stage === 'risk_review' || r.stage === 'risk_head_review').length                 : (stats?.by_stage?.find(s => s.stage === 'risk_review')?.count ?? 0) + (stats?.by_stage?.find(s => s.stage === 'risk_head_review')?.count ?? 0)
+  const activeCount  = dateScopedKpi ? dateFiltered.filter(r => r.stage === 'active').length                                                       : stats?.by_stage?.find(s => s.stage === 'active')?.count ?? 0
 
   const cols: TableCol<LoanApp>[] = [
     {
@@ -233,18 +241,21 @@ export default function LOSQueue() {
       title="Credit Applications"
       subtitle="Your assigned applications queue"
       actions={
-        <button
-          onClick={() => navigate('/sales/applications/new')}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 7,
-            padding: '7px 15px', background: NAVY, color: '#fff',
-            border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
-            cursor: 'pointer', whiteSpace: 'nowrap',
-          }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
-          New Application
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button
+            onClick={() => navigate('/sales/applications/new')}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 7,
+              padding: '7px 15px', background: NAVY, color: '#fff',
+              border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
+              cursor: 'pointer', whiteSpace: 'nowrap',
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+            New Application
+          </button>
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />
@@ -301,8 +312,6 @@ export default function LOSQueue() {
             )}
           </button>
 
-          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
-
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
               {filtered.length} of {rows.length}
@@ -320,7 +329,7 @@ export default function LOSQueue() {
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>STAGE</div>
                 {STAGES.map(s => {
                   const sc = STAGE_COLORS[s]
-                  const count = rows.filter(r => r.stage === s).length
+                  const count = dateFiltered.filter(r => r.stage === s).length
                   const label = s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
                   return (
                     <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
@@ -337,7 +346,7 @@ export default function LOSQueue() {
               <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>STATUS</div>
                 {statuses.map(s => {
-                  const count = rows.filter(r => r.status === s).length
+                  const count = dateFiltered.filter(r => r.status === s).length
                   const label = s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
                   return (
                     <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
@@ -354,7 +363,7 @@ export default function LOSQueue() {
               <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>PRODUCT</div>
                 {products.map(p => {
-                  const count = rows.filter(r => r.product_type === p).length
+                  const count = dateFiltered.filter(r => r.product_type === p).length
                   const label = p.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
                   return (
                     <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
@@ -373,7 +382,7 @@ export default function LOSQueue() {
                 {officers.length === 0
                   ? <span style={{ fontSize: 12, color: 'var(--txt3)' }}>No assignments yet</span>
                   : officers.map(o => {
-                  const count = rows.filter(r => r.assigned_officer_name === o).length
+                  const count = dateFiltered.filter(r => r.assigned_officer_name === o).length
                   return (
                     <label key={o} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
                       <input type="checkbox" checked={fOfficers.has(o)} onChange={() => setFOfficers(toggleSet(fOfficers, o))}
@@ -442,12 +451,6 @@ export default function LOSQueue() {
                 {o}<span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setFOfficers(toggleSet(fOfficers, o))}>close</span>
               </span>
             ))}
-            {(dateFrom || dateTo) && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
-                {dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : dateFrom || dateTo}
-                <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => { setDateFrom(''); setDateTo('') }}>close</span>
-              </span>
-            )}
             <button onClick={resetFilters} style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--txt3)', padding: 0, fontFamily: SORA }}>Clear all</button>
           </div>
         )}

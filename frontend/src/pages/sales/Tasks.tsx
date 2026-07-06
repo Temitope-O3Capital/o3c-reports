@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  Modal, ErrBanner, Spinner, btnPrimary,
+  Modal, ErrBanner, Spinner, btnPrimary, KpiCard, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtDate } from '../../lib/fmt'
+import { fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -27,6 +27,13 @@ interface Task {
 }
 
 interface CRMUser { id: number; full_name: string }
+
+interface TaskKPIs {
+  total: number
+  open: number
+  overdue: number
+  completed_this_month: number
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -73,9 +80,15 @@ export default function CRMTasks() {
   const [loading, setLoading] = useState(true)
   const [err, setErr]         = useState<string | null>(null)
 
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo, setDateTo]     = useState(today())
+
   const [statusFilter,   setStatusFilter]   = useState('')
   const [priorityFilter, setPriorityFilter] = useState('')
   const [overdueFilter,  setOverdueFilter]  = useState(false)
+
+  const [kpis, setKpis]         = useState<TaskKPIs | null>(null)
+  const [kpiLoading, setKpiLoading] = useState(true)
 
   const [selected, setSelected]     = useState<Set<string | number>>(new Set())
   const [completing, setCompleting] = useState(false)
@@ -106,6 +119,14 @@ export default function CRMTasks() {
   }, [statusFilter, priorityFilter, overdueFilter])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    setKpiLoading(true)
+    apiFetch<{ data: TaskKPIs }>('/api/sales/task-kpis')
+      .then(r => setKpis(r.data))
+      .catch(() => {})
+      .finally(() => setKpiLoading(false))
+  }, [])
 
   async function handleCreate() {
     if (!form.title) { toast.error('Title is required'); return }
@@ -240,13 +261,27 @@ export default function CRMTasks() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <FilterBar onReset={() => { setStatusFilter(''); setPriorityFilter(''); setOverdueFilter(false) }}>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
+      {/* Page-level filters */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+          style={{ height: 32, borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, padding: '0 10px', cursor: 'pointer' }}>
           <option value="">All Statuses</option>
           <option value="open">Open</option>
           <option value="done">Done</option>
           <option value="cancelled">Cancelled</option>
         </select>
+      </div>
+
+      {/* KPI cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+        <KpiCard label="Total Tasks" value={kpis ? fmtNum(kpis.total) : '—'} icon="task_alt" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Open" value={kpis ? fmtNum(kpis.open) : '—'} icon="pending" accent={BLUE} loading={kpiLoading} />
+        <KpiCard label="Overdue" value={kpis ? fmtNum(kpis.overdue) : '—'} icon="schedule" accent={RED} loading={kpiLoading} />
+        <KpiCard label="Completed This Month" value={kpis ? fmtNum(kpis.completed_this_month) : '—'} icon="check_circle" accent={GREEN} loading={kpiLoading} />
+      </div>
+
+      <FilterBar onReset={() => { setStatusFilter(''); setPriorityFilter(''); setOverdueFilter(false) }}>
         <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} style={filterInputStyle}>
           <option value="">All Priorities</option>
           <option value="urgent">Urgent</option>
@@ -260,7 +295,7 @@ export default function CRMTasks() {
         </label>
       </FilterBar>
 
-      <SectionCard title="Tasks" badge={tasks.length} padding={false}>
+      <SectionCard title="Tasks" badge={tasks.length} padding={false} actions={<button onClick={() => exportTasksCsv(tasks)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <DataTable<Task>
           cols={cols}
           rows={tasks}
@@ -274,7 +309,6 @@ export default function CRMTasks() {
           searchKeys={['title', 'status', 'priority', 'assigned_name']}
           searchPlaceholder="Search tasks…"
           pageSize={20}
-          onExport={() => exportTasksCsv(tasks)}
         />
       </SectionCard>
 

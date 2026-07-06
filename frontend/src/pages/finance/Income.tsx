@@ -422,9 +422,9 @@ export default function FinanceIncome() {
           {chartProducts.length > 0 && (
             <SectionCard title="Cards" subtitle="NGN interest · fees · penalty by product" style={{ marginBottom: 16 }}>
               <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={chartProducts} margin={{ top: 28, right: 8, left: 8, bottom: 48 }}>
+                <BarChart data={chartProducts} margin={{ top: 28, right: 8, left: 8, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
-                  <XAxis dataKey="product" tick={{ fontSize: 10, fill: '#9AA4B8' }} angle={-35} textAnchor="end" interval={0} axisLine={false} tickLine={false} />
+                  <XAxis dataKey="product" tick={{ fontSize: 10, fill: '#9AA4B8' }} interval={0} textAnchor="middle" axisLine={false} tickLine={false} />
                   <Tooltip content={<ChartTip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Bar dataKey="interest" name="Interest" fill={GREEN} radius={[3,3,0,0]}>
@@ -590,7 +590,12 @@ export default function FinanceIncome() {
               ))}
             </div>
           )}
-          <SectionCard padding={false}>
+          <SectionCard padding={false} actions={loans.length > 0 ? (
+            <button onClick={() => exportLoansCsv(loans)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
+              Export CSV
+            </button>
+          ) : undefined}>
             <DataTable
               cols={LOAN_COLS}
               rows={loans}
@@ -599,7 +604,6 @@ export default function FinanceIncome() {
               searchKeys={['loan_ref', 'applicant_name', 'product', 'maturity_status']}
               searchPlaceholder="Search by borrower, ref, product…"
               pageSize={20}
-              onExport={loans.length > 0 ? () => exportLoansCsv(loans) : undefined}
             />
           </SectionCard>
         </>

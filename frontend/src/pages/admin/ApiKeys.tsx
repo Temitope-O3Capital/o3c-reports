@@ -255,7 +255,7 @@ export default function AdminApiKeys() {
         ))}
       </div>
 
-      <SectionCard title="API Credentials" badge={displayed.length} padding={false}>
+      <SectionCard title="API Credentials" badge={displayed.length} padding={false} actions={<button onClick={() => exportApiKeysCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 10, alignItems: 'center' }}>
           <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
           <select value={catFilter} onChange={e => setCatFilter(e.target.value)}
@@ -265,7 +265,7 @@ export default function AdminApiKeys() {
           </select>
           <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>{displayed.length} keys</span>
         </div>
-        <DataTable cols={COLS} rows={displayed} keyFn={r => r.key_name} loading={loading} emptyText="No API keys configured" pageSize={20} onExport={() => exportApiKeysCsv(displayed)} />
+        <DataTable cols={COLS} rows={displayed} keyFn={r => r.key_name} loading={loading} emptyText="No API keys configured" pageSize={20} />
       </SectionCard>
 
       {editing && <EditModal apiKey={editing} onClose={() => setEditing(null)} onSaved={load} />}

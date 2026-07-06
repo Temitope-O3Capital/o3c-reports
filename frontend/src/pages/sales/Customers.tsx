@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  ErrBanner, Spinner,
+  ErrBanner, Spinner, KpiCard,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -29,6 +29,13 @@ interface Contact {
 }
 
 interface CRMUser { id: number; full_name: string }
+
+interface ContactKPIs {
+  total: number
+  active_this_month: number
+  new_this_month: number
+  conversion_rate_pct: number
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -73,6 +80,8 @@ export default function CRMContacts() {
   const [users, setUsers]       = useState<CRMUser[]>([])
   const [loading, setLoading]   = useState(true)
   const [err, setErr]           = useState<string | null>(null)
+  const [kpis, setKpis]         = useState<ContactKPIs | null>(null)
+  const [kpiLoading, setKpiLoading] = useState(true)
 
   const [statusFilter, setStatusFilter]     = useState('')
   const [sourceFilter, setSourceFilter]     = useState('')
@@ -100,6 +109,14 @@ export default function CRMContacts() {
   }, [statusFilter, sourceFilter, assigneeFilter])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    setKpiLoading(true)
+    apiFetch<{ data: ContactKPIs }>('/api/sales/contact-kpis')
+      .then(r => setKpis(r.data))
+      .catch(() => {})
+      .finally(() => setKpiLoading(false))
+  }, [])
 
   function exportContactsCsv(data: Contact[]) {
     const header = ['CIF', 'First Name', 'Last Name', 'Email', 'Phone', 'Source', 'Status', 'Assigned', 'Updated At']
@@ -156,6 +173,14 @@ export default function CRMContacts() {
     <Page title="CRM Contacts" subtitle={`${fmtNum(total)} total contacts`}>
       <ErrBanner error={err} onRetry={load} />
 
+      {/* KPI cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+        <KpiCard label="Total Contacts" value={kpis ? fmtNum(kpis.total) : '—'} icon="contacts" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Active This Month" value={kpis ? fmtNum(kpis.active_this_month) : '—'} icon="how_to_reg" accent={GREEN} loading={kpiLoading} />
+        <KpiCard label="New This Month" value={kpis ? fmtNum(kpis.new_this_month) : '—'} icon="person_add" accent={BLUE} loading={kpiLoading} />
+        <KpiCard label="Conversion Rate" value={kpis ? `${kpis.conversion_rate_pct.toFixed(1)}%` : '—'} icon="trending_up" accent={AMBER} loading={kpiLoading} />
+      </div>
+
       <FilterBar onReset={() => { setStatusFilter(''); setSourceFilter(''); setAssigneeFilter('') }}>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
           <option value="">All Statuses</option>
@@ -178,7 +203,7 @@ export default function CRMContacts() {
         </select>
       </FilterBar>
 
-      <SectionCard title="Contacts" badge={contacts.length} padding={false}>
+      <SectionCard title="Contacts" badge={contacts.length} padding={false} actions={<button onClick={() => exportContactsCsv(contacts)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <DataTable<Contact>
           cols={cols}
           rows={contacts}
@@ -189,7 +214,6 @@ export default function CRMContacts() {
           searchKeys={['first_name', 'last_name', 'email', 'phone']}
           searchPlaceholder="Search contacts…"
           pageSize={20}
-          onExport={() => exportContactsCsv(contacts)}
         />
       </SectionCard>
 

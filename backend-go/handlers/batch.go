@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -168,6 +169,32 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, "ndpr_purge:FAILED")
 	} else {
 		steps = append(steps, "ndpr_purge:ok")
+	}
+
+	// 7. PTP notifications — due today + broken (5H)
+	if err := batchPTPNotifications(ctx, db); err != nil {
+		slog.Error("Batch: PTP notifications failed", "err", err)
+		steps = append(steps, "ptp_notifications:FAILED")
+	} else {
+		steps = append(steps, "ptp_notifications:ok")
+	}
+
+	// 8. FD maturity notifications — maturing in 7 days + unactioned (5H)
+	if err := batchFDMaturityNotifications(ctx, db); err != nil {
+		slog.Error("Batch: FD maturity notifications failed", "err", err)
+		steps = append(steps, "fd_maturity_notifications:FAILED")
+	} else {
+		steps = append(steps, "fd_maturity_notifications:ok")
+	}
+
+	// 9. Monthly board pack email — fires only on 1st of the month
+	if time.Now().Day() == 1 {
+		if err := batchMonthlyBoardPack(ctx, db); err != nil {
+			slog.Error("Batch: monthly board pack failed", "err", err)
+			steps = append(steps, "board_pack:FAILED")
+		} else {
+			steps = append(steps, "board_pack:ok")
+		}
 	}
 
 	status := "success"
@@ -569,4 +596,240 @@ func batchNDPRRetentionPurge(ctx context.Context, db *core.DB) error {
 	return nil
 }
 
+// batchPTPNotifications fires daily notifications for:
+//   - PTPs due today → notify assigned collections agent
+//   - PTPs that are broken (promised_date < today, is_kept is NULL) → notify agent + collections_head
+func batchPTPNotifications(ctx context.Context, db *core.DB) error {
+	// Due today
+	dueRows, err := db.PGQuery(ctx, `
+		SELECT p.id, p.cif_number, p.promised_amount_kobo, p.agent_user_id
+		FROM collection_promises p
+		WHERE p.promised_date = CURRENT_DATE
+		  AND (p.is_kept IS NULL OR p.is_kept = FALSE)
+		  AND p.actual_date IS NULL`)
+	if err != nil {
+		return err
+	}
+	for _, row := range dueRows {
+		agentID := toInt64(row["agent_user_id"])
+		if agentID == 0 {
+			continue
+		}
+		go Notify(ctx, db, NotifPayload{
+			EventType: EvtPTPDueToday,
+			UserID:    agentID,
+			Title:     "PTP due today",
+			Body:      fmt.Sprintf("Promise to pay from CIF %s for ₦%.2f is due today.", str(row["cif_number"]), float64(toInt64(row["promised_amount_kobo"]))/100),
+			ActionURL: "/collections/promises",
+			EntityRef: fmt.Sprintf("ptp:%d", toInt64(row["id"])),
+		})
+	}
 
+	// Broken PTPs — promised_date < today, no payment recorded
+	brokenRows, err := db.PGQuery(ctx, `
+		SELECT p.id, p.cif_number, p.promised_amount_kobo, p.promised_date, p.agent_user_id
+		FROM collection_promises p
+		WHERE p.promised_date < CURRENT_DATE
+		  AND (p.is_kept IS NULL OR p.is_kept = FALSE)
+		  AND p.actual_date IS NULL`)
+	if err != nil {
+		return err
+	}
+	for _, row := range brokenRows {
+		agentID := toInt64(row["agent_user_id"])
+		body := fmt.Sprintf("CIF %s missed a PTP of ₦%.2f due on %s.",
+			str(row["cif_number"]),
+			float64(toInt64(row["promised_amount_kobo"]))/100,
+			str(row["promised_date"]))
+		p := NotifPayload{
+			EventType: EvtPTPBroken,
+			Title:     "Broken PTP",
+			Body:      body,
+			ActionURL: "/collections/promises",
+			EntityRef: fmt.Sprintf("ptp:%d", toInt64(row["id"])),
+		}
+		if agentID > 0 {
+			go Notify(ctx, db, NotifPayload{EventType: p.EventType, UserID: agentID, Title: p.Title, Body: p.Body, ActionURL: p.ActionURL, EntityRef: p.EntityRef})
+		}
+		go NotifyRole(ctx, db, "collections_head", p)
+	}
+
+	slog.Info("Batch: PTP notifications sent", "due_today", len(dueRows), "broken", len(brokenRows))
+	return nil
+}
+
+// batchFDMaturityNotifications fires daily notifications for:
+//   - FDs maturing in exactly 7 days → notify finance_officer role
+//   - FDs that matured yesterday with no liquidation/rollover → notify finance_head role
+func batchFDMaturityNotifications(ctx context.Context, db *core.DB) error {
+	// Maturing in 7 days
+	soonRows, err := db.PGQuery(ctx, `
+		SELECT f.id, f.customer_name, f.principal, f.maturity_date, f.currency
+		FROM fd_transactions f
+		WHERE f.transaction_type = 'inflow'
+		  AND f.maturity_date = CURRENT_DATE + 7
+		  AND NOT EXISTS (
+		    SELECT 1 FROM fd_transactions t2
+		    WHERE t2.customer_name = f.customer_name
+		      AND t2.transaction_type IN ('liquidation','rolled_over')
+		      AND t2.transaction_date >= f.maturity_date - 7)`)
+	if err != nil {
+		return err
+	}
+	for _, row := range soonRows {
+		p := NotifPayload{
+			EventType: EvtFDMaturing7Days,
+			Title:     "FD maturing in 7 days",
+			Body:      fmt.Sprintf("%s — %s principal matures on %s.", str(row["customer_name"]), str(row["currency"]), str(row["maturity_date"])),
+			ActionURL: "/finance/fd-maturity",
+			EntityRef: fmt.Sprintf("fd:%d", toInt64(row["id"])),
+		}
+		go NotifyRole(ctx, db, "finance_officer", p)
+	}
+
+	// Matured yesterday with no action
+	unactionedRows, err := db.PGQuery(ctx, `
+		SELECT f.id, f.customer_name, f.principal, f.maturity_date, f.currency
+		FROM fd_transactions f
+		WHERE f.transaction_type = 'inflow'
+		  AND f.maturity_date = CURRENT_DATE - 1
+		  AND NOT EXISTS (
+		    SELECT 1 FROM fd_transactions t2
+		    WHERE t2.customer_name = f.customer_name
+		      AND t2.transaction_type IN ('liquidation','rolled_over')
+		      AND t2.transaction_date >= f.maturity_date)`)
+	if err != nil {
+		return err
+	}
+	for _, row := range unactionedRows {
+		p := NotifPayload{
+			EventType: EvtFDMaturedUnactioned,
+			Title:     "FD matured — no action taken",
+			Body:      fmt.Sprintf("%s FD (matured %s) has not been liquidated or rolled over.", str(row["customer_name"]), str(row["maturity_date"])),
+			ActionURL: "/finance/fd-maturity",
+			EntityRef: fmt.Sprintf("fd:%d", toInt64(row["id"])),
+		}
+		go NotifyRole(ctx, db, "finance_head", p)
+	}
+
+	slog.Info("Batch: FD maturity notifications", "soon", len(soonRows), "unactioned", len(unactionedRows))
+	return nil
+}
+
+// batchMonthlyBoardPack assembles key KPIs and emails the board distribution list.
+// Called only on day 1 of each month from runBatch.
+// Recipients are read from the BOARD_EMAIL_LIST env var (comma-separated).
+func batchMonthlyBoardPack(ctx context.Context, db *core.DB) error {
+	boardList := resolveCredKey(ctx, db, "BOARD_EMAIL_LIST")
+	if boardList == "" {
+		slog.Info("Board pack: BOARD_EMAIL_LIST not configured — skipping")
+		return nil
+	}
+
+	// Collect previous month's KPIs
+	prevMonth := time.Now().AddDate(0, -1, 0).Format("January 2006")
+
+	type metric struct{ label, value string }
+	var metrics []metric
+
+	// Loan book
+	if rows, err := db.PGQuery(ctx, `
+		SELECT
+		    COUNT(*) FILTER (WHERE status NOT IN ('declined','draft'))     AS total_apps,
+		    COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active'), 0) AS book_kobo,
+		    COUNT(*) FILTER (WHERE status = 'active')                     AS active_loans,
+		    COALESCE(SUM(amount_approved_kobo) FILTER (
+		        WHERE status = 'active'
+		          AND GREATEST(0, CURRENT_DATE - booked_at::date) > 30), 0) AS par30_kobo
+		FROM loan_applications`); err == nil && len(rows) > 0 {
+		r := rows[0]
+		bookKobo := toInt64(r["book_kobo"])
+		par30Kobo := toInt64(r["par30_kobo"])
+		par30Pct := 0.0
+		if bookKobo > 0 {
+			par30Pct = float64(par30Kobo) / float64(bookKobo) * 100
+		}
+		metrics = append(metrics,
+			metric{"Active Loans", fmt.Sprintf("%d", toInt64(r["active_loans"]))},
+			metric{"Loan Book (₦)", fmt.Sprintf("%.2f", float64(bookKobo)/100)},
+			metric{"PAR30 (%)", fmt.Sprintf("%.1f%%", par30Pct)},
+			metric{"Total Applications", fmt.Sprintf("%d", toInt64(r["total_apps"]))},
+		)
+	}
+
+	// Fixed deposits
+	if rows, err := db.PGQuery(ctx, `
+		SELECT COUNT(*) AS fd_count,
+		       COALESCE(SUM(principal),0) AS total_principal
+		FROM fd_transactions WHERE transaction_type='inflow'`); err == nil && len(rows) > 0 {
+		r := rows[0]
+		metrics = append(metrics,
+			metric{"FD Count", fmt.Sprintf("%d", toInt64(r["fd_count"]))},
+			metric{"FD Book (₦)", fmt.Sprintf("%.2f", toFloat64(r["total_principal"]))},
+		)
+	}
+
+	// Open helpdesk tickets
+	if rows, err := db.PGQuery(ctx, `SELECT COUNT(*) AS c FROM helpdesk_tickets WHERE status NOT IN ('resolved','closed')`); err == nil && len(rows) > 0 {
+		metrics = append(metrics, metric{"Open Support Tickets", fmt.Sprintf("%d", toInt64(rows[0]["c"]))})
+	}
+
+	// Build HTML rows
+	rowsHTML := ""
+	for _, m := range metrics {
+		rowsHTML += fmt.Sprintf(`<tr><td style="padding:8px 16px;border-bottom:1px solid #E2E8F0;color:#64748B">%s</td><td style="padding:8px 16px;border-bottom:1px solid #E2E8F0;font-weight:600;text-align:right">%s</td></tr>`, m.label, m.value)
+	}
+
+	htmlBody := fmt.Sprintf(`
+<div style="font-family:DM Sans,sans-serif;max-width:600px;margin:0 auto">
+  <div style="background:#0E2841;color:white;padding:20px 24px;border-radius:8px 8px 0 0">
+    <h1 style="margin:0;font-size:20px;font-weight:700">O3 Capital Board Pack</h1>
+    <p style="margin:4px 0 0;font-size:13px;opacity:.8">%s — Key Performance Indicators</p>
+  </div>
+  <div style="background:#F4F6F8;padding:20px 24px;border-radius:0 0 8px 8px">
+    <table style="width:100%%;border-collapse:collapse;background:white;border-radius:8px;overflow:hidden">
+      <thead>
+        <tr><th style="padding:10px 16px;background:#0E2841;color:white;text-align:left;font-size:12px">Metric</th>
+            <th style="padding:10px 16px;background:#0E2841;color:white;text-align:right;font-size:12px">Value</th></tr>
+      </thead>
+      <tbody>%s</tbody>
+    </table>
+    <p style="margin:16px 0 0;font-size:11px;color:#94A3B8">
+      This report was auto-generated by O3 Capital Workspace on %s.
+      For the full interactive dashboard, log in at <a href="https://reports.o3cards.com" style="color:#0E2841">reports.o3cards.com</a>.
+    </p>
+  </div>
+</div>`, prevMonth, rowsHTML, time.Now().Format("2 January 2006"))
+
+	// Parse and email each recipient
+	for _, email := range splitTrim(boardList, ",") {
+		if email == "" {
+			continue
+		}
+		res := SendMail(ctx, db, SendMailOptions{
+			To:       []MailAddress{{Email: email}},
+			Subject:  fmt.Sprintf("O3 Capital Board Pack — %s", prevMonth),
+			HTMLBody: htmlBody,
+			TextBody: fmt.Sprintf("O3 Capital Board Pack — %s\n\nPlease view in an HTML email client.", prevMonth),
+			Kind:     "board_pack",
+			Category: "board_pack",
+		})
+		if !res.OK {
+			slog.Warn("Board pack: email failed", "to", email, "err", res.Error)
+		}
+	}
+
+	slog.Info("Board pack email sent", "month", prevMonth, "recipients", boardList)
+	return nil
+}
+
+// splitTrim splits s by sep and trims whitespace from each element.
+func splitTrim(s, sep string) []string {
+	var out []string
+	for _, p := range strings.Split(s, sep) {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
