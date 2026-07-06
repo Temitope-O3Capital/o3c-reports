@@ -313,7 +313,7 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 			dateTo, _ = time.Parse("2006-01-02", to)
 		}
 
-		tickets, err := zohoFetchTickets(ctx, dateFrom, dateTo, url.Values{"include": {"contacts,assignee,departments,team,isRead,customFields"}}, 2000)
+		tickets, err := zohoFetchTickets(ctx, dateFrom, dateTo, url.Values{"include": {"contacts,assignee"}}, 2000)
 		if err != nil {
 			respondErr(w, 502, "Zoho API error: "+err.Error())
 			return
