@@ -57,12 +57,24 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   const connectSSE = useCallback(async () => {
     if (cleanupRef.current) return
     try {
-      const { ticket } = await apiFetch<{ ticket: string }>(
-        '/api/notifications/sse-ticket', { method: 'POST' }
-      )
-      if (cleanupRef.current) return
-
+      // Use raw fetch so a 401 here never triggers the global signOut/session-expired flow.
       const base = (import.meta.env.VITE_API_URL as string) ?? ''
+      const res = await fetch(`${base}/api/notifications/sse-ticket`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': document.cookie.match(/(?:^|;\s*)o3c_csrf=([^;]+)/)?.[1] ?? '',
+        },
+      })
+      if (!res.ok || cleanupRef.current) {
+        // 401 or server error — retry silently without signing the user out
+        if (!cleanupRef.current) setTimeout(connectSSE, 15000)
+        return
+      }
+      const { ticket } = await res.json() as { ticket: string }
+      if (!ticket || cleanupRef.current) return
+
       const es = new EventSource(`${base}/api/notifications/sse?ticket=${encodeURIComponent(ticket)}`)
       esRef.current = es
 
