@@ -180,9 +180,9 @@ export default function HelpdeskStats() {
               {csatTrend.length === 0 ? <EmptyState msg="No CSAT data yet" /> : (
                 <ResponsiveContainer width="100%" height={200}>
                   <LineChart data={csatTrend} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
-                    <CartesianGrid stroke="#E8EBF2" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[0, 5]} tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[0, 5]} tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
                     <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => v.toFixed(1)} />} />
                     <Line type="monotone" dataKey="csat_score" stroke={GREEN} strokeWidth={2.2} name="CSAT" dot={{ r: 3, fill: GREEN, strokeWidth: 0 }} activeDot={{ r: 5, fill: GREEN, stroke: '#fff', strokeWidth: 2 }} />
                   </LineChart>
@@ -194,9 +194,9 @@ export default function HelpdeskStats() {
               {handleTime.length === 0 ? <EmptyState msg="No handle time data yet" /> : (
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={handleTime} margin={{ top: 4, right: 8, bottom: 0, left: -18 }} barCategoryGap="30%">
-                    <CartesianGrid stroke="#E8EBF2" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                    <XAxis dataKey="ticket_type" tick={{ fontSize: 9, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
+                    <XAxis dataKey="ticket_type" tick={{ fontSize: 9, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
                     <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => `${v.toFixed(0)} min`} />} />
                     <Bar dataKey="avg_minutes" fill={NAVY} radius={[5, 5, 0, 0]} name="Avg minutes" />
                   </BarChart>
@@ -211,9 +211,9 @@ export default function HelpdeskStats() {
               {resolution.length === 0 ? <EmptyState msg="No resolution data yet" /> : (
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={resolution} margin={{ top: 4, right: 8, bottom: 0, left: -18 }} barCategoryGap="30%">
-                    <CartesianGrid stroke="#E8EBF2" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                    <XAxis dataKey="agent_name" tick={{ fontSize: 9, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
+                    <XAxis dataKey="agent_name" tick={{ fontSize: 9, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
                     <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => `${v.toFixed(0)}%`} />} />
                     <Bar dataKey="resolution_pct" radius={[5, 5, 0, 0]} name="Resolution %">
                       {resolution.map((e, i) => (
@@ -257,9 +257,9 @@ export default function HelpdeskStats() {
               {channels.length === 0 ? <EmptyState msg="No channel data yet" /> : (
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={channels} margin={{ top: 4, right: 8, bottom: 0, left: -18 }} barCategoryGap="30%">
-                    <CartesianGrid stroke="#E8EBF2" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                    <XAxis dataKey="channel" tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
+                    <XAxis dataKey="channel" tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} allowDecimals={false} />
                     <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => `${v} tickets`} />} />
                     <Bar dataKey="count" fill={BLUE} radius={[5, 5, 0, 0]} name="Tickets" />
                   </BarChart>
@@ -271,9 +271,9 @@ export default function HelpdeskStats() {
               {slaByAgent.length === 0 ? <EmptyState msg="No SLA data yet" /> : (
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={slaByAgent} margin={{ top: 4, right: 8, bottom: 0, left: -18 }} barCategoryGap="30%">
-                    <CartesianGrid stroke="#E8EBF2" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                    <XAxis dataKey="agent_name" tick={{ fontSize: 9, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
+                    <XAxis dataKey="agent_name" tick={{ fontSize: 9, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
                     <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => `${v}%`} />} />
                     <Bar dataKey="breach_pct" radius={[5, 5, 0, 0]} name="Breach %">
                       {slaByAgent.map((e, i) => (
@@ -325,7 +325,7 @@ export default function HelpdeskStats() {
                     padding: '10px 12px', borderBottom: i < leaderboard.length - 1 ? '1px solid var(--bdr)' : 'none',
                     background: i === 0 ? `${GREEN}06` : 'transparent',
                   }}>
-                    <div style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: i === 0 ? '#F59E0B' : i === 1 ? '#9CA3AF' : i === 2 ? '#92400E' : 'var(--txt3)' }}>
+                    <div style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: i === 0 ? '#F59E0B' : i === 1 ? 'var(--chart-lbl)' : i === 2 ? '#92400E' : 'var(--txt3)' }}>
                       {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                     </div>
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{row.agent_name}</div>

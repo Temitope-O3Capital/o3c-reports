@@ -664,8 +664,8 @@ export default function Overview() {
                   <stop offset="100%" stopColor={NAVY} stopOpacity={0}    />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="0" stroke="#E8EBF2" vertical={false} strokeWidth={1} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} tickMargin={8} />
+              <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} strokeWidth={1} />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} tickMargin={8} />
               <YAxis width={70} tickCount={5}
                 tickFormatter={v => {
                   const n = v as number
@@ -674,7 +674,7 @@ export default function Overview() {
                   if (n >= 1_000_00)     return `₦${(n / 1_000_00).toFixed(0)}k`
                   return ''
                 }}
-                tick={{ fontSize: 11, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false}
+                tick={{ fontSize: 11, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false}
               />
               <Tooltip content={<Tip fmt={v => fmtKobo(v)} />} />
               <Area type="monotone" dataKey="disbursements_kobo" name="Disbursements"
@@ -731,9 +731,9 @@ export default function Overview() {
         <SectionCard title="DPD Trend" subtitle="PAR30 / PAR60 / PAR90" actions={DPD_LEGEND}>
           <ResponsiveContainer width="100%" height={230}>
             <BarChart data={dpd} margin={{ top: 4, right: 8, bottom: 14, left: 8 }} barCategoryGap="30%" barGap={3}>
-              <CartesianGrid strokeDasharray="0" stroke="#E8EBF2" vertical={false} strokeWidth={1} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} tickMargin={8} />
-              <YAxis width={36} tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} />
+              <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} strokeWidth={1} />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} tickMargin={8} />
+              <YAxis width={36} tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
               <Tooltip content={<Tip fmt={v => `${v} accounts`} />} />
               <Bar dataKey="par30" name="PAR30 (1–30d)"  fill={AMBER}  radius={[3, 3, 0, 0]} />
               <Bar dataKey="par60" name="PAR60 (31–60d)" fill={RED}    radius={[3, 3, 0, 0]} />

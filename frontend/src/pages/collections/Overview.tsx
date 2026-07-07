@@ -7,7 +7,7 @@ import { Page, KpiCard, SectionCard, DataTable, ErrBanner } from '../../componen
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtPct, fmtNum } from '../../lib/fmt'
-import { RED, AMBER, GREEN, BLUE, NUM } from '../../lib/design'
+import { RED, DARKRED, AMBER, GREEN, BLUE, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ function dpdColor(bucket: string): string {
     case '1-30':    return AMBER
     case '31-60':
     case '61-90':   return RED
-    default:        return '#7F0000'
+    default:        return DARKRED
   }
 }
 
@@ -222,19 +222,19 @@ export default function CollectionsOverview() {
                     <stop offset="95%" stopColor={RED}     stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="par90Grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#7F0000" stopOpacity={0.22} />
-                    <stop offset="95%" stopColor="#7F0000" stopOpacity={0} />
+                    <stop offset="5%"  stopColor={DARKRED} stopOpacity={0.22} />
+                    <stop offset="95%" stopColor={DARKRED} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
                 <XAxis
                   dataKey="month"
-                  tick={{ fontSize: 11, fill: '#9AA4B8' }}
+                  tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }}
                   axisLine={false} tickLine={false}
                 />
                 <YAxis
                   tickFormatter={v => fmtKobo(v)}
-                  tick={{ fontSize: 11, fill: '#9AA4B8' }}
+                  tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }}
                   axisLine={false} tickLine={false} width={74}
                 />
                 <Tooltip content={<KoboTooltip />} />
@@ -250,7 +250,7 @@ export default function CollectionsOverview() {
                 />
                 <Area
                   type="monotone" dataKey="par90_kobo" name="PAR90"
-                  stroke="#7F0000" strokeWidth={2} fill="url(#par90Grad)"
+                  stroke={DARKRED} strokeWidth={2} fill="url(#par90Grad)"
                   stackId="par"
                 />
               </AreaChart>
@@ -292,16 +292,16 @@ export default function CollectionsOverview() {
                 data={agents.slice(0, 10)}
                 margin={{ top: 4, right: 8, left: 0, bottom: 20 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
                 <XAxis
                   dataKey="Agent"
-                  tick={{ fontSize: 10, fill: '#9AA4B8' }}
+                  tick={{ fontSize: 10, fill: 'var(--chart-lbl)' }}
                   axisLine={false} tickLine={false}
                   interval={0} textAnchor="middle"
                 />
                 <YAxis
                   tickFormatter={v => fmtKobo(v)}
-                  tick={{ fontSize: 11, fill: '#9AA4B8' }}
+                  tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }}
                   axisLine={false} tickLine={false} width={74}
                 />
                 <Tooltip content={<KoboTooltip />} />

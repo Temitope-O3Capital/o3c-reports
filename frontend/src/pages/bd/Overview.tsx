@@ -127,9 +127,9 @@ export default function BDOverview() {
         <SectionCard title="Pipeline by Stage" subtitle="Lead count per stage">
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={pipeline} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
-              <XAxis dataKey="stage" tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+              <XAxis dataKey="stage" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
               <Tooltip
                 content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null

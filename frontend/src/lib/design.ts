@@ -17,7 +17,8 @@ export const NUM: React.CSSProperties = {
 
 // ── Brand constants ───────────────────────────────────────────────────────────
 export const NAVY   = '#0E2841'
-export const RED    = '#C00000'
+export const RED     = '#C00000'
+export const DARKRED = '#7F0000'
 export const GREEN  = '#16A34A'
 export const CANVAS = '#FAFBFC'
 export const AMBER  = '#D97706'

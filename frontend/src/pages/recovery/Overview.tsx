@@ -245,26 +245,26 @@ export default function RecoveryOverview() {
               <AreaChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
                 <defs>
                   <linearGradient id="recoveryGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#16A34A" stopOpacity={0.22} />
-                    <stop offset="100%" stopColor="#16A34A" stopOpacity={0} />
+                    <stop offset="0%" stopColor={GREEN} stopOpacity={0.22} />
+                    <stop offset="100%" stopColor={GREEN} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke="#E8EBF2" strokeDasharray="0" vertical={false} strokeWidth={1} />
+                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
                 <XAxis
                   dataKey="month"
-                  tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }}
+                  tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }}
                   axisLine={false} tickLine={false}
                 />
                 <YAxis
                   tickFormatter={v => fmtKobo(v)}
-                  tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }}
+                  tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }}
                   axisLine={false} tickLine={false}
                 />
                 <Tooltip content={(p: any) => <Tip {...p} />} />
                 <Area
                   type="monotone"
                   dataKey="amount_kobo"
-                  stroke="#16A34A"
+                  stroke={GREEN}
                   strokeWidth={2.2}
                   fill="url(#recoveryGrad)"
                   dot={{ r: 3, fill: '#16A34A', strokeWidth: 0 }}

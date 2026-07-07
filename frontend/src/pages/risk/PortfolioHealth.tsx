@@ -7,7 +7,7 @@ import { Page, KpiCard, SectionCard, DataTable, ErrBanner } from '../../componen
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtPct, fmtNum } from '../../lib/fmt'
-import { NAVY, RED, AMBER, GREEN, BLUE, INTER, SORA, NUM } from '../../lib/design'
+import { NAVY, RED, DARKRED, AMBER, GREEN, BLUE, INTER, SORA, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -47,10 +47,10 @@ interface EmployerRow {
 // ── Band donut colours ────────────────────────────────────────────────────────
 
 const BAND_DONUT_COLORS: Record<string, string> = {
-  Prime:        '#16A34A',
-  'Near-Prime': '#2563EB',
-  'Sub-Prime':  '#D97706',
-  'High-Risk':  '#C00000',
+  Prime:        GREEN,
+  'Near-Prime': BLUE,
+  'Sub-Prime':  AMBER,
+  'High-Risk':  RED,
 }
 
 // ── Sector bar opacity ramp from NAVY ────────────────────────────────────────
@@ -241,29 +241,29 @@ export default function PortfolioHealth() {
             <AreaChart data={parTrend} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
               <defs>
                 <linearGradient id="par30Grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#D97706" stopOpacity={0.22} />
-                  <stop offset="95%" stopColor="#D97706" stopOpacity={0} />
+                  <stop offset="5%"  stopColor={AMBER} stopOpacity={0.22} />
+                  <stop offset="95%" stopColor={AMBER} stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="par60Grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#C00000" stopOpacity={0.18} />
-                  <stop offset="95%" stopColor="#C00000" stopOpacity={0} />
+                  <stop offset="5%"  stopColor={RED} stopOpacity={0.18} />
+                  <stop offset="95%" stopColor={RED} stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="par90Grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#7F0000" stopOpacity={0.22} />
-                  <stop offset="95%" stopColor="#7F0000" stopOpacity={0} />
+                  <stop offset="5%"  stopColor={DARKRED} stopOpacity={0.22} />
+                  <stop offset="95%" stopColor={DARKRED} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid stroke="#E8EBF2" strokeDasharray="0" vertical={false} strokeWidth={1} />
-              <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} tickFormatter={v => fmtKobo(v)} width={70} />
+              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
+              <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} tickFormatter={v => fmtKobo(v)} width={70} />
               <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => fmtKobo(v)} />} />
-              <Area type="monotone" dataKey="par30_kobo" name="PAR30" stroke="#D97706" strokeWidth={2.2} fill="url(#par30Grad)" stackId="par" dot={false} />
-              <Area type="monotone" dataKey="par60_kobo" name="PAR60" stroke="#C00000" strokeWidth={2.2} fill="url(#par60Grad)" stackId="par" dot={false} />
-              <Area type="monotone" dataKey="par90_kobo" name="PAR90" stroke="#7F0000" strokeWidth={2.2} fill="url(#par90Grad)" stackId="par" dot={false} />
+              <Area type="monotone" dataKey="par30_kobo" name="PAR30" stroke={AMBER} strokeWidth={2.2} fill="url(#par30Grad)" stackId="par" dot={false} />
+              <Area type="monotone" dataKey="par60_kobo" name="PAR60" stroke={RED} strokeWidth={2.2} fill="url(#par60Grad)" stackId="par" dot={false} />
+              <Area type="monotone" dataKey="par90_kobo" name="PAR90" stroke={DARKRED} strokeWidth={2.2} fill="url(#par90Grad)" stackId="par" dot={false} />
             </AreaChart>
           </ResponsiveContainer>
           <div style={{ display: 'flex', gap: 16, marginTop: 10, justifyContent: 'flex-end' }}>
-            {([['#D97706', 'PAR30'], ['#C00000', 'PAR60'], ['#7F0000', 'PAR90']] as const).map(([c, l]) => (
+            {([[AMBER, 'PAR30'], [RED, 'PAR60'], [DARKRED, 'PAR90']] as const).map(([c, l]) => (
               <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: 'var(--txt2)', fontFamily: INTER }}>
                 <div style={{ width: 16, height: 2.5, borderRadius: 2, background: c }} />{l}
               </div>
@@ -287,7 +287,7 @@ export default function PortfolioHealth() {
                   startAngle={90} endAngle={-270}
                 >
                   {bandDist.map((d, i) => (
-                    <Cell key={i} fill={BAND_DONUT_COLORS[d.band] ?? '#9CA3AF'} />
+                    <Cell key={i} fill={BAND_DONUT_COLORS[d.band] ?? 'var(--chart-lbl)'} />
                   ))}
                 </Pie>
                 <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => fmtNum(v)} />} />
@@ -305,7 +305,7 @@ export default function PortfolioHealth() {
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 9 }}>
               {bandDist.map(d => (
                 <div key={d.band} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: 3, background: BAND_DONUT_COLORS[d.band] ?? '#9CA3AF', flexShrink: 0 }} />
+                  <div style={{ width: 10, height: 10, borderRadius: 3, background: BAND_DONUT_COLORS[d.band] ?? 'var(--chart-lbl)', flexShrink: 0 }} />
                   <span style={{ flex: 1, fontSize: 12, color: 'var(--txt)', fontWeight: 500 }}>{d.band}</span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', ...NUM }}>{fmtPct(d.pct)}</span>
                 </div>
@@ -319,15 +319,15 @@ export default function PortfolioHealth() {
       <ChartCard title="Sector Concentration" sub="Top 8 sectors by share of loan book">
         <ResponsiveContainer width="100%" height={200}>
           <BarChart data={sectors.slice(0, 8)} margin={{ top: 4, right: 8, bottom: 4, left: -18 }} barCategoryGap="28%">
-            <CartesianGrid stroke="#E8EBF2" strokeDasharray="0" vertical={false} strokeWidth={1} />
+            <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
             <XAxis
               dataKey="sector"
-              tick={{ fontSize: 9.5, fill: '#9AA4B8', fontFamily: INTER }}
+              tick={{ fontSize: 9.5, fill: 'var(--chart-lbl)', fontFamily: INTER }}
               axisLine={false} tickLine={false}
               interval={0} textAnchor="middle"
             />
             <YAxis
-              tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }}
+              tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }}
               axisLine={false} tickLine={false}
               tickFormatter={v => `${v}%`}
             />

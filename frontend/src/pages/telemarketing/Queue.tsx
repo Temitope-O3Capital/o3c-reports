@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Page, FilterBar, ErrBanner, Spinner, ConfirmModal,
   filterInputStyle,
 } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtDatetime, today } from '../../lib/fmt'
-import { GREEN, AMBER, RED, BLUE, PURPLE, NAVY, NUM, INTER } from '../../lib/design'
+import { GREEN, AMBER, RED, DARKRED, BLUE, PURPLE, NAVY, NUM, INTER } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -46,7 +47,7 @@ function dpdBg(dpd: number): string {
   if (dpd === 0) return GREEN
   if (dpd <= 30) return AMBER
   if (dpd <= 90) return RED
-  return '#7F0000'
+  return DARKRED
 }
 
 function DpdBadge({ dpd }: { dpd: number }) {
@@ -66,7 +67,7 @@ function DpdBadge({ dpd }: { dpd: number }) {
 }
 
 function PriorityDot({ priority }: { priority: 'High' | 'Medium' | 'Low' }) {
-  const bg = priority === 'High' ? RED : priority === 'Medium' ? AMBER : '#9CA3AF'
+  const bg = priority === 'High' ? RED : priority === 'Medium' ? AMBER : 'var(--chart-lbl)'
   return (
     <span style={{
       display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
@@ -381,6 +382,7 @@ const DISPOSITION_OPTIONS = [
 const DPD_OPTIONS = ['All', '1-30', '31-60', '61-90', '90+']
 
 export default function TelemarketingQueue() {
+  const navigate = useNavigate()
   const [items, setItems] = useState<TelemarketingContact[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
@@ -597,7 +599,10 @@ export default function TelemarketingQueue() {
                       {/* Line 1: name + priority dot */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
                         <PriorityDot priority={item.priority} />
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                        <span
+                          onClick={item.cif ? (e) => { e.stopPropagation(); navigate(`/contacts/${item.cif}`) } : undefined}
+                          style={{ fontSize: 13, fontWeight: 600, color: item.cif ? NAVY : 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, cursor: item.cif ? 'pointer' : undefined, textDecoration: item.cif ? 'underline' : undefined }}
+                        >
                           {item.customer_name}
                         </span>
                       </div>

@@ -376,9 +376,9 @@ export default function ReportsBI() {
                           <stop offset="100%" stopColor={NAVY} stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid stroke="#E8EBF2" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                      <XAxis dataKey="period" tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                      <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
+                      <XAxis dataKey="period" tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
                       <Tooltip content={(p: any) => <Tip {...p} isKobo={hasKoboMetric} />} />
                       <Area
                         type="monotone"
@@ -393,9 +393,9 @@ export default function ReportsBI() {
                     </AreaChart>
                   ) : (
                     <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
-                      <CartesianGrid stroke="#E8EBF2" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                      <XAxis dataKey="period" tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                      <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
+                      <XAxis dataKey="period" tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
                       <Tooltip content={(p: any) => <Tip {...p} isKobo={hasKoboMetric} />} />
                       {selectedMetrics.map((m, i) => (
                         <Line

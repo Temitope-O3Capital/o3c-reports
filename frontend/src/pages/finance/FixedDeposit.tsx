@@ -372,20 +372,20 @@ export default function FinanceFixedDeposit() {
             <AreaChart data={trend} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="inflowGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#16A34A" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#16A34A" stopOpacity={0} />
+                  <stop offset="5%" stopColor={GREEN} stopOpacity={0.2} />
+                  <stop offset="95%" stopColor={GREEN} stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="liqGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#D97706" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#D97706" stopOpacity={0} />
+                  <stop offset="5%" stopColor={AMBER} stopOpacity={0.2} />
+                  <stop offset="95%" stopColor={AMBER} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9AA4B8' }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: '#9AA4B8' }} axisLine={false} tickLine={false} width={72} />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} width={72} />
               <Tooltip content={<FDTooltip />} />
-              <Area type="monotone" dataKey="inflow" name="Inflow" stroke="#16A34A" strokeWidth={2} fill="url(#inflowGrad)" dot={false} />
-              <Area type="monotone" dataKey="liquidation" name="Liquidation" stroke="#D97706" strokeWidth={2} fill="url(#liqGrad)" dot={false} />
+              <Area type="monotone" dataKey="inflow" name="Inflow" stroke={GREEN} strokeWidth={2} fill="url(#inflowGrad)" dot={false} />
+              <Area type="monotone" dataKey="liquidation" name="Liquidation" stroke={AMBER} strokeWidth={2} fill="url(#liqGrad)" dot={false} />
             </AreaChart>
           </ResponsiveContainer>
         )}

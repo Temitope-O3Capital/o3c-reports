@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Page, FilterBar, Tabs, ConfirmModal, ErrBanner, Spinner, Modal,
   filterInputStyle,
 } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
-import { GREEN, AMBER, RED, NAVY, NUM } from '../../lib/design'
+import { GREEN, AMBER, RED, DARKRED, NAVY, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -40,7 +41,7 @@ function dpdColor(bucket: string): string {
     case '1-30':    return AMBER
     case '31-60':
     case '61-90':   return RED
-    default:        return '#7F0000'
+    default:        return DARKRED
   }
 }
 
@@ -455,6 +456,7 @@ function DetailPanel({
   agents: AgentUser[]
   onAction: () => void
 }) {
+  const navigate = useNavigate()
   const [tab, setTab] = useState('call')
   const [contacts, setContacts] = useState<ContactEntry[]>([])
   const [contactsLoading, setContactsLoading] = useState(true)
@@ -493,7 +495,15 @@ function DetailPanel({
               Assigned to: {assignment.agent_name ?? 'Unassigned'}
             </div>
           </div>
-          <DpdBadge bucket={assignment.dpd_bucket} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <DpdBadge bucket={assignment.dpd_bucket} />
+            <button
+              onClick={() => navigate(`/contacts/${assignment.account_cif}`)}
+              style={{ padding: '3px 10px', borderRadius: 6, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Full profile →
+            </button>
+          </div>
         </div>
       </div>
 

@@ -103,11 +103,11 @@ const DISP_FILL: Record<string, string> = {
   'No Answer':               '#D97706',
   'PTP':                     '#2563EB',
   'Callback':                '#7C3AED',
-  'Wrong Number':            '#9CA3AF',
+  'Wrong Number':            'var(--chart-lbl)',
 }
 
 function dispositionFill(d: string): string {
-  return DISP_FILL[d] ?? '#9CA3AF'
+  return DISP_FILL[d] ?? 'var(--chart-lbl)'
 }
 
 // ── Agent table columns ───────────────────────────────────────────────────────
@@ -301,17 +301,17 @@ export default function TelemarketingPerformance() {
               margin={{ top: 4, right: 8, bottom: 0, left: -18 }}
               barCategoryGap="30%"
             >
-              <CartesianGrid stroke="#E8EBF2" strokeDasharray="0" vertical={false} strokeWidth={1} />
+              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
               <XAxis
                 dataKey="disposition"
-                tick={{ fontSize: 8.5, fill: '#9AA4B8', fontFamily: INTER }}
+                tick={{ fontSize: 8.5, fill: 'var(--chart-lbl)', fontFamily: INTER }}
                 axisLine={false}
                 tickLine={false}
                 interval={0}
                 textAnchor="middle"
               />
               <YAxis
-                tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }}
+                tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }}
                 axisLine={false}
                 tickLine={false}
               />
@@ -342,15 +342,15 @@ export default function TelemarketingPerformance() {
               margin={{ top: 4, right: 8, bottom: 0, left: -18 }}
               barCategoryGap="20%"
             >
-              <CartesianGrid stroke="#E8EBF2" strokeDasharray="0" vertical={false} strokeWidth={1} />
+              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
               <XAxis
                 dataKey="hour"
-                tick={{ fontSize: 9.5, fill: '#9AA4B8', fontFamily: INTER }}
+                tick={{ fontSize: 9.5, fill: 'var(--chart-lbl)', fontFamily: INTER }}
                 axisLine={false}
                 tickLine={false}
               />
               <YAxis
-                tick={{ fontSize: 10, fill: '#9AA4B8', fontFamily: INTER }}
+                tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }}
                 axisLine={false}
                 tickLine={false}
               />

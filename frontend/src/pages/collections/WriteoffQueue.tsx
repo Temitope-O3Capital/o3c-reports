@@ -7,7 +7,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
-import { RED, GREEN, AMBER, NAVY, NUM } from '../../lib/design'
+import { RED, DARKRED, GREEN, AMBER, NAVY, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -32,7 +32,7 @@ interface WriteoffRow {
 // ── DPD badge (dark red for 181+, matches existing pattern) ──────────────────
 
 function DpdBadge({ dpd }: { dpd: number }) {
-  const color = dpd > 720 ? '#7F0000' : dpd > 360 ? '#A00000' : RED
+  const color = dpd > 720 ? DARKRED : dpd > 360 ? '#A00000' : RED
   return (
     <span style={{
       ...NUM, display: 'inline-flex', alignItems: 'center',

@@ -216,15 +216,15 @@ export default function FinanceOverview() {
                 <AreaChart data={trend} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="volGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#0E2841" stopOpacity={0.18} />
-                      <stop offset="95%" stopColor="#0E2841" stopOpacity={0} />
+                      <stop offset="5%" stopColor={NAVY} stopOpacity={0.18} />
+                      <stop offset="95%" stopColor={NAVY} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9AA4B8' }} axisLine={false} tickLine={false} />
-                  <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: '#9AA4B8' }} axisLine={false} tickLine={false} width={72} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} width={72} />
                   <Tooltip content={<VolumeTooltip />} />
-                  <Area type="monotone" dataKey="volume" stroke="#0E2841" strokeWidth={2} fill="url(#volGrad)" dot={false} />
+                  <Area type="monotone" dataKey="volume" stroke={NAVY} strokeWidth={2} fill="url(#volGrad)" dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
             )}

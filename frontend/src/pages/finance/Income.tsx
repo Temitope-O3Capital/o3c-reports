@@ -91,7 +91,7 @@ const FEE_LABELS: Record<string, string> = {
 
 const FEE_COLORS: Record<string, string> = {
   membership: NAVY, reissue: BLUE, maintenance: GREEN,
-  joining: AMBER, blink: PURPLE, other: '#9AA4B8',
+  joining: AMBER, blink: PURPLE, other: 'var(--chart-lbl)',
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -148,7 +148,7 @@ const MATURITY_STATUS_COLORS: Record<string, string> = {
   'Matured': '#6B7280',
   'Active': GREEN,
   'Maturing Soon': '#D97706',
-  'Unknown': '#9AA4B8',
+  'Unknown': 'var(--chart-lbl)',
 }
 
 const LOAN_COLS: TableCol<LoanRow>[] = [
@@ -162,7 +162,7 @@ const LOAN_COLS: TableCol<LoanRow>[] = [
     render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{Number(r.rate_pct).toFixed(2)}%</span> },
   { key: 'maturity_status', label: 'Status', sortable: true,
     render: r => {
-      const color = MATURITY_STATUS_COLORS[r.maturity_status] ?? '#9AA4B8'
+      const color = MATURITY_STATUS_COLORS[r.maturity_status] ?? 'var(--chart-lbl)'
       return (
         <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 20, background: color + '1A', color }}>
           {r.maturity_status}
@@ -399,8 +399,8 @@ export default function FinanceIncome() {
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={chart} margin={{ top: 32, right: 8, left: 8, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
-                  <XAxis dataKey="type" tick={{ fontSize: 12, fill: '#9AA4B8' }} axisLine={false} tickLine={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                  <XAxis dataKey="type" tick={{ fontSize: 12, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
                   <Tooltip content={<ChartTip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Bar dataKey="current" name="Current cycle" fill={NAVY} radius={[3,3,0,0]}>
@@ -408,7 +408,7 @@ export default function FinanceIncome() {
                       formatter={(v: number) => fmtKoboExact(v)}
                       style={{ fontSize: 9.5, fill: NAVY, fontFamily: 'Inter', fontVariantNumeric: 'tabular-nums' }} />
                   </Bar>
-                  <Bar dataKey="previous" name="Previous cycle" fill="#9AA4B8" radius={[3,3,0,0]}>
+                  <Bar dataKey="previous" name="Previous cycle" fill="var(--chart-lbl)" radius={[3,3,0,0]}>
                     <LabelList dataKey="previous" position="top"
                       formatter={(v: number) => fmtKoboExact(v)}
                       style={{ fontSize: 9.5, fill: '#6B7280', fontFamily: 'Inter', fontVariantNumeric: 'tabular-nums' }} />
@@ -423,8 +423,8 @@ export default function FinanceIncome() {
             <SectionCard title="Cards" subtitle="NGN interest · fees · penalty by product" style={{ marginBottom: 16 }}>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={chartProducts} margin={{ top: 28, right: 8, left: 8, bottom: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
-                  <XAxis dataKey="product" tick={{ fontSize: 10, fill: '#9AA4B8' }} interval={0} textAnchor="middle" axisLine={false} tickLine={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                  <XAxis dataKey="product" tick={{ fontSize: 10, fill: 'var(--chart-lbl)' }} interval={0} textAnchor="middle" axisLine={false} tickLine={false} />
                   <Tooltip content={<ChartTip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Bar dataKey="interest" name="Interest" fill={GREEN} radius={[3,3,0,0]}>
@@ -680,7 +680,7 @@ export default function FinanceIncome() {
                     >
                       <td style={{ padding: '11px 14px', ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.fee_date)}</td>
                       <td style={{ padding: '11px 14px' }}>
-                        <TypePill type={FEE_LABELS[r.fee_type] ?? r.fee_type} color={FEE_COLORS[r.fee_type] ?? '#9AA4B8'} />
+                        <TypePill type={FEE_LABELS[r.fee_type] ?? r.fee_type} color={FEE_COLORS[r.fee_type] ?? 'var(--chart-lbl)'} />
                       </td>
                       <td style={{ padding: '11px 14px', color: 'var(--txt)' }}>{r.product_name || '—'}</td>
                       <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, fontWeight: 600, color: NAVY }}>{fmtCurrencyMinor(r.amount_kobo, r.currency || 'NGN')}</td>

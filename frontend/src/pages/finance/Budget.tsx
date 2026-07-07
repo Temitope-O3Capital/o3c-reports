@@ -197,13 +197,13 @@ export default function FinanceBudget() {
           <SectionCard title="Budget vs Actual by Cost Centre" style={{ marginBottom: 16 }}>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
-                <XAxis dataKey="centre" tick={{ fontSize: 11, fill: '#9AA4B8' }} axisLine={false} tickLine={false} />
-                <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: '#9AA4B8' }} axisLine={false} tickLine={false} width={72} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                <XAxis dataKey="centre" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} width={72} />
                 <Tooltip content={<BudgetTooltip />} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="budget" name="Budget" fill="#0E2841" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="actual" name="Actual" fill="#C00000" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="budget" name="Budget" fill={NAVY} radius={[3, 3, 0, 0]} />
+                <Bar dataKey="actual" name="Actual" fill={RED} radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </SectionCard>

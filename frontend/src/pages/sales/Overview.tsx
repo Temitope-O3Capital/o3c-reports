@@ -217,9 +217,9 @@ export default function SalesOverview() {
                   <stop offset="95%" stopColor={RED} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
-              <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} width={72} />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
+              <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} width={72} />
               <Tooltip content={<ChartTooltip kobo />} />
               <Area type="monotone" dataKey="disbursements_kobo" name="Disbursements"
                 stroke={RED} strokeWidth={2} fill="url(#salesGrad)" />
@@ -233,9 +233,9 @@ export default function SalesOverview() {
           ) : (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={perfs} layout="vertical" margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" horizontal={false} />
-                <XAxis type="number" tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} width={80} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
+                <XAxis type="number" tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} width={80} />
                 <Tooltip content={<ChartTooltip kobo />} />
                 <Bar dataKey="amount_kobo" name="Disbursed" fill={AMBER} radius={[0, 4, 4, 0]} />
               </BarChart>
@@ -252,9 +252,9 @@ export default function SalesOverview() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={leadSrc} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E8EBF2" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
-                <YAxis type="category" dataKey="lead_source" tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} width={90} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
+                <YAxis type="category" dataKey="lead_source" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} width={90} />
                 <Tooltip formatter={(v: any) => [fmtNum(v as number), 'Applications']} />
                 <Bar dataKey="total_applications" name="Applications" radius={[0, 4, 4, 0]}>
                   {leadSrc.map((_, i) => <Cell key={i} fill={LEAD_SOURCE_COLORS[i % LEAD_SOURCE_COLORS.length]} />)}
