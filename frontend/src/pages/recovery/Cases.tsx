@@ -5,7 +5,7 @@ import {
 } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
-import { RED, NAVY, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { RED, NAVY, GREEN, AMBER, BLUE, SORA, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
   border: '1px solid var(--input-bdr)', borderRadius: 7,
   fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
-  fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
+  fontFamily: SORA, outline: 'none', boxSizing: 'border-box',
 }
 
 const labelStyle: React.CSSProperties = {
