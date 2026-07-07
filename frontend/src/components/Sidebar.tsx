@@ -50,7 +50,6 @@ const SECTIONS: Section[] = [
         vis: ['sales_officer','sales_head','bd_officer','bd_head'],
         subs: [
           { label: 'Inbox',     to: '/mail/inbox' },
-          { label: 'Compose',   to: '/mail/compose' },
           { label: 'Sent Mail', to: '/mail/sent' },
           { label: 'Drafts',    to: '/mail/drafts' },
         ],
