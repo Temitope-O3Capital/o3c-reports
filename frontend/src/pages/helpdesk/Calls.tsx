@@ -23,7 +23,8 @@ interface CallLog {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function fmtDuration(s: number): string {
+function fmtDuration(s: number | null | undefined): string {
+  if (s == null || s <= 0) return '—'
   const m = Math.floor(s / 60)
   return m > 0 ? `${m}m ${s % 60}s` : `${s}s`
 }

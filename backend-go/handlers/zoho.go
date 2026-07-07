@@ -466,10 +466,22 @@ func zohoImportDeskCalls(db *core.DB) http.HandlerFunc {
 					continue
 				}
 
-				// Filter by date range on callStartTime
-				startedAt := zohoParseTime(c["callStartTime"])
+				// Zoho Desk call API uses createdTime; callStartTime may also appear.
+				// Try multiple fields and both RFC3339 and millisecond formats.
+				startedAt := zohoParseTime(c["createdTime"])
 				if startedAt.IsZero() {
-					startedAt = time.Now()
+					startedAt = zohoParseTime(c["callStartTime"])
+				}
+				if startedAt.IsZero() {
+					startedAt = zohoParseMillisTime(c["callStartTime"])
+				}
+				if startedAt.IsZero() {
+					startedAt = zohoParseTime(c["startTime"])
+				}
+				if startedAt.IsZero() {
+					// skip rather than store a wrong date
+					skipped++
+					continue
 				}
 				dateStr := startedAt.Format("2006-01-02")
 				if dateStr < from || dateStr > to {
@@ -489,16 +501,30 @@ func zohoImportDeskCalls(db *core.DB) http.HandlerFunc {
 					outcome = "missed"
 				}
 
+				// Duration: try seconds int, then "HH:MM:SS" string, then millis
 				durSec := zohoParseDurationSec(c["callDuration"])
+				if durSec == nil {
+					durSec = zohoParseDurationSec(c["duration"])
+				}
 
+				// Agent: try direct field then nested owner/agent objects
 				agentName := zohoStr(c["agentName"])
 				if agentName == "" {
 					if owner, ok := c["owner"].(map[string]any); ok {
 						agentName = zohoStr(owner["name"])
 					}
 				}
+				if agentName == "" {
+					if ag, ok := c["agent"].(map[string]any); ok {
+						agentName = zohoStr(ag["name"])
+					}
+				}
 
-				custPhone := zohoStr(c["customerNumber"])
+				// Customer phone: Zoho Desk uses callerNumber for inbound
+				custPhone := zohoStr(c["callerNumber"])
+				if custPhone == "" {
+					custPhone = zohoStr(c["customerNumber"])
+				}
 				if custPhone == "" {
 					custPhone = zohoStr(c["from"])
 				}
@@ -508,24 +534,46 @@ func zohoImportDeskCalls(db *core.DB) http.HandlerFunc {
 					}
 				}
 
-				callTo := zohoStr(c["to"])
+				// Customer name
+				custName := zohoStr(c["callerName"])
+				if custName == "" {
+					if contact, ok := c["contact"].(map[string]any); ok {
+						fn := zohoStr(contact["firstName"])
+						ln := zohoStr(contact["lastName"])
+						custName = strings.TrimSpace(fn + " " + ln)
+					}
+				}
+
+				callTo := zohoStr(c["receiverNumber"])
+				if callTo == "" {
+					callTo = zohoStr(c["to"])
+				}
 				if callTo == "" {
 					callTo = zohoStr(c["didNumber"])
 				}
 
-				_, err := db.PGExec(ctx, `
+				res, err := db.PGExec(ctx, `
 					INSERT INTO helpdesk_calls
-					  (agent_name, customer_phone, call_to, direction,
+					  (agent_name, customer_name, customer_phone, call_to, direction,
 					   duration_sec, outcome, started_at, zoho_call_id)
-					VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-					ON CONFLICT DO NOTHING`,
-					agentName, custPhone, callTo, direction,
+					VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+					ON CONFLICT (zoho_call_id) DO UPDATE SET
+					  agent_name     = EXCLUDED.agent_name,
+					  customer_name  = EXCLUDED.customer_name,
+					  customer_phone = EXCLUDED.customer_phone,
+					  direction      = EXCLUDED.direction,
+					  duration_sec   = EXCLUDED.duration_sec,
+					  outcome        = EXCLUDED.outcome,
+					  started_at     = EXCLUDED.started_at`,
+					agentName, custName, custPhone, callTo, direction,
 					durSec, outcome, startedAt, zohoID)
 				if err != nil {
 					slog.Warn("zohoImportDeskCalls: insert", "zoho_id", zohoID, "err", err)
 					failed++
-				} else {
+				} else if n, _ := res.RowsAffected(); n > 0 {
 					imported++
+				} else {
+					skipped++
 				}
 			}
 

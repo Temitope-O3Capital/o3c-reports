@@ -14,11 +14,7 @@ const TICKET_TYPES = [
 ]
 
 const PRIORITY_COLOR: Record<string, string> = {
-  urgent: RED,
-  high: AMBER,
-  medium: BLUE,
-  low: '#9CA3AF',
-  normal: '#9CA3AF',
+  urgent: RED, high: AMBER, medium: BLUE, low: '#9CA3AF', normal: '#9CA3AF',
 }
 
 interface Ticket {
@@ -50,8 +46,6 @@ interface Agent {
   full_name: string
 }
 
-// ── Priority dot ──────────────────────────────────────────────────────────────
-
 function PriorityDot({ priority }: { priority: string }) {
   const color = PRIORITY_COLOR[priority?.toLowerCase()] ?? '#9CA3AF'
   return (
@@ -61,8 +55,6 @@ function PriorityDot({ priority }: { priority: string }) {
     }} title={priority} />
   )
 }
-
-// ── Type pill ─────────────────────────────────────────────────────────────────
 
 function TypePill({ type }: { type?: string }) {
   if (!type) return null
@@ -78,14 +70,13 @@ function TypePill({ type }: { type?: string }) {
 // ── Ticket list row ───────────────────────────────────────────────────────────
 
 function TicketRow({
-  ticket, selected, onClick, checked, onCheck,
+  ticket, checked, onCheck,
 }: {
   ticket: Ticket
-  selected: boolean
-  onClick: () => void
   checked: boolean
   onCheck: (e: React.ChangeEvent<HTMLInputElement>) => void
 }) {
+  const navigate = useNavigate()
   const slaMs = ticket.sla_due_at && !ticket.sla_breached
     ? new Date(ticket.sla_due_at).getTime() - Date.now()
     : -1
@@ -95,41 +86,35 @@ function TicketRow({
 
   return (
     <div
-      onClick={onClick}
+      onClick={() => navigate(`/helpdesk/${ticket.id}`)}
       style={{
         display: 'flex', alignItems: 'flex-start', gap: 10,
-        padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid var(--bdr)',
-        background: selected ? `${RED}08` : 'var(--card)',
-        borderLeft: selected ? `3px solid ${RED}` : '3px solid transparent',
-        transition: 'background 120ms',
+        padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid var(--bdr)',
+        background: 'var(--card)', transition: 'background 120ms',
       }}
-      onMouseEnter={e => { if (!selected) (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
-      onMouseLeave={e => { if (!selected) (e.currentTarget as HTMLElement).style.background = 'var(--card)' }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'var(--card)' }}
     >
       <input
         type="checkbox"
         checked={checked}
         onChange={onCheck}
         onClick={e => e.stopPropagation()}
-        style={{ marginTop: 2, cursor: 'pointer', accentColor: RED, flexShrink: 0 }}
+        style={{ marginTop: 3, cursor: 'pointer', accentColor: RED, flexShrink: 0 }}
       />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', fontFamily: 'Inter, sans-serif' }}>
-            #{ticket.ticket_ref || `TK-${ticket.id}`}
+            {ticket.ticket_ref?.startsWith('ZOHO-')
+              ? `#${ticket.ticket_ref.replace('ZOHO-', '').slice(-8)}`
+              : `#${ticket.ticket_ref || ticket.id}`}
           </span>
           <PriorityDot priority={ticket.priority} />
           {slaWarnLabel && (
-            <span style={{
-              fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 4,
-              background: `${AMBER}15`, color: AMBER,
-            }}>{slaWarnLabel}</span>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: `${AMBER}15`, color: AMBER }}>{slaWarnLabel}</span>
           )}
           {ticket.sla_breached && (
-            <span style={{
-              fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 4,
-              background: `${RED}15`, color: RED,
-            }}>Overdue</span>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: `${RED}15`, color: RED }}>Overdue</span>
           )}
         </div>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -152,91 +137,6 @@ function TicketRow({
   )
 }
 
-// ── Preview panel ─────────────────────────────────────────────────────────────
-
-function PreviewPanel({ ticket, onOpenFull }: { ticket: Ticket; onOpenFull: (id: number) => void }) {
-  return (
-    <div style={{ padding: 24, height: '100%', overflow: 'auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt2)', fontFamily: 'Inter, sans-serif' }}>
-          #{ticket.ticket_ref || `TK-${ticket.id}`}
-        </span>
-        <TypePill type={ticket.ticket_type} />
-        <StatusBadge status={ticket.status} />
-        <PriorityDot priority={ticket.priority} />
-        {ticket.sla_breached && (
-          <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: `${RED}15`, color: RED }}>
-            SLA Overdue
-          </span>
-        )}
-      </div>
-
-      <h2 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700, color: 'var(--txt)', lineHeight: 1.35 }}>
-        {ticket.subject}
-      </h2>
-
-      {ticket.last_message_preview && (
-        <div style={{
-          padding: '10px 14px', borderRadius: 8, background: 'var(--th-bg)',
-          fontSize: 13, color: 'var(--txt2)', lineHeight: 1.5, marginBottom: 16,
-          borderLeft: `3px solid var(--bdr)`,
-        }}>
-          {ticket.last_message_preview}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
-        {ticket.customer_name && (
-          <div style={{ display: 'flex', gap: 10, fontSize: 13 }}>
-            <span style={{ color: 'var(--txt2)', minWidth: 90 }}>Customer</span>
-            <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{ticket.customer_name}</span>
-          </div>
-        )}
-        {ticket.customer_phone && (
-          <div style={{ display: 'flex', gap: 10, fontSize: 13 }}>
-            <span style={{ color: 'var(--txt2)', minWidth: 90 }}>Phone</span>
-            <span style={{ color: 'var(--txt)' }}>{ticket.customer_phone}</span>
-          </div>
-        )}
-        {ticket.customer_cif && (
-          <div style={{ display: 'flex', gap: 10, fontSize: 13 }}>
-            <span style={{ color: 'var(--txt2)', minWidth: 90 }}>CIF</span>
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', fontSize: 11.5, fontWeight: 700,
-              padding: '2px 8px', borderRadius: 6, background: `${NAVY}12`, color: NAVY,
-              fontFamily: 'Inter, monospace',
-            }}>{ticket.customer_cif}</span>
-          </div>
-        )}
-        {ticket.assigned_to_name && (
-          <div style={{ display: 'flex', gap: 10, fontSize: 13 }}>
-            <span style={{ color: 'var(--txt2)', minWidth: 90 }}>Assigned</span>
-            <span style={{ color: 'var(--txt)' }}>{ticket.assigned_to_name}</span>
-          </div>
-        )}
-        <div style={{ display: 'flex', gap: 10, fontSize: 13 }}>
-          <span style={{ color: 'var(--txt2)', minWidth: 90 }}>Created</span>
-          <span style={{ color: 'var(--txt)' }}>{fmtDatetime(ticket.created_at)}</span>
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 10 }}>
-        <button
-          style={{
-            padding: '8px 16px', borderRadius: 8, border: 'none',
-            background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: 6,
-          }}
-          onClick={() => onOpenFull(ticket.id)}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>open_in_full</span>
-          Open Full Detail
-        </button>
-      </div>
-    </div>
-  )
-}
-
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function Tickets() {
@@ -247,7 +147,6 @@ export default function Tickets() {
   const [err, setErr] = useState<string | null>(null)
   const [lastLoaded, setLastLoaded] = useState<Date | null>(null)
 
-  // Filters
   const [status, setStatus] = useState('')
   const [type, setType] = useState('')
   const [priority, setPriority] = useState('')
@@ -255,22 +154,15 @@ export default function Tickets() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
 
-  // Selection
-  const [selectedId, setSelectedId] = useState<number | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
-
-  // Modals
   const [newOpen, setNewOpen] = useState(false)
   const [reassignOpen, setReassignOpen] = useState(false)
   const [agents, setAgents] = useState<Agent[]>([])
   const [reassignTarget, setReassignTarget] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
 
-  const selectedTicket = tickets.find(t => t.id === selectedId) ?? null
-
   const load = useCallback(async () => {
-    setLoading(true)
-    setErr(null)
+    setLoading(true); setErr(null)
     try {
       const params = new URLSearchParams()
       if (status) params.set('status', status)
@@ -284,34 +176,23 @@ export default function Tickets() {
       setTickets(resp.tickets ?? [])
       setTotal(resp.total ?? 0)
       setLastLoaded(new Date())
-    } catch (e: any) {
-      setErr(e.message)
-    } finally {
-      setLoading(false)
-    }
+    } catch (e: any) { setErr(e.message) }
+    finally { setLoading(false) }
   }, [status, type, priority, agent, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
-  // Load agents for reassign modal
   useEffect(() => {
     if (reassignOpen && agents.length === 0) {
       apiFetch<{ agents?: Agent[] } | Agent[]>('/api/helpdesk/supervisor')
-        .then(r => {
-          const list = Array.isArray(r) ? r : (r as any).agents ?? []
-          setAgents(list)
-        })
+        .then(r => { const list = Array.isArray(r) ? r : (r as any).agents ?? []; setAgents(list) })
         .catch(() => setAgents([]))
     }
   }, [reassignOpen, agents.length])
 
   function toggleCheck(id: number, e: React.ChangeEvent<HTMLInputElement>) {
     e.stopPropagation()
-    setCheckedIds(prev => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
+    setCheckedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
 
   async function handleBulkClose() {
@@ -319,37 +200,19 @@ export default function Tickets() {
     setActionLoading(true)
     try {
       await apiPost('/api/helpdesk/tickets/bulk-close', { ticket_ids: Array.from(checkedIds) })
-      setCheckedIds(new Set())
-      load()
-    } catch (e: any) {
-      setErr(e.message)
-    } finally {
-      setActionLoading(false)
-    }
+      setCheckedIds(new Set()); load()
+    } catch (e: any) { setErr(e.message) }
+    finally { setActionLoading(false) }
   }
 
   async function handleBulkReassign() {
     if (!reassignTarget || checkedIds.size === 0) return
     setActionLoading(true)
     try {
-      await apiPost('/api/helpdesk/tickets/bulk-assign', {
-        ticket_ids: Array.from(checkedIds),
-        agent_id: Number(reassignTarget),
-      })
-      setCheckedIds(new Set())
-      setReassignOpen(false)
-      setReassignTarget('')
-      load()
-    } catch (e: any) {
-      setErr(e.message)
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  function handleExport() {
-    const ids = Array.from(checkedIds).join(',')
-    window.open(`/api/helpdesk/tickets/export?ids=${ids}`, '_blank')
+      await apiPost('/api/helpdesk/tickets/bulk-assign', { ticket_ids: Array.from(checkedIds), agent_id: Number(reassignTarget) })
+      setCheckedIds(new Set()); setReassignOpen(false); setReassignTarget(''); load()
+    } catch (e: any) { setErr(e.message) }
+    finally { setActionLoading(false) }
   }
 
   const hasBulk = checkedIds.size > 0
@@ -362,200 +225,84 @@ export default function Tickets() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {lastLoaded && (
             <span style={{ fontSize: 11.5, color: 'var(--txt2)' }}>
-              {(() => {
-                const mins = Math.floor((Date.now() - lastLoaded.getTime()) / 60_000)
-                return mins === 0 ? 'Just loaded' : `Last loaded ${mins}m ago`
-              })()}
+              {(() => { const m = Math.floor((Date.now() - lastLoaded.getTime()) / 60_000); return m === 0 ? 'Just loaded' : `${m}m ago` })()}
             </span>
           )}
-          <button
-            onClick={() => load()}
-            title="Refresh"
-            style={{
-              display: 'inline-flex', alignItems: 'center',
-              width: 32, height: 32, borderRadius: 8,
-              border: '1px solid var(--bdr)', background: 'var(--card)',
-              color: 'var(--txt2)', cursor: 'pointer', justifyContent: 'center',
-            }}
-          >
+          <button onClick={load} title="Refresh" style={{ display: 'inline-flex', alignItems: 'center', width: 32, height: 32, borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer', justifyContent: 'center' }}>
             <span className="material-symbols-rounded" style={{ fontSize: 16 }}>refresh</span>
           </button>
-          <button
-            onClick={() => setNewOpen(true)}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '7px 15px', background: NAVY, color: '#fff',
-              border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-            }}
-          >
+          <button onClick={() => setNewOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
             New Ticket
           </button>
         </div>
       }
-      noPad
     >
-      <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+      {/* Filters */}
+      <div style={{ marginBottom: 16 }}>
+        <FilterBar onReset={() => { setStatus(''); setType(''); setPriority(''); setAgent(''); setDateFrom(''); setDateTo('') }}>
+          <select value={status} onChange={e => setStatus(e.target.value)} style={{ ...filterInputStyle }}>
+            <option value="">All Status</option>
+            <option value="open">Open</option>
+            <option value="pending">Pending</option>
+            <option value="in_progress">In Progress</option>
+            <option value="resolved">Resolved</option>
+            <option value="closed">Closed</option>
+          </select>
+          <select value={type} onChange={e => setType(e.target.value)} style={{ ...filterInputStyle }}>
+            <option value="">All Types</option>
+            {TICKET_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select value={priority} onChange={e => setPriority(e.target.value)} style={{ ...filterInputStyle }}>
+            <option value="">All Priority</option>
+            <option value="urgent">Urgent</option>
+            <option value="high">High</option>
+            <option value="normal">Normal</option>
+            <option value="low">Low</option>
+          </select>
+          <input placeholder="Agent name…" value={agent} onChange={e => setAgent(e.target.value)} style={{ ...filterInputStyle }} />
+          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ ...filterInputStyle }} title="From" />
+          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ ...filterInputStyle }} title="To" />
+        </FilterBar>
+      </div>
 
-        {/* ── Left panel ──────────────────────────────────────────────────── */}
-        <div style={{
-          width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column',
-          borderRight: '1px solid var(--bdr)', background: 'var(--card)', overflow: 'hidden',
-        }}>
-          {/* Filters */}
-          <div style={{ padding: '12px 12px 8px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
-            <FilterBar onReset={() => { setStatus(''); setType(''); setPriority(''); setAgent(''); setDateFrom(''); setDateTo('') }}>
-              <select
-                value={status} onChange={e => setStatus(e.target.value)}
-                style={{ ...filterInputStyle, flex: 1 }}
-              >
-                <option value="">All Status</option>
-                <option value="open">Open</option>
-                <option value="pending">Pending</option>
-                <option value="in_progress">In Progress</option>
-                <option value="resolved">Resolved</option>
-                <option value="closed">Closed</option>
-              </select>
-              <select
-                value={type} onChange={e => setType(e.target.value)}
-                style={{ ...filterInputStyle, flex: 1 }}
-              >
-                <option value="">All Types</option>
-                {TICKET_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </FilterBar>
-            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-              <select
-                value={priority} onChange={e => setPriority(e.target.value)}
-                style={{ ...filterInputStyle, flex: 1 }}
-              >
-                <option value="">All Priority</option>
-                <option value="urgent">Urgent</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-              <input
-                placeholder="Agent name…"
-                value={agent}
-                onChange={e => setAgent(e.target.value)}
-                style={{ ...filterInputStyle, flex: 1 }}
-              />
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={e => setDateFrom(e.target.value)}
-                title="From date"
-                style={{ ...filterInputStyle, flex: 1 }}
-              />
-              <input
-                type="date"
-                value={dateTo}
-                onChange={e => setDateTo(e.target.value)}
-                title="To date"
-                style={{ ...filterInputStyle, flex: 1 }}
-              />
-            </div>
-          </div>
-
-          {/* Bulk bar */}
-          {hasBulk && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '7px 12px', background: '#F0F4FF',
-              borderBottom: '1px solid var(--bdr)', flexShrink: 0, flexWrap: 'wrap',
-            }}>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: NAVY }}>
-                {checkedIds.size} selected
-              </span>
-              <button
-                onClick={() => setReassignOpen(true)}
-                style={{ fontSize: 12, fontWeight: 600, color: NAVY, background: 'none', border: `1px solid ${NAVY}`, borderRadius: 6, padding: '3px 10px', cursor: 'pointer' }}
-              >
-                Reassign
-              </button>
-              <button
-                onClick={handleBulkClose}
-                disabled={actionLoading}
-                style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: RED, border: 'none', borderRadius: 6, padding: '3px 10px', cursor: 'pointer' }}
-              >
-                {actionLoading ? <Spinner size={12} color="#fff" /> : 'Close'}
-              </button>
-              <button
-                onClick={handleExport}
-                style={{ fontSize: 12, fontWeight: 500, color: 'var(--txt2)', background: 'none', border: '1px solid var(--bdr)', borderRadius: 6, padding: '3px 10px', cursor: 'pointer' }}
-              >
-                Export
-              </button>
-              <button
-                onClick={() => setCheckedIds(new Set())}
-                style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', background: 'none', border: 'none', cursor: 'pointer' }}
-              >
-                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>
-              </button>
-            </div>
-          )}
-
-          {/* Ticket list */}
-          <div style={{ flex: 1, overflow: 'auto' }}>
-            {err && <div style={{ padding: 12 }}><ErrBanner error={err} onRetry={load} /></div>}
-            {loading ? (
-              <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
-                <Spinner size={24} />
-              </div>
-            ) : tickets.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 40, color: 'var(--txt2)', fontSize: 13 }}>
-                No tickets found
-              </div>
-            ) : (
-              tickets.map(ticket => (
-                <TicketRow
-                  key={ticket.id}
-                  ticket={ticket}
-                  selected={selectedId === ticket.id}
-                  checked={checkedIds.has(ticket.id)}
-                  onClick={() => setSelectedId(ticket.id === selectedId ? null : ticket.id)}
-                  onCheck={e => toggleCheck(ticket.id, e)}
-                />
-              ))
-            )}
-          </div>
+      {/* Bulk bar */}
+      {hasBulk && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#F0F4FF', borderRadius: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: NAVY }}>{checkedIds.size} selected</span>
+          <button onClick={() => setReassignOpen(true)} style={{ fontSize: 12, fontWeight: 600, color: NAVY, background: 'none', border: `1px solid ${NAVY}`, borderRadius: 6, padding: '3px 10px', cursor: 'pointer' }}>Reassign</button>
+          <button onClick={handleBulkClose} disabled={actionLoading} style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: RED, border: 'none', borderRadius: 6, padding: '3px 10px', cursor: 'pointer' }}>
+            {actionLoading ? <Spinner size={12} color="#fff" /> : 'Close'}
+          </button>
+          <button onClick={() => setCheckedIds(new Set())} style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', background: 'none', border: 'none', cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>
+          </button>
         </div>
+      )}
 
-        {/* ── Right panel ─────────────────────────────────────────────────── */}
-        <div style={{ flex: 1, overflow: 'auto', background: 'var(--bg)' }}>
-          {selectedTicket ? (
-            <PreviewPanel
-              ticket={selectedTicket}
-              onOpenFull={id => navigate(`/helpdesk/${id}`)}
+      <ErrBanner error={err} onRetry={load} />
+
+      {/* Ticket list — full width, click goes straight to detail */}
+      <div style={{ background: 'var(--card)', borderRadius: 10, border: '1px solid var(--bdr)', overflow: 'hidden' }}>
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><Spinner size={24} /></div>
+        ) : tickets.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 48, color: 'var(--txt2)', fontSize: 13 }}>No tickets found</div>
+        ) : (
+          tickets.map(ticket => (
+            <TicketRow
+              key={ticket.id}
+              ticket={ticket}
+              checked={checkedIds.has(ticket.id)}
+              onCheck={e => toggleCheck(ticket.id, e)}
             />
-          ) : (
-            <div style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center',
-              justifyContent: 'center', height: '100%', color: 'var(--txt2)',
-            }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 48, marginBottom: 12, color: 'var(--txt3)' }}>
-                inbox
-              </span>
-              <span style={{ fontSize: 14 }}>Select a ticket to preview</span>
-            </div>
-          )}
-        </div>
+          ))
+        )}
       </div>
 
       {/* New Ticket modal */}
-      <Modal
-        open={newOpen}
-        onClose={() => setNewOpen(false)}
-        title="New Ticket"
-        width={720}
-      >
-        <NewTicketForm
-          onClose={() => setNewOpen(false)}
-          onCreated={id => { setNewOpen(false); navigate(`/helpdesk/${id}`) }}
-        />
+      <Modal open={newOpen} onClose={() => setNewOpen(false)} title="New Ticket" width={720}>
+        <NewTicketForm onClose={() => setNewOpen(false)} onCreated={id => { setNewOpen(false); navigate(`/helpdesk/${id}`) }} />
       </Modal>
 
       {/* Reassign modal */}
@@ -566,33 +313,18 @@ export default function Tickets() {
         width={400}
         footer={
           <>
-            <button
-              onClick={() => { setReassignOpen(false); setReassignTarget('') }}
-              style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}
-            >Cancel</button>
-            <button
-              onClick={handleBulkReassign}
-              disabled={!reassignTarget || actionLoading}
-              style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: (!reassignTarget || actionLoading) ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: 8 }}
-            >
+            <button onClick={() => { setReassignOpen(false); setReassignTarget('') }} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={handleBulkReassign} disabled={!reassignTarget || actionLoading} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: (!reassignTarget || actionLoading) ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: 8 }}>
               {actionLoading && <Spinner size={14} color="#fff" />}
               Reassign
             </button>
           </>
         }
       >
-        <p style={{ fontSize: 13, color: 'var(--txt2)', marginTop: 0 }}>
-          Select the agent to assign the selected tickets to.
-        </p>
-        <select
-          value={reassignTarget}
-          onChange={e => setReassignTarget(e.target.value)}
-          style={{ ...filterInputStyle, width: '100%', height: 38 }}
-        >
+        <p style={{ fontSize: 13, color: 'var(--txt2)', marginTop: 0 }}>Select the agent to assign the selected tickets to.</p>
+        <select value={reassignTarget} onChange={e => setReassignTarget(e.target.value)} style={{ ...filterInputStyle, width: '100%', height: 38 }}>
           <option value="">— Select agent —</option>
-          {agents.map(a => (
-            <option key={a.id} value={a.id}>{a.full_name}</option>
-          ))}
+          {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
         </select>
       </Modal>
     </Page>
