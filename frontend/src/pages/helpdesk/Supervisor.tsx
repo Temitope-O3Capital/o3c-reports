@@ -59,12 +59,12 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
   available: { label: 'Available', color: GREEN,   bg: `${GREEN}18` },
   on_call:   { label: 'On Call',   color: BLUE,    bg: `${BLUE}18` },
   break:     { label: 'Break',     color: AMBER,   bg: `${AMBER}18` },
-  offline:   { label: 'Offline',   color: '#9CA3AF', bg: '#F3F4F6' },
+  offline:   { label: 'Offline',   color: 'var(--chart-lbl)', bg: '#F3F4F6' },
   busy:      { label: 'Busy',      color: AMBER,   bg: `${AMBER}18` },
 }
 
 function statusCfg(s?: string) {
-  return STATUS_CONFIG[s?.toLowerCase() ?? ''] ?? { label: s ?? 'Unknown', color: '#9CA3AF', bg: '#F3F4F6' }
+  return STATUS_CONFIG[s?.toLowerCase() ?? ''] ?? { label: s ?? 'Unknown', color: 'var(--chart-lbl)', bg: '#F3F4F6' }
 }
 
 // ── Agent status card ─────────────────────────────────────────────────────────

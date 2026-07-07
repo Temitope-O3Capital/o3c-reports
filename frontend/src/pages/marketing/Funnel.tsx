@@ -106,7 +106,7 @@ export default function Funnel() {
     approved:'Approved', booking:'Booking', active:'Active Loans',
   }
   const stageColor: Record<string,string> = {
-    submitted: '#9CA3AF', risk_review: BLUE, credit_committee: AMBER,
+    submitted: 'var(--chart-lbl)', risk_review: BLUE, credit_committee: AMBER,
     approved: GREEN, booking: NAVY, active: '#059669',
   }
   const losSteps: FunnelStep[] = stageOrder

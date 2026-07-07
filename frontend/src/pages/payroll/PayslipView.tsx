@@ -193,8 +193,8 @@ export default function PayslipView() {
 
         {/* Footer */}
         <div style={{ padding: '14px 32px', background: '#F9FAFB', borderTop: '1px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: '#9CA3AF' }}>This is a computer-generated payslip and does not require a signature.</span>
-          <span style={{ fontSize: 11, color: '#9CA3AF' }}>O3 Capital · {periodLabel}</span>
+          <span style={{ fontSize: 11, color: 'var(--chart-lbl)' }}>This is a computer-generated payslip and does not require a signature.</span>
+          <span style={{ fontSize: 11, color: 'var(--chart-lbl)' }}>O3 Capital · {periodLabel}</span>
         </div>
       </div>
 

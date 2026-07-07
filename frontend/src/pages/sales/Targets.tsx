@@ -158,7 +158,7 @@ export default function SalesTargets() {
     {
       key: 'user_id', label: 'Rank',
       render: (_, i) => (
-        <span style={{ fontSize: 12, fontWeight: 700, color: i === 0 ? '#F59E0B' : i === 1 ? '#9CA3AF' : i === 2 ? '#C2820E' : 'var(--txt3)' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: i === 0 ? '#F59E0B' : i === 1 ? 'var(--chart-lbl)' : i === 2 ? '#C2820E' : 'var(--txt3)' }}>
           #{(i ?? 0) + 1}
         </span>
       ),

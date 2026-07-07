@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Page, FilterBar, ErrBanner, Spinner, filterInputStyle,
+  Page, FilterBar, ErrBanner, Spinner, filterInputStyle, SearchInput,
 } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
@@ -36,7 +36,7 @@ const STATUS_COLOR: Record<string, string> = {
   pending:   '#6B7280',
   called:    BLUE,
   callback:  AMBER,
-  no_answer: '#9CA3AF',
+  no_answer: 'var(--chart-lbl)',
   converted: GREEN,
   dnc:       RED,
 }
@@ -66,8 +66,8 @@ const OUTCOME_COLOR: Record<string, string> = {
   converted:      GREEN,
   not_interested: RED,
   callback:       AMBER,
-  no_answer:      '#9CA3AF',
-  voicemail:      '#9CA3AF',
+  no_answer:      'var(--chart-lbl)',
+  voicemail:      'var(--chart-lbl)',
   dnc:            RED,
 }
 
@@ -277,11 +277,11 @@ export default function TelemarketingLeads() {
                 <option value="converted">Converted</option>
                 <option value="dnc">DNC</option>
               </select>
-              <input
+              <SearchInput
                 placeholder="Search name, phone…"
                 value={search}
-                onChange={e => setSearch(e.target.value)}
-                style={{ ...filterInputStyle, flex: 1 }}
+                onChange={setSearch}
+                style={{ flex: 1, minWidth: 0 }}
               />
             </FilterBar>
           </div>

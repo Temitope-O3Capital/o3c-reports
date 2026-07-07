@@ -37,7 +37,7 @@ const PRODUCT_COLORS: Record<string, string> = {
 
 const STATUS_COLORS: Record<string, string> = {
   'Open': GREEN, 'Active': GREEN,
-  'Inactive': AMBER, 'Closed': '#9CA3AF', 'Terminated': RED,
+  'Inactive': AMBER, 'Closed': 'var(--chart-lbl)', 'Terminated': RED,
   'Legal Suspended': '#7C3AED',
 }
 
@@ -198,7 +198,7 @@ export default function CardsOverview() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {statuses.map((r, i) => {
               const name = r.Status ?? r['Account_Status' as keyof StatusRow] as string ?? r.status ?? '?'
-              const c = STATUS_COLORS[name] ?? '#9CA3AF'
+              const c = STATUS_COLORS[name] ?? 'var(--chart-lbl)'
               const total = statuses.reduce((s, x) => s + x.count, 0) || 1
               const pct = (r.count / total) * 100
               return (

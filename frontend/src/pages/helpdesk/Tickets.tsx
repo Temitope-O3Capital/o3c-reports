@@ -15,7 +15,7 @@ const TICKET_TYPES = [
 ]
 
 const PRIORITY_COLOR: Record<string, string> = {
-  urgent: RED, high: AMBER, medium: BLUE, low: '#9CA3AF', normal: '#9CA3AF',
+  urgent: RED, high: AMBER, medium: BLUE, low: 'var(--chart-lbl)', normal: 'var(--chart-lbl)',
 }
 
 interface Ticket {
@@ -68,7 +68,7 @@ function ticketDisplayRef(t: Ticket): string {
 // ── Small shared components ───────────────────────────────────────────────────
 
 function PriorityDot({ priority }: { priority: string }) {
-  const color = PRIORITY_COLOR[priority?.toLowerCase()] ?? '#9CA3AF'
+  const color = PRIORITY_COLOR[priority?.toLowerCase()] ?? 'var(--chart-lbl)'
   return (
     <span style={{
       display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
@@ -101,8 +101,8 @@ const STATUS_CHIPS = [
 const PRIORITY_CHIPS = [
   { value: 'urgent', color: RED },
   { value: 'high',   color: AMBER },
-  { value: 'normal', color: '#9CA3AF' },
-  { value: 'low',    color: '#9CA3AF' },
+  { value: 'normal', color: 'var(--chart-lbl)' },
+  { value: 'low',    color: 'var(--chart-lbl)' },
 ]
 
 // ── Compact ticket row (left panel) ──────────────────────────────────────────

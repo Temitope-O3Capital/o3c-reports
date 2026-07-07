@@ -46,7 +46,7 @@ function StatusIcon({ status }: { status: string }) {
   if (status === 'done')
     return <span className="material-symbols-rounded" style={{ fontSize: 18, color: GREEN }}>check_circle</span>
   if (status === 'skipped')
-    return <span className="material-symbols-rounded" style={{ fontSize: 18, color: '#9CA3AF' }}>cancel</span>
+    return <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--chart-lbl)' }}>cancel</span>
   return <span className="material-symbols-rounded" style={{ fontSize: 18, color: '#D1D5DB' }}>radio_button_unchecked</span>
 }
 

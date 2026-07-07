@@ -119,7 +119,7 @@ export default function CSATSurvey() {
     return (
       <div style={cardStyle}>
         <div style={boxStyle}>
-          <div style={{ color: '#9CA3AF', fontSize: 14 }}>Loading survey…</div>
+          <div style={{ color: 'var(--chart-lbl)', fontSize: 14 }}>Loading survey…</div>
         </div>
       </div>
     )
@@ -177,7 +177,7 @@ export default function CSATSurvey() {
           </p>
         )}
         {data?.subject && (
-          <p style={{ fontSize: 12, color: '#9CA3AF', margin: '0 0 28px', fontStyle: 'italic' }}>
+          <p style={{ fontSize: 12, color: 'var(--chart-lbl)', margin: '0 0 28px', fontStyle: 'italic' }}>
             "{data.subject}"
           </p>
         )}
@@ -211,7 +211,7 @@ export default function CSATSurvey() {
               boxSizing: 'border-box', fontFamily: 'inherit',
             }}
           />
-          <div style={{ fontSize: 11, color: '#9CA3AF', textAlign: 'right', marginTop: 2 }}>
+          <div style={{ fontSize: 11, color: 'var(--chart-lbl)', textAlign: 'right', marginTop: 2 }}>
             {comment.length}/500
           </div>
         </div>
@@ -228,7 +228,7 @@ export default function CSATSurvey() {
           style={{
             marginTop: 20, width: '100%', padding: '12px 0',
             background: score ? NAVY : '#D1D5DB',
-            color: score ? '#fff' : '#9CA3AF',
+            color: score ? '#fff' : 'var(--chart-lbl)',
             border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700,
             cursor: score && !submitting ? 'pointer' : 'not-allowed',
             transition: 'background 150ms',
@@ -237,7 +237,7 @@ export default function CSATSurvey() {
           {submitting ? 'Submitting…' : 'Submit Feedback'}
         </button>
 
-        <p style={{ marginTop: 20, fontSize: 11, color: '#9CA3AF' }}>
+        <p style={{ marginTop: 20, fontSize: 11, color: 'var(--chart-lbl)' }}>
           O3 Capital · Customer Support Survey
         </p>
       </div>

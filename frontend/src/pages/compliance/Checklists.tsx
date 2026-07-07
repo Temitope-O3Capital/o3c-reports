@@ -30,7 +30,7 @@ interface Checklist {
 
 function ProgressBar({ done, total }: { done: number; total: number }) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0
-  const color = pct === 100 ? GREEN : pct >= 50 ? AMBER : '#9CA3AF'
+  const color = pct === 100 ? GREEN : pct >= 50 ? AMBER : 'var(--chart-lbl)'
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <div style={{ flex: 1, height: 6, background: 'var(--bdr)', borderRadius: 10, overflow: 'hidden' }}>

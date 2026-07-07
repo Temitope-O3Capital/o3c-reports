@@ -31,7 +31,7 @@ const STATUS_COLORS: Record<string, { dot: string; txt: string }> = {
   active:   { dot: GREEN,      txt: GREEN      },
   degraded: { dot: AMBER,      txt: AMBER      },
   down:     { dot: RED,        txt: RED        },
-  unknown:  { dot: '#9CA3AF',  txt: '#6B7280'  },
+  unknown:  { dot: 'var(--chart-lbl)',  txt: '#6B7280'  },
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -201,7 +201,7 @@ export default function AdminIntegrations() {
 
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>
-        {([['Active', GREEN], ['Degraded', AMBER], ['Down', RED], ['Unknown', '#9CA3AF']] as [string, string][]).map(([label, color]) => (
+        {([['Active', GREEN], ['Degraded', AMBER], ['Down', RED], ['Unknown', 'var(--chart-lbl)']] as [string, string][]).map(([label, color]) => (
           <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '14px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />

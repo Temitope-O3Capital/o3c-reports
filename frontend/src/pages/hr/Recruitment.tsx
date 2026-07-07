@@ -48,7 +48,7 @@ const STAGE_COLOR: Record<string, string> = {
 }
 
 function Pill({ value, colorMap }: { value: string; colorMap: Record<string, string> }) {
-  const c = colorMap[value] ?? '#9CA3AF'
+  const c = colorMap[value] ?? 'var(--chart-lbl)'
   return (
     <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: `${c}18`, color: c, textTransform: 'capitalize' }}>
       {value.replace(/_/g, ' ')}

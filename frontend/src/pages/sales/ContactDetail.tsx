@@ -341,7 +341,7 @@ export default function ContactDetail() {
                     </div>
                     {task.due_date && <div style={{ fontSize:11, color:'var(--txt3)', marginTop:2 }}>Due: {fmtDate(task.due_date)}</div>}
                   </div>
-                  <span style={{ fontSize:11, fontWeight:700, padding:'2px 7px', borderRadius:7, background:`${PRIORITY_COLOR[task.priority] ?? '#9CA3AF'}18`, color:PRIORITY_COLOR[task.priority] ?? '#9CA3AF' }}>
+                  <span style={{ fontSize:11, fontWeight:700, padding:'2px 7px', borderRadius:7, background:`${PRIORITY_COLOR[task.priority] ?? 'var(--chart-lbl)'}18`, color:PRIORITY_COLOR[task.priority] ?? 'var(--chart-lbl)' }}>
                     {task.priority}
                   </span>
                   {task.assigned_name && <span style={{ fontSize:11, color:'var(--txt3)' }}>{task.assigned_name}</span>}

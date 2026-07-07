@@ -42,8 +42,8 @@ function TypePill({ type }: { type: string }) {
 function StatusDot({ status }: { status: string }) {
   const active = status?.toLowerCase() === 'active'
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 600, color: active ? GREEN : '#9CA3AF' }}>
-      <span style={{ width: 7, height: 7, borderRadius: '50%', background: active ? GREEN : '#9CA3AF', display: 'inline-block' }} />
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 600, color: active ? GREEN : 'var(--chart-lbl)' }}>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: active ? GREEN : 'var(--chart-lbl)', display: 'inline-block' }} />
       {active ? 'Active' : 'Inactive'}
     </span>
   )

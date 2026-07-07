@@ -4,7 +4,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from 'recharts'
 import {
-  Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter,
+  Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, SearchInput, ErrBanner, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -241,12 +241,12 @@ export default function TelemarketingPerformance() {
 
       {/* Filters */}
       <FilterBar onReset={() => { setAgent(''); setDateFrom(monthStart()); setDateTo(today()) }}>
-        <input
+        <SearchInput
           placeholder="Agent name…"
           value={agent}
-          onChange={e => setAgent(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && load()}
-          style={{ ...filterInputStyle, minWidth: 180 }}
+          onChange={setAgent}
+          onSearch={load}
+          style={{ minWidth: 180 }}
         />
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
         <button

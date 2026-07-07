@@ -330,13 +330,26 @@ export function FilterBar({ children, onReset }: { children: ReactNode; onReset?
   )
 }
 
+// filterInputStyle — uses card bg + bdr tokens to match the C360 search bar look
 export const filterInputStyle: CSSProperties = {
-  height: 36, padding: '0 10px', border: '1px solid var(--input-bdr)',
-  borderRadius: 8, fontSize: 13, background: 'var(--input-bg)',
+  height: 36, padding: '0 10px', border: '1px solid var(--bdr)',
+  borderRadius: 8, fontSize: 12.5, background: 'var(--card)',
   color: 'var(--txt)', fontFamily: "'Sora', sans-serif", outline: 'none', minWidth: 130,
 }
 
+// ── Search icon SVG (shared by SearchInput and TblSearch) ─────────────────────
+
+function SrchIco() {
+  return (
+    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      style={{ color: 'var(--txt3)', flexShrink: 0 }}>
+      <circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/>
+    </svg>
+  )
+}
+
 // ── Search input ──────────────────────────────────────────────────────────────
+// Matches the C360 bar look: var(--card) bg, var(--bdr) border → #0EA5E9 on focus
 
 export function SearchInput({
   value, onChange, onClear, onSearch, placeholder = 'Search…', minWidth = 220, style,
@@ -349,23 +362,31 @@ export function SearchInput({
   minWidth?: number | string
   style?: CSSProperties
 }) {
+  const [focused, setFocused] = useState(false)
   const handleClear = onClear ?? (() => onChange(''))
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 7,
       height: 36, padding: '0 10px',
-      background: 'var(--input-bg)', border: '1px solid var(--input-bdr)',
-      borderRadius: 8, minWidth, ...style,
+      background: 'var(--card)',
+      border: `1px solid ${focused ? '#0EA5E9' : 'var(--bdr)'}`,
+      borderRadius: 8, minWidth,
+      transition: 'border-color .12s',
+      ...style,
     }}>
-      <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt3)', flexShrink: 0 }}>search</span>
+      <SrchIco />
       <input
+        className="srch-input"
         value={value}
         onChange={e => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         onKeyDown={onSearch ? e => { if (e.key === 'Enter') onSearch() } : undefined}
         placeholder={placeholder}
         style={{
           border: 'none', background: 'transparent', outline: 'none', boxShadow: 'none',
-          width: '100%', fontSize: 13, color: 'var(--txt)', fontFamily: "'Sora', sans-serif",
+          flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--txt)',
+          fontFamily: "'Sora', ui-sans-serif, sans-serif",
         }}
       />
       {value && (
@@ -380,8 +401,7 @@ export function SearchInput({
   )
 }
 
-// ── Table toolbar search box (demo .srch pattern) ────────────────────────────
-// border: var(--bdr) normally → #0EA5E9 (sky) on focus; background: var(--card)
+// ── Table toolbar search (fixed-width variant; same visual as SearchInput) ────
 
 export function TblSearch({
   value, onChange, placeholder = 'Search…', width = 160, style,
@@ -389,26 +409,20 @@ export function TblSearch({
   value: string
   onChange: (v: string) => void
   placeholder?: string
-  /** input width in px, or pass 0 to let the input flex-grow (full-width usage) */
   width?: number
-  /** additional styles merged onto the wrapper div */
   style?: CSSProperties
 }) {
   const [focused, setFocused] = useState(false)
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
-      border: `1.5px solid ${focused ? '#0EA5E9' : 'var(--bdr)'}`,
+      border: `1px solid ${focused ? '#0EA5E9' : 'var(--bdr)'}`,
       borderRadius: 8, padding: '5px 10px',
       background: 'var(--card)',
       transition: 'border-color .12s',
       ...style,
     }}>
-      {/* search icon — inline so UI.tsx stays free of icons import */}
-      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-        style={{ color: 'var(--txt3)', flexShrink: 0 }}>
-        <circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/>
-      </svg>
+      <SrchIco />
       <input
         className="srch-input"
         value={value}
