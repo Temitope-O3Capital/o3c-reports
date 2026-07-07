@@ -132,7 +132,7 @@ function DeltaBadge({ apiVal, eodVal, isCount = false }: { apiVal: number; eodVa
 
 function MiniKpi({ label, value, icon, accent, sub }: { label: string; value: string; icon: string; accent: string; sub?: string }) {
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '14px 16px', borderTop: `3px solid ${accent}` }}>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '14px 16px', borderTop: `3px solid ${accent}` }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt2)' }}>{label}</span>
         <div style={{ width: 26, height: 26, borderRadius: 7, background: `${accent}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -278,7 +278,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   if (sumErr) return <ErrBanner error={sumErr} />
   if (summary && !summary.configured) {
     return (
-      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, padding: 48, textAlign: 'center' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 14, padding: 48, textAlign: 'center' }}>
         <span className="material-symbols-rounded" style={{ fontSize: 48, color: 'var(--txt3)', display: 'block', marginBottom: 10 }}>payments</span>
         <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)', margin: '0 0 6px' }}>Paystack not configured</p>
         <p style={{ fontSize: 13, color: 'var(--txt2)', margin: 0 }}>{summary.message || 'Set PAYSTACK_SECRET_KEY in backend environment'}</p>
@@ -355,7 +355,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
           })()}
 
           {/* Compare panel */}
-          <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden', marginBottom: 16 }}>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 14, overflow: 'hidden', marginBottom: 16 }}>
             <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)' }}>
               <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Processor vs Ledger — Reconciliation</p>
               <p style={{ fontSize: 12, color: 'var(--txt2)', margin: 0 }}>Paystack API totals vs internal EOD ledger · matched = <span style={{ color: GREEN, fontWeight: 600 }}>green</span> · gap ≥ 5% = <span style={{ color: RED, fontWeight: 600 }}>red</span></p>
@@ -407,7 +407,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   if (sub === 'transactions') return (
     <div>
       {tabBar}
-      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 14, overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
           <div>
             <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Incoming Transactions</p>
@@ -473,7 +473,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   if (sub === 'settlements') return (
     <div>
       {tabBar}
-      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 14, overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)' }}>
           <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Paystack Settlements</p>
           <p style={{ fontSize: 12, color: 'var(--txt2)', margin: 0 }}>Net amounts disbursed to your bank account · {fmtDate(from)} – {fmtDate(to)}</p>
@@ -510,7 +510,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   if (sub === 'transfers') return (
     <div>
       {tabBar}
-      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 14, overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
           <div>
             <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Outbound Transfers</p>
@@ -605,7 +605,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
           return <MiniKpi key={key} label={label} icon={icon} accent={accent} value={total > 0 ? fmtKoboExact(total) : '—'} sub={`${rows.length} entries this page`} />
         })}
       </div>
-      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 14, overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
           <div>
             <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Balance Ledger</p>
@@ -657,7 +657,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   if (sub === 'refunds') return (
     <div>
       {tabBar}
-      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 14, overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)' }}>
           <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Refunds</p>
           <p style={{ fontSize: 12, color: 'var(--txt2)', margin: 0 }}>Transactions reversed back to customers · {fmtNum(n(refundData?.meta?.total))} total</p>
@@ -704,7 +704,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   return (
     <div>
       {tabBar}
-      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 14, overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)' }}>
           <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Disputes &amp; Chargebacks</p>
           <p style={{ fontSize: 12, color: 'var(--txt2)', margin: 0 }}>Transactions disputed by customers or issuing banks</p>
@@ -758,7 +758,7 @@ function InterspwitchTab() {
   const capabilities = ['Web card transactions', 'POS terminal settlements', 'ATM withdrawals', 'Transaction line items', 'Processor vs ledger reconciliation', 'Interchange fees breakdown']
 
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden' }}>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 14, overflow: 'hidden' }}>
       {/* Header */}
       <div style={{ background: NAVY, padding: '22px 28px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>

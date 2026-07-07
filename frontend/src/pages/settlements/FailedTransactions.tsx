@@ -4,7 +4,7 @@ import type { TableCol } from '../../components/UI'
 import { DataTable } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDatetime, fmtNum, today, monthStart } from '../../lib/fmt'
-import { NUM } from '../../lib/design'
+import { SORA, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -84,7 +84,7 @@ function ResolveManuallyModal({ open, rowId, onClose, onSuccess }: ResolveModalP
     >
       <div>
         <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Resolution Notes</label>
-        <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Describe how this was resolved…" rows={4} style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box' }} />
+        <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Describe how this was resolved…" rows={4} style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', fontFamily: SORA, outline: 'none', boxSizing: 'border-box' }} />
       </div>
     </Modal>
   )

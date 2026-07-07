@@ -4,7 +4,7 @@ import type { TableCol } from '../../components/UI'
 import { DataTable } from '../../components/UI'
 import { apiFetch, apiPut, apiPost } from '../../lib/api'
 import { fmtKobo, fmtKoboExact, fmtNum, fmtDate, today } from '../../lib/fmt'
-import { GREEN, RED, AMBER, NAVY, NUM } from '../../lib/design'
+import { GREEN, RED, AMBER, NAVY, SORA, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ function ResolveModal({ open, rowId, onClose, onSuccess }: ResolveModalProps) {
         </div>
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Notes</label>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Add resolution notes…" rows={4} style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box' }} />
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Add resolution notes…" rows={4} style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', fontFamily: SORA, outline: 'none', boxSizing: 'border-box' }} />
         </div>
       </div>
     </Modal>
@@ -145,7 +145,7 @@ function NipKpis({ rows }: { rows: NIPRow[] }) {
       {/* KPI row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 10 }}>
         {kpis.map(k => (
-          <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 11, padding: '12px 14px' }}>
+          <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 11, padding: '12px 14px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 7 }}>
               <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--txt2)' }}>{k.label}</span>
               <div style={{ width: 24, height: 24, borderRadius: 6, background: `${k.accent}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -160,7 +160,7 @@ function NipKpis({ rows }: { rows: NIPRow[] }) {
       {/* Volume comparison + exception aging */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         {/* Volume comparison */}
-        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 11, padding: '12px 14px' }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 11, padding: '12px 14px' }}>
           <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', margin: '0 0 10px' }}>Volume Comparison</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {[
@@ -189,7 +189,7 @@ function NipKpis({ rows }: { rows: NIPRow[] }) {
         </div>
 
         {/* Exception aging */}
-        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 11, padding: '12px 14px' }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 11, padding: '12px 14px' }}>
           <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', margin: '0 0 10px' }}>Exception Aging</p>
           {exceptions === 0 ? (
             <div style={{ textAlign: 'center', padding: '10px 0', color: GREEN }}>

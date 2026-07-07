@@ -4,7 +4,7 @@ import type { TableCol } from '../../components/UI'
 import { DataTable } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
-import { GREEN, RED, AMBER, NAVY, NUM } from '../../lib/design'
+import { GREEN, RED, AMBER, NAVY, SORA, NUM } from '../../lib/design'
 import { roleLabel } from '../../lib/roles'
 import type { WorkflowTemplate } from '../admin/WorkflowTemplates'
 import { toast } from 'sonner'
@@ -109,7 +109,7 @@ function ReasonModal({ open, title, confirmLabel, confirmColor, onClose, onSubmi
       }
     >
       <textarea value={reason} onChange={e => setReason(e.target.value)} rows={4} placeholder="Write a reason…"
-        style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box' }} />
+        style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', fontFamily: SORA, outline: 'none', boxSizing: 'border-box' }} />
     </Modal>
   )
 }
@@ -235,7 +235,7 @@ function NewPostingModal({ open, onClose, onSuccess }: { open: boolean; onClose:
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Description *</label>
           <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
             placeholder="Reason for manual posting…"
-            style={{ ...inputStyle, height: 'auto', padding: '8px 10px', resize: 'vertical', fontFamily: "'Sora', sans-serif" }} />
+            style={{ ...inputStyle, height: 'auto', padding: '8px 10px', resize: 'vertical', fontFamily: SORA }} />
         </div>
 
         <div>

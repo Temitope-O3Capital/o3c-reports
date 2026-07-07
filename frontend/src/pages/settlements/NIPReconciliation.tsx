@@ -230,15 +230,15 @@ export default function NIPReconciliation() {
 
       {/* Summary strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 20 }}>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '16px 18px' }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '16px 18px' }}>
           <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', marginBottom: 6 }}>Open Exceptions</div>
           <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: openCount > 0 ? RED : GREEN }}>{openCount}</div>
         </div>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '16px 18px' }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '16px 18px' }}>
           <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', marginBottom: 6 }}>Exception Value</div>
           <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: 'var(--txt)' }}>{fmtKobo(totalExcAmount)}</div>
         </div>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '16px 18px' }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '16px 18px' }}>
           <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', marginBottom: 6 }}>Batches on Date</div>
           <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: 'var(--txt)' }}>{batches.length}</div>
         </div>
