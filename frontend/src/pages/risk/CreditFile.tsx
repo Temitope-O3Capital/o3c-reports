@@ -5,7 +5,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, SORA, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -178,7 +178,7 @@ export default function CreditFile() {
             flex: 1, padding: '9px 12px',
             border: '1px solid var(--input-bdr)', borderRadius: 8,
             fontSize: 13.5, background: 'var(--input-bg)', color: 'var(--txt)',
-            fontFamily: "'Sora', sans-serif", outline: 'none',
+            fontFamily: SORA, outline: 'none',
           }}
         />
         <button

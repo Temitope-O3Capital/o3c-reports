@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter } from '../../components/UI'
+import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiExport } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtPct, fmtNum, today, monthStart } from '../../lib/fmt'
-import { NAVY, GREEN, AMBER, RED, INTER, NUM } from '../../lib/design'
+import { NAVY, GREEN, AMBER, RED, INTER, MONO, SORA, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -222,12 +222,27 @@ export default function RiskAppReview() {
     >
       <ErrBanner error={error} onRetry={() => load(0)} />
 
-      {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-        <KpiCard label="Reviewed" value={kpis ? fmtNum(kpis.reviewed) : '—'} icon="fact_check" accent={NAVY} loading={kpiLoading} />
-        <KpiCard label="Approved" value={kpis ? fmtNum(kpis.approved) : '—'} icon="check_circle" accent={GREEN} loading={kpiLoading} />
-        <KpiCard label="Declined" value={kpis ? fmtNum(kpis.declined) : '—'} icon="cancel" accent={RED} loading={kpiLoading} />
-        <KpiCard label="Pending" value={kpis ? fmtNum(kpis.pending) : '—'} icon="pending" accent={AMBER} loading={kpiLoading} />
+      {/* Asymmetric hero */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 40, flexWrap: 'wrap', padding: '18px 0 16px', borderBottom: '1px solid var(--bdr)', marginBottom: 18 }}>
+        <div>
+          <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 8, fontFamily: MONO }}>Pending Review</div>
+          <div style={{ ...NUM, fontSize: 52, fontWeight: 700, color: AMBER, lineHeight: 1, marginBottom: 4 }}>
+            {kpis ? fmtNum(kpis.pending) : '—'}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>applications awaiting credit decision</div>
+        </div>
+        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', paddingLeft: 8, borderLeft: '1px solid var(--bdr)' }}>
+          {[
+            { label: 'Reviewed', value: kpis ? fmtNum(kpis.reviewed) : '—', color: 'var(--txt)' as string },
+            { label: 'Approved', value: kpis ? fmtNum(kpis.approved) : '—', color: GREEN },
+            { label: 'Declined', value: kpis ? fmtNum(kpis.declined) : '—', color: RED },
+          ].map(m => (
+            <div key={m.label}>
+              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt3)', letterSpacing: '.07em', textTransform: 'uppercase', marginBottom: 6, fontFamily: MONO }}>{m.label}</div>
+              <div style={{ ...NUM, fontSize: 24, fontWeight: 700, color: m.color, lineHeight: 1 }}>{m.value}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
       <SectionCard title="Applications" badge={total} padding={false}>
