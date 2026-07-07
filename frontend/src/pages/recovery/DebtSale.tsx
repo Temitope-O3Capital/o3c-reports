@@ -5,7 +5,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiDelete } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, SORA, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -47,7 +47,7 @@ const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
   border: '1px solid var(--input-bdr)', borderRadius: 7,
   fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
-  fontFamily: SORA, outline: 'none', boxSizing: 'border-box',
+  fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
 }
 
 const labelStyle: React.CSSProperties = {

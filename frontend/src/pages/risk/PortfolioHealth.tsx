@@ -3,11 +3,11 @@ import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell,
   PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
-import { Page, SectionCard, DataTable, ErrBanner } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtPct, fmtNum } from '../../lib/fmt'
-import { NAVY, RED, AMBER, GREEN, BLUE, INTER, SORA, MONO, NUM } from '../../lib/design'
+import { NAVY, RED, AMBER, GREEN, BLUE, INTER, SORA, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -72,7 +72,7 @@ function Tip({ active, payload, label, fmt }: {
   const f = fmt ?? ((v: number) => String(v))
   return (
     <div style={{
-      background: NAVY, borderRadius: 10, padding: '10px 14px',
+      background: '#0E2841', borderRadius: 10, padding: '10px 14px',
       boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)',
     }}>
       {label && (
@@ -124,7 +124,7 @@ const EMPLOYER_COLS: TableCol<EmployerRow>[] = [
 
 function ChartCard({ title, sub, children }: { title: string; sub: string; children: React.ReactNode }) {
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 8, padding: '18px 20px' }}>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, boxShadow: 'var(--card-shadow)', padding: '18px 20px' }}>
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{title}</div>
         <div style={{ fontSize: 11, color: 'var(--txt2)', marginTop: 2, fontFamily: INTER }}>{sub}</div>
@@ -196,27 +196,40 @@ export default function PortfolioHealth() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      {/* Asymmetric hero */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 40, flexWrap: 'wrap', padding: '18px 0 16px', borderBottom: '1px solid var(--bdr)', marginBottom: 18 }}>
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 8, fontFamily: MONO }}>PAR30 Rate</div>
-          <div style={{ ...NUM, fontSize: 52, fontWeight: 700, color: kpis && kpis.par30_rate_pct > 5 ? RED : AMBER, lineHeight: 1, marginBottom: 4 }}>
-            {kpis ? fmtPct(kpis.par30_rate_pct) : '—'}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>portfolio at risk 30+ days</div>
-        </div>
-        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', paddingLeft: 8, borderLeft: '1px solid var(--bdr)' }}>
-          {[
-            { label: 'NPL Ratio', value: kpis ? fmtPct(kpis.npl_ratio_pct) : '—', color: RED },
-            { label: 'Avg Eye Score', value: kpis ? Math.round(kpis.avg_credit_score).toLocaleString() : '—', color: BLUE },
-            { label: 'Top Employer Exp.', value: kpis ? fmtKobo(kpis.top_employer_exposure_kobo) : '—', color: 'var(--txt)' as string },
-          ].map(m => (
-            <div key={m.label}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt3)', letterSpacing: '.07em', textTransform: 'uppercase', marginBottom: 6, fontFamily: MONO }}>{m.label}</div>
-              <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: m.color, lineHeight: 1 }}>{m.value}</div>
-            </div>
-          ))}
-        </div>
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+        <KpiCard
+          label="NPL Ratio"
+          value={kpis ? fmtPct(kpis.npl_ratio_pct) : '—'}
+          sub="Non-performing loans"
+          icon="warning_amber"
+          accent={RED}
+          loading={kpiLoading}
+        />
+        <KpiCard
+          label="PAR30 Rate"
+          value={kpis ? fmtPct(kpis.par30_rate_pct) : '—'}
+          sub="Portfolio at risk 30+"
+          icon="monitoring"
+          accent={AMBER}
+          loading={kpiLoading}
+        />
+        <KpiCard
+          label="Avg Credit Score"
+          value={kpis ? Math.round(kpis.avg_credit_score).toLocaleString() : '—'}
+          sub="Eye score, active loans"
+          icon="grade"
+          accent={BLUE}
+          loading={kpiLoading}
+        />
+        <KpiCard
+          label="Top Employer Exposure"
+          value={kpis ? fmtKobo(kpis.top_employer_exposure_kobo) : '—'}
+          sub="Largest single employer"
+          icon="business"
+          accent={NAVY}
+          loading={kpiLoading}
+        />
       </div>
 
       {/* Charts row 1 — PAR trend + band donut */}

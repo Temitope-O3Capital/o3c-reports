@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import type { ReactNode, CSSProperties } from 'react'
-import { NAVY, RED, GREEN, INTER, SORA, MONO, NUM } from '../lib/design'
+import { NAVY, RED, GREEN, INTER, SORA, NUM } from '../lib/design'
 import { today, monthStart, yearStart, fmtDate } from '../lib/fmt'
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -124,8 +124,8 @@ export function KpiCard({ label, value, sub, change, changePeriod, icon, accent 
   const positive = (change ?? 0) >= 0
   return (
     <div style={{
-      background: 'var(--card)', border: '1px solid var(--bdr)',
-      borderRadius: 8, padding: '16px 18px',
+      background: 'var(--card)', border: '1px solid var(--card-bdr)',
+      boxShadow: 'var(--card-shadow)', borderRadius: 12, padding: '16px 18px',
       display: 'flex', flexDirection: 'column', gap: 6,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -187,8 +187,8 @@ interface SectionCardProps {
 export function SectionCard({ title, subtitle, badge, actions, children, padding = true, style }: SectionCardProps) {
   return (
     <div style={{
-      background: 'var(--card)', border: '1px solid var(--bdr)',
-      borderRadius: 8, overflow: 'hidden', ...style,
+      background: 'var(--card)', border: '1px solid var(--card-bdr)',
+      boxShadow: 'var(--card-shadow)', borderRadius: 12, overflow: 'hidden', ...style,
     }}>
       {(title || actions) && (
         <div style={{
@@ -333,7 +333,7 @@ export function FilterBar({ children, onReset }: { children: ReactNode; onReset?
 export const filterInputStyle: CSSProperties = {
   height: 36, padding: '0 10px', border: '1px solid var(--input-bdr)',
   borderRadius: 8, fontSize: 13, background: 'var(--input-bg)',
-  color: 'var(--txt)', fontFamily: SORA, outline: 'none', minWidth: 130,
+  color: 'var(--txt)', fontFamily: "'Sora', sans-serif", outline: 'none', minWidth: 130,
 }
 
 // ── Search input ──────────────────────────────────────────────────────────────
@@ -365,7 +365,7 @@ export function SearchInput({
         placeholder={placeholder}
         style={{
           border: 'none', background: 'transparent', outline: 'none', boxShadow: 'none',
-          width: '100%', fontSize: 13, color: 'var(--txt)', fontFamily: SORA,
+          width: '100%', fontSize: 13, color: 'var(--txt)', fontFamily: "'Sora', sans-serif",
         }}
       />
       {value && (
@@ -418,7 +418,7 @@ export function TblSearch({
         placeholder={placeholder}
         style={{
           border: 'none', outline: 'none', background: 'none',
-          fontFamily: SORA,
+          fontFamily: "'Sora', ui-sans-serif, sans-serif",
           fontSize: 12.5, color: 'var(--txt)',
           ...(width ? { width } : { flex: 1, minWidth: 0 }),
         }}

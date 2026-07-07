@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner } from '../../components/UI'
+import { Page, SectionCard, KpiCard, DataTable, ErrBanner } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, MONO, SORA, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM } from '../../lib/design'
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar,
   PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -135,27 +135,11 @@ export default function BDAnalytics() {
     <Page title="BD Analytics" subtitle="Business development performance and pipeline overview">
       <ErrBanner error={err} onRetry={load} />
 
-      {/* Asymmetric hero */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 40, flexWrap: 'wrap', padding: '18px 0 16px', borderBottom: '1px solid var(--bdr)', marginBottom: 18 }}>
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 8, fontFamily: MONO }}>Pipeline Value</div>
-          <div style={{ ...NUM, fontSize: 52, fontWeight: 700, color: NAVY, lineHeight: 1, marginBottom: 4 }}>
-            {loading ? '—' : fmtKobo(pipelineValue)}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>total estimated value across all pipeline stages</div>
-        </div>
-        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', paddingLeft: 8, borderLeft: '1px solid var(--bdr)' }}>
-          {[
-            { label: 'Total Leads', value: loading ? '—' : fmtNum(totalLeads), color: 'var(--txt)' as string },
-            { label: 'Won', value: loading ? '—' : fmtNum(wonLeads), color: GREEN },
-            { label: 'Active Employers', value: loading ? '—' : fmtNum(activeEmpl), color: 'var(--txt)' as string },
-          ].map(m => (
-            <div key={m.label}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt3)', letterSpacing: '.07em', textTransform: 'uppercase', marginBottom: 6, fontFamily: MONO }}>{m.label}</div>
-              <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: m.color, lineHeight: 1 }}>{m.value}</div>
-            </div>
-          ))}
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>
+        <KpiCard label="Total Leads"      value={fmtNum(totalLeads)}     />
+        <KpiCard label="Won"              value={fmtNum(wonLeads)}       accent={GREEN} />
+        <KpiCard label="Active Employers" value={fmtNum(activeEmpl)}     />
+        <KpiCard label="Pipeline Value"   value={fmtKobo(pipelineValue)} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>

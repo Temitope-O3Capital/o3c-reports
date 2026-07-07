@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, ErrBanner } from '../../components/UI'
+import { Page, KpiCard, ErrBanner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum } from '../../lib/fmt'
-import { GREEN, RED, AMBER, NAVY, MONO, SORA, NUM } from '../../lib/design'
+import { GREEN, RED, AMBER, NAVY, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ function ChannelCard({ children, onClick, title, icon, statusDot, statusLabel, s
     <div
       onClick={onClick}
       style={{
-        background: 'var(--card)', border: '1px solid var(--bdr)',
+        background: 'var(--card)', border: '1px solid var(--card-bdr)',
         borderRadius: 14, padding: 20, cursor: 'pointer',
         transition: 'box-shadow 150ms',
       }}
@@ -142,27 +142,12 @@ export default function SettlementsOverview() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      {/* Asymmetric hero */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 40, flexWrap: 'wrap', padding: '18px 0 16px', borderBottom: '1px solid var(--bdr)', marginBottom: 18 }}>
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 8, fontFamily: MONO }}>Settled Today</div>
-          <div style={{ ...NUM, fontSize: 52, fontWeight: 700, color: GREEN, lineHeight: 1, marginBottom: 4 }}>
-            {data ? fmtKobo(data.settled_today_kobo) : '—'}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>total value settled through all channels today</div>
-        </div>
-        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', paddingLeft: 8, borderLeft: '1px solid var(--bdr)' }}>
-          {[
-            { label: 'Pending', value: data ? fmtKobo(data.pending_kobo) : '—', color: AMBER },
-            { label: 'Failed', value: data ? fmtNum(data.failed_count) : '—', color: data && data.failed_count > 0 ? RED : 'var(--txt)' as string },
-            { label: 'Success Rate', value: data ? `${Number(data.success_rate_pct).toFixed(1)}%` : '—', color: 'var(--txt)' as string },
-          ].map(m => (
-            <div key={m.label}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt3)', letterSpacing: '.07em', textTransform: 'uppercase', marginBottom: 6, fontFamily: MONO }}>{m.label}</div>
-              <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: m.color, lineHeight: 1 }}>{m.value}</div>
-            </div>
-          ))}
-        </div>
+      {/* Top KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
+        <KpiCard label="Settled Today ₦" value={fmtKobo(data?.settled_today_kobo)} icon="check_circle" accent={GREEN} loading={loading && !data} />
+        <KpiCard label="Pending ₦" value={fmtKobo(data?.pending_kobo)} icon="hourglass_empty" accent={AMBER} loading={loading && !data} />
+        <KpiCard label="Failed Count" value={fmtNum(data?.failed_count)} icon="cancel" accent={RED} loading={loading && !data} />
+        <KpiCard label="Success Rate" value={data ? `${Number(data.success_rate_pct).toFixed(1)}%` : '—'} icon="trending_up" accent={NAVY} loading={loading && !data} />
       </div>
 
       {/* Channel cards */}

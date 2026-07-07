@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Modal, ConfirmModal, btnPrimary, btnDanger } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
 import { ROLE_LABELS, roleLabel } from '../../lib/roles'
-import { GREEN, RED, AMBER, NAVY, SORA, NUM } from '../../lib/design'
+import { GREEN, RED, AMBER, NAVY, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -162,7 +162,7 @@ function TemplateForm({ open, editing, onClose, onSaved }: TemplateFormProps) {
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Description</label>
           <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="When is this template used?" rows={2}
-            style={{ ...inputStyle, height: 'auto', padding: '8px 10px', resize: 'vertical', fontFamily: SORA }} />
+            style={{ ...inputStyle, height: 'auto', padding: '8px 10px', resize: 'vertical', fontFamily: "'Sora', sans-serif" }} />
         </div>
 
         <div style={{ padding: '12px 14px', borderRadius: 10, background: 'var(--th-bg)', display: 'flex', gap: 10, fontSize: 12, color: 'var(--txt2)', alignItems: 'flex-start' }}>
@@ -213,7 +213,7 @@ function StageDots({ stage }: { stage: string }) {
 
 function TemplateCard({ t, onEdit, onDelete }: { t: WorkflowTemplate; onEdit: () => void; onDelete: () => void }) {
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '16px 18px' }}>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '16px 18px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
         <div>
           <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', margin: '0 0 3px' }}>{t.name}</p>

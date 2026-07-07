@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, StatusBadge, FilterBar, filterInputStyle, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, FilterBar, filterInputStyle, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, today, monthStart } from '../../lib/fmt'
-import { NAVY, GREEN, RED, AMBER, MONO, SORA, NUM } from '../../lib/design'
+import { NAVY, GREEN, RED, AMBER, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -105,27 +105,11 @@ export default function SettlementBatches() {
     <Page title="Settlement Batches" subtitle="NIP/NIBSS daily settlement overview">
       <ErrBanner error={error} onRetry={load} />
 
-      {/* Asymmetric hero */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 40, flexWrap: 'wrap', padding: '18px 0 16px', borderBottom: '1px solid var(--bdr)', marginBottom: 18 }}>
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 8, fontFamily: MONO }}>Total Credits</div>
-          <div style={{ ...NUM, fontSize: 52, fontWeight: 700, color: GREEN, lineHeight: 1, marginBottom: 4 }}>
-            {loading ? '—' : fmtKobo(totalCredits)}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>net credits across all settlement batches</div>
-        </div>
-        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', paddingLeft: 8, borderLeft: '1px solid var(--bdr)' }}>
-          {[
-            { label: 'Total Debits', value: loading ? '—' : fmtKobo(totalDebits), color: RED },
-            { label: 'Open Batches', value: loading ? '—' : String(openBatches), color: AMBER },
-            { label: 'Exceptions', value: loading ? '—' : String(totalExceptions), color: totalExceptions > 0 ? RED : 'var(--txt)' as string },
-          ].map(m => (
-            <div key={m.label}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt3)', letterSpacing: '.07em', textTransform: 'uppercase', marginBottom: 6, fontFamily: MONO }}>{m.label}</div>
-              <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: m.color, lineHeight: 1 }}>{m.value}</div>
-            </div>
-          ))}
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
+        <KpiCard label="Total Credits" value={fmtKobo(totalCredits)} icon="south_east" accent={GREEN} loading={loading} />
+        <KpiCard label="Total Debits" value={fmtKobo(totalDebits)} icon="north_west" accent={RED} loading={loading} />
+        <KpiCard label="Open Batches" value={String(openBatches)} icon="pending" accent={AMBER} loading={loading} />
+        <KpiCard label="Exceptions" value={String(totalExceptions)} icon="warning" accent={totalExceptions > 0 ? RED : NAVY} loading={loading} />
       </div>
 
       <FilterBar onReset={() => { setStatusFilter(''); setDateFrom(monthStart()); setDateTo(today()) }}>

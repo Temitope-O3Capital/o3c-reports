@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtPct, fmtNum, today, monthStart } from '../../lib/fmt'
-import { NAVY, GREEN, AMBER, RED, INTER, MONO, SORA, NUM } from '../../lib/design'
+import { NAVY, GREEN, AMBER, RED, INTER, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -113,6 +113,7 @@ export default function EyeScore() {
 
   const pages       = Math.ceil(total / PAGE_SIZE)
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1
+  const kpiLoading  = loading && !kpis
 
   const cols: TableCol<EyeScoreRow>[] = [
     {
@@ -172,27 +173,39 @@ export default function EyeScore() {
     >
       <ErrBanner error={error} onRetry={() => load(0)} />
 
-      {/* Asymmetric hero */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 40, flexWrap: 'wrap', padding: '18px 0 16px', borderBottom: '1px solid var(--bdr)', marginBottom: 18 }}>
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 8, fontFamily: MONO }}>Scored Today</div>
-          <div style={{ ...NUM, fontSize: 52, fontWeight: 700, color: NAVY, lineHeight: 1, marginBottom: 4 }}>
-            {kpis ? fmtNum(kpis.scored_today) : '—'}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>Eye scoring requests processed today</div>
-        </div>
-        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', paddingLeft: 8, borderLeft: '1px solid var(--bdr)' }}>
-          {[
-            { label: 'Avg Score (Month)', value: kpis ? Math.round(kpis.avg_score_month).toLocaleString() : '—', color: GREEN },
-            { label: 'High Risk Count', value: kpis ? fmtNum(kpis.high_risk_count) : '—', color: RED },
-            { label: 'Requests (Month)', value: kpis ? fmtNum(kpis.requests_month) : '—', color: 'var(--txt)' as string },
-          ].map(m => (
-            <div key={m.label}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt3)', letterSpacing: '.07em', textTransform: 'uppercase', marginBottom: 6, fontFamily: MONO }}>{m.label}</div>
-              <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: m.color, lineHeight: 1 }}>{m.value}</div>
-            </div>
-          ))}
-        </div>
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+        <KpiCard
+          label="Scored Today"
+          value={kpis?.scored_today ?? 0}
+          icon="auto_awesome"
+          accent={NAVY}
+          loading={kpiLoading}
+        />
+        <KpiCard
+          label="Avg Score (Month)"
+          value={kpis ? Math.round(kpis.avg_score_month).toLocaleString() : '—'}
+          sub="Eye score average"
+          icon="analytics"
+          accent={GREEN}
+          loading={kpiLoading}
+        />
+        <KpiCard
+          label="High Risk Count"
+          value={kpis ? fmtNum(kpis.high_risk_count) : '—'}
+          sub="Band = High-Risk"
+          icon="error_outline"
+          accent={RED}
+          loading={kpiLoading}
+        />
+        <KpiCard
+          label="Requests This Month"
+          value={kpis ? fmtNum(kpis.requests_month) : '—'}
+          sub="Total scoring calls"
+          icon="query_stats"
+          accent={AMBER}
+          loading={kpiLoading}
+        />
       </div>
 
       <SectionCard title="Score Requests" badge={total} padding={false}>

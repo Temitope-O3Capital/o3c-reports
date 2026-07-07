@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, FilterBar, filterInputStyle, Spinner } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, FilterBar, filterInputStyle, Spinner, KpiCard } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtNum, today } from '../../lib/fmt'
-import { BLUE, AMBER, GREEN, RED, PURPLE, NAVY, MONO, SORA, NUM, INTER } from '../../lib/design'
+import { BLUE, AMBER, GREEN, RED, PURPLE, NAVY, NUM, INTER } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
   border: '1px solid var(--input-bdr)', borderRadius: 7,
   fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
-  fontFamily: SORA, outline: 'none', boxSizing: 'border-box',
+  fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
 }
 
 // ── Ordered milestone list ────────────────────────────────────────────────────
@@ -413,27 +413,12 @@ export default function RecoveryLegal() {
         }}>Apply</button>
       </FilterBar>
 
-      {/* Asymmetric hero */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 40, flexWrap: 'wrap', padding: '18px 0 16px', borderBottom: '1px solid var(--bdr)', marginBottom: 18 }}>
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 8, fontFamily: MONO }}>Debt Recovered</div>
-          <div style={{ ...NUM, fontSize: 52, fontWeight: 700, color: GREEN, lineHeight: 1, marginBottom: 4 }}>
-            {kpis ? fmtKobo(kpis.total_debt_recovered_kobo) : '—'}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>total recovered through legal proceedings</div>
-        </div>
-        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', paddingLeft: 8, borderLeft: '1px solid var(--bdr)' }}>
-          {[
-            { label: 'Total Cases', value: kpis ? fmtNum(kpis.total_cases) : '—', color: 'var(--txt)' as string },
-            { label: 'Active', value: kpis ? fmtNum(kpis.active) : '—', color: AMBER },
-            { label: 'Won', value: kpis ? fmtNum(kpis.won) : '—', color: GREEN },
-          ].map(m => (
-            <div key={m.label}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt3)', letterSpacing: '.07em', textTransform: 'uppercase', marginBottom: 6, fontFamily: MONO }}>{m.label}</div>
-              <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: m.color, lineHeight: 1 }}>{m.value}</div>
-            </div>
-          ))}
-        </div>
+      {/* KPI cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+        <KpiCard label="Total Cases" value={kpis ? fmtNum(kpis.total_cases) : '—'} icon="gavel" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Active" value={kpis ? fmtNum(kpis.active) : '—'} icon="pending_actions" accent={AMBER} loading={kpiLoading} />
+        <KpiCard label="Won" value={kpis ? fmtNum(kpis.won) : '—'} icon="verified" accent={GREEN} loading={kpiLoading} />
+        <KpiCard label="Debt Recovered" value={kpis ? fmtKobo(kpis.total_debt_recovered_kobo) : '—'} icon="savings" accent={BLUE} loading={kpiLoading} />
       </div>
 
       <SectionCard

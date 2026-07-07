@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
-import { Page, SectionCard, DataTable } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtPct, fmtDate } from '../../lib/fmt'
-import { RED, AMBER, GREEN, BLUE, NAVY, MONO, SORA, NUM } from '../../lib/design'
+import { RED, AMBER, GREEN, BLUE, NAVY, NUM } from '../../lib/design'
 
 interface PipelineStage { stage: string; count: number; total_value_kobo: number }
 interface EmployerStats { active: number; mou_signed: number; mou_expiring: number }
@@ -114,27 +114,12 @@ export default function BDOverview() {
         </button>
       }
     >
-      {/* Asymmetric hero */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 40, flexWrap: 'wrap', padding: '18px 0 16px', borderBottom: '1px solid var(--bdr)', marginBottom: 18 }}>
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 8, fontFamily: MONO }}>Won Deals</div>
-          <div style={{ ...NUM, fontSize: 52, fontWeight: 700, color: GREEN, lineHeight: 1, marginBottom: 4 }}>
-            {loading ? '—' : fmtNum(wonCount)}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>closed deals in the pipeline</div>
-        </div>
-        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', paddingLeft: 8, borderLeft: '1px solid var(--bdr)' }}>
-          {[
-            { label: 'Total Leads', value: loading ? '—' : fmtNum(totalLeads), color: 'var(--txt)' as string },
-            { label: 'Hot Leads', value: loading ? '—' : fmtNum(hotLeads), color: RED },
-            { label: 'Conversion Rate', value: loading ? '—' : fmtPct(conversionRate), color: BLUE },
-          ].map(m => (
-            <div key={m.label}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt3)', letterSpacing: '.07em', textTransform: 'uppercase', marginBottom: 6, fontFamily: MONO }}>{m.label}</div>
-              <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: m.color, lineHeight: 1 }}>{m.value}</div>
-            </div>
-          ))}
-        </div>
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 16 }}>
+        <KpiCard label="Total Leads"     value={fmtNum(totalLeads)}        icon="contacts"      accent={NAVY}  loading={loading} />
+        <KpiCard label="Hot Leads"       value={fmtNum(hotLeads)}          icon="local_fire_department" accent={RED}   loading={loading} />
+        <KpiCard label="Won Deals"       value={fmtNum(wonCount)}          icon="handshake"     accent={GREEN} loading={loading} />
+        <KpiCard label="Conversion Rate" value={fmtPct(conversionRate)}    icon="trending_up"   accent={BLUE}  loading={loading} />
       </div>
 
       {/* Charts row */}

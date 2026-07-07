@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
-import { MONO, SORA, RED, BLUE, AMBER, GREEN } from '../lib/design'
+import { MONO, RED, BLUE, AMBER, GREEN } from '../lib/design'
 import { IcoBell } from '../lib/icons'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -136,7 +136,7 @@ export default function NotificationBell() {
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '12px 16px', borderBottom: '1px solid var(--bdr)',
           }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: SORA }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: "'Sora', sans-serif" }}>
               Notifications
             </span>
             {unread > 0 && (
@@ -144,7 +144,7 @@ export default function NotificationBell() {
                 onClick={markAllRead}
                 style={{
                   fontSize: 12, color: BLUE, border: 'none', background: 'none',
-                  cursor: 'pointer', fontFamily: SORA, padding: 0, fontWeight: 500,
+                  cursor: 'pointer', fontFamily: "'Sora', sans-serif", padding: 0, fontWeight: 500,
                 }}
               >
                 Mark all read
@@ -181,7 +181,7 @@ export default function NotificationBell() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
                     fontSize: 13, fontWeight: 600, color: 'var(--txt)',
-                    marginBottom: 3, fontFamily: SORA,
+                    marginBottom: 3, fontFamily: "'Sora', sans-serif",
                     lineHeight: 1.35,
                   }}>
                     {n.title}

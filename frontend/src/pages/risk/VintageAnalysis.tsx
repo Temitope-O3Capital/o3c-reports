@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Page, SectionCard, FilterBar, filterInputStyle, ErrBanner, Sk } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtPct, fmtNum } from '../../lib/fmt'
-import { GREEN, AMBER, RED, NAVY, INTER, MONO, SORA, NUM } from '../../lib/design'
+import { GREEN, AMBER, RED, NAVY, INTER, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -47,6 +47,36 @@ function ParCell({ value }: { value: number | null }) {
   )
 }
 
+// ── KPI card ─────────────────────────────────────────────────────────────────
+
+function InlineKpi({ label, value, loading, accent, icon, sub }: {
+  label: string; value: string; loading: boolean; accent?: string; icon?: string; sub?: string
+}) {
+  const ac = accent ?? NAVY
+  return (
+    <div style={{
+      background: 'var(--card)', border: '1px solid var(--card-bdr)', boxShadow: 'var(--card-shadow)',
+      borderRadius: 12, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 6,
+      borderTop: `3px solid ${ac}`,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', letterSpacing: '0.4px', textTransform: 'uppercase' }}>{label}</span>
+        {icon && (
+          <div style={{ width: 26, height: 26, borderRadius: 7, background: `${ac}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 14, color: ac }}>{icon}</span>
+          </div>
+        )}
+      </div>
+      {loading
+        ? <Sk h={28} w="55%" />
+        : <span style={{ ...NUM, fontSize: 24, fontWeight: 700, color: 'var(--txt)', letterSpacing: '-0.7px', lineHeight: 1.2 }}>{value}</span>
+      }
+      {sub && !loading && (
+        <span style={{ fontSize: 11, color: 'var(--txt3)' }}>{sub}</span>
+      )}
+    </div>
+  )
+}
 
 // ── Skeleton rows for loading state ──────────────────────────────────────────
 
@@ -107,14 +137,16 @@ export default function VintageAnalysis() {
 
   useEffect(() => { load() }, [load])
 
+  const kpiLoading = loading && !kpis
+
   const avg6m  = kpis?.avg_par30_6m  !== null && kpis?.avg_par30_6m  !== undefined ? fmtPct(kpis.avg_par30_6m,  1) : 'N/A'
   const avg12m = kpis?.avg_par30_12m !== null && kpis?.avg_par30_12m !== undefined ? fmtPct(kpis.avg_par30_12m, 1) : 'N/A'
 
-  function par6mColor(): string {
-    const v = kpis?.avg_par30_6m
-    if (v === null || v === undefined) return AMBER
-    if (v < 5) return GREEN
-    if (v <= 15) return AMBER
+  // Accent colour based on PAR rate value
+  function parAccent(val: number | null | undefined): string {
+    if (val === null || val === undefined) return NAVY
+    if (val < 5)   return GREEN
+    if (val <= 15) return AMBER
     return RED
   }
 
@@ -136,27 +168,40 @@ export default function VintageAnalysis() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      {/* Asymmetric hero */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 40, flexWrap: 'wrap', padding: '18px 0 16px', borderBottom: '1px solid var(--bdr)', marginBottom: 18 }}>
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 8, fontFamily: MONO }}>Avg PAR30 at 6m</div>
-          <div style={{ ...NUM, fontSize: 52, fontWeight: 700, color: par6mColor(), lineHeight: 1, marginBottom: 4 }}>
-            {loading ? '—' : avg6m}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>average 30-day default rate at 6 months</div>
-        </div>
-        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', paddingLeft: 8, borderLeft: '1px solid var(--bdr)' }}>
-          {[
-            { label: 'Avg PAR30 12m', value: loading ? '—' : avg12m, color: 'var(--txt)' as string },
-            { label: 'Cohorts', value: loading ? '—' : fmtNum(rows.length), color: 'var(--txt)' as string },
-            { label: 'Best Vintage', value: loading ? '—' : bestVintage, color: GREEN },
-          ].map(m => (
-            <div key={m.label}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt3)', letterSpacing: '.07em', textTransform: 'uppercase', marginBottom: 6, fontFamily: MONO }}>{m.label}</div>
-              <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: m.color, lineHeight: 1 }}>{m.value}</div>
-            </div>
-          ))}
-        </div>
+      {/* 4-card KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+        <InlineKpi
+          label="Total Cohorts Analyzed"
+          value={loading ? '…' : fmtNum(rows.length)}
+          loading={false}
+          accent={NAVY}
+          icon="calendar_month"
+          sub="Booking month cohorts"
+        />
+        <InlineKpi
+          label="Avg 30-DPD Rate (6m)"
+          value={avg6m}
+          loading={kpiLoading}
+          accent={parAccent(kpis?.avg_par30_6m)}
+          icon="monitoring"
+          sub="PAR30 at 6-month mark"
+        />
+        <InlineKpi
+          label="Avg 30-DPD Rate (12m)"
+          value={avg12m}
+          loading={kpiLoading}
+          accent={parAccent(kpis?.avg_par30_12m)}
+          icon="error_outline"
+          sub="PAR30 at 12-month mark"
+        />
+        <InlineKpi
+          label="Best Performing Vintage"
+          value={loading ? '…' : bestVintage}
+          loading={false}
+          accent={GREEN}
+          icon="emoji_events"
+          sub="Lowest long-term DPD"
+        />
       </div>
 
       <SectionCard title="Vintage Cohort Matrix" badge={rows.length} padding={false}>
