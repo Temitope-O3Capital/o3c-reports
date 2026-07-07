@@ -557,7 +557,7 @@ func zohoImportDeskCalls(db *core.DB) http.HandlerFunc {
 					  (agent_name, customer_name, customer_phone, call_to, direction,
 					   duration_sec, outcome, started_at, zoho_call_id)
 					VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-					ON CONFLICT (zoho_call_id) DO UPDATE SET
+					ON CONFLICT (zoho_call_id) WHERE zoho_call_id IS NOT NULL DO UPDATE SET
 					  agent_name     = EXCLUDED.agent_name,
 					  customer_name  = EXCLUDED.customer_name,
 					  customer_phone = EXCLUDED.customer_phone,
