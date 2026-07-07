@@ -1,10 +1,10 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Modal, filterInputStyle, SearchInput, DateFilter } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, Modal, filterInputStyle, SearchInput, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, today, monthStart } from '../../lib/fmt'
-import { RED, AMBER, GREEN, BLUE, NAVY, INTER, SORA, NUM } from '../../lib/design'
+import { RED, AMBER, GREEN, BLUE, NAVY, INTER, SORA, MONO, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 interface PipelineKPIs {
@@ -402,8 +402,6 @@ export default function BDPipeline() {
 
   const byStage = (s: string) => filtered.filter(l => l.stage === s)
 
-  const kpiLoading = loading && !kpis
-
   return (
     <Page
       title="BD Pipeline"
@@ -441,12 +439,27 @@ export default function BDPipeline() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-        <KpiCard label="Total Leads" value={kpis ? fmtNum(kpis.total_leads) : '—'} icon="groups" accent={NAVY} loading={kpiLoading} />
-        <KpiCard label="This Month" value={kpis ? fmtNum(kpis.this_month) : '—'} icon="today" accent={BLUE} loading={kpiLoading} />
-        <KpiCard label="Conversion Rate" value={kpis ? `${kpis.conversion_rate_pct.toFixed(1)}%` : '—'} icon="trending_up" accent={GREEN} loading={kpiLoading} />
-        <KpiCard label="Avg Deal Value ₦" value={kpis ? fmtKobo(kpis.avg_deal_kobo) : '—'} icon="monetization_on" accent={AMBER} loading={kpiLoading} />
+      {/* Asymmetric hero */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 40, flexWrap: 'wrap', padding: '18px 0 16px', borderBottom: '1px solid var(--bdr)', marginBottom: 18 }}>
+        <div>
+          <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: 8, fontFamily: MONO }}>Total Leads</div>
+          <div style={{ ...NUM, fontSize: 52, fontWeight: 700, color: NAVY, lineHeight: 1, marginBottom: 4 }}>
+            {kpis ? fmtNum(kpis.total_leads) : '—'}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>leads tracked in the pipeline</div>
+        </div>
+        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', paddingLeft: 8, borderLeft: '1px solid var(--bdr)' }}>
+          {[
+            { label: 'This Month', value: kpis ? fmtNum(kpis.this_month) : '—', color: BLUE },
+            { label: 'Conversion Rate', value: kpis ? `${kpis.conversion_rate_pct.toFixed(1)}%` : '—', color: GREEN },
+            { label: 'Avg Deal Value', value: kpis ? fmtKobo(kpis.avg_deal_kobo) : '—', color: 'var(--txt)' as string },
+          ].map(m => (
+            <div key={m.label}>
+              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt3)', letterSpacing: '.07em', textTransform: 'uppercase', marginBottom: 6, fontFamily: MONO }}>{m.label}</div>
+              <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: m.color, lineHeight: 1 }}>{m.value}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {view === 'table' ? (
