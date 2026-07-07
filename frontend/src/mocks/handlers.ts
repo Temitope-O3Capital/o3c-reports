@@ -914,80 +914,156 @@ const TICKET_SUBJECTS = [
   'Account freeze enquiry','Complaint about recovery agent',
 ]
 
-const TICKETS = Array.from({ length: 48 }, (_, i) => ({
-  id: i+1, ticket_ref: `TKT-2026-${String(i+1000).padStart(5,'0')}`,
-  subject: pick(TICKET_SUBJECTS), status: pick(['open','in_progress','pending_customer','resolved','closed']),
-  priority: pick(['low','medium','high','urgent']), channel: pick(['email','phone','walk_in','web']),
-  ticket_type: pick(['complaint','enquiry','request','feedback']),
-  customer_name: name(), customer_phone: `080${rng(10000000,99999999)}`,
-  assigned_to_name: name(), sla_breached: Math.random() < 0.12,
-  created_at: isoDate(rng(0,14)), updated_at: isoDate(rng(0,3)),
+const TICKETS = Array.from({ length: 48 }, (_, i) => {
+  const slaHours = pick([1, 2, 4, 8, 24])
+  const slaBreached = Math.random() < 0.12
+  const slaDue = new Date(Date.now() + (slaBreached ? -1 : 1) * slaHours * 3_600_000).toISOString()
+  const cif = Math.random() > 0.3 ? `CIF${String(i+100000).padStart(7,'0')}` : undefined
+  const n = name()
+  return {
+    id: i+1,
+    ticket_ref: `TKT-2026-${String(i+1000).padStart(5,'0')}`,
+    subject: pick(TICKET_SUBJECTS),
+    status: pick(['open','in_progress','pending_customer','resolved','closed']),
+    priority: pick(['low','medium','high','urgent']),
+    channel: pick(['email','phone','walk_in','web']),
+    ticket_type: pick(['complaint','enquiry','request','feedback']),
+    customer_name: n,
+    customer_email: `${n.toLowerCase().replace(' ','.')}@example.ng`,
+    customer_phone: `080${rng(10000000,99999999)}`,
+    customer_cif: cif,
+    assigned_to: i % 8 + 1,
+    assigned_to_name: name(),
+    sla_breached: slaBreached,
+    sla_due_at: slaDue,
+    created_at: isoDate(rng(0,14)),
+    updated_at: isoDate(rng(0,3)),
+  }
+})
+
+const HELPDESK_AGENTS = Array.from({ length: 8 }, (_, i) => ({
+  id: i+1,
+  full_name: name(),
+  open_tickets: rng(2,12),
+  resolved_today: rng(3,10),
+  sla_breached: rng(0,3),
+  avg_handle_mins: rng(8,25),
+  last_reply: isoDate(rng(0,1)),
+  current_ticket_ref: Math.random() > 0.4 ? `TKT-${rng(1000,9999)}` : undefined,
+  helpdesk_status: pick(['available','on_call','busy','offline']),
 }))
 
 const HELPDESK = [
   http.get(u('/api/helpdesk/tickets'), () => ok({ tickets: TICKETS, total: TICKETS.length })),
-  http.get(u('/api/helpdesk/tickets/:id'), ({ params }) => ok({
-    ...TICKETS[Number(params.id) % TICKETS.length],
-    messages: [
-      { id:1, body:'Thank you for contacting us.', sender_name:'Support Agent', direction:'outbound', created_at:isoDate(1) },
-      { id:2, body:'Please provide your account number.', sender_name:'Customer', direction:'inbound', created_at:isoDate(0) },
-    ],
-    timeline: [],
-  })),
-  http.get(u('/api/helpdesk/tickets/:id/context'), () => ok({ customer: null, loans: [], cards: [] })),
+  // Ticket detail — MUST be `{ ticket, messages, events }` (both Tickets.tsx TicketPanel and TicketDetail.tsx destructure this shape)
+  http.get(u('/api/helpdesk/tickets/:id'), ({ params }) => {
+    const t = TICKETS[(Number(params.id) - 1) % TICKETS.length] ?? TICKETS[0]
+    return ok({
+      ticket: t,
+      messages: [
+        { id:1, direction:'outbound', channel: t.channel, author_name:'Support Agent', author_user_name:'support@o3capital.com',
+          body_text:'Thank you for contacting O3 Capital. How can we assist you today?', is_internal_note:false, created_at:isoDate(2) },
+        { id:2, direction:'inbound',  channel: t.channel, author_name: t.customer_name,
+          body_text:'I have been trying to use my card at the ATM and it keeps declining. Please help.', is_internal_note:false, created_at:isoDate(1) },
+        { id:3, direction:'outbound', channel: t.channel, author_name:'Support Agent', author_user_name:'support@o3capital.com',
+          body_text:'We have escalated this to our cards team. You should receive a resolution within 2 hours.', is_internal_note:false, created_at:isoDate(0) },
+        { id:4, direction:'outbound', channel:'internal',  author_name:'Support Agent', author_user_name:'support@o3capital.com',
+          body_text:'Checked CBS — card status is Active. Likely a POS terminal issue. Monitoring.', is_internal_note:true, created_at:isoDate(0) },
+      ],
+      events: [],
+    })
+  }),
+  // Enriched context — shape matches EnrichedContext interface in TicketDetail.tsx
+  http.get(u('/api/helpdesk/tickets/:id/context'), ({ params }) => {
+    const t = TICKETS[(Number(params.id) - 1) % TICKETS.length] ?? TICKETS[0]
+    if (!t.customer_cif) return ok({})
+    return ok({
+      cif: t.customer_cif,
+      customer_name: t.customer_name,
+      customer_email: t.customer_email,
+      customer_phone: t.customer_phone,
+      other_open_tickets: rng(0,3),
+      loans: Array.from({ length: rng(0,2) }, () => ({
+        loan_ref: `LN${rng(100000,999999)}`,
+        product_type: pick(LOS_PRODUCTS),
+        status: pick(['active','delinquent']),
+        amount_approved_kobo: rng(20,150)*1_000_000_00,
+        total_outstanding_kobo: rng(5,100)*1_000_000_00,
+        dpd: pick([0,0,15,45]),
+        next_repayment_date: dateStr(-rng(1,14)),
+      })),
+      fixed_deposits: Array.from({ length: rng(0,1) }, () => ({
+        principal_kobo: rng(50,500)*1_000_000_00,
+        interest_rate: rng(8,14),
+        tenor_days: pick([90,180,365]),
+        maturity_date: dateStr(-rng(30,180)),
+        status: 'active',
+      })),
+      recent_transactions: Array.from({ length: 5 }, (_, i) => ({
+        transaction_date: isoDate(i),
+        description: pick(['POS Purchase','ATM Withdrawal','Transfer In','Loan Repayment']),
+        amount_kobo: rng(1,50)*1_000_000_00,
+        transaction_type: pick(['debit','credit']),
+      })),
+      collections_history: Array.from({ length: rng(0,2) }, () => ({
+        promise_date: dateStr(rng(1,7)),
+        promise_amount_kobo: rng(10,80)*1_000_000_00,
+        ptp_status: pick(['pending','kept','broken']),
+        created_at: isoDate(rng(1,14)),
+      })),
+      cards: Array.from({ length: rng(0,1) }, () => ({
+        product_name: pick(['Visa Prepaid','Mastercard Credit','Verve Debit']),
+        account_status: pick(['active','blocked']),
+        name_on_card: t.customer_name,
+        account_manager: name(),
+      })),
+    })
+  }),
   http.post(u('/api/helpdesk/tickets'), () => ok({ id: 99, ticket_ref: 'TKT-2026-01099' })),
   http.patch(u('/api/helpdesk/tickets/:id'), () => new HttpResponse(null, { status: 204 })),
   http.put(u('/api/helpdesk/tickets/:id'), () => new HttpResponse(null, { status: 204 })),
-  http.post(u('/api/helpdesk/tickets/:id/reply'), () => ok({ id: 99, body: 'Reply sent' })),
+  http.post(u('/api/helpdesk/tickets/:id/messages'), () => ok({ id: rng(10,999), body_text: 'Message sent', direction: 'outbound', created_at: isoDate(0) })),
+  http.post(u('/api/helpdesk/tickets/:id/reply'),    () => ok({ id: 99, body_text: 'Reply sent' })),
+  http.post(u('/api/helpdesk/tickets/:id/merge'),    () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/helpdesk/tickets/:id/escalate'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/helpdesk/tickets/:id/ptp'),      () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/helpdesk/tickets/:id/statement-email'), () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/helpdesk/tickets/bulk-assign'), () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/helpdesk/tickets/bulk-close'),  () => new HttpResponse(null, { status: 204 })),
-  http.get(u('/api/helpdesk/tickets/search'), () => ok([])),
+  http.get(u('/api/helpdesk/tickets/search'), ({ request }) => {
+    const q = new URL(request.url).searchParams.get('q')?.toLowerCase() ?? ''
+    return ok(TICKETS.filter(t => t.subject.toLowerCase().includes(q) || t.ticket_ref.includes(q)).slice(0,6)
+      .map(t => ({ id: t.id, ticket_ref: t.ticket_ref, subject: t.subject, status: t.status })))
+  }),
   http.get(u('/api/helpdesk/stats'), () => ok({
     open: 48, sla_breached: 7, avg_first_response_hours: 0.28, avg_csat: 4.3,
-    agents: Array.from({ length: 6 }, () => ({
-      agent_name: name(), open_tickets: rng(2,8), resolved_today: rng(3,10),
-      avg_csat: rng(38,50)/10, avg_handle_time_min: rng(8,25), escalations: rng(0,2),
+    agents: HELPDESK_AGENTS.map(a => ({
+      agent_name: a.full_name, open_tickets: a.open_tickets, resolved_today: a.resolved_today,
+      avg_csat: rng(38,50)/10, avg_handle_time_min: a.avg_handle_mins, escalations: rng(0,2),
     })),
-    by_channel: [
-      { channel:'email', count: 18 }, { channel:'phone', count: 14 },
-      { channel:'walk_in', count: 8 }, { channel:'web', count: 6 },
-    ],
-    by_type: [
-      { type:'complaint', count: 24 }, { type:'enquiry', count: 16 },
-      { type:'request', count: 6 }, { type:'feedback', count: 2 },
-    ],
   })),
-  http.get(u('/api/helpdesk/agents'), () => ok(
-    Array.from({ length: 8 }, (_, i) => ({
-      id: i+1, full_name: name(), open_tickets: rng(2,12), resolved_today: rng(3,10),
-      avg_handle_mins: rng(8,25), status: pick(['available','busy','offline']),
-    }))
-  )),
+  // Agents list — shape matches both AgentRow (Supervisor) and AgentItem (TicketDetail/Tickets assign dropdowns)
+  http.get(u('/api/helpdesk/agents'), () => ok(HELPDESK_AGENTS)),
   http.put(u('/api/helpdesk/agents/:id/status'), () => new HttpResponse(null, { status: 204 })),
   http.get(u('/api/helpdesk/supervisor'), () => ok({
     totals: { open: 48, sla_breached: 7, unassigned: 12, active_agents: 6 },
-    agents: Array.from({ length: 6 }, (_, i) => ({
-      id: i+1, full_name: name(), open_tickets: rng(2,8), sla_breached: rng(0,2),
-      last_reply: isoDate(rng(0,1)),
-      current_ticket_ref: `TKT-${rng(1000,9999)}`,
-      helpdesk_status: pick(['available','on_call','busy','offline']),
-    })),
+    agents: HELPDESK_AGENTS,
     queues: [
-      { queue: 'General', open: 18, sla_breached: 3, unassigned: 5 },
-      { queue: 'Cards', open: 12, sla_breached: 2, unassigned: 4 },
-      { queue: 'Loans', open: 10, sla_breached: 1, unassigned: 2 },
-      { queue: 'Compliance', open: 8, sla_breached: 1, unassigned: 1 },
+      { queue: 'General',    open: 18, sla_breached: 3, unassigned: 5 },
+      { queue: 'Cards',      open: 12, sla_breached: 2, unassigned: 4 },
+      { queue: 'Loans',      open: 10, sla_breached: 1, unassigned: 2 },
+      { queue: 'Compliance', open:  8, sla_breached: 1, unassigned: 1 },
     ],
     recent_breaches: Array.from({ length: 5 }, (_, i) => ({
       id: i+1, ticket_ref: `TKT-${rng(1000,9999)}`,
       subject: pick(['Card blocked without reason','Loan repayment not reflected','Account locked']),
-      priority: pick(['high','critical','medium']),
-      sla_due_at: isoDate(0),
+      priority: pick(['high','urgent','medium']),
+      sla_due_at: new Date(Date.now() - rng(10,120) * 60_000).toISOString(),
       assigned_to_name: name(),
     })),
     by_type: [
       { ticket_type: 'complaint', count: 24 }, { ticket_type: 'enquiry', count: 16 },
-      { ticket_type: 'request', count: 6 }, { ticket_type: 'feedback', count: 2 },
+      { ticket_type: 'request',   count:  6 }, { ticket_type: 'feedback', count: 2 },
     ],
     hourly_queue: Array.from({ length: 10 }, (_, h) => ({ hour: String(h+8), count: rng(2,15) })),
   })),
@@ -1020,27 +1096,70 @@ const HELPDESK = [
   http.delete(u('/api/helpdesk/canned-responses/:id'), () => new HttpResponse(null, { status: 204 })),
   http.get(u('/api/helpdesk/routing-rules'), () => ok([])),
   http.delete(u('/api/helpdesk/routing-rules/:id'), () => new HttpResponse(null, { status: 204 })),
-  http.get(u('/api/helpdesk/calls'), () => ok([])),
-  // Stats sub-endpoints
-  http.get(u('/api/helpdesk/csat-trend'), () => wd(MONTHS_ISO.map(m => ({ month: m, avg_csat: rng(38,50)/10 })))),
+  // Calls log — matches CallLog interface: agent_name, customer_name, phone, direction, duration_seconds, outcome, ticket_id, ticket_ref, called_at
+  http.get(u('/api/helpdesk/calls'), () => ok(
+    Array.from({ length: 20 }, (_, i) => ({
+      id: i+1,
+      agent_name: name(),
+      customer_name: Math.random() > 0.2 ? name() : null,
+      phone: `080${rng(10000000,99999999)}`,
+      direction: pick(['Inbound','Outbound']),
+      duration_seconds: rng(30,600),
+      outcome: pick(['Resolved','Transferred','Voicemail','Callback Requested','No Answer']),
+      ticket_id: Math.random() > 0.4 ? rng(1,48) : null,
+      ticket_ref: Math.random() > 0.4 ? `TKT-2026-${rng(1000,1048)}` : null,
+      called_at: isoDate(rng(0,7)),
+    }))
+  )),
+  // Stats sub-endpoints — field names match interfaces in Stats.tsx
+  // CsatPoint: { date, csat_score, ticket_count }
+  http.get(u('/api/helpdesk/csat-trend'), () => wd(MONTHS_ISO.map(m => ({
+    date: m, csat_score: rng(38,50)/10, ticket_count: rng(30,120),
+  })))),
+  // HandlePoint: { ticket_type, avg_minutes }
   http.get(u('/api/helpdesk/handle-time-by-type'), () => wd([
-    { type:'complaint', avg_mins: 18 }, { type:'enquiry', avg_mins: 9 }, { type:'request', avg_mins: 12 },
+    { ticket_type:'complaint', avg_minutes: 18 },
+    { ticket_type:'enquiry',   avg_minutes:  9 },
+    { ticket_type:'request',   avg_minutes: 12 },
+    { ticket_type:'feedback',  avg_minutes:  6 },
   ])),
+  // ResolutionPoint: { agent_name, resolution_pct }
   http.get(u('/api/helpdesk/resolution-by-agent'), () => wd(
-    Array.from({ length: 6 }, () => ({ agent_name: name(), resolved: rng(10,40), avg_mins: rng(8,25) }))
+    HELPDESK_AGENTS.map(a => ({ agent_name: a.full_name, resolution_pct: rng(65,98) }))
   )),
+  // TypeDistPoint: { ticket_type, count }
   http.get(u('/api/helpdesk/type-distribution'), () => wd([
-    { type:'complaint', count: 24 }, { type:'enquiry', count: 16 }, { type:'request', count: 8 },
+    { ticket_type:'complaint', count: 24 }, { ticket_type:'enquiry', count: 16 },
+    { ticket_type:'request',   count:  8 }, { ticket_type:'feedback', count: 4 },
   ])),
+  // LeaderRow: { agent_name, tickets_handled, tickets_resolved, avg_csat, avg_handle_min, sla_breaches }
   http.get(u('/api/helpdesk/stats/leaderboard'), () => wd(
-    Array.from({ length: 6 }, () => ({ agent_name: name(), resolved: rng(20,60), csat: rng(40,50)/10 }))
+    HELPDESK_AGENTS.map(a => ({
+      agent_name: a.full_name,
+      tickets_handled:  a.open_tickets + a.resolved_today,
+      tickets_resolved: a.resolved_today,
+      avg_csat:        rng(38,50)/10,
+      avg_handle_min:  a.avg_handle_mins,
+      sla_breaches:    a.sla_breached,
+    }))
   )),
+  // SLAByAgentRow: { agent_name, total, breached, breach_pct }
   http.get(u('/api/helpdesk/stats/sla-by-agent'), () => wd(
-    Array.from({ length: 6 }, () => ({ agent_name: name(), sla_met: rng(80,100), breached: rng(0,10) }))
+    HELPDESK_AGENTS.map(a => {
+      const total = a.open_tickets + a.resolved_today
+      return {
+        agent_name:  a.full_name,
+        total,
+        breached:    a.sla_breached,
+        breach_pct:  total > 0 ? Math.round((a.sla_breached / total) * 100) : 0,
+      }
+    })
   )),
+  // BusyHourRow: { hour, ticket_count }
   http.get(u('/api/helpdesk/stats/busiest-hours'), () => wd(
-    Array.from({ length: 10 }, (_, h) => ({ hour: h + 8, count: rng(5,30) }))
+    Array.from({ length: 10 }, (_, h) => ({ hour: h + 8, ticket_count: rng(5,30) }))
   )),
+  // ChannelRow: { channel, count } — already correct
   http.get(u('/api/helpdesk/stats/channel-breakdown'), () => wd([
     { channel:'email', count: 18 }, { channel:'phone', count: 14 },
     { channel:'walk_in', count: 8 }, { channel:'web', count: 6 },
@@ -1568,10 +1687,15 @@ const REPORTS = [
 
   // Customer 360
   http.get(u('/api/customer360/search'), () => ok({
-    data: Array.from({ length: 3 }, (_, i) => ({
-      id: i+1, cif: `CIF${String(i+100000).padStart(7,'0')}`, full_name: name(),
-      phone: `080${rng(10000000,99999999)}`, status: 'active',
-    })),
+    data: Array.from({ length: 3 }, (_, i) => {
+      const n = name()
+      return {
+        id: i+1, cif: `CIF${String(i+100000).padStart(7,'0')}`,
+        name: n, full_name: n,
+        phone: `080${rng(10000000,99999999)}`,
+        email: `customer${i}@example.ng`, status: 'active',
+      }
+    }),
   })),
   http.get(u('/api/customer360'), () => ok({ data: [], total: 0 })),
   http.get(u('/api/customer360/:id'), ({ params }) => ok({
@@ -1582,6 +1706,539 @@ const REPORTS = [
     employer: pick(['Shell Nigeria','MTN','Dangote']), monthly_income_kobo: rng(30,120)*1_000_000_00,
     loans: [], cards: [], transactions: [],
   })),
+]
+
+// ── BI / Report Builder ───────────────────────────────────────────────────────
+
+const BI_REPORTS_DATA = Array.from({ length: 6 }, (_, i) => ({
+  id: i+1,
+  name: ['Loan Book Summary','PAR Trend Report','Collections Performance','Fee Income Breakdown','HR Headcount','Disbursements MTD'][i],
+  description: pick([null, 'Monthly snapshot of portfolio health', 'Revenue analysis by fee type']),
+  module: ['los','risk','collections','finance','hr','los'][i],
+  date_range: pick(['mtd','last_30','last_90','ytd']),
+  is_public: i < 3,
+  run_count: rng(1,50),
+  last_run_at: pick([isoDate(rng(0,14)), null]),
+  created_at: isoDate(rng(10,90)),
+  created_by_name: name(),
+}))
+
+const BI = [
+  http.get(u('/api/bi/reports'),  () => ok(BI_REPORTS_DATA)),
+  http.post(u('/api/bi/reports'), () => ok({ id: 99 })),
+  http.put(u('/api/bi/reports/:id'),    () => new HttpResponse(null, { status: 204 })),
+  http.delete(u('/api/bi/reports/:id'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/bi/reports/:id/run'), () => ok({
+    rows: Array.from({ length: 15 }, (_, i) => ({
+      month: MONTHS_ISO[i % 7] ?? MONTHS_ISO[0], value: rng(50, 5000), count: rng(10, 500),
+    })),
+  })),
+  http.post(u('/api/bi/reports/:id/schedule'), () => ok({ id: 99 })),
+  http.get(u('/api/bi/runs'), () => ok(
+    Array.from({ length: 10 }, (_, i) => ({
+      id: i+1, report_id: rng(1,6), report_name: pick(['Loan Book Summary','PAR Trend Report','Collections Performance']),
+      status: pick(['completed','completed','completed','failed']),
+      row_count: pick([rng(50,5000), null]), error_message: null,
+      started_at: isoDate(rng(0,14)), finished_at: isoDate(rng(0,14)), run_by_name: name(),
+    }))
+  )),
+  http.get(u('/api/bi/scheduled'), () => ok(
+    Array.from({ length: 4 }, (_, i) => ({
+      id: i+1, report_id: i+1, report_name: BI_REPORTS_DATA[i]?.name ?? 'Report',
+      module: ['los','risk','collections','finance'][i],
+      cron_expr: pick(['0 8 1 * *','0 7 * * 1','0 9 * * *']),
+      recipients: [`user${i}@o3capital.com`],
+      format: pick(['pdf','excel','csv']), is_active: Math.random() > 0.2,
+      last_run_at: pick([isoDate(rng(0,30)), null]),
+      next_run_at: isoDate(-rng(1,7)), created_at: isoDate(rng(10,60)), created_by_name: name(),
+    }))
+  )),
+  http.delete(u('/api/bi/scheduled/:id'), () => new HttpResponse(null, { status: 204 })),
+]
+
+// ── Admin — Integrations ──────────────────────────────────────────────────────
+
+const ADMIN_EXTRA = [
+  http.get(u('/api/admin/integrations'), () => ok([
+    { id:1, name:'Paystack', type:'payment_gateway', status:'active', health_url:'https://api.paystack.co', last_ping: isoDate(0), last_status_code: 200, key_expiry: dateStr(-60), owner:'Finance', notes:'' },
+    { id:2, name:'Interswitch', type:'payment_gateway', status:'degraded', health_url:'https://passport.interswitch.com', last_ping: isoDate(0), last_status_code: 503, key_expiry: null, owner:'Finance', notes:'Intermittent issues' },
+    { id:3, name:'SendGrid', type:'email', status:'active', health_url:'https://api.sendgrid.com', last_ping: isoDate(0), last_status_code: 200, key_expiry: null, owner:'IT', notes:'' },
+    { id:4, name:'Zoho Desk', type:'crm', status:'active', health_url:'https://desk.zoho.com', last_ping: isoDate(0), last_status_code: 200, key_expiry: dateStr(-30), owner:'Customer Service', notes:'' },
+    { id:5, name:'Cloudflare Tunnel', type:'network', status:'active', health_url:'', last_ping: isoDate(0), last_status_code: 200, key_expiry: null, owner:'IT', notes:'MSSQL bridge' },
+  ])),
+  http.post(u('/api/admin/integrations'), () => ok({ id: 99 })),
+  http.post(u('/api/admin/integrations/:id/test'), () => ok({ status: 'ok', status_code: 200, note: 'Connection successful' })),
+  http.post(u('/api/helpdesk/routing-rules'), () => ok({ id: 99 })),
+  http.put(u('/api/helpdesk/routing-rules/:id'), () => new HttpResponse(null, { status: 204 })),
+]
+
+// ── Collections-ops — Agent Dashboard ────────────────────────────────────────
+
+const COLLECTIONS_EXTRA = [
+  http.get(u('/api/collections-ops/agent-dashboard'), () => ok({
+    agent_name: 'Temitope Posi',
+    queue_count: 24, ptps_due_today: 8, broken_ptps: 3, calls_today: 12, calls_target: 30,
+    dpd_distribution: [
+      { band:'1-30', count: 8 }, { band:'31-60', count: 7 },
+      { band:'61-90', count: 5 }, { band:'90+', count: 4 },
+    ],
+    my_accounts: Array.from({ length: 12 }, (_, i) => ({
+      id: i+1, customer_name: name(), phone: `080${rng(10000000,99999999)}`,
+      outstanding_kobo: rng(10,100)*1_000_000_00, dpd: rng(1,120),
+      last_contact: pick([isoDate(rng(1,14)), null]), next_action: pick(['Follow-up call','Send reminder','Escalate', null]),
+    })),
+  })),
+  http.post(u('/api/collections-ops/log-call'), () => new HttpResponse(null, { status: 204 })),
+]
+
+// ── Compliance — New Pages ────────────────────────────────────────────────────
+
+const COMPLIANCE_EXTRA = [
+  http.get(u('/api/compliance/concentration-risk'), () => ok({
+    total_loan_book_kobo: 4_820_000_000_00,
+    cbn_single_obligor_limit_pct: 20,
+    top_obligors: Array.from({ length: 8 }, (_, i) => ({
+      obligor: `CIF${String(i+100000).padStart(7,'0')}`,
+      name: pick(['Shell Nigeria','MTN Nigeria','Dangote Group','Access Bank','NNPC','NLNG','Flour Mills','Nestlé']),
+      exposure_kobo: rng(20,250)*1_000_000_00, exposure_pct: rng(1,15), loan_count: rng(1,5),
+    })),
+    by_loan_type: [
+      { loan_type:'Payday Loan',   exposure_kobo: 1_840_000_000_00, exposure_pct: 38.2, count: 1842 },
+      { loan_type:'Salary Advance',exposure_kobo: 1_200_000_000_00, exposure_pct: 24.9, count: 984  },
+      { loan_type:'Business Loan', exposure_kobo: 980_000_000_00,   exposure_pct: 20.3, count: 312  },
+      { loan_type:'Education Loan',exposure_kobo: 480_000_000_00,   exposure_pct: 10.0, count: 240  },
+      { loan_type:'Auto Loan',     exposure_kobo: 320_000_000_00,   exposure_pct: 6.6,  count: 84   },
+    ],
+    by_employer: Array.from({ length: 8 }, () => ({
+      employer: pick(['Shell Nigeria','MTN','Dangote','NNPC','Access Bank','FirstBank','NLNG','Flour Mills']),
+      exposure_kobo: rng(50,500)*1_000_000_00, exposure_pct: rng(1,12), borrower_count: rng(10,200),
+    })),
+  })),
+  http.get(u('/api/compliance/dpa-register'), () => ok(
+    Array.from({ length: 10 }, (_, i) => ({
+      id: i+1, processing_name: pick(['Loan Application Processing','Credit Bureau Query','Staff Payroll','Customer KYC','Marketing SMS']),
+      purpose: pick(['Loan origination','Credit assessment','Payroll management','Identity verification']),
+      legal_basis: pick(['Consent','Legitimate Interest','Legal Obligation','Contract Performance']),
+      data_categories: pick([['Name','BVN','NIN'],['Phone','Email'],['Bank Details','Salary']]),
+      data_subjects: pick(['Loan customers','Employees','Card holders']),
+      recipients: pick(['Credit Bureau','Regulators','Payment Processors', null]),
+      third_country_transfers: Math.random() < 0.2,
+      retention_period: pick(['7 years','5 years','Until account closure']),
+      security_measures: 'AES-256 encryption, access control', created_at: isoDate(rng(10,180)),
+    }))
+  )),
+  http.post(u('/api/compliance/dpa-register'), () => ok({ id: 99 })),
+  http.delete(u('/api/compliance/dpa-register/:id'), () => new HttpResponse(null, { status: 204 })),
+
+  http.get(u('/api/compliance/data-subject-requests'), () => ok(
+    Array.from({ length: 12 }, (_, i) => ({
+      id: i+1,
+      subject_cif: `CIF${String(i+100000).padStart(7,'0')}`, subject_name: name(),
+      subject_email: `subject${i}@example.ng`,
+      request_type: pick(['access','erasure','rectification','portability','objection']),
+      status: pick(['pending','in_progress','resolved']),
+      notes: null, assigned_to_name: name(),
+      created_at: isoDate(rng(0,30)), resolved_at: pick([isoDate(rng(0,5)), null]),
+    }))
+  )),
+  http.post(u('/api/compliance/data-subject-requests'), () => ok({ id: 99 })),
+  http.delete(u('/api/compliance/data-subject-requests/:id'), () => new HttpResponse(null, { status: 204 })),
+
+  http.get(u('/api/compliance/pentests'), () => ok({ data: Array.from({ length: 5 }, (_, i) => ({
+    id: i+1, title: `${['Web App Pentest','API Security Assessment','Infrastructure Audit','Mobile App Test','Social Engineering'][i]} 2026`,
+    vendor_name: pick(['SecureWorks NG','CyberShield Africa','Qualys','NCC Group']),
+    engagement_type: pick(['black_box','grey_box','white_box']),
+    start_date: dateStr(rng(-60,0)), end_date: dateStr(rng(0,30)),
+    status: pick(['active','completed','scheduled','report_received']),
+    scope_notes: 'In scope: production environment', rules_of_engagement: 'No DoS',
+    report_url: null, report_received_at: pick([isoDate(rng(0,20)), null]),
+    retest_deadline: pick([dateStr(rng(0,60)), null]), retest_completed_at: null,
+    engagement_cost_kobo: pick([5_000_000_00, 12_000_000_00, null]),
+    created_by_name: name(),
+  }))})),
+  http.post(u('/api/compliance/pentests'), () => ok({ id: 99 })),
+  http.put(u('/api/compliance/pentests/:id'), () => new HttpResponse(null, { status: 204 })),
+  http.get(u('/api/compliance/pentest-findings'), () => ok({ data: Array.from({ length: 14 }, (_, i) => ({
+    id: i+1, engagement_id: rng(1,5),
+    engagement_title: 'Web App Pentest 2026', vendor_name: 'SecureWorks NG',
+    finding_ref: `PENTEST-2026-${String(i+1).padStart(3,'0')}`,
+    title: pick(['SQL Injection in loan API','Missing rate limiting','Insecure CORS policy','Weak session tokens','Open redirect','Missing HSTS','Verbose error messages']),
+    severity: pick(['critical','high','high','medium','low']),
+    cvss_score: pick([9.8,8.1,7.2,5.5,3.2,null]),
+    affected_component: pick(['api/auth','api/los','frontend','admin panel']),
+    description: 'Detailed technical description of the vulnerability.',
+    business_impact: 'Could allow unauthorized access to customer data.',
+    recommendation: 'Apply parameterized queries and input validation.',
+    status: pick(['open','in_progress','resolved','risk_accepted']),
+    assigned_to_name: name(),
+    sla_deadline: dateStr(rng(-5,30)), created_at: isoDate(rng(1,60)),
+  }))})),
+  http.put(u('/api/compliance/pentest-findings/:id'), () => new HttpResponse(null, { status: 204 })),
+  http.delete(u('/api/compliance/pentest-findings/:id'), () => new HttpResponse(null, { status: 204 })),
+
+  http.get(u('/api/compliance/prudential-ratios'), () => ok({
+    npl_kobo: 67_500_000_00, total_loan_book_kobo: 4_820_000_000_00,
+    npl_ratio_pct: 1.4, par30_pct: 5.0, par60_pct: 2.0, par90_pct: 0.9,
+    total_fd_liabilities_kobo: 1_240_000_000_00,
+    total_disbursed_kobo: 6_240_000_000_00, active_loans: 4218,
+    cbn_thresholds: { npl_max_pct: 5.0, single_obligor_pct: 20, liquidity_ratio_min: 30 },
+  })),
+
+  http.get(u('/api/compliance/soc2/overview'), () => ok({ data: {
+    by_criteria: [
+      { trust_criteria:'Security',       total: 42, done: 38 },
+      { trust_criteria:'Availability',   total: 18, done: 14 },
+      { trust_criteria:'Confidentiality',total: 12, done: 10 },
+      { trust_criteria:'Processing Integrity', total: 8, done: 6 },
+      { trust_criteria:'Privacy',        total: 10, done: 7 },
+    ],
+    totals: { trust_criteria: 'All', total: 90, done: 75 },
+    policies: { total: 24, approved: 18, pending: 6 },
+    findings: { open_critical: 2, open_high: 5, overdue: 3 },
+  }})),
+  http.get(u('/api/compliance/soc2/controls'), () => ok({ data: Array.from({ length: 20 }, (_, i) => ({
+    id: i+1,
+    criteria_code: ['CC1','CC2','CC3','CC6','CC7','A1','C1','PI1','P1'][i % 9],
+    criteria_group: pick(['CC','A','C','PI','P']),
+    trust_criteria: pick(['Security','Availability','Confidentiality','Processing Integrity','Privacy']),
+    title: pick(['Access Control Policy','Change Management','Incident Response','Encryption at Rest','Penetration Testing']),
+    description: 'Control ensures adequate safeguards are in place.',
+    status: pick(['implemented','in_progress','not_started','not_applicable']),
+    control_type: pick(['preventive','detective','corrective']),
+    frequency: pick(['continuous','monthly','quarterly','annual']),
+    owner_name: pick([name(), null]),
+  }))})),
+  http.put(u('/api/compliance/soc2/controls'), () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/compliance/soc2/controls/:id'), () => new HttpResponse(null, { status: 204 })),
+
+  http.get(u('/api/compliance/soc2/policies'), () => ok({ data: Array.from({ length: 12 }, (_, i) => ({
+    id: i+1,
+    name: pick(['Information Security Policy','Access Control Policy','Incident Response Plan','Business Continuity Plan','Data Retention Policy','Acceptable Use Policy']),
+    category: pick(['Security','Operational','Privacy','Compliance']),
+    status: pick(['approved','approved','draft','pending_review']),
+    owner_id: rng(1,10), owner_name: name(),
+    approved_by: rng(1,5), approved_by_name: name(),
+    approved_at: pick([isoDate(rng(30,180)), null]),
+    next_review_date: pick([dateStr(rng(-10,180)), null]),
+  }))})),
+  http.put(u('/api/compliance/soc2/policies/:id'), () => new HttpResponse(null, { status: 204 })),
+]
+
+// ── HR — New Pages ────────────────────────────────────────────────────────────
+
+const HR_EXTRA = [
+  http.get(u('/api/hr/org-chart'), () => ok([
+    { id:1, full_name:'Temitope Posi', title:'Managing Director', department:'Executive', manager_id: null },
+    { id:2, full_name: name(), title:'Chief Finance Officer', department:'Finance', manager_id: 1 },
+    { id:3, full_name: name(), title:'Head of Sales', department:'Sales', manager_id: 1 },
+    { id:4, full_name: name(), title:'Head of Collections', department:'Collections', manager_id: 1 },
+    { id:5, full_name: name(), title:'Head of Risk', department:'Risk', manager_id: 1 },
+    { id:6, full_name: name(), title:'Finance Officer', department:'Finance', manager_id: 2 },
+    { id:7, full_name: name(), title:'Finance Officer', department:'Finance', manager_id: 2 },
+    { id:8, full_name: name(), title:'Sales Officer', department:'Sales', manager_id: 3 },
+    { id:9, full_name: name(), title:'Sales Officer', department:'Sales', manager_id: 3 },
+    { id:10, full_name: name(), title:'Collections Agent', department:'Collections', manager_id: 4 },
+    { id:11, full_name: name(), title:'Collections Agent', department:'Collections', manager_id: 4 },
+    { id:12, full_name: name(), title:'Risk Analyst', department:'Risk', manager_id: 5 },
+  ])),
+
+  http.get(u('/api/hr/jobs'), () => ok(
+    Array.from({ length: 8 }, (_, i) => ({
+      id: i+1, title: pick(['Sales Officer','Collections Agent','Risk Analyst','Finance Officer','IT Support','Compliance Officer','HR Officer','Recovery Officer']),
+      department: pick(DEPTS), location: pick(STATES.slice(0,3)), job_type: pick(['Full-Time','Contract']),
+      status: pick(['open','open','open','closed','filled']),
+      description: 'We are looking for a motivated professional to join our team.',
+      applicant_count: rng(3,25), target_date: pick([dateStr(rng(7,60)), null]),
+      created_at: isoDate(rng(1,60)),
+    }))
+  )),
+  http.post(u('/api/hr/jobs'), () => ok({ id: 99 })),
+
+  http.get(u('/api/hr/applicants'), () => ok(
+    Array.from({ length: 20 }, (_, i) => ({
+      id: i+1, job_id: rng(1,8), job_title: pick(['Sales Officer','Risk Analyst','Finance Officer']),
+      full_name: name(), email: `applicant${i}@email.com`,
+      phone: `080${rng(10000000,99999999)}`,
+      source: pick(['LinkedIn','Referral','Walk-in','Job Board']),
+      stage: pick(['applied','screening','interview','offer','hired','rejected']),
+      notes: '', interview_date: pick([dateStr(rng(1,14)), null]),
+      created_at: isoDate(rng(1,30)),
+    }))
+  )),
+  http.post(u('/api/hr/applicants'), () => ok({ id: 99 })),
+
+  http.get(u('/api/hr/employees/:id/onboarding'), () => ok(
+    Array.from({ length: 8 }, (_, i) => ({
+      id: i+1, employee_id: 1,
+      category: pick(['Documentation','IT Setup','Training','Orientation']),
+      task: ['Sign employment contract','Set up email account','Complete AML/CFT training','Tour the office','Meet the team','Set up laptop','ID card issuance','Benefits enrollment'][i],
+      status: i < 4 ? 'done' : 'pending',
+      due_date: pick([dateStr(rng(0,14)), null]), completed_at: i < 4 ? isoDate(rng(1,7)) : null,
+      notes: '', sort_order: i+1,
+    }))
+  )),
+  http.get(u('/api/hr/employees/:id/offboarding'), () => ok(
+    Array.from({ length: 6 }, (_, i) => ({
+      id: i+1, employee_id: 1,
+      category: pick(['Documentation','IT','Finance','Handover']),
+      task: ['Collect resignation letter','Revoke system access','Process final salary','Retrieve company assets','Exit interview','Knowledge transfer'][i],
+      status: i < 2 ? 'done' : 'pending',
+      due_date: pick([dateStr(rng(0,14)), null]), completed_at: i < 2 ? isoDate(rng(1,5)) : null,
+      notes: '', sort_order: i+1,
+    }))
+  )),
+]
+
+// ── Sales — New Endpoints ─────────────────────────────────────────────────────
+
+const SALES_EXTRA = [
+  http.get(u('/api/sales/targets'), () => ok(
+    Array.from({ length: 8 }, (_, i) => ({
+      id: i+1, user_id: i+1, full_name: name(), email: `officer${i}@o3capital.com`,
+      period: '2026-07',
+      loan_count: rng(20,60), disbursement_kobo: rng(50,200)*1_000_000_00, notes: '',
+    }))
+  )),
+  http.post(u('/api/sales/targets'), () => ok({ id: 99 })),
+  http.get(u('/api/sales/targets/actuals'), () => ok(
+    Array.from({ length: 8 }, (_, i) => ({
+      user_id: i+1, full_name: name(),
+      target_loans: rng(20,60), target_kobo: rng(50,200)*1_000_000_00,
+      actual_loans: rng(10,55), actual_kobo: rng(30,190)*1_000_000_00,
+    }))
+  )),
+  http.get(u('/api/sales/by-lead-source'), () => ok([
+    { lead_source:'Referral',    total_applications: 420, approved: 310, disbursement_kobo: 620_000_000_00 },
+    { lead_source:'Walk-in',     total_applications: 312, approved: 214, disbursement_kobo: 428_000_000_00 },
+    { lead_source:'Online',      total_applications: 280, approved: 184, disbursement_kobo: 368_000_000_00 },
+    { lead_source:'Campaign',    total_applications: 198, approved: 124, disbursement_kobo: 248_000_000_00 },
+    { lead_source:'BD',          total_applications: 142, approved:  98, disbursement_kobo: 196_000_000_00 },
+    { lead_source:'Telemarketing',total_applications: 88, approved:  52, disbursement_kobo: 104_000_000_00 },
+  ])),
+  http.get(u('/api/sales/campaign-attribution'), () => ok(
+    Array.from({ length: 6 }, (_, i) => ({
+      campaign_id: i+1,
+      campaign_name: pick(['June Loan Drive','Salary Earner Push','Card Upgrade Campaign','Q3 Retention','Payroll Advance Push','New Customer Drive']),
+      campaign_type: pick(['email','sms','multi']),
+      contacts_reached: rng(500,5000), applications: rng(50,500),
+      loans_disbursed: rng(20,300), disbursement_kobo: rng(40,600)*1_000_000_00,
+    }))
+  )),
+]
+
+// ── Reports — Extra Mutations ─────────────────────────────────────────────────
+
+const REPORTS_EXTRA = [
+  http.post(u('/api/reports/export'),    () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/reports/saved'),     () => ok({ id: 99 })),
+  http.post(u('/api/reports/schedules'), () => ok({ id: 99 })),
+]
+
+// ── Dialer — Extra ────────────────────────────────────────────────────────────
+
+const DIALER_EXTRA = [
+  http.get(u('/api/dialer/live'), () => ok(
+    Array.from({ length: 2 }, (_, i) => ({
+      id: i+1, name: `Live Campaign ${i+1}`, status: 'active',
+      dial_ratio: pick([1.2, 1.5, 2.0]), agents_ready: rng(2,6), agents_on_call: rng(1,4),
+      calls_in_flight: rng(1,8), queue_pending: rng(20,120),
+    }))
+  )),
+  http.post(u('/api/dialer/campaigns/:id/start'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/dialer/campaigns/:id/pause'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/dialer/campaigns/:id/stop'),  () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/dialer/sessions/status'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/dialer/calls/:id/disposition'), () => new HttpResponse(null, { status: 204 })),
+]
+
+// ── Telemarketing — Extra ─────────────────────────────────────────────────────
+
+const TELEMARKETING_EXTRA = [
+  http.get(u('/api/telemarketing/contacts/:id/calls'), () => ok({ data: Array.from({ length: 5 }, (_, i) => ({
+    id: i+1, contacted_at: isoDate(rng(0,14)),
+    outcome: pick(['reached','not_reached','ptp','broken_ptp']),
+    notes: pick(['Called twice, no answer','Promised to pay Friday','Wrong number']),
+    duration_seconds: pick([null, rng(60,600)]),
+    officer_name: name(),
+  }))})),
+  http.post(u('/api/telemarketing/contacts/:id/log-call'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/telemarketing/queue/export'), () => new HttpResponse(null, { status: 204 })),
+]
+
+// ── Marketing — Extra ─────────────────────────────────────────────────────────
+
+const MARKETING_EXTRA = [
+  http.get(u('/api/los/overview'), () => ok({
+    by_stage: LOS_STAGES.map(s => ({ stage: s, count: rng(4,30) })),
+  })),
+]
+
+// ── User Preferences & Misc ───────────────────────────────────────────────────
+
+const USER_MISC = [
+  http.get(u('/api/user/notification-preferences'), () => ok([
+    { event_type:'loan_approved',     channel:'email', label:'Loan Approved',         description:'When a loan application is approved',   user_enabled: true,  has_override: false },
+    { event_type:'loan_approved',     channel:'push',  label:'Loan Approved',         description:'Push notification when loan approved',   user_enabled: true,  has_override: false },
+    { event_type:'ptp_broken',        channel:'email', label:'PTP Broken',            description:'When a promise to pay is broken',        user_enabled: true,  has_override: true  },
+    { event_type:'sla_breach',        channel:'email', label:'SLA Breach',            description:'When a ticket breaches SLA',             user_enabled: true,  has_override: false },
+    { event_type:'settlement_failed', channel:'email', label:'Settlement Failed',     description:'When a settlement transaction fails',    user_enabled: false, has_override: false },
+    { event_type:'par_threshold',     channel:'email', label:'PAR Threshold Crossed', description:'When PAR crosses configured threshold',  user_enabled: true,  has_override: false },
+  ])),
+  http.put(u('/api/user/notification-preferences'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/zoho/voice/call'), () => ok({ call_id: 'mock_call_001', status: 'initiated' })),
+]
+
+// ── Unified Contact Profile ───────────────────────────────────────────────────
+
+const CONTACTS_EXTRA = [
+  // Aggregated contact profile (all lifecycle data in one call)
+  http.get(u('/api/contacts/:cif'), ({ params }) => {
+    const cif = String(params.cif)
+    const n = name()
+    const dpd = pick([0, 0, 15, 45, 92])
+    const hasLoan = Math.random() > 0.2
+    const hasCard = Math.random() > 0.4
+    const hasDelinquent = dpd > 0
+    const hasRecovery = dpd >= 90
+    const hasApp = Math.random() > 0.4
+
+    return ok({
+      cif,
+      name: n,
+      phone: `080${rng(10000000,99999999)}`,
+      email: `${n.toLowerCase().replace(' ','.')}@example.ng`,
+      bvn: `22${rng(100000000,999999999)}`,
+      nin: `NIN${rng(10000000000,99999999999)}`,
+      address: `${rng(1,100)} ${pick(STATES)} Close, ${pick(STATES)}`,
+      state: pick(STATES),
+      employer: pick(['MTN Nigeria','Shell Nigeria','Dangote Group','NNPC','First Bank','GTBank','Zenith Bank']),
+      monthly_income_kobo: rng(15,80) * 1_000_000_00,
+      date_of_birth: dateStr(rng(8000,15000)),
+      gender: pick(['Male','Female']),
+
+      is_prospect: Math.random() > 0.5,
+      is_applicant: hasApp,
+      is_active_customer: hasLoan,
+      is_card_holder: hasCard,
+      is_delinquent: hasDelinquent,
+      is_in_recovery: hasRecovery,
+      is_written_off: false,
+
+      crm: {
+        contact_id: rng(1,100),
+        status: pick(['prospect','qualified','customer']),
+        assigned_to: name(),
+        created_at: isoDate(rng(30,180)),
+        deals: hasApp ? [{ id: 1, title: `${pick(['Salary Loan','Business Loan'])} — ${n}`, value_kobo: rng(20,150)*1_000_000_00, stage: pick(['Proposal','Negotiation','Closed Won']) }] : [],
+        activities: Array.from({ length: 3 }, (_, i) => ({
+          id: i+1, type: pick(['call','email','meeting']),
+          note: pick(['Discussed loan requirements','Sent proposal','Completed KYC','Follow-up scheduled']),
+          created_at: isoDate(rng(1,30)),
+          user: name(),
+        })),
+      },
+
+      applications: hasApp ? Array.from({ length: rng(1,2) }, (_, i) => ({
+        id: i+100, ref: `APP${rng(10000,99999)}`,
+        product_type: pick(LOS_PRODUCTS),
+        amount_requested_kobo: rng(10,200)*1_000_000_00,
+        stage: pick(LOS_STAGES), created_at: isoDate(rng(0,60)),
+      })) : [],
+
+      active_loans: hasLoan ? [
+        { id: rng(1,9999), ref: `LN${rng(100000,999999)}`,
+          product_type: pick(LOS_PRODUCTS),
+          outstanding_kobo: rng(10,200)*1_000_000_00,
+          disbursed_kobo:   rng(20,300)*1_000_000_00,
+          dpd, status: dpd > 0 ? 'delinquent' : 'active',
+          next_payment_date: dateStr(-rng(1,30)),
+        },
+      ] : [],
+
+      cards: hasCard ? [
+        { id: rng(1,999), card_number_masked: `****${rng(1000,9999)}`,
+          scheme: pick(['Visa','Mastercard','Verve']),
+          status: pick(['active','active','blocked']),
+          balance_kobo: rng(0,500)*1_000_000_00,
+          issued_at: isoDate(rng(90,730)),
+        },
+      ] : [],
+
+      collections: hasDelinquent ? {
+        dpd, dpd_bucket: dpd >= 90 ? '90+' : dpd >= 60 ? '61-90' : dpd >= 30 ? '31-60' : '1-30',
+        outstanding_kobo: rng(10,200)*1_000_000_00,
+        last_contact_at: pick([isoDate(rng(1,14)), null]),
+        agent_name: pick([name(), null]),
+        ptp_date: pick([dateStr(-rng(1,14)), null]),
+        current_stage: pick(['field_collection','legal_notice','out_of_court',null]),
+      } : undefined,
+
+      recovery_case: hasRecovery ? {
+        id: rng(1,999), case_ref: `RC${rng(10000,99999)}`,
+        status: pick(['open','legal','settlement']),
+        outstanding_kobo: rng(50,300)*1_000_000_00,
+        recovered_kobo:   rng(5,50)*1_000_000_00,
+        write_off_amount_kobo: 0,
+        legal_stage: pick([null, 'demand_letter','court_filing','judgment']),
+        agent_name: pick([name(), null]),
+        opened_at: isoDate(rng(30,180)),
+      } : undefined,
+
+      helpdesk_tickets: Array.from({ length: rng(0,3) }, (_, i) => ({
+        id: i+200, ticket_ref: `TKT${rng(10000,99999)}`,
+        subject: pick(['Card declined','Loan repayment query','Account statement request','KYC update','Balance enquiry']),
+        status: pick(['open','in_progress','resolved','closed']),
+        priority: pick(['low','medium','high']),
+        created_at: isoDate(rng(1,90)),
+      })),
+
+      activity_log: Array.from({ length: 6 }, (_, i) => ({
+        id: i+1,
+        type: pick(['call','note','status_change','payment','application']),
+        description: pick([
+          'Loan application submitted', 'KYC documents verified', 'Payment recorded',
+          'Collections call logged — reached', 'Promise to pay set', 'Ticket raised — balance query',
+          'Card issued', 'Account activated', 'DPD bucket updated to 31-60',
+        ]),
+        created_by: name(),
+        created_at: isoDate(rng(0,90)),
+        module: pick(['crm','los','collections','helpdesk','cards','recovery']),
+      })).sort((a,b) => b.created_at.localeCompare(a.created_at)),
+    })
+  }),
+
+  // CRM contact 360 — used by existing ContactDetail page
+  http.get(u('/api/crm/contacts/:id/360'), ({ params }) => {
+    const n = name()
+    return ok({
+      id: Number(params.id), name: n, full_name: n,
+      phone: `080${rng(10000000,99999999)}`,
+      email: `${n.toLowerCase().replace(' ','.')}@example.ng`,
+      status: pick(['prospect','qualified','customer']),
+      assigned_to: name(),
+      company: pick(['MTN Nigeria','Dangote Group','Shell Nigeria','FirstBank',null]),
+      created_at: isoDate(rng(30,180)),
+      notes: pick(['Interested in salary loan product', 'Already has an active loan', null]),
+      deals: Array.from({ length: rng(0,2) }, (_, i) => ({
+        id: i+1, title: `${pick(['Salary Loan','Business Loan'])} — ${n}`,
+        stage: pick(['Prospecting','Proposal','Negotiation']),
+        expected_value_kobo: rng(20,150)*1_000_000_00,
+        expected_close: dateStr(-rng(1,30)),
+      })),
+      activities: Array.from({ length: 4 }, (_, i) => ({
+        id: i+1, type: pick(['call','email','meeting','note']),
+        note: pick(['Follow-up call completed','Email sent with loan details','Meeting scheduled','KYC docs requested']),
+        created_at: isoDate(rng(1,30)), user: name(),
+      })),
+      tasks: Array.from({ length: rng(1,3) }, (_, i) => ({
+        id: i+1, title: pick(['Send loan offer','Follow up on docs','Schedule site visit']),
+        due_date: dateStr(-rng(1,7)),
+        status: pick(['pending','completed']),
+        assigned_to: name(),
+      })),
+    })
+  }),
+  http.post(u('/api/crm/activities'), () => new HttpResponse(null, { status: 204 })),
 ]
 
 // ── Catch-all ─────────────────────────────────────────────────────────────────
@@ -1621,5 +2278,17 @@ export const handlers = [
   ...MAIL,
   ...SETTLEMENTS,
   ...REPORTS,
+  ...BI,
+  ...ADMIN_EXTRA,
+  ...COLLECTIONS_EXTRA,
+  ...COMPLIANCE_EXTRA,
+  ...HR_EXTRA,
+  ...SALES_EXTRA,
+  ...REPORTS_EXTRA,
+  ...DIALER_EXTRA,
+  ...TELEMARKETING_EXTRA,
+  ...MARKETING_EXTRA,
+  ...USER_MISC,
+  ...CONTACTS_EXTRA,
   ...CATCH_ALL,
 ]

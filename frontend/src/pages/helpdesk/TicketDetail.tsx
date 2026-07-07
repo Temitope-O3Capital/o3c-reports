@@ -11,7 +11,7 @@ import { toast } from 'sonner'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 const PRIORITY_COLOR: Record<string, string> = {
-  urgent: RED, high: AMBER, medium: BLUE, low: '#9CA3AF', normal: '#9CA3AF',
+  urgent: RED, high: AMBER, medium: BLUE, low: 'var(--chart-lbl)', normal: 'var(--chart-lbl)',
 }
 
 interface Message {
@@ -572,7 +572,7 @@ export default function TicketDetail() {
 
   const { ticket, messages } = data
   const sla = slaLabel(ticket.sla_due_at)
-  const prColor = PRIORITY_COLOR[ticket.priority?.toLowerCase()] ?? '#9CA3AF'
+  const prColor = PRIORITY_COLOR[ticket.priority?.toLowerCase()] ?? 'var(--chart-lbl)'
 
   // ── Modal footer helper ──────────────────────────────────────────────────────
   const ModalFooter = ({ onConfirm, label, disabled, danger }: { onConfirm: () => void; label: string; disabled?: boolean; danger?: boolean }) => (
@@ -751,6 +751,15 @@ export default function TicketDetail() {
                   ) : null}
                   <DetailRow label="Email" value={ticket.customer_email} />
                   <DetailRow label="CIF" value={ticket.customer_cif} mono />
+                  {ticket.customer_cif && (
+                    <button
+                      onClick={() => navigate(`/contacts/${ticket.customer_cif}`)}
+                      style={{ marginTop: 4, padding: '5px 12px', borderRadius: 6, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    >
+                      <span className="material-symbols-rounded" style={{ fontSize: 14 }}>person</span>
+                      Full profile →
+                    </button>
+                  )}
                   <DetailRow label="Account Status" value={ctx?.cif ? 'Active' : undefined} />
                   <DetailRow label="Other Open Tickets" value={ctx?.other_open_tickets !== undefined ? String(ctx.other_open_tickets) : undefined} />
                   {!ticket.customer_name && !ticket.customer_phone && (

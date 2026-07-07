@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, DataTable, ErrBanner, SearchInput, Modal } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -216,10 +217,17 @@ function ActionCell({ row, onDone }: { row: Cardholder; onDone: () => void }) {
 
 // ── Columns ───────────────────────────────────────────────────────────────────
 
-function makeCols(onDone: () => void): TableCol<Cardholder>[] {
+function makeCols(onDone: () => void, navigate: (path: string) => void): TableCol<Cardholder>[] {
   return [
     { key: 'cif_number', label: 'CIF Number',
-      render: r => <span style={{ ...NUM, fontSize: 12.5, fontWeight: 600, color: NAVY }}>{r.cif_number}</span> },
+      render: r => (
+        <span
+          onClick={() => navigate(`/contacts/${r.cif_number}`)}
+          style={{ ...NUM, fontSize: 12.5, fontWeight: 600, color: NAVY, cursor: 'pointer', textDecoration: 'underline' }}
+        >
+          {r.cif_number}
+        </span>
+      ) },
     { key: 'product_name', label: 'Product',
       render: r => <span style={{ fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA }}>{r.product_name || '—'}</span> },
     { key: 'card_product', label: 'Card Programme',
@@ -258,6 +266,7 @@ const PRODUCTS = ['PREP', 'Amex Naira', 'Amex USD', 'Classic Accounts']
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function CardsManagement() {
+  const navigate = useNavigate()
   const [rows, setRows]       = useState<Cardholder[]>([])
   const [total, setTotal]     = useState(0)
   const [loading, setLoading] = useState(true)
@@ -422,7 +431,7 @@ export default function CardsManagement() {
           </div>
         )}
 
-        <DataTable cols={makeCols(() => load(page))} rows={displayed} keyFn={r => r.cif_number} loading={loading} emptyText="No cardholders found" />
+        <DataTable cols={makeCols(() => load(page), navigate)} rows={displayed} keyFn={r => r.cif_number} loading={loading} emptyText="No cardholders found" />
 
         {/* Pagination */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderTop: '1px solid var(--bdr)' }}>

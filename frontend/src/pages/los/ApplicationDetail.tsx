@@ -847,6 +847,15 @@ export default function ApplicationDetail() {
 
         {/* Action buttons — pushed right */}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {app.applicant_cif && (
+            <button
+              onClick={() => navigate(`/contacts/${app.applicant_cif}`)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', background: 'var(--card)', border: `1px solid ${NAVY}30`, borderRadius: 7, fontSize: 12, fontWeight: 600, color: NAVY, cursor: 'pointer' }}
+            >
+              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>person</span>
+              View profile
+            </button>
+          )}
 
           {/* Risk role actions */}
           {showRiskActions && (

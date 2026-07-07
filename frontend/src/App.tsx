@@ -677,7 +677,7 @@ function C360Bar({ onPick }: { onPick: (r: C360Hit) => void }) {
         flex: 1, maxWidth: 380, marginLeft: 16, position: 'relative', cursor: 'text',
         display: 'flex', alignItems: 'center', gap: 8,
         border: `1px solid ${focused ? '#0EA5E9' : 'var(--bdr)'}`,
-        borderRadius: 4, background: 'var(--card)',
+        borderRadius: 8, background: 'var(--card)',
         padding: '7px 11px', color: 'var(--txt3)',
         transition: 'border-color .12s',
       }}

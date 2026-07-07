@@ -299,7 +299,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
               </a>
             )}
             <button
-              onClick={() => { onClose(); navigate(`/sales/customers/${profile.cif}`) }}
+              onClick={() => { onClose(); navigate(`/contacts/${profile.cif}`) }}
               style={{
                 flex: 1, padding: '7px 14px', borderRadius: 6,
                 border: '1px solid var(--bdr)', background: 'transparent',

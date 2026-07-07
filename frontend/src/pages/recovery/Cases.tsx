@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Page, FilterBar, Tabs, ConfirmModal, ErrBanner, Spinner, Modal,
   filterInputStyle,
@@ -495,6 +496,7 @@ const ACTION_TABS = [
 function DetailPanel({ rc, agents, onAction }: {
   rc: RecoveryCase; agents: AgentUser[]; onAction: () => void
 }) {
+  const navigate = useNavigate()
   const [tab, setTab] = useState('assign')
   const net = rc.outstanding_kobo - rc.recovered_kobo
 
@@ -509,7 +511,15 @@ function DetailPanel({ rc, agents, onAction }: {
             </div>
             <div style={{ fontSize: 12, color: 'var(--txt2)' }}>CIF: {rc.account_cif}</div>
           </div>
-          <StatusPill status={rc.status} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <StatusPill status={rc.status} />
+            <button
+              onClick={() => navigate(`/contacts/${rc.account_cif}`)}
+              style={{ padding: '3px 10px', borderRadius: 6, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Full profile →
+            </button>
+          </div>
         </div>
         <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: 'var(--txt)', marginTop: 10, letterSpacing: '-0.6px' }}>
           {fmtKobo(net)}
