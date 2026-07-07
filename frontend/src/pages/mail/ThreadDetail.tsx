@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import DOMPurify from 'dompurify'
 import { Page, SectionCard, ErrBanner, btnPrimary, btnSecondary } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
@@ -52,7 +53,7 @@ interface MailEvent {
 
 const STATUS_COLOR: Record<string, string> = {
   delivered:    GREEN,
-  opened:       '#10B981',
+  opened:       GREEN,
   clicked:      GREEN,
   sent:         NAVY,
   queued:       '#6B7280',
@@ -214,12 +215,12 @@ export default function MailThreadDetail() {
                   </span>
                 )}
                 {openEvents.length > 0 ? (
-                  <span style={{ fontSize: 12, color: '#10B981', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <span style={{ fontSize: 12, color: GREEN, display: 'flex', alignItems: 'center', gap: 3 }}>
                     <span className="material-symbols-rounded" style={{ fontSize: 14 }}>mail_open</span>
                     Opened {openEvents.length > 1 ? `${openEvents.length}×` : ''} · {fmtDatetime(openEvents[0].occurred_at)}
                   </span>
                 ) : m.opened_at ? (
-                  <span style={{ fontSize: 12, color: '#10B981', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <span style={{ fontSize: 12, color: GREEN, display: 'flex', alignItems: 'center', gap: 3 }}>
                     <span className="material-symbols-rounded" style={{ fontSize: 14 }}>mail_open</span>
                     Opened {fmtDatetime(m.opened_at)}
                   </span>
@@ -250,7 +251,7 @@ export default function MailThreadDetail() {
               {m.html_body ? (
                 <div
                   style={{ fontSize: 13.5, lineHeight: 1.7, color: 'var(--txt)', fontFamily: INTER }}
-                  dangerouslySetInnerHTML={{ __html: m.html_body }}
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(m.html_body) }}
                 />
               ) : (
                 <pre style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--txt)', fontFamily: INTER, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}>
@@ -279,7 +280,7 @@ export default function MailThreadDetail() {
               {/* Each open event */}
               {openEvents.length > 0 ? openEvents.map((ev, i) => (
                 <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 16, color: '#10B981', flexShrink: 0 }}>mail_open</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: 16, color: GREEN, flexShrink: 0 }}>mail_open</span>
                   <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', minWidth: 90 }}>
                     Opened{openEvents.length > 1 ? ` (${i + 1}/${openEvents.length})` : ''}
                   </span>
@@ -287,7 +288,7 @@ export default function MailThreadDetail() {
                 </div>
               )) : m.opened_at ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 16, color: '#10B981', flexShrink: 0 }}>mail_open</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: 16, color: GREEN, flexShrink: 0 }}>mail_open</span>
                   <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', minWidth: 90 }}>Opened</span>
                   <span style={{ fontSize: 12, color: 'var(--txt3)', ...NUM }}>{fmtDatetime(m.opened_at)}</span>
                 </div>
@@ -345,7 +346,7 @@ export default function MailThreadDetail() {
                       {reply.body_html ? (
                         <div
                           style={{ fontSize: 13.5, lineHeight: 1.65, color: 'var(--txt)', fontFamily: INTER }}
-                          dangerouslySetInnerHTML={{ __html: reply.body_html }}
+                          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(reply.body_html) }}
                         />
                       ) : (
                         <pre style={{ fontSize: 13, lineHeight: 1.65, color: 'var(--txt)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, fontFamily: INTER }}>

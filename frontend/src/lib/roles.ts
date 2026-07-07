@@ -84,3 +84,7 @@ export const ROLE_LABELS: Record<string, string> = {
 export function roleLabel(role: string): string {
   return ROLE_LABELS[role] ?? snake(role)
 }
+
+export const MGMT = new Set([
+  'md','coo','cfo','cmo','executive','admin','management','head_ops','head_it','head_hr',
+])

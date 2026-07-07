@@ -9,7 +9,7 @@ import DOMPurify from 'dompurify'
 const NAVY = '#0E2841'
 const BLUE = '#2563EB'
 const RED  = '#C00000'
-const FONT = "'DM Sans', Arial, Helvetica, sans-serif"
+const FONT = "'Inter', Arial, Helvetica, sans-serif"
 const sanitize = (html: string) => DOMPurify.sanitize(html, { USE_PROFILES: { html: true } })
 
 // ── Types ─────────────────────────────────────────────────────────────────────

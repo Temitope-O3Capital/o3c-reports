@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { useLocation, Link, useNavigate } from 'react-router-dom'
-import { roleLabel } from '../lib/roles'
+import { roleLabel, MGMT } from '../lib/roles'
 import { SORA, PLEX, MONO } from '../lib/design'
 import { NAV_ICONS, IcoSearch } from '../lib/icons'
 import type { AuthUser } from '../hooks/useAuth'
@@ -107,7 +107,6 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'support_agent', label: 'Customer Service', to: '/helpdesk',
-        badge: 4,
         vis: [
           'call_center_agent','call_center_head',
           'telemarketing_agent','telemarketing_head',
@@ -159,7 +158,6 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'collections_bookmark', label: 'Collections', to: '/collections',
-        badge: 9, hot: true,
         vis: ['collections_agent','collections_head'],
         subs: [
           { label: 'Overview',        to: '/collections' },
@@ -195,6 +193,7 @@ const SECTIONS: Section[] = [
           { label: 'Transactions',      to: '/finance/transactions' },
           { label: 'Income',            to: '/finance/income' },
           { label: 'Fixed Deposits',    to: '/finance/fixed-deposit' },
+          { label: 'FD Maturity',       to: '/finance/fd-maturity' },
           { label: 'EOD / EOB',         to: '/finance/eod' },
           { label: 'P&L',               to: '/finance/pnl' },
           { label: 'Manual Postings',   to: '/finance/manual-postings' },
@@ -303,9 +302,6 @@ const SECTIONS: Section[] = [
 
 // ── Role visibility ───────────────────────────────────────────────────────────
 
-const MGMT = new Set([
-  'md','coo','cfo','cmo','executive','admin','management','head_ops','head_it','head_hr',
-])
 
 function canSee(vis: NavItem['vis'], role: string): boolean {
   if (MGMT.has(role))  return true

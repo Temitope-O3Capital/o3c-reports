@@ -85,11 +85,11 @@ func fdCreateTransaction(db *core.DB) http.HandlerFunc {
 			TransactionDate string   `json:"transaction_date"`
 			CustomerName    string   `json:"customer_name"`
 			TransactionType string   `json:"transaction_type"` // inflow | liquidation
-			Principal       *float64 `json:"principal"`
-			InterestPaid    *float64 `json:"interest_paid"`
-			GrossAmount     *float64 `json:"gross_amount"`
-			USDAmount       *float64 `json:"usd_amount"`
-			NGNAmount       *float64 `json:"ngn_amount"`
+			Principal       *int64   `json:"principal"`
+			InterestPaid    *int64   `json:"interest_paid"`
+			GrossAmount     *int64   `json:"gross_amount"`
+			USDAmount       *int64   `json:"usd_amount"`
+			NGNAmount       *int64   `json:"ngn_amount"`
 			Currency        string   `json:"currency"`
 			Location        string   `json:"location"`
 			AccountOfficer  string   `json:"account_officer"`

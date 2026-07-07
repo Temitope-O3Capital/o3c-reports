@@ -4,7 +4,7 @@ import { Page, SectionCard, ErrBanner, Spinner, DataTable, Modal, ConfirmModal, 
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, fmtDate } from '../../lib/fmt'
-import { GREEN, AMBER, RED, NAVY, BLUE, NUM, INTER } from '../../lib/design'
+import { GREEN, AMBER, RED, NAVY, BLUE, NUM, INTER, MONO } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -111,7 +111,7 @@ export default function ScheduledReports() {
     )},
     { key: 'cron_expr', label: 'Schedule', render: r => (
       <div>
-        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 600, color: NAVY }}>{r.cron_expr}</div>
+        <div style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: NAVY }}>{r.cron_expr}</div>
         <div style={{ fontSize: 11, color: 'var(--txt3)' }}>{cronLabel(r.cron_expr)}</div>
       </div>
     )},
@@ -189,7 +189,7 @@ export default function ScheduledReports() {
                 Schedule (cron expression) *
               </label>
               <input value={formCron} onChange={e => setFormCron(e.target.value)}
-                placeholder="0 7 * * *" style={{ ...inpStyle, fontFamily: 'DM Mono, monospace' }} />
+                placeholder="0 7 * * *" style={{ ...inpStyle, fontFamily: MONO }} />
               <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
                 {CRON_PRESETS.map(p => (
                   <button key={p.value} onClick={() => setFormCron(p.value)}

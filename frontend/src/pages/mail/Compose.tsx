@@ -18,7 +18,7 @@ interface Draft {
   text_body:  string | null
 }
 
-interface Signature { signature: string | null }
+interface Signature { signature_text: string | null; signature_html: string | null }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +45,7 @@ export default function MailCompose() {
   const [showCc, setShowCc]   = useState(false)
   const [showBcc, setShowBcc] = useState(false)
 
+  const [activeDraftId, setActiveDraftId] = useState<number | null>(draftId ? Number(draftId) : null)
   const [sending, setSending]   = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
   const [err, setErr]           = useState<string | null>(null)
@@ -63,7 +64,7 @@ export default function MailCompose() {
       return
     }
     apiFetch<Signature>('/api/mail/signature')
-      .then(s => { if (s.signature) setBody('\n\n-- \n' + s.signature) })
+      .then(s => { if (s.signature_text) setBody('\n\n-- \n' + s.signature_text) })
       .catch(() => {})
   }, [draftId])
 
@@ -94,8 +95,9 @@ export default function MailCompose() {
         bcc_addrs: bcc ? parseAddresses(bcc) : [],
         text_body: body,
       }
-      if (draftId) payload.id = Number(draftId)
-      await apiPost('/api/mail/drafts', payload)
+      if (activeDraftId) payload.id = activeDraftId
+      const saved = await apiPost<{ id: number }>('/api/mail/drafts', payload)
+      if (saved?.id && !activeDraftId) setActiveDraftId(saved.id)
     } catch (ex: any) { setErr(ex.message) }
     finally { setSavingDraft(false) }
   }

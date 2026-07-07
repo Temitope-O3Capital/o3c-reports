@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
+import DOMPurify from 'dompurify'
 import { ErrBanner } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
-import { NAVY, BLUE, NUM, SORA, MONO } from '../../lib/design'
+import { NAVY, BLUE, RED, NUM, SORA, MONO } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -180,7 +181,7 @@ function ComposeModal({ initialTo, initialSubj, onClose, onSent }: ComposeProps)
             style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: SORA, opacity: saving ? 0.6 : 1 }}>
             {saving ? 'Saving…' : saved ? 'Saved!' : 'Save draft'}
           </button>
-          {err && <span style={{ fontSize: 12, color: '#EF4444' }}>{err}</span>}
+          {err && <span style={{ fontSize: 12, color: RED }}>{err}</span>}
         </div>
       </div>
     </div>
@@ -206,6 +207,7 @@ interface MailItemData {
 
 export default function MailInbox() {
   const location = useLocation()
+  const navigate = useNavigate()
   const folder: Folder = folderFromPath(location.pathname)
 
   const [inbox,  setInbox]   = useState<InboundMessage[]>([])
@@ -322,12 +324,12 @@ export default function MailInbox() {
   // Reader body
   function renderBody() {
     if (folder === 'inbox' && selInbound) {
-      if (selInbound.body_html) return <div style={{ fontSize: 13, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', fontFamily: SORA }} dangerouslySetInnerHTML={{ __html: selInbound.body_html }} />
+      if (selInbound.body_html) return <div style={{ fontSize: 13, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', fontFamily: SORA }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selInbound.body_html) }} />
       return <pre style={{ fontSize: 13, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', whiteSpace: 'pre-line', margin: 0, fontFamily: SORA }}>{selInbound.body_text ?? '(no content)'}</pre>
     }
     if (folder === 'sent') {
       if (bodyLoading) return <div style={{ fontSize: 13, color: 'var(--txt3)', fontFamily: SORA }}>Loading…</div>
-      if (sentDetail?.html_body) return <div style={{ fontSize: 13, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', fontFamily: SORA }} dangerouslySetInnerHTML={{ __html: sentDetail.html_body }} />
+      if (sentDetail?.html_body) return <div style={{ fontSize: 13, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', fontFamily: SORA }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sentDetail.html_body) }} />
       if (sentDetail?.text_body) return <pre style={{ fontSize: 13, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', whiteSpace: 'pre-line', margin: 0, fontFamily: SORA }}>{sentDetail.text_body}</pre>
       return null
     }
@@ -479,6 +481,14 @@ export default function MailInbox() {
                 <span className="material-symbols-rounded" style={{ fontSize: 14 }}>forward</span>
                 Forward
               </button>
+              {folder === 'sent' && selId !== null && (
+                <button
+                  onClick={() => navigate(`/mail/${selId}`)}
+                  style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: SORA, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>open_in_new</span>
+                  Full thread
+                </button>
+              )}
             </div>
           </div>
         ) : (

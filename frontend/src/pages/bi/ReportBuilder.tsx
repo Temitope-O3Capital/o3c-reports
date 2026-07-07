@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner, btnPrimary, btnSecondary } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { GREEN, AMBER, RED, NAVY, BLUE, NUM, INTER } from '../../lib/design'
+import { GREEN, AMBER, RED, NAVY, BLUE, NUM, INTER, MONO } from '../../lib/design'
 import { fmtKobo, fmtNum } from '../../lib/fmt'
 import { toast } from 'sonner'
 
@@ -75,7 +75,7 @@ function PreviewTable({ rows }: { rows: Row[] }) {
                 const isNum = typeof v === 'number'
                 return (
                   <td key={c} style={{ padding: '8px 12px', textAlign: isNum ? 'right' : 'left',
-                    fontFamily: isNum ? 'DM Mono, monospace' : undefined }}>
+                    fontFamily: isNum ? MONO : undefined }}>
                     {isKobo ? fmtKobo(Number(v)) : isNum ? fmtNum(Number(v)) : String(v ?? '—')}
                   </td>
                 )

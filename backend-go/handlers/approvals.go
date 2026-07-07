@@ -122,7 +122,7 @@ func approvalsPending(db *core.DB) http.HandlerFunc {
 			Priority    string `json:"priority"`
 		}
 
-		var items []item
+		items := make([]item, 0)
 
 		// ── LOS applications waiting for this user's stage ───────────────────
 		var losStages []string

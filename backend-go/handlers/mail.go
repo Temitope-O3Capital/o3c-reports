@@ -82,7 +82,7 @@ func RegisterMail(r chi.Router, db *core.DB) {
 	if err := ensureMailSchema(context.Background(), db); err != nil {
 		slog.Warn("Mail schema setup failed", "err", err)
 	}
-	access := core.RequirePages("campaigns", "crm_contacts", "customer_service")
+	access := core.RequirePages("campaigns", "crm_contacts", "customer_service", "mail")
 	admin := core.RequirePages("admin_api_keys")
 	r.With(access).Post("/send", sendSingleMail(db))
 	r.With(access).Get("/messages", listMailMessages(db))
@@ -168,9 +168,8 @@ func listInboundMail(db *core.DB) http.HandlerFunc {
 			       im.body_text, im.body_html, im.is_read, im.received_at,
 			       mm.subject AS original_subject, mm.from_email AS original_from_email
 			FROM inbound_mail im
-			LEFT JOIN mail_messages mm ON mm.id = im.mail_message_id
-			WHERE im.mail_message_id IS NULL
-			   OR mm.created_by=$1
+			JOIN mail_messages mm ON mm.id = im.mail_message_id
+			WHERE mm.created_by=$1
 			   OR mm.recipients::text ILIKE $2
 			ORDER BY im.received_at DESC
 			LIMIT $3`, user.ID, "%"+user.Sub+"%", limit)
@@ -2170,12 +2169,12 @@ func markInboundRead(db *core.DB) http.HandlerFunc {
 		}
 		user := core.UserFromCtx(r.Context())
 		_, _ = db.PGExec(r.Context(), `
-			UPDATE inbound_mail im
-			SET is_read=true
-			FROM mail_messages mm
-			WHERE im.id=$1
-			  AND im.mail_message_id=mm.id
-			  AND (mm.created_by=$2 OR mm.recipients::text ILIKE $3)`,
+			UPDATE inbound_mail SET is_read=true
+			WHERE id=$1
+			  AND (mail_message_id IS NULL
+			       OR mail_message_id IN (
+			           SELECT id FROM mail_messages
+			           WHERE created_by=$2 OR recipients::text ILIKE $3))`,
 			id, user.ID, "%"+user.Sub+"%")
 		w.WriteHeader(http.StatusNoContent)
 	}

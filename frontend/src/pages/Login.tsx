@@ -53,7 +53,7 @@ const LOGIN_CSS = `
     width: 48px;
     height: 58px;
     text-align: center;
-    font-family: 'DM Mono', 'Courier New', monospace;
+    font-family: 'Roboto Mono', 'Courier New', monospace;
     font-size: 22px;
     font-weight: 700;
     color: #0A1929;

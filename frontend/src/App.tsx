@@ -13,9 +13,9 @@ import GlobalSearch     from './components/GlobalSearch'
 import CallWidget       from './components/CallWidget'
 import C360Drawer       from './components/C360Drawer'
 import { type AuthUser, ROLE_PAGES } from './hooks/useAuth'
-import { roleLabel }    from './lib/roles'
-import { API, apiFetch, apiLogout, refreshSession } from './lib/api'
-import { LIGHT, DARK, GREEN, BLUE, NAVY, PLEX, MONO, RED }  from './lib/design'
+import { roleLabel, MGMT } from './lib/roles'
+import { API, apiFetch, apiPost, apiLogout, refreshSession } from './lib/api'
+import { LIGHT, DARK, GREEN, BLUE, NAVY, PLEX, MONO, RED, CANVAS }  from './lib/design'
 import { IcoSearch, IcoApprove, IcoSun, IcoMoon } from './lib/icons'
 import { fmtKobo } from './lib/fmt'
 import { ConfirmModal } from './components/UI'
@@ -64,6 +64,7 @@ const SalesReports   = lazy(() => import('./pages/sales/Reports'))
 const SalesTargets   = lazy(() => import('./pages/sales/Targets'))
 const CRMContacts    = lazy(() => import('./pages/sales/Customers'))
 const CRMContactDetail = lazy(() => import('./pages/sales/ContactDetail'))
+const ContactProfile   = lazy(() => import('./pages/contacts/ContactProfile'))
 const CRMPipelinePg  = lazy(() => import('./pages/sales/CRMPipeline'))
 const CRMTasks       = lazy(() => import('./pages/sales/Tasks'))
 
@@ -224,9 +225,6 @@ function homeFor(role: string): string {
 
 // ── Access guard ──────────────────────────────────────────────────────────────
 
-const MGMT = new Set([
-  'md','coo','cfo','cmo','executive','admin','management','head_ops','head_it','head_hr',
-])
 
 function RequireAccess({ page, user, children }: { page: string; user: AuthUser; children: ReactNode }) {
   const role = user.role as string
@@ -392,14 +390,13 @@ function TbDivider() {
 // ── Approvals dropdown ────────────────────────────────────────────────────────
 
 interface ApprovalItem {
-  id:          number
-  module:      string
-  title:       string
-  entity_name?: string
+  item_id:      number
+  module:       string
+  stage:        string
+  title:        string
+  description?: string
   amount_kobo?: number
-  maker_name?:  string
   requested_by?: string
-  url?:        string
 }
 
 function ApprovalsDropdown({ user }: { user: AuthUser }) {
@@ -407,7 +404,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
   const [open,         setOpen]         = useState(false)
   const [items,        setItems]        = useState<ApprovalItem[]>([])
   const [count,        setCount]        = useState(0)
-  const [acted,        setActed]        = useState<Record<number, 'approved' | 'rejected'>>({})
+  const [acted,        setActed]        = useState<Record<string, 'approved' | 'rejected'>>({})
   const [rejectTarget, setRejectTarget] = useState<ApprovalItem | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [rejectLoading, setRejectLoading] = useState(false)
@@ -418,8 +415,8 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
 
   const loadApprovals = useCallback(() => {
     if (!canApprove) return
-    apiFetch<{ total: number; items: ApprovalItem[] }>('/api/approvals/summary', { silent: true })
-      .then(d => { setCount(d.total ?? 0); setItems(d.items ?? []) })
+    apiFetch<ApprovalItem[]>('/api/approvals/pending', { silent: true })
+      .then(d => { const list = Array.isArray(d) ? d : []; setItems(list); setCount(list.length) })
       .catch(() => {})
   }, [canApprove])
 
@@ -438,23 +435,30 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  async function handleApprove(id: number) {
+  async function handleApprove(item: ApprovalItem) {
+    const key = `${item.module}-${item.item_id}`
     try {
-      await apiFetch(`/api/approvals/${id}/approve`, { method: 'POST' })
-      setActed(a => ({ ...a, [id]: 'approved' }))
+      await apiPost('/api/approvals/batch', {
+        action: 'approve',
+        notes: '',
+        items: [{ module: item.module, item_id: item.item_id }],
+      })
+      setActed(a => ({ ...a, [key]: 'approved' }))
       setCount(c => Math.max(0, c - 1))
     } catch {}
   }
 
   async function handleReject() {
     if (!rejectTarget) return
+    const key = `${rejectTarget.module}-${rejectTarget.item_id}`
     setRejectLoading(true)
     try {
-      await apiFetch(`/api/approvals/${rejectTarget.id}/reject`, {
-        method: 'POST',
-        body: JSON.stringify({ reason: rejectReason }),
+      await apiPost('/api/approvals/batch', {
+        action: 'reject',
+        notes: rejectReason,
+        items: [{ module: rejectTarget.module, item_id: rejectTarget.item_id }],
       })
-      setActed(a => ({ ...a, [rejectTarget.id]: 'rejected' }))
+      setActed(a => ({ ...a, [key]: 'rejected' }))
       setCount(c => Math.max(0, c - 1))
     } catch {}
     setRejectLoading(false)
@@ -524,14 +528,16 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
               <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--txt3)', fontSize: 13, fontFamily: "'Sora', sans-serif" }}>
                 No pending approvals
               </div>
-            ) : items.map(item => (
-              <div key={item.id} style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)' }}>
-                {acted[item.id] ? (
+            ) : items.map(item => {
+              const key = `${item.module}-${item.item_id}`
+              return (
+              <div key={key} style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)' }}>
+                {acted[key] ? (
                   <div style={{
                     fontSize: 12.5, fontWeight: 600, fontFamily: "'Sora', sans-serif",
-                    color: acted[item.id] === 'approved' ? GREEN : RED,
+                    color: acted[key] === 'approved' ? GREEN : RED,
                   }}>
-                    {acted[item.id] === 'approved' ? '✓ Approved' : '✗ Rejected'}
+                    {acted[key] === 'approved' ? '✓ Approved' : '✗ Rejected'}
                     <span style={{ fontWeight: 400, color: 'var(--txt3)', marginLeft: 6 }}>{item.title}</span>
                   </div>
                 ) : (
@@ -540,13 +546,13 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
                       {item.title}
                     </div>
                     <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginBottom: 10, fontFamily: "'Sora', sans-serif", lineHeight: 1.4 }}>
-                      {item.entity_name}
+                      {item.description}
                       {item.amount_kobo != null && <> · <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtKobo(item.amount_kobo)}</span></>}
-                      {(item.maker_name ?? item.requested_by) && <> · raised by {item.maker_name ?? item.requested_by}</>}
+                      {item.requested_by && <> · raised by {item.requested_by}</>}
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button
-                        onClick={() => handleApprove(item.id)}
+                        onClick={() => handleApprove(item)}
                         style={{
                           padding: '4px 14px', borderRadius: 6, border: 'none',
                           background: GREEN, color: '#fff', fontSize: 12, fontWeight: 600,
@@ -569,7 +575,8 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
                   </>
                 )}
               </div>
-            ))}
+              )
+            })}
           </div>
 
           <div style={{ padding: '10px 16px', borderTop: '1px solid var(--bdr)' }}>
@@ -875,6 +882,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/sales/targets"   element={<PageErrorBoundary><SalesTargets /></PageErrorBoundary>} />
                   <Route path="/sales/customers"     element={<PageErrorBoundary><CRMContacts /></PageErrorBoundary>} />
                   <Route path="/sales/customers/:id" element={<PageErrorBoundary><CRMContactDetail /></PageErrorBoundary>} />
+                  <Route path="/contacts/:id"        element={<PageErrorBoundary><ContactProfile /></PageErrorBoundary>} />
                   <Route path="/sales/crm"           element={<PageErrorBoundary><CRMPipelinePg /></PageErrorBoundary>} />
                   <Route path="/sales/tasks"         element={<PageErrorBoundary><CRMTasks /></PageErrorBoundary>} />
 
@@ -1123,7 +1131,7 @@ export default function App() {
     if (import.meta.env.DEV) {
       setUser({
         id: 1, name: 'Temitope Posi', email: 'admin@o3cards.com',
-        role: 'md', pages: [], must_change_password: false,
+        role: (import.meta.env.VITE_DEV_ROLE ?? 'md') as AuthUser['role'], pages: [], must_change_password: false,
       })
       setLoading(false)
       return
@@ -1214,8 +1222,8 @@ export default function App() {
   }
 
   if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F4F6FA' }}>
-      <div style={{ width: 26, height: 26, borderRadius: '50%', border: '2.5px solid rgba(14,40,65,0.12)', borderTopColor: '#C00000', animation: 'spin 0.7s linear infinite' }} />
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: CANVAS }}>
+      <div style={{ width: 26, height: 26, borderRadius: '50%', border: '2.5px solid rgba(14,40,65,0.12)', borderTopColor: RED, animation: 'spin 0.7s linear infinite' }} />
     </div>
   )
 
@@ -1229,7 +1237,7 @@ export default function App() {
   )
 
   if (user.must_change_password) {
-    const LIGHT_LOCAL = { '--bg': '#F4F6FA', '--card': '#FFFFFF', '--txt': '#0F1623', '--txt2': '#798094', '--input-bg': '#F2F4F9', '--input-bdr': '#DDE0EA', '--nav-dot': '#C00000', '--card-shadow': '0 1px 2px rgba(0,0,0,0.04), 0 4px 18px rgba(0,0,0,0.05)' } as React.CSSProperties
+    const LIGHT_LOCAL = { '--bg': CANVAS, '--card': '#FFFFFF', '--txt': '#0F1623', '--txt2': '#798094', '--input-bg': '#F2F4F9', '--input-bdr': '#DDE0EA', '--nav-dot': RED, '--card-shadow': '0 1px 2px rgba(0,0,0,0.04), 0 4px 18px rgba(0,0,0,0.05)' } as React.CSSProperties
     return (
       <>
         <Toaster richColors position="top-right" />

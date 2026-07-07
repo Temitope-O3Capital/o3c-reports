@@ -422,6 +422,7 @@ var RolePages = map[string][]string{
 		"bd", "bd_employers", "bd_pipeline",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
 		"campaigns", "contact_lists", "message_templates", "statements",
+		"mail",
 	},
 	"sales_head": {
 		"overview", "sales", "executive", "uploads", "loans", "credit_portfolio",
@@ -429,7 +430,7 @@ var RolePages = map[string][]string{
 		"bd", "bd_employers", "bd_pipeline",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
 		"campaigns", "contact_lists", "message_templates", "statements",
-		"kpi_dashboard",
+		"kpi_dashboard", "mail",
 	},
 
 	// ── Risk ───────────────────────────────────────────────────────────────────
@@ -619,11 +620,12 @@ var RolePages = map[string][]string{
 	"bd_officer": {
 		"overview", "bd", "bd_employers", "bd_pipeline", "customer360",
 		"crm_contacts", "campaigns", "contact_lists", "message_templates",
+		"mail",
 	},
 	"bd_head": {
 		"overview", "bd", "bd_employers", "bd_pipeline", "customer360",
 		"crm_contacts", "kpi_dashboard", "statements",
-		"campaigns", "contact_lists", "message_templates",
+		"campaigns", "contact_lists", "message_templates", "mail",
 	},
 
 	// ── Payroll ───────────────────────────────────────────────────────────────

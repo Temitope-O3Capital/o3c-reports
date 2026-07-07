@@ -8,7 +8,7 @@ import type React from 'react'
 export const SORA  = "'Sora', ui-sans-serif, sans-serif"
 export const INTER = "'Sora', ui-sans-serif, sans-serif"   // alias → Sora
 export const PLEX  = "'Sora', ui-sans-serif, sans-serif"   // alias → Sora
-export const MONO  = "'Roboto', ui-sans-serif, sans-serif"
+export const MONO  = "'Roboto Mono', 'Courier New', ui-monospace, monospace"
 export const NUM: React.CSSProperties = {
   fontFamily: MONO,
   fontVariantNumeric: 'tabular-nums',
@@ -19,6 +19,7 @@ export const NUM: React.CSSProperties = {
 export const NAVY   = '#0E2841'
 export const RED    = '#C00000'
 export const GREEN  = '#16A34A'
+export const CANVAS = '#FAFBFC'
 export const AMBER  = '#D97706'
 export const BLUE   = '#2563EB'
 export const PURPLE = '#7C3AED'
