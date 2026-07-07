@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { AuthUser } from '../hooks/useAuth'
-import { API } from '../lib/api'
+import { API, storeCsrfToken } from '../lib/api'
 
 // ── CSS (pseudo-selectors + keyframes must live outside inline styles) ─────────
 
@@ -431,14 +431,19 @@ function PanelDivider() {
 interface LoginProps { onLogin: (u: AuthUser) => void }
 
 export default function Login({ onLogin }: LoginProps) {
-  const [email,    setEmail]    = useState('')
-  const [password, setPassword] = useState('')
-  const [step,     setStep]     = useState<'credentials' | 'totp'>('credentials')
-  const [mfaToken, setMfaToken] = useState('')
-  const [loading,  setLoading]  = useState(false)
-  const [err,      setErr]      = useState('')
-  const [shake,    setShake]    = useState(false)
-  const [wide,     setWide]     = useState(window.innerWidth >= 900)
+  const [email,        setEmail]        = useState('')
+  const [password,     setPassword]     = useState('')
+  const [step,         setStep]         = useState<'credentials' | 'totp'>('credentials')
+  const [mfaToken,     setMfaToken]     = useState('')
+  const [loading,      setLoading]      = useState(false)
+  const [err,          setErr]          = useState('')
+  const [shake,        setShake]        = useState(false)
+  const [wide,         setWide]         = useState(window.innerWidth >= 900)
+  const [forgotMode,   setForgotMode]   = useState(false)
+  const [forgotEmail,  setForgotEmail]  = useState('')
+  const [forgotDone,   setForgotDone]   = useState(false)
+  const [forgotLoad,   setForgotLoad]   = useState(false)
+  const [forgotErr,    setForgotErr]    = useState('')
 
   const greeting = (() => {
     const h = new Date().getHours()
@@ -465,6 +470,24 @@ export default function Login({ onLogin }: LoginProps) {
     setErr(msg)
     setShake(true)
     setTimeout(() => setShake(false), 560)
+  }
+
+  async function handleForgotPassword(e: React.FormEvent) {
+    e.preventDefault()
+    if (!forgotEmail.trim()) { setForgotErr('Please enter your work email'); return }
+    setForgotLoad(true); setForgotErr('')
+    try {
+      await fetch(`${API}/api/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.trim() }),
+      })
+      setForgotDone(true)
+    } catch {
+      setForgotErr('Network error — please try again')
+    } finally {
+      setForgotLoad(false)
+    }
   }
 
   async function handleCredentials(e: React.FormEvent) {
@@ -509,6 +532,7 @@ export default function Login({ onLogin }: LoginProps) {
   }
 
   function finalise(data: any) {
+    if (data.csrf_token) storeCsrfToken(data.csrf_token)
     const user: AuthUser = {
       id:                   data.user.id,
       name:                 data.user.name,
@@ -584,7 +608,7 @@ export default function Login({ onLogin }: LoginProps) {
           )}
 
           {/* ── Credentials step ── */}
-          {step === 'credentials' && (
+          {step === 'credentials' && !forgotMode && (
             <>
               <div style={{ marginBottom: 32, animation: 'o3rise 340ms cubic-bezier(0.4,0,0.2,1) both' }}>
                 <h1 style={{ fontSize: 26, fontWeight: 800, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.6px', lineHeight: 1.2 }}>
@@ -627,11 +651,53 @@ export default function Login({ onLogin }: LoginProps) {
                 </div>
 
                 <div style={{ textAlign: 'center', marginTop: 20 }}>
-                  <button type="button" className="o3-ghost">
+                  <button type="button" className="o3-ghost" onClick={() => { setForgotMode(true); setForgotEmail(email); setForgotErr(''); setForgotDone(false) }}>
                     Forgot your password?
                   </button>
                 </div>
               </form>
+            </>
+          )}
+
+          {/* ── Forgot password step ── */}
+          {forgotMode && (
+            <>
+              <div style={{ marginBottom: 28, animation: 'o3rise 300ms cubic-bezier(0.4,0,0.2,1) both' }}>
+                <h1 style={{ fontSize: 22, fontWeight: 800, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.5px' }}>
+                  Reset your password
+                </h1>
+                <p style={{ fontSize: 13.5, color: txtSecondary, margin: 0, lineHeight: 1.65 }}>
+                  {forgotDone
+                    ? "Check your inbox. If that email is registered, a temporary password has been sent. Use it to log in, then change your password in Settings."
+                    : "Enter your work email and we'll send you a temporary password."}
+                </p>
+              </div>
+
+              {!forgotDone && (
+                <form onSubmit={handleForgotPassword} noValidate>
+                  <FloatingField
+                    id="forgot-email"
+                    label="Work email"
+                    type="email"
+                    value={forgotEmail}
+                    onChange={setForgotEmail}
+                    autoFocus
+                    autoComplete="email"
+                  />
+                  <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 11 }}>
+                    {forgotErr && <ErrorMsg msg={forgotErr} />}
+                    <PrimaryBtn loading={forgotLoad}>
+                      <span>Send temporary password</span>
+                    </PrimaryBtn>
+                  </div>
+                </form>
+              )}
+
+              <div style={{ textAlign: 'center', marginTop: 20 }}>
+                <button type="button" className="o3-ghost" onClick={() => { setForgotMode(false); setForgotDone(false); setForgotErr('') }}>
+                  ← Back to sign in
+                </button>
+              </div>
             </>
           )}
 

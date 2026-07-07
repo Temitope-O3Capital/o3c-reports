@@ -36,7 +36,9 @@ func cookieAttrs(r *http.Request) (bool, http.SameSite) {
 
 // setAuthCookie writes the 30-min access token as an HttpOnly cookie and a matching
 // CSRF token in a readable (non-HttpOnly) cookie for the double-submit pattern.
-func setAuthCookie(w http.ResponseWriter, r *http.Request, token string) {
+// It returns the CSRF token value so callers can include it in the response body
+// for cross-origin clients that cannot read the cookie via document.cookie.
+func setAuthCookie(w http.ResponseWriter, r *http.Request, token string) string {
 	secure, sameSite := cookieAttrs(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "o3c_token",
@@ -57,6 +59,7 @@ func setAuthCookie(w http.ResponseWriter, r *http.Request, token string) {
 		Secure:   secure,
 		SameSite: sameSite,
 	})
+	return csrf
 }
 
 // setRefreshCookie writes the 7-day refresh token as an HttpOnly cookie.
@@ -164,6 +167,7 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 	type response struct {
 		AccessToken string         `json:"access_token"`
 		TokenType   string         `json:"token_type"`
+		CsrfToken   string         `json:"csrf_token"`
 		User        map[string]any `json:"user"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -271,7 +275,7 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		setAuthCookie(w, r, token)
+		csrfTok := setAuthCookie(w, r, token)
 
 		refreshTok, err := core.CreateRefreshToken(toInt64(u["id"]))
 		if err != nil {
@@ -285,6 +289,7 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 		json.NewEncoder(w).Encode(response{ //nolint:errcheck
 			AccessToken: token,
 			TokenType:   "bearer",
+			CsrfToken:   csrfTok,
 			User: map[string]any{
 				"id":                   u["id"],
 				"email":                str(u["email"]),
@@ -353,12 +358,13 @@ func refreshHandler(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		setAuthCookie(w, r, token)
+		csrfTok := setAuthCookie(w, r, token)
 		setRefreshCookie(w, r, newRefresh)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"access_token": token,
 			"token_type":   "bearer",
+			"csrf_token":   csrfTok,
 		})
 	}
 }

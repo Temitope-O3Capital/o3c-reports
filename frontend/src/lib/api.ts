@@ -1,8 +1,16 @@
 export const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 export function getCsrfToken(): string {
+  // Prefer localStorage — works cross-origin (Cloudflare Pages ↔ Railway).
+  // Fall back to document.cookie for same-origin dev environments.
+  const stored = localStorage.getItem('o3c_csrf')
+  if (stored) return stored
   const m = document.cookie.match(/(?:^|;\s*)o3c_csrf=([^;]+)/)
   return m ? decodeURIComponent(m[1]) : ''
+}
+
+export function storeCsrfToken(token: string) {
+  if (token) localStorage.setItem('o3c_csrf', token)
 }
 
 // Singleton promise prevents multiple simultaneous refresh calls.
@@ -15,7 +23,12 @@ async function doRefresh(): Promise<boolean> {
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
     })
-    return res.ok
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}))
+      if (data.csrf_token) storeCsrfToken(data.csrf_token)
+      return true
+    }
+    return false
   } catch {
     return false
   }
@@ -30,6 +43,7 @@ export async function refreshSession(): Promise<boolean> {
 
 function signOut() {
   localStorage.removeItem('o3c_user')
+  localStorage.removeItem('o3c_csrf')
   fetch(`${API}/api/auth/logout`, {
     method: 'POST',
     credentials: 'include',
@@ -40,6 +54,7 @@ function signOut() {
 
 export async function apiLogout(): Promise<void> {
   localStorage.removeItem('o3c_user')
+  localStorage.removeItem('o3c_csrf')
   try {
     await fetch(`${API}/api/auth/logout`, {
       method: 'POST',

@@ -257,7 +257,7 @@ func mfaChallenge(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		setAuthCookie(w, r, token)
+		csrfTok := setAuthCookie(w, r, token)
 
 		refreshTok, refErr := core.CreateRefreshToken(toInt64(u["id"]))
 		if refErr != nil {
@@ -271,6 +271,7 @@ func mfaChallenge(db *core.DB) http.HandlerFunc {
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"access_token": token,
 			"token_type":   "bearer",
+			"csrf_token":   csrfTok,
 			"user": map[string]any{
 				"id":                   u["id"],
 				"email":                str(u["email"]),
