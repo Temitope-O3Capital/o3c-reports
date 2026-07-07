@@ -251,6 +251,9 @@ func main() {
 		r.Route("/api/crm", func(r chi.Router) {
 			handlers.RegisterCRM(r, db)
 		})
+		r.Route("/api/contacts", func(r chi.Router) {
+			handlers.RegisterContactProfile(r, db)
+		})
 		r.Route("/api/cohort", func(r chi.Router) {
 			handlers.RegisterCohort(r, db)
 		})

@@ -105,6 +105,7 @@ const HelpdeskCalls       = lazy(() => import('./pages/helpdesk/Calls'))
 const HelpdeskStats       = lazy(() => import('./pages/helpdesk/Stats'))
 const HelpdeskKB          = lazy(() => import('./pages/helpdesk/KnowledgeBase'))
 const HelpdeskCanned      = lazy(() => import('./pages/helpdesk/Canned'))
+const HelpdeskNewTicket   = lazy(() => import('./pages/helpdesk/NewTicket'))
 
 // Cards
 const CardsOverview    = lazy(() => import('./pages/cards/Overview'))
@@ -332,6 +333,12 @@ function HeadTitles() {
   )
 }
 
+
+// Wraps the modal-shaped NewTicket form for standalone page routing
+function NewTicketPage() {
+  const nav = useNavigate()
+  return <HelpdeskNewTicket onClose={() => nav(-1)} onCreated={id => nav(`/helpdesk/${id}`)} />
+}
 
 // ── TopBar icon button ─────────────────────────────────────────────────────────
 
@@ -911,6 +918,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/helpdesk/stats"          element={<PageErrorBoundary><HelpdeskStats /></PageErrorBoundary>} />
                   <Route path="/helpdesk/knowledge-base" element={<PageErrorBoundary><HelpdeskKB /></PageErrorBoundary>} />
                   <Route path="/helpdesk/canned"         element={<PageErrorBoundary><HelpdeskCanned /></PageErrorBoundary>} />
+                  <Route path="/helpdesk/new"            element={<PageErrorBoundary><NewTicketPage /></PageErrorBoundary>} />
                   <Route path="/helpdesk/:id"            element={<PageErrorBoundary><HelpdeskTicketDetail /></PageErrorBoundary>} />
 
                   {/* Cards */}

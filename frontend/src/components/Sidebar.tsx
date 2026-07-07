@@ -113,6 +113,7 @@ const SECTIONS: Section[] = [
           'sales_officer','sales_head','bd_officer','bd_head',
         ],
         subs: [
+          { label: 'New Ticket',       to: '/helpdesk/new' },
           { label: 'All Tickets',      to: '/helpdesk/tickets' },
           { label: 'Call Log',         to: '/helpdesk/calls' },
           { label: 'Supervisor',       to: '/helpdesk/supervisor' },
