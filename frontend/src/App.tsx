@@ -646,12 +646,10 @@ function C360Bar({ onPick }: { onPick: (r: C360Hit) => void }) {
     if (val.trim().length < 2) { setResults([]); setShow(false); return }
     debounce.current = setTimeout(async () => {
       try {
-        const token = localStorage.getItem('token') ?? ''
-        const res = await fetch(`/api/customer360/search?q=${encodeURIComponent(val.trim())}&limit=6`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        const data = res.ok ? await res.json() : { data: [] }
-        const hits: C360Hit[] = (data?.data ?? []).map((r: C360Hit) => ({ cif: r.cif, name: r.name, phone: r.phone, email: r.email }))
+        const data = await apiFetch<{ data: C360Hit[] }>(`/api/customer360/search?q=${encodeURIComponent(val.trim())}&limit=6`)
+        const hits: C360Hit[] = (data?.data ?? []).map((r: any) => ({
+          cif: r.cif, name: r.name ?? r.full_name, phone: r.phone, email: r.email ?? '',
+        }))
         setResults(hits)
         setShow(true)
       } catch {
@@ -1024,6 +1022,8 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
                   {/* Mail */}
                   <Route path="/mail/inbox"   element={<PageErrorBoundary><MailInbox /></PageErrorBoundary>} />
+                  <Route path="/mail/sent"    element={<PageErrorBoundary><MailInbox /></PageErrorBoundary>} />
+                  <Route path="/mail/drafts"  element={<PageErrorBoundary><MailInbox /></PageErrorBoundary>} />
                   <Route path="/mail/compose" element={<PageErrorBoundary><MailCompose /></PageErrorBoundary>} />
                   <Route path="/mail/:id"     element={<PageErrorBoundary><MailThread /></PageErrorBoundary>} />
 
