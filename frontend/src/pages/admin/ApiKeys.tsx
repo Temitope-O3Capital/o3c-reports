@@ -248,7 +248,7 @@ export default function AdminApiKeys() {
           { label: 'Missing Value', value: missingCount, color: missingCount > 0 ? RED : GREEN },
           { label: 'Failed Tests',  value: failedCount,  color: failedCount > 0 ? RED : GREEN },
         ].map(({ label, value, color }) => (
-          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '14px 16px' }}>
+          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '14px 16px' }}>
             <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 6 }}>{label}</div>
             <div style={{ ...NUM, fontSize: 20, fontWeight: 700, color }}>{value}</div>
           </div>

@@ -127,7 +127,7 @@ function ModuleTile({
         gap: 0,
         padding: '20px 20px 18px',
         borderRadius: 14,
-        border: `1.5px solid ${hovered ? accent + '50' : 'var(--card-bdr)'}`,
+        border: `1.5px solid ${hovered ? accent + '50' : 'var(--bdr)'}`,
         background: hovered ? `${accent}07` : 'var(--card)',
         cursor: 'pointer',
         textAlign: 'left',
@@ -305,7 +305,7 @@ export default function AdminOverview() {
             Recent Activity
           </div>
           <div style={{
-            background: 'var(--card)', border: '1.5px solid var(--card-bdr)',
+            background: 'var(--card)', border: '1.5px solid var(--bdr)',
             borderRadius: 14, padding: '16px 18px',
           }}>
             <ActivityFeed activity={activity} loading={loading} />
@@ -320,7 +320,7 @@ export default function AdminOverview() {
               { label: 'Roles in Use', value: [...new Set(users.map(u => u.role))].length, color: NAVY },
             ].map(({ label, value, color }) => (
               <div key={label} style={{
-                background: 'var(--card)', border: '1.5px solid var(--card-bdr)',
+                background: 'var(--card)', border: '1.5px solid var(--bdr)',
                 borderRadius: 10, padding: '12px 14px',
               }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>

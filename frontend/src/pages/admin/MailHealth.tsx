@@ -39,7 +39,7 @@ interface Deliverability {
 
 function MetricCard({ label, value, pct, color }: { label: string; value: number; pct?: number; color: string }) {
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '14px 16px' }}>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '14px 16px' }}>
       <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 6 }}>{label}</div>
       <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color }}>{fmtNum(value)}</div>
       {pct !== undefined && (

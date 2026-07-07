@@ -127,7 +127,7 @@ export default function AdminSyncStatus() {
           { label: 'Success Rate', value: `${successRate}%`, color: successRate >= 80 ? GREEN : successRate >= 50 ? AMBER : RED },
           { label: 'Last Rows', value: lastRun ? fmtNum(lastRun.rows_synced) : '—' },
         ].map(({ label, value, color }) => (
-          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '14px 16px' }}>
+          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '14px 16px' }}>
             <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 6 }}>{label}</div>
             <div style={{ ...NUM, fontSize: 20, fontWeight: 700, color: color ?? 'var(--txt)' }}>{value}</div>
           </div>
