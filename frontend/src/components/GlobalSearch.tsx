@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { SORA, MONO } from '../lib/design'
+import { apiFetch } from '../lib/api'
 
 interface SearchResult {
   type:  'contact' | 'application' | 'ticket' | 'customer'
@@ -44,13 +45,8 @@ export default function GlobalSearch({ open, onClose }: Props) {
     setLoading(true)
     debounce.current = setTimeout(async () => {
       try {
-        const token = localStorage.getItem('token') ?? ''
-        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (!res.ok) throw new Error()
-        const data: SearchResult[] = await res.json()
-        setResults(data)
+        const data = await apiFetch<SearchResult[]>(`/api/search?q=${encodeURIComponent(q)}`)
+        setResults(Array.isArray(data) ? data : [])
       } catch {
         setResults([])
       } finally {
