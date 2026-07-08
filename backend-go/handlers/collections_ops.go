@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -298,7 +301,8 @@ func collectionsOpsBrokenPromise(db *core.DB) http.HandlerFunc {
 			p := pRows[0]
 			agentID := toInt64(p["agent_user_id"])
 			cif := str(p["cif_number"])
-			go Notify(r.Context(), db, NotifPayload{
+			// Use context.Background() so the notification goroutine outlives the HTTP handler.
+			go Notify(context.Background(), db, NotifPayload{
 				EventType: EvtPTPBroken,
 				UserID:    agentID,
 				Title:     "PTP broken — " + cif,
@@ -306,7 +310,7 @@ func collectionsOpsBrokenPromise(db *core.DB) http.HandlerFunc {
 				ActionURL: "/collections",
 				EntityRef: fmt.Sprint(pid),
 			})
-			go NotifyRole(r.Context(), db, "collections_head", NotifPayload{
+			go NotifyRole(context.Background(), db, "collections_head", NotifPayload{
 				EventType: EvtPTPBroken,
 				Title:     "PTP broken — " + cif,
 				Body:      fmt.Sprintf("Customer %s missed their promise-to-pay due %v.", cif, p["promised_date"]),
@@ -393,19 +397,20 @@ func collectionsOpsUpsertTarget(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// Write to the same table that collectionsOpsTargets reads from.
 		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO collection_targets
-				(agent_user_id, target_date, target_amount_kobo, collected_amount_kobo,
+			INSERT INTO collections_daily_kpi
+				(agent_user_id, kpi_date, target_amount_kobo, amount_collected_kobo,
 				 contacts_made, promises_obtained, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-			ON CONFLICT (agent_user_id, target_date) DO UPDATE SET
-				target_amount_kobo   = EXCLUDED.target_amount_kobo,
-				collected_amount_kobo = EXCLUDED.collected_amount_kobo,
-				contacts_made        = EXCLUDED.contacts_made,
-				promises_obtained    = EXCLUDED.promises_obtained,
-				updated_at           = NOW()
-			RETURNING id, agent_user_id, target_date, target_amount_kobo,
-			          collected_amount_kobo, contacts_made, promises_obtained`,
+			ON CONFLICT (agent_user_id, kpi_date) DO UPDATE SET
+				target_amount_kobo    = EXCLUDED.target_amount_kobo,
+				amount_collected_kobo = EXCLUDED.amount_collected_kobo,
+				contacts_made         = EXCLUDED.contacts_made,
+				promises_obtained     = EXCLUDED.promises_obtained,
+				updated_at            = NOW()
+			RETURNING id, agent_user_id, kpi_date AS target_date, target_amount_kobo,
+			          amount_collected_kobo AS collected_amount_kobo, contacts_made, promises_obtained`,
 			b.AgentUserID, b.TargetDate, b.TargetAmountKobo, b.CollectedAmountKobo,
 			b.ContactsMade, b.PromisesObtained)
 		if err != nil {
@@ -642,28 +647,62 @@ func collectionsOpsCreatePlan(db *core.DB) http.HandlerFunc {
 		AmountKobo int64  `json:"amount_kobo"`
 	}
 	type body struct {
-		AccountCIF   string       `json:"account_cif"`
-		CustomerName string       `json:"customer_name"`
-		Notes        string       `json:"notes"`
-		Instalments  []instalment `json:"instalments"`
+		AccountCIF       string       `json:"account_cif"`
+		CustomerName     string       `json:"customer_name"`
+		Notes            string       `json:"notes"`
+		// Flat form: frontend sends total + count + first date; backend generates monthly dates.
+		TotalKobo        int64        `json:"total_kobo"`
+		InstalmentCount  int          `json:"instalment_count"`
+		FirstPaymentDate string       `json:"first_payment_date"`
+		// Explicit form: caller may send a pre-built instalment schedule.
+		Instalments      []instalment `json:"instalments"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
 		var b body
-		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.AccountCIF == "" || len(b.Instalments) == 0 {
-			respondErr(w, 400, "account_cif and at least one instalment required"); return
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.AccountCIF == "" {
+			respondErr(w, 400, "account_cif is required"); return
+		}
+
+		// Build instalment schedule from flat form when no explicit list is provided.
+		instalments := b.Instalments
+		if len(instalments) == 0 {
+			if b.TotalKobo == 0 || b.InstalmentCount < 1 || b.FirstPaymentDate == "" {
+				respondErr(w, 400, "total_kobo, instalment_count, and first_payment_date are required when instalments list is omitted"); return
+			}
+			firstDate, err := time.Parse("2006-01-02", b.FirstPaymentDate)
+			if err != nil {
+				respondErr(w, 400, "invalid first_payment_date: use YYYY-MM-DD"); return
+			}
+			base := b.TotalKobo / int64(b.InstalmentCount)
+			remainder := b.TotalKobo - base*int64(b.InstalmentCount)
+			instalments = make([]instalment, b.InstalmentCount)
+			for i := range instalments {
+				amt := base
+				if i == len(instalments)-1 {
+					amt += remainder // last instalment absorbs the rounding remainder
+				}
+				instalments[i] = instalment{
+					DueDate:    firstDate.AddDate(0, i, 0).Format("2006-01-02"),
+					AmountKobo: amt,
+				}
+			}
+		}
+
+		// Guard: reject if an active plan already exists for this account.
+		existing, _ := db.PGQuery(ctx,
+			`SELECT id FROM repayment_plans WHERE account_cif=$1 AND status='Active' LIMIT 1`,
+			b.AccountCIF)
+		if len(existing) > 0 {
+			respondErr(w, 409, "An active repayment plan already exists for this account"); return
 		}
 
 		total := int64(0)
-		for _, i := range b.Instalments {
+		for _, i := range instalments {
 			total += i.AmountKobo
 		}
 
-		var nextDate any
-		if len(b.Instalments) > 0 {
-			nextDate = b.Instalments[0].DueDate
-		}
 		ns := func(s string) any {
 			if s == "" { return nil }
 			return s
@@ -673,18 +712,30 @@ func collectionsOpsCreatePlan(db *core.DB) http.HandlerFunc {
 			`INSERT INTO repayment_plans
 			   (account_cif, customer_name, agent_user_id, total_kobo, instalment_count, next_payment_date, notes)
 			 VALUES ($1,$2,$3,$4,$5,$6::date,$7) RETURNING id`,
-			b.AccountCIF, ns(b.CustomerName), user.ID, total, len(b.Instalments), nextDate, ns(b.Notes))
+			b.AccountCIF, ns(b.CustomerName), user.ID, total, len(instalments), instalments[0].DueDate, ns(b.Notes))
 		if err != nil {
 			respondErr(w, 500, "Plan creation failed"); return
 		}
 		planID := planRows[0]["id"]
 
-		for i, inst := range b.Instalments {
-			db.PGExec(ctx, //nolint:errcheck
+		for i, inst := range instalments {
+			if _, iErr := db.PGExec(ctx,
 				`INSERT INTO repayment_instalments (plan_id, instalment_number, due_date, amount_kobo)
 				 VALUES ($1,$2,$3::date,$4)`,
-				planID, i+1, inst.DueDate, inst.AmountKobo)
+				planID, i+1, inst.DueDate, inst.AmountKobo); iErr != nil {
+				slog.Error("repayment instalment insert failed", "plan_id", planID, "num", i+1, "err", iErr)
+			}
 		}
+
+		// Notify the creating agent that their plan is live.
+		go Notify(context.Background(), db, NotifPayload{
+			EventType: "repayment_plan_created",
+			UserID:    user.ID,
+			Title:     "Repayment plan created — " + b.AccountCIF,
+			Body:      fmt.Sprintf("Account %s: %d-instalment plan for ₦%.2f created.", b.AccountCIF, len(instalments), float64(total)/100),
+			ActionURL: "/collections/repayment-plans",
+			EntityRef: fmt.Sprint(planID),
+		})
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -749,7 +800,9 @@ func collectionsOpsListPromises(db *core.DB) http.HandlerFunc {
 		dateFrom, _ := validDate(r, "date_from")
 		dateTo, _   := validDate(r, "date_to")
 		status      := qstr(r, "status")
-		limit       := qint(r, "limit", 200, 1, 500)
+		q           := qstr(r, "q")
+		limit       := qint(r, "limit", 100, 1, 500)
+		offset      := qint(r, "offset", 0, 0, 1<<30)
 
 		query := `
 			SELECT
@@ -796,9 +849,13 @@ func collectionsOpsListPromises(db *core.DB) http.HandlerFunc {
 				query += " AND cp.is_kept = FALSE"
 			}
 		}
+		if q != "" {
+			query += fmt.Sprintf(" AND (cp.cif_number ILIKE $%d OR u.full_name ILIKE $%d)", n, n)
+			args = append(args, "%"+q+"%"); n++
+		}
 
-		query += fmt.Sprintf(" ORDER BY cp.promised_date ASC LIMIT $%d", n)
-		args = append(args, limit)
+		query += fmt.Sprintf(" ORDER BY cp.promised_date ASC LIMIT $%d OFFSET $%d", n, n+1)
+		args = append(args, limit, offset)
 
 		rows, err := db.PGQuery(ctx, query, args...)
 		if err != nil {
@@ -820,6 +877,7 @@ func collectionsOpsListWriteoffs(db *core.DB) http.HandlerFunc {
 		dateTo, _   := validDate(r, "date_to")
 		dpdRange    := qstr(r, "dpd_range")
 		limit       := qint(r, "limit", 100, 1, 500)
+		offset      := qint(r, "offset", 0, 0, 1<<30)
 
 		query := `
 			SELECT
@@ -859,8 +917,8 @@ func collectionsOpsListWriteoffs(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		query += fmt.Sprintf(" ORDER BY wo.created_at DESC LIMIT $%d", n)
-		args = append(args, limit)
+		query += fmt.Sprintf(" ORDER BY wo.created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
+		args = append(args, limit, offset)
 
 		rows, err := db.PGQuery(ctx, query, args...)
 		if err != nil {
@@ -899,6 +957,15 @@ func collectionsOpsApproveWriteoff(db *core.DB) http.HandlerFunc {
 		if err != nil {
 			respondErr(w, 500, "Approve failed"); return
 		}
+
+		// Notify finance_head that a write-off has been approved and needs GL posting.
+		go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
+			EventType: "writeoff_approved",
+			Title:     "Write-off approved — action required",
+			Body:      fmt.Sprintf("Write-off #%d approved by %s. Please post the GL entry.", id, user.FullName),
+			ActionURL: "/collections/writeoff-queue",
+			EntityRef: fmt.Sprint(id),
+		})
 		respondErr(w, 200, "Write-off approved")
 	}
 }
@@ -951,6 +1018,14 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 			if err == nil && len(res) > 0 {
 				count++
 			}
+		}
+		if count > 0 {
+			go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
+				EventType: "writeoff_approved",
+				Title:     fmt.Sprintf("%d write-off(s) bulk approved — action required", count),
+				Body:      fmt.Sprintf("%d write-off(s) approved by %s. Please post GL entries.", count, user.FullName),
+				ActionURL: "/collections/writeoff-queue",
+			})
 		}
 		respond(w, map[string]any{"approved": count}, "json")
 	}

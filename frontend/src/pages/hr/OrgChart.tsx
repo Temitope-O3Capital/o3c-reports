@@ -114,8 +114,8 @@ export default function OrgChart() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const flat = await apiFetch<OrgNode[]>('/api/hr/org-chart')
-      setNodes(flat)
+      const res = await apiFetch<{ data: OrgNode[] }>('/api/hr/org-chart')
+      setNodes(Array.isArray(res.data) ? res.data : [])
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])

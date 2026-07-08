@@ -79,11 +79,11 @@ export default function Leave() {
       if (typeFilter)   p.set('leave_type', typeFilter)
       if (statusFilter) p.set('status', statusFilter)
       const [ls, ts] = await Promise.all([
-        apiFetch<Leave[]>(`/api/hr/leave?${p}`),
-        apiFetch<LeaveType[]>('/api/hr/leave-types'),
+        apiFetch<{ data: Leave[] }>(`/api/hr/leave?${p}`),
+        apiFetch<{ data: LeaveType[] }>('/api/hr/leave-types'),
       ])
-      setLeaves(Array.isArray(ls) ? ls : [])
-      setLeaveTypes(Array.isArray(ts) ? ts : [])
+      setLeaves(Array.isArray(ls.data) ? ls.data : [])
+      setLeaveTypes(Array.isArray(ts.data) ? ts.data : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
   }, [typeFilter, statusFilter])

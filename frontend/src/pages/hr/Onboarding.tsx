@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
 import { GREEN, AMBER, NAVY, BLUE, INTER } from '../../lib/design'
 import { toast } from 'sonner'
@@ -62,11 +62,12 @@ export default function Onboarding() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const [emp, chk] = await Promise.all([
-        apiFetch<Employee>(`/api/hr/employees/${id}`),
-        apiFetch<ChecklistItem[]>(`/api/hr/employees/${id}/onboarding`),
+      const [empRes, chkRes] = await Promise.all([
+        apiFetch<{ data: Employee }>(`/api/hr/employees/${id}`),
+        apiFetch<{ data: ChecklistItem[] }>(`/api/hr/employees/${id}/onboarding`),
       ])
-      setEmployee(emp); setItems(chk)
+      setEmployee(empRes.data)
+      setItems(Array.isArray(chkRes.data) ? chkRes.data : [])
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [id])
@@ -76,12 +77,7 @@ export default function Onboarding() {
   async function initChecklist() {
     setIniting(true)
     try {
-      const token = localStorage.getItem('token') ?? ''
-      await fetch(`/api/hr/employees/${id}/onboarding`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({}),
-      })
+      await apiPost(`/api/hr/employees/${id}/onboarding`, {})
       toast.success('Onboarding checklist initialised')
       load()
     } catch (e: any) { toast.error(e.message) }
@@ -91,11 +87,8 @@ export default function Onboarding() {
   async function updateItem(itemId: number, status: string) {
     setUpdating(itemId)
     try {
-      const token = localStorage.getItem('token') ?? ''
-      await fetch(`/api/hr/employees/${id}/onboarding/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ status }),
+      await apiFetch(`/api/hr/employees/${id}/onboarding/${itemId}`, {
+        method: 'PATCH', body: JSON.stringify({ status }),
       })
       setItems(prev => prev.map(i => i.id === itemId ? { ...i, status } : i))
     } catch (e: any) { toast.error(e.message) }

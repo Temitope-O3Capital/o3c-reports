@@ -88,8 +88,8 @@ export default function Disciplinary() {
       const p = new URLSearchParams()
       if (typeFilter)   p.set('case_type', typeFilter)
       if (statusFilter) p.set('status', statusFilter)
-      const data = await apiFetch<DisciplinaryCase[]>(`/api/hr/disciplinary?${p}`)
-      setCases(Array.isArray(data) ? data : [])
+      const res = await apiFetch<{ data: DisciplinaryCase[] }>(`/api/hr/disciplinary?${p}`)
+      setCases(Array.isArray(res.data) ? res.data : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
   }, [typeFilter, statusFilter])
@@ -100,7 +100,10 @@ export default function Disciplinary() {
     if (!form.employee_id || !form.incident_date || !form.case_type) { toast.error('Required fields missing'); return }
     setSaving(true)
     try {
-      await apiPost('/api/hr/disciplinary', form)
+      await apiPost('/api/hr/disciplinary', {
+        ...form,
+        employee_id: Number(form.employee_id),
+      })
       toast.success('Case created')
       setNewOpen(false); setForm(BLANK); load()
     } catch (e: any) { toast.error(e.message) }
@@ -109,8 +112,10 @@ export default function Disciplinary() {
 
   async function openDetail(c: DisciplinaryCase) {
     try {
-      const full = await apiFetch<DisciplinaryCase>(`/api/hr/disciplinary/${c.id}`)
-      setDetail(full)
+      const res = await apiFetch<{ data: DisciplinaryCase }>(`/api/hr/disciplinary/${c.id}`)
+      // hrDisciplinaryGet wraps detail in {case, hearings, actions}; unwrap if needed.
+      const payload = (res.data as any)?.case ?? res.data
+      setDetail(payload)
     } catch { setDetail(c) }
   }
 

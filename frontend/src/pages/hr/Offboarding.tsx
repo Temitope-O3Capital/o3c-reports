@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner, Modal } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
 import { GREEN, AMBER, RED, NAVY, INTER } from '../../lib/design'
 import { toast } from 'sonner'
@@ -60,11 +60,12 @@ export default function Offboarding() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const [emp, chk] = await Promise.all([
-        apiFetch<Employee>(`/api/hr/employees/${id}`),
-        apiFetch<ChecklistItem[]>(`/api/hr/employees/${id}/offboarding`),
+      const [empRes, chkRes] = await Promise.all([
+        apiFetch<{ data: Employee }>(`/api/hr/employees/${id}`),
+        apiFetch<{ data: ChecklistItem[] }>(`/api/hr/employees/${id}/offboarding`),
       ])
-      setEmployee(emp); setItems(chk)
+      setEmployee(empRes.data)
+      setItems(Array.isArray(chkRes.data) ? chkRes.data : [])
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [id])
@@ -74,15 +75,10 @@ export default function Offboarding() {
   async function createExit() {
     setSaving(true)
     try {
-      const token = localStorage.getItem('token') ?? ''
-      const res = await fetch(`/api/hr/employees/${id}/exit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ exit_type: exitType, exit_date: exitDate, interview_date: intDate || null, interview_notes: intNotes }),
+      await apiPost(`/api/hr/employees/${id}/exit`, {
+        exit_type: exitType, exit_date: exitDate,
+        interview_date: intDate || null, interview_notes: intNotes,
       })
-      if (!res.ok) throw new Error(await res.text())
-      const data = await res.json()
-      setExit(data)
       toast.success('Exit record created — offboarding checklist generated')
       setShowExit(false)
       load()
@@ -93,11 +89,8 @@ export default function Offboarding() {
   async function updateItem(itemId: number, status: string) {
     setUpdating(itemId)
     try {
-      const token = localStorage.getItem('token') ?? ''
-      await fetch(`/api/hr/employees/${id}/offboarding/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ status }),
+      await apiFetch(`/api/hr/employees/${id}/offboarding/${itemId}`, {
+        method: 'PATCH', body: JSON.stringify({ status }),
       })
       setItems(prev => prev.map(i => i.id === itemId ? { ...i, status } : i))
     } catch (e: any) { toast.error(e.message) }

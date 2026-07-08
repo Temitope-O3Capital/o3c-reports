@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -75,6 +77,8 @@ func hrEmployeeList(db *core.DB) http.HandlerFunc {
 		status := qstr(r, "status")
 		dept := qstr(r, "dept")
 		q := qstr(r, "q")
+		deptID := qint(r, "department_id", 0, 0, 1<<30)
+		gradeLevelID := qint(r, "grade_level_id", 0, 0, 1<<30)
 		limit := qint(r, "limit", 50, 1, 200)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -96,6 +100,16 @@ func hrEmployeeList(db *core.DB) http.HandlerFunc {
 		if dept != "" {
 			query += fmt.Sprintf(" AND d.name ILIKE $%d", n)
 			args = append(args, "%"+dept+"%")
+			n++
+		}
+		if deptID > 0 {
+			query += fmt.Sprintf(" AND e.department_id = $%d", n)
+			args = append(args, deptID)
+			n++
+		}
+		if gradeLevelID > 0 {
+			query += fmt.Sprintf(" AND e.grade_level_id = $%d", n)
+			args = append(args, gradeLevelID)
 			n++
 		}
 		if q != "" {
@@ -293,11 +307,20 @@ func hrLeaveList(db *core.DB) http.HandlerFunc {
 		limit := qint(r, "limit", 50, 1, 200)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
-		query := `SELECT la.*, lt.name AS leave_type_name,
-		                 e.first_name, e.last_name, e.staff_id
+		query := `SELECT la.id, la.employee_id, la.leave_type_id,
+		                 e.first_name || ' ' || e.last_name AS employee_name,
+		                 e.staff_id,
+		                 lt.name AS leave_type,
+		                 la.start_date, la.end_date,
+		                 la.days_requested AS days,
+		                 la.status, la.reason,
+		                 la.created_at AS applied_at,
+		                 la.approved_by, la.approval_notes,
+		                 COALESCE(approver.full_name, '') AS approved_by_name
 		          FROM leave_applications la
 		          JOIN leave_types lt ON la.leave_type_id = lt.id
 		          JOIN employees e ON la.employee_id = e.id
+		          LEFT JOIN o3c_users approver ON la.approved_by = approver.id
 		          WHERE 1=1`
 		args := []any{}
 		n := 1
@@ -352,10 +375,37 @@ func hrLeaveApply(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.EmployeeID == 0 || b.LeaveTypeID == 0 || b.StartDate == "" || b.EndDate == "" {
-			respondErr(w, 422, "employee_id, leave_type_id, start_date, end_date are required")
+		if b.LeaveTypeID == 0 || b.StartDate == "" || b.EndDate == "" {
+			respondErr(w, 422, "leave_type_id, start_date, end_date are required")
 			return
 		}
+
+		// Resolve employee from authenticated user when not explicitly supplied.
+		if b.EmployeeID == 0 {
+			user := core.UserFromCtx(r.Context())
+			empRows, empErr := db.PGQuery(r.Context(),
+				`SELECT id FROM employees WHERE user_id=$1 AND status='active' LIMIT 1`, user.ID)
+			if empErr != nil || len(empRows) == 0 {
+				respondErr(w, 422, "No active employee record linked to your account")
+				return
+			}
+			switch v := empRows[0]["id"].(type) {
+			case int64:
+				b.EmployeeID = v
+			case float64:
+				b.EmployeeID = int64(v)
+			}
+		}
+
+		// Auto-calculate days_requested from dates when not supplied.
+		if b.DaysRequested == 0 {
+			t1, e1 := time.Parse("2006-01-02", b.StartDate)
+			t2, e2 := time.Parse("2006-01-02", b.EndDate)
+			if e1 == nil && e2 == nil {
+				b.DaysRequested = int(t2.Sub(t1).Hours()/24) + 1
+			}
+		}
+
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO leave_applications (employee_id, leave_type_id, start_date, end_date,
 				days_requested, reason, status, created_at, updated_at)
@@ -426,6 +476,33 @@ func hrLeaveApprove(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// Notify the employee that their leave was approved.
+		leaveID := id // capture for goroutine
+		go func() {
+			empRows, _ := db.PGQuery(context.Background(),
+				`SELECT e.user_id FROM leave_applications la
+				 JOIN employees e ON la.employee_id = e.id
+				 WHERE la.id = $1 AND e.user_id IS NOT NULL`, leaveID)
+			if len(empRows) > 0 {
+				var uid int64
+				switch v := empRows[0]["user_id"].(type) {
+				case int64:
+					uid = v
+				case float64:
+					uid = int64(v)
+				}
+				if uid > 0 {
+					Notify(context.Background(), db, NotifPayload{
+						EventType: "leave_approved",
+						UserID:    uid,
+						Title:     "Leave request approved",
+						Body:      "Your leave request has been approved.",
+						ActionURL: "/hr/leave",
+					})
+				}
+			}
+		}()
+
 		respondErr(w, 200, "Leave approved")
 	}
 }
@@ -444,14 +521,47 @@ func hrLeaveDecline(db *core.DB) http.HandlerFunc {
 		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
 		user := core.UserFromCtx(r.Context())
 
-		_, err = db.PGExec(r.Context(), `
+		res, err := db.PGQuery(r.Context(), `
 			UPDATE leave_applications SET status = 'declined',
 				approved_by = $1, approval_notes = $2, updated_at = NOW()
-			WHERE id = $3`, user.ID, b.Notes, id)
+			WHERE id = $3 AND status = 'pending'
+			RETURNING id`, user.ID, b.Notes, id)
 		if err != nil {
 			respondErr(w, 500, "Decline failed")
 			return
 		}
+		if len(res) == 0 {
+			respondErr(w, 409, "Leave request already processed — please refresh")
+			return
+		}
+
+		// Notify the employee that their leave was declined.
+		leaveID := id // capture for goroutine
+		go func() {
+			empRows, _ := db.PGQuery(context.Background(),
+				`SELECT e.user_id FROM leave_applications la
+				 JOIN employees e ON la.employee_id = e.id
+				 WHERE la.id = $1 AND e.user_id IS NOT NULL`, leaveID)
+			if len(empRows) > 0 {
+				var uid int64
+				switch v := empRows[0]["user_id"].(type) {
+				case int64:
+					uid = v
+				case float64:
+					uid = int64(v)
+				}
+				if uid > 0 {
+					Notify(context.Background(), db, NotifPayload{
+						EventType: "leave_declined",
+						UserID:    uid,
+						Title:     "Leave request declined",
+						Body:      "Your leave request has been declined.",
+						ActionURL: "/hr/leave",
+					})
+				}
+			}
+		}()
+
 		respondErr(w, 200, "Leave declined")
 	}
 }
@@ -502,7 +612,7 @@ func hrAppraisalList(db *core.DB) http.HandlerFunc {
 			args = append(args, status)
 			n++
 		}
-		query += " ORDER BY a.created_at DESC"
+		query += " ORDER BY a.created_at DESC LIMIT 200"
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
@@ -577,7 +687,7 @@ func hrReviewCycleCreate(db *core.DB) http.HandlerFunc {
 func hrReviewCycleList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.PGQuery(r.Context(),
-			`SELECT * FROM review_cycles ORDER BY start_date DESC`)
+			`SELECT * FROM review_cycles ORDER BY start_date DESC LIMIT 200`)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -595,10 +705,19 @@ func hrDisciplinaryList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status := qstr(r, "status")
 		empID := qstr(r, "employee_id")
+		caseType := qstr(r, "case_type")
 
-		query := `SELECT dc.*, e.first_name, e.last_name, e.staff_id
+		query := `SELECT dc.id, dc.employee_id, dc.initiated_by,
+		                 dc.offense_type AS case_type,
+		                 dc.description, dc.status,
+		                 dc.incident_date, dc.outcome,
+		                 dc.created_at, dc.updated_at,
+		                 e.first_name || ' ' || e.last_name AS employee_name,
+		                 e.staff_id,
+		                 COALESCE(u.full_name, '') AS issued_by_name
 		          FROM disciplinary_cases dc
 		          JOIN employees e ON dc.employee_id = e.id
+		          LEFT JOIN o3c_users u ON dc.initiated_by = u.id
 		          WHERE 1=1`
 		args := []any{}
 		n := 1
@@ -613,7 +732,13 @@ func hrDisciplinaryList(db *core.DB) http.HandlerFunc {
 			args = append(args, empID)
 			n++
 		}
-		query += " ORDER BY dc.created_at DESC"
+		if caseType != "" {
+			query += fmt.Sprintf(" AND dc.offense_type = $%d", n)
+			args = append(args, caseType)
+			n++
+		}
+		query += " ORDER BY dc.created_at DESC LIMIT 200"
+		_ = n // n maintained for future filters
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
@@ -637,9 +762,16 @@ func hrDisciplinaryGet(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 
 		cases, err := db.PGQuery(ctx, `
-			SELECT dc.*, e.first_name, e.last_name, e.staff_id
+			SELECT dc.id, dc.employee_id, dc.initiated_by,
+			       dc.offense_type AS case_type,
+			       dc.description, dc.status,
+			       dc.incident_date, dc.outcome,
+			       dc.created_at, dc.updated_at,
+			       e.first_name, e.last_name, e.staff_id,
+			       COALESCE(u.full_name, '') AS issued_by_name
 			FROM disciplinary_cases dc
 			JOIN employees e ON dc.employee_id = e.id
+			LEFT JOIN o3c_users u ON dc.initiated_by = u.id
 			WHERE dc.id = $1`, id)
 		if err != nil || len(cases) == 0 {
 			respondErr(w, 404, "Case not found")
@@ -662,9 +794,12 @@ func hrDisciplinaryGet(db *core.DB) http.HandlerFunc {
 
 func hrDisciplinaryCreate(db *core.DB) http.HandlerFunc {
 	type body struct {
-		EmployeeID  int64  `json:"employee_id"`
-		OffenseType string `json:"offense_type"`
-		Description string `json:"description"`
+		EmployeeID   int64  `json:"employee_id"`
+		CaseType     string `json:"case_type"`     // frontend field; maps to offense_type column
+		OffenseType  string `json:"offense_type"`  // legacy fallback
+		Description  string `json:"description"`
+		IncidentDate string `json:"incident_date"`
+		Outcome      string `json:"outcome"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
@@ -672,16 +807,21 @@ func hrDisciplinaryCreate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.EmployeeID == 0 || b.OffenseType == "" {
-			respondErr(w, 422, "employee_id and offense_type are required")
+		// Accept either case_type (frontend) or offense_type (legacy).
+		if b.CaseType == "" {
+			b.CaseType = b.OffenseType
+		}
+		if b.EmployeeID == 0 || b.CaseType == "" {
+			respondErr(w, 422, "employee_id and case_type are required")
 			return
 		}
 		user := core.UserFromCtx(r.Context())
 		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO disciplinary_cases (employee_id, initiated_by, offense_type, description, status, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, 'open', NOW(), NOW())
-			RETURNING id, status, offense_type, created_at`,
-			b.EmployeeID, user.ID, b.OffenseType, b.Description)
+			INSERT INTO disciplinary_cases
+				(employee_id, initiated_by, offense_type, description, incident_date, outcome, status, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, NULLIF($5,'')::date, NULLIF($6,''), 'open', NOW(), NOW())
+			RETURNING id, status, offense_type AS case_type, created_at`,
+			b.EmployeeID, user.ID, b.CaseType, b.Description, b.IncidentDate, b.Outcome)
 		if err != nil {
 			respondErr(w, 500, "Create failed")
 			return
@@ -732,7 +872,7 @@ func hrTrainingList(db *core.DB) http.HandlerFunc {
 			query += " AND status = $1"
 			args = append(args, status)
 		}
-		query += " ORDER BY start_date DESC"
+		query += " ORDER BY start_date DESC LIMIT 200"
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {

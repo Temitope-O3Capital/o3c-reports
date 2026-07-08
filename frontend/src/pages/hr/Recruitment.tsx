@@ -85,10 +85,11 @@ export default function Recruitment() {
     setLoading(true); setError(null)
     try {
       const [j, a] = await Promise.all([
-        apiFetch<Job[]>('/api/hr/jobs'),
-        apiFetch<Applicant[]>('/api/hr/applicants'),
+        apiFetch<{ data: Job[] }>('/api/hr/jobs'),
+        apiFetch<{ data: Applicant[] }>('/api/hr/applicants'),
       ])
-      setJobs(j); setApplicants(a)
+      setJobs(Array.isArray(j.data) ? j.data : [])
+      setApplicants(Array.isArray(a.data) ? a.data : [])
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])
@@ -125,11 +126,8 @@ export default function Recruitment() {
   async function advanceStage(applicant: Applicant, stage: string) {
     setStagingId(applicant.id)
     try {
-      const token = localStorage.getItem('token') ?? ''
-      await fetch(`/api/hr/applicants/${applicant.id}/stage`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ stage }),
+      await apiFetch(`/api/hr/applicants/${applicant.id}/stage`, {
+        method: 'PATCH', body: JSON.stringify({ stage }),
       })
       toast.success(`Moved to ${stage}`)
       load()

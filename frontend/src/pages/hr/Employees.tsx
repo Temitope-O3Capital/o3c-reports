@@ -86,13 +86,13 @@ export default function Employees() {
       if (statusFilter) p.set('status', statusFilter)
       if (gradeFilter)  p.set('grade_level_id', gradeFilter)
       const [emps, ds, gs] = await Promise.all([
-        apiFetch<Employee[]>(`/api/hr/employees?${p}`),
-        apiFetch<Department[]>('/api/hr/departments'),
-        apiFetch<GradeLevel[]>('/api/hr/grade-levels'),
+        apiFetch<{ data: Employee[] }>(`/api/hr/employees?${p}`),
+        apiFetch<{ data: Department[] }>('/api/hr/departments'),
+        apiFetch<{ data: GradeLevel[] }>('/api/hr/grade-levels'),
       ])
-      setEmployees(Array.isArray(emps) ? emps : [])
-      setDepts(Array.isArray(ds) ? ds : [])
-      setGrades(Array.isArray(gs) ? gs : [])
+      setEmployees(Array.isArray(emps.data) ? emps.data : [])
+      setDepts(Array.isArray(ds.data) ? ds.data : [])
+      setGrades(Array.isArray(gs.data) ? gs.data : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
   }, [deptFilter, statusFilter, gradeFilter])
@@ -105,10 +105,10 @@ export default function Employees() {
     setLeaveBalances([])
     setLoadingLeave(true)
     try {
-      const full = await apiFetch<Employee>(`/api/hr/employees/${emp.id}`)
-      setDetail(full)
-      const lb = await apiFetch<LeaveBalance[]>(`/api/hr/employees/${emp.id}/leave-balance`)
-      setLeaveBalances(Array.isArray(lb) ? lb : [])
+      const full = await apiFetch<{ data: Employee }>(`/api/hr/employees/${emp.id}`)
+      setDetail(full.data)
+      const lb = await apiFetch<{ data: LeaveBalance[] }>(`/api/hr/employees/${emp.id}/leave-balance`)
+      setLeaveBalances(Array.isArray(lb.data) ? lb.data : [])
     } catch { /* keep what we have */ }
     finally { setLoadingLeave(false) }
   }
