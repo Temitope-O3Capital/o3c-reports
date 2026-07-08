@@ -32,13 +32,16 @@ const ALL_ROLES = Object.keys(ROLE_PAGES).sort()
 const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
   active:   { bg: 'rgba(22,163,74,.1)',  txt: GREEN },
   inactive: { bg: 'rgba(192,0,0,.1)',    txt: RED   },
+  pending:  { bg: 'rgba(234,179,8,.12)', txt: '#B45309' },
 }
 
-function StatusPill({ active }: { active: boolean }) {
-  const c = active ? STATUS_COLORS.active : STATUS_COLORS.inactive
+function StatusPill({ active, lastLogin }: { active: boolean; lastLogin?: string }) {
+  const isPending = !active && !lastLogin
+  const c = active ? STATUS_COLORS.active : isPending ? STATUS_COLORS.pending : STATUS_COLORS.inactive
+  const label = active ? 'Active' : isPending ? 'Pending' : 'Inactive'
   return (
     <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20, background: c.bg, color: c.txt }}>
-      {active ? 'Active' : 'Inactive'}
+      {label}
     </span>
   )
 }
@@ -266,7 +269,7 @@ function EditUserModal({ user, roles, onClose, onSaved }: {
           {/* Meta info */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20, background: 'var(--input-bg)', borderRadius: 8, padding: '12px 14px' }}>
             {[
-              { label: 'Status', value: form.is_active ? 'Active' : 'Inactive', color: form.is_active ? GREEN : RED },
+              { label: 'Status', value: form.is_active ? 'Active' : (!user.last_login ? 'Pending Approval' : 'Inactive'), color: form.is_active ? GREEN : (!user.last_login ? '#B45309' : RED) },
               { label: 'Last Login', value: user.last_login ? fmtDate(user.last_login) : 'Never' },
               { label: 'Created', value: fmtDate(user.created_at) },
             ].map(({ label, value, color }) => (
@@ -298,7 +301,7 @@ function EditUserModal({ user, roles, onClose, onSaved }: {
               {confirmDeact ? (
                 <div style={{ flex: 1, display: 'flex', gap: 8 }}>
                   <button onClick={toggleActive} style={{ flex: 1, padding: '9px 0', borderRadius: 9, border: 'none', background: form.is_active ? 'rgba(192,0,0,.1)' : 'rgba(22,163,74,.1)', color: form.is_active ? RED : GREEN, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-                    Confirm {form.is_active ? 'Deactivate' : 'Reactivate'}
+                    Confirm {form.is_active ? 'Deactivate' : (!user.last_login ? 'Approve & Send Credentials' : 'Reactivate')}
                   </button>
                   <button onClick={() => setConfirmDeact(false)} style={{ padding: '9px 14px', borderRadius: 9, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 13, cursor: 'pointer' }}>No</button>
                 </div>
@@ -309,7 +312,7 @@ function EditUserModal({ user, roles, onClose, onSaved }: {
                   color: form.is_active ? RED : GREEN,
                   fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: INTER,
                 }}>
-                  {form.is_active ? 'Deactivate' : 'Reactivate'}
+                  {form.is_active ? 'Deactivate' : (!user.last_login ? 'Approve & Activate' : 'Reactivate')}
                 </button>
               )}
             </div>
@@ -436,7 +439,7 @@ export default function AdminUsers() {
     },
     { key: 'role', label: 'Role', render: u => <RolePill role={u.role} /> },
     { key: 'department', label: 'Dept', render: u => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{u.department || '—'}</span> },
-    { key: 'is_active', label: 'Status', render: u => <StatusPill active={u.is_active} /> },
+    { key: 'is_active', label: 'Status', render: u => <StatusPill active={u.is_active} lastLogin={u.last_login} /> },
     { key: 'last_login', label: 'Last Login', sortable: true,
       render: u => <span style={{ ...NUM, fontSize: 11.5, color: 'var(--txt3)' }}>{u.last_login ? fmtDatetime(u.last_login) : 'Never'}</span> },
     { key: 'created_at', label: 'Created', sortable: true,

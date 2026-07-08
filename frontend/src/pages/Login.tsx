@@ -635,7 +635,7 @@ export default function Login({ onLogin }: LoginProps) {
           )}
 
           {/* ── Credentials step ── */}
-          {step === 'credentials' && !forgotMode && (
+          {step === 'credentials' && !forgotMode && !regMode && (
             <>
               <div style={{ marginBottom: 32, animation: 'o3rise 340ms cubic-bezier(0.4,0,0.2,1) both' }}>
                 <h1 style={{ fontSize: 26, fontWeight: 800, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.6px', lineHeight: 1.2 }}>
