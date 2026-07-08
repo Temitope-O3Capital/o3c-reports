@@ -86,6 +86,48 @@ func voiceRefreshUserToken(ctx context.Context, refreshToken string) (accessToke
 	return tok.AccessToken, time.Now().Add(time.Duration(secs) * time.Second), nil
 }
 
+// fetchZohoVoiceAgentID calls the Zoho Voice agents API with a fresh access token
+// to find the logged-in user's agent ID. Returns empty string on any failure.
+func fetchZohoVoiceAgentID(ctx context.Context, accessToken string) string {
+	reqURL := "https://voice.zoho." + zohoDC + "/rest/json/zv/api/agents/me"
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Authorization", "Zoho-oauthtoken "+accessToken)
+
+	resp, err := zohoHTTP.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+
+	var result struct {
+		Data struct {
+			AgentID string `json:"agent_id"`
+			ID      string `json:"id"`
+		} `json:"data"`
+		AgentID string `json:"agent_id"`
+		ID      string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		slog.Warn("voice: could not parse agent ID response", "body", string(raw))
+		return ""
+	}
+	// Handle both possible response shapes.
+	if result.Data.AgentID != "" {
+		return result.Data.AgentID
+	}
+	if result.Data.ID != "" {
+		return result.Data.ID
+	}
+	if result.AgentID != "" {
+		return result.AgentID
+	}
+	return result.ID
+}
+
 // ── VoiceStatus ───────────────────────────────────────────────────────────────
 
 // VoiceStatus returns the current user's Zoho Voice connection state.
@@ -105,7 +147,8 @@ func VoiceStatus(db *core.DB) http.HandlerFunc {
 			       zoho_voice_refresh_token,
 			       zoho_voice_access_token,
 			       zoho_voice_token_expiry,
-			       zoho_voice_connected_at
+			       zoho_voice_connected_at,
+			       zoho_voice_agent_id
 			FROM o3c_users WHERE id=$1`, user.ID)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 500, "DB error")
@@ -118,20 +161,19 @@ func VoiceStatus(db *core.DB) http.HandlerFunc {
 		encAccess, _ := row["zoho_voice_access_token"].(string)
 		expiryRaw := row["zoho_voice_token_expiry"]
 		connectedAt := row["zoho_voice_connected_at"]
+		agentID, _ := row["zoho_voice_agent_id"].(string)
 
 		if encRefresh == "" {
-			// Not connected at all.
-			writeVoiceStatus(w, false, "", false, nil, email)
+			writeVoiceStatus(w, false, "", false, nil, email, "")
 			return
 		}
 
 		refreshToken, err := decryptValue(encRefresh)
 		if err != nil || refreshToken == "" {
-			writeVoiceStatus(w, false, "", false, nil, email)
+			writeVoiceStatus(w, false, "", false, nil, email, "")
 			return
 		}
 
-		// Determine if the stored access token is still valid.
 		var expiry time.Time
 		if t, ok := expiryRaw.(time.Time); ok {
 			expiry = t
@@ -143,12 +185,10 @@ func VoiceStatus(db *core.DB) http.HandlerFunc {
 		if tokenValid {
 			accessToken, _ = decryptValue(encAccess)
 		} else {
-			// Attempt silent refresh.
 			newAccess, newExpiry, err := voiceRefreshUserToken(ctx, refreshToken)
 			if err != nil {
 				slog.Warn("voice token refresh failed", "user_id", user.ID, "err", err)
-				// Return connected=true but token_valid=false — user may need to re-auth.
-				writeVoiceStatus(w, true, "", false, connectedAt, email)
+				writeVoiceStatus(w, true, "", false, connectedAt, email, agentID)
 				return
 			}
 			encA, err := encryptValue(newAccess)
@@ -163,11 +203,11 @@ func VoiceStatus(db *core.DB) http.HandlerFunc {
 			tokenValid = true
 		}
 
-		writeVoiceStatus(w, true, accessToken, tokenValid, connectedAt, email)
+		writeVoiceStatus(w, true, accessToken, tokenValid, connectedAt, email, agentID)
 	}
 }
 
-func writeVoiceStatus(w http.ResponseWriter, connected bool, accessToken string, tokenValid bool, connectedAt any, email string) {
+func writeVoiceStatus(w http.ResponseWriter, connected bool, accessToken string, tokenValid bool, connectedAt any, email, agentID string) {
 	w.Header().Set("Content-Type", "application/json")
 	var connectedAtStr string
 	if t, ok := connectedAt.(time.Time); ok {
@@ -179,6 +219,7 @@ func writeVoiceStatus(w http.ResponseWriter, connected bool, accessToken string,
 		"token_valid":  tokenValid,
 		"connected_at": connectedAtStr,
 		"email":        email,
+		"agent_id":     agentID,
 	})
 }
 
@@ -214,7 +255,7 @@ func VoiceConnect(db *core.DB) http.HandlerFunc {
 			"https://accounts.zoho.%s/oauth/v2/auth?response_type=code&client_id=%s&scope=%s&redirect_uri=%s&access_type=offline&prompt=consent&state=%s",
 			zohoDC,
 			url.QueryEscape(clientID),
-			url.QueryEscape("Desk.calls.ALL,Desk.settings.READ,Desk.contacts.READ"),
+			url.QueryEscape("Desk.calls.ALL,Desk.settings.READ,Desk.contacts.READ,ZohoVoice.call.READ,ZohoVoice.call.CREATE,ZohoVoice.agents.READ,ZohoVoice.agents.UPDATE"),
 			url.QueryEscape(voiceRedirectURI()),
 			url.QueryEscape(state),
 		)
@@ -329,21 +370,25 @@ func VoiceOAuthCallback(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// Fetch the agent's Zoho Voice agent ID (best-effort; non-fatal if unavailable).
+		agentID := fetchZohoVoiceAgentID(ctx, tok.AccessToken)
+
 		_, err = db.PGExec(ctx, `
 			UPDATE o3c_users
 			SET zoho_voice_refresh_token=$1,
 			    zoho_voice_access_token=$2,
 			    zoho_voice_token_expiry=$3,
-			    zoho_voice_connected_at=NOW()
+			    zoho_voice_connected_at=NOW(),
+			    zoho_voice_agent_id=$5
 			WHERE id=$4`,
-			encRefresh, encAccess, expiry, userID)
+			encRefresh, encAccess, expiry, userID, agentID)
 		if err != nil {
 			slog.Error("voice callback: save tokens", "user_id", userID, "err", err)
 			http.Error(w, "Failed to save tokens", http.StatusInternalServerError)
 			return
 		}
 
-		slog.Info("Zoho Voice connected for user", "user_id", userID)
+		slog.Info("Zoho Voice connected for user", "user_id", userID, "agent_id", agentID)
 		http.Redirect(w, r, voiceFrontendURL()+"/settings?voice_connected=true", http.StatusFound)
 	}
 }

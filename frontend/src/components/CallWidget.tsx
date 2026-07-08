@@ -4,17 +4,35 @@ import { apiFetch, getCsrfToken } from '../lib/api'
 import { NAVY, RED, GREEN, INTER } from '../lib/design'
 import type { AuthUser } from '../hooks/useAuth'
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+declare global {
+  interface Window {
+    ZohoVoiceSDK: new () => ZohoVoiceSDKInstance
+  }
+}
+
+interface ZohoVoiceSDKInstance {
+  initialize(config: { agentId: string; token: string; environment: string }): Promise<void>
+  dial(params: { phoneNumber: string; customData?: Record<string, string> }): Promise<unknown>
+  hangup(): void
+  on(event: 'incomingCall' | 'callConnected' | 'callDisconnected', cb: (session?: CallSession) => void): void
+}
+
+interface CallSession {
+  callerNumber?: string
+  sessionId?: string
+  accept?(): void
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const CALL_ROLES = new Set(['call_center_agent', 'call_center_head', 'admin', 'super_admin'])
+const PAD_KEYS = ['1','2','3','4','5','6','7','8','9','*','0','#']
 
 type CallState = 'idle' | 'dialing' | 'active' | 'incoming' | 'ended'
 
 interface IncomingCall { phone: string; ticketId: number }
-
-const PAD_KEYS = ['1','2','3','4','5','6','7','8','9','*','0','#']
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtElapsed(s: number): string {
   const m = Math.floor(s / 60)
@@ -28,36 +46,84 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   if (!CALL_ROLES.has(user.role as string)) return null
 
   const navigate = useNavigate()
-  const [expanded,        setExpanded]        = useState(false)
-  const [dialNum,         setDialNum]         = useState('')
-  const [callState,       setCallState]       = useState<CallState>('idle')
-  const [incoming,        setIncoming]        = useState<IncomingCall | null>(null)
-  const [activePhone,     setActivePhone]     = useState('')
-  const [activeTicketId,  setActiveTicketId]  = useState<number | null>(null)
-  const [elapsed,         setElapsed]         = useState(0)
-  const [muted,           setMuted]           = useState(false)
-  const [voiceConnected,  setVoiceConnected]  = useState(false)
-  const [dialing,         setDialing]         = useState(false)
-  const [error,           setError]           = useState('')
 
-  const timerRef  = useRef<ReturnType<typeof setInterval> | null>(null)
-  const esRef     = useRef<EventSource | null>(null)
-  const cleanupRef = useRef(false)
+  const [expanded,       setExpanded]       = useState(false)
+  const [dialNum,        setDialNum]        = useState('')
+  const [callState,      setCallState]      = useState<CallState>('idle')
+  const [incoming,       setIncoming]       = useState<IncomingCall | null>(null)
+  const [activePhone,    setActivePhone]    = useState('')
+  const [activeTicketId, setActiveTicketId] = useState<number | null>(null)
+  const [elapsed,        setElapsed]        = useState(0)
+  const [muted,          setMuted]          = useState(false)
+  const [voiceConnected, setVoiceConnected] = useState(false)
+  const [sdkReady,       setSdkReady]       = useState(false)
+  const [dialing,        setDialing]        = useState(false)
+  const [error,          setError]          = useState('')
 
-  // ── Voice status ─────────────────────────────────────────────────────────
+  const sdkRef      = useRef<ZohoVoiceSDKInstance | null>(null)
+  const timerRef    = useRef<ReturnType<typeof setInterval> | null>(null)
+  const esRef       = useRef<EventSource | null>(null)
+  const cleanupRef  = useRef(false)
+  const incomingRef = useRef<IncomingCall | null>(null)
+  incomingRef.current = incoming
+
+  // ── Voice status + SDK init ───────────────────────────────────────────────
 
   useEffect(() => {
-    apiFetch<{ connected: boolean }>('/api/voice/status', { silent: true })
-      .then(d => setVoiceConnected(d.connected ?? false))
-      .catch(() => {})
+    apiFetch<{ connected: boolean; access_token?: string; agent_id?: string }>(
+      '/api/voice/status', { silent: true }
+    ).then(d => {
+      setVoiceConnected(d.connected ?? false)
+      if (d.connected && d.access_token && d.agent_id) {
+        initSDK(d.access_token, d.agent_id)
+      }
+    }).catch(() => {})
   }, [])
 
-  // ── SSE — inbound call listener ──────────────────────────────────────────
+  function initSDK(accessToken: string, agentId: string) {
+    const SDKClass = window.ZohoVoiceSDK
+    if (!SDKClass) {
+      console.warn('ZohoVoiceSDK not loaded — check index.html script tag')
+      return
+    }
+    const sdk = new SDKClass()
+    sdkRef.current = sdk
+
+    sdk.initialize({ agentId, token: accessToken, environment: 'production' })
+      .then(() => {
+        setSdkReady(true)
+
+        sdk.on('incomingCall', (session) => {
+          const phone = session?.callerNumber ?? 'Unknown'
+          setIncoming({ phone, ticketId: 0 })
+          setCallState('incoming')
+          setExpanded(true)
+        })
+
+        sdk.on('callConnected', () => {
+          setCallState('active')
+        })
+
+        sdk.on('callDisconnected', () => {
+          setCallState('ended')
+          setTimeout(() => {
+            setCallState('idle')
+            setActivePhone('')
+            setActiveTicketId(null)
+            setMuted(false)
+          }, 1800)
+        })
+      })
+      .catch(err => {
+        console.error('ZohoVoiceSDK init failed:', err)
+      })
+  }
+
+  // ── SSE — inbound call listener (backup for non-SDK events) ─────────────
 
   const connectSSE = useCallback(async () => {
     if (cleanupRef.current) return
     try {
-      // Use raw fetch so a 401 here never triggers the global signOut/session-expired flow.
       const base = (import.meta.env.VITE_API_URL as string) ?? ''
       const res = await fetch(`${base}/api/notifications/sse-ticket`, {
         method: 'POST',
@@ -68,7 +134,6 @@ export default function CallWidget({ user }: { user: AuthUser }) {
         },
       })
       if (!res.ok || cleanupRef.current) {
-        // 401 or server error — retry silently without signing the user out
         if (!cleanupRef.current) setTimeout(connectSSE, 15000)
         return
       }
@@ -81,7 +146,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
       es.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data as string) as Record<string, unknown>
-          if (data.type === 'inbound_call') {
+          if (data.type === 'inbound_call' && !incomingRef.current) {
             const rawBody = (data.body as string) ?? ''
             const phone = rawBody.startsWith('Caller: ')
               ? rawBody.slice('Caller: '.length)
@@ -132,16 +197,34 @@ export default function CallWidget({ user }: { user: AuthUser }) {
     if (!num) return
     setDialing(true)
     setError('')
+
     try {
-      await apiFetch('/api/zoho/voice/call', {
-        method: 'POST',
-        body: JSON.stringify({ phone_number: num }),
-      } as RequestInit)
+      // Ask backend to refresh token if needed and log the attempt.
+      const resp = await apiFetch<{ access_token: string; agent_id: string; phone_number: string }>(
+        '/api/zoho/voice/call',
+        { method: 'POST', body: JSON.stringify({ phone_number: num }) } as RequestInit
+      )
+
+      // If SDK isn't initialised yet (e.g. agent_id just became available), init now.
+      if (!sdkReady && resp.agent_id && resp.access_token) {
+        initSDK(resp.access_token, resp.agent_id)
+        // Short wait for SDK to be ready before dialling.
+        await new Promise(r => setTimeout(r, 600))
+      }
+
+      if (!sdkRef.current) {
+        setError('Voice SDK not ready — please refresh the page')
+        return
+      }
+
       setActivePhone(num)
       setActiveTicketId(null)
-      setCallState('active')
-      setMuted(false)
+      setCallState('dialing')
+
+      await sdkRef.current.dial({ phoneNumber: num })
+      // callConnected event will move state to 'active'
     } catch (e: unknown) {
+      setCallState('idle')
       setError((e as Error).message ?? 'Call failed')
     } finally {
       setDialing(false)
@@ -158,11 +241,13 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   }
 
   function declineIncoming() {
+    sdkRef.current?.hangup()
     setIncoming(null)
     setCallState('idle')
   }
 
   function endCall() {
+    sdkRef.current?.hangup()
     setCallState('ended')
     setTimeout(() => {
       setCallState('idle')
@@ -173,20 +258,16 @@ export default function CallWidget({ user }: { user: AuthUser }) {
     }, 1800)
   }
 
-  function pressKey(k: string) {
-    setDialNum(n => n + k)
-  }
-
   // ── Render ───────────────────────────────────────────────────────────────
 
   const isIncoming = callState === 'incoming'
-  const isActive   = callState === 'active'
+  const isActive   = callState === 'active' || callState === 'dialing'
   const isEnded    = callState === 'ended'
 
   return (
     <div style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 9100, fontFamily: INTER }}>
 
-      {/* Incoming call panel — always visible when ringing */}
+      {/* Incoming call panel */}
       {isIncoming && incoming && (
         <div style={{
           position: 'absolute', bottom: 62, right: 0,
@@ -195,7 +276,6 @@ export default function CallWidget({ user }: { user: AuthUser }) {
           boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
           border: '1px solid rgba(255,255,255,0.12)',
         }}>
-          {/* Pulse ring */}
           <div style={{
             padding: '22px 20px 18px', textAlign: 'center',
             borderBottom: '1px solid rgba(255,255,255,0.1)',
@@ -220,8 +300,6 @@ export default function CallWidget({ user }: { user: AuthUser }) {
               {incoming.phone}
             </div>
           </div>
-
-          {/* Buttons */}
           <div style={{ display: 'flex', gap: 0 }}>
             <button
               onClick={declineIncoming}
@@ -256,7 +334,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
         </div>
       )}
 
-      {/* Active call panel */}
+      {/* Active / ended call panel */}
       {(isActive || isEnded) && expanded && (
         <div style={{
           position: 'absolute', bottom: 62, right: 0,
@@ -272,7 +350,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
                 background: isEnded ? 'rgba(255,255,255,0.3)' : GREEN,
               }} />
               <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
-                {isEnded ? 'Call ended' : fmtElapsed(elapsed)}
+                {isEnded ? 'Call ended' : callState === 'dialing' ? 'Dialling…' : fmtElapsed(elapsed)}
               </span>
             </div>
             <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{activePhone}</div>
@@ -290,8 +368,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
             ) : null}
           </div>
 
-          {/* Controls */}
-          {isActive && (
+          {callState === 'active' && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, padding: '12px 18px' }}>
               <button
                 onClick={() => setMuted(m => !m)}
@@ -345,7 +422,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
         </div>
       )}
 
-      {/* Dial pad panel */}
+      {/* Dial pad */}
       {expanded && callState === 'idle' && (
         <div style={{
           position: 'absolute', bottom: 62, right: 0,
@@ -354,11 +431,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
           boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
           border: '1px solid rgba(255,255,255,0.12)',
         }}>
-          {/* Number display */}
-          <div style={{
-            padding: '16px 16px 12px',
-            borderBottom: '1px solid rgba(255,255,255,0.1)',
-          }}>
+          <div style={{ padding: '16px 16px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input
                 type="tel"
@@ -375,24 +448,20 @@ export default function CallWidget({ user }: { user: AuthUser }) {
               {dialNum && (
                 <button
                   onClick={() => setDialNum(n => n.slice(0, -1))}
-                  style={{
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    color: 'rgba(255,255,255,0.45)', padding: 4,
-                  }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.45)', padding: 4 }}
                 >
                   <span className="material-symbols-rounded" style={{ fontSize: 18 }}>backspace</span>
                 </button>
               )}
             </div>
 
-            {/* Voice connection status */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 6 }}>
               <div style={{
                 width: 6, height: 6, borderRadius: '50%',
-                background: voiceConnected ? GREEN : 'rgba(255,255,255,0.25)',
+                background: sdkReady ? GREEN : voiceConnected ? '#F59E0B' : 'rgba(255,255,255,0.25)',
               }} />
               <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em' }}>
-                {voiceConnected ? 'Voice connected' : 'Voice not connected'}
+                {sdkReady ? 'Ready' : voiceConnected ? 'Connecting SDK…' : 'Voice not connected'}
               </span>
               {!voiceConnected && (
                 <button
@@ -409,21 +478,16 @@ export default function CallWidget({ user }: { user: AuthUser }) {
             </div>
           </div>
 
-          {/* Keypad */}
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: 1, background: 'rgba(255,255,255,0.06)',
-          }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1, background: 'rgba(255,255,255,0.06)' }}>
             {PAD_KEYS.map(k => (
               <button
                 key={k}
-                onClick={() => pressKey(k)}
+                onClick={() => setDialNum(n => n + k)}
                 style={{
                   padding: '13px 0', border: 'none', cursor: 'pointer',
                   background: NAVY, color: '#fff',
                   fontSize: 17, fontWeight: k === '*' || k === '#' ? 400 : 600,
-                  fontFamily: INTER,
-                  transition: 'background 80ms',
+                  fontFamily: INTER, transition: 'background 80ms',
                 }}
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)' }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = NAVY }}
@@ -433,19 +497,18 @@ export default function CallWidget({ user }: { user: AuthUser }) {
             ))}
           </div>
 
-          {/* Dial button */}
           <div style={{ padding: '12px 20px 14px' }}>
             {error && (
               <div style={{ fontSize: 11, color: '#FF8080', marginBottom: 8, textAlign: 'center' }}>{error}</div>
             )}
             <button
               onClick={dial}
-              disabled={!dialNum.trim() || dialing}
+              disabled={!dialNum.trim() || dialing || !voiceConnected}
               style={{
                 width: '100%', padding: '11px 0', borderRadius: 10, border: 'none',
-                background: !dialNum.trim() || dialing ? 'rgba(22,163,74,0.4)' : GREEN,
+                background: !dialNum.trim() || dialing || !voiceConnected ? 'rgba(22,163,74,0.4)' : GREEN,
                 color: '#fff', fontSize: 14, fontWeight: 600,
-                cursor: !dialNum.trim() || dialing ? 'not-allowed' : 'pointer',
+                cursor: !dialNum.trim() || dialing || !voiceConnected ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                 transition: 'background 120ms',
               }}
@@ -460,7 +523,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
       {/* Toggle button */}
       <button
         onClick={() => {
-          if (isIncoming) return  // incoming alert stays until actioned
+          if (isIncoming) return
           setExpanded(e => !e)
         }}
         title={expanded ? 'Close phone' : 'Open phone'}
@@ -481,8 +544,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
         <span className="material-symbols-rounded" style={{ fontSize: 22 }}>
           {isActive || isEnded ? 'call' : 'phone_in_talk'}
         </span>
-        {/* Voice connected dot */}
-        {voiceConnected && !isActive && !isIncoming && !isEnded && (
+        {sdkReady && !isActive && !isIncoming && !isEnded && (
           <span style={{
             position: 'absolute', top: 3, right: 3,
             width: 9, height: 9, borderRadius: '50%',
@@ -491,7 +553,6 @@ export default function CallWidget({ user }: { user: AuthUser }) {
         )}
       </button>
 
-      {/* Keyframe animations */}
       <style>{`
         @keyframes callPulse {
           0%   { transform: scale(1);   opacity: 0.8; }

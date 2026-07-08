@@ -596,6 +596,10 @@ func zohoImportDeskCalls(db *core.DB) http.HandlerFunc {
 
 // ── Zoho Voice — initiate outbound call ──────────────────────────────────────
 
+// zohoInitiateCall fetches a fresh per-user Zoho Voice access token and returns
+// it to the frontend alongside the Zoho data-centre region.  The actual call is
+// placed browser-side by the Zoho Voice WebSDK — the Desk REST API is a call-log
+// endpoint only and cannot initiate a dial.
 func zohoInitiateCall(db *core.DB) http.HandlerFunc {
 	type reqBody struct {
 		PhoneNumber string `json:"phone_number"`
@@ -619,16 +623,18 @@ func zohoInitiateCall(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
 
-		// Prefer the agent's personal Zoho Voice token; fall back to org token.
+		// Fetch / refresh the agent's personal Zoho Voice token + agent ID.
 		callToken := ""
+		agentVoiceID := ""
 		if user != nil {
 			rows, _ := db.PGQuery(ctx,
-				`SELECT zoho_voice_access_token, zoho_voice_token_expiry, zoho_voice_refresh_token
+				`SELECT zoho_voice_access_token, zoho_voice_token_expiry, zoho_voice_refresh_token, zoho_voice_agent_id
 				 FROM o3c_users WHERE id=$1`, user.ID)
 			if len(rows) > 0 {
 				encAccess, _ := rows[0]["zoho_voice_access_token"].(string)
 				expiry, _ := rows[0]["zoho_voice_token_expiry"].(time.Time)
 				encRefresh, _ := rows[0]["zoho_voice_refresh_token"].(string)
+				agentVoiceID, _ = rows[0]["zoho_voice_agent_id"].(string)
 				if encAccess != "" && time.Now().Add(60*time.Second).Before(expiry) {
 					callToken, _ = decryptValue(encAccess)
 				} else if encRefresh != "" {
@@ -646,43 +652,12 @@ func zohoInitiateCall(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		payload := map[string]any{
-			"callType": "OUTBOUND",
-			"phone":    b.PhoneNumber,
-		}
-		payloadBytes, _ := json.Marshal(payload)
-
-		var resp *http.Response
-		var err error
-		if callToken != "" {
-			// Use agent's personal Voice token — Zoho knows which agent is calling.
-			reqURL := "https://desk.zoho." + zohoDC + "/api/v1/calls"
-			req, _ := http.NewRequestWithContext(ctx, "POST", reqURL, strings.NewReader(string(payloadBytes)))
-			req.Header.Set("Authorization", "Zoho-oauthtoken "+callToken)
-			req.Header.Set("orgId", zohoOrgID)
-			req.Header.Set("Content-Type", "application/json")
-			resp, err = zohoHTTP.Do(req)
-		} else {
-			resp, err = zohoWrite(ctx, "POST", "calls", strings.NewReader(string(payloadBytes)))
-		}
-		if err != nil {
-			respondErr(w, 503, "Zoho Voice unavailable: "+err.Error())
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			body, _ := io.ReadAll(resp.Body)
-			msg := strings.TrimSpace(string(body))
-			if msg == "" {
-				msg = fmt.Sprintf("Zoho returned HTTP %d", resp.StatusCode)
-			}
-			respondErr(w, 502, msg)
+		if callToken == "" {
+			respondErr(w, 403, "Zoho Voice not connected — go to Settings and connect your account")
 			return
 		}
 
-		var result map[string]any
-		json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck
-
+		// Log the outbound call attempt.
 		agentName := ""
 		if user != nil {
 			agentName = user.FullName
@@ -692,6 +667,13 @@ func zohoInitiateCall(db *core.DB) http.HandlerFunc {
 			VALUES ($1,$2,'outbound','in_progress',$3)`,
 			agentName, b.PhoneNumber, b.TicketID) //nolint:errcheck
 
-		respond(w, result, "zoho")
+		// Return token + agent ID to the frontend — the Zoho Voice WebSDK handles the actual dial.
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+			"access_token": callToken,
+			"agent_id":     agentVoiceID,
+			"dc":           zohoDC,
+			"phone_number": b.PhoneNumber,
+		})
 	}
 }
