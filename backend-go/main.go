@@ -77,6 +77,9 @@ func main() {
 	// Birthday worker — fires daily at 08:00.
 	go handlers.ScheduleBirthdayWorker(db)
 
+	// NDPR erasure worker — processes approved erasure DSARs daily at midnight.
+	go handlers.StartNDPRErasureWorker(db)
+
 	// Activity log worker pool — 3 goroutines drain a 1000-entry buffered channel.
 	activityCh := make(chan activityLogEntry, 1000)
 	startActivityWorkers(db, activityCh, 3)

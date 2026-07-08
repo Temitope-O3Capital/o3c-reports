@@ -493,7 +493,7 @@ func hrLeaveApprove(db *core.DB) http.HandlerFunc {
 				}
 				if uid > 0 {
 					Notify(context.Background(), db, NotifPayload{
-						EventType: "leave_approved",
+						EventType: EvtLeaveApproved,
 						UserID:    uid,
 						Title:     "Leave request approved",
 						Body:      "Your leave request has been approved.",
@@ -552,7 +552,7 @@ func hrLeaveDecline(db *core.DB) http.HandlerFunc {
 				}
 				if uid > 0 {
 					Notify(context.Background(), db, NotifPayload{
-						EventType: "leave_declined",
+						EventType: EvtLeaveDeclined,
 						UserID:    uid,
 						Title:     "Leave request declined",
 						Body:      "Your leave request has been declined.",

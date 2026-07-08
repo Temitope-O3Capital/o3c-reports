@@ -468,7 +468,7 @@ func payrollRunPay(db *core.DB) http.HandlerFunc {
 			title := fmt.Sprintf("Payroll Paid — %s %d", monthName, year)
 			body := fmt.Sprintf("%s %d payroll for %d employees has been disbursed.", monthName, year, headcount)
 			go NotifyRoles(ctx, db, []string{"hr_head", "finance_head"}, NotifPayload{
-				EventType: "payroll_paid",
+				EventType: EvtPayrollPaid,
 				Title:     title,
 				Body:      body,
 				ActionURL: fmt.Sprintf("/payroll/runs/%s", id),

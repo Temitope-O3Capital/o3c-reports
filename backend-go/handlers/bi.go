@@ -48,7 +48,8 @@ func biListReports(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		respond(w, rows, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}
 }
 
@@ -340,7 +341,8 @@ func biRunReport(db *core.DB) http.HandlerFunc {
 				len(rows), runRows[0]["id"])
 		}
 
-		respond(w, map[string]any{"rows": rows, "row_count": len(rows)}, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"rows": rows, "row_count": len(rows)}) //nolint:errcheck
 	}
 }
 
@@ -437,7 +439,8 @@ func biListScheduled(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		respond(w, rows, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}
 }
 
@@ -473,6 +476,7 @@ func biListRuns(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		respond(w, rows, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}
 }

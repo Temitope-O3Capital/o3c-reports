@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -818,7 +820,7 @@ func complianceFindingCreate(db *core.DB) http.HandlerFunc {
 
 		newID := toInt64(rows[0]["id"])
 		go NotifyRole(ctx, db, "compliance_officer", NotifPayload{
-			EventType: "finding_created",
+			EventType: EvtFindingCreated,
 			Title:     "New Audit Finding: " + findingRef,
 			Body:      fmt.Sprintf("Severity: %s — %s", b.Severity, b.Description),
 			ActionURL: fmt.Sprintf("/compliance/findings/%d", newID),
@@ -902,7 +904,7 @@ func complianceFindingClose(db *core.DB) http.HandlerFunc {
 		// Notify the person who created the finding.
 		if assignedBy > 0 {
 			go Notify(ctx, db, NotifPayload{
-				EventType: "finding_closed",
+				EventType: EvtFindingClosed,
 				UserID:    assignedBy,
 				Title:     "Audit Finding Closed: " + ref,
 				Body:      "The audit finding has been marked as resolved/closed.",
@@ -1533,6 +1535,60 @@ func complianceConcentrationRisk(db *core.DB) http.HandlerFunc {
 			"by_loan_type":                 typeRows,
 			"by_employer":                  empRows,
 		})
+	}
+}
+
+// ── NDPR Erasure Worker ───────────────────────────────────────────────────────
+
+// StartNDPRErasureWorker processes approved data erasure DSARs daily at midnight.
+// It anonymizes PII in crm_contacts for the subject CIF and marks each request processed.
+func StartNDPRErasureWorker(db *core.DB) {
+	for {
+		now  := time.Now()
+		next := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
+		time.Sleep(time.Until(next))
+		runNDPRErasure(db)
+	}
+}
+
+func runNDPRErasure(db *core.DB) {
+	ctx := context.Background()
+
+	rows, err := db.PGQuery(ctx, `
+		SELECT id, subject_cif
+		FROM data_subject_requests
+		WHERE request_type = 'erasure'
+		  AND status       = 'resolved'
+		  AND processed_at IS NULL`)
+	if err != nil {
+		slog.Error("ndpr_erasure: query failed", "error", err)
+		return
+	}
+
+	for _, row := range rows {
+		id  := toInt64(row["id"])
+		cif := str(row["subject_cif"])
+
+		if cif != "" {
+			if _, err := db.PGExec(ctx, `
+				UPDATE crm_contacts
+				SET first_name = '[ERASED]',
+				    last_name  = '[ERASED]',
+				    phone      = NULL,
+				    email      = NULL
+				WHERE cif_number = $1`, cif); err != nil {
+				slog.Error("ndpr_erasure: anonymize failed", "dsar_id", id, "cif", cif, "error", err)
+				continue
+			}
+		}
+
+		if _, err := db.PGExec(ctx,
+			`UPDATE data_subject_requests SET processed_at = NOW() WHERE id = $1`, id); err != nil {
+			slog.Error("ndpr_erasure: mark processed failed", "dsar_id", id, "error", err)
+			continue
+		}
+
+		slog.Info("ndpr_erasure: processed", "dsar_id", id, "cif", cif)
 	}
 }
 

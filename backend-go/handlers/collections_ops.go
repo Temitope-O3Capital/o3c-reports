@@ -729,7 +729,7 @@ func collectionsOpsCreatePlan(db *core.DB) http.HandlerFunc {
 
 		// Notify the creating agent that their plan is live.
 		go Notify(context.Background(), db, NotifPayload{
-			EventType: "repayment_plan_created",
+			EventType: EvtRepaymentPlanCreated,
 			UserID:    user.ID,
 			Title:     "Repayment plan created — " + b.AccountCIF,
 			Body:      fmt.Sprintf("Account %s: %d-instalment plan for ₦%.2f created.", b.AccountCIF, len(instalments), float64(total)/100),
@@ -960,7 +960,7 @@ func collectionsOpsApproveWriteoff(db *core.DB) http.HandlerFunc {
 
 		// Notify finance_head that a write-off has been approved and needs GL posting.
 		go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
-			EventType: "writeoff_approved",
+			EventType: EvtWriteoffApproved,
 			Title:     "Write-off approved — action required",
 			Body:      fmt.Sprintf("Write-off #%d approved by %s. Please post the GL entry.", id, user.FullName),
 			ActionURL: "/collections/writeoff-queue",
@@ -1021,7 +1021,7 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 		}
 		if count > 0 {
 			go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
-				EventType: "writeoff_approved",
+				EventType: EvtWriteoffApproved,
 				Title:     fmt.Sprintf("%d write-off(s) bulk approved — action required", count),
 				Body:      fmt.Sprintf("%d write-off(s) approved by %s. Please post GL entries.", count, user.FullName),
 				ActionURL: "/collections/writeoff-queue",

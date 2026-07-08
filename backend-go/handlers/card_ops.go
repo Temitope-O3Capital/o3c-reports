@@ -318,7 +318,7 @@ func cardCreateDispute(db *core.DB) http.HandlerFunc {
 			return
 		}
 		NotifyRoles(r.Context(), db, []string{"cards_ops_officer", "cards_ops_head"}, NotifPayload{
-			EventType: "card_dispute_filed",
+			EventType: EvtCardDisputeFiled,
 			Title:     "New Card Dispute Filed",
 			Body:      fmt.Sprintf("DSP-%v — %s for %s (%s)", rows[0]["id"], req.DisputeType, req.CustomerName, req.CardType),
 			ActionURL: "/cards/disputes",
@@ -501,7 +501,7 @@ func cardDecideCreditLimit(db *core.DB) http.HandlerFunc {
 		}
 		if req.Decision == "approved" {
 			NotifyRoles(r.Context(), db, []string{"cards_ops_officer", "cards_ops_head"}, NotifPayload{
-				EventType: "credit_limit_approved",
+				EventType: EvtCreditLimitApproved,
 				Title:     "Credit Limit Change Approved",
 				Body:      fmt.Sprintf("CLR-%d — %s (%s) new limit approved", id, res[0]["customer_name"], res[0]["card_type"]),
 				ActionURL: "/cards/credit-limits",
@@ -575,7 +575,7 @@ func cardGenerateBilling(db *core.DB) http.HandlerFunc {
 			results = append(results, result{Product: product, Count: count})
 		}
 		NotifyRole(r.Context(), db, "finance_head", NotifPayload{
-			EventType: "billing_cycle_generated",
+			EventType: EvtBillingCycleGenerated,
 			Title:     "Billing Cycles Generated",
 			Body:      fmt.Sprintf("Card billing cycles for %s generated across %d products", cycleStart.Format("January 2006"), len(results)),
 			ActionURL: "/cards/billing",

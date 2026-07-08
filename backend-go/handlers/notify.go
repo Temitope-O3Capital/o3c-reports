@@ -45,9 +45,34 @@ const (
 	EvtFirstLogin            = "first_login"
 
 	// Recovery events
-	EvtRecoveryCaseAssigned  = "recovery_case_assigned"
+	EvtRecoveryCaseAssigned   = "recovery_case_assigned"
 	EvtRecoveryLegalMilestone = "recovery_legal_milestone"
-	EvtRecoveryDebtSale      = "recovery_debt_sale"
+	EvtRecoveryDebtSale       = "recovery_debt_sale"
+
+	// Cards events
+	EvtCardDisputeFiled      = "card_dispute_filed"
+	EvtCreditLimitApproved   = "credit_limit_approved"
+	EvtBillingCycleGenerated = "billing_cycle_generated"
+
+	// Collections events
+	EvtRepaymentPlanCreated = "repayment_plan_created"
+	EvtWriteoffApproved     = "writeoff_approved"
+
+	// Compliance events
+	EvtFindingCreated = "finding_created"
+	EvtFindingClosed  = "finding_closed"
+
+	// HR events
+	EvtLeaveApproved = "leave_approved"
+	EvtLeaveDeclined = "leave_declined"
+
+	// Finance events
+	EvtManualPostingSubmitted = "manual_posting_submitted"
+	EvtManualPostingApproved  = "manual_posting_approved"
+	EvtManualPostingRejected  = "manual_posting_rejected"
+
+	// Payroll events
+	EvtPayrollPaid = "payroll_paid"
 )
 
 // NotifPayload carries everything needed to dispatch a notification.

@@ -222,7 +222,7 @@ func finPostingsCreate(db *core.DB) http.HandlerFunc {
 			return
 		}
 		NotifyRole(r.Context(), db, "finance_head", NotifPayload{
-			EventType: "manual_posting_submitted",
+			EventType: EvtManualPostingSubmitted,
 			Title:     "Manual Posting Awaiting Approval",
 			Body:      fmt.Sprintf("MP-%v submitted for GL approval — %s", rows[0]["id"], b.Narrative),
 			ActionURL: "/finance/manual-postings",
@@ -288,7 +288,7 @@ func finPostingsApprove(db *core.DB) http.HandlerFunc {
 		}
 		// Notify the initiator that their posting has been approved and posted.
 		Notify(r.Context(), db, NotifPayload{
-			EventType: "manual_posting_approved",
+			EventType: EvtManualPostingApproved,
 			UserID:    toInt64(p["initiated_by"]),
 			Title:     "Manual Posting Approved",
 			Body:      fmt.Sprintf("MP-%v has been approved and posted to the GL", id),
@@ -321,7 +321,7 @@ func finPostingsReject(db *core.DB) http.HandlerFunc {
 		}
 		// Notify the initiator that their posting has been rejected.
 		Notify(r.Context(), db, NotifPayload{
-			EventType: "manual_posting_rejected",
+			EventType: EvtManualPostingRejected,
 			UserID:    toInt64(rows[0]["initiated_by"]),
 			Title:     "Manual Posting Rejected",
 			Body:      fmt.Sprintf("MP-%v was rejected. Reason: %s", id, b.Reason),
