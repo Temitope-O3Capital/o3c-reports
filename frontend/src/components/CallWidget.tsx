@@ -70,12 +70,14 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   // ── Voice status + SDK init ───────────────────────────────────────────────
 
   useEffect(() => {
-    apiFetch<{ connected: boolean; access_token?: string; agent_id?: string }>(
+    apiFetch<{ connected: boolean; access_token?: string; agent_id?: string; email?: string }>(
       '/api/voice/status', { silent: true }
     ).then(d => {
       setVoiceConnected(d.connected ?? false)
-      if (d.connected && d.access_token && d.agent_id) {
-        initSDK(d.access_token, d.agent_id)
+      // Use agent_id if available; fall back to email (many Zoho Voice SDK versions accept email).
+      if (d.connected && d.access_token) {
+        const agentId = d.agent_id || d.email || ''
+        initSDK(d.access_token, agentId)
       }
     }).catch(() => {})
   }, [])
@@ -205,9 +207,9 @@ export default function CallWidget({ user }: { user: AuthUser }) {
         { method: 'POST', body: JSON.stringify({ phone_number: num }) } as RequestInit
       )
 
-      // If SDK isn't initialised yet (e.g. agent_id just became available), init now.
-      if (!sdkReady && resp.agent_id && resp.access_token) {
-        initSDK(resp.access_token, resp.agent_id)
+      // If SDK isn't initialised yet, init now with whatever identifier we have.
+      if (!sdkReady && resp.access_token) {
+        initSDK(resp.access_token, resp.agent_id || '')
         // Short wait for SDK to be ready before dialling.
         await new Promise(r => setTimeout(r, 600))
       }

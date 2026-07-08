@@ -86,46 +86,82 @@ func voiceRefreshUserToken(ctx context.Context, refreshToken string) (accessToke
 	return tok.AccessToken, time.Now().Add(time.Duration(secs) * time.Second), nil
 }
 
-// fetchZohoVoiceAgentID calls the Zoho Voice agents API with a fresh access token
-// to find the logged-in user's agent ID. Returns empty string on any failure.
+// fetchZohoVoiceAgentID tries several Zoho Voice endpoints to find the
+// authenticated user's agent ID. Returns empty string on all failures.
 func fetchZohoVoiceAgentID(ctx context.Context, accessToken string) string {
-	reqURL := "https://voice.zoho." + zohoDC + "/rest/json/zv/api/agents/me"
-	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
-	if err != nil {
-		return ""
+	type candidate struct{ url string }
+	candidates := []candidate{
+		{"https://voice.zoho." + zohoDC + "/rest/json/zv/api/agents/me"},
+		{"https://voice.zoho." + zohoDC + "/rest/json/zv/api/agent"},
+		{"https://voice.zoho." + zohoDC + "/rest/json/zv/api/agents"},
 	}
-	req.Header.Set("Authorization", "Zoho-oauthtoken "+accessToken)
 
-	resp, err := zohoHTTP.Do(req)
-	if err != nil {
-		return ""
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
+	for _, c := range candidates {
+		req, err := http.NewRequestWithContext(ctx, "GET", c.url, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Authorization", "Zoho-oauthtoken "+accessToken)
 
-	var result struct {
-		Data struct {
-			AgentID string `json:"agent_id"`
-			ID      string `json:"id"`
-		} `json:"data"`
-		AgentID string `json:"agent_id"`
-		ID      string `json:"id"`
+		resp, err := zohoHTTP.Do(req)
+		if err != nil {
+			continue
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		slog.Info("voice: agent ID probe", "url", c.url, "status", resp.StatusCode, "body", string(raw))
+
+		// Try to extract an ID from many possible shapes.
+		var generic map[string]any
+		if json.Unmarshal(raw, &generic) != nil {
+			continue
+		}
+		if id := deepFindString(generic, "agent_id", "agentId", "id"); id != "" {
+			return id
+		}
 	}
-	if err := json.Unmarshal(raw, &result); err != nil {
-		slog.Warn("voice: could not parse agent ID response", "body", string(raw))
-		return ""
+
+	// Final fallback: use the Zoho accounts user-info endpoint to get the
+	// user's Zoho ID which many SDKs accept as agentId.
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://accounts.zoho."+zohoDC+"/oauth/user/info", nil)
+	if err == nil {
+		req.Header.Set("Authorization", "Zoho-oauthtoken "+accessToken)
+		if resp, err := zohoHTTP.Do(req); err == nil {
+			raw, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			slog.Info("voice: accounts user info", "body", string(raw))
+			var info map[string]any
+			if json.Unmarshal(raw, &info) == nil {
+				if id := deepFindString(info, "ZSOID", "zsoid", "Email", "email"); id != "" {
+					return id
+				}
+			}
+		}
 	}
-	// Handle both possible response shapes.
-	if result.Data.AgentID != "" {
-		return result.Data.AgentID
+	return ""
+}
+
+// deepFindString searches a JSON map for the first matching key from keys.
+func deepFindString(m map[string]any, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := m[k]; ok {
+			if s, ok := v.(string); ok && s != "" {
+				return s
+			}
+		}
 	}
-	if result.Data.ID != "" {
-		return result.Data.ID
+	// Also look inside a top-level "data" object.
+	if data, ok := m["data"].(map[string]any); ok {
+		for _, k := range keys {
+			if v, ok := data[k]; ok {
+				if s, ok := v.(string); ok && s != "" {
+					return s
+				}
+			}
+		}
 	}
-	if result.AgentID != "" {
-		return result.AgentID
-	}
-	return result.ID
+	return ""
 }
 
 // ── VoiceStatus ───────────────────────────────────────────────────────────────
