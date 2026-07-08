@@ -214,7 +214,7 @@ func VoiceConnect(db *core.DB) http.HandlerFunc {
 			"https://accounts.zoho.%s/oauth/v2/auth?response_type=code&client_id=%s&scope=%s&redirect_uri=%s&access_type=offline&prompt=consent&state=%s",
 			zohoDC,
 			url.QueryEscape(clientID),
-			url.QueryEscape("ZohoVoice.call.ALL,ZohoVoice.settings.READ"),
+			url.QueryEscape("Desk.calls.ALL,Desk.settings.READ,Desk.contacts.READ"),
 			url.QueryEscape(voiceRedirectURI()),
 			url.QueryEscape(state),
 		)
