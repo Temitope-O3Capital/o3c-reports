@@ -68,6 +68,9 @@ func main() {
 	go handlers.ScheduledCampaignTicker(db)
 	go handlers.ScheduleCampaignAutoResume(db)
 
+	// Poll MS Graph helpdesk inbox every 3 minutes.
+	handlers.StartGraphInboxPoller(db)
+
 	// Push due-soon / overdue task notifications hourly.
 	go handlers.ScheduleTaskNotifications(db)
 
@@ -110,6 +113,9 @@ func main() {
 			return rightmostIP(r), nil
 		}))).Post("/token", loginPublic(db))
 		r.Post("/bootstrap", handlers.BootstrapHandler(db))
+		r.With(httprate.Limit(5, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
+			return rightmostIP(r), nil
+		}))).Post("/register", handlers.RegisterHandler(db))
 		r.Post("/refresh", RefreshPublic(db))
 		if cfg.EnableResetAdmin {
 			r.Post("/reset-admin", handlers.ResetAdminHandler(db, cfg.ResetAdminSecret))
