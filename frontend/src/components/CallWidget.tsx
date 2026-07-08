@@ -57,6 +57,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   const [muted,          setMuted]          = useState(false)
   const [voiceConnected, setVoiceConnected] = useState(false)
   const [sdkReady,       setSdkReady]       = useState(false)
+  const [sdkError,       setSdkError]       = useState('')
   const [dialing,        setDialing]        = useState(false)
   const [error,          setError]          = useState('')
 
@@ -94,6 +95,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
     sdk.initialize({ agentId, token: accessToken, environment: 'production' })
       .then(() => {
         setSdkReady(true)
+        setSdkError('')
 
         sdk.on('incomingCall', (session) => {
           const phone = session?.callerNumber ?? 'Unknown'
@@ -116,8 +118,10 @@ export default function CallWidget({ user }: { user: AuthUser }) {
           }, 1800)
         })
       })
-      .catch(err => {
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err)
         console.error('ZohoVoiceSDK init failed:', err)
+        setSdkError(msg || 'SDK init failed')
       })
   }
 
@@ -460,10 +464,11 @@ export default function CallWidget({ user }: { user: AuthUser }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 6 }}>
               <div style={{
                 width: 6, height: 6, borderRadius: '50%',
-                background: sdkReady ? GREEN : voiceConnected ? '#F59E0B' : 'rgba(255,255,255,0.25)',
+                background: sdkReady ? GREEN : sdkError ? RED : voiceConnected ? '#F59E0B' : 'rgba(255,255,255,0.25)',
+                flexShrink: 0,
               }} />
-              <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em' }}>
-                {sdkReady ? 'Ready' : voiceConnected ? 'Connecting SDK…' : 'Voice not connected'}
+              <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em', wordBreak: 'break-word' }}>
+                {sdkReady ? 'Ready' : sdkError ? sdkError : voiceConnected ? 'Connecting SDK…' : 'Voice not connected'}
               </span>
               {!voiceConnected && (
                 <button
