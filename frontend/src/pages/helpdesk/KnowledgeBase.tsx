@@ -212,7 +212,7 @@ export default function KnowledgeBase() {
     try {
       const p = new URLSearchParams()
       if (categoryFilter) p.set('category', categoryFilter)
-      if (statusFilter) p.set('status', statusFilter)
+      // status filter is applied client-side — backend does not support it
       const data = await apiFetch<KBArticle[]>(`/api/helpdesk/kb?${p.toString()}`)
       setArticles(Array.isArray(data) ? data : [])
     } catch (e: any) {
@@ -220,16 +220,16 @@ export default function KnowledgeBase() {
     } finally {
       setLoading(false)
     }
-  }, [categoryFilter, statusFilter])
+  }, [categoryFilter])
 
   useEffect(() => { load() }, [load])
 
-  // Client-side search
-  const filtered = articles.filter(a =>
-    !debouncedQ ||
-    a.title.toLowerCase().includes(debouncedQ.toLowerCase()) ||
-    a.body.toLowerCase().includes(debouncedQ.toLowerCase())
-  )
+  // Client-side filtering (search + status)
+  const filtered = articles.filter(a => {
+    if (debouncedQ && !a.title.toLowerCase().includes(debouncedQ.toLowerCase()) && !a.body.toLowerCase().includes(debouncedQ.toLowerCase())) return false
+    if (statusFilter && a.status.toLowerCase() !== statusFilter.toLowerCase()) return false
+    return true
+  })
 
   // New article
   function openNew() {

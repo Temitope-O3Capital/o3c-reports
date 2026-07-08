@@ -344,8 +344,9 @@ export default function TicketDetail() {
     mergeTimer.current = setTimeout(async () => {
       setMergeSearching(true)
       try {
-        const res = await apiFetch<TicketSearchResult[]>(`/api/helpdesk/tickets/search?q=${encodeURIComponent(q)}&limit=5`)
-        setMergeResults(Array.isArray(res) ? res.filter(t => String(t.id) !== id) : [])
+        const data = await apiFetch<any>(`/api/helpdesk/tickets/search?q=${encodeURIComponent(q)}&limit=5`)
+        const res: TicketSearchResult[] = Array.isArray(data) ? data : (data.tickets ?? [])
+        setMergeResults(res.filter(t => String(t.id) !== id))
       } catch { setMergeResults([]) } finally { setMergeSearching(false) }
     }, 300)
   }, [id])
@@ -634,7 +635,7 @@ export default function TicketDetail() {
 
               {/* Action buttons */}
               <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
-                {['open','in_progress','pending_customer'].includes(ticket.status) && (
+                {['open','in_progress','pending'].includes(ticket.status) && (
                   <button onClick={() => setResolveOpen(true)}
                     style={{ padding: '6px 14px', borderRadius: 7, border: 'none', background: GREEN, color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
                     <span className="material-symbols-rounded" style={{ fontSize: 14 }}>check_circle</span>

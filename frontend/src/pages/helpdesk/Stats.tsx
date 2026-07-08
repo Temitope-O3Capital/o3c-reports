@@ -107,11 +107,11 @@ export default function HelpdeskStats() {
     setLoading(true)
     setError(null)
     try {
+      // Note: agentFilter is not sent — backend does not yet support per-agent filtering
       const qs = new URLSearchParams({ date_from: dateFrom, date_to: dateTo })
-      if (agentFilter) qs.set('agent', agentFilter)
       const s = qs.toString()
 
-      const dateQs = new URLSearchParams({ date_from: dateFrom, date_to: dateTo }).toString()
+      const dateQs = s
 
       const [ct, ht, res, td, lb, sla, bh, ch] = await Promise.all([
         apiFetch<{ data: CsatPoint[] }>(`/api/helpdesk/csat-trend?${s}`),
@@ -136,7 +136,7 @@ export default function HelpdeskStats() {
     } finally {
       setLoading(false)
     }
-  }, [dateFrom, dateTo, agentFilter])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -160,8 +160,10 @@ export default function HelpdeskStats() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
         <select value={agentFilter} onChange={e => setAgentFilter(e.target.value)}
-          style={{ height: 32, borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, padding: '0 10px', cursor: 'pointer' }}>
-          <option value="">All agents</option>
+          title="Per-agent filtering is coming soon — data shown is for all agents"
+          style={{ height: 32, borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, padding: '0 10px', cursor: 'not-allowed', opacity: 0.6 }}
+          disabled>
+          <option value="">All agents (filter coming soon)</option>
           {agents.map(a => <option key={a.id} value={String(a.id)}>{a.full_name}</option>)}
         </select>
       </div>

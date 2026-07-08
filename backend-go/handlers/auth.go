@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -150,11 +151,78 @@ func forgotPasswordHandler(db *core.DB) http.HandlerFunc {
 		}
 
 		name := str(rows[0]["full_name"])
+		uid := toInt64(rows[0]["id"])
+		go SendTemporaryPasswordEmail(ctx, db, b.Email, name, tempPW, uid)
+
+		w.WriteHeader(204)
+	}
+}
+
+// registerHandler lets a new staff member request access without admin pre-action.
+// The account is created inactive; IT Admin activates it from Admin → Users.
+func RegisterHandler(db *core.DB) http.HandlerFunc {
+	type body struct {
+		FirstName  string `json:"first_name"`
+		LastName   string `json:"last_name"`
+		Email      string `json:"email"`
+		Department string `json:"department"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			w.WriteHeader(204)
+			return
+		}
+		b.Email = strings.ToLower(strings.TrimSpace(b.Email))
+		if b.FirstName == "" || b.Email == "" {
+			respondErr(w, 422, "first_name and email are required")
+			return
+		}
+
+		// Don't reveal whether email already exists — silently succeed.
+		existing, _ := db.PGQuery(r.Context(), `SELECT id FROM o3c_users WHERE email=$1`, b.Email)
+		if len(existing) > 0 {
+			w.WriteHeader(204)
+			return
+		}
+
+		fullName := strings.TrimSpace(b.FirstName + " " + b.LastName)
+		// Lock the account until admin activates: use a random unusable hash.
+		rawBytes := make([]byte, 32)
+		rand.Read(rawBytes) //nolint:errcheck
+		hash, _ := core.HashPassword(hex.EncodeToString(rawBytes))
+
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO o3c_users
+			  (email, password_hash, full_name, first_name, last_name, role, department, must_change_password, is_active)
+			VALUES ($1,$2,$3,$4,$5,'call_centre',$6,TRUE,FALSE)
+			RETURNING id`,
+			b.Email, hash, fullName, b.FirstName, b.LastName, b.Department)
+		if err != nil {
+			slog.Error("register: insert failed", "err", err)
+			w.WriteHeader(204)
+			return
+		}
+
+		newUID := toInt64(rows[0]["id"])
+		ctx := r.Context()
+
+		go NotifyRole(ctx, db, "it_admin", NotifPayload{
+			EventType: EvtNewAccountCreated,
+			Title:     "New access request",
+			Body:      fmt.Sprintf("%s (%s) has requested workspace access. Review in Admin → Users.", fullName, b.Email),
+			ActionURL: "/admin/users",
+			EntityRef: fmt.Sprint(newUID),
+		})
+
 		go SendMail(ctx, db, SendMailOptions{
-			To:       []MailAddress{{Email: b.Email, Name: name}},
-			Subject:  "O3 Capital — Password Reset",
-			HTMLBody: "<p>Hi " + name + ",</p><p>Your temporary password is: <strong>" + tempPW + "</strong></p><p>Please log in and change it immediately.</p>",
-			TextBody: "Hi " + name + ",\n\nYour temporary password is: " + tempPW + "\n\nPlease log in and change it immediately.",
+			To:      []MailAddress{{Email: b.Email, Name: fullName}},
+			Subject: "O3 Capital — Access Request Received",
+			HTMLBody: fmt.Sprintf(`<p>Hi %s,</p>
+<p>Your access request for <strong>O3 Capital Workspace</strong> has been received.</p>
+<p>The IT Admin will review and activate your account. You will receive your login credentials by email once approved.</p>`,
+				escapeMailHTML(fullName)),
+			TextBody: fmt.Sprintf("Hi %s,\n\nYour access request for O3 Capital Workspace has been received.\n\nThe IT Admin will review and activate your account. You will receive your login credentials by email once approved.", fullName),
 			Kind:     "auth",
 			Category: "auth",
 		})

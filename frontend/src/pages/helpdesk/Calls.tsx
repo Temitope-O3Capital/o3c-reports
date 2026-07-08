@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter } from '../../components/UI'
+import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter, Modal, Spinner } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, today, monthStart } from '../../lib/fmt'
-import { NAVY, BLUE, PURPLE, GREEN, RED, AMBER, NUM, INTER } from '../../lib/design'
+import { NAVY, BLUE, PURPLE, GREEN, RED, AMBER, NUM, INTER, SORA } from '../../lib/design'
+import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -13,6 +14,7 @@ interface CallLog {
   agent_name: string
   customer_name: string | null
   phone: string        // aliased from customer_phone in backend
+  call_to: string | null
   direction: string    // 'Inbound' | 'Outbound' (INITCAP'd by backend)
   duration_seconds: number
   outcome: string
@@ -20,6 +22,17 @@ interface CallLog {
   ticket_ref: string | null
   called_at: string    // aliased from started_at in backend
 }
+
+// ── Call script types ──────────────────────────────────────────────────────────
+
+const TICKET_TYPES_CALL = [
+  'General Enquiry', 'Balance Enquiry', 'Payment Confirmation', 'Card Dispute',
+  'Statement Request', 'Loan Complaint', 'FD Enquiry', 'Technical / App Issue',
+  'Complaint (CBN reportable)',
+]
+
+interface CallScriptStep { order: number; prompt: string; options?: string[] }
+interface CallScript { id: number; ticket_type: string; name: string; steps: CallScriptStep[]; is_active: boolean }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -92,6 +105,11 @@ function buildCols(navigate: ReturnType<typeof useNavigate>): TableCol<CallLog>[
       ),
     },
     {
+      key: 'call_to',
+      label: 'To',
+      render: r => <span style={{ fontSize: 13, color: 'var(--txt2)' }}>{r.call_to ?? '—'}</span>,
+    },
+    {
       key: 'direction',
       label: 'Direction',
       render: r => <DirectionPill direction={r.direction} />,
@@ -141,6 +159,13 @@ export default function Calls() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo] = useState(today())
 
+  // Log Call modal state
+  const [logOpen, setLogOpen] = useState(false)
+  const [logForm, setLogForm] = useState({ customer_name: '', phone: '', direction: 'Inbound', outcome_val: 'completed', ticket_type: '', notes: '' })
+  const [logSaving, setLogSaving] = useState(false)
+  const [callScript, setCallScript] = useState<CallScript | null>(null)
+  const [scriptExpanded, setScriptExpanded] = useState(false)
+
   const abortRef = useRef<AbortController | null>(null)
 
   const buildQS = useCallback(() => {
@@ -170,6 +195,38 @@ export default function Calls() {
 
   useEffect(() => { load() }, [load])
 
+  // Fetch call script when ticket type selected in Log Call modal
+  useEffect(() => {
+    if (!logOpen || !logForm.ticket_type) { setCallScript(null); return }
+    apiFetch<CallScript | null>(`/api/helpdesk/call-scripts/by-type?ticket_type=${encodeURIComponent(logForm.ticket_type)}`)
+      .then(r => { setCallScript(r && (r as any).id ? r : null); setScriptExpanded(true) })
+      .catch(() => setCallScript(null))
+  }, [logOpen, logForm.ticket_type])
+
+  async function handleLogCall() {
+    if (!logForm.phone.trim()) { toast.error('Phone number is required'); return }
+    setLogSaving(true)
+    try {
+      await apiPost('/api/helpdesk/calls', {
+        customer_name: logForm.customer_name || undefined,
+        customer_phone: logForm.phone,
+        direction: logForm.direction,
+        outcome: logForm.outcome_val,
+        ticket_type: logForm.ticket_type || undefined,
+        notes: logForm.notes || undefined,
+      })
+      toast.success('Call logged')
+      setLogOpen(false)
+      setLogForm({ customer_name: '', phone: '', direction: 'Inbound', outcome_val: 'completed', ticket_type: '', notes: '' })
+      setCallScript(null)
+      load()
+    } catch (e: any) {
+      toast.error(e.message ?? 'Failed to log call')
+    } finally {
+      setLogSaving(false)
+    }
+  }
+
   function exportCallsCsv(data: CallLog[]) {
     const header = ['Agent', 'Customer', 'Phone', 'Direction', 'Duration (s)', 'Outcome', 'Ticket', 'Called At']
     const lines = data.map(r => [
@@ -191,8 +248,23 @@ export default function Calls() {
 
   const cols = buildCols(navigate)
 
+  const logInputStyle: React.CSSProperties = {
+    width: '100%', height: 36, padding: '0 10px',
+    border: '1px solid var(--input-bdr)', borderRadius: 7,
+    fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
+    boxSizing: 'border-box', fontFamily: SORA,
+  }
+
   return (
-    <Page title="Call Log" subtitle="All inbound and outbound calls">
+    <Page title="Call Log" subtitle="All inbound and outbound calls"
+      actions={
+        <button onClick={() => setLogOpen(true)}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: SORA }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add_call</span>
+          Log Call
+        </button>
+      }
+    >
       <ErrBanner error={error} onRetry={load} />
 
       <SectionCard padding={false} badge={rows.length} actions={<button onClick={() => exportCallsCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
@@ -233,6 +305,114 @@ export default function Calls() {
 
         />
       </SectionCard>
+
+      {/* Log Call modal */}
+      <Modal
+        open={logOpen}
+        onClose={() => { setLogOpen(false); setCallScript(null) }}
+        title="Log Call"
+        width={480}
+        footer={
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => { setLogOpen(false); setCallScript(null) }}
+              style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
+              Cancel
+            </button>
+            <button onClick={handleLogCall} disabled={logSaving}
+              style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: logSaving ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, opacity: logSaving ? 0.7 : 1 }}>
+              {logSaving && <Spinner size={13} color="#fff" />}
+              Log Call
+            </button>
+          </div>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: SORA }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>Customer Name</label>
+              <input value={logForm.customer_name} onChange={e => setLogForm(f => ({ ...f, customer_name: e.target.value }))}
+                placeholder="Full name" style={logInputStyle} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>Phone Number *</label>
+              <input value={logForm.phone} onChange={e => setLogForm(f => ({ ...f, phone: e.target.value }))}
+                placeholder="e.g. 08012345678" style={logInputStyle} />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>Direction</label>
+              <select value={logForm.direction} onChange={e => setLogForm(f => ({ ...f, direction: e.target.value }))}
+                style={{ ...logInputStyle }}>
+                <option value="Inbound">Inbound</option>
+                <option value="Outbound">Outbound</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>Outcome</label>
+              <select value={logForm.outcome_val} onChange={e => setLogForm(f => ({ ...f, outcome_val: e.target.value }))}
+                style={{ ...logInputStyle }}>
+                <option value="completed">Completed</option>
+                <option value="missed">Missed</option>
+                <option value="transferred">Transferred</option>
+                <option value="escalated">Escalated</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>Ticket Type</label>
+            <select value={logForm.ticket_type} onChange={e => setLogForm(f => ({ ...f, ticket_type: e.target.value }))}
+              style={{ ...logInputStyle }}>
+              <option value="">— None —</option>
+              {TICKET_TYPES_CALL.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>Notes</label>
+            <textarea value={logForm.notes} onChange={e => setLogForm(f => ({ ...f, notes: e.target.value }))}
+              rows={3} placeholder="Call notes…"
+              style={{ ...logInputStyle, height: 'auto', padding: '8px 10px', resize: 'vertical', lineHeight: 1.5 }} />
+          </div>
+
+          {/* Call script panel */}
+          {callScript && (
+            <div style={{ border: `1px solid ${NAVY}25`, borderRadius: 8, overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => setScriptExpanded(x => !x)}
+                style={{ width: '100%', padding: '9px 14px', background: `${NAVY}08`, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: SORA }}
+              >
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: NAVY, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 15 }}>assignment</span>
+                  Call Script: {callScript.name}
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{scriptExpanded ? '▲ Collapse' : '▼ Expand'}</span>
+              </button>
+              {scriptExpanded && (
+                <div style={{ padding: '10px 14px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {callScript.steps.sort((a, b) => a.order - b.order).map(step => (
+                    <div key={step.order} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                      <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: NAVY, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
+                        {step.order}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 13, color: 'var(--txt)', lineHeight: 1.5 }}>{step.prompt}</div>
+                        {step.options && step.options.length > 0 && (
+                          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 4 }}>
+                            {step.options.map((opt, i) => (
+                              <span key={i} style={{ fontSize: 11, padding: '1px 7px', borderRadius: 10, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>{opt}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </Modal>
     </Page>
   )
 }

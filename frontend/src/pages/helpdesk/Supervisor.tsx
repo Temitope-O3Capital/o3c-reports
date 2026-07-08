@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -235,9 +236,9 @@ export default function Supervisor() {
     {
       key: 'ticket_ref', label: 'Ticket',
       render: r => (
-        <a href={`/helpdesk/${r.id}`} style={{ fontSize: 12.5, fontWeight: 700, color: BLUE, textDecoration: 'none', fontFamily: 'Inter, monospace' }}>
+        <Link to={`/helpdesk/${r.id}`} style={{ fontSize: 12.5, fontWeight: 700, color: BLUE, textDecoration: 'none', fontFamily: 'Inter, monospace' }}>
           #{r.ticket_ref}
-        </a>
+        </Link>
       ),
     },
     {
@@ -340,9 +341,9 @@ export default function Supervisor() {
                   <div style={{ width: 4, height: 36, borderRadius: 4, background: RED, flexShrink: 0, marginTop: 3 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <a href={`/helpdesk/${b.id}`} style={{ fontSize: 12.5, fontWeight: 700, color: BLUE, textDecoration: 'none', fontFamily: 'Inter, monospace' }}>
+                      <Link to={`/helpdesk/${b.id}`} style={{ fontSize: 12.5, fontWeight: 700, color: BLUE, textDecoration: 'none', fontFamily: 'Inter, monospace' }}>
                         #{b.ticket_ref}
-                      </a>
+                      </Link>
                       <span style={{ fontSize: 11, fontWeight: 600, color: RED }}>
                         {(() => {
                           const mins = Math.round((Date.now() - new Date(b.sla_due_at).getTime()) / 60_000)

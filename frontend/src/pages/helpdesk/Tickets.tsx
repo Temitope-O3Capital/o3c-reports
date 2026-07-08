@@ -36,7 +36,7 @@ interface Ticket {
   created_at: string
 }
 
-interface TicketsResp { tickets: Ticket[]; total: number }
+interface TicketsResp { tickets: Ticket[]; total: number; pages?: number }
 
 interface Message {
   id: number
@@ -501,9 +501,13 @@ export default function Tickets() {
 
   const [tickets,  setTickets]  = useState<Ticket[]>([])
   const [total,    setTotal]    = useState(0)
+  const [pages,    setPages]    = useState(1)
+  const [page,     setPage]     = useState(1)
   const [loading,  setLoading]  = useState(true)
   const [err,      setErr]      = useState<string | null>(null)
   const [lastLoaded, setLastLoaded] = useState<Date | null>(null)
+
+  const PER_PAGE = 50
 
   const [search,      setSearch]      = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -523,21 +527,23 @@ export default function Tickets() {
       const params = new URLSearchParams()
       if (statusFilter) params.set('status', statusFilter)
       if (priorityFilter) params.set('priority', priorityFilter)
-      params.set('per_page', '200')
+      params.set('page', String(page))
+      params.set('per_page', String(PER_PAGE))
       const resp = await apiFetch<TicketsResp>(`/api/helpdesk/tickets?${params}`)
       setTickets(resp.tickets ?? [])
       setTotal(resp.total ?? 0)
+      setPages(resp.pages ?? 1)
       setLastLoaded(new Date())
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [statusFilter, priorityFilter])
+  }, [statusFilter, priorityFilter, page, PER_PAGE])
 
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
     if (reassignOpen && agents.length === 0) {
-      apiFetch<{ agents?: Agent[] } | Agent[]>('/api/helpdesk/supervisor')
-        .then(r => { const list = Array.isArray(r) ? r : (r as any).agents ?? []; setAgents(list) })
+      apiFetch<Agent[]>('/api/helpdesk/agents')
+        .then(r => { const list = Array.isArray(r) ? r : []; setAgents(list) })
         .catch(() => setAgents([]))
     }
   }, [reassignOpen, agents.length])
@@ -641,7 +647,7 @@ export default function Tickets() {
               {STATUS_CHIPS.map(({ value, label }) => {
                 const on = statusFilter === value
                 return (
-                  <button key={value} onClick={() => setStatusFilter(on ? '' : value)} style={{
+                  <button key={value} onClick={() => { setStatusFilter(on ? '' : value); setPage(1) }} style={{
                     fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 99,
                     border: `1px solid ${on ? NAVY : 'var(--bdr)'}`,
                     background: on ? `${NAVY}12` : 'transparent',
@@ -659,7 +665,7 @@ export default function Tickets() {
               {PRIORITY_CHIPS.map(({ value, color }) => {
                 const on = priorityFilter === value
                 return (
-                  <button key={value} onClick={() => setPriorityFilter(on ? '' : value)} style={{
+                  <button key={value} onClick={() => { setPriorityFilter(on ? '' : value); setPage(1) }} style={{
                     fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 99,
                     border: `1px solid ${on ? color : 'var(--bdr)'}`,
                     background: on ? `${color}18` : 'transparent',
@@ -671,7 +677,7 @@ export default function Tickets() {
                 )
               })}
               {(statusFilter || priorityFilter || search) && (
-                <button onClick={() => { setStatusFilter(''); setPriorityFilter(''); setSearch('') }} style={{
+                <button onClick={() => { setStatusFilter(''); setPriorityFilter(''); setSearch(''); setPage(1) }} style={{
                   fontSize: 10.5, fontWeight: 500, padding: '2px 8px', borderRadius: 99,
                   border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt3)', cursor: 'pointer', fontFamily: SORA,
                 }}>Clear</button>
@@ -726,6 +732,35 @@ export default function Tickets() {
               />
             ))}
           </div>
+
+          {/* Pagination */}
+          {!loading && pages > 1 && (
+            <div style={{ flexShrink: 0, borderTop: '1px solid var(--bdr)', padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--card)' }}>
+              <span style={{ fontSize: 11, color: 'var(--txt3)', fontFamily: SORA }}>
+                {(() => {
+                  const start = (page - 1) * PER_PAGE + 1
+                  const end = Math.min(page * PER_PAGE, total)
+                  return `Showing ${start}–${end} of ${total} tickets`
+                })()}
+              </span>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  style={{ fontSize: 12, padding: '3px 10px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: page <= 1 ? 'var(--txt3)' : 'var(--txt)', cursor: page <= 1 ? 'not-allowed' : 'pointer', fontFamily: SORA }}
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setPage(p => Math.min(pages, p + 1))}
+                  disabled={page >= pages}
+                  style={{ fontSize: 12, padding: '3px 10px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: page >= pages ? 'var(--txt3)' : 'var(--txt)', cursor: page >= pages ? 'not-allowed' : 'pointer', fontFamily: SORA }}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right panel */}

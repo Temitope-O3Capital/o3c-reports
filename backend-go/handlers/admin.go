@@ -325,7 +325,27 @@ func deactivateUser(db *core.DB) http.HandlerFunc {
 func reactivateUser(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
+
+		// Fetch user — if they've never logged in this is a pending self-registration.
+		rows, err := db.PGQuery(r.Context(),
+			`SELECT email, full_name, last_login FROM o3c_users WHERE id=$1 AND deleted_at IS NULL`, id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "User not found")
+			return
+		}
 		db.PGExec(r.Context(), `UPDATE o3c_users SET is_active=TRUE, deleted_at=NULL WHERE id=$1`, id) //nolint:errcheck
+
+		// First-time activation: generate and email credentials.
+		if rows[0]["last_login"] == nil {
+			tempPW := genPassword()
+			if hash, hashErr := core.HashPassword(tempPW); hashErr == nil {
+				db.PGExec(r.Context(), //nolint:errcheck
+					`UPDATE o3c_users SET password_hash=$1, must_change_password=TRUE WHERE id=$2`, hash, id)
+				go SendTemporaryPasswordEmail(r.Context(), db,
+					str(rows[0]["email"]), str(rows[0]["full_name"]), tempPW, toInt64(rows[0]["id"]))
+			}
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"detail": "User reactivated"}) //nolint:errcheck
 	}

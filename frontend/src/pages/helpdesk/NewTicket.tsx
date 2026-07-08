@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Spinner, ErrBanner } from '../../components/UI'
-import { apiPost } from '../../lib/api'
+import { apiFetch, apiPost } from '../../lib/api'
 import { RED, NAVY } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -320,11 +320,18 @@ export default function NewTicketForm({
 
   const [subject, setSubject] = useState('')
   const [priority, setPriority] = useState('medium')
-  const [assignedAgent, setAssignedAgent] = useState('')
+  const [agentId, setAgentId] = useState<number | null>(null)
+  const [agents, setAgents] = useState<{ id: number; full_name: string }[]>([])
   const [description, setDescription] = useState('')
 
   const [submitting, setSubmitting] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    apiFetch<{ id: number; full_name: string }[]>('/api/helpdesk/agents')
+      .then(r => setAgents(Array.isArray(r) ? r : []))
+      .catch(() => setAgents([]))
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -347,7 +354,7 @@ export default function NewTicketForm({
           .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`)
           .join('\n'),
         custom_fields: customFields,
-        ...(assignedAgent ? { assigned_agent: assignedAgent } : {}),
+        ...(agentId != null ? { assigned_to: agentId } : {}),
       }
       const resp = await apiPost<{ ticket: { id: number } }>('/api/helpdesk/tickets', body)
       const newId = resp?.ticket?.id
@@ -440,8 +447,14 @@ export default function NewTicketForm({
               </select>
             </Field>
             <Field label="Assign to Agent (optional)">
-              <input type="text" placeholder="Agent name" value={assignedAgent}
-                onChange={e => setAssignedAgent(e.target.value)} style={inputStyle} />
+              <select
+                value={agentId ?? ''}
+                onChange={e => setAgentId(e.target.value ? Number(e.target.value) : null)}
+                style={{ ...inputStyle, height: 38 }}
+              >
+                <option value="">— Unassigned —</option>
+                {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+              </select>
             </Field>
           </div>
         </div>

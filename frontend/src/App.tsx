@@ -107,6 +107,7 @@ const HelpdeskStats       = lazy(() => import('./pages/helpdesk/Stats'))
 const HelpdeskKB          = lazy(() => import('./pages/helpdesk/KnowledgeBase'))
 const HelpdeskCanned      = lazy(() => import('./pages/helpdesk/Canned'))
 const HelpdeskNewTicket   = lazy(() => import('./pages/helpdesk/NewTicket'))
+const HelpdeskCBNReport   = lazy(() => import('./pages/helpdesk/CBNReport'))
 
 // Cards
 const CardsOverview    = lazy(() => import('./pages/cards/Overview'))
@@ -920,6 +921,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/helpdesk/stats"          element={<PageErrorBoundary><HelpdeskStats /></PageErrorBoundary>} />
                   <Route path="/helpdesk/knowledge-base" element={<PageErrorBoundary><HelpdeskKB /></PageErrorBoundary>} />
                   <Route path="/helpdesk/canned"         element={<PageErrorBoundary><HelpdeskCanned /></PageErrorBoundary>} />
+                  <Route path="/helpdesk/cbn-report"     element={<PageErrorBoundary><HelpdeskCBNReport /></PageErrorBoundary>} />
                   <Route path="/helpdesk/new"            element={<PageErrorBoundary><NewTicketPage /></PageErrorBoundary>} />
                   <Route path="/helpdesk/:id"            element={<PageErrorBoundary><HelpdeskTicketDetail /></PageErrorBoundary>} />
 

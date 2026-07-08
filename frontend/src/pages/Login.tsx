@@ -444,6 +444,14 @@ export default function Login({ onLogin }: LoginProps) {
   const [forgotDone,   setForgotDone]   = useState(false)
   const [forgotLoad,   setForgotLoad]   = useState(false)
   const [forgotErr,    setForgotErr]    = useState('')
+  const [regMode,      setRegMode]      = useState(false)
+  const [regFirst,     setRegFirst]     = useState('')
+  const [regLast,      setRegLast]      = useState('')
+  const [regEmail,     setRegEmail]     = useState('')
+  const [regDept,      setRegDept]      = useState('')
+  const [regDone,      setRegDone]      = useState(false)
+  const [regLoad,      setRegLoad]      = useState(false)
+  const [regErr,       setRegErr]       = useState('')
 
   const greeting = (() => {
     const h = new Date().getHours()
@@ -543,6 +551,25 @@ export default function Login({ onLogin }: LoginProps) {
     }
     localStorage.setItem('o3c_user', JSON.stringify(user))
     onLogin(user)
+  }
+
+  async function handleRegister(e: React.FormEvent) {
+    e.preventDefault()
+    if (!regFirst.trim()) { setRegErr('First name is required'); return }
+    if (!regEmail.trim()) { setRegErr('Work email is required'); return }
+    setRegLoad(true); setRegErr('')
+    try {
+      await fetch(`${API}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ first_name: regFirst.trim(), last_name: regLast.trim(), email: regEmail.trim(), department: regDept }),
+      })
+      setRegDone(true)
+    } catch {
+      setRegErr('Network error — please try again')
+    } finally {
+      setRegLoad(false)
+    }
   }
 
   const txtPrimary   = wide ? '#0A1929' : 'rgba(255,255,255,0.94)'
@@ -650,9 +677,12 @@ export default function Login({ onLogin }: LoginProps) {
                   </PrimaryBtn>
                 </div>
 
-                <div style={{ textAlign: 'center', marginTop: 20 }}>
+                <div style={{ textAlign: 'center', marginTop: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <button type="button" className="o3-ghost" onClick={() => { setForgotMode(true); setForgotEmail(email); setForgotErr(''); setForgotDone(false) }}>
                     Forgot your password?
+                  </button>
+                  <button type="button" className="o3-ghost" onClick={() => { setRegMode(true); setRegEmail(email); setRegErr(''); setRegDone(false) }}>
+                    New here? Request access →
                   </button>
                 </div>
               </form>
@@ -695,6 +725,47 @@ export default function Login({ onLogin }: LoginProps) {
 
               <div style={{ textAlign: 'center', marginTop: 20 }}>
                 <button type="button" className="o3-ghost" onClick={() => { setForgotMode(false); setForgotDone(false); setForgotErr('') }}>
+                  ← Back to sign in
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ── Registration step ── */}
+          {regMode && !forgotMode && (
+            <>
+              <div style={{ marginBottom: 28, animation: 'o3rise 300ms cubic-bezier(0.4,0,0.2,1) both' }}>
+                <h1 style={{ fontSize: 22, fontWeight: 800, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.5px' }}>
+                  Request access
+                </h1>
+                <p style={{ fontSize: 13.5, color: txtSecondary, margin: 0, lineHeight: 1.65 }}>
+                  {regDone
+                    ? "Request received. The IT Admin will review and send your login credentials by email."
+                    : "Fill in your details and the IT Admin will activate your account."}
+                </p>
+              </div>
+
+              {!regDone && (
+                <form onSubmit={handleRegister} noValidate>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11 }}>
+                      <FloatingField id="reg-first" label="First name" value={regFirst} onChange={setRegFirst} autoFocus />
+                      <FloatingField id="reg-last"  label="Last name"  value={regLast}  onChange={setRegLast} />
+                    </div>
+                    <FloatingField id="reg-email" label="Work email" type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" />
+                    <FloatingField id="reg-dept"  label="Department (optional)" value={regDept} onChange={setRegDept} />
+                  </div>
+                  <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 11 }}>
+                    {regErr && <ErrorMsg msg={regErr} />}
+                    <PrimaryBtn loading={regLoad}>
+                      <span>Submit request</span>
+                    </PrimaryBtn>
+                  </div>
+                </form>
+              )}
+
+              <div style={{ textAlign: 'center', marginTop: 20 }}>
+                <button type="button" className="o3-ghost" onClick={() => { setRegMode(false); setRegDone(false); setRegErr('') }}>
                   ← Back to sign in
                 </button>
               </div>

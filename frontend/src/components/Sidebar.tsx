@@ -111,6 +111,7 @@ const SECTIONS: Section[] = [
           'call_center_agent','call_center_head',
           'telemarketing_agent','telemarketing_head',
           'sales_officer','sales_head','bd_officer','bd_head',
+          'compliance_officer',
         ],
         subs: [
           { label: 'New Ticket',       to: '/helpdesk/new' },
@@ -120,6 +121,7 @@ const SECTIONS: Section[] = [
           { label: 'Analytics',        to: '/helpdesk/stats' },
           { label: 'Knowledge Base',   to: '/helpdesk/knowledge-base' },
           { label: 'Canned Responses', to: '/helpdesk/canned' },
+          { label: 'CBN Report',       to: '/helpdesk/cbn-report' },
         ],
       },
     ],
