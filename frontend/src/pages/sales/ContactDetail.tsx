@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Page, ErrBanner, Spinner, SectionCard, Modal } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate, fmtKobo } from '../../lib/fmt'
 import { GREEN, AMBER, RED, NAVY, BLUE, INTER, NUM } from '../../lib/design'
 import { toast } from 'sonner'
@@ -130,11 +130,8 @@ export default function ContactDetail() {
   async function logActivity() {
     setSaving(true)
     try {
-      const token = localStorage.getItem('token') ?? ''
-      await fetch(`/api/crm/activities`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ contact_id: Number(id), type: actType, subject: actSubj, body: actBody, outcome: actOutc }),
+      await apiPost(`/api/crm/activities`, {
+        contact_id: Number(id), type: actType, subject: actSubj, body: actBody, outcome: actOutc,
       })
       toast.success('Activity logged')
       setShowActivity(false)

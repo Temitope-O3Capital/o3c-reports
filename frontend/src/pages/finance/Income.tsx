@@ -145,7 +145,7 @@ function EmptyState({ icon, message }: { icon: string; message: string }) {
 // ── Loan columns ──────────────────────────────────────────────────────────────
 
 const MATURITY_STATUS_COLORS: Record<string, string> = {
-  'Matured': '#6B7280',
+  'Matured': 'var(--chart-lbl)',
   'Active': GREEN,
   'Maturing Soon': '#D97706',
   'Unknown': 'var(--chart-lbl)',
@@ -411,7 +411,7 @@ export default function FinanceIncome() {
                   <Bar dataKey="previous" name="Previous cycle" fill="var(--chart-lbl)" radius={[3,3,0,0]}>
                     <LabelList dataKey="previous" position="top"
                       formatter={(v: number) => fmtKoboExact(v)}
-                      style={{ fontSize: 9.5, fill: '#6B7280', fontFamily: 'Inter', fontVariantNumeric: 'tabular-nums' }} />
+                      style={{ fontSize: 9.5, fill: 'var(--chart-lbl)', fontFamily: 'Inter', fontVariantNumeric: 'tabular-nums' }} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>

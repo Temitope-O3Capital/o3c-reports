@@ -221,6 +221,12 @@ func finPostingsCreate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Create failed: "+err.Error())
 			return
 		}
+		NotifyRole(r.Context(), db, "finance_head", NotifPayload{
+			EventType: "manual_posting_submitted",
+			Title:     "Manual Posting Awaiting Approval",
+			Body:      fmt.Sprintf("MP-%v submitted for GL approval — %s", rows[0]["id"], b.Narrative),
+			ActionURL: "/finance/manual-postings",
+		})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -280,6 +286,14 @@ func finPostingsApprove(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Commit failed")
 			return
 		}
+		// Notify the initiator that their posting has been approved and posted.
+		Notify(r.Context(), db, NotifPayload{
+			EventType: "manual_posting_approved",
+			UserID:    toInt64(p["initiated_by"]),
+			Title:     "Manual Posting Approved",
+			Body:      fmt.Sprintf("MP-%v has been approved and posted to the GL", id),
+			ActionURL: "/finance/manual-postings",
+		})
 		rows, _ := db.PGQuery(r.Context(), `SELECT * FROM manual_postings WHERE id=$1`, id)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -305,6 +319,14 @@ func finPostingsReject(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Posting not found or already actioned")
 			return
 		}
+		// Notify the initiator that their posting has been rejected.
+		Notify(r.Context(), db, NotifPayload{
+			EventType: "manual_posting_rejected",
+			UserID:    toInt64(rows[0]["initiated_by"]),
+			Title:     "Manual Posting Rejected",
+			Body:      fmt.Sprintf("MP-%v was rejected. Reason: %s", id, b.Reason),
+			ActionURL: "/finance/manual-postings",
+		})
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
@@ -388,12 +410,13 @@ func finBudgetList(db *core.DB) http.HandlerFunc {
 		}
 		_ = n
 
-		// Budget lines joined with actual spend from cost_entries
+		// Budget lines joined with actual spend from cost_entries.
+		// LATERAL is required because the subquery references bl.period from the outer row.
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT bl.*,
 			    COALESCE(ce.actual, 0) AS actual_amount
 			FROM budget_lines bl
-			LEFT JOIN (
+			LEFT JOIN LATERAL (
 			    SELECT department AS cost_centre, category,
 			           SUM(amount_kobo) AS actual
 			    FROM cost_entries
@@ -480,16 +503,30 @@ func finCostsList(db *core.DB) http.HandlerFunc {
 		}
 		_ = n
 
+		limit  := qint(r, "limit",  200, 1, 1000)
+		offset := qint(r, "offset", 0,   0, 1<<30)
+
+		countRows, _ := db.PGQuery(r.Context(),
+			fmt.Sprintf(`SELECT COUNT(*) AS total FROM cost_entries ce WHERE %s`, where), args...)
+		total := int64(0)
+		if len(countRows) > 0 {
+			total = toInt64(countRows[0]["total"])
+		}
+
+		args2 := append(args, limit, offset)
+		n2 := len(args) + 1
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(
 			`SELECT ce.*, u.full_name AS recorded_by_name
 			 FROM cost_entries ce
 			 LEFT JOIN o3c_users u ON u.id=ce.recorded_by
-			 WHERE %s ORDER BY ce.entry_date DESC LIMIT 500`, where), args...)
+			 WHERE %s ORDER BY ce.entry_date DESC
+			 LIMIT $%d OFFSET $%d`, where, n2, n2+1), args2...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
 		}
-		jsonRows(w, rows)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"data": rows, "total": total}) //nolint:errcheck
 	}
 }
 
@@ -670,11 +707,10 @@ func finIncomeList(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		// Build args: dateArgs repeated once per UNION part, then limit/offset
-		var args []any
-		for i := 0; i < partCount; i++ {
-			args = append(args, dateArgs...)
-		}
+		// PostgreSQL $N placeholders are global to the whole query — each $1 in every
+		// UNION branch refers to the same first argument. Do NOT duplicate dateArgs.
+		args := make([]any, 0, len(dateArgs)+2)
+		args = append(args, dateArgs...)
 		args = append(args, limit, offset)
 
 		finalSQL := fmt.Sprintf(`

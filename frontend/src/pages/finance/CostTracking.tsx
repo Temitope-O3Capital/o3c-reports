@@ -162,8 +162,9 @@ export default function FinanceCostTracking() {
       const params = new URLSearchParams()
       if (deptFilter) params.set('department', deptFilter)
       if (catFilter) params.set('category', catFilter)
-      const data = await apiFetch<CostEntry[]>(`/api/finance/costs?${params}`)
-      setRows(data ?? [])
+      params.set('limit', '500')
+      const res = await apiFetch<{ data: CostEntry[]; total: number }>(`/api/finance/costs?${params}`)
+      setRows(res?.data ?? [])
     } catch (e: any) {
       setError(e.message ?? 'Failed to load costs')
     } finally {

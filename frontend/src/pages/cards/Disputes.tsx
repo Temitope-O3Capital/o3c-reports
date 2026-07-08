@@ -24,7 +24,7 @@ interface Dispute {
 // ── Status flow: Filed → Investigating → Provisional Credit → Resolved ────────
 
 const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
-  filed:               { bg: 'rgba(107,114,128,.1)', txt: '#6B7280' },
+  filed:               { bg: 'rgba(107,114,128,.1)', txt: 'var(--chart-lbl)' },
   investigating:       { bg: 'rgba(37,99,235,.1)',   txt: BLUE },
   provisional_credit:  { bg: 'rgba(217,119,6,.12)',  txt: AMBER },
   resolved:            { bg: 'rgba(22,163,74,.1)',   txt: GREEN },
@@ -341,4 +341,3 @@ export default function CardsDisputes() {
   )
 }
 
-void NAVY

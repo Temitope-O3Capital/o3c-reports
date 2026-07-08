@@ -468,8 +468,9 @@ func updateDeal(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Deal not found"); return
 		}
 		updated := rows[0]
-		// Notify the deal owner when stage changes
-		if _, stageChanged := body["stage"]; stageChanged {
+		// Notify the deal owner when stage changes.
+		// Check body["stage_id"] — that is the column name in dealUpdateCols.
+		if _, stageChanged := body["stage_id"]; stageChanged {
 			if ownerID, _ := updated["assigned_to"].(int64); ownerID != 0 {
 				actor := core.UserFromCtx(r.Context())
 				if ownerID != actor.ID {
@@ -477,9 +478,8 @@ func updateDeal(db *core.DB) http.HandlerFunc {
 						EventType: EvtDealStageChanged,
 						UserID:    ownerID,
 						Title:     "Deal stage updated",
-						Body: fmt.Sprintf(`"%s" moved to %s`,
-							str(updated["title"]), str(updated["stage"])),
-						ActionURL: fmt.Sprintf("/crm/pipeline"),
+						Body:      fmt.Sprintf(`Deal "%s" has moved to a new stage`, str(updated["title"])),
+						ActionURL: "/crm/pipeline",
 						EntityRef: fmt.Sprintf("deal:%v", updated["id"]),
 					})
 				}

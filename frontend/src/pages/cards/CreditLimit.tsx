@@ -26,7 +26,7 @@ interface CreditReview {
 // ── Status config ──────────────────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
-  pending_review: { bg: 'rgba(107,114,128,.1)', txt: '#6B7280' },
+  pending_review: { bg: 'rgba(107,114,128,.1)', txt: 'var(--chart-lbl)' },
   recommended:    { bg: 'rgba(37,99,235,.1)',   txt: BLUE },
   approved:       { bg: 'rgba(22,163,74,.1)',   txt: GREEN },
   declined:       { bg: 'rgba(192,0,0,.1)',     txt: RED },

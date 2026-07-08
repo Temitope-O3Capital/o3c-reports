@@ -317,6 +317,12 @@ func cardCreateDispute(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "create failed")
 			return
 		}
+		NotifyRoles(r.Context(), db, []string{"cards_ops_officer", "cards_ops_head"}, NotifPayload{
+			EventType: "card_dispute_filed",
+			Title:     "New Card Dispute Filed",
+			Body:      fmt.Sprintf("DSP-%v — %s for %s (%s)", rows[0]["id"], req.DisputeType, req.CustomerName, req.CardType),
+			ActionURL: "/cards/disputes",
+		})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -350,10 +356,18 @@ func cardAdvanceDispute(db *core.DB) http.HandlerFunc {
 		if req.Status == "resolved" || req.Status == "declined" {
 			resolvedClause = ", resolved_at = NOW()"
 		}
-		if _, err := db.PGExec(r.Context(),
-			fmt.Sprintf(`UPDATE card_disputes SET status=$1%s, updated_at=NOW() WHERE id=$2`, resolvedClause),
-			req.Status, id); err != nil {
+		// Guard: prevent re-advancing already-terminal disputes (race-safe via WHERE).
+		res, err := db.PGQuery(r.Context(),
+			fmt.Sprintf(`UPDATE card_disputes SET status=$1%s, updated_at=NOW()
+			 WHERE id=$2 AND status NOT IN ('resolved','declined')
+			 RETURNING id`, resolvedClause),
+			req.Status, id)
+		if err != nil {
 			respondErr(w, 500, "update failed")
+			return
+		}
+		if len(res) == 0 {
+			respondErr(w, 409, "dispute is already in a terminal state")
 			return
 		}
 		writeJSON(w, map[string]any{"id": id, "status": req.Status})
@@ -471,11 +485,27 @@ func cardDecideCreditLimit(db *core.DB) http.HandlerFunc {
 			return
 		}
 		user := core.UserFromCtx(r.Context())
-		if _, err := db.PGExec(r.Context(),
-			`UPDATE card_credit_limit_reviews SET status=$1, decided_by=$2, updated_at=NOW() WHERE id=$3`,
-			req.Decision, user.ID, id); err != nil {
+		// Guard: prevent overwriting an already-decided review (race-safe via WHERE).
+		res, err := db.PGQuery(r.Context(),
+			`UPDATE card_credit_limit_reviews SET status=$1, decided_by=$2, updated_at=NOW()
+			 WHERE id=$3 AND status NOT IN ('approved','declined')
+			 RETURNING id, customer_name, card_type, proposed_limit_kobo`,
+			req.Decision, user.ID, id)
+		if err != nil {
 			respondErr(w, 500, "update failed")
 			return
+		}
+		if len(res) == 0 {
+			respondErr(w, 409, "review has already been decided")
+			return
+		}
+		if req.Decision == "approved" {
+			NotifyRoles(r.Context(), db, []string{"cards_ops_officer", "cards_ops_head"}, NotifPayload{
+				EventType: "credit_limit_approved",
+				Title:     "Credit Limit Change Approved",
+				Body:      fmt.Sprintf("CLR-%d — %s (%s) new limit approved", id, res[0]["customer_name"], res[0]["card_type"]),
+				ActionURL: "/cards/credit-limits",
+			})
 		}
 		writeJSON(w, map[string]any{"id": id, "status": req.Decision})
 	}
@@ -544,6 +574,12 @@ func cardGenerateBilling(db *core.DB) http.HandlerFunc {
 			}
 			results = append(results, result{Product: product, Count: count})
 		}
+		NotifyRole(r.Context(), db, "finance_head", NotifPayload{
+			EventType: "billing_cycle_generated",
+			Title:     "Billing Cycles Generated",
+			Body:      fmt.Sprintf("Card billing cycles for %s generated across %d products", cycleStart.Format("January 2006"), len(results)),
+			ActionURL: "/cards/billing",
+		})
 		writeJSON(w, results)
 	}
 }

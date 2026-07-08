@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -362,7 +363,7 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
 
-		apps, err := db.PGQuery(ctx, `SELECT stage, status, reference, amount_approved_kobo, amount_requested_kobo FROM loan_applications WHERE id = $1`, id)
+		apps, err := db.PGQuery(ctx, `SELECT stage, status, reference, amount_approved_kobo, amount_requested_kobo, sales_officer_id FROM loan_applications WHERE id = $1`, id)
 		if err != nil || len(apps) == 0 {
 			respondErr(w, 404, "Application not found")
 			return
@@ -373,6 +374,7 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 		if loanKobo == 0 {
 			loanKobo = toInt64(apps[0]["amount_requested_kobo"])
 		}
+		salesOfficerID := toInt64(apps[0]["sales_officer_id"])
 
 		// Validate transition
 		allowed := allowedTransitions[fromStage]
@@ -467,6 +469,36 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// Post-commit notifications (non-blocking)
+		switch b.ToStage {
+		case "submitted":
+			go NotifyRoles(context.Background(), db, []string{"risk_officer", "risk_head"}, NotifPayload{
+				EventType: EvtLoanSubmitted,
+				Title:     "New Loan Application Submitted",
+				Body:      fmt.Sprintf("Application %s is ready for risk review", loanRef),
+				ActionURL: fmt.Sprintf("/sales/applications/%d", id),
+				EntityRef: fmt.Sprintf("loan_application:%d", id),
+			})
+		case "active":
+			go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
+				EventType: EvtLoanApproved,
+				Title:     "Loan Disbursed",
+				Body:      fmt.Sprintf("Application %s has been disbursed", loanRef),
+				ActionURL: fmt.Sprintf("/sales/applications/%d", id),
+				EntityRef: fmt.Sprintf("loan_application:%d", id),
+			})
+			if salesOfficerID != 0 && salesOfficerID != user.ID {
+				go Notify(context.Background(), db, NotifPayload{
+					EventType: EvtLoanApproved,
+					UserID:    salesOfficerID,
+					Title:     "Loan Application Disbursed",
+					Body:      fmt.Sprintf("Application %s has been approved and disbursed", loanRef),
+					ActionURL: fmt.Sprintf("/sales/applications/%d", id),
+					EntityRef: fmt.Sprintf("loan_application:%d", id),
+				})
+			}
+		}
+
 		respondErr(w, 200, "Stage advanced")
 	}
 }
@@ -494,19 +526,28 @@ func losDecline(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
 
-		apps, err := db.PGQuery(ctx, `SELECT stage FROM loan_applications WHERE id = $1`, id)
+		apps, err := db.PGQuery(ctx, `SELECT stage, sales_officer_id, reference FROM loan_applications WHERE id = $1`, id)
 		if err != nil || len(apps) == 0 {
 			respondErr(w, 404, "Application not found")
 			return
 		}
 		fromStage := str(apps[0]["stage"])
+		declSalesID := toInt64(apps[0]["sales_officer_id"])
+		loanRefDecl := str(apps[0]["reference"])
 
-		_, err = db.PGExec(ctx,
+		// Atomic decline: guard against concurrent state changes and terminal stages
+		updated, err := db.PGQuery(ctx,
 			`UPDATE loan_applications SET status = 'declined', stage = 'declined',
-			 decline_reason = $1, updated_at = NOW() WHERE id = $2`,
-			b.Reason, id)
+			 decline_reason = $1, updated_at = NOW()
+			 WHERE id = $2 AND stage = $3 AND stage NOT IN ('active', 'declined')
+			 RETURNING id`,
+			b.Reason, id, fromStage)
 		if err != nil {
 			respondErr(w, 500, "Decline failed")
+			return
+		}
+		if len(updated) == 0 {
+			respondErr(w, 409, "Application is already in a terminal state or was updated concurrently")
 			return
 		}
 
@@ -514,6 +555,17 @@ func losDecline(db *core.DB) http.HandlerFunc {
 			INSERT INTO application_events (application_id, event_type, from_stage, to_stage, actor_user_id, notes, created_at)
 			VALUES ($1, 'declined', $2, 'declined', $3, $4, NOW())`,
 			id, fromStage, user.ID, b.Reason) //nolint:errcheck
+
+		if declSalesID != 0 && declSalesID != user.ID {
+			go Notify(context.Background(), db, NotifPayload{
+				EventType: EvtLoanRejected,
+				UserID:    declSalesID,
+				Title:     "Loan Application Declined",
+				Body:      fmt.Sprintf("Application %s has been declined: %s", loanRefDecl, b.Reason),
+				ActionURL: fmt.Sprintf("/sales/applications/%d", id),
+				EntityRef: fmt.Sprintf("loan_application:%d", id),
+			})
+		}
 
 		respondErr(w, 200, "Application declined")
 	}

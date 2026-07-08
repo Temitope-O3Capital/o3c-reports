@@ -40,6 +40,7 @@ func listLoans(db *core.DB) http.HandlerFunc {
 		stage := qstr(r, "stage")
 		search := qstr(r, "search")
 		limit := qint(r, "limit", 100, 1, 500)
+		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		q := `SELECT la.id, la.reference, la.applicant_cif, la.applicant_name,
 		             la.applicant_phone, la.applicant_email,
@@ -69,8 +70,8 @@ func listLoans(db *core.DB) http.HandlerFunc {
 			args = append(args, "%"+search+"%")
 			n++
 		}
-		args = append(args, limit)
-		q += fmt.Sprintf(" ORDER BY la.created_at DESC LIMIT $%d", n)
+		args = append(args, limit, offset)
+		q += fmt.Sprintf(" ORDER BY la.created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
@@ -263,11 +264,16 @@ func updateLoanStage(db *core.DB) http.HandlerFunc {
 		oldStage := str(cur[0]["stage"])
 		user := core.UserFromCtx(r.Context())
 
-		_, err := db.PGExec(r.Context(), `
-			UPDATE loan_applications SET stage=$1, status=$2, updated_at=NOW() WHERE id=$3`,
-			b.Stage, stageToStatus(b.Stage), id)
+		atomicUpd, err := db.PGQuery(r.Context(), `
+			UPDATE loan_applications SET stage=$1, status=$2, updated_at=NOW()
+			WHERE id=$3 AND stage=$4 RETURNING id`,
+			b.Stage, stageToStatus(b.Stage), id, oldStage)
 		if err != nil {
 			respondErr(w, 500, "Update failed")
+			return
+		}
+		if len(atomicUpd) == 0 {
+			respondErr(w, 409, "Stage changed concurrently — please refresh and try again")
 			return
 		}
 		// Fire notifications based on the new stage
@@ -313,7 +319,6 @@ func updateLoanStage(db *core.DB) http.HandlerFunc {
 				}
 			}
 		}
-		_ = oldStage
 
 		rows, _ := db.PGQuery(r.Context(), `SELECT * FROM loan_applications WHERE id=$1`, id)
 		w.Header().Set("Content-Type", "application/json")

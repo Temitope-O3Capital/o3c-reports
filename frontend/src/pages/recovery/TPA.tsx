@@ -17,7 +17,7 @@ import { toast } from 'sonner'
 interface TPAAgency {
   id: number
   name: string
-  licence_no: string | null
+  licence_number: string | null
   address: string | null
   commission_pct: number
   contact_name: string | null
@@ -87,7 +87,7 @@ function Tip({ active, payload, label }: any) {
 
 interface AgencyFormData {
   name: string
-  licence_no: string
+  licence_number: string
   address: string
   commission_pct: string
   contact_name: string
@@ -95,7 +95,7 @@ interface AgencyFormData {
 }
 
 const emptyForm = (): AgencyFormData => ({
-  name: '', licence_no: '', address: '',
+  name: '', licence_number: '', address: '',
   commission_pct: '', contact_name: '', contact_phone: '',
 })
 
@@ -125,7 +125,7 @@ function AgencyForm({
         </div>
         <div>
           <label style={labelStyle}>Licence Number</label>
-          <input value={form.licence_no} onChange={set('licence_no')} placeholder="Licence #" style={{ ...fieldStyle, height: 36 }} />
+          <input value={form.licence_number} onChange={set('licence_number')} placeholder="Licence #" style={{ ...fieldStyle, height: 36 }} />
         </div>
       </div>
       <div>
@@ -226,7 +226,7 @@ function TPADetailContent({ agency }: { agency: TPAAgency }) {
         <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 2 }}>Licence #</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{agency.licence_no ?? '—'}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{agency.licence_number ?? '—'}</div>
           </div>
           <div>
             <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 2 }}>Commission</div>
@@ -327,7 +327,7 @@ function exportTPACsv(rows: TPAAgency[]) {
   const header = ['Agency Name', 'Licence #', 'Contact Name', 'Contact Phone', 'Commission %', 'Accounts Assigned', 'Recovered (₦)', 'Commission Accrued (₦)', 'Active']
   const lines = rows.map(r => [
     `"${String(r.name ?? '').replace(/"/g, '""')}"`,
-    r.licence_no ?? '',
+    r.licence_number ?? '',
     `"${String(r.contact_name ?? '').replace(/"/g, '""')}"`,
     r.contact_phone ?? '',
     r.commission_pct ?? '',
@@ -386,7 +386,7 @@ export default function RecoveryTPA() {
     try {
       await apiPost('/api/recovery/tpa-agencies', {
         name: data.name,
-        licence_no: data.licence_no || null,
+        licence_number: data.licence_number || null,
         address: data.address || null,
         commission_pct: parseFloat(data.commission_pct),
         contact_name: data.contact_name || null,
@@ -408,7 +408,7 @@ export default function RecoveryTPA() {
     try {
       await apiPut(`/api/recovery/tpa-agencies/${editAgency.id}`, {
         name: data.name,
-        licence_no: data.licence_no || null,
+        licence_number: data.licence_number || null,
         address: data.address || null,
         commission_pct: parseFloat(data.commission_pct),
         contact_name: data.contact_name || null,
@@ -457,10 +457,10 @@ export default function RecoveryTPA() {
       ),
     },
     {
-      key: 'licence_no',
+      key: 'licence_number',
       label: 'Licence #',
       sortable: false,
-      render: r => <span style={{ fontSize: 13, color: 'var(--txt)' }}>{r.licence_no ?? '—'}</span>,
+      render: r => <span style={{ fontSize: 13, color: 'var(--txt)' }}>{r.licence_number ?? '—'}</span>,
     },
     {
       key: 'contact_phone',
@@ -557,7 +557,7 @@ export default function RecoveryTPA() {
           skeletonRows={6}
           emptyText="No TPA agencies registered"
           onRowClick={r => setDetailAgency(r)}
-          searchKeys={['name', 'licence_no', 'contact_name', 'contact_phone']}
+          searchKeys={['name', 'licence_number', 'contact_name', 'contact_phone']}
           searchPlaceholder="Search by agency name, licence, contact…"
           pageSize={20}
         />
@@ -588,7 +588,7 @@ export default function RecoveryTPA() {
           <AgencyForm
             initial={{
               name: editAgency.name,
-              licence_no: editAgency.licence_no ?? '',
+              licence_number: editAgency.licence_number ?? '',
               address: editAgency.address ?? '',
               commission_pct: String(editAgency.commission_pct),
               contact_name: editAgency.contact_name ?? '',

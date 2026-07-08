@@ -443,7 +443,10 @@ function validateStep(step: number, form: FormData): string | null {
     case 2:
       if (!l.product_type)  return 'Product type is required'
       if (!l.amount)        return 'Amount is required'
+      if (Number(l.amount) <= 0) return 'Amount must be greater than zero'
+      if (Number(l.amount) > 5_000_000) return 'Amount exceeds the maximum allowed (₦5,000,000)'
       if (!l.tenor_months)  return 'Tenor is required'
+      if (Number(l.tenor_months) < 1 || Number(l.tenor_months) > 360) return 'Tenor must be between 1 and 360 months'
       if (!l.purpose)       return 'Purpose is required'
       return null
     default:

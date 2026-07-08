@@ -29,9 +29,9 @@ interface LegalKPIs {
 
 interface Milestone {
   id: number
-  milestone: string
+  milestone_type: string
   milestone_date: string | null
-  note: string | null
+  notes: string | null
   completed: boolean
 }
 
@@ -102,9 +102,9 @@ function MilestoneTimeline({
     setSaving(true); setFormErr(null)
     try {
       await apiPost(`/api/recovery/cases/${caseId}/legal-milestone`, {
-        milestone: formMilestone,
-        date: formDate,
-        note: formNote,
+        milestone_type: formMilestone,
+        milestone_date: formDate,
+        notes: formNote,
       })
       toast.success('Milestone added')
       setFormDate(''); setFormNote(''); setShowForm(false)
@@ -115,7 +115,7 @@ function MilestoneTimeline({
   }
 
   const completedMap: Record<string, Milestone> = {}
-  milestones.forEach(m => { completedMap[m.milestone] = m })
+  milestones.forEach(m => { completedMap[m.milestone_type] = m })
 
   return (
     <div style={{ padding: '14px 18px', background: 'var(--th-bg)', borderRadius: 10, margin: '8px 4px' }}>
@@ -157,8 +157,8 @@ function MilestoneTimeline({
                     </span>
                   )}
                 </div>
-                {completed?.note && (
-                  <div style={{ fontSize: 12, color: 'var(--txt2)', lineHeight: 1.5 }}>{completed.note}</div>
+                {completed?.notes && (
+                  <div style={{ fontSize: 12, color: 'var(--txt2)', lineHeight: 1.5 }}>{completed.notes}</div>
                 )}
               </div>
             </div>

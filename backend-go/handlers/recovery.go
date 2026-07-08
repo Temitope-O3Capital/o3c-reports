@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -75,6 +76,21 @@ func recoveryKPIs(db *core.DB) http.HandlerFunc {
 		}
 		kpis["total_npl_balance"] = nplBalance
 
+		// Aliases expected by the frontend RecoveryKPIs interface
+		kpis["total_in_recovery_kobo"] = nplBalance
+		kpis["recovered_mtd_kobo"] = kpis["recovery_mtd"]
+		kpis["success_rate_pct"] = kpis["recovery_rate"]
+
+		// avg days open — PG-only; falls back to 0 gracefully
+		avgRows, _ := db.PGQuery(ctx, `
+			SELECT COALESCE(ROUND(AVG(EXTRACT(DAY FROM NOW() - opened_at)))::int, 0) AS avg_days
+			FROM recovery_cases WHERE status = 'open'`)
+		if len(avgRows) > 0 {
+			kpis["avg_days_in_recovery"] = avgRows[0]["avg_days"]
+		} else {
+			kpis["avg_days_in_recovery"] = 0
+		}
+
 		respond(w, kpis, pickSource(sources))
 	}
 }
@@ -99,14 +115,14 @@ func recoveryMonthlyTrend(db *core.DB) http.HandlerFunc {
 		data, src, err := db.DualQuery(r.Context(),
 			`SELECT FORMAT([Recovery Date],'MMM yyyy') AS month,
 			        DATEFROMPARTS(YEAR([Recovery Date]),MONTH([Recovery Date]),1) AS month_sort,
-			        ISNULL(SUM([Recovery Amount]),0) AS total
+			        ISNULL(SUM([Recovery Amount]),0) AS amount_kobo
 			 FROM dbo.RecoveryMasterSheet
 			 GROUP BY DATEFROMPARTS(YEAR([Recovery Date]),MONTH([Recovery Date]),1),
 			          FORMAT([Recovery Date],'MMM yyyy')
 			 ORDER BY month_sort`,
 			`SELECT TO_CHAR(DATE_TRUNC('month',"Recovery Date"),'Mon YYYY') AS month,
 			        DATE_TRUNC('month',"Recovery Date") AS month_sort,
-			        COALESCE(SUM("Recovery Amount"),0) AS total
+			        COALESCE(SUM("Recovery Amount"),0) AS amount_kobo
 			 FROM "Recovery Master Sheet"
 			 GROUP BY DATE_TRUNC('month',"Recovery Date") ORDER BY month_sort`)
 		if err != nil {
@@ -293,10 +309,12 @@ func recoveryLegalKPIs(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 			    COUNT(DISTINCT rc.id) AS total_cases,
+			    COUNT(DISTINCT rc.id) FILTER (WHERE rc.status = 'open') AS active,
 			    COUNT(*) FILTER (WHERE lp.outcome = 'won') AS won,
 			    ROUND(AVG(
 			        EXTRACT(DAY FROM COALESCE(rc.closed_at, NOW()) - rc.opened_at)
-			    ))::int AS avg_days
+			    ))::int AS avg_days,
+			    COALESCE(SUM(rc.recovered_kobo), 0) AS total_debt_recovered_kobo
 			FROM recovery_cases rc
 			LEFT JOIN legal_proceedings lp ON lp.case_id = rc.id
 			WHERE rc.legal_stage IS NOT NULL`)
@@ -304,7 +322,7 @@ func recoveryLegalKPIs(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Query failed")
 			return
 		}
-		kpis := core.Row{"total_cases": 0, "won": 0, "avg_days": 0}
+		kpis := core.Row{"total_cases": 0, "active": 0, "won": 0, "avg_days": 0, "total_debt_recovered_kobo": 0}
 		if len(rows) > 0 {
 			kpis = rows[0]
 		}
@@ -381,6 +399,13 @@ func recoveryAddLegalMilestone(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Insert returned no result")
 			return
 		}
+		go NotifyRoles(context.Background(), db, []string{"recovery_head", "compliance_officer"}, NotifPayload{
+			EventType: EvtRecoveryLegalMilestone,
+			Title:     "Legal Milestone Recorded",
+			Body:      fmt.Sprintf("Milestone '%s' has been added to recovery case #%d", b.MilestoneType, id),
+			ActionURL: "/recovery/legal",
+			EntityRef: fmt.Sprintf("recovery_case:%d", id),
+		})
 		respond(w, rows[0], "pg")
 	}
 }
@@ -606,6 +631,14 @@ func recoveryCreateDebtSale(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "buyer_name and sale_date are required")
 			return
 		}
+		if body.FaceValueKobo <= 0 {
+			respondErr(w, 422, "face_value_kobo must be greater than zero")
+			return
+		}
+		if body.SalePriceKobo > body.FaceValueKobo {
+			respondErr(w, 422, "sale_price_kobo cannot exceed face_value_kobo")
+			return
+		}
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO debt_sales
 			    (buyer_name, sale_date, account_count, face_value_kobo,
@@ -625,6 +658,13 @@ func recoveryCreateDebtSale(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "No row returned")
 			return
 		}
+		go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
+			EventType: EvtRecoveryDebtSale,
+			Title:     "Debt Sale Recorded",
+			Body:      fmt.Sprintf("Debt sale to %s has been recorded (face value: %d kobo)", body.BuyerName, body.FaceValueKobo),
+			ActionURL: "/recovery/debt-sales",
+			EntityRef: fmt.Sprintf("debt_sale:%v", rows[0]["id"]),
+		})
 		respond(w, rows[0], "pg")
 	}
 }

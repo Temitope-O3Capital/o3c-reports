@@ -25,7 +25,7 @@ const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
   Open:             { bg: 'rgba(22,163,74,.1)',   txt: GREEN },
   Active:           { bg: 'rgba(22,163,74,.1)',   txt: GREEN },
   Inactive:         { bg: 'rgba(217,119,6,.12)',  txt: AMBER },
-  Closed:           { bg: 'rgba(107,114,128,.1)', txt: '#6B7280' },
+  Closed:           { bg: 'rgba(107,114,128,.1)', txt: 'var(--chart-lbl)' },
   Terminated:       { bg: 'rgba(192,0,0,.1)',     txt: RED },
   'Legal Suspended':{ bg: 'rgba(124,58,237,.1)',  txt: '#7C3AED' },
 }

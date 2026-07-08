@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -194,6 +195,14 @@ func recoveryOpsAssign(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf("A recovery case has been assigned to you"),
 			"recovery_case", id)
 
+		go NotifyRole(context.Background(), db, "recovery_head", NotifPayload{
+			EventType: EvtRecoveryCaseAssigned,
+			Title:     "Recovery Case Assigned",
+			Body:      fmt.Sprintf("Case #%d has been assigned to an agent", id),
+			ActionURL: fmt.Sprintf("/recovery/cases/%d", id),
+			EntityRef: fmt.Sprintf("recovery_case:%d", id),
+		})
+
 		respondErr(w, 200, "Assigned successfully")
 	}
 }
@@ -321,6 +330,13 @@ func recoveryOpsAddLegal(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Add legal proceeding failed")
 			return
 		}
+		go NotifyRoles(context.Background(), db, []string{"recovery_head", "compliance_officer"}, NotifPayload{
+			EventType: EvtRecoveryLegalMilestone,
+			Title:     "Legal Proceeding Filed",
+			Body:      fmt.Sprintf("New '%s' proceeding filed for recovery case #%d", b.ProceedingType, id),
+			ActionURL: "/recovery/legal",
+			EntityRef: fmt.Sprintf("recovery_case:%d", id),
+		})
 		respond(w, rows[0], "pg")
 	}
 }

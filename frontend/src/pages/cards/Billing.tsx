@@ -47,7 +47,7 @@ function cycleLabel(cycleDate: string) {
 function StatusPill({ date }: { date: string }) {
   const past = new Date(date) < new Date()
   const s = past
-    ? { bg: 'rgba(107,114,128,.1)', color: '#6B7280', label: 'Closed' }
+    ? { bg: 'rgba(107,114,128,.1)', color: 'var(--chart-lbl)', label: 'Closed' }
     : { bg: 'rgba(22,163,74,.1)',   color: GREEN,     label: 'Open' }
   return (
     <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20, background: s.bg, color: s.color }}>

@@ -43,6 +43,11 @@ const (
 	EvtSystemAlert           = "system_alert"
 	EvtNewAccountCreated     = "new_account_created"
 	EvtFirstLogin            = "first_login"
+
+	// Recovery events
+	EvtRecoveryCaseAssigned  = "recovery_case_assigned"
+	EvtRecoveryLegalMilestone = "recovery_legal_milestone"
+	EvtRecoveryDebtSale      = "recovery_debt_sale"
 )
 
 // NotifPayload carries everything needed to dispatch a notification.
