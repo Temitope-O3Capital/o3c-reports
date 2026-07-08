@@ -648,7 +648,7 @@ func zohoInitiateCall(db *core.DB) http.HandlerFunc {
 
 		payload := map[string]any{
 			"callType": "OUTBOUND",
-			"toNumber": b.PhoneNumber,
+			"phone":    b.PhoneNumber,
 		}
 		payloadBytes, _ := json.Marshal(payload)
 
