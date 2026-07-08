@@ -344,6 +344,6 @@ func VoiceOAuthCallback(db *core.DB) http.HandlerFunc {
 		}
 
 		slog.Info("Zoho Voice connected for user", "user_id", userID)
-		http.Redirect(w, r, voiceFrontendURL()+"/settings/voice?connected=true", http.StatusFound)
+		http.Redirect(w, r, voiceFrontendURL()+"/settings?voice_connected=true", http.StatusFound)
 	}
 }

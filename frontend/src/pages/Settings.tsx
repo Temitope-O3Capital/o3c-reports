@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { toast } from 'sonner'
 import { Page, SectionCard, Spinner } from '../components/UI'
@@ -453,9 +453,116 @@ function NotificationPrefsSection() {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+// ── Zoho Voice Section ────────────────────────────────────────────────────────
+
+function ZohoVoiceSection() {
+  const [connected,    setConnected]    = useState<boolean | null>(null)
+  const [connectedAt,  setConnectedAt]  = useState<string | null>(null)
+  const [loading,      setLoading]      = useState(false)
+  const justConnected  = useRef(false)
+
+  useEffect(() => {
+    justConnected.current = new URLSearchParams(window.location.search).has('voice_connected')
+    apiFetch<{ connected: boolean; connected_at: string }>('/api/voice/status', { silent: true })
+      .then(r => { setConnected(r.connected ?? false); setConnectedAt(r.connected_at ?? null) })
+      .catch(() => setConnected(false))
+  }, [])
+
+  async function handleConnect() {
+    setLoading(true)
+    try {
+      const r = await apiFetch<{ auth_url: string }>('/api/voice/connect')
+      window.location.href = r.auth_url
+    } catch (e: any) {
+      toast.error(e.message ?? 'Could not get OAuth URL')
+      setLoading(false)
+    }
+  }
+
+  async function handleDisconnect() {
+    setLoading(true)
+    try {
+      await apiFetch('/api/voice/disconnect', { method: 'DELETE' })
+      setConnected(false); setConnectedAt(null)
+      toast.success('Zoho Voice disconnected')
+    } catch (e: any) {
+      toast.error(e.message ?? 'Disconnect failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {justConnected.current && connected && (
+        <div style={{ background: `${GREEN}12`, border: `1px solid ${GREEN}40`, borderRadius: 8, padding: '10px 14px', fontSize: 13, color: GREEN, fontWeight: 500 }}>
+          Zoho Voice connected successfully. You can now make and receive calls from the dial pad.
+        </div>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>Zoho Voice</div>
+          <div style={{ fontSize: 12.5, color: 'var(--txt2)', marginTop: 3 }}>
+            {connected === null
+              ? 'Checking status…'
+              : connected
+                ? connectedAt
+                  ? `Connected since ${new Date(connectedAt).toLocaleDateString()}`
+                  : 'Connected'
+                : 'Connect your Zoho Voice account to make and receive calls from the workspace.'}
+          </div>
+        </div>
+        <span style={{
+          flexShrink: 0, fontSize: 11.5, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
+          background: connected ? `${GREEN}18` : 'var(--chip-bg)',
+          color: connected ? GREEN : 'var(--txt2)',
+        }}>
+          {connected === null ? '…' : connected ? 'Connected' : 'Not connected'}
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        {!connected && (
+          <button
+            onClick={handleConnect}
+            disabled={loading || connected === null}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: '9px 18px', borderRadius: 9, border: 'none',
+              background: NAVY, color: '#fff', fontSize: 13.5, fontWeight: 600,
+              cursor: 'pointer', opacity: loading || connected === null ? 0.7 : 1,
+            }}
+          >
+            {loading && <Spinner size={14} color="#fff" />}
+            <span className="material-symbols-rounded" style={{ fontSize: 17 }}>phone_in_talk</span>
+            Connect Zoho Voice
+          </button>
+        )}
+        {connected && (
+          <button
+            onClick={handleDisconnect}
+            disabled={loading}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: '9px 18px', borderRadius: 9, border: `1px solid ${RED}40`,
+              background: 'transparent', color: RED, fontSize: 13.5, fontWeight: 600,
+              cursor: 'pointer', opacity: loading ? 0.7 : 1,
+            }}
+          >
+            {loading && <Spinner size={14} color={RED} />}
+            Disconnect
+          </button>
+        )}
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--txt3)', lineHeight: 1.6 }}>
+        After connecting, use the phone icon in the bottom-right corner to dial. Your Zoho Voice account must be set up in <strong>Zoho Desk → Setup → Telephony</strong> for calls to route correctly.
+      </div>
+    </div>
+  )
+}
+
 export default function Settings() {
   return (
-    <Page title="Security Settings" subtitle="Manage your password and two-factor authentication">
+    <Page title="Settings" subtitle="Manage your security, integrations, and notification preferences">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 680 }}>
 
         <SectionCard title="Two-Factor Authentication">
@@ -464,6 +571,10 @@ export default function Settings() {
 
         <SectionCard title="Change Password">
           <ChangePasswordSection />
+        </SectionCard>
+
+        <SectionCard title="Zoho Voice" subtitle="Make and receive calls directly from the workspace">
+          <ZohoVoiceSection />
         </SectionCard>
 
         <SectionCard title="Notification Preferences" subtitle="Choose how you receive each type of notification">

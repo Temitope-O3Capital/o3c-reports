@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiFetch } from '../lib/api'
+import { apiFetch, getCsrfToken } from '../lib/api'
 import { NAVY, RED, GREEN, INTER } from '../lib/design'
 import type { AuthUser } from '../hooks/useAuth'
 
@@ -64,7 +64,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': document.cookie.match(/(?:^|;\s*)o3c_csrf=([^;]+)/)?.[1] ?? '',
+          'X-CSRF-Token': getCsrfToken(),
         },
       })
       if (!res.ok || cleanupRef.current) {

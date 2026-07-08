@@ -617,13 +617,54 @@ func zohoInitiateCall(db *core.DB) http.HandlerFunc {
 		}
 
 		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+
+		// Prefer the agent's personal Zoho Voice token; fall back to org token.
+		callToken := ""
+		if user != nil {
+			rows, _ := db.PGQuery(ctx,
+				`SELECT zoho_voice_access_token, zoho_voice_token_expiry, zoho_voice_refresh_token
+				 FROM o3c_users WHERE id=$1`, user.ID)
+			if len(rows) > 0 {
+				encAccess, _ := rows[0]["zoho_voice_access_token"].(string)
+				expiry, _ := rows[0]["zoho_voice_token_expiry"].(time.Time)
+				encRefresh, _ := rows[0]["zoho_voice_refresh_token"].(string)
+				if encAccess != "" && time.Now().Add(60*time.Second).Before(expiry) {
+					callToken, _ = decryptValue(encAccess)
+				} else if encRefresh != "" {
+					if rt, _ := decryptValue(encRefresh); rt != "" {
+						if newAccess, newExpiry, err := voiceRefreshUserToken(ctx, rt); err == nil {
+							callToken = newAccess
+							if enc, err := encryptValue(newAccess); err == nil {
+								db.PGExec(ctx, //nolint:errcheck
+									`UPDATE o3c_users SET zoho_voice_access_token=$1, zoho_voice_token_expiry=$2 WHERE id=$3`,
+									enc, newExpiry, user.ID)
+							}
+						}
+					}
+				}
+			}
+		}
+
 		payload := map[string]any{
 			"callType": "OUTBOUND",
 			"toNumber": b.PhoneNumber,
 		}
 		payloadBytes, _ := json.Marshal(payload)
 
-		resp, err := zohoWrite(ctx, "POST", "calls", strings.NewReader(string(payloadBytes)))
+		var resp *http.Response
+		var err error
+		if callToken != "" {
+			// Use agent's personal Voice token — Zoho knows which agent is calling.
+			reqURL := "https://desk.zoho." + zohoDC + "/api/v1/calls"
+			req, _ := http.NewRequestWithContext(ctx, "POST", reqURL, strings.NewReader(string(payloadBytes)))
+			req.Header.Set("Authorization", "Zoho-oauthtoken "+callToken)
+			req.Header.Set("orgId", zohoOrgID)
+			req.Header.Set("Content-Type", "application/json")
+			resp, err = zohoHTTP.Do(req)
+		} else {
+			resp, err = zohoWrite(ctx, "POST", "calls", strings.NewReader(string(payloadBytes)))
+		}
 		if err != nil {
 			respondErr(w, 503, "Zoho Voice unavailable: "+err.Error())
 			return
@@ -642,7 +683,6 @@ func zohoInitiateCall(db *core.DB) http.HandlerFunc {
 		var result map[string]any
 		json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck
 
-		user := core.UserFromCtx(ctx)
 		agentName := ""
 		if user != nil {
 			agentName = user.FullName
