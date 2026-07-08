@@ -848,6 +848,20 @@ func trackOpen(db *core.DB) http.HandlerFunc {
 		trackingID = strings.TrimSuffix(trackingID, ".gif")
 
 		if trackingID != "" {
+			// Capture IP and UA before the goroutine; use rightmost X-Forwarded-For value
+			// (Railway appends the real client IP last).
+			ip := func() string {
+				if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+					parts := strings.Split(fwd, ",")
+					for i := len(parts) - 1; i >= 0; i-- {
+						if v := strings.TrimSpace(parts[i]); v != "" {
+							return v
+						}
+					}
+				}
+				return r.RemoteAddr
+			}()
+			ua := r.UserAgent()
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
@@ -862,7 +876,7 @@ func trackOpen(db *core.DB) http.HandlerFunc {
 					`INSERT INTO campaign_events
 					     (campaign_id, contact_id, tracking_id, event_type, channel, ip_address, user_agent)
 					 VALUES ($1, $2, $3, 'opened', 'email', $4, $5)`,
-					campaignID, contactID, trackingID, r.RemoteAddr, r.UserAgent())
+					campaignID, contactID, trackingID, ip, ua)
 				// Update contact status to opened (only advance, never downgrade)
 				openedRows, _ := db.PGQuery(ctx,
 					`UPDATE campaign_contacts

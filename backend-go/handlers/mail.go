@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/hmac"
@@ -76,6 +77,13 @@ type SendMailResult struct {
 
 var mailSchemaMu sync.Mutex
 var mailSchemaReady bool
+
+// graphToken cache — avoids a round-trip to the Microsoft identity endpoint on every send.
+var (
+	cachedGraphToken    string
+	cachedGraphTokenExp time.Time
+	graphTokenMu        sync.Mutex
+)
 var inboundReplyAddressRE = regexp.MustCompile(`(?i)\breply\+([0-9]+)@`)
 
 func RegisterMail(r chi.Router, db *core.DB) {
@@ -122,10 +130,37 @@ func RegisterMailPublic(r chi.Router, db *core.DB) {
 	r.Post("/inbound", mailInboundParse(db))
 }
 
+// verifyInboundWebhookHMAC verifies HMAC-SHA256 signature on SendGrid Inbound Parse webhooks.
+// key is SENDGRID_WEBHOOK_VERIFICATION_KEY; message = timestamp || body.
+func verifyInboundWebhookHMAC(key, timestamp, signatureB64 string, body []byte) bool {
+	if timestamp == "" || signatureB64 == "" {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(key))
+	mac.Write([]byte(timestamp))
+	mac.Write(body)
+	expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(expected), []byte(signatureB64))
+}
+
 // mailInboundParse handles SendGrid Inbound Parse webhook (multipart/form-data).
 // Configure SendGrid: Settings → Inbound Parse → add your domain's MX → webhook URL = /api/mail/inbound
 func mailInboundParse(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Read raw body for signature verification before ParseMultipartForm consumes it.
+		rawBody, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(rawBody))
+
+		verifyKey := os.Getenv("SENDGRID_WEBHOOK_VERIFICATION_KEY")
+		if verifyKey != "" {
+			timestamp := r.Header.Get("X-Twilio-Email-Event-Webhook-Timestamp")
+			signature := r.Header.Get("X-Twilio-Email-Event-Webhook-Signature")
+			if !verifyInboundWebhookHMAC(verifyKey, timestamp, signature, rawBody) {
+				w.WriteHeader(401)
+				return
+			}
+		}
+
 		if err := r.ParseMultipartForm(10 << 20); err != nil {
 			w.WriteHeader(200) // always 200 to SendGrid or it retries
 			return
@@ -168,11 +203,12 @@ func listInboundMail(db *core.DB) http.HandlerFunc {
 			       im.body_text, im.body_html, im.is_read, im.received_at,
 			       mm.subject AS original_subject, mm.from_email AS original_from_email
 			FROM inbound_mail im
-			JOIN mail_messages mm ON mm.id = im.mail_message_id
-			WHERE mm.created_by=$1
-			   OR mm.recipients::text ILIKE $2
+			LEFT JOIN mail_messages mm ON mm.id = im.mail_message_id
+			WHERE mm.id IS NULL
+			   OR mm.created_by=$1
+			   OR mm.recipients @> jsonb_build_array($2::text)
 			ORDER BY im.received_at DESC
-			LIMIT $3`, user.ID, "%"+user.Sub+"%", limit)
+			LIMIT $3`, user.ID, user.Sub, limit)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -267,9 +303,9 @@ func listMailMessages(db *core.DB) http.HandlerFunc {
 			       recipients, status, provider_message_id, queued_at, delivered_at,
 			       opened_at, clicked_at, bounced_at, last_error, created_at, updated_at
 			FROM mail_messages
-			WHERE created_by=$1 OR recipients::text ILIKE $2
+			WHERE created_by=$1 OR recipients @> jsonb_build_array($2::text)
 			ORDER BY created_at DESC
-			LIMIT $3`, user.ID, "%"+user.Sub+"%", limit)
+			LIMIT $3`, user.ID, user.Sub, limit)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -635,17 +671,40 @@ func mailUnsubscribe(db *core.DB) http.HandlerFunc {
 			http.Error(w, "Mail storage setup failed", http.StatusInternalServerError)
 			return
 		}
-		mailID, _ := strconv.ParseInt(r.URL.Query().Get("mail_id"), 10, 64)
-		if mailID <= 0 {
-			http.Error(w, "Invalid unsubscribe link", http.StatusBadRequest)
-			return
+
+		var mailID int64
+		var email string
+
+		if token := r.URL.Query().Get("token"); token != "" {
+			// Preferred path: HMAC-signed token encodes both mail_id and recipient email.
+			secretKey := os.Getenv("SECRET_KEY")
+			if secretKey == "" {
+				http.Error(w, "Invalid unsubscribe link", http.StatusBadRequest)
+				return
+			}
+			var ok bool
+			mailID, email, ok = parseUnsubToken(token, secretKey)
+			if !ok || mailID <= 0 || email == "" {
+				http.Error(w, "Invalid or tampered unsubscribe link", http.StatusBadRequest)
+				return
+			}
+		} else {
+			// Legacy path: plain mail_id (used when SECRET_KEY was not set at send time).
+			mailID, _ = strconv.ParseInt(r.URL.Query().Get("mail_id"), 10, 64)
+			if mailID <= 0 {
+				http.Error(w, "Invalid unsubscribe link", http.StatusBadRequest)
+				return
+			}
 		}
+
 		rows, _ := db.PGQuery(r.Context(), `SELECT id, kind, recipients, provider_message_id FROM mail_messages WHERE id=$1`, mailID)
 		if len(rows) == 0 {
 			http.Error(w, "Message not found", http.StatusNotFound)
 			return
 		}
-		email := firstRecipientEmail(rows[0]["recipients"])
+		if email == "" {
+			email = firstRecipientEmail(rows[0]["recipients"])
+		}
 		if email == "" {
 			http.Error(w, "Recipient not found", http.StatusNotFound)
 			return
@@ -716,6 +775,17 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 		return SendMailResult{Error: "SENDGRID_API_KEY not configured"}
 	}
 	if opt.FromEmail == "" {
+		// Prefer the active default sender from the email_senders table (UI-configurable).
+		if senderRows, _ := db.PGQuery(ctx, `
+			SELECT address, display_name FROM email_senders
+			WHERE is_active=TRUE AND is_default=TRUE LIMIT 1`); len(senderRows) > 0 {
+			opt.FromEmail = str(senderRows[0]["address"])
+			if opt.FromName == "" {
+				opt.FromName = str(senderRows[0]["display_name"])
+			}
+		}
+	}
+	if opt.FromEmail == "" {
 		// DB credential takes priority; fall back to env var
 		opt.FromEmail = coalesce(resolveCredKey(ctx, db, "EMAIL_FROM_ADDRESS"), sendgridFromEmail)
 	}
@@ -756,8 +826,12 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 		}
 	}
 	if opt.Kind == "campaign" {
-		opt.HTMLBody = appendUnsubscribeHTML(ctx, db, opt.HTMLBody, mailID)
-		opt.TextBody = appendUnsubscribeText(ctx, db, opt.TextBody, mailID)
+		recipientEmail := ""
+		if len(opt.To) > 0 {
+			recipientEmail = opt.To[0].Email
+		}
+		opt.HTMLBody = appendUnsubscribeHTML(ctx, db, opt.HTMLBody, mailID, recipientEmail)
+		opt.TextBody = appendUnsubscribeText(ctx, db, opt.TextBody, mailID, recipientEmail)
 	}
 	args := map[string]string{}
 	for k, v := range opt.CustomArgs {
@@ -809,7 +883,11 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 		}
 	}
 	if opt.Kind == "campaign" {
-		unsubURL := unsubscribeURL(ctx, db, mailID)
+		listRecipientEmail := ""
+		if len(opt.To) > 0 {
+			listRecipientEmail = opt.To[0].Email
+		}
+		unsubURL := unsubscribeURL(ctx, db, mailID, listRecipientEmail)
 		payload["headers"] = map[string]string{
 			"List-Unsubscribe":      "<" + unsubURL + ">",
 			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -1010,6 +1088,8 @@ func ensureMailSchema(ctx context.Context, db *core.DB) error {
 		  signature_text TEXT,
 		  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
+		// Ensure campaign_contacts has tracking_id for open/click pixel tracking.
+		`ALTER TABLE campaign_contacts ADD COLUMN IF NOT EXISTS tracking_id UUID DEFAULT gen_random_uuid()`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.PGExec(ctx, stmt); err != nil {
@@ -1021,27 +1101,69 @@ func ensureMailSchema(ctx context.Context, db *core.DB) error {
 	return nil
 }
 
-func appendUnsubscribeHTML(ctx context.Context, db *core.DB, html string, mailID int64) string {
+// generateUnsubToken builds a signed unsubscribe token:
+//   payload  = base64url("{mailID}:{email}")
+//   token    = payload + "." + base64url(HMAC-SHA256(secretKey, payload))
+func generateUnsubToken(mailID int64, email, secretKey string) string {
+	payload := fmt.Sprintf("%d:%s", mailID, email)
+	payloadEnc := base64.RawURLEncoding.EncodeToString([]byte(payload))
+	mac := hmac.New(sha256.New, []byte(secretKey))
+	mac.Write([]byte(payloadEnc))
+	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return payloadEnc + "." + sig
+}
+
+// parseUnsubToken verifies and decodes a token produced by generateUnsubToken.
+func parseUnsubToken(token, secretKey string) (mailID int64, email string, ok bool) {
+	dotIdx := strings.LastIndex(token, ".")
+	if dotIdx < 0 {
+		return 0, "", false
+	}
+	payloadEnc := token[:dotIdx]
+	sigGiven := token[dotIdx+1:]
+	mac := hmac.New(sha256.New, []byte(secretKey))
+	mac.Write([]byte(payloadEnc))
+	sigExpected := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(sigExpected), []byte(sigGiven)) {
+		return 0, "", false
+	}
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(payloadEnc)
+	if err != nil {
+		return 0, "", false
+	}
+	colonIdx := strings.Index(string(payloadBytes), ":")
+	if colonIdx < 0 {
+		return 0, "", false
+	}
+	mailID, err = strconv.ParseInt(string(payloadBytes[:colonIdx]), 10, 64)
+	if err != nil {
+		return 0, "", false
+	}
+	return mailID, string(payloadBytes[colonIdx+1:]), true
+}
+
+func appendUnsubscribeHTML(ctx context.Context, db *core.DB, html string, mailID int64, recipientEmail string) string {
 	if mailID <= 0 {
 		return html
 	}
-	link := unsubscribeURL(ctx, db, mailID)
+	link := unsubscribeURL(ctx, db, mailID, recipientEmail)
 	if link == "" {
+		slog.Warn("APP_BASE_URL not set — unsubscribe link omitted from bulk mail. This may violate CAN-SPAM/NDPR compliance.")
 		return html
 	}
 	footer := fmt.Sprintf(`<p style="margin-top:24px;font-size:12px;color:#64748b;">You are receiving this email from O3 Capital. <a href="%s" style="color:#0E2841;">Unsubscribe</a></p>`, escapeMailHTML(link))
 	return html + footer
 }
 
-func appendUnsubscribeText(ctx context.Context, db *core.DB, text string, mailID int64) string {
-	link := unsubscribeURL(ctx, db, mailID)
+func appendUnsubscribeText(ctx context.Context, db *core.DB, text string, mailID int64, recipientEmail string) string {
+	link := unsubscribeURL(ctx, db, mailID, recipientEmail)
 	if link == "" {
 		return text
 	}
 	return strings.TrimSpace(text) + "\n\nUnsubscribe: " + link
 }
 
-func unsubscribeURL(ctx context.Context, db *core.DB, mailID int64) string {
+func unsubscribeURL(ctx context.Context, db *core.DB, mailID int64, recipientEmail string) string {
 	base := os.Getenv("APP_BASE_URL")
 	if base == "" {
 		if rows, _ := db.PGQuery(ctx, `SELECT value FROM settings WHERE key='app_base_url'`); len(rows) > 0 {
@@ -1051,6 +1173,14 @@ func unsubscribeURL(ctx context.Context, db *core.DB, mailID int64) string {
 	base = strings.TrimRight(base, "/")
 	if base == "" {
 		return ""
+	}
+	secretKey := os.Getenv("SECRET_KEY")
+	if secretKey != "" && recipientEmail != "" {
+		token := generateUnsubToken(mailID, recipientEmail, secretKey)
+		return fmt.Sprintf("%s/api/mail/unsubscribe?token=%s", base, url.QueryEscape(token))
+	}
+	if secretKey == "" {
+		slog.Warn("SECRET_KEY not set; unsubscribe links are unsigned (plain mail_id)")
 	}
 	return fmt.Sprintf("%s/api/mail/unsubscribe?mail_id=%d", base, mailID)
 }
@@ -1235,7 +1365,8 @@ func sendMailViaGraph(ctx context.Context, db *core.DB, opt SendMailOptions) Sen
 	if opt.HTMLBody == "" {
 		opt.HTMLBody = "<p>" + escapeMailHTML(opt.TextBody) + "</p>"
 	}
-	mailID := createMailMessage(ctx, db, opt)
+	// NOTE: createMailMessage is called AFTER a successful Graph HTTP send to avoid
+	// creating a duplicate DB record when Graph fails and SendMail falls back to SendGrid.
 	message := map[string]any{
 		"subject": opt.Subject,
 		"body": map[string]string{
@@ -1257,23 +1388,25 @@ func sendMailViaGraph(ctx context.Context, db *core.DB, opt SendMailOptions) Sen
 	endpoint := fmt.Sprintf("https://graph.microsoft.com/v1.0/users/%s/sendMail", url.PathEscape(opt.ReplyToEmail))
 	resp, err := httpPost(endpoint, "application/json", "Bearer "+token, body, 20*time.Second)
 	if err != nil {
-		updateMailMessageStatus(ctx, db, mailID, "failed", "", err.Error())
-		return SendMailResult{MailID: mailID, Error: err.Error()}
+		// No DB record created — Graph failed before send; SendMail will fall back to SendGrid.
+		return SendMailResult{Error: err.Error()}
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
-	providerID := "graph:" + fmt.Sprintf("%d", mailID)
 	if resp.StatusCode == http.StatusAccepted {
+		// Create the DB record only after a confirmed successful send to prevent duplicates
+		// when Graph fails and SendMail falls back to SendGrid (which creates its own record).
+		mailID := createMailMessage(ctx, db, opt)
+		providerID := "graph:" + fmt.Sprintf("%d", mailID)
 		updateMailMessageStatus(ctx, db, mailID, "queued", providerID, "")
 		return SendMailResult{OK: true, ProviderID: providerID, MailID: mailID}
 	}
-	msg := strings.TrimSpace(string(respBody))
-	if msg == "" {
-		msg = fmt.Sprintf("Microsoft Graph HTTP %d", resp.StatusCode)
+	errMsg := strings.TrimSpace(string(respBody))
+	if errMsg == "" {
+		errMsg = fmt.Sprintf("Microsoft Graph HTTP %d", resp.StatusCode)
 	}
-	slog.Warn("Microsoft Graph mail send failed", "status", resp.StatusCode, "body", msg, "mail_id", mailID)
-	updateMailMessageStatus(ctx, db, mailID, "failed", providerID, msg)
-	return SendMailResult{MailID: mailID, ProviderID: providerID, Error: msg}
+	slog.Warn("Microsoft Graph mail send failed", "status", resp.StatusCode, "body", errMsg)
+	return SendMailResult{Error: errMsg}
 }
 
 func graphRecipients(addresses []MailAddress) []map[string]any {
@@ -1342,6 +1475,12 @@ func graphAttachments(attachments []MailAttachment) []map[string]any {
 }
 
 func graphToken(ctx context.Context, db *core.DB) (string, error) {
+	graphTokenMu.Lock()
+	defer graphTokenMu.Unlock()
+	// Return cached token if it still has more than 60 s of life left.
+	if cachedGraphToken != "" && time.Now().Before(cachedGraphTokenExp.Add(-60*time.Second)) {
+		return cachedGraphToken, nil
+	}
 	tenantID := resolveCredKey(ctx, db, "MS_GRAPH_TENANT_ID")
 	clientID := resolveCredKey(ctx, db, "MS_GRAPH_CLIENT_ID")
 	clientSecret := resolveCredKey(ctx, db, "MS_GRAPH_CLIENT_SECRET")
@@ -1368,6 +1507,8 @@ func graphToken(ctx context.Context, db *core.DB) (string, error) {
 	if token == "" {
 		return "", fmt.Errorf("Microsoft Graph token response missing access_token")
 	}
+	cachedGraphToken = token
+	cachedGraphTokenExp = time.Now().Add(3600 * time.Second)
 	return token, nil
 }
 
@@ -1657,8 +1798,8 @@ func getMailMessage(db *core.DB) http.HandlerFunc {
 			       opened_at, clicked_at, bounced_at, last_error, created_at, updated_at,
 			       html_body, text_body, thread_id, parent_id, send_at, attachments
 			FROM mail_messages
-			WHERE id=$1 AND (created_by=$2 OR recipients::text ILIKE $3)`,
-			id, user.ID, "%"+user.Sub+"%")
+			WHERE id=$1 AND (created_by=$2 OR recipients @> jsonb_build_array($3::text))`,
+			id, user.ID, user.Sub)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "message not found")
 			return
@@ -1911,8 +2052,16 @@ func mailUploadAttachment(_ *core.DB) http.HandlerFunc {
 			objectKey := fmt.Sprintf("mail-attachments/%s/%s", uid, filename)
 			endpoint := fmt.Sprintf("https://%s.r2.cloudflarestorage.com/%s/%s",
 				accountID, bucketName, objectKey)
-			pubURL := fmt.Sprintf("https://%s.r2.cloudflarestorage.com/%s/%s",
-				accountID, bucketName, objectKey)
+
+			// Public URL uses R2_PUBLIC_BASE_URL (same pattern as campaign image uploads).
+			publicBase := strings.TrimRight(os.Getenv("R2_PUBLIC_BASE_URL"), "/")
+			var pubURL string
+			if publicBase != "" {
+				pubURL = publicBase + "/" + objectKey
+			} else {
+				slog.Warn("mailUploadAttachment: R2_PUBLIC_BASE_URL not set; falling back to S3 API endpoint for attachment URL")
+				pubURL = endpoint
+			}
 
 			if err := r2Put(endpoint, accessKey, secretKey, accountID, bucketName, objectKey, contentType, data); err != nil {
 				slog.Warn("R2 upload failed", "err", err)
@@ -2091,6 +2240,14 @@ func replyToMessage(db *core.DB) http.HandlerFunc {
 			return
 		}
 		user := core.UserFromCtx(r.Context())
+		// Ownership check: user must be the sender or appear in the recipients list.
+		msg := orig[0]
+		isOwner := toInt64(msg["created_by"]) == user.ID ||
+			strings.Contains(str(msg["recipients"]), user.Sub)
+		if !isOwner {
+			respondErr(w, 403, "You do not have access to this message thread")
+			return
+		}
 		// Reply to most recent inbound sender, or fall back to original TO recipient
 		replyTo := firstToAddress(orig[0]["recipients"])
 		if latest, _ := db.PGQuery(r.Context(), `

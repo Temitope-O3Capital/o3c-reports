@@ -264,6 +264,7 @@ func main() {
 			handlers.RegisterCallCenter(r, db)
 		})
 		r.Route("/api/campaigns", func(r chi.Router) {
+			r.Use(bdReadOnly)
 			handlers.RegisterCampaigns(r, db)
 			// Analytics, per-campaign reports, image upload — same /api/campaigns prefix
 			handlers.RegisterCampaignAnalytics(r, db)
@@ -633,6 +634,21 @@ func logoutHandler() http.HandlerFunc {
 		handlers.ClearAuthCookies(w, r)
 		w.WriteHeader(204)
 	}
+}
+
+// bdReadOnly is middleware that restricts bd_officer and bd_head roles to read-only
+// access on whichever route group it is applied to.
+func bdReadOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			user := core.UserFromCtx(r.Context())
+			if user != nil && (user.Role == "bd_officer" || user.Role == "bd_head") {
+				http.Error(w, `{"error":"BD roles have read-only access to campaigns"}`, http.StatusForbidden)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // rightmostIP extracts the real client IP — Railway appends it last in X-Forwarded-For.

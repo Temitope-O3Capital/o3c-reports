@@ -37,16 +37,28 @@ func syncListCount(db *core.DB, r *http.Request, listID string) {
 func listContactLists(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		limit := qint(r, "limit", 100, 1, 500)
+		offset := qint(r, "offset", 0, 0, 1<<30)
+
+		total := 0
+		if tr, _ := db.PGQuery(r.Context(), "SELECT COUNT(*) AS n FROM contact_lists"); len(tr) > 0 {
+			total = int(toInt64(tr[0]["n"]))
+		}
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT cl.*, u.full_name AS created_by_name
 			FROM contact_lists cl
 			LEFT JOIN o3c_users u ON cl.created_by=u.id
-			ORDER BY cl.created_at DESC LIMIT $1`, limit)
+			ORDER BY cl.created_at DESC LIMIT $1 OFFSET $2`, limit, offset)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
 		}
-		jsonRows(w, rows)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"data":   rows,
+			"total":  total,
+			"limit":  limit,
+			"offset": offset,
+		})
 	}
 }
 
@@ -145,6 +157,13 @@ func updateContactList(db *core.DB) http.HandlerFunc {
 func deleteContactList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
+		// Guard: refuse deletion if any draft or scheduled campaign still references this list.
+		guard, _ := db.PGQuery(r.Context(),
+			"SELECT COUNT(*) AS n FROM campaigns WHERE list_id=$1 AND status IN ('draft','scheduled')", id)
+		if len(guard) > 0 && toInt64(guard[0]["n"]) > 0 {
+			respondErr(w, 409, "Cannot delete: active campaigns reference this list")
+			return
+		}
 		db.PGExec(r.Context(), "DELETE FROM contact_list_members WHERE list_id=$1", id) //nolint:errcheck
 		db.PGExec(r.Context(), "DELETE FROM contact_lists WHERE id=$1", id)             //nolint:errcheck
 		w.WriteHeader(204)
@@ -233,8 +252,23 @@ func uploadListCSV(db *core.DB) http.HandlerFunc {
 			headers[i] = normaliseCSVHeader(h)
 		}
 
+		// csvRecord holds one validated row ready for batch insert.
+		type csvRecord struct {
+			firstName *string
+			lastName  *string
+			phone     interface{}
+			email     interface{}
+			phoneHMAC *string
+			emailHMAC *string
+			cifNumber interface{}
+			mergeJSON string
+		}
+
 		inserted := 0
 		var errors []string
+
+		// Validate all rows and collect valid ones.
+		var validRows []csvRecord
 		for i, rec := range records[1:] {
 			row := make(map[string]string, len(headers))
 			for j, val := range rec {
@@ -255,19 +289,46 @@ func uploadListCSV(db *core.DB) http.HandlerFunc {
 				}
 			}
 			mergeJSON, _ := json.Marshal(merge)
-			phoneHMAC := nullStr(blindContactHMAC(row["phone"]))
-			emailHMAC := nullStr(blindContactHMAC(row["email"]))
-			_, err := db.PGExec(r.Context(), `
-				INSERT INTO contact_list_members
-				    (list_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
-				id, emptyToNil(row["first_name"]), emptyToNil(row["last_name"]),
-				phone, email, phoneHMAC, emailHMAC, emptyToNil(row["cif_number"]), string(mergeJSON))
-			if err != nil {
-				errors = append(errors, fmt.Sprintf("Row %d: %s", i+2, err.Error()[:80]))
-				continue
+			validRows = append(validRows, csvRecord{
+				firstName: func() *string { v := emptyToNil(row["first_name"]); if s, ok := v.(string); ok { return &s }; return nil }(),
+				lastName:  func() *string { v := emptyToNil(row["last_name"]); if s, ok := v.(string); ok { return &s }; return nil }(),
+				phone:     phone,
+				email:     email,
+				phoneHMAC: nullStr(blindContactHMAC(row["phone"])),
+				emailHMAC: nullStr(blindContactHMAC(row["email"])),
+				cifNumber: emptyToNil(row["cif_number"]),
+				mergeJSON: string(mergeJSON),
+			})
+		}
+
+		// Batch insert in chunks of 500.
+		const batchSize = 500
+		for start := 0; start < len(validRows); start += batchSize {
+			end := start + batchSize
+			if end > len(validRows) {
+				end = len(validRows)
 			}
-			inserted++
+			batch := validRows[start:end]
+			var sb strings.Builder
+			sb.WriteString("INSERT INTO contact_list_members (list_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data) VALUES ")
+			args := make([]interface{}, 0, len(batch)*9)
+			for i, row := range batch {
+				if i > 0 {
+					sb.WriteString(",")
+				}
+				n := i*9 + 1
+				fmt.Fprintf(&sb, "($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d::jsonb)", n, n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8)
+				args = append(args, id, row.firstName, row.lastName, row.phone, row.email, row.phoneHMAC, row.emailHMAC, row.cifNumber, row.mergeJSON)
+			}
+			if _, err := db.PGExec(r.Context(), sb.String(), args...); err != nil {
+				errMsg := err.Error()
+				if len(errMsg) > 120 {
+					errMsg = errMsg[:120]
+				}
+				errors = append(errors, fmt.Sprintf("Batch rows %d-%d: %s", start+2, end+1, errMsg))
+			} else {
+				inserted += len(batch)
+			}
 		}
 		syncListCount(db, r, id)
 		db.PGExec(r.Context(), "UPDATE contact_lists SET source='csv', updated_at=NOW() WHERE id=$1", id) //nolint:errcheck

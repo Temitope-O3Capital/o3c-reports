@@ -462,16 +462,31 @@ func ScheduleCampaignAutoResume(db *core.DB) {
 func resumeDailyLimitCampaigns(db *core.DB) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if effectiveCampaignDailyLimit(ctx, db) > 0 && campaignMailSentToday(ctx, db) >= effectiveCampaignDailyLimit(ctx, db) {
-		return
+	dailyLimit := effectiveCampaignDailyLimit(ctx, db)
+	// Embed the daily-count check atomically in the WHERE clause to eliminate the
+	// TOCTOU race between reading the count and updating the status.
+	var rows []core.Row
+	var err error
+	if dailyLimit > 0 {
+		rows, err = db.PGQuery(ctx, `
+			UPDATE campaigns
+			SET status='active', pause_reason=NULL, paused_until=NULL, updated_at=NOW()
+			WHERE status='paused'
+			  AND pause_reason='daily_limit'
+			  AND (paused_until IS NULL OR paused_until <= NOW())
+			  AND (SELECT COUNT(*) FROM mail_messages
+			       WHERE kind='campaign' AND created_at::date=CURRENT_DATE
+			         AND status NOT IN ('failed')) < $1
+			RETURNING id`, dailyLimit)
+	} else {
+		rows, err = db.PGQuery(ctx, `
+			UPDATE campaigns
+			SET status='active', pause_reason=NULL, paused_until=NULL, updated_at=NOW()
+			WHERE status='paused'
+			  AND pause_reason='daily_limit'
+			  AND (paused_until IS NULL OR paused_until <= NOW())
+			RETURNING id`)
 	}
-	rows, err := db.PGQuery(ctx, `
-		UPDATE campaigns
-		SET status='active', pause_reason=NULL, paused_until=NULL, updated_at=NOW()
-		WHERE status='paused'
-		  AND pause_reason='daily_limit'
-		  AND (paused_until IS NULL OR paused_until <= NOW())
-		RETURNING id`)
 	if err != nil {
 		slog.Error("Campaign auto-resume: query failed", "err", err)
 		return
@@ -809,9 +824,9 @@ func createCampaign(db *core.DB) http.HandlerFunc {
 		if b.ListID != nil && total > 0 {
 			db.PGExec(r.Context(), //nolint:errcheck
 				`INSERT INTO campaign_contacts
-				    (campaign_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data, position)
+				    (campaign_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data, position, tracking_id)
 				SELECT $1, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data,
-				       ROW_NUMBER() OVER (ORDER BY id) - 1
+				       ROW_NUMBER() OVER (ORDER BY id) - 1, gen_random_uuid()
 				FROM contact_list_members WHERE list_id=$2 AND status='active'`,
 				campID, *b.ListID)
 		}
@@ -922,9 +937,9 @@ func startCampaign(db *core.DB) http.HandlerFunc {
 			if lid := camp["list_id"]; lid != nil {
 				db.PGExec(r.Context(), //nolint:errcheck
 					`INSERT INTO campaign_contacts
-					    (campaign_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data, position)
+					    (campaign_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data, position, tracking_id)
 					SELECT $1, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data,
-					       ROW_NUMBER() OVER (ORDER BY id) - 1
+					       ROW_NUMBER() OVER (ORDER BY id) - 1, gen_random_uuid()
 					FROM contact_list_members WHERE list_id=$2 AND status='active'`,
 					campID, lid)
 			}
@@ -1361,7 +1376,19 @@ func emailWebhook(db *core.DB) http.HandlerFunc {
 					db.PGExec(ctx, "UPDATE campaigns SET emails_clicked=emails_clicked+1, updated_at=NOW() WHERE id=$1", rows[0]["campaign_id"]) //nolint:errcheck
 					insertCampaignEmailEvent(ctx, db, rows[0], "clicked", pid, ev)
 				}
-			case "bounce", "dropped", "spamreport", "unsubscribe", "group_unsubscribe":
+			case "dropped":
+				// Dropped events mean SendGrid suppressed the email (e.g. unsubscribed address or reputation block).
+				// They do NOT count as bounces — suppressed ≠ hard bounce.
+				rows, _ := db.PGQuery(ctx, `
+					UPDATE campaign_contacts
+					SET email_status='suppressed', updated_at=NOW()
+					WHERE email_provider_id=$1
+					  AND email_status NOT IN ('bounced','spam','unsubscribed','failed','suppressed')
+					RETURNING id, campaign_id, tracking_id`, pid)
+				if len(rows) > 0 {
+					insertCampaignEmailEvent(ctx, db, rows[0], "suppressed", pid, ev)
+				}
+			case "bounce", "spamreport", "unsubscribe", "group_unsubscribe":
 				status := "bounced"
 				eventType := "bounced"
 				campaignUpdate := "emails_bounced=emails_bounced+1"
