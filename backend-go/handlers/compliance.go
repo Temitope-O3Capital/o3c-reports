@@ -250,6 +250,8 @@ func complianceCBNList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		year := qstr(r, "year")
 		status := qstr(r, "status")
+		limit := qint(r, "limit", 50, 1, 500)
+		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		query := `SELECT * FROM cbn_reports WHERE 1=1`
 		args := []any{}
@@ -265,7 +267,8 @@ func complianceCBNList(db *core.DB) http.HandlerFunc {
 			args = append(args, status)
 			n++
 		}
-		query += " ORDER BY created_at DESC"
+		query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
+		args = append(args, limit, offset)
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
@@ -275,7 +278,8 @@ func complianceCBNList(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		respond(w, rows, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}
 }
 
@@ -291,7 +295,8 @@ func complianceCBNGet(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Report not found")
 			return
 		}
-		respond(w, rows[0], "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
 }
 
@@ -321,7 +326,9 @@ func complianceCBNCreate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Create failed")
 			return
 		}
-		respond(w, rows[0], "pg")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
 }
 
@@ -339,12 +346,16 @@ func complianceCBNSignOff(db *core.DB) http.HandlerFunc {
 		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
 		user := core.UserFromCtx(r.Context())
 
-		_, err = db.PGExec(r.Context(), `
+		res, err := db.PGExec(r.Context(), `
 			UPDATE cbn_reports SET status = 'signed_off', signed_off_by = $1,
 				notes = COALESCE(NULLIF($2,''), notes), updated_at = NOW()
 			WHERE id = $3`, user.ID, b.Notes, id)
 		if err != nil {
 			respondErr(w, 500, "Sign-off failed")
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			respondErr(w, 404, "Report not found")
 			return
 		}
 		respondErr(w, 200, "Report signed off")
@@ -358,11 +369,15 @@ func complianceCBNSubmit(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid report ID")
 			return
 		}
-		_, err = db.PGExec(r.Context(), `
+		res, err := db.PGExec(r.Context(), `
 			UPDATE cbn_reports SET status = 'submitted', submitted_at = NOW(), updated_at = NOW()
-			WHERE id = $1`, id)
+			WHERE id = $1 AND status = 'signed_off'`, id)
 		if err != nil {
 			respondErr(w, 500, "Submit failed")
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			respondErr(w, 409, "Report not found or not in signed_off status")
 			return
 		}
 		respondErr(w, 200, "Report submitted")
@@ -377,6 +392,8 @@ func complianceCBNSubmit(db *core.DB) http.HandlerFunc {
 func complianceSARList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status := qstr(r, "status")
+		limit := qint(r, "limit", 50, 1, 500)
+		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		query := `SELECT id, sar_ref, reporter_id, subject_id_type, account_number,
 		                 amount_kobo, transaction_date, status,
@@ -387,11 +404,14 @@ func complianceSARList(db *core.DB) http.HandlerFunc {
 		// Note: subject_name_encrypted and subject_id_encrypted are intentionally
 		// omitted from the list view to prevent tipping off. Real decryption is TBD.
 		args := []any{}
+		n := 1
 		if status != "" {
-			query += fmt.Sprintf(" AND status = $%d", len(args)+1)
+			query += fmt.Sprintf(" AND status = $%d", n)
 			args = append(args, status)
+			n++
 		}
-		query += " ORDER BY created_at DESC"
+		query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
+		args = append(args, limit, offset)
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
@@ -401,7 +421,8 @@ func complianceSARList(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		respond(w, rows, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}
 }
 
@@ -444,7 +465,8 @@ func complianceSARGet(db *core.DB) http.HandlerFunc {
 			escalations = []core.Row{}
 		}
 
-		respond(w, map[string]any{"sar": sar, "escalations": escalations}, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"sar": sar, "escalations": escalations}) //nolint:errcheck
 	}
 }
 
@@ -494,7 +516,19 @@ func complianceSARCreate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Create failed")
 			return
 		}
-		respond(w, rows[0], "pg")
+
+		newID := toInt64(rows[0]["id"])
+		go NotifyRole(ctx, db, "compliance_head", NotifPayload{
+			EventType: EvtSARFiled,
+			Title:     "New SAR Filed: " + sarRef,
+			Body:      "A suspicious activity report has been submitted and requires review.",
+			ActionURL: fmt.Sprintf("/compliance/sars/%d", newID),
+			EntityRef: sarRef,
+		})
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
 }
 
@@ -529,11 +563,16 @@ func complianceSAREscalate(db *core.DB) http.HandlerFunc {
 		}
 		fromStatus := str(sarRows[0]["status"])
 
-		_, err = db.PGExec(ctx,
-			`UPDATE sars SET status = $1, updated_at = NOW() WHERE id = $2`,
-			b.ToStatus, id)
+		// Use optimistic concurrency: only update if current status matches what we read.
+		res, err := db.PGExec(ctx,
+			`UPDATE sars SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3`,
+			b.ToStatus, id, fromStatus)
 		if err != nil {
 			respondErr(w, 500, "Escalate failed")
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			respondErr(w, 409, "SAR status has changed — please refresh and retry")
 			return
 		}
 
@@ -552,6 +591,9 @@ func complianceWatchList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := qstr(r, "q")
 		isActive := qstr(r, "is_active")
+		entityType := qstr(r, "entity_type")
+		limit := qint(r, "limit", 50, 1, 500)
+		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		query := `SELECT * FROM watch_list_entries WHERE 1=1`
 		args := []any{}
@@ -566,12 +608,18 @@ func complianceWatchList(db *core.DB) http.HandlerFunc {
 			args = append(args, false)
 			n++
 		}
+		if entityType != "" {
+			query += fmt.Sprintf(" AND entity_type = $%d", n)
+			args = append(args, entityType)
+			n++
+		}
 		if q != "" {
 			query += fmt.Sprintf(" AND (entity_name ILIKE $%d OR id_value ILIKE $%d)", n, n)
 			args = append(args, "%"+q+"%")
 			n++
 		}
-		query += " ORDER BY created_at DESC"
+		query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
+		args = append(args, limit, offset)
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
@@ -581,7 +629,8 @@ func complianceWatchList(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		respond(w, rows, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}
 }
 
@@ -609,13 +658,15 @@ func complianceWatchListAdd(db *core.DB) http.HandlerFunc {
 			INSERT INTO watch_list_entries (entity_type, entity_name, id_type, id_value,
 				reason, source, added_by, is_active, created_at)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE,NOW())
-			RETURNING id, entity_name, is_active, created_at`,
+			RETURNING id, entity_type, entity_name, is_active, created_at`,
 			b.EntityType, b.EntityName, b.IDType, b.IDValue, b.Reason, b.Source, user.ID)
 		if err != nil {
 			respondErr(w, 500, "Add failed")
 			return
 		}
-		respond(w, rows[0], "pg")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
 }
 
@@ -626,10 +677,14 @@ func complianceWatchListDeactivate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid entry ID")
 			return
 		}
-		_, err = db.PGExec(r.Context(),
+		res, err := db.PGExec(r.Context(),
 			`UPDATE watch_list_entries SET is_active = FALSE WHERE id = $1`, id)
 		if err != nil {
 			respondErr(w, 500, "Deactivate failed")
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			respondErr(w, 404, "Entry not found")
 			return
 		}
 		respondErr(w, 200, "Entry deactivated")
@@ -643,6 +698,8 @@ func complianceFindingList(db *core.DB) http.HandlerFunc {
 		status := qstr(r, "status")
 		severity := qstr(r, "severity")
 		assignedTo := qstr(r, "assigned_to")
+		limit := qint(r, "limit", 50, 1, 500)
+		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		query := `SELECT af.*, u.full_name AS assigned_to_name
 		          FROM audit_findings af
@@ -666,7 +723,8 @@ func complianceFindingList(db *core.DB) http.HandlerFunc {
 			args = append(args, assignedTo)
 			n++
 		}
-		query += " ORDER BY af.created_at DESC"
+		query += fmt.Sprintf(" ORDER BY af.created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
+		args = append(args, limit, offset)
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
@@ -676,7 +734,8 @@ func complianceFindingList(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		respond(w, rows, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}
 }
 
@@ -708,7 +767,8 @@ func complianceFindingGet(db *core.DB) http.HandlerFunc {
 			responses = []core.Row{}
 		}
 
-		respond(w, map[string]any{"finding": findings[0], "responses": responses}, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"finding": findings[0], "responses": responses}) //nolint:errcheck
 	}
 }
 
@@ -755,7 +815,19 @@ func complianceFindingCreate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Create failed")
 			return
 		}
-		respond(w, rows[0], "pg")
+
+		newID := toInt64(rows[0]["id"])
+		go NotifyRole(ctx, db, "compliance_officer", NotifPayload{
+			EventType: "finding_created",
+			Title:     "New Audit Finding: " + findingRef,
+			Body:      fmt.Sprintf("Severity: %s — %s", b.Severity, b.Description),
+			ActionURL: fmt.Sprintf("/compliance/findings/%d", newID),
+			EntityRef: findingRef,
+		})
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
 }
 
@@ -790,7 +862,9 @@ func complianceFindingRespond(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Respond failed")
 			return
 		}
-		respond(w, rows[0], "pg")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
 }
 
@@ -801,13 +875,42 @@ func complianceFindingClose(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid finding ID")
 			return
 		}
-		_, err = db.PGExec(r.Context(), `
+		ctx := r.Context()
+
+		// Fetch finding info for notification before closing.
+		findingRows, err := db.PGQuery(ctx,
+			`SELECT assigned_by, finding_ref, description FROM audit_findings WHERE id = $1`, id)
+		if err != nil || len(findingRows) == 0 {
+			respondErr(w, 404, "Finding not found")
+			return
+		}
+		assignedBy := toInt64(findingRows[0]["assigned_by"])
+		ref := str(findingRows[0]["finding_ref"])
+
+		res, err := db.PGExec(ctx, `
 			UPDATE audit_findings SET status = 'closed', closed_at = NOW(), updated_at = NOW()
 			WHERE id = $1`, id)
 		if err != nil {
 			respondErr(w, 500, "Close failed")
 			return
 		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			respondErr(w, 404, "Finding not found")
+			return
+		}
+
+		// Notify the person who created the finding.
+		if assignedBy > 0 {
+			go Notify(ctx, db, NotifPayload{
+				EventType: "finding_closed",
+				UserID:    assignedBy,
+				Title:     "Audit Finding Closed: " + ref,
+				Body:      "The audit finding has been marked as resolved/closed.",
+				ActionURL: fmt.Sprintf("/compliance/findings/%d", id),
+				EntityRef: ref,
+			})
+		}
+
 		respondErr(w, 200, "Finding closed")
 	}
 }
@@ -818,6 +921,8 @@ func complianceChecklistList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status := qstr(r, "status")
 		assignedTo := qstr(r, "assigned_to")
+		limit := qint(r, "limit", 50, 1, 500)
+		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		query := `SELECT cc.*, u.full_name AS assigned_to_name
 		          FROM compliance_checklists cc
@@ -836,7 +941,8 @@ func complianceChecklistList(db *core.DB) http.HandlerFunc {
 			args = append(args, assignedTo)
 			n++
 		}
-		query += " ORDER BY cc.due_date ASC"
+		query += fmt.Sprintf(" ORDER BY cc.due_date ASC LIMIT $%d OFFSET $%d", n, n+1)
+		args = append(args, limit, offset)
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
@@ -846,7 +952,8 @@ func complianceChecklistList(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		respond(w, rows, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}
 }
 
@@ -880,15 +987,16 @@ func complianceChecklistGet(db *core.DB) http.HandlerFunc {
 			items = []core.Row{}
 		}
 
-		respond(w, map[string]any{"checklist": checklists[0], "items": items}, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"checklist": checklists[0], "items": items}) //nolint:errcheck
 	}
 }
 
 func complianceChecklistRespond(db *core.DB) http.HandlerFunc {
 	type item struct {
-		ItemID   int    `json:"item_id"`
-		Response string `json:"response"`
-		Notes    string `json:"notes"`
+		ItemID   int     `json:"item_id"`
+		Response *string `json:"response"` // null = uncheck (sets response to NULL)
+		Notes    string  `json:"notes"`
 	}
 	type body struct {
 		Items []item `json:"items"`
@@ -971,7 +1079,8 @@ func complianceDashboard(db *core.DB) http.HandlerFunc {
 			dash["active_watch_list"] = watchRows[0]["count"]
 		}
 
-		respond(w, dash, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(dash) //nolint:errcheck
 	}
 }
 
@@ -1050,7 +1159,8 @@ func compliancePrudentialRatios(db *core.DB) http.HandlerFunc {
 			"car_min_pct":  10.0,
 		}
 
-		respond(w, result, "json")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result) //nolint:errcheck
 	}
 }
 
@@ -1122,6 +1232,9 @@ func complianceCreditBureauExport(db *core.DB) http.HandlerFunc {
 func complianceDSARList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status := qstr(r, "status")
+		limit := qint(r, "limit", 50, 1, 500)
+		offset := qint(r, "offset", 0, 0, 1<<30)
+
 		query := `
 			SELECT d.id, d.subject_cif, d.subject_name, d.subject_email,
 			       d.request_type, d.status, d.notes, d.created_at, d.resolved_at,
@@ -1130,11 +1243,15 @@ func complianceDSARList(db *core.DB) http.HandlerFunc {
 			LEFT JOIN o3c_users u ON d.assigned_to = u.id
 			WHERE 1=1`
 		args := []any{}
+		n := 1
 		if status != "" {
-			query += " AND d.status=$1"
+			query += fmt.Sprintf(" AND d.status=$%d", n)
 			args = append(args, status)
+			n++
 		}
-		query += " ORDER BY d.created_at DESC LIMIT 200"
+		query += fmt.Sprintf(" ORDER BY d.created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
+		args = append(args, limit, offset)
+
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed"); return
@@ -1142,7 +1259,8 @@ func complianceDSARList(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		respond(w, rows, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}
 }
 
@@ -1205,7 +1323,8 @@ func complianceDSARUpdate(db *core.DB) http.HandlerFunc {
 		if err != nil {
 			respondErr(w, 500, "Update failed"); return
 		}
-		respond(w, map[string]any{"ok": true}, "json")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true}) //nolint:errcheck
 	}
 }
 
@@ -1227,7 +1346,8 @@ func complianceRetentionSchedule(_ *core.DB) http.HandlerFunc {
 		{"category": "Session Logs",           "table": "user_sessions",        "retention_years": 1,  "basis": "Security best practice"},
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		respond(w, schedule, "json")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(schedule) //nolint:errcheck
 	}
 }
 
@@ -1235,16 +1355,23 @@ func complianceRetentionSchedule(_ *core.DB) http.HandlerFunc {
 
 func complianceDPARegister(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		limit := qint(r, "limit", 50, 1, 500)
+		offset := qint(r, "offset", 0, 0, 1<<30)
+
 		rows, err := db.PGQuery(r.Context(),
 			`SELECT d.*, u.full_name AS created_by_name
 			 FROM dpa_processing_register d
 			 LEFT JOIN o3c_users u ON u.id = d.created_by
-			 ORDER BY d.created_at DESC`)
+			 ORDER BY d.created_at DESC LIMIT $1 OFFSET $2`, limit, offset)
 		if err != nil {
 			respondErr(w, 500, err.Error())
 			return
 		}
-		respond(w, rows, "json")
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}
 }
 
@@ -1278,7 +1405,9 @@ func complianceDPARegisterCreate(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if len(rows) > 0 {
-			respond(w, rows[0], "json")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(201)
+			json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 		}
 	}
 }
@@ -1396,13 +1525,14 @@ func complianceConcentrationRisk(db *core.DB) http.HandlerFunc {
 			empRows[i]["exposure_pct"] = pct
 		}
 
-		respond(w, map[string]any{
-			"total_loan_book_kobo": totalKobo,
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"total_loan_book_kobo":         totalKobo,
 			"cbn_single_obligor_limit_pct": 20,
-			"top_obligors":    obligorRows,
-			"by_loan_type":    typeRows,
-			"by_employer":     empRows,
-		}, "json")
+			"top_obligors":                 obligorRows,
+			"by_loan_type":                 typeRows,
+			"by_employer":                  empRows,
+		})
 	}
 }
 

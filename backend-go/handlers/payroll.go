@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -96,13 +98,17 @@ func payrollSummary(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, err.Error())
 			return
 		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
 		// Count active employees for snapshot
 		empRow, _ := db.PGQuery(r.Context(), `SELECT COUNT(*) AS cnt FROM employees WHERE status = 'active'`)
 		var activeCount int64
 		if len(empRow) > 0 {
-			activeCount, _ = empRow[0]["cnt"].(int64)
+			activeCount = toInt64(empRow[0]["cnt"])
 		}
-		respond(w, map[string]any{"runs": rows, "active_employees": activeCount}, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"runs": rows, "active_employees": activeCount}) //nolint:errcheck
 	}
 }
 
@@ -115,13 +121,17 @@ func payrollRunList(db *core.DB) http.HandlerFunc {
 			       r.approved_at, r.paid_at,
 			       u.full_name AS created_by_name
 			FROM payroll_runs r
-			LEFT JOIN users u ON u.id = r.created_by
+			LEFT JOIN o3c_users u ON u.id = r.created_by
 			ORDER BY r.period_year DESC, r.period_month DESC`)
 		if err != nil {
 			respondErr(w, 500, err.Error())
 			return
 		}
-		respond(w, rows, "pg")
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}
 }
 
@@ -131,14 +141,15 @@ func payrollRunGet(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT r.*, u.full_name AS created_by_name, a.full_name AS approved_by_name
 			FROM payroll_runs r
-			LEFT JOIN users u ON u.id = r.created_by
-			LEFT JOIN users a ON a.id = r.approved_by
+			LEFT JOIN o3c_users u ON u.id = r.created_by
+			LEFT JOIN o3c_users a ON a.id = r.approved_by
 			WHERE r.id = $1`, id)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "run not found")
 			return
 		}
-		respond(w, rows[0], "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
 }
 
@@ -154,7 +165,11 @@ func payrollItemList(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, err.Error())
 			return
 		}
-		respond(w, rows, "pg")
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}
 }
 
@@ -192,6 +207,33 @@ func payrollRunCreate(db *core.DB) http.HandlerFunc {
 		}
 
 		ctx := r.Context()
+
+		// Batch-fetch loan deductions for all employees to avoid N+1 queries.
+		empIDs := make([]int64, 0, len(emps))
+		for _, emp := range emps {
+			empIDs = append(empIDs, toInt64(emp["id"]))
+		}
+		loanDeductions := map[int64]int64{}
+		if len(empIDs) > 0 {
+			placeholders := make([]string, len(empIDs))
+			loanArgs := make([]any, len(empIDs))
+			for i, id := range empIDs {
+				placeholders[i] = fmt.Sprintf("$%d", i+1)
+				loanArgs[i] = id
+			}
+			loanRows, _ := db.PGQuery(ctx, fmt.Sprintf(`
+				SELECT applicant_employee_id, COALESCE(SUM(monthly_repayment_kobo),0) AS total
+				FROM loan_applications
+				WHERE applicant_employee_id IN (%s)
+				  AND status = 'active' AND loan_product LIKE 'Staff%%'
+				GROUP BY applicant_employee_id`,
+				strings.Join(placeholders, ",")), loanArgs...)
+			for _, row := range loanRows {
+				eid := toInt64(row["applicant_employee_id"])
+				loanDeductions[eid] = toInt64(row["total"])
+			}
+		}
+
 		tx, err := db.PG.BeginTx(ctx, nil)
 		if err != nil {
 			respondErr(w, 500, err.Error())
@@ -219,19 +261,11 @@ func payrollRunCreate(db *core.DB) http.HandlerFunc {
 		)
 
 		for _, emp := range emps {
-			gross, _ := emp["salary_kobo"].(int64)
+			gross := toInt64(emp["salary_kobo"])
+			empID := toInt64(emp["id"])
 			basic, housing, transport, other, paye, pension, nhf := computeItem(gross)
 
-			// Check for active staff loan repayments
-			var loanDeduction int64
-			loanRows, _ := db.PGQuery(ctx, `
-				SELECT COALESCE(SUM(monthly_repayment_kobo), 0) AS total
-				FROM loan_applications
-				WHERE applicant_employee_id = $1 AND status = 'active' AND loan_product LIKE 'Staff%'`,
-				emp["id"])
-			if len(loanRows) > 0 {
-				loanDeduction, _ = loanRows[0]["total"].(int64)
-			}
+			loanDeduction := loanDeductions[empID]
 
 			totalDeductions := paye + pension + nhf + loanDeduction
 			net := gross - totalDeductions
@@ -245,7 +279,7 @@ func payrollRunCreate(db *core.DB) http.HandlerFunc {
 				  gross_kobo, basic_kobo, housing_kobo, transport_kobo, other_allowance_kobo,
 				  paye_kobo, employee_pension_kobo, nhf_kobo, loan_deduction_kobo, net_kobo)
 				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
-				runID, emp["id"], emp["full_name"], emp["staff_id"],
+				runID, empID, emp["full_name"], emp["staff_id"],
 				emp["department"], emp["grade_level"], emp["job_title"],
 				emp["bank_name"], emp["account_number"],
 				gross, basic, housing, transport, other,
@@ -277,7 +311,9 @@ func payrollRunCreate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, err.Error())
 			return
 		}
-		respond(w, map[string]any{"id": runID, "headcount": len(emps)}, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(map[string]any{"id": runID, "headcount": len(emps)}) //nolint:errcheck
 	}
 }
 
@@ -314,18 +350,18 @@ func payrollItemUpdate(db *core.DB) http.HandlerFunc {
 		}
 		item := itemRows[0]
 
-		otherDed := item["other_deduction_kobo"].(int64)
+		otherDed := toInt64(item["other_deduction_kobo"])
 		if b.OtherDeductionKobo != nil {
 			otherDed = *b.OtherDeductionKobo
 		}
-		otherAllow := item["other_allowance_kobo"].(int64)
+		otherAllow := toInt64(item["other_allowance_kobo"])
 		if b.OtherAllowanceKobo != nil {
 			otherAllow = *b.OtherAllowanceKobo
 		}
 
-		gross := item["basic_kobo"].(int64) + item["housing_kobo"].(int64) + item["transport_kobo"].(int64) + otherAllow
-		totalDed := item["paye_kobo"].(int64) + item["employee_pension_kobo"].(int64) +
-			item["nhf_kobo"].(int64) + item["loan_deduction_kobo"].(int64) + otherDed
+		gross := toInt64(item["basic_kobo"]) + toInt64(item["housing_kobo"]) + toInt64(item["transport_kobo"]) + otherAllow
+		totalDed := toInt64(item["paye_kobo"]) + toInt64(item["employee_pension_kobo"]) +
+			toInt64(item["nhf_kobo"]) + toInt64(item["loan_deduction_kobo"]) + otherDed
 		net := gross - totalDed
 		if net < 0 {
 			net = 0
@@ -355,21 +391,27 @@ func payrollItemUpdate(db *core.DB) http.HandlerFunc {
 			  total_nhf_kobo     = (SELECT SUM(nhf_kobo)   FROM payroll_items WHERE run_id=$1),
 			  updated_at = NOW()
 			WHERE id=$1`, runID) //nolint:errcheck
-		respond(w, map[string]any{"ok": true, "net_kobo": net}, "pg")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "net_kobo": net}) //nolint:errcheck
 	}
 }
 
 func payrollRunSubmit(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
-		_, err := db.PGExec(r.Context(), `
+		res, err := db.PGExec(r.Context(), `
 			UPDATE payroll_runs SET status='review', updated_at=NOW()
 			WHERE id=$1 AND status='draft'`, id)
 		if err != nil {
 			respondErr(w, 500, err.Error())
 			return
 		}
-		respond(w, map[string]any{"ok": true}, "pg")
+		if n, _ := res.RowsAffected(); n == 0 {
+			respondErr(w, 409, "run not found or not in draft status")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true}) //nolint:errcheck
 	}
 }
 
@@ -377,28 +419,65 @@ func payrollRunApprove(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		user := core.UserFromCtx(r.Context())
-		_, err := db.PGExec(r.Context(), `
+		res, err := db.PGExec(r.Context(), `
 			UPDATE payroll_runs SET status='approved', approved_by=$1, approved_at=NOW(), updated_at=NOW()
 			WHERE id=$2 AND status='review'`, user.ID, id)
 		if err != nil {
 			respondErr(w, 500, err.Error())
 			return
 		}
-		respond(w, map[string]any{"ok": true}, "pg")
+		if n, _ := res.RowsAffected(); n == 0 {
+			respondErr(w, 409, "run not found or not in review status")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true}) //nolint:errcheck
 	}
 }
 
 func payrollRunPay(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
-		_, err := db.PGExec(r.Context(), `
+		ctx := r.Context()
+
+		res, err := db.PGExec(ctx, `
 			UPDATE payroll_runs SET status='paid', paid_at=NOW(), updated_at=NOW()
 			WHERE id=$1 AND status='approved'`, id)
 		if err != nil {
 			respondErr(w, 500, err.Error())
 			return
 		}
-		respond(w, map[string]any{"ok": true}, "pg")
+		if n, _ := res.RowsAffected(); n == 0 {
+			respondErr(w, 409, "run not found or not in approved status")
+			return
+		}
+
+		// Notify HR and Finance heads that payroll has been disbursed.
+		runRows, _ := db.PGQuery(ctx,
+			`SELECT period_year, period_month, headcount FROM payroll_runs WHERE id=$1`, id)
+		if len(runRows) > 0 {
+			months := []string{"", "January", "February", "March", "April", "May", "June",
+				"July", "August", "September", "October", "November", "December"}
+			year := toInt64(runRows[0]["period_year"])
+			month := toInt64(runRows[0]["period_month"])
+			var monthName string
+			if month >= 1 && month <= 12 {
+				monthName = months[month]
+			}
+			headcount := toInt64(runRows[0]["headcount"])
+			title := fmt.Sprintf("Payroll Paid — %s %d", monthName, year)
+			body := fmt.Sprintf("%s %d payroll for %d employees has been disbursed.", monthName, year, headcount)
+			go NotifyRoles(ctx, db, []string{"hr_head", "finance_head"}, NotifPayload{
+				EventType: "payroll_paid",
+				Title:     title,
+				Body:      body,
+				ActionURL: fmt.Sprintf("/payroll/runs/%s", id),
+				EntityRef: id,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true}) //nolint:errcheck
 	}
 }
 

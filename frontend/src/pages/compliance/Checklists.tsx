@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner } from '../../components/UI'
-import { apiFetch, apiPut } from '../../lib/api'
+import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, NUM } from '../../lib/design'
 import { toast } from 'sonner'
@@ -62,14 +62,14 @@ function ChecklistRow({ checklist, onRefresh }: { checklist: Checklist; onRefres
   }
 
   async function toggle(item: ChecklistItem) {
-    const newStatus = item.status === 'done' ? 'pending' : 'done'
+    const checking_ = item.status !== 'done'
     setChecking(item.id)
     try {
-      await apiPut(`/api/compliance/checklists/${checklist.id}/respond`, {
-        item_id: item.id, status: newStatus,
+      await apiPost(`/api/compliance/checklists/${checklist.id}/respond`, {
+        items: [{ item_id: item.id, response: checking_ ? 'yes' : null, notes: '' }],
       })
-      setItems(prev => prev.map(i => i.id === item.id ? { ...i, status: newStatus } : i))
-      toast.success(newStatus === 'done' ? 'Item checked' : 'Item unchecked')
+      setItems(prev => prev.map(i => i.id === item.id ? { ...i, status: checking_ ? 'done' : 'pending' } : i))
+      toast.success(checking_ ? 'Item checked' : 'Item unchecked')
       onRefresh()
     } catch (e: any) { toast.error(e.message) }
     finally { setChecking(null) }

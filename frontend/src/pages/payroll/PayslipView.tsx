@@ -131,7 +131,7 @@ export default function PayslipView() {
               ['Bank / Account', item.bank_name ? `${item.bank_name} — ${item.account_number ?? ''}` : '—'],
             ].map(([label, value]) => (
               <div key={label}>
-                <div style={{ fontSize: 10.5, color: '#6B7280', fontWeight: 600, marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--txt2)', fontWeight: 600, marginBottom: 2 }}>{label}</div>
                 <div style={{ fontSize: 13, color: '#111827', fontWeight: label === 'Employee Name' ? 700 : 400 }}>{value}</div>
               </div>
             ))}
@@ -175,17 +175,17 @@ export default function PayslipView() {
         <div style={{ margin: '0 32px 24px', background: `${GREEN}10`, border: `1.5px solid ${GREEN}30`, borderRadius: 10, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 12, color: GREEN, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Net Pay</div>
-            <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>Amount to be credited to bank account</div>
+            <div style={{ fontSize: 11, color: 'var(--txt2)', marginTop: 2 }}>Amount to be credited to bank account</div>
           </div>
           <div style={{ fontSize: 26, fontWeight: 800, color: GREEN, fontFamily: 'Inter, sans-serif' }}>{fmtKobo(item.net_kobo)}</div>
         </div>
 
         {/* Employer contributions */}
         <div style={{ margin: '0 32px 24px', borderTop: '1px solid #E5E7EB', paddingTop: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Employer Contributions</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Employer Contributions</div>
           <div style={{ display: 'flex', gap: 24, fontSize: 12.5, color: '#374151' }}>
             <div>
-              <span style={{ color: '#6B7280' }}>Employer Pension (10%): </span>
+              <span style={{ color: 'var(--txt2)' }}>Employer Pension (10%): </span>
               <span style={NUM}>{fmtKobo(employerPension)}</span>
             </div>
           </div>

@@ -11,13 +11,10 @@ import { toast } from 'sonner'
 interface AuditLog {
   id: number
   created_at: string
-  user_name?: string
+  actor_name?: string
   action: string
-  module: string
-  resource_type?: string
-  resource_id?: string
-  old_value?: string
-  new_value?: string
+  entity_type: string
+  entity_id?: string
   ip_address?: string
 }
 
@@ -42,10 +39,10 @@ export default function AuditTrail() {
     setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
-      if (moduleFilter) p.set('module', moduleFilter)
+      if (moduleFilter) p.set('entity_type', moduleFilter)
       if (actionFilter) p.set('action', actionFilter)
-      if (from) p.set('from', from)
-      if (to)   p.set('to', to)
+      if (from) p.set('date_from', from)
+      if (to)   p.set('date_to', to)
       p.set('limit', String(PAGE_SIZE))
       p.set('offset', String((page - 1) * PAGE_SIZE))
       const data = await apiFetch<{ logs: AuditLog[]; total: number } | AuditLog[]>(`/api/compliance/audit-log?${p}`)
@@ -66,10 +63,10 @@ export default function AuditTrail() {
     setExporting(true)
     try {
       const p = new URLSearchParams()
-      if (moduleFilter) p.set('module', moduleFilter)
+      if (moduleFilter) p.set('entity_type', moduleFilter)
       if (actionFilter) p.set('action', actionFilter)
-      if (from) p.set('from', from)
-      if (to)   p.set('to', to)
+      if (from) p.set('date_from', from)
+      if (to)   p.set('date_to', to)
       await apiExport(`/api/compliance/audit-log/export?${p}`, 'audit-trail.csv')
     } catch (e: any) {
       toast.error(e.message)
@@ -82,8 +79,8 @@ export default function AuditTrail() {
       render: r => <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: 'Inter, monospace', whiteSpace: 'nowrap' }}>{fmtDatetime(r.created_at)}</span>,
     },
     {
-      key: 'user_name', label: 'User',
-      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.user_name ?? 'System'}</span>,
+      key: 'actor_name', label: 'User',
+      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.actor_name ?? 'System'}</span>,
     },
     {
       key: 'action', label: 'Action',
@@ -99,32 +96,16 @@ export default function AuditTrail() {
       ),
     },
     {
-      key: 'module', label: 'Module',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.module}</span>,
+      key: 'entity_type', label: 'Entity Type',
+      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.entity_type ?? '—'}</span>,
     },
     {
-      key: 'resource_type', label: 'Resource',
+      key: 'entity_id', label: 'Entity ID',
       render: r => (
         <span style={{ fontSize: 12.5, color: 'var(--txt2)', fontFamily: 'Inter, monospace' }}>
-          {r.resource_type ?? '—'}{r.resource_id ? ` #${r.resource_id}` : ''}
+          {r.entity_id ? `#${r.entity_id}` : '—'}
         </span>
       ),
-    },
-    {
-      key: 'old_value', label: 'Old Value',
-      render: r => r.old_value ? (
-        <span style={{ fontSize: 11.5, color: '#C00000', fontFamily: 'Inter, monospace', maxWidth: 120, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {r.old_value}
-        </span>
-      ) : <span style={{ color: 'var(--txt3)' }}>—</span>,
-    },
-    {
-      key: 'new_value', label: 'New Value',
-      render: r => r.new_value ? (
-        <span style={{ fontSize: 11.5, color: '#16A34A', fontFamily: 'Inter, monospace', maxWidth: 120, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {r.new_value}
-        </span>
-      ) : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
     {
       key: 'ip_address', label: 'IP',
@@ -152,7 +133,7 @@ export default function AuditTrail() {
       <ErrBanner error={err} onRetry={load} />
 
       <FilterBar onReset={() => { setModuleFilter(''); setActionFilter(''); setFrom(''); setTo(''); setPage(1) }}>
-        <input placeholder="Module…" value={moduleFilter} onChange={e => { setModuleFilter(e.target.value); setPage(1) }}
+        <input placeholder="Entity type…" value={moduleFilter} onChange={e => { setModuleFilter(e.target.value); setPage(1) }}
           style={{ ...filterInputStyle, width: 140 }} />
         <input placeholder="Action…" value={actionFilter} onChange={e => { setActionFilter(e.target.value); setPage(1) }}
           style={{ ...filterInputStyle, width: 140 }} />

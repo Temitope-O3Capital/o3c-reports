@@ -24,6 +24,7 @@ interface PayrollRun {
   total_paye_kobo: number
   total_pension_kobo: number
   total_nhf_kobo: number
+  created_at?: string
   created_by_name?: string
   approved_by_name?: string
   approved_at?: string
@@ -61,7 +62,7 @@ const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December']
 
 const STATUS_STYLE: Record<string, { color: string; bg: string; label: string }> = {
-  draft:    { color: '#6B7280', bg: 'rgba(75,85,99,.1)',  label: 'Draft' },
+  draft:    { color: 'var(--txt2)', bg: 'rgba(75,85,99,.1)', label: 'Draft' },
   review:   { color: AMBER,    bg: `${AMBER}18`,          label: 'In Review' },
   approved: { color: BLUE,     bg: `${BLUE}12`,           label: 'Approved' },
   paid:     { color: GREEN,    bg: 'rgba(22,163,74,.12)', label: 'Paid' },
@@ -205,7 +206,7 @@ export default function RunDetail() {
   return (
     <Page
       title={`Payroll — ${period}`}
-      subtitle={run ? `${run.headcount} employees · Created ${fmtDate(run.period_year.toString())}` : ''}
+      subtitle={run ? `${run.headcount} employees${run.created_at ? ` · Created ${fmtDate(run.created_at)}` : ''}` : ''}
       back={{ label: 'Payroll', to: '/payroll' }}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

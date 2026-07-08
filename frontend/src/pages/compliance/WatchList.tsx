@@ -13,11 +13,11 @@ import { toast } from 'sonner'
 
 interface WatchEntry {
   id: number
-  name: string
-  watch_type: string
+  entity_name: string
+  entity_type: string
   source?: string
-  notes?: string
-  status: string
+  reason?: string
+  is_active: boolean
   created_at: string
   matched_transactions_count?: number
 }
@@ -39,19 +39,18 @@ function TypePill({ type }: { type: string }) {
   )
 }
 
-function StatusDot({ status }: { status: string }) {
-  const active = status?.toLowerCase() === 'active'
+function StatusDot({ isActive }: { isActive: boolean }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 600, color: active ? GREEN : 'var(--chart-lbl)' }}>
-      <span style={{ width: 7, height: 7, borderRadius: '50%', background: active ? GREEN : 'var(--chart-lbl)', display: 'inline-block' }} />
-      {active ? 'Active' : 'Inactive'}
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 600, color: isActive ? GREEN : 'var(--chart-lbl)' }}>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: isActive ? GREEN : 'var(--chart-lbl)', display: 'inline-block' }} />
+      {isActive ? 'Active' : 'Inactive'}
     </span>
   )
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-const BLANK = { name: '', watch_type: 'Internal', source: '', notes: '' }
+const BLANK = { entity_name: '', entity_type: 'Internal', source: '', reason: '' }
 
 export default function Watchlist() {
   const [entries, setEntries] = useState<WatchEntry[]>([])
@@ -70,8 +69,8 @@ export default function Watchlist() {
     setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
-      if (typeFilter)   p.set('type', typeFilter)
-      if (statusFilter) p.set('status', statusFilter)
+      if (typeFilter)   p.set('entity_type', typeFilter)
+      if (statusFilter) p.set('is_active', statusFilter)
       const data = await apiFetch<WatchEntry[]>(`/api/compliance/watch-list?${p}`)
       setEntries(Array.isArray(data) ? data : [])
     } catch (e: any) { setErr(e.message) }
@@ -81,7 +80,7 @@ export default function Watchlist() {
   useEffect(() => { load() }, [load])
 
   async function handleAdd() {
-    if (!form.name) { toast.error('Name is required'); return }
+    if (!form.entity_name) { toast.error('Name is required'); return }
     setSaving(true)
     try {
       await apiPost('/api/compliance/watch-list', form)
@@ -105,10 +104,10 @@ export default function Watchlist() {
   function exportWatchlistCsv(data: WatchEntry[]) {
     const header = ['Name', 'Type', 'Source', 'Status', 'Matched Txns', 'Added']
     const lines = data.map(r => [
-      `"${String(r.name ?? '').replace(/"/g, '""')}"`,
-      r.watch_type ?? '',
+      `"${String(r.entity_name ?? '').replace(/"/g, '""')}"`,
+      r.entity_type ?? '',
       `"${String(r.source ?? '').replace(/"/g, '""')}"`,
-      r.status ?? '',
+      r.is_active ? 'Active' : 'Inactive',
       r.matched_transactions_count ?? 0,
       r.created_at ?? '',
     ].join(','))
@@ -121,12 +120,12 @@ export default function Watchlist() {
 
   const cols: TableCol<WatchEntry>[] = [
     {
-      key: 'name', label: 'Name',
-      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</span>,
+      key: 'entity_name', label: 'Name',
+      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.entity_name}</span>,
     },
     {
-      key: 'watch_type', label: 'Type',
-      render: r => <TypePill type={r.watch_type} />,
+      key: 'entity_type', label: 'Type',
+      render: r => <TypePill type={r.entity_type} />,
     },
     {
       key: 'source', label: 'Source',
@@ -144,14 +143,14 @@ export default function Watchlist() {
       },
     },
     {
-      key: 'status', label: 'Status',
-      render: r => <StatusDot status={r.status} />,
+      key: 'is_active', label: 'Status',
+      render: r => <StatusDot isActive={r.is_active} />,
     },
     {
       key: 'id', label: '',
       render: r => (
         <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
-          {r.status?.toLowerCase() === 'active' && (
+          {r.is_active && (
             <button
               onClick={() => setDeactivateEntry(r)}
               style={{ padding: '3px 10px', borderRadius: 6, border: '1.5px solid rgba(220,38,38,.3)', background: 'transparent', color: RED, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
@@ -186,8 +185,8 @@ export default function Watchlist() {
         </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
           <option value="">All Statuses</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
+          <option value="true">Active</option>
+          <option value="false">Inactive</option>
         </select>
       </FilterBar>
 
@@ -203,7 +202,7 @@ export default function Watchlist() {
           keyFn={r => r.id}
           emptyText="No watchlist entries found."
           skeletonRows={loading ? 6 : 0}
-          searchKeys={['name', 'watch_type', 'source', 'status']}
+          searchKeys={['entity_name', 'entity_type', 'source']}
           searchPlaceholder="Search entries…"
           pageSize={20}
         />
@@ -231,7 +230,7 @@ export default function Watchlist() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {[
-            { label: 'Full Name *', key: 'name' as const, placeholder: 'Full name of individual or entity' },
+            { label: 'Full Name *', key: 'entity_name' as const, placeholder: 'Full name of individual or entity' },
             { label: 'Source', key: 'source' as const, placeholder: 'e.g. OFAC, UN Sanctions, Internal' },
           ].map(({ label, key, placeholder }) => (
             <div key={key}>
@@ -246,7 +245,7 @@ export default function Watchlist() {
           ))}
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Type</label>
-            <select value={form.watch_type} onChange={e => setForm(f => ({ ...f, watch_type: e.target.value }))}
+            <select value={form.entity_type} onChange={e => setForm(f => ({ ...f, entity_type: e.target.value }))}
               style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none' }}>
               <option value="PEP">PEP</option>
               <option value="Sanction">Sanction</option>
@@ -254,9 +253,9 @@ export default function Watchlist() {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Notes</label>
-            <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-              rows={3} placeholder="Additional context…"
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Reason</label>
+            <textarea value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
+              rows={3} placeholder="Reason for watchlisting…"
               style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' as const }} />
           </div>
         </div>
@@ -265,7 +264,7 @@ export default function Watchlist() {
       <ConfirmModal
         open={!!deactivateEntry}
         title="Deactivate watchlist entry?"
-        body={`Remove "${deactivateEntry?.name}" from the active watchlist? You can reactivate it later.`}
+        body={`Remove "${deactivateEntry?.entity_name}" from the active watchlist? You can reactivate it later.`}
         confirmLabel="Deactivate"
         danger
         loading={deactivating}

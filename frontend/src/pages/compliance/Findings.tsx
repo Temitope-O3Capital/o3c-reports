@@ -6,7 +6,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -14,20 +14,20 @@ import { toast } from 'sonner'
 interface Finding {
   id: number
   finding_ref: string
-  summary: string
+  description: string
   severity: string
   status: string
-  owner_name?: string
+  assigned_to_name?: string
   due_date?: string
   created_at: string
-  responses?: Response[]
+  responses?: FindingResponse[]
 }
 
-interface Response {
+interface FindingResponse {
   id: number
-  body: string
-  new_status: string
-  created_by_name?: string
+  response: string
+  action_plan?: string
+  responder_name?: string
   created_at: string
 }
 
@@ -73,13 +73,13 @@ function daysOverdue(due?: string): number | null {
 // ── Export ─────────────────────────────────────────────────────────────────────
 
 function exportFindingsCsv(rows: Finding[]) {
-  const header = ['Ref#', 'Summary', 'Severity', 'Status', 'Owner', 'Due Date', 'Created At']
+  const header = ['Ref#', 'Description', 'Severity', 'Status', 'Owner', 'Due Date', 'Created At']
   const lines = rows.map(r => [
     r.finding_ref ?? '',
-    `"${String(r.summary ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.description ?? '').replace(/"/g, '""')}"`,
     r.severity ?? '',
     r.status ?? '',
-    `"${String(r.owner_name ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.assigned_to_name ?? '').replace(/"/g, '""')}"`,
     r.due_date ?? '',
     r.created_at ?? '',
   ].join(','))
@@ -92,8 +92,8 @@ function exportFindingsCsv(rows: Finding[]) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-const BLANK_FORM = { summary: '', severity: 'Medium', owner: '', due_date: '' }
-const BLANK_RESP = { body: '', new_status: 'in_progress' }
+const BLANK_FORM = { description: '', severity: 'Medium', due_date: '' }
+const BLANK_RESP = { response: '', action_plan: '' }
 
 export default function Findings() {
   const [findings, setFindings] = useState<Finding[]>([])
@@ -108,7 +108,7 @@ export default function Findings() {
   const [saving, setSaving] = useState(false)
 
   const [detail, setDetail] = useState<Finding | null>(null)
-  const [detailTab, setDetailTab] = useState('detail')
+  const [detailTab, setDetailTab] = useState<'detail' | 'responses'>('detail')
   const [respForm, setRespForm] = useState(BLANK_RESP)
   const [responding, setResponding] = useState(false)
 
@@ -131,15 +131,15 @@ export default function Findings() {
 
   async function openDetail(f: Finding) {
     try {
-      const full = await apiFetch<Finding>(`/api/compliance/findings/${f.id}`)
-      setDetail(full)
+      const result = await apiFetch<{ finding: Finding; responses: FindingResponse[] }>(`/api/compliance/findings/${f.id}`)
+      setDetail({ ...result.finding, responses: result.responses ?? [] })
       setDetailTab('detail')
       setRespForm(BLANK_RESP)
     } catch { setDetail(f) }
   }
 
   async function handleCreate() {
-    if (!form.summary || !form.severity) { toast.error('Summary and severity are required'); return }
+    if (!form.description || !form.severity) { toast.error('Description and severity are required'); return }
     setSaving(true)
     try {
       await apiPost('/api/compliance/findings', form)
@@ -150,7 +150,7 @@ export default function Findings() {
   }
 
   async function handleRespond() {
-    if (!detail || !respForm.body) { toast.error('Response body required'); return }
+    if (!detail || !respForm.response) { toast.error('Response is required'); return }
     setResponding(true)
     try {
       await apiPost(`/api/compliance/findings/${detail.id}/response`, respForm)
@@ -189,10 +189,10 @@ export default function Findings() {
       render: r => <span style={{ ...NUM, fontSize: 12.5, fontWeight: 700, color: NAVY }}>{r.finding_ref}</span>,
     },
     {
-      key: 'summary', label: 'Finding',
+      key: 'description', label: 'Finding',
       render: r => (
         <span style={{ fontSize: 13, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300, display: 'block' }}>
-          {r.summary}
+          {r.description}
         </span>
       ),
     },
@@ -205,8 +205,8 @@ export default function Findings() {
       render: r => <StatusPill status={r.status} />,
     },
     {
-      key: 'owner_name', label: 'Owner',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.owner_name ?? '—'}</span>,
+      key: 'assigned_to_name', label: 'Owner',
+      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.assigned_to_name ?? '—'}</span>,
     },
     {
       key: 'due_date', label: 'Due / Overdue',
@@ -268,7 +268,7 @@ export default function Findings() {
           onRowClick={openDetail}
           emptyText="No findings found."
           skeletonRows={loading ? 5 : 0}
-          searchKeys={['summary', 'status', 'severity']}
+          searchKeys={['description', 'status', 'severity']}
           searchPlaceholder="Search findings…"
           pageSize={20}
           selectable
@@ -304,8 +304,8 @@ export default function Findings() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Finding Summary *</label>
-            <textarea value={form.summary} onChange={e => setForm(f => ({ ...f, summary: e.target.value }))}
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Finding Description *</label>
+            <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
               rows={3} placeholder="Describe the finding…" style={{ ...inputStyle, resize: 'vertical' }} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -321,12 +321,6 @@ export default function Findings() {
               <input type="date" value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))}
                 style={{ ...inputStyle, height: 36 }} />
             </div>
-          </div>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Owner</label>
-            <input value={form.owner} onChange={e => setForm(f => ({ ...f, owner: e.target.value }))}
-              placeholder="Responsible person or team"
-              style={inputStyle} />
           </div>
         </div>
       </Modal>
@@ -353,7 +347,7 @@ export default function Findings() {
             <Tabs
               tabs={[{ key: 'detail', label: 'Detail' }, { key: 'responses', label: `Responses (${detail.responses?.length ?? 0})` }]}
               active={detailTab}
-              onChange={setDetailTab}
+              onChange={k => setDetailTab(k as 'detail' | 'responses')}
             />
             {detailTab === 'detail' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 16 }}>
@@ -361,9 +355,9 @@ export default function Findings() {
                   <SeverityPill sev={detail.severity} />
                   <StatusPill status={detail.status} />
                 </div>
-                <p style={{ fontSize: 14, color: 'var(--txt)', lineHeight: 1.6, margin: 0 }}>{detail.summary}</p>
+                <p style={{ fontSize: 14, color: 'var(--txt)', lineHeight: 1.6, margin: 0 }}>{detail.description}</p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
-                  <div><span style={{ color: 'var(--txt2)' }}>Owner:</span> <strong>{detail.owner_name ?? '—'}</strong></div>
+                  <div><span style={{ color: 'var(--txt2)' }}>Owner:</span> <strong>{detail.assigned_to_name ?? '—'}</strong></div>
                   <div><span style={{ color: 'var(--txt2)' }}>Due:</span> <strong style={{ color: daysOverdue(detail.due_date) ? RED : 'var(--txt)' }}>{detail.due_date ? fmtDate(detail.due_date) : '—'}</strong></div>
                   <div><span style={{ color: 'var(--txt2)' }}>Created:</span> <strong>{fmtDate(detail.created_at)}</strong></div>
                 </div>
@@ -371,19 +365,17 @@ export default function Findings() {
                 {detail.status !== 'closed' && (
                   <div style={{ marginTop: 8, padding: '14px', background: 'var(--th-bg)', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)' }}>Add Response</div>
-                    <textarea value={respForm.body} onChange={e => setRespForm(f => ({ ...f, body: e.target.value }))}
+                    <textarea value={respForm.response} onChange={e => setRespForm(f => ({ ...f, response: e.target.value }))}
                       rows={3} placeholder="Describe action taken…"
                       style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <select value={respForm.new_status} onChange={e => setRespForm(f => ({ ...f, new_status: e.target.value }))}
-                        style={{ height: 32, padding: '0 8px', border: '1px solid var(--input-bdr)', borderRadius: 6, fontSize: 12.5, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none' }}>
-                        <option value="in_progress">Mark In Progress</option>
-                        <option value="closed">Mark Closed</option>
-                      </select>
+                    <textarea value={respForm.action_plan} onChange={e => setRespForm(f => ({ ...f, action_plan: e.target.value }))}
+                      rows={2} placeholder="Action plan (optional)…"
+                      style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                       <button onClick={handleRespond} disabled={responding}
                         style={{ ...btnPrimary, padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: 6, opacity: responding ? 0.7 : 1 }}>
                         {responding && <Spinner size={12} color="#fff" />}
-                        Submit
+                        Submit Response
                       </button>
                     </div>
                   </div>
@@ -398,11 +390,15 @@ export default function Findings() {
                   (detail.responses ?? []).map(resp => (
                     <div key={resp.id} style={{ padding: '12px 0', borderBottom: '1px solid var(--bdr)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{resp.created_by_name ?? 'System'}</span>
+                        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{resp.responder_name ?? 'System'}</span>
                         <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{fmtDate(resp.created_at)}</span>
                       </div>
-                      <p style={{ margin: 0, fontSize: 13, color: 'var(--txt)', lineHeight: 1.5 }}>{resp.body}</p>
-                      <StatusPill status={resp.new_status} />
+                      <p style={{ margin: 0, fontSize: 13, color: 'var(--txt)', lineHeight: 1.5 }}>{resp.response}</p>
+                      {resp.action_plan && (
+                        <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--txt2)', lineHeight: 1.4 }}>
+                          <em>Action plan:</em> {resp.action_plan}
+                        </p>
+                      )}
                     </div>
                   ))
                 )}
@@ -415,7 +411,7 @@ export default function Findings() {
       <ConfirmModal
         open={!!closeEntry}
         title="Close finding?"
-        body={`Mark "${closeEntry?.summary?.slice(0, 60)}…" as closed? This confirms the finding has been resolved.`}
+        body={`Mark "${closeEntry?.description?.slice(0, 60)}…" as closed? This confirms the finding has been resolved.`}
         confirmLabel="Close Finding"
         loading={closing}
         onConfirm={handleClose}

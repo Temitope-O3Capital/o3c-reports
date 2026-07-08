@@ -40,7 +40,7 @@ const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December']
 
 const STATUS_STYLE: Record<string, { color: string; bg: string; label: string }> = {
-  draft:    { color: '#6B7280', bg: 'rgba(75,85,99,.1)',     label: 'Draft' },
+  draft:    { color: 'var(--txt2)', bg: 'rgba(75,85,99,.1)', label: 'Draft' },
   review:   { color: AMBER,    bg: `${AMBER}18`,             label: 'In Review' },
   approved: { color: BLUE,     bg: `${BLUE}12`,              label: 'Approved' },
   paid:     { color: GREEN,    bg: 'rgba(22,163,74,.12)',     label: 'Paid' },
