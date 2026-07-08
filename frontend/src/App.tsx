@@ -50,6 +50,7 @@ const CampaignTemplates      = lazy(() => import('./pages/campaigns/Templates'))
 const CampaignTemplateEditor = lazy(() => import('./pages/campaigns/TemplateEditor'))
 const CampaignLists          = lazy(() => import('./pages/campaigns/ContactLists'))
 const CampaignReport         = lazy(() => import('./pages/campaigns/Report'))
+const CampaignEditor         = lazy(() => import('./pages/campaigns/Editor'))
 
 // Approvals & Mail
 const ApprovalsPage  = lazy(() => import('./pages/Approvals'))
@@ -881,6 +882,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/campaigns/templates/:id/edit" element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignTemplateEditor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/campaigns/lists"      element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignLists /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/campaigns/analytics"  element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignAnalytics /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/campaigns/:id/edit"   element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignEditor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/campaigns/:id/report" element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignReport /></PageErrorBoundary></RequireAccess>} />
 
                   <Route path="/sales"           element={<PageErrorBoundary><SalesOverview /></PageErrorBoundary>} />

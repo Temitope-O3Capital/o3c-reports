@@ -1226,8 +1226,45 @@ const CAMPAIGNS = [
   http.post(u('/api/campaigns/:id/start'),  () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/campaigns/:id/pause'),  () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/campaigns/:id/cancel'), () => new HttpResponse(null, { status: 204 })),
-  http.get(u('/api/campaigns/analytics'), () => ok({ delivered: 4200, opened: 1800, clicked: 420, bounced: 38 })),
-  http.get(u('/api/campaigns/:id/analytics'), () => ok({ delivered: 4200, opened: 1800, clicked: 420, bounced: 38 })),
+  http.get(u('/api/campaigns/analytics'), () => ok({
+    summary: {
+      total_campaigns: 12, total_sent: 48200, total_delivered: 44100,
+      total_opened: 19600, total_clicked: 4400, total_bounced: 380, total_unsubscribed: 92,
+      avg_open_rate: 44.4, avg_click_rate: 10.0, avg_bounce_rate: 0.8, avg_delivery_rate: 91.5,
+    },
+    by_channel: [
+      { channel: 'email', sent: 32000, delivered: 29600, open_rate: 46.2, click_rate: 11.2, delivery_rate: 92.5 },
+      { channel: 'sms',   sent: 16200, delivered: 14500, open_rate: 0,    click_rate: 0,    delivery_rate: 89.5 },
+    ],
+    monthly_volume: MONTHS_ISO.map(m => ({ month: m, email: rng(3000,7000), sms: rng(1000,3000) })),
+    channel_split: [
+      { channel: 'email', count: 8 },
+      { channel: 'sms',   count: 4 },
+    ],
+    top_campaigns: Array.from({ length: 5 }, (_, i) => ({
+      id: i+1, name: pick(['June Loan Drive','Salary Earner Push','Card Upgrade Campaign','Q3 Retention','Welcome Series']),
+      channel: pick(['email','sms']), sent: rng(3000,12000),
+      open_rate: rng(30,60), click_rate: rng(5,20), delivered_pct: rng(85,98),
+    })),
+  })),
+  http.get(u('/api/campaigns/:id/analytics'), () => ok({
+    campaign: { id: 1, name: 'June Loan Drive', channel: 'email', status: 'completed', contact_count: 5000, sent_at: isoDate(7), completed_at: isoDate(6) },
+    metrics: {
+      total_contacts: 5000, sent: 4820, sent_pct: 96.4, delivered: 4410, delivery_rate: 91.5,
+      opened: 1960, open_rate: 44.4, clicked: 441, click_rate: 10.0,
+      bounced: 38, bounce_rate: 0.8, spam: 4, unsubscribed: 9, failed: 42,
+    },
+    timeline: Array.from({ length: 12 }, (_, i) => ({
+      hour: new Date(Date.now() - (11-i) * 3_600_000).toISOString(),
+      delivered: rng(100,600), opened: rng(50,300), clicked: rng(5,60),
+    })),
+    top_links: [
+      { url: 'https://o3capital.ng/apply', clicks: 220 },
+      { url: 'https://o3capital.ng/loan', clicks: 140 },
+      { url: 'https://o3capital.ng/card', clicks: 81 },
+    ],
+    contact_stats: { pending: 0, sent: 4820, delivered: 4410, opened: 1960, clicked: 441, bounced: 38, failed: 42 },
+  })),
 
   http.get(u('/api/contact-lists'), () => ok(
     Array.from({ length: 6 }, (_, i) => ({
@@ -1419,24 +1456,39 @@ const SETTINGS = [
 
 const MAIL = [
   http.get(u('/api/mail/inbox'), () => ok(
-    Array.from({ length: 20 }, (_, i) => ({
-      id: i+1, from: email(name()), to: 'support@o3capital.com',
-      subject: pick(['Re: Loan application','Statement request','Account query','Card issue']),
-      preview: 'Hi, I am writing to enquire about...',
-      read: Math.random() > 0.4, received_at: isoDate(rng(0,7)), thread_count: rng(1,4),
-      has_attachment: Math.random() > 0.7,
-    }))
+    Array.from({ length: 20 }, (_, i) => {
+      const n = name()
+      return {
+        id: i+1, from_email: email(n), from_name: n, to_email: 'support@o3capital.com',
+        subject: pick(['Re: Loan application','Statement request','Account query','Card issue']),
+        body_text: 'Hi, I am writing to enquire about my account. Please advise on next steps.',
+        body_html: null, is_read: Math.random() > 0.4, received_at: isoDate(rng(0,7)),
+      }
+    })
   )),
   http.get(u('/api/mail/messages'), () => ok([])),
   http.get(u('/api/mail/messages/:id'), () => ok({
-    id: 1, from: email(name()), to: 'support@o3capital.com', subject: 'Re: Loan application query',
-    body: '<p>Dear O3 Capital,</p><p>I would like to enquire about the status of my loan application.</p>',
-    received_at: isoDate(1), attachments: [], thread: [],
+    id: 1, kind: 'outbound', related_type: null, related_id: null,
+    subject: 'Re: Loan application query',
+    from_email: 'support@o3capital.com', from_name: 'O3 Capital Support',
+    recipients: { to: [{ email: 'customer@example.ng', name: 'Customer' }] },
+    status: 'delivered', provider_message_id: 'mock-123',
+    queued_at: isoDate(1), delivered_at: isoDate(1), opened_at: isoDate(0),
+    clicked_at: null, bounced_at: null, last_error: null,
+    created_at: isoDate(1), updated_at: isoDate(0),
+    html_body: '<p>Dear Customer,</p><p>Thank you for contacting O3 Capital. We have reviewed your loan application.</p>',
+    text_body: 'Dear Customer,\n\nThank you for contacting O3 Capital.',
   })),
+  http.get(u('/api/mail/messages/:id/replies'), () => ok([])),
+  http.get(u('/api/mail/messages/:id/events'), () => ok([])),
+  http.post(u('/api/mail/messages/:id/reply'), () => ok({ id: 99 })),
+  http.put(u('/api/mail/inbox/:id/read'), () => new HttpResponse(null, { status: 204 })),
   http.get(u('/api/mail/drafts'), () => ok([])),
-  http.get(u('/api/mail/drafts/:id'), () => ok({ id: 1, subject: '', body: '', to: '' })),
+  http.get(u('/api/mail/drafts/:id'), () => ok({ id: 1, subject: 'Draft subject', to_addrs: [], from_email: null, from_name: null, html_body: null, text_body: '' })),
+  http.post(u('/api/mail/drafts'), () => ok({ id: rng(10, 999) })),
+  http.delete(u('/api/mail/drafts/:id'), () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/mail/send'), () => ok({ id: 99, status: 'sent' })),
-  http.get(u('/api/mail/signature'), () => ok({ html: '<p>Best regards,<br>O3 Capital Support</p>' })),
+  http.get(u('/api/mail/signature'), () => ok({ signature_html: '<p>Best regards,<br/><strong>O3 Capital</strong></p>', signature_text: 'Best regards,\nO3 Capital' })),
   http.put(u('/api/mail/signature'), () => new HttpResponse(null, { status: 204 })),
   http.get(u('/api/mail/metrics'), () => ok({
     delivered: 4820, opened: 2140, clicked: 482, bounced: 38,

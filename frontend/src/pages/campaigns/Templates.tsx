@@ -202,7 +202,11 @@ export default function CampaignTemplates() {
                 </div>
               ) : (
                 <iframe
-                  srcDoc={blocksToHtml(Array.isArray(preview.email_blocks) ? preview.email_blocks : [])}
+                  srcDoc={
+                    (preview.email_blocks?.length ?? 0) > 0
+                      ? blocksToHtml(Array.isArray(preview.email_blocks) ? preview.email_blocks : [])
+                      : preview.email_body_html ?? ''
+                  }
                   style={{ width: '100%', height: 340, border: 'none', borderRadius: 8, background: '#F4F6FA' }}
                   title="Email preview"
                   sandbox="allow-same-origin"

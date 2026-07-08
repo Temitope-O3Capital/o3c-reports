@@ -5,6 +5,7 @@
  */
 import { useState, useRef, useEffect, useCallback, type CSSProperties } from 'react'
 import DOMPurify from 'dompurify'
+import { API, getCsrfToken } from '../lib/api'
 
 const NAVY = '#0E2841'
 const BLUE = '#2563EB'
@@ -201,7 +202,7 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
           <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
             const file = e.target.files?.[0]; if (!file) return
             const fd = new FormData(); fd.append('image', file)
-            try { const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/campaigns/upload-image`, { method: 'POST', credentials: 'include', body: fd }); if (!res.ok) throw new Error(`Upload failed (${res.status})`); onUpdate({ src: (await res.json()).url }) }
+            try { const res = await fetch(`${API}/api/campaigns/upload-image`, { method: 'POST', credentials: 'include', headers: { 'X-CSRF-Token': getCsrfToken() }, body: fd }); if (!res.ok) throw new Error(`Upload failed (${res.status})`); onUpdate({ src: (await res.json()).url }) }
             catch (err: any) { alert(err?.message || 'Upload failed') }
           }} />
         </label></PPField>

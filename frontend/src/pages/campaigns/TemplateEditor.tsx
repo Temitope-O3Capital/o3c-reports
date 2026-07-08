@@ -205,7 +205,9 @@ export default function CampaignTemplateEditor() {
         body.sms_body = form.sms_body
       } else {
         body.email_subject = form.email_subject
-        body.email_body_html = blocksToHtml(form.email_blocks)
+        const emailHtml = blocksToHtml(form.email_blocks)
+        body.email_body_html = emailHtml
+        body.email_body_text = emailHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
         body.email_blocks = form.email_blocks
       }
       if (form.id) await apiPut(`/api/message-templates/${form.id}`, body)
@@ -309,10 +311,19 @@ export default function CampaignTemplateEditor() {
 
       {/* ── Editor content ── */}
       {form.channel === 'email' ? (
-        <EmailBlockEditor
-          value={{ blocks: form.email_blocks }}
-          onChange={v => setForm(f => ({ ...f, email_blocks: v.blocks }))}
-        />
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+          {/* Merge tag strip for email */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 14px', borderBottom: '1px solid var(--bdr)', background: 'var(--card)', flexShrink: 0, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, flexShrink: 0 }}>MERGE TAGS</span>
+            {MERGE_TAGS.map(t => (
+              <span key={t} style={{ fontSize: 11, padding: '2px 8px', border: '1px solid var(--bdr)', borderRadius: 12, background: 'var(--chip-bg)', color: 'var(--txt2)', fontFamily: 'monospace', cursor: 'default', userSelect: 'all' }}>{t}</span>
+            ))}
+          </div>
+          <EmailBlockEditor
+            value={{ blocks: form.email_blocks }}
+            onChange={v => setForm(f => ({ ...f, email_blocks: v.blocks }))}
+          />
+        </div>
       ) : (
         /* ── SMS: composer + live phone preview ── */
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>

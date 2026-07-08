@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import DOMPurify from 'dompurify'
 import { Page, SectionCard, ErrBanner, btnPrimary, btnSecondary } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -115,6 +115,8 @@ function Avatar({ name }: { name: string }) {
 export default function MailThreadDetail() {
   const { id }   = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const autoReply = searchParams.get('reply') === '1'
 
   const [msg, setMsg]         = useState<MailMessage | null>(null)
   const [replies, setReplies] = useState<InboundReply[]>([])
@@ -148,6 +150,14 @@ export default function MailThreadDetail() {
 
   useEffect(() => { load() }, [load])
 
+  // Auto-focus reply box when navigated from inbox Reply button
+  useEffect(() => {
+    if (autoReply && replyRef.current) {
+      replyRef.current.focus()
+      replyRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [autoReply, loading])
+
   async function sendReply() {
     if (!replyBody.trim()) return
     setSending(true); setSendErr(null)
@@ -179,7 +189,7 @@ export default function MailThreadDetail() {
       subtitle={m ? `${m.kind.charAt(0).toUpperCase() + m.kind.slice(1)} · ${m.status}` : 'Loading…'}
       actions={
         <button
-          onClick={() => navigate('/mail/inbox')}
+          onClick={() => navigate('/mail')}
           style={{
             padding: '7px 14px', borderRadius: 8, border: '1px solid var(--bdr)',
             background: 'var(--card)', color: 'var(--txt)', fontSize: 13,

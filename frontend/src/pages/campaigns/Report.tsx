@@ -80,28 +80,48 @@ const TYPE_COLOR: Record<string, string> = { email: BLUE, sms: PURPLE, multi: GR
 
 function PipelineBar({ stats, total }: { stats: ContactStats; total: number }) {
   if (!total) return null
-  const segments = [
-    { label: 'Sent',      value: toN(stats.sent),      color: BLUE },
-    { label: 'Delivered', value: toN(stats.delivered), color: GREEN },
-    { label: 'Opened',    value: toN(stats.opened),    color: NAVY },
-    { label: 'Clicked',   value: toN(stats.clicked),   color: PURPLE },
+  const sent      = toN(stats.sent)
+  const delivered = toN(stats.delivered)
+  const opened    = toN(stats.opened)
+  const clicked   = toN(stats.clicked)
+
+  // Each stage expressed as % of the PREVIOUS stage (true funnel)
+  const delivPct  = sent      > 0 ? Math.min(100, (delivered / sent)      * 100) : 0
+  const openPct   = delivered > 0 ? Math.min(100, (opened    / delivered) * 100) : 0
+  const clickPct  = opened    > 0 ? Math.min(100, (clicked   / opened)    * 100) : 0
+  // Bar widths decrease — each bar is that stage's cumulative retention of the original audience
+  const sentBarW  = sent      > 0 ? Math.min(100, (sent      / total) * 100) : 0
+  const delivBarW = sent      > 0 ? Math.min(sentBarW,  (delivered / total) * 100) : 0
+  const openBarW  = sent      > 0 ? Math.min(delivBarW, (opened    / total) * 100) : 0
+  const clickBarW = sent      > 0 ? Math.min(openBarW,  (clicked   / total) * 100) : 0
+
+  const rows = [
+    { label: 'Sent',      value: sent,      barW: sentBarW,  stagePct: sent > 0 ? Math.min(100, (sent / total) * 100) : 0, dropLabel: null, color: BLUE },
+    { label: 'Delivered', value: delivered, barW: delivBarW, stagePct: delivPct, dropLabel: `${fmtPct(100 - delivPct)} drop`, color: GREEN },
+    { label: 'Opened',    value: opened,    barW: openBarW,  stagePct: openPct,  dropLabel: `${fmtPct(100 - openPct)} drop`,  color: NAVY },
+    { label: 'Clicked',   value: clicked,   barW: clickBarW, stagePct: clickPct, dropLabel: `${fmtPct(100 - clickPct)} drop`, color: PURPLE },
   ]
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {segments.map(seg => {
-        const pct = Math.min(100, (seg.value / total) * 100)
-        return (
-          <div key={seg.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 68, fontSize: 11.5, color: 'var(--txt2)', textAlign: 'right', flexShrink: 0 }}>{seg.label}</div>
-            <div style={{ flex: 1, height: 8, background: 'var(--th-bg)', borderRadius: 4, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${pct}%`, background: seg.color, borderRadius: 4, transition: 'width .4s' }} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {rows.map((row, i) => (
+        <div key={row.label}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 3 }}>
+            <div style={{ width: 68, fontSize: 11.5, color: 'var(--txt2)', textAlign: 'right', flexShrink: 0 }}>{row.label}</div>
+            <div style={{ flex: 1, height: 10, background: 'var(--th-bg)', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${row.barW}%`, background: row.color, borderRadius: 4, transition: 'width .4s' }} />
             </div>
-            <div style={{ width: 60, fontSize: 11.5, ...NUM, textAlign: 'right', flexShrink: 0 }}>
-              {fmtNum(seg.value)} <span style={{ color: 'var(--txt3)' }}>({fmtPct(pct)})</span>
+            <div style={{ width: 90, fontSize: 11, ...NUM, textAlign: 'right', flexShrink: 0 }}>
+              {fmtNum(row.value)} <span style={{ color: 'var(--txt3)' }}>({fmtPct(i === 0 ? row.stagePct : row.stagePct)})</span>
             </div>
           </div>
-        )
-      })}
+          {i > 0 && row.dropLabel && (
+            <div style={{ paddingLeft: 78, fontSize: 10.5, color: 'var(--txt3)' }}>
+              of prev stage · <span style={{ color: row.stagePct < 50 ? RED : 'var(--txt3)' }}>{row.dropLabel}</span>
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   )
 }

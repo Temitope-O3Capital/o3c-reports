@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import DOMPurify from 'dompurify'
 import { ErrBanner } from '../../components/UI'
-import { apiFetch, apiPost, apiPut } from '../../lib/api'
+import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
 import { NAVY, BLUE, RED, NUM, SORA, MONO } from '../../lib/design'
 
@@ -103,18 +103,20 @@ function Avatar({ name }: { name: string }) {
 interface ComposeProps {
   initialTo:   string
   initialSubj: string
+  initialBody?: string
   onClose:     () => void
   onSent:      () => void
 }
 
-function ComposeModal({ initialTo, initialSubj, onClose, onSent }: ComposeProps) {
+function ComposeModal({ initialTo, initialSubj, initialBody = '', onClose, onSent }: ComposeProps) {
   const [to,      setTo]      = useState(initialTo)
   const [subj,    setSubj]    = useState(initialSubj)
-  const [body,    setBody]    = useState('')
+  const [body,    setBody]    = useState(initialBody)
   const [sending, setSending] = useState(false)
   const [saving,  setSaving]  = useState(false)
   const [saved,   setSaved]   = useState(false)
   const [err,     setErr]     = useState<string | null>(null)
+  const [activeDraftId, setActiveDraftId] = useState<number | null>(null)
 
   async function send() {
     if (!to.trim() || !subj.trim() || !body.trim()) return
@@ -122,8 +124,13 @@ function ComposeModal({ initialTo, initialSubj, onClose, onSent }: ComposeProps)
     try {
       await apiPost('/api/mail/send', {
         to: parseAddresses(to), cc: [], bcc: [],
-        subject: subj, text_body: body, send_copy_to_sender: true,
+        subject: subj, text_body: body,
+        html_body: `<html><body><p>${body.replace(/\n/g, '</p><p>')}</p></body></html>`,
+        send_copy_to_sender: true,
       })
+      if (activeDraftId) {
+        await apiDelete(`/api/mail/drafts/${activeDraftId}`).catch(() => {})
+      }
       onSent()
     } catch (ex: any) { setErr(ex.message) }
     finally { setSending(false) }
@@ -132,15 +139,23 @@ function ComposeModal({ initialTo, initialSubj, onClose, onSent }: ComposeProps)
   async function saveDraft() {
     setSaving(true); setErr(null); setSaved(false)
     try {
-      await apiPost('/api/mail/drafts', {
+      const payload: Record<string, any> = {
         subject: subj,
         to_addrs: to ? parseAddresses(to) : [],
         text_body: body,
-      })
+      }
+      if (activeDraftId) payload.id = activeDraftId
+      const saved_draft = await apiPost<{ id: number }>('/api/mail/drafts', payload)
+      if (saved_draft?.id && !activeDraftId) setActiveDraftId(saved_draft.id)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (ex: any) { setErr(ex.message) }
     finally { setSaving(false) }
+  }
+
+  function handleClose() {
+    setActiveDraftId(null)
+    onClose()
   }
 
   const fieldStyle: React.CSSProperties = {
@@ -152,13 +167,13 @@ function ComposeModal({ initialTo, initialSubj, onClose, onSent }: ComposeProps)
 
   return (
     <div
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+      onClick={e => { if (e.target === e.currentTarget) handleClose() }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }}
     >
       <div style={{ width: 560, maxWidth: '94vw', background: 'var(--card)', borderRadius: 6, overflow: 'hidden', boxShadow: '0 24px 70px rgba(0,0,0,.35)' }}>
         <div style={{ display: 'flex', alignItems: 'center', background: NAVY, color: '#fff', padding: '11px 16px', fontSize: 12.5, fontWeight: 600, fontFamily: SORA }}>
           New message
-          <button onClick={onClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'rgba(255,255,255,.6)', fontSize: 16, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+          <button onClick={handleClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'rgba(255,255,255,.6)', fontSize: 16, cursor: 'pointer', lineHeight: 1 }}>✕</button>
         </div>
         <input placeholder="To" value={to} onChange={e => setTo(e.target.value)} style={fieldStyle} />
         <input placeholder="Subject" value={subj} onChange={e => setSubj(e.target.value)} style={fieldStyle} />
@@ -187,6 +202,7 @@ function ComposeModal({ initialTo, initialSubj, onClose, onSent }: ComposeProps)
     </div>
   )
 }
+
 
 // ── Normalised item for display ───────────────────────────────────────────────
 
@@ -223,13 +239,19 @@ export default function MailInbox() {
   const [composeOpen, setComposeOpen] = useState(false)
   const [composeTo,   setComposeTo]   = useState('')
   const [composeSubj, setComposeSubj] = useState('')
+  const [composeBody, setComposeBody] = useState('')
+
+  const [page,    setPage]    = useState(1)
+  const [hasMore, setHasMore] = useState(false)
 
   const loadFolder = useCallback(async () => {
-    setLoading(true); setErr(null); setSelId(null); setSentDetail(null)
+    setLoading(true); setErr(null); setSelId(null); setSentDetail(null); setPage(1)
     try {
       if (folder === 'inbox') {
-        const res = await apiFetch<InboundMessage[]>('/api/mail/inbox')
-        setInbox(Array.isArray(res) ? res : [])
+        const res = await apiFetch<InboundMessage[]>('/api/mail/inbox?limit=50&offset=0')
+        const arr = Array.isArray(res) ? res : []
+        setInbox(arr)
+        setHasMore(arr.length === 50)
       } else if (folder === 'sent') {
         const res = await apiFetch<SentMessage[]>('/api/mail/messages')
         setSent(Array.isArray(res) ? res : [])
@@ -317,8 +339,20 @@ export default function MailInbox() {
     }
   }
 
-  function openCompose(to = '', subj = '') {
-    setComposeTo(to); setComposeSubj(subj); setComposeOpen(true)
+  function openCompose(to = '', subj = '', body = '') {
+    setComposeTo(to); setComposeSubj(subj); setComposeBody(body); setComposeOpen(true)
+  }
+
+  async function loadMoreInbox() {
+    const nextPage = page + 1
+    const offset = (nextPage - 1) * 50
+    try {
+      const res = await apiFetch<InboundMessage[]>(`/api/mail/inbox?limit=50&offset=${offset}`)
+      const arr = Array.isArray(res) ? res : []
+      setInbox(prev => [...prev, ...arr])
+      setPage(nextPage)
+      setHasMore(arr.length === 50)
+    } catch { /* ignore */ }
   }
 
   // Reader body
@@ -450,6 +484,15 @@ export default function MailInbox() {
               )
             })}
           </div>
+
+          {/* Load more — inbox only */}
+          {folder === 'inbox' && hasMore && !loading && (
+            <button
+              onClick={loadMoreInbox}
+              style={{ width: '100%', padding: '10px', background: 'none', border: 'none', borderTop: '1px solid var(--bdr)', color: 'var(--txt2)', fontSize: 12.5, cursor: 'pointer', fontFamily: SORA }}>
+              Load more
+            </button>
+          )}
         </div>
 
         {/* ── Right: reader pane ── */}
@@ -470,13 +513,19 @@ export default function MailInbox() {
             {/* Actions */}
             <div style={{ marginTop: 22, display: 'flex', gap: 8 }}>
               <button
-                onClick={() => openCompose(selItem.replyTo, `Re: ${selItem.subject}`)}
+                onClick={() => navigate(`/mail/${selId}?reply=1`)}
                 style={{ padding: '7px 14px', borderRadius: 7, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: SORA, display: 'flex', alignItems: 'center', gap: 5 }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 14 }}>reply</span>
                 Reply
               </button>
               <button
-                onClick={() => openCompose('', `Fwd: ${selItem.subject}`)}
+                onClick={() => {
+                  const sender = selItem.rawInbound?.from_name ?? selItem.rawInbound?.from_email ?? selItem.displayFrom
+                  const date   = selItem.time
+                  const origBody = selItem.rawInbound?.body_text ?? ''
+                  const fwdBody = `\n\n---------- Forwarded message ----------\nFrom: ${sender}\nDate: ${date}\n\n${origBody}`
+                  openCompose('', `Fwd: ${selItem.subject}`, fwdBody)
+                }}
                 style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: SORA, display: 'flex', alignItems: 'center', gap: 5 }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 14 }}>forward</span>
                 Forward
@@ -503,8 +552,9 @@ export default function MailInbox() {
         <ComposeModal
           initialTo={composeTo}
           initialSubj={composeSubj}
-          onClose={() => setComposeOpen(false)}
-          onSent={() => { setComposeOpen(false); if (folder === 'sent') loadFolder() }}
+          initialBody={composeBody}
+          onClose={() => { setComposeOpen(false); setComposeBody('') }}
+          onSent={() => { setComposeOpen(false); setComposeBody(''); if (folder === 'sent') loadFolder() }}
         />
       )}
     </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Page, SectionCard, KpiCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -70,12 +70,14 @@ function toN(v: any): number { return Number(v) || 0 }
 
 export default function CampaignAnalytics() {
   const navigate = useNavigate()
+  const [urlParams, setUrlParams] = useSearchParams()
+  const dateFrom = urlParams.get('dateFrom') ?? ''
+  const dateTo   = urlParams.get('dateTo')   ?? ''
+  const channel  = urlParams.get('channel')  ?? ''
+
   const [data, setData]       = useState<AnalyticsResp | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr]         = useState<string | null>(null)
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo]     = useState('')
-  const [channel, setChannel]   = useState('')
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -133,9 +135,9 @@ export default function CampaignAnalytics() {
     <Page title="Campaign Analytics" subtitle="Aggregate performance across all campaigns">
       <ErrBanner error={err} onRetry={load} />
 
-      <FilterBar onReset={() => { setDateFrom(''); setDateTo(''); setChannel('') }}>
-        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
-        <select value={channel} onChange={e => setChannel(e.target.value)} style={filterInputStyle}>
+      <FilterBar onReset={() => setUrlParams({})}>
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => setUrlParams(p => { const n = new URLSearchParams(p); if (f) n.set('dateFrom', f); else n.delete('dateFrom'); if (t) n.set('dateTo', t); else n.delete('dateTo'); return n })} />
+        <select value={channel} onChange={e => setUrlParams(p => { const n = new URLSearchParams(p); if (e.target.value) n.set('channel', e.target.value); else n.delete('channel'); return n })} style={filterInputStyle}>
           <option value="">All Channels</option>
           <option value="email">Email</option>
           <option value="sms">SMS</option>

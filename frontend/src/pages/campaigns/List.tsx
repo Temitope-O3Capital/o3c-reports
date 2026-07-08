@@ -98,6 +98,9 @@ export default function CampaignsList() {
   const [total, setTotal]         = useState(0)
   const [lists, setLists]         = useState<ContactList[]>([])
   const [loading, setLoading]     = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore]     = useState(false)
+  const [page, setPage]           = useState(1)
   const [err, setErr]             = useState<string | null>(null)
   const [typeFilter, setTypeFilter]     = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -107,21 +110,39 @@ export default function CampaignsList() {
   const [actionErr, setActionErr] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+    setLoading(true); setErr(null); setPage(1)
     try {
-      const p = new URLSearchParams({ limit: '200' })
+      const p = new URLSearchParams({ limit: '50', offset: '0' })
       if (typeFilter)   p.set('type',   typeFilter)
       if (statusFilter) p.set('status', statusFilter)
       const [res, ls] = await Promise.all([
         apiFetch<{ total: number; campaigns: Campaign[] }>(`/api/campaigns?${p}`),
         apiFetch<ContactList[]>('/api/contact-lists'),
       ])
-      setCampaigns(Array.isArray(res?.campaigns) ? res.campaigns : [])
+      const newCampaigns = Array.isArray(res?.campaigns) ? res.campaigns : []
+      setCampaigns(newCampaigns)
       setTotal(res?.total ?? 0)
+      setHasMore(newCampaigns.length === 50)
       setLists(Array.isArray(ls) ? ls : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
   }, [typeFilter, statusFilter])
+
+  async function loadMore() {
+    setLoadingMore(true)
+    try {
+      const nextPage = page + 1
+      const p = new URLSearchParams({ limit: '50', offset: String((nextPage - 1) * 50) })
+      if (typeFilter)   p.set('type',   typeFilter)
+      if (statusFilter) p.set('status', statusFilter)
+      const res = await apiFetch<{ total: number; campaigns: Campaign[] }>(`/api/campaigns?${p}`)
+      const newCampaigns = Array.isArray(res?.campaigns) ? res.campaigns : []
+      setCampaigns(prev => [...prev, ...newCampaigns])
+      setPage(nextPage)
+      setHasMore(newCampaigns.length === 50)
+    } catch (ex: any) { setErr(ex.message) }
+    finally { setLoadingMore(false) }
+  }
 
   useEffect(() => { load() }, [load])
 
@@ -296,6 +317,11 @@ export default function CampaignsList() {
       </FilterBar>
 
       <SectionCard title="All Campaigns" badge={campaigns.length} padding={false} actions={<button onClick={() => exportCampaignsCsv(campaigns)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+        {hasMore && (
+          <div style={{ padding: '6px 16px', background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)', fontSize: 12, color: 'var(--txt3)' }}>
+            Showing {campaigns.length} of {fmtNum(total)} campaigns
+          </div>
+        )}
         <DataTable<Campaign>
           cols={cols}
           rows={campaigns}
@@ -307,6 +333,14 @@ export default function CampaignsList() {
           searchPlaceholder="Search campaigns…"
           pageSize={20}
         />
+        {hasMore && (
+          <div style={{ padding: '12px', borderTop: '1px solid var(--bdr)', textAlign: 'center' }}>
+            <button onClick={loadMore} disabled={loadingMore}
+              style={{ padding: '7px 20px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: loadingMore ? 'default' : 'pointer', fontFamily: INTER }}>
+              {loadingMore ? 'Loading…' : `Load more (${fmtNum(total - campaigns.length)} remaining)`}
+            </button>
+          </div>
+        )}
       </SectionCard>
 
       {/* Create modal */}

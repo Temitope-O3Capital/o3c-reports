@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Page, ErrBanner, btnPrimary, btnSecondary, filterInputStyle } from '../../components/UI'
-import { apiFetch, apiPost } from '../../lib/api'
+import { apiFetch, apiPost, apiDelete } from '../../lib/api'
 import { NAVY, INTER } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -78,8 +78,12 @@ export default function MailCompose() {
         bcc:       bcc ? parseAddresses(bcc) : [],
         subject,
         text_body: body,
+        html_body: `<html><body><p>${body.replace(/\n/g, '</p><p>')}</p></body></html>`,
         send_copy_to_sender: true,
       })
+      if (activeDraftId) {
+        await apiDelete(`/api/mail/drafts/${activeDraftId}`).catch(() => {})
+      }
       setSent(true)
     } catch (ex: any) { setErr(ex.message) }
     finally { setSending(false) }
