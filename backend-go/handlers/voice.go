@@ -192,7 +192,7 @@ func fetchZohoVoiceAgentID(ctx context.Context, accessToken, email string) strin
 	// Find the user whose email matches.
 	for _, u := range users {
 		var userEmail string
-		for _, ek := range []string{"email", "Email", "email_id", "emailId", "login_id"} {
+		for _, ek := range []string{"email", "Email", "email_id", "emailId", "emailid", "login_id"} {
 			if e, _ := u[ek].(string); e != "" {
 				userEmail = e
 				break

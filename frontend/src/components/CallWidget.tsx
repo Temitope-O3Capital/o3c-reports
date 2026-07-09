@@ -30,6 +30,7 @@ interface ZohoVoiceInstance {
     isOAuth: boolean
     oAuthCallBack: (cb: (token: string) => void) => void
   }
+  register(): void
   makeCall(target: string | { number: string; name?: string }): void
   answerCall(callId?: string): void
   endCall(): void
@@ -115,7 +116,10 @@ export default function CallWidget({ user }: { user: AuthUser }) {
     }
     if (sdkRef.current) return   // already initialised
 
-    const sdk = new window.ZohoVoice({ name: agentName || 'Agent', autoRegister: true, debug: true })
+    // autoRegister: false — prevents the SDK firing its registration attempt before
+    // the OAuth callback is bound. We call sdk.register() manually below once
+    // all hooks are in place, so the token is available on the first SIP frame.
+    const sdk = new window.ZohoVoice({ name: agentName || 'Agent', autoRegister: false, debug: true })
     sdkRef.current = sdk
 
     // Inject OAuth token — SDK calls this whenever it needs a fresh token.
@@ -173,6 +177,10 @@ export default function CallWidget({ user }: { user: AuthUser }) {
       const msg = typeof data === 'string' ? data : (data as { message?: string })?.message ?? 'SDK error'
       setSdkError(msg)
     })
+
+    // All hooks are bound — now trigger SIP registration so the SDK sends
+    // the OAuth token on the very first registration frame.
+    sdk.register()
   }
 
   // Disconnect + re-run OAuth so the user can pick the correct Zoho account.
