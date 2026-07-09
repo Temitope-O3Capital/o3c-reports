@@ -86,78 +86,37 @@ func voiceRefreshUserToken(ctx context.Context, refreshToken string) (accessToke
 	return tok.AccessToken, time.Now().Add(time.Duration(secs) * time.Second), nil
 }
 
-// fetchZohoVoiceAgentID tries several Zoho Voice endpoints to find the
-// authenticated user's agent ID. Returns empty string on all failures.
-func fetchZohoVoiceAgentID(ctx context.Context, accessToken string) string {
-	type candidate struct{ url string }
-	candidates := []candidate{
-		{"https://voice.zoho." + zohoDC + "/rest/json/zv/api/agents/me"},
-		{"https://voice.zoho." + zohoDC + "/rest/json/zv/api/agent"},
-		{"https://voice.zoho." + zohoDC + "/rest/json/zv/api/agents"},
+// fetchZohoVoiceAgentID calls GET /rest/json/zv/api/users (the correct Zoho Voice
+// Users API) and returns the numeric agent ID matching the given email.
+func fetchZohoVoiceAgentID(ctx context.Context, accessToken, email string) string {
+	reqURL := "https://voice.zoho." + zohoDC + "/rest/json/zv/api/users"
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	if err != nil {
+		return ""
 	}
+	req.Header.Set("Authorization", "Zoho-oauthtoken "+accessToken)
+	req.Header.Set("Accept", "application/json")
 
-	for _, c := range candidates {
-		req, err := http.NewRequestWithContext(ctx, "GET", c.url, nil)
-		if err != nil {
-			continue
-		}
-		req.Header.Set("Authorization", "Zoho-oauthtoken "+accessToken)
-
-		resp, err := zohoHTTP.Do(req)
-		if err != nil {
-			continue
-		}
-		raw, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-
-		slog.Info("voice: agent ID probe", "url", c.url, "status", resp.StatusCode, "body", string(raw))
-
-		// Try to extract an ID from many possible shapes.
-		var generic map[string]any
-		if json.Unmarshal(raw, &generic) != nil {
-			continue
-		}
-		if id := deepFindString(generic, "agent_id", "agentId", "id"); id != "" {
-			return id
-		}
+	resp, err := zohoHTTP.Do(req)
+	if err != nil {
+		return ""
 	}
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
 
-	// Final fallback: use the Zoho accounts user-info endpoint to get the
-	// user's Zoho ID which many SDKs accept as agentId.
-	req, err := http.NewRequestWithContext(ctx, "GET", "https://accounts.zoho."+zohoDC+"/oauth/user/info", nil)
-	if err == nil {
-		req.Header.Set("Authorization", "Zoho-oauthtoken "+accessToken)
-		if resp, err := zohoHTTP.Do(req); err == nil {
-			raw, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			slog.Info("voice: accounts user info", "body", string(raw))
-			var info map[string]any
-			if json.Unmarshal(raw, &info) == nil {
-				if id := deepFindString(info, "ZSOID", "zsoid", "Email", "email"); id != "" {
-					return id
-				}
-			}
-		}
-	}
-	return ""
-}
+	slog.Info("voice: users API", "status", resp.StatusCode, "body", string(raw))
 
-// deepFindString searches a JSON map for the first matching key from keys.
-func deepFindString(m map[string]any, keys ...string) string {
-	for _, k := range keys {
-		if v, ok := m[k]; ok {
-			if s, ok := v.(string); ok && s != "" {
-				return s
-			}
-		}
+	// Response is a list of user objects; find the one matching our email.
+	var result struct {
+		Data []map[string]any `json:"data"`
 	}
-	// Also look inside a top-level "data" object.
-	if data, ok := m["data"].(map[string]any); ok {
-		for _, k := range keys {
-			if v, ok := data[k]; ok {
-				if s, ok := v.(string); ok && s != "" {
-					return s
-				}
+	if json.Unmarshal(raw, &result) != nil {
+		return ""
+	}
+	for _, u := range result.Data {
+		if e, _ := u["email"].(string); e != "" && e == email {
+			if id, _ := u["id"].(string); id != "" {
+				return id
 			}
 		}
 	}
@@ -179,7 +138,7 @@ func VoiceStatus(db *core.DB) http.HandlerFunc {
 		}
 
 		rows, err := db.PGQuery(ctx, `
-			SELECT email,
+			SELECT email, full_name,
 			       zoho_voice_refresh_token,
 			       zoho_voice_access_token,
 			       zoho_voice_token_expiry,
@@ -193,6 +152,7 @@ func VoiceStatus(db *core.DB) http.HandlerFunc {
 		row := rows[0]
 
 		email, _ := row["email"].(string)
+		fullName, _ := row["full_name"].(string)
 		encRefresh, _ := row["zoho_voice_refresh_token"].(string)
 		encAccess, _ := row["zoho_voice_access_token"].(string)
 		expiryRaw := row["zoho_voice_token_expiry"]
@@ -200,13 +160,13 @@ func VoiceStatus(db *core.DB) http.HandlerFunc {
 		agentID, _ := row["zoho_voice_agent_id"].(string)
 
 		if encRefresh == "" {
-			writeVoiceStatus(w, false, "", false, nil, email, "")
+			writeVoiceStatus(w, false, "", false, nil, email, "", fullName)
 			return
 		}
 
 		refreshToken, err := decryptValue(encRefresh)
 		if err != nil || refreshToken == "" {
-			writeVoiceStatus(w, false, "", false, nil, email, "")
+			writeVoiceStatus(w, false, "", false, nil, email, "", fullName)
 			return
 		}
 
@@ -224,7 +184,7 @@ func VoiceStatus(db *core.DB) http.HandlerFunc {
 			newAccess, newExpiry, err := voiceRefreshUserToken(ctx, refreshToken)
 			if err != nil {
 				slog.Warn("voice token refresh failed", "user_id", user.ID, "err", err)
-				writeVoiceStatus(w, true, "", false, connectedAt, email, agentID)
+				writeVoiceStatus(w, true, "", false, connectedAt, email, agentID, fullName)
 				return
 			}
 			encA, err := encryptValue(newAccess)
@@ -239,11 +199,11 @@ func VoiceStatus(db *core.DB) http.HandlerFunc {
 			tokenValid = true
 		}
 
-		writeVoiceStatus(w, true, accessToken, tokenValid, connectedAt, email, agentID)
+		writeVoiceStatus(w, true, accessToken, tokenValid, connectedAt, email, agentID, fullName)
 	}
 }
 
-func writeVoiceStatus(w http.ResponseWriter, connected bool, accessToken string, tokenValid bool, connectedAt any, email, agentID string) {
+func writeVoiceStatus(w http.ResponseWriter, connected bool, accessToken string, tokenValid bool, connectedAt any, email, agentID, fullName string) {
 	w.Header().Set("Content-Type", "application/json")
 	var connectedAtStr string
 	if t, ok := connectedAt.(time.Time); ok {
@@ -256,6 +216,7 @@ func writeVoiceStatus(w http.ResponseWriter, connected bool, accessToken string,
 		"connected_at": connectedAtStr,
 		"email":        email,
 		"agent_id":     agentID,
+		"full_name":    fullName,
 	})
 }
 
@@ -291,7 +252,7 @@ func VoiceConnect(db *core.DB) http.HandlerFunc {
 			"https://accounts.zoho.%s/oauth/v2/auth?response_type=code&client_id=%s&scope=%s&redirect_uri=%s&access_type=offline&prompt=consent&state=%s",
 			zohoDC,
 			url.QueryEscape(clientID),
-			url.QueryEscape("Desk.calls.ALL,Desk.settings.READ,Desk.contacts.READ,ZohoVoice.call.READ,ZohoVoice.call.CREATE,ZohoVoice.agents.READ,ZohoVoice.agents.UPDATE"),
+			url.QueryEscape("Desk.calls.ALL,Desk.settings.READ,Desk.contacts.READ,ZohoVoice.sdk.READ,ZohoVoice.call.READ,ZohoVoice.agents.READ,ZohoVoice.agents.UPDATE"),
 			url.QueryEscape(voiceRedirectURI()),
 			url.QueryEscape(state),
 		)
@@ -406,8 +367,14 @@ func VoiceOAuthCallback(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// Look up the user's email so we can match against the Zoho Voice users list.
+		userEmail := ""
+		if rows, err := db.PGQuery(ctx, `SELECT email FROM o3c_users WHERE id=$1`, userID); err == nil && len(rows) > 0 {
+			userEmail, _ = rows[0]["email"].(string)
+		}
+
 		// Fetch the agent's Zoho Voice agent ID (best-effort; non-fatal if unavailable).
-		agentID := fetchZohoVoiceAgentID(ctx, tok.AccessToken)
+		agentID := fetchZohoVoiceAgentID(ctx, tok.AccessToken, userEmail)
 
 		_, err = db.PGExec(ctx, `
 			UPDATE o3c_users
