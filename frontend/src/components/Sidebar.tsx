@@ -37,7 +37,7 @@ const SECTIONS: Section[] = [
     items: [
       {
         icon: 'corporate_fare', label: 'Business Dev', to: '/bd',
-        vis: ['sales_officer','sales_head','bd_officer','bd_head'],
+        vis: ['sales_officer','sales_head','head_sales','bd_officer','bd_head'],
         subs: [
           { label: 'All Leads',         to: '/bd/leads' },
           { label: 'My Pipeline',       to: '/bd/pipeline' },
@@ -47,7 +47,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'mark_email_read', label: 'Mail', to: '/mail/inbox',
-        vis: ['sales_officer','sales_head','bd_officer','bd_head'],
+        vis: ['sales_officer','sales_head','head_sales','bd_officer','bd_head'],
         subs: [
           { label: 'Inbox',     to: '/mail/inbox' },
           { label: 'Sent Mail', to: '/mail/sent' },
@@ -56,7 +56,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'campaign', label: 'Campaigns & Marketing', to: '/campaigns',
-        vis: ['sales_head','bd_officer','bd_head','telemarketing_head'],
+        vis: ['sales_head','head_sales','bd_officer','bd_head','telemarketing_head'],
         subs: [
           { label: 'All Campaigns',      to: '/campaigns' },
           { label: 'Templates',          to: '/campaigns/templates' },
@@ -68,7 +68,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'trending_up', label: 'Sales', to: '/sales',
-        vis: ['sales_officer','sales_head'],
+        vis: ['sales_officer','sales_head','head_sales'],
         subs: [
           { label: 'Overview',         to: '/sales' },
           { label: 'Cohort Analysis',  to: '/sales/cohort' },
@@ -79,7 +79,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'contacts', label: 'CRM', to: '/sales/crm',
-        vis: ['sales_officer','sales_head','bd_officer','bd_head'],
+        vis: ['sales_officer','sales_head','head_sales','bd_officer','bd_head'],
         subs: [
           { label: 'Contacts', to: '/sales/customers' },
           { label: 'Pipeline', to: '/sales/crm' },
@@ -161,7 +161,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'collections_bookmark', label: 'Collections', to: '/collections',
-        vis: ['collections_agent','collections_head'],
+        vis: ['collections_agent','collections_head','head_collections'],
         subs: [
           { label: 'Overview',        to: '/collections' },
           { label: 'Agent Queue',     to: '/collections/queue' },
@@ -173,7 +173,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'gavel', label: 'Recovery', to: '/recovery',
-        vis: ['recovery_agent','recovery_head'],
+        vis: ['recovery_agent','recovery_head','head_recovery'],
         subs: [
           { label: 'Overview',       to: '/recovery' },
           { label: 'Cases',          to: '/recovery/cases' },
@@ -190,7 +190,7 @@ const SECTIONS: Section[] = [
     items: [
       {
         icon: 'account_balance', label: 'Finance', to: '/finance',
-        vis: ['finance_officer','finance_head'],
+        vis: ['finance_officer','finance_head','head_of_reconciliation'],
         subs: [
           { label: 'Overview',          to: '/finance' },
           { label: 'Transactions',      to: '/finance/transactions' },
@@ -207,7 +207,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'compare_arrows', label: 'Settlements', to: '/settlements',
-        vis: ['settlement_officer','finance_head'],
+        vis: ['settlement_officer','finance_head','head_of_reconciliation'],
         subs: [
           { label: 'Overview',                 to: '/settlements' },
           { label: 'Batches',                  to: '/settlements/batches' },
@@ -265,7 +265,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'payments', label: 'Payroll', to: '/payroll',
-        vis: ['hr_officer','hr_manager','payroll_officer','payroll_manager'],
+        vis: ['hr_manager','payroll_officer','payroll_manager'],
       },
     ],
   },
@@ -275,7 +275,7 @@ const SECTIONS: Section[] = [
     items: [
       {
         icon: 'analytics', label: 'Reports & BI', to: '/reports',
-        vis: ['bi_analyst','bi_head','internal_control_head'],
+        vis: ['internal_control_head','finance_head'],
         subs: [
           { label: 'KPI Tracker',         to: '/reports/kpi' },
           { label: 'Analytics Dashboard', to: '/reports' },
@@ -287,7 +287,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'receipt_long', label: 'Statements', to: '/statements',
-        vis: ['bi_analyst','bi_head','internal_control_head','finance_officer','finance_head'],
+        vis: ['internal_control_head','finance_officer','finance_head','head_of_reconciliation'],
       },
     ],
   },

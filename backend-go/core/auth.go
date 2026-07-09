@@ -448,7 +448,7 @@ var RolePages = map[string][]string{
 	"finance_officer": {
 		"overview", "income", "finance", "eod", "transactions", "reconciliation",
 		"collections_payment", "credit_portfolio", "fixed_deposit", "settlement",
-		"los_finance", "customer360",
+		"los_finance", "customer360", "statements",
 	},
 	"finance_head": {
 		"overview", "income", "finance", "eod", "transactions", "uploads", "reconciliation",
