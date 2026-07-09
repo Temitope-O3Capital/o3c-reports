@@ -22,7 +22,7 @@ func RegisterAuth(r chi.Router, db *core.DB) {
 	r.Post("/refresh", refreshHandler(db))
 	r.Get("/me", meHandler())
 	r.Post("/change-password", changePasswordHandler(db))
-	r.Post("/forgot-password", forgotPasswordHandler(db))
+	r.Post("/forgot-password", ForgotPasswordHandler(db))
 }
 
 // cookieAttrs returns (secure, sameSite) based on whether the request was HTTPS.
@@ -111,7 +111,7 @@ func newCSRFToken() string {
 	return hex.EncodeToString(b)
 }
 
-func forgotPasswordHandler(db *core.DB) http.HandlerFunc {
+func ForgotPasswordHandler(db *core.DB) http.HandlerFunc {
 	type body struct {
 		Email string `json:"email"`
 	}

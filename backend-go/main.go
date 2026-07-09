@@ -120,6 +120,9 @@ func main() {
 			return rightmostIP(r), nil
 		}))).Post("/register", handlers.RegisterHandler(db))
 		r.Post("/refresh", RefreshPublic(db))
+		r.With(httprate.Limit(5, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
+			return rightmostIP(r), nil
+		}))).Post("/forgot-password", handlers.ForgotPasswordHandler(db))
 		if cfg.EnableResetAdmin {
 			r.Post("/reset-admin", handlers.ResetAdminHandler(db, cfg.ResetAdminSecret))
 		}
