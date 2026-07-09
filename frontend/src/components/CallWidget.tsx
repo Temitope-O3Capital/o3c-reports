@@ -79,6 +79,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   const [sdkError,       setSdkError]       = useState('')
   const [dialing,        setDialing]        = useState(false)
   const [error,          setError]          = useState('')
+  const [zohoEmail,      setZohoEmail]      = useState('')
 
   const sdkRef     = useRef<ZohoVoiceInstance | null>(null)
   const tokenRef   = useRef('')          // latest access token for oAuthCallBack
@@ -93,9 +94,11 @@ export default function CallWidget({ user }: { user: AuthUser }) {
       connected: boolean
       access_token?: string
       full_name?: string
+      zoho_account_email?: string
     }>('/api/voice/status', { silent: true })
       .then(d => {
         setVoiceConnected(d.connected ?? false)
+        if (d.zoho_account_email) setZohoEmail(d.zoho_account_email)
         if (d.connected && d.access_token) {
           tokenRef.current = d.access_token
           initSDK(d.access_token, d.full_name ?? '')
@@ -411,6 +414,12 @@ export default function CallWidget({ user }: { user: AuthUser }) {
                 </button>
               )}
             </div>
+            {/* Zoho account diagnostic — shows which Zoho account the OAuth token belongs to */}
+            {zohoEmail && (
+              <div style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.28)', marginTop: 3, letterSpacing: '0.03em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                Zoho: {zohoEmail}
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 1, background: 'rgba(255,255,255,0.06)' }}>

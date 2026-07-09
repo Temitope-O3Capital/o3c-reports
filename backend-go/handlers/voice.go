@@ -86,8 +86,42 @@ func voiceRefreshUserToken(ctx context.Context, refreshToken string) (accessToke
 	return tok.AccessToken, time.Now().Add(time.Duration(secs) * time.Second), nil
 }
 
-// fetchZohoVoiceAgentID calls GET /rest/json/zv/api/users (the correct Zoho Voice
-// Users API) and returns the numeric agent ID matching the given email.
+// fetchZohoUserInfo calls Zoho's userinfo endpoint and returns the authenticated
+// Zoho account's email. Useful for diagnosing OAuth mismatches.
+func fetchZohoUserInfo(ctx context.Context, accessToken string) string {
+	reqURL := "https://accounts.zoho." + zohoDC + "/oauth/user/info"
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Authorization", "Zoho-oauthtoken " + accessToken)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := zohoHTTP.Do(req)
+	if err != nil {
+		return ""
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	slog.Info("voice: userinfo API", "status", resp.StatusCode, "body", string(raw))
+
+	var info map[string]any
+	if json.Unmarshal(raw, &info) != nil {
+		return ""
+	}
+	// Zoho returns Email, email, or email_id depending on the DC.
+	for _, k := range []string{"Email", "email", "email_id", "login_id"} {
+		if v, _ := info[k].(string); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// fetchZohoVoiceAgentID calls the Zoho Voice users API and returns the numeric
+// agent ID matching the given email.  The response format varies by Zoho
+// datacenter and API version, so we probe multiple envelope shapes.
 func fetchZohoVoiceAgentID(ctx context.Context, accessToken, email string) string {
 	reqURL := "https://voice.zoho." + zohoDC + "/rest/json/zv/api/users"
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
@@ -106,17 +140,78 @@ func fetchZohoVoiceAgentID(ctx context.Context, accessToken, email string) strin
 
 	slog.Info("voice: users API", "status", resp.StatusCode, "body", string(raw))
 
-	// Response is a list of user objects; find the one matching our email.
-	var result struct {
-		Data []map[string]any `json:"data"`
-	}
-	if json.Unmarshal(raw, &result) != nil {
+	// Parse as generic map to handle multiple envelope shapes.
+	var top any
+	if json.Unmarshal(raw, &top) != nil {
 		return ""
 	}
-	for _, u := range result.Data {
-		if e, _ := u["email"].(string); e != "" && e == email {
-			if id, _ := u["id"].(string); id != "" {
-				return id
+
+	// Collect the user list from whichever envelope shape Zoho used.
+	var users []map[string]any
+	switch v := top.(type) {
+	case []any:
+		// Bare array at root.
+		for _, item := range v {
+			if m, ok := item.(map[string]any); ok {
+				users = append(users, m)
+			}
+		}
+	case map[string]any:
+		// Try common wrapper keys in order of likelihood.
+		for _, key := range []string{"data", "users", "agents", "result", "response"} {
+			switch inner := v[key].(type) {
+			case []any:
+				for _, item := range inner {
+					if m, ok := item.(map[string]any); ok {
+						users = append(users, m)
+					}
+				}
+				if len(users) > 0 {
+					break
+				}
+			case map[string]any:
+				// One more level: {"response": {"data": [...]}}
+				for _, k2 := range []string{"data", "users", "agents"} {
+					if arr, ok := inner[k2].([]any); ok {
+						for _, item := range arr {
+							if m, ok2 := item.(map[string]any); ok2 {
+								users = append(users, m)
+							}
+						}
+					}
+				}
+			}
+			if len(users) > 0 {
+				break
+			}
+		}
+	}
+
+	slog.Info("voice: users API parsed", "count", len(users), "looking_for", email)
+
+	// Find the user whose email matches.
+	for _, u := range users {
+		var userEmail string
+		for _, ek := range []string{"email", "Email", "email_id", "emailId", "login_id"} {
+			if e, _ := u[ek].(string); e != "" {
+				userEmail = e
+				break
+			}
+		}
+		if userEmail == "" || userEmail != email {
+			continue
+		}
+		// Found — extract the ID.
+		for _, ik := range []string{"id", "Id", "user_id", "userId", "agent_id", "agentId"} {
+			switch idv := u[ik].(type) {
+			case string:
+				if idv != "" {
+					return idv
+				}
+			case float64:
+				if idv != 0 {
+					return fmt.Sprintf("%.0f", idv)
+				}
 			}
 		}
 	}
@@ -160,13 +255,13 @@ func VoiceStatus(db *core.DB) http.HandlerFunc {
 		agentID, _ := row["zoho_voice_agent_id"].(string)
 
 		if encRefresh == "" {
-			writeVoiceStatus(w, false, "", false, nil, email, "", fullName)
+			writeVoiceStatus(w, false, "", false, nil, email, "", fullName, "")
 			return
 		}
 
 		refreshToken, err := decryptValue(encRefresh)
 		if err != nil || refreshToken == "" {
-			writeVoiceStatus(w, false, "", false, nil, email, "", fullName)
+			writeVoiceStatus(w, false, "", false, nil, email, "", fullName, "")
 			return
 		}
 
@@ -184,7 +279,7 @@ func VoiceStatus(db *core.DB) http.HandlerFunc {
 			newAccess, newExpiry, err := voiceRefreshUserToken(ctx, refreshToken)
 			if err != nil {
 				slog.Warn("voice token refresh failed", "user_id", user.ID, "err", err)
-				writeVoiceStatus(w, true, "", false, connectedAt, email, agentID, fullName)
+				writeVoiceStatus(w, true, "", false, connectedAt, email, agentID, fullName, "")
 				return
 			}
 			encA, err := encryptValue(newAccess)
@@ -199,24 +294,29 @@ func VoiceStatus(db *core.DB) http.HandlerFunc {
 			tokenValid = true
 		}
 
-		writeVoiceStatus(w, true, accessToken, tokenValid, connectedAt, email, agentID, fullName)
+		// Fetch which Zoho account the token authenticates as — useful for diagnosing
+		// mismatches (e.g. shared admin account vs personal agent account).
+		zohoAccountEmail := fetchZohoUserInfo(ctx, accessToken)
+
+		writeVoiceStatus(w, true, accessToken, tokenValid, connectedAt, email, agentID, fullName, zohoAccountEmail)
 	}
 }
 
-func writeVoiceStatus(w http.ResponseWriter, connected bool, accessToken string, tokenValid bool, connectedAt any, email, agentID, fullName string) {
+func writeVoiceStatus(w http.ResponseWriter, connected bool, accessToken string, tokenValid bool, connectedAt any, email, agentID, fullName, zohoAccountEmail string) {
 	w.Header().Set("Content-Type", "application/json")
 	var connectedAtStr string
 	if t, ok := connectedAt.(time.Time); ok {
 		connectedAtStr = t.Format(time.RFC3339)
 	}
 	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-		"connected":    connected,
-		"access_token": accessToken,
-		"token_valid":  tokenValid,
-		"connected_at": connectedAtStr,
-		"email":        email,
-		"agent_id":     agentID,
-		"full_name":    fullName,
+		"connected":          connected,
+		"access_token":       accessToken,
+		"token_valid":        tokenValid,
+		"connected_at":       connectedAtStr,
+		"email":              email,
+		"agent_id":           agentID,
+		"full_name":          fullName,
+		"zoho_account_email": zohoAccountEmail,
 	})
 }
 
