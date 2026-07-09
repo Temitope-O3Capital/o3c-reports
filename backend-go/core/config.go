@@ -14,6 +14,7 @@ type Config struct {
 	SecretKey        string
 	EncryptionKey    string
 	PGURL            string
+	DirectPGURL      string // non-pooler URL for LISTEN/NOTIFY; falls back to PGURL
 	MSSQLConnStr     string // empty = MSSQL disabled
 	AllowedOrigins   []string
 	Port             string
@@ -24,10 +25,16 @@ type Config struct {
 func LoadConfig() (*Config, error) {
 	_ = godotenv.Load()
 
+	directPG := os.Getenv("DIRECT_DATABASE_URL")
+	if directPG == "" {
+		directPG = os.Getenv("DATABASE_URL") // fallback to pooler URL
+	}
+
 	c := &Config{
 		SecretKey:        os.Getenv("SECRET_KEY"),
 		EncryptionKey:    os.Getenv("ENCRYPTION_KEY"),
 		PGURL:            os.Getenv("DATABASE_URL"),
+		DirectPGURL:      directPG,
 		Port:             coalesce(os.Getenv("PORT"), "8000"),
 		ResetAdminSecret: os.Getenv("RESET_ADMIN_SECRET"),
 		EnableResetAdmin: os.Getenv("ENABLE_RESET_ADMIN") == "true",
