@@ -116,7 +116,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
 
   function addLog(msg: string) {
     const ts = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    setSdkLogs(prev => [`${ts} ${msg}`, ...prev].slice(0, 8))
+    setSdkLogs(prev => [`${ts} ${msg}`, ...prev].slice(0, 12))
   }
 
   function initSDK(accessToken: string, agentName: string) {
@@ -134,7 +134,22 @@ export default function CallWidget({ user }: { user: AuthUser }) {
       debug: true,
     }
     if (orgIdRef.current) sdkConfig.orgId = orgIdRef.current
-    addLog(`SDK init — orgId=${orgIdRef.current || 'none'} token=${accessToken ? accessToken.slice(-8) : 'MISSING'}`)
+    // Intercept WebSocket to log what the SDK actually tries to connect to
+    if (!(WebSocket as unknown as { _o3c_patched?: boolean })._o3c_patched) {
+      const OrigWS = window.WebSocket
+      const logFn = addLog
+      window.WebSocket = function(url: string | URL, protocols?: string | string[]) {
+        logFn(`WS→ ${String(url).replace(/\?.*/, '')}`)
+        const ws = new OrigWS(url, protocols)
+        ws.addEventListener('open',  () => logFn(`WS open: ${String(url).split('/')[2]}`))
+        ws.addEventListener('error', () => logFn(`WS ERR: ${String(url).split('/')[2]}`))
+        ws.addEventListener('close', (e: CloseEvent) => logFn(`WS closed ${e.code}: ${String(url).split('/')[2]}`))
+        return ws
+      } as unknown as typeof WebSocket
+      ;(WebSocket as unknown as { _o3c_patched?: boolean })._o3c_patched = true
+    }
+
+    addLog(`SDK init — orgId=${orgIdRef.current || 'none'} token=…${accessToken ? accessToken.slice(-8) : 'MISSING'}`)
     const sdk = new window.ZohoVoice(sdkConfig)
     sdkRef.current = sdk
 
