@@ -15,6 +15,14 @@ declare global {
       debug?: boolean
     }) => ZohoVoiceInstance
   }
+
+  interface WindowEventMap {
+    'o3c:dial': CustomEvent<{
+      phoneNumber: string
+      ticketId?: number | null
+      autoStart?: boolean
+    }>
+  }
 }
 
 interface ZohoVoiceInstance {
@@ -103,7 +111,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
     }
     if (sdkRef.current) return   // already initialised
 
-    const sdk = new window.ZohoVoice({ name: agentName || 'Agent', autoRegister: true })
+    const sdk = new window.ZohoVoice({ name: agentName || 'Agent', autoRegister: true, debug: true })
     sdkRef.current = sdk
 
     // Inject OAuth token — SDK calls this whenever it needs a fresh token.
@@ -117,10 +125,18 @@ export default function CallWidget({ user }: { user: AuthUser }) {
     }
 
     // 'regState' fires when SIP registration completes — SDK is ready to call.
-    sdk.on('regState', () => {
+    sdk.on('regState', (data) => {
+      console.log('[ZohoVoice] regState:', data)
       setSdkReady(true)
       setSdkError('')
     })
+
+    // Timeout: if regState hasn't fired in 20 s, surface what we know.
+    const regTimeout = setTimeout(() => {
+      if (!sdkRef.current) return
+      setSdkError('SIP registration timed out — check Zoho Voice account setup or reconnect')
+    }, 20_000)
+    sdk.on('regState', () => clearTimeout(regTimeout))
 
     // 'callState' covers the full call lifecycle.
     sdk.on('callState', (data) => {
@@ -220,18 +236,24 @@ export default function CallWidget({ user }: { user: AuthUser }) {
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
-  function dial() {
-    const num = dialNum.trim()
-    if (!num || !sdkRef.current || !sdkReady) return
+  const dial = useCallback((phoneNumber?: string, ticketId?: number | null) => {
+    const num = (phoneNumber ?? dialNum).trim()
+    if (!num) return
+    setDialNum(num)
+    setExpanded(true)
+    if (!sdkRef.current || !sdkReady) {
+      setError(voiceConnected ? 'Zoho Voice is still connecting' : 'Connect Zoho Voice in Settings before dialling')
+      return
+    }
     setDialing(true)
     setError('')
     setActivePhone(num)
-    setActiveTicketId(null)
+    setActiveTicketId(ticketId ?? null)
 
     // Log to backend (fire-and-forget).
     apiFetch('/api/zoho/voice/call', {
       method: 'POST',
-      body: JSON.stringify({ phone_number: num }),
+      body: JSON.stringify({ phone_number: num, ticket_id: ticketId ?? null }),
     } as RequestInit).catch(() => {})
 
     try {
@@ -244,7 +266,22 @@ export default function CallWidget({ user }: { user: AuthUser }) {
     } finally {
       setDialing(false)
     }
-  }
+  }, [dialNum, sdkReady, voiceConnected])
+
+  useEffect(() => {
+    const handleDialRequest = (event: WindowEventMap['o3c:dial']) => {
+      const phoneNumber = event.detail?.phoneNumber?.trim()
+      if (!phoneNumber) return
+      setDialNum(phoneNumber)
+      setExpanded(true)
+      setError('')
+      if (event.detail?.autoStart) {
+        dial(phoneNumber, event.detail.ticketId ?? null)
+      }
+    }
+    window.addEventListener('o3c:dial', handleDialRequest)
+    return () => window.removeEventListener('o3c:dial', handleDialRequest)
+  }, [dial])
 
   function answerIncoming() {
     if (!incoming) return
@@ -387,7 +424,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
           <div style={{ padding: '12px 20px 14px' }}>
             {error && <div style={{ fontSize: 11, color: '#FF8080', marginBottom: 8, textAlign: 'center' }}>{error}</div>}
             <button
-              onClick={dial}
+              onClick={() => dial()}
               disabled={!dialNum.trim() || dialing || !sdkReady}
               style={{ width: '100%', padding: '11px 0', borderRadius: 10, border: 'none', background: !dialNum.trim() || dialing || !sdkReady ? 'rgba(22,163,74,0.4)' : GREEN, color: '#fff', fontSize: 14, fontWeight: 600, cursor: !dialNum.trim() || dialing || !sdkReady ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'background 120ms' }}
             >
