@@ -1,6 +1,6 @@
 /*
-  Content-Security-Policy: default-src 'self'; connect-src 'self' https://o3c-reports-production.up.railway.app https://*.zoho.com https://*.zohostatic.com wss://*.zoho.com; script-src 'self' 'sha256-LUpkUxgcVtd9usXl2u0ABuW4IGBJTv66IQurYh8jTxI=' https://js.zohostatic.com https://*.zoho.com; frame-src 'self' https://*.zoho.com; media-src 'self' blob: https://*.zoho.com https://*.zohostatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.zohostatic.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com https://*.zohostatic.com; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; connect-src 'self' https://o3c-reports-production.up.railway.app https://*.zoho.com https://*.zohostatic.com https://*.zohopublic.com wss://*.zoho.com wss://*.zohostatic.com wss://*.zohopublic.com; script-src 'self' 'sha256-LUpkUxgcVtd9usXl2u0ABuW4IGBJTv66IQurYh8jTxI=' 'unsafe-eval' https://js.zohostatic.com https://*.zoho.com https://*.zohopublic.com; frame-src 'self' https://*.zoho.com https://*.zohostatic.com https://*.zohopublic.com; media-src 'self' blob: https://*.zoho.com https://*.zohostatic.com https://*.zohopublic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.zohostatic.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com https://*.zohostatic.com; worker-src 'self' blob:; frame-ancestors 'none'
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
-  Permissions-Policy: camera=(), microphone=(self), geolocation=()
+  Permissions-Policy: camera=(), microphone=(self "https://*.zoho.com" "https://*.zohostatic.com" "https://*.zohopublic.com"), geolocation=()
