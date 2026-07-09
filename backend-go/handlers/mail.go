@@ -198,6 +198,7 @@ func listInboundMail(db *core.DB) http.HandlerFunc {
 		}
 		user := core.UserFromCtx(r.Context())
 		limit := qint(r, "limit", 100, 1, 500)
+		offset := qint(r, "offset", 0, 0, 100000)
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT im.id, im.mail_message_id, im.from_email, im.from_name, im.to_email, im.subject,
 			       im.body_text, im.body_html, im.is_read, im.received_at,
@@ -208,7 +209,7 @@ func listInboundMail(db *core.DB) http.HandlerFunc {
 			   OR mm.created_by=$1
 			   OR mm.recipients @> jsonb_build_array($2::text)
 			ORDER BY im.received_at DESC
-			LIMIT $3`, user.ID, user.Sub, limit)
+			LIMIT $3 OFFSET $4`, user.ID, user.Sub, limit, offset)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -320,17 +321,35 @@ func mailMetrics(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Mail storage setup failed: "+err.Error())
 			return
 		}
-		// Platform-wide totals (admin view)
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT status, kind, COUNT(*) AS count
-			FROM mail_messages
-			GROUP BY status, kind
-			ORDER BY kind, status`)
-		if err != nil {
+			SELECT
+				COUNT(*)                                       AS total_sent,
+				COUNT(*) FILTER (WHERE status='delivered')     AS total_delivered,
+				COUNT(*) FILTER (WHERE status='opened')        AS total_opened,
+				COUNT(*) FILTER (WHERE status='clicked')       AS total_clicked,
+				COUNT(*) FILTER (WHERE status='bounced')       AS total_bounced,
+				COUNT(*) FILTER (WHERE status='spam_report')   AS total_spam
+			FROM mail_messages`)
+		if err != nil || len(rows) == 0 {
 			respondErr(w, 500, "Query failed")
 			return
 		}
-		jsonRows(w, rows)
+		row := rows[0]
+		totalSent := toInt64(row["total_sent"])
+		totalDelivered := toInt64(row["total_delivered"])
+		totalOpened := toInt64(row["total_opened"])
+		totalBounced := toInt64(row["total_bounced"])
+		respond(w, map[string]any{
+			"total_sent":      totalSent,
+			"total_delivered": totalDelivered,
+			"total_opened":    totalOpened,
+			"total_clicked":   toInt64(row["total_clicked"]),
+			"total_bounced":   totalBounced,
+			"total_spam":      toInt64(row["total_spam"]),
+			"delivery_rate":   rate(totalDelivered, totalSent),
+			"open_rate":       rate(totalOpened, totalDelivered),
+			"bounce_rate":     rate(totalBounced, totalSent),
+		}, "postgres")
 	}
 }
 

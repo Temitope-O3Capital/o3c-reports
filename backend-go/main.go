@@ -193,13 +193,13 @@ func main() {
 		})
 	})
 
-	// Zoho Voice per-user OAuth
-	r.Get("/api/voice/callback", handlers.VoiceOAuthCallback(db))
+	// Telnyx Voice per-user SIP credentials
 	r.Group(func(r chi.Router) {
 		r.Use(core.AuthMiddleware)
 		r.Get("/api/voice/status", handlers.VoiceStatus(db))
-		r.Get("/api/voice/connect", handlers.VoiceConnect(db))
 		r.Delete("/api/voice/disconnect", handlers.VoiceDisconnect(db))
+		// Admin-only: set Telnyx SIP credentials for any user
+		r.Post("/api/voice/credentials", handlers.VoiceSetCredentials(db))
 	})
 	r.Route("/api/mail", func(r chi.Router) {
 		handlers.RegisterMailPublic(r, db)

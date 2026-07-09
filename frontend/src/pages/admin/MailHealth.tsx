@@ -22,17 +22,21 @@ interface MailMetrics {
 
 interface Suppression {
   email: string
-  type: string
+  source: string
   reason: string
-  created_at: string
+  updated_at: string
+}
+
+interface DeliverabilityCheck {
+  key:    string
+  label:  string
+  ok:     boolean
+  detail: string
 }
 
 interface Deliverability {
-  domain: string
-  spf: string
-  dkim: string
-  dmarc: string
-  reputation: string
+  domain:  string
+  checks:  DeliverabilityCheck[]
 }
 
 // ── Metric card ───────────────────────────────────────────────────────────────
@@ -68,12 +72,12 @@ function StatusDot({ status }: { status: string }) {
 const SUP_COLS: TableCol<Suppression>[] = [
   { key: 'email', label: 'Email',
     render: r => <span style={{ fontSize: 12.5, fontFamily: 'monospace', color: 'var(--txt)' }}>{r.email}</span> },
-  { key: 'type', label: 'Type',
-    render: r => <span style={{ fontSize: 12, background: 'var(--chip-bg)', color: 'var(--chip-txt)', borderRadius: 6, padding: '2px 9px', fontWeight: 600, textTransform: 'capitalize' }}>{r.type}</span> },
+  { key: 'source', label: 'Source',
+    render: r => <span style={{ fontSize: 12, background: 'var(--chip-bg)', color: 'var(--chip-txt)', borderRadius: 6, padding: '2px 9px', fontWeight: 600, textTransform: 'capitalize' }}>{r.source || '—'}</span> },
   { key: 'reason', label: 'Reason',
     render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.reason || '—'}</span> },
-  { key: 'created_at', label: 'Added', width: 145,
-    render: r => <span style={{ ...NUM, fontSize: 11.5, color: 'var(--txt3)' }}>{fmtDatetime(r.created_at)}</span> },
+  { key: 'updated_at', label: 'Updated', width: 145,
+    render: r => <span style={{ ...NUM, fontSize: 11.5, color: 'var(--txt3)' }}>{fmtDatetime(r.updated_at)}</span> },
 ]
 
 // ── Test email ────────────────────────────────────────────────────────────────

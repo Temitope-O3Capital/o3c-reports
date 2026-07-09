@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { TelnyxRTC } from '@telnyx/webrtc'
 import { apiFetch, getCsrfToken } from '../lib/api'
 import { NAVY, RED, GREEN, INTER } from '../lib/design'
 import type { AuthUser } from '../hooks/useAuth'
@@ -7,16 +8,6 @@ import type { AuthUser } from '../hooks/useAuth'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 declare global {
-  interface Window {
-    ZohoVoice: new (config?: {
-      name?: string
-      orgId?: string
-      accessToken?: string
-      autoRegister?: boolean
-      debug?: boolean
-    }) => ZohoVoiceInstance
-  }
-
   interface WindowEventMap {
     'o3c:dial': CustomEvent<{
       phoneNumber: string
@@ -24,27 +15,6 @@ declare global {
       autoStart?: boolean
     }>
   }
-}
-
-interface ZohoVoiceInstance {
-  ajaxOpts: {
-    isOAuth: boolean
-    oAuthCallBack: (cb: (token: string) => void) => void
-  }
-  register(): void
-  makeCall(target: string | { number: string; name?: string }): void
-  answerCall(callId?: string): void
-  endCall(): void
-  setMute(muted: boolean): void
-  dtmf(digit: string): void
-  on(event: string, cb: (data?: CallStateData) => void): void
-}
-
-interface CallStateData {
-  status?: string         // 'incoming' | 'connecting' | 'ringing' | 'connected' | 'callend'
-  callerNumber?: string
-  callId?: string
-  sessionId?: string
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -76,179 +46,155 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   const [activeTicketId, setActiveTicketId] = useState<number | null>(null)
   const [elapsed,        setElapsed]        = useState(0)
   const [muted,          setMuted]          = useState(false)
-  const [voiceConnected, setVoiceConnected] = useState(false)
   const [sdkReady,       setSdkReady]       = useState(false)
   const [sdkError,       setSdkError]       = useState('')
+  const [configured,     setConfigured]     = useState(false)
   const [dialing,        setDialing]        = useState(false)
   const [error,          setError]          = useState('')
-  const [zohoEmail,      setZohoEmail]      = useState('')
   const [sdkLogs,        setSdkLogs]        = useState<string[]>([])
 
-  const sdkRef      = useRef<ZohoVoiceInstance | null>(null)
-  const tokenRef    = useRef('')          // latest access token for oAuthCallBack
-  const orgIdRef    = useRef('')          // Zoho org ID from backend env
+  const clientRef   = useRef<TelnyxRTC | null>(null)
+  const callRef     = useRef<unknown>(null)
+  const callerIdRef = useRef('')
   const timerRef    = useRef<ReturnType<typeof setInterval> | null>(null)
   const esRef       = useRef<EventSource | null>(null)
   const cleanupRef  = useRef(false)
   const reconnecting = useRef(false)
-
-  // ── Voice status + SDK init ───────────────────────────────────────────────
-
-  useEffect(() => {
-    apiFetch<{
-      connected: boolean
-      access_token?: string
-      full_name?: string
-      zoho_account_email?: string
-      org_id?: string
-    }>('/api/voice/status', { silent: true })
-      .then(d => {
-        setVoiceConnected(d.connected ?? false)
-        if (d.zoho_account_email) setZohoEmail(d.zoho_account_email)
-        if (d.org_id) orgIdRef.current = d.org_id
-        if (d.connected && d.access_token) {
-          tokenRef.current = d.access_token
-          initSDK(d.access_token, d.full_name ?? '')
-        }
-      })
-      .catch(() => {})
-  }, [])
 
   function addLog(msg: string) {
     const ts = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     setSdkLogs(prev => [`${ts} ${msg}`, ...prev].slice(0, 12))
   }
 
-  function initSDK(accessToken: string, agentName: string) {
-    if (!window.ZohoVoice) {
-      setSdkError('SDK script not loaded — refresh the page')
-      addLog('ERROR: window.ZohoVoice not found')
-      return
-    }
-    if (sdkRef.current) return   // already initialised
+  // ── Telnyx SDK init ────────────────────────────────────────────────────────
 
-    const sdkConfig: { name?: string; orgId?: string; accessToken?: string; autoRegister?: boolean; debug?: boolean } = {
-      name: agentName || 'Agent',
-      accessToken: accessToken,
-      autoRegister: false,
-      debug: true,
-    }
-    if (orgIdRef.current) sdkConfig.orgId = orgIdRef.current
-    // Intercept WebSocket to log what the SDK actually tries to connect to
-    if (!(WebSocket as unknown as { _o3c_patched?: boolean })._o3c_patched) {
-      const OrigWS = window.WebSocket
-      const logFn = addLog
-      window.WebSocket = function(url: string | URL, protocols?: string | string[]) {
-        logFn(`WS→ ${String(url).replace(/\?.*/, '')}`)
-        const ws = new OrigWS(url, protocols)
-        ws.addEventListener('open',  () => logFn(`WS open: ${String(url).split('/')[2]}`))
-        ws.addEventListener('error', () => logFn(`WS ERR: ${String(url).split('/')[2]}`))
-        ws.addEventListener('close', (e: CloseEvent) => logFn(`WS closed ${e.code}: ${String(url).split('/')[2]}`))
-        return ws
-      } as unknown as typeof WebSocket
-      ;(WebSocket as unknown as { _o3c_patched?: boolean })._o3c_patched = true
-    }
+  useEffect(() => {
+    apiFetch<{
+      configured: boolean
+      sip_username?: string
+      sip_password?: string
+      full_name?: string
+      caller_id?: string
+    }>('/api/voice/status', { silent: true })
+      .then(d => {
+        setConfigured(d.configured ?? false)
+        if (d.caller_id) callerIdRef.current = d.caller_id
+        if (d.configured && d.sip_username && d.sip_password) {
+          initSDK(d.sip_username, d.sip_password, d.full_name ?? '')
+        }
+      })
+      .catch(() => {})
+  }, [])
 
-    addLog(`SDK init — orgId=${orgIdRef.current || 'none'} token=…${accessToken ? accessToken.slice(-8) : 'MISSING'}`)
-    const sdk = new window.ZohoVoice(sdkConfig)
-    sdkRef.current = sdk
+  function initSDK(sipUsername: string, sipPassword: string, _agentName: string) {
+    if (clientRef.current) return
 
-    sdk.ajaxOpts.isOAuth = true
-    sdk.ajaxOpts.oAuthCallBack = (cb) => {
-      addLog('oAuthCallBack — fetching token')
-      apiFetch<{ access_token?: string }>('/api/voice/status', { silent: true })
-        .then(d => {
-          if (d.access_token) {
-            tokenRef.current = d.access_token
-            addLog('oAuthCallBack — token refreshed OK')
-          } else {
-            addLog('oAuthCallBack — no token in response')
-          }
-        })
-        .catch(() => { addLog('oAuthCallBack — fetch failed') })
-        .finally(() => cb(tokenRef.current))
-    }
+    addLog(`Connecting — user: ${sipUsername}`)
 
-    sdk.on('regState', (data) => {
-      const info = data ? JSON.stringify(data) : 'no data'
-      addLog(`regState: ${info}`)
-      console.log('[ZohoVoice] regState:', data)
+    const client = new TelnyxRTC({
+      login:    sipUsername,
+      password: sipPassword,
+    })
+    clientRef.current = client
+
+    const regTimeout = setTimeout(() => {
+      addLog('TIMEOUT: telnyx.ready never fired after 20s')
+      setSdkError('SIP registration timed out — contact IT to verify Telnyx credentials')
+    }, 20_000)
+
+    client.on('telnyx.ready', () => {
+      addLog('telnyx.ready — registered OK')
+      clearTimeout(regTimeout)
       setSdkReady(true)
       setSdkError('')
     })
 
-    const regTimeout = setTimeout(() => {
-      if (!sdkRef.current) return
-      addLog('TIMEOUT: regState never fired after 20s')
-      setSdkError('SIP registration timed out — check Zoho Voice account setup or reconnect')
-    }, 20_000)
-    sdk.on('regState', () => clearTimeout(regTimeout))
+    client.on('telnyx.error', (err: unknown) => {
+      const msg = (err as { message?: string })?.message ?? String(err) ?? 'Telnyx error'
+      addLog(`telnyx.error: ${msg}`)
+      setSdkError(msg)
+    })
 
-    sdk.on('callState', (data) => {
-      switch (data?.status) {
-        case 'incoming':
-          setIncoming({ phone: data.callerNumber ?? 'Unknown', ticketId: 0 })
-          setCallState('incoming')
-          setExpanded(true)
+    client.on('telnyx.notification', (notification: { type: string; call: unknown }) => {
+      if (notification.type !== 'callUpdate') return
+      const call = notification.call as {
+        state: string
+        direction: string
+        answer(): void
+        hangup(): void
+        muteAudio(): void
+        unmuteAudio(): void
+        dtmf(digit: string): void
+        options?: { remoteCallerNumber?: string }
+      }
+      callRef.current = call
+      addLog(`callUpdate: ${call.state} (${call.direction})`)
+
+      switch (call.state) {
+        case 'new':
+        case 'requesting':
+        case 'trying':
+        case 'early':
+          if (call.direction === 'inbound') {
+            const phone = call.options?.remoteCallerNumber ?? 'Unknown'
+            setIncoming({ phone, ticketId: 0 })
+            setCallState('incoming')
+            setExpanded(true)
+          } else {
+            setCallState('dialing')
+          }
           break
-        case 'connecting':
-        case 'ringing':
-          setCallState('dialing')
-          break
-        case 'connected':
+        case 'active':
           setCallState('active')
           break
-        case 'callend':
+        case 'hangup':
+        case 'destroy':
+        case 'purge':
           setCallState('ended')
           setTimeout(() => {
             setCallState('idle')
             setActivePhone('')
             setActiveTicketId(null)
             setMuted(false)
+            callRef.current = null
           }, 1800)
           break
       }
     })
 
-    sdk.on('error', (data) => {
-      const msg = typeof data === 'string' ? data : (data as { message?: string })?.message ?? 'SDK error'
-      addLog(`ERROR: ${msg}`)
-      setSdkError(msg)
-    })
-
-    // Catch any other events the SDK fires that we haven't explicitly handled
-    ;['connectionState', 'authState', 'sipState', 'agentState', 'ready', 'registered', 'unregistered', 'registrationFailed'].forEach(ev => {
-      sdk.on(ev, (data?: CallStateData) => {
-        addLog(`${ev}: ${data ? JSON.stringify(data) : 'no data'}`)
-      })
-    })
-
-    addLog('Calling sdk.register()')
-    sdk.register()
+    addLog('Calling client.connect()')
+    client.connect()
   }
 
-  // Disconnect + re-run OAuth so the user can pick the correct Zoho account.
-  async function handleReconnect() {
+  function handleReconnect() {
     if (reconnecting.current) return
     reconnecting.current = true
-    setSdkError('Reconnecting…')
-    try {
-      await apiFetch('/api/voice/disconnect', { method: 'DELETE' })
-      const data = await apiFetch<{ auth_url: string }>('/api/voice/connect')
-      if (data.auth_url) {
-        // Tear down old SDK instance before opening OAuth
-        sdkRef.current = null
-        setSdkReady(false)
-        setVoiceConnected(false)
-        tokenRef.current = ''
-        window.open(data.auth_url, '_blank', 'width=600,height=700,noopener')
-        setSdkError('Complete the Zoho sign-in window, then refresh this page')
-      }
-    } catch {
-      setSdkError('Reconnect failed — go to Settings → Zoho Voice')
-    } finally {
-      reconnecting.current = false
+    if (clientRef.current) {
+      try { clientRef.current.disconnect() } catch {}
+      clientRef.current = null
     }
+    setSdkReady(false)
+    setSdkError('')
+    setSdkLogs([])
+    // Re-fetch credentials and reinit
+    apiFetch<{
+      configured: boolean
+      sip_username?: string
+      sip_password?: string
+      full_name?: string
+      caller_id?: string
+    }>('/api/voice/status', { silent: true })
+      .then(d => {
+        setConfigured(d.configured ?? false)
+        if (d.caller_id) callerIdRef.current = d.caller_id
+        if (d.configured && d.sip_username && d.sip_password) {
+          initSDK(d.sip_username, d.sip_password, d.full_name ?? '')
+        } else {
+          setSdkError('Telnyx not configured — contact IT admin')
+        }
+      })
+      .catch(() => setSdkError('Failed to fetch credentials'))
+      .finally(() => { reconnecting.current = false })
   }
 
   // ── SSE — inbound notification fallback ──────────────────────────────────
@@ -321,8 +267,8 @@ export default function CallWidget({ user }: { user: AuthUser }) {
     if (!num) return
     setDialNum(num)
     setExpanded(true)
-    if (!sdkRef.current || !sdkReady) {
-      setError(voiceConnected ? 'Zoho Voice is still connecting' : 'Connect Zoho Voice in Settings before dialling')
+    if (!clientRef.current || !sdkReady) {
+      setError(configured ? 'Telnyx is still connecting' : 'Telnyx not configured — contact IT admin')
       return
     }
     setDialing(true)
@@ -330,23 +276,25 @@ export default function CallWidget({ user }: { user: AuthUser }) {
     setActivePhone(num)
     setActiveTicketId(ticketId ?? null)
 
-    // Log to backend (fire-and-forget).
     apiFetch('/api/zoho/voice/call', {
       method: 'POST',
       body: JSON.stringify({ phone_number: num, ticket_id: ticketId ?? null }),
     } as RequestInit).catch(() => {})
 
     try {
-      sdkRef.current.makeCall(num)
-      // callState will transition via SDK 'callState' events
+      const call = clientRef.current.newCall({
+        destinationNumber: num,
+        callerNumber: callerIdRef.current || undefined,
+      })
+      callRef.current = call
     } catch (e: unknown) {
       setActivePhone('')
       setCallState('idle')
-      setError((e as Error).message ?? 'makeCall failed')
+      setError((e as Error).message ?? 'Call failed')
     } finally {
       setDialing(false)
     }
-  }, [dialNum, sdkReady, voiceConnected])
+  }, [dialNum, sdkReady, configured])
 
   useEffect(() => {
     const handleDialRequest = (event: WindowEventMap['o3c:dial']) => {
@@ -364,15 +312,17 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   }, [dial])
 
   function answerIncoming() {
-    if (!incoming) return
+    if (!incoming || !callRef.current) return
     setActivePhone(incoming.phone)
     setActiveTicketId(incoming.ticketId || null)
     setIncoming(null)
-    sdkRef.current?.answerCall()
+    ;(callRef.current as { answer(): void }).answer()
   }
 
   function declineOrEnd() {
-    sdkRef.current?.endCall()
+    if (callRef.current) {
+      try { (callRef.current as { hangup(): void }).hangup() } catch {}
+    }
     setIncoming(null)
     setCallState('ended')
     setTimeout(() => {
@@ -380,7 +330,16 @@ export default function CallWidget({ user }: { user: AuthUser }) {
       setActivePhone('')
       setActiveTicketId(null)
       setMuted(false)
+      callRef.current = null
     }, 1800)
+  }
+
+  function toggleMute() {
+    if (!callRef.current) return
+    const call = callRef.current as { muteAudio(): void; unmuteAudio(): void }
+    if (muted) call.unmuteAudio()
+    else call.muteAudio()
+    setMuted(m => !m)
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -390,8 +349,8 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   const isEnded    = callState === 'ended'
 
   const sipTimedOut  = sdkError.includes('timed out')
-  const statusColor  = sdkReady ? GREEN : sdkError ? RED : voiceConnected ? '#F59E0B' : 'rgba(255,255,255,0.25)'
-  const statusLabel  = sdkReady ? 'Ready' : sdkError ? (sipTimedOut ? 'SIP registration failed' : sdkError) : voiceConnected ? 'Connecting…' : 'Not connected'
+  const statusColor  = sdkReady ? GREEN : sdkError ? RED : configured ? '#F59E0B' : 'rgba(255,255,255,0.25)'
+  const statusLabel  = sdkReady ? 'Ready' : sdkError ? (sipTimedOut ? 'SIP registration failed' : sdkError) : configured ? 'Connecting…' : 'Not configured'
 
   return (
     <div style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 9100, fontFamily: INTER }}>
@@ -445,7 +404,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
 
           {callState === 'active' && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, padding: '12px 18px' }}>
-              <button onClick={() => { setMuted(m => !m); sdkRef.current?.setMute(!muted) }} title={muted ? 'Unmute' : 'Mute'} style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', cursor: 'pointer', background: muted ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.09)', color: muted ? '#fff' : 'rgba(255,255,255,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 120ms' }}>
+              <button onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'} style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', cursor: 'pointer', background: muted ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.09)', color: muted ? '#fff' : 'rgba(255,255,255,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 120ms' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 18 }}>{muted ? 'mic_off' : 'mic'}</span>
               </button>
               <button onClick={declineOrEnd} title="End call" style={{ width: 48, height: 48, borderRadius: '50%', border: 'none', cursor: 'pointer', background: RED, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 4px 16px ${RED}60` }}>
@@ -486,31 +445,22 @@ export default function CallWidget({ user }: { user: AuthUser }) {
               <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em', wordBreak: 'break-word', lineHeight: 1.4 }}>
                 {statusLabel}
               </span>
-              {!voiceConnected && (
-                <button onClick={() => navigate('/settings')} style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.55)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', fontFamily: INTER, flexShrink: 0 }}>
-                  Connect
-                </button>
-              )}
             </div>
-            {/* SIP timeout: show reconnect button inline */}
+
             {sipTimedOut && (
               <button
                 onClick={handleReconnect}
                 style={{ marginTop: 6, width: '100%', padding: '7px 0', borderRadius: 7, border: '1px solid rgba(192,0,0,0.5)', background: 'rgba(192,0,0,0.15)', color: '#FF8080', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: INTER, letterSpacing: '0.04em' }}
               >
-                Reconnect Zoho Voice
+                Retry Connection
               </button>
             )}
-            {zohoEmail && (
-              <div style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.28)', marginTop: 3, letterSpacing: '0.03em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                Zoho: {zohoEmail}
-              </div>
-            )}
-            {/* On-screen SDK log — visible without DevTools */}
+
+            {/* On-screen debug log */}
             {sdkLogs.length > 0 && (
               <div style={{ marginTop: 6, padding: '5px 6px', background: 'rgba(0,0,0,0.4)', borderRadius: 5, maxHeight: 90, overflowY: 'auto' }}>
                 {sdkLogs.map((line, i) => (
-                  <div key={i} style={{ fontSize: 9, color: line.includes('ERROR') || line.includes('TIMEOUT') ? '#FF8080' : 'rgba(255,255,255,0.45)', fontFamily: 'monospace', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{line}</div>
+                  <div key={i} style={{ fontSize: 9, color: line.includes('ERROR') || line.includes('TIMEOUT') || line.includes('error') ? '#FF8080' : 'rgba(255,255,255,0.45)', fontFamily: 'monospace', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{line}</div>
                 ))}
               </div>
             )}

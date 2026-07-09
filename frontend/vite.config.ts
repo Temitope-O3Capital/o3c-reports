@@ -3,6 +3,11 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    // @telnyx/webrtc uses Node globals
+    global: 'globalThis',
+    'process.env': {},
+  },
   test: {
     environment: 'jsdom',
     globals: true,

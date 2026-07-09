@@ -29,6 +29,41 @@ import (
 	"github.com/o3c/reports/core"
 )
 
+// voiceRefreshUserToken exchanges a Zoho Voice refresh token for a new access token.
+// Used only by zohoInitiateCall to refresh per-user tokens for call initiation.
+func voiceRefreshUserToken(ctx context.Context, refreshToken string) (string, time.Time, error) {
+	tokenURL := "https://accounts.zoho." + zohoDC + "/oauth/v2/token"
+	body := url.Values{
+		"grant_type":    {"refresh_token"},
+		"client_id":     {zohoClientID},
+		"client_secret": {zohoClientSecret},
+		"refresh_token": {refreshToken},
+	}.Encode()
+	resp, err := httpPost(tokenURL, "application/x-www-form-urlencoded", "", []byte(body), 15*time.Second)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("voice token request: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	var tok struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
+		Error       string `json:"error"`
+		ErrorDesc   string `json:"error_description"`
+	}
+	if err := json.Unmarshal(raw, &tok); err != nil {
+		return "", time.Time{}, fmt.Errorf("voice token decode: %w", err)
+	}
+	if tok.Error != "" {
+		return "", time.Time{}, fmt.Errorf("zoho voice oauth error: %s — %s", tok.Error, tok.ErrorDesc)
+	}
+	secs := tok.ExpiresIn
+	if secs == 0 {
+		secs = 3600
+	}
+	return tok.AccessToken, time.Now().Add(time.Duration(secs) * time.Second), nil
+}
+
 // ── Route registration ────────────────────────────────────────────────────────
 
 func RegisterZoho(r chi.Router, db *core.DB) {

@@ -839,6 +839,11 @@ export default function O3CWorkspace() {
   const openC360 = useCallback((cif: string) => {
     setC360(cif); setC360Open(false); setC360Query(""); setPaletteOpen(false);
   }, []);
+  const startCustomerCall = useCallback((customer: Customer) => {
+    window.dispatchEvent(new CustomEvent("o3c:dial", {
+      detail: { phoneNumber: customer.phone, autoStart: true },
+    }));
+  }, []);
 
   const cust = c360 ? CUSTOMERS[c360] : null;
   const riskBucket = cust ? (cust.risk === "Low" ? "b-cur" : cust.risk === "Medium" ? "b-60" : "b-90") : "";
@@ -1310,7 +1315,7 @@ export default function O3CWorkspace() {
             </div>
             <div className="c3-foot">
               <button className="btn primary">Log PTP</button>
-              <button className="btn">Call</button>
+              <button className="btn" onClick={() => startCustomerCall(cust)}>Call</button>
               <button className="btn">Full profile →</button>
             </div>
           </div>
