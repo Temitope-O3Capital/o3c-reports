@@ -50,9 +50,11 @@ const AUTH = [
   http.post(u('/api/auth/totp/setup'),    () => ok({ secret: 'JBSWY3DPEHPK3PXP', uri: 'otpauth://totp/O3%20Capital' })),
   http.post(u('/api/auth/totp/verify'),   () => ok({ message: 'Two-factor authentication enabled' })),
   http.post(u('/api/auth/totp/disable'),  () => ok({ message: 'Disabled' })),
-  http.post(u('/api/auth/change-password'), () => new HttpResponse(null, { status: 204 })),
-  http.post(u('/api/auth/logout'),        () => new HttpResponse(null, { status: 204 })),
-  http.post(u('/api/auth/refresh'),       () => ok({ access_token: 'mock', token_type: 'bearer' })),
+  http.post(u('/api/auth/change-password'),  () => new HttpResponse(null, { status: 204 })),
+  http.get(u('/api/voice/status'), () => ok({ configured: false })),
+  http.post(u('/api/auth/forgot-password'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/auth/logout'),          () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/auth/refresh'),         () => ok({ access_token: 'mock', token_type: 'bearer' })),
 ]
 
 // ── Notifications & Approvals ─────────────────────────────────────────────────
@@ -78,6 +80,7 @@ const NOTIF_APPROVALS = [
   http.get(u('/api/approvals/summary'),  () => ok({ total: APPROVALS_DATA.length, items: APPROVALS_DATA })),
   http.post(u('/api/approvals/:id/approve'), () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/approvals/:id/reject'),  () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/approvals/batch'),       () => new HttpResponse(null, { status: 204 })),
 ]
 
 // ── Overview (Executive dashboard) ────────────────────────────────────────────
@@ -222,25 +225,30 @@ const CRM = [
   http.put(u('/api/crm/tasks/:id'), () => new HttpResponse(null, { status: 204 })),
 
   http.get(u('/api/crm/reports/overview'), () => ok({
-    new_contacts_mtd: 142, deals_closed_mtd: 38, revenue_mtd_kobo: 284_000_000_00,
-    conversion_rate_pct: 26.8, avg_deal_size_kobo: 74_700_000_00,
+    total_contacts: 1420, total_leads: 380, total_customers: 290,
+    total_deals: 84, won_deals: 38, lost_deals: 12,
+    activities_30d: 247, open_tasks: 33, overdue_tasks: 5, open_requests: 8,
   })),
   http.get(u('/api/crm/reports/pipeline'), () => ok([
-    { stage:'Prospecting', count: 42, value_kobo: 840_000_000_00 },
-    { stage:'Qualification', count: 28, value_kobo: 560_000_000_00 },
-    { stage:'Proposal', count: 18, value_kobo: 432_000_000_00 },
-    { stage:'Negotiation', count: 9, value_kobo: 270_000_000_00 },
+    { name:'Prospecting',  deal_count: 42, pipeline_value: 840_000_000_00, avg_probability: 20 },
+    { name:'Qualification', deal_count: 28, pipeline_value: 560_000_000_00, avg_probability: 40 },
+    { name:'Proposal',     deal_count: 18, pipeline_value: 432_000_000_00, avg_probability: 60 },
+    { name:'Negotiation',  deal_count: 9,  pipeline_value: 270_000_000_00, avg_probability: 80 },
   ])),
   http.get(u('/api/crm/reports/contacts-by-source'), () => ok([
-    { source:'Referral', count: 180 }, { source:'Walk-in', count: 142 },
-    { source:'Online', count: 98 }, { source:'Campaign', count: 74 }, { source:'BD', count: 46 },
+    { source:'Referral', total: 180, converted: 54 }, { source:'Walk-in', total: 142, converted: 38 },
+    { source:'Online',   total: 98,  converted: 22 }, { source:'Campaign', total: 74, converted: 18 },
+    { source:'BD',       total: 46,  converted: 14 },
   ])),
   http.get(u('/api/crm/reports/agent-performance'), () => ok(
-    Array.from({ length: 8 }, () => ({ agent_name: name(), contacts_added: rng(20,80),
-      deals_closed: rng(5,25), revenue_kobo: rng(20,120)*1_000_000_00, conversion_rate_pct: rng(15,40) }))
+    Array.from({ length: 8 }, (_, i) => ({
+      id: i+1, full_name: name(), role: pick(['loan_officer','relationship_manager','bd_executive']),
+      activities: rng(20,80), deals_owned: rng(5,25), deals_won: rng(2,15),
+      tasks_assigned: rng(10,30), tasks_done: rng(5,25), contacts_owned: rng(30,100),
+    }))
   )),
   http.get(u('/api/crm/reports/new-contacts-trend'), () => ok(
-    MONTHS_ISO.map(m => ({ month: m, count: rng(80,200) }))
+    MONTHS_ISO.map(m => ({ month: m, new_contacts: rng(80,200), converted: rng(20,60) }))
   )),
 ]
 
@@ -354,6 +362,7 @@ const COLLECTIONS = [
   http.post(u('/api/collections-ops/writeoffs/bulk-approve'), () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/collections-ops/promises'), () => ok({ id: 99 })),
   http.put(u('/api/collections-ops/promises/:id'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/collections/promises'), () => ok({ id: 99 })),
   http.post(u('/api/collections-ops/queue/bulk-assign'), () => new HttpResponse(null, { status: 204 })),
   http.get(u('/api/collections/promise-kpis'), () => wd({ total: 247, kept: 138, broken: 64, amount_promised_kobo: 8_420_000_000_00 })),
   http.get(u('/api/collections/repayment-kpis'), () => wd({ active: 86, on_track: 61, behind: 25, monthly_due_kobo: 1_240_000_000_00 })),
@@ -533,6 +542,7 @@ const EOD_SUMMARY = {
 const FD_SUMMARY = {
   net_position: 1_240_000_000_00, total_principal: 1_180_000_000_00,
   total_interest: 60_000_000_00, total_inflow_ngn: 840_000_000_00, total_liquidated: 120_000_000_00,
+  inflow_count: 84, liquidation_count: 22, total_inflow_usd: 0, total_transactions: 106,
 }
 
 const FINANCE = [
@@ -565,9 +575,13 @@ const FINANCE = [
   http.get(u('/api/eod/transactions'), () => ok({
     data: Array.from({ length: 30 }, (_, i) => ({
       id: i+1, txn_date: dateStr(rng(0,7)), account_no: String(rng(1000000000,9999999999)),
-      customer: name(), amount: rng(5,200)*100_000, dr_cr: pick(['DR','CR']),
-      narration: pick(['Salary Credit','Loan Repayment','Card Payment','Transfer']),
+      customer: name(), amount: rng(5,200)*100_000,
+      sign: pick(['DR','CR']),
+      description: pick(['Salary Credit','Loan Repayment','Card Payment','Transfer','FD Placement']),
+      txn_category: pick(['Transfer','Credit','Loan Repayment','Card Payment','FD']),
       product_code: pick(['GRN','GLD','PLT','PRP','CRD']),
+      balance: rng(10,2000)*100_000,
+      branch_name: pick(['Lagos Island','Victoria Island','Abuja Main','Port Harcourt','Kano']),
     })),
     total: 18420,
   })),
@@ -575,16 +589,23 @@ const FINANCE = [
   // Fixed Deposit
   http.get(u('/api/fixed-deposit/summary'), () => ok(FD_SUMMARY)),
   http.get(u('/api/fixed-deposit/trend'), () => ok(
-    MONTHS_ISO.map(m => ({ month: m, total_book_kobo: rng(900,1400)*1_000_000_00, new_fds: rng(15,40), matured: rng(5,20) }))
+    MONTHS_ISO.map(m => ({ month: m, inflow: rng(80,200)*1_000_000_00, liquidation: rng(20,80)*1_000_000_00 }))
   )),
   http.get(u('/api/fixed-deposit/transactions'), () => wd(
     Array.from({ length: 20 }, (_, i) => ({
       id: i+1, reference: `FD-2026-${String(i+100).padStart(4,'0')}`, customer_name: name(),
-      principal_kobo: rng(50,500)*1_000_000_00, tenor_days: pick([30,60,90,180,365]),
-      rate_pct: pick([8.5,9.0,10.0,11.5,12.0]),
+      principal: rng(50,500)*1_000_000_00,
+      ngn_amount: rng(50,500)*1_000_000_00, usd_amount: 0,
+      currency: pick(['NGN','NGN','NGN','USD']),
+      interest_paid: rng(2,50)*1_000_000_00,
+      gross_amount: rng(52,550)*1_000_000_00,
+      tenor_days: pick([30,60,90,180,365]),
+      rate: pick([8.5,9.0,10.0,11.5,12.0]),
       status: pick(['active','matured','liquidated','pending']),
-      start_date: dateStr(rng(0,180)), maturity_date: dateStr(rng(-30,185)),
-      bank: pick(BANKS), interest_kobo: rng(2,50)*1_000_000_00,
+      transaction_date: dateStr(rng(0,180)), maturity_date: dateStr(rng(-30,185)),
+      bank: pick(BANKS),
+      location: pick(['Lagos Island','Victoria Island','Abuja','Port Harcourt']),
+      account_officer: name(), notes: '',
       transaction_type: pick(['inflow','outflow']),
     }))
   )),
@@ -636,25 +657,61 @@ const FINANCE = [
     }))
   )),
   http.get(u('/api/finance/income/summary'), () => ok({
-    total_income_kobo: 184_000_000_00, interest_income_kobo: 142_000_000_00,
-    fee_income_kobo: 28_000_000_00, card_income_kobo: 14_000_000_00,
+    loan_disbursed_kobo: 1_840_000_000_00, active_loans: 3214,
+    fee_type_income_kobo: 28_000_000_00,
+    card_interest_ngn: 8_200_000_00, card_fees_ngn: 3_400_000_00,
+    card_penalty_ngn: 800_000_00, card_outstanding_ngn: 142_000_000_00,
+    card_billed_ngn: 28_000_000_00, card_credit_limit_ngn: 320_000_000_00,
+    card_purchases_ngn: 62_000_000_00, card_cash_advance_ngn: 14_000_000_00,
+    card_accounts_ngn: 1840,
+    card_interest_usd: 0, card_fees_usd: 0, card_penalty_usd: 0,
+    card_outstanding_usd: 0, card_billed_usd: 0, card_credit_limit_usd: 0,
+    card_purchases_usd: 0, card_cash_advance_usd: 0, card_accounts_usd: 0,
   })),
-  http.get(u('/api/finance/income/chart'), () => ok(
-    MONTHS_ISO.map(m => ({ month: m, income_kobo: rng(60,140)*1_000_000_00, expense_kobo: rng(30,80)*1_000_000_00 }))
-  )),
+  http.get(u('/api/finance/income/chart'), () => ok([
+    { type:'Interest',    current: 142_000_000_00, previous: 118_000_000_00 },
+    { type:'Origination', current: 18_000_000_00,  previous: 14_000_000_00  },
+    { type:'Late Fees',   current: 6_400_000_00,   previous: 5_200_000_00   },
+    { type:'Card',        current: 12_400_000_00,  previous: 9_800_000_00   },
+    { type:'Management',  current: 3_600_000_00,   previous: 3_100_000_00   },
+  ])),
   http.get(u('/api/finance/income/loans'), () => ok(
-    MONTHS_ISO.map(m => ({ month: m, interest_income_kobo: rng(40,90)*1_000_000_00, fee_income_kobo: rng(5,20)*1_000_000_00 }))
+    Array.from({ length: 20 }, (_, i) => ({
+      id: i+1,
+      loan_ref: `LA-2026-${String(i+100).padStart(4,'0')}`,
+      applicant_name: name(),
+      product: pick(['Payday Loan','Personal Loan','SME Loan','Salary Advance']),
+      disbursed_amount_kobo: rng(5,80)*1_000_000_00,
+      rate_pct: pick([24, 28, 30, 36]),
+      disbursed_at: dateStr(rng(0,180)),
+      maturity_date: dateStr(rng(-30,365)),
+      status: pick(['active','closed','overdue']),
+      days_active: rng(1,360),
+      interest_earned_kobo: rng(1,20)*1_000_000_00,
+      maturity_status: pick(['current','matured','overdue']),
+    }))
   )),
   http.get(u('/api/finance/income/fee-types'), () => ok({
-    data: [
-      { fee_type: 'Origination Fee', amount_kobo: 18_000_000_00 },
-      { fee_type: 'Late Payment Fee', amount_kobo: 6_400_000_00 },
-      { fee_type: 'Management Fee', amount_kobo: 3_600_000_00 },
+    summary: [
+      { fee_type: 'Origination Fee', amount_kobo: 18_000_000_00, count: 284 },
+      { fee_type: 'Late Payment Fee', amount_kobo: 6_400_000_00, count: 142 },
+      { fee_type: 'Management Fee', amount_kobo: 3_600_000_00, count: 198 },
+    ],
+    detail: [
+      { fee_type: 'Origination Fee', loan_ref: 'LA-2026-0100', amount_kobo: 62_500_00, date: dateStr(3) },
+      { fee_type: 'Late Payment Fee', loan_ref: 'LA-2026-0101', amount_kobo: 45_000_00, date: dateStr(1) },
+      { fee_type: 'Management Fee', loan_ref: 'LA-2026-0102', amount_kobo: 18_000_00, date: dateStr(0) },
     ],
   })),
   http.get(u('/api/finance/pnl'), () => ok({
-    revenue_kobo: 184_000_000_00, expenses_kobo: 112_000_000_00, net_profit_kobo: 72_000_000_00,
-    rows: MONTHS_ISO.map(m => ({ month: m, revenue_kobo: rng(20,40)*1_000_000_00, expenses_kobo: rng(10,25)*1_000_000_00 })),
+    lines: [
+      { product:'Loans',    total_revenue: 142_000_000_00, total_cost: 68_000_000_00, net_income: 74_000_000_00 },
+      { product:'Cards',    total_revenue: 12_400_000_00,  total_cost: 4_200_000_00,  net_income: 8_200_000_00  },
+      { product:'Deposits', total_revenue: 18_000_000_00,  total_cost: 12_000_000_00, net_income: 6_000_000_00  },
+      { product:'Other',    total_revenue: 11_600_000_00,  total_cost: 3_800_000_00,  net_income: 7_800_000_00  },
+    ],
+    total_revenue: 184_000_000_00, total_cost: 88_000_000_00, net_income: 96_000_000_00,
+    data_available: true,
   })),
 ]
 
@@ -662,29 +719,33 @@ const FINANCE = [
 
 const RISK = [
   http.get(u('/api/risk/portfolio-kpis'), () => wd({
-    par30_pct: 5.0, par60_pct: 2.0, par90_pct: 0.9, npl_pct: 1.4,
+    par30_rate_pct: 5.0, par60_pct: 2.0, par90_pct: 0.9, npl_ratio_pct: 1.4,
     coverage_ratio_pct: 142.0, total_outstanding_kobo: 4_820_000_000_00, provision_kobo: 67_500_000_00,
+    avg_credit_score: 672, top_employer_exposure_kobo: 480_000_000_00,
   })),
   http.get(u('/api/risk/par-trend'), () => wd(
     MONTHS_ISO.map(m => ({ month: m, par30: rng(4,8), par60: rng(1,4), par90: rng(0,2) }))
   )),
   http.get(u('/api/risk/band-distribution'), () => wd([
-    { band:'Current (0 DPD)',  count: 3837, outstanding_kobo: 4_340_000_000_00 },
-    { band:'1–30 DPD',         count: 241,  outstanding_kobo: 241_000_000_00 },
-    { band:'31–60 DPD',        count: 98,   outstanding_kobo: 98_000_000_00 },
-    { band:'61–90 DPD',        count: 42,   outstanding_kobo: 42_000_000_00 },
-    { band:'91+ DPD',          count: 28,   outstanding_kobo: 99_000_000_00 },
+    { band:'Current (0 DPD)',  count: 3837, outstanding_kobo: 4_340_000_000_00, pct: 88.4 },
+    { band:'1–30 DPD',         count: 241,  outstanding_kobo: 241_000_000_00,   pct: 5.0  },
+    { band:'31–60 DPD',        count: 98,   outstanding_kobo: 98_000_000_00,    pct: 2.0  },
+    { band:'61–90 DPD',        count: 42,   outstanding_kobo: 42_000_000_00,    pct: 0.9  },
+    { band:'91+ DPD',          count: 28,   outstanding_kobo: 99_000_000_00,    pct: 2.1  },
   ])),
   http.get(u('/api/risk/sector-concentration'), () => wd([
-    { sector:'Salary Earners', outstanding_kobo: 2_840_000_000_00, count: 2814 },
-    { sector:'SME',            outstanding_kobo: 980_000_000_00,  count: 612 },
-    { sector:'Civil Servants', outstanding_kobo: 640_000_000_00,  count: 492 },
-    { sector:'Pensioners',     outstanding_kobo: 360_000_000_00,  count: 300 },
+    { sector:'Salary Earners', outstanding_kobo: 2_840_000_000_00, count: 2814, book_pct: 58.9 },
+    { sector:'SME',            outstanding_kobo: 980_000_000_00,   count: 612,  book_pct: 20.3 },
+    { sector:'Civil Servants', outstanding_kobo: 640_000_000_00,   count: 492,  book_pct: 13.3 },
+    { sector:'Pensioners',     outstanding_kobo: 360_000_000_00,   count: 300,  book_pct: 7.5  },
   ])),
   http.get(u('/api/risk/top-employers'), () => wd(
-    Array.from({ length: 10 }, () => ({
-      employer: pick(['Shell Nigeria','MTN Nigeria','Dangote Group','Access Bank','NNPC','NLNG']),
-      outstanding_kobo: rng(50,500)*1_000_000_00, accounts: rng(20,200), avg_score: rng(620,780),
+    Array.from({ length: 10 }, (_, i) => ({
+      company: pick(['Shell Nigeria','MTN Nigeria','Dangote Group','Access Bank','NNPC','NLNG']),
+      book_kobo: rng(50,500)*1_000_000_00,
+      staff_loans_count: rng(20,200),
+      pct_of_total: rng(2,12),
+      par30_count: rng(0,15),
     }))
   )),
   http.get(u('/api/risk/eye-kpis'), () => wd({
@@ -803,8 +864,13 @@ const HR = [
 const PAYROLL_RUNS = Array.from({ length: 6 }, (_, i) => ({
   id: i+1, period_year: 2026, period_month: 7 - i,
   status: i === 0 ? 'draft' : 'paid',
-  total_gross_kobo: rng(80,95)*1_000_000_00, headcount: 42,
-  processed_at: isoDate(rng(1,30) + i*30),
+  headcount: 42,
+  total_gross_kobo: rng(80,95)*1_000_000_00,
+  total_net_kobo: rng(65,78)*1_000_000_00,
+  total_paye_kobo: rng(8,12)*1_000_000_00,
+  total_pension_kobo: rng(4,6)*1_000_000_00,
+  created_at: isoDate(rng(1,30) + i*30),
+  paid_at: i === 0 ? null : isoDate(rng(1,10) + i*30),
 }))
 
 const PAYROLL = [
@@ -815,11 +881,15 @@ const PAYROLL = [
   http.post(u('/api/payroll/runs'), () => ok({ id: 99, status: 'draft', period_year: 2026, period_month: 8 })),
   http.get(u('/api/payroll/runs/:id'), ({ params }) => ok(PAYROLL_RUNS[Number(params.id) % PAYROLL_RUNS.length] ?? PAYROLL_RUNS[0])),
   http.get(u('/api/payroll/runs/:id/items'), () => ok(
-    HR_EMPLOYEES.slice(0,20).map(e => ({
+    HR_EMPLOYEES.slice(0,20).map((e, i) => ({
       id: e.id, employee_id: e.id, employee_name: `${e.first_name} ${e.last_name}`,
       staff_id: e.staff_id, department: e.department, grade_level: e.grade_level,
-      gross_kobo: e.salary_kobo, net_kobo: Math.floor(e.salary_kobo*0.82),
-      tax_kobo: Math.floor(e.salary_kobo*0.12), pension_kobo: Math.floor(e.salary_kobo*0.06),
+      gross_kobo: e.salary_kobo, net_kobo: Math.floor(e.salary_kobo*0.78),
+      paye_kobo: Math.floor(e.salary_kobo*0.12),
+      employee_pension_kobo: Math.floor(e.salary_kobo*0.06),
+      nhf_kobo: Math.floor(e.salary_kobo*0.025),
+      loan_deduction_kobo: i % 3 === 0 ? Math.floor(e.salary_kobo*0.05) : 0,
+      other_deduction_kobo: 0,
       bank_name: e.bank_name, account_number: e.account_number,
     }))
   )),
@@ -1094,23 +1164,60 @@ const HELPDESK = [
   http.post(u('/api/helpdesk/canned-responses'), () => ok({ id: 99 })),
   http.put(u('/api/helpdesk/canned-responses/:id'), () => new HttpResponse(null, { status: 204 })),
   http.delete(u('/api/helpdesk/canned-responses/:id'), () => new HttpResponse(null, { status: 204 })),
+  http.get(u('/api/helpdesk/sla-policies'), () => ok([
+    { id: 1, priority: 'low',      first_response_hours: 24, resolution_hours: 72 },
+    { id: 2, priority: 'medium',   first_response_hours: 8,  resolution_hours: 24 },
+    { id: 3, priority: 'high',     first_response_hours: 2,  resolution_hours: 8  },
+    { id: 4, priority: 'critical', first_response_hours: 1,  resolution_hours: 4  },
+  ])),
+  http.put(u('/api/helpdesk/sla-policies/:id'), () => new HttpResponse(null, { status: 204 })),
+  http.get(u('/api/helpdesk/call-scripts'), () => ok([
+    { id: 1, ticket_type: 'card_dispute', name: 'Card Dispute Script', is_active: true, steps: [
+      { order: 1, prompt: 'Verify customer identity (name, account number, last 4 digits of card)', options: [] },
+      { order: 2, prompt: 'Confirm the disputed transaction amount and date' },
+      { order: 3, prompt: 'Advise customer of investigation timeline (3–5 business days)' },
+    ]},
+    { id: 2, ticket_type: 'loan_inquiry', name: 'Loan Inquiry Script', is_active: true, steps: [
+      { order: 1, prompt: 'Verify customer identity and confirm account number' },
+      { order: 2, prompt: 'Ask about loan type: personal, business, or top-up?' },
+      { order: 3, prompt: 'Collect required documents checklist and send via email' },
+    ]},
+  ])),
+  http.get(u('/api/helpdesk/call-scripts/by-type'), () => ok({
+    id: 1, ticket_type: 'card_dispute', name: 'Card Dispute Script', is_active: true,
+    steps: [
+      { order: 1, prompt: 'Verify customer identity (name, account number, last 4 digits of card)', options: [] },
+      { order: 2, prompt: 'Confirm the disputed transaction amount and date' },
+      { order: 3, prompt: 'Advise customer of investigation timeline (3–5 business days)' },
+    ],
+  })),
+  http.post(u('/api/helpdesk/call-scripts'), () => ok({ id: 99 })),
+  http.put(u('/api/helpdesk/call-scripts/:id'), () => new HttpResponse(null, { status: 204 })),
+  http.delete(u('/api/helpdesk/call-scripts/:id'), () => new HttpResponse(null, { status: 204 })),
   http.get(u('/api/helpdesk/routing-rules'), () => ok([])),
   http.delete(u('/api/helpdesk/routing-rules/:id'), () => new HttpResponse(null, { status: 204 })),
   // Calls log — matches CallLog interface: agent_name, customer_name, phone, direction, duration_seconds, outcome, ticket_id, ticket_ref, called_at
   http.get(u('/api/helpdesk/calls'), () => ok(
-    Array.from({ length: 20 }, (_, i) => ({
-      id: i+1,
-      agent_name: name(),
-      customer_name: Math.random() > 0.2 ? name() : null,
-      phone: `080${rng(10000000,99999999)}`,
-      direction: pick(['Inbound','Outbound']),
-      duration_seconds: rng(30,600),
-      outcome: pick(['Resolved','Transferred','Voicemail','Callback Requested','No Answer']),
-      ticket_id: Math.random() > 0.4 ? rng(1,48) : null,
-      ticket_ref: Math.random() > 0.4 ? `TKT-2026-${rng(1000,1048)}` : null,
-      called_at: isoDate(rng(0,7)),
-    }))
+    Array.from({ length: 80 }, (_, i) => {
+      const hasTicket = Math.random() > 0.45
+      const tid = hasTicket ? rng(1, 48) : null
+      return {
+        id: i+1,
+        agent_name: pick(['Amaka Osei','Tunde Bello','Chisom Eze','Fatima Musa','Emeka Okafor','Sola Adeyemi']),
+        customer_name: Math.random() > 0.15 ? name() : null,
+        phone: `080${rng(10000000,99999999)}`,
+        call_to: Math.random() > 0.6 ? `070${rng(10000000,99999999)}` : null,
+        direction: pick(['Inbound','Inbound','Inbound','Outbound']),
+        duration_seconds: Math.random() > 0.15 ? rng(20, 720) : 0,
+        outcome: pick(['completed','completed','completed','completed','missed','missed','transferred','escalated']),
+        ticket_id: tid,
+        ticket_ref: tid ? `TKT-2026-${String(tid+1000).padStart(4,'0')}` : null,
+        called_at: new Date(Date.now() - rng(0, 14) * 86400000 - rng(0, 86400) * 1000).toISOString(),
+        notes: Math.random() > 0.6 ? pick(['Customer confirmed payment', 'Sent to collections team', 'Will call back tomorrow', 'Requested account statement']) : null,
+      }
+    })
   )),
+  http.post(u('/api/helpdesk/calls'), () => ok({ id: 99 })),
   // Stats sub-endpoints — field names match interfaces in Stats.tsx
   // CsatPoint: { date, csat_score, ticket_count }
   http.get(u('/api/helpdesk/csat-trend'), () => wd(MONTHS_ISO.map(m => ({
@@ -1351,14 +1458,46 @@ const CAMPAIGNS = [
   )),
 
   // Dialer
-  http.get(u('/api/dialer/sessions/me'), () => ok(null)),
-  http.post(u('/api/dialer/sessions'), () => ok({ id: 1, agent_id: 1, status: 'active' })),
+  http.get(u('/api/dialer/sessions/me'), () => ok({
+    id: 1, campaign_id: 1, campaign_name: 'October Loan Renewal Drive',
+    status: 'ready', calls_made: 14, calls_answered: 9,
+    joined_at: new Date(Date.now() - 3_600_000).toISOString(),
+    active_call_id: null, active_call_phone: null,
+  })),
+  http.post(u('/api/dialer/sessions'), () => ok({
+    id: 1, campaign_id: 1, campaign_name: 'October Loan Renewal Drive',
+    status: 'ready', calls_made: 0, calls_answered: 0,
+    joined_at: new Date().toISOString(),
+    active_call_id: null, active_call_phone: null,
+  })),
   http.delete(u('/api/dialer/sessions'), () => new HttpResponse(null, { status: 204 })),
-  http.get(u('/api/dialer/campaigns'), () => ok([])),
+  http.get(u('/api/dialer/campaigns'), () => ok([
+    { id: 1, name: 'October Loan Renewal Drive', description: 'Outbound renewal calls to expiring loans', status: 'active',
+      dial_ratio: 1.5, max_abandonment_pct: 3.0, caller_id: '+2348000000000',
+      max_attempts: 3, retry_delay_minutes: 60, schedule_start: '08:00', schedule_end: '17:00',
+      created_at: new Date(Date.now() - 7*86400000).toISOString(),
+      updated_at: new Date(Date.now() - 86400000).toISOString() },
+    { id: 2, name: 'Overdue Collections Q3', description: 'Collections calls for 30+ DPD accounts', status: 'paused',
+      dial_ratio: 2.0, max_abandonment_pct: 2.5, caller_id: '+2348000000001',
+      max_attempts: 5, retry_delay_minutes: 120, schedule_start: '09:00', schedule_end: '16:00',
+      created_at: new Date(Date.now() - 14*86400000).toISOString(),
+      updated_at: new Date(Date.now() - 2*86400000).toISOString() },
+    { id: 3, name: 'Card Activation Drive', description: 'Activate dormant card holders', status: 'draft',
+      dial_ratio: 1.0, max_abandonment_pct: 3.0, caller_id: '+2348000000002',
+      max_attempts: 2, retry_delay_minutes: 30, schedule_start: null, schedule_end: null,
+      created_at: new Date(Date.now() - 2*86400000).toISOString(),
+      updated_at: new Date(Date.now() - 86400000).toISOString() },
+  ])),
   http.post(u('/api/dialer/campaigns'), () => ok({ id: 99 })),
   http.put(u('/api/dialer/campaigns/:id'), () => new HttpResponse(null, { status: 204 })),
   http.delete(u('/api/dialer/campaigns/:id'), () => new HttpResponse(null, { status: 204 })),
-  http.get(u('/api/dialer/campaigns/:id/stats'), () => ok({ total: 0, called: 0, converted: 0 })),
+  http.post(u('/api/dialer/campaigns/:id/contacts'), () => ok({ inserted: 284, total: 300 })),
+  http.get(u('/api/dialer/campaigns/:id/stats'), () => ok({
+    queue:    [{ status: 'pending', cnt: 412 }, { status: 'called', cnt: 187 }, { status: 'converted', cnt: 38 }],
+    calls:    [{ answered: 163, abandoned: 4, total: 187, avg_duration_sec: 142 }],
+    sessions: [{ status: 'ready', cnt: 4 }, { status: 'on_call', cnt: 2 }, { status: 'paused', cnt: 1 }],
+    abandon_pct: 2.1, cbn_limit_pct: 3.0,
+  })),
 ]
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
@@ -1412,7 +1551,8 @@ const ADMIN = [
   )),
 
   http.get(u('/api/admin/email-senders'), () => ok([
-    { id: 1, email: 'noreply@o3capital.com', name: 'O3 Capital', is_default: true, status: 'verified' },
+    { id: 1, address: 'care@o3capital.com', name: 'O3 Capital Care', label: 'Default Sender', purpose: 'general', is_default: true, is_active: true, created_at: dateStr(90) },
+    { id: 2, address: 'noreply@o3capital.com', name: 'O3 Capital', label: 'No-reply', purpose: 'notification', is_default: false, is_active: true, created_at: dateStr(60) },
   ])),
   http.post(u('/api/admin/email-senders'), () => ok({ id: 99 })),
   http.put(u('/api/admin/email-senders/:id'), () => new HttpResponse(null, { status: 204 })),
@@ -1491,13 +1631,33 @@ const MAIL = [
   http.get(u('/api/mail/signature'), () => ok({ signature_html: '<p>Best regards,<br/><strong>O3 Capital</strong></p>', signature_text: 'Best regards,\nO3 Capital' })),
   http.put(u('/api/mail/signature'), () => new HttpResponse(null, { status: 204 })),
   http.get(u('/api/mail/metrics'), () => ok({
-    delivered: 4820, opened: 2140, clicked: 482, bounced: 38,
-    open_rate_pct: 44.4, click_rate_pct: 10.0, bounce_rate_pct: 0.8,
+    total_sent: 5280,
+    total_delivered: 4820,
+    total_opened: 2140,
+    total_clicked: 482,
+    total_bounced: 38,
+    total_spam: 3,
+    delivery_rate: 91.3,
+    open_rate: 44.4,
+    bounce_rate: 0.7,
   })),
   http.get(u('/api/mail/deliverability'), () => ok({
-    spam_rate_pct: 0.2, reputation_score: 98, dkim_pass: true, spf_pass: true, dmarc_pass: true,
+    domain: 'o3capital.com',
+    checks: [
+      { key: 'from_email',     label: 'SendGrid from email',       ok: true,  detail: 'care@o3capital.com' },
+      { key: 'sendgrid_key',   label: 'SendGrid API key',          ok: true,  detail: 'Required for all outbound mail' },
+      { key: 'signed_webhook', label: 'Signed SendGrid webhook',   ok: false, detail: 'Set SENDGRID_WEBHOOK_PUBLIC_KEY after enabling signed Event Webhook' },
+      { key: 'graph',          label: 'Microsoft Graph mailbox',   ok: false, detail: 'Optional — enables real Sent Items in staff mailboxes' },
+      { key: 'spf',            label: 'SPF includes SendGrid',     ok: true,  detail: 'v=spf1 include:sendgrid.net ~all' },
+      { key: 'dmarc',          label: 'DMARC record exists',       ok: true,  detail: 'v=DMARC1; p=none; rua=mailto:dmarc@o3capital.com' },
+      { key: 'dkim',           label: 'DKIM/domain authentication',ok: true,  detail: 's1/s2 DKIM CNAMEs point to SendGrid' },
+      { key: 'suppressions',   label: 'Suppression list',          ok: true,  detail: '0 active suppressed recipients' },
+    ],
   })),
-  http.get(u('/api/mail/suppressions'), () => ok([])),
+  http.get(u('/api/mail/suppressions'), () => ok([
+    { email: 'bounced@example.ng', reason: 'bounced', source: 'sendgrid_event', updated_at: new Date(Date.now() - 86400000).toISOString() },
+    { email: 'spam@example.ng',    reason: 'spam_report', source: 'sendgrid_event', updated_at: new Date(Date.now() - 172800000).toISOString() },
+  ])),
   http.post(u('/api/mail/test'), () => ok({ status: 'sent' })),
 ]
 
@@ -1509,9 +1669,11 @@ const SETTLEMENTS = [
   })),
   http.get(u('/api/settlements'), () => wd(
     Array.from({ length: 10 }, (_, i) => ({
-      id: i+1, reference: `SET-2026-${i+100}`, amount_kobo: rng(10,100)*1_000_000_00,
-      status: pick(['pending','settled','failed']), bank: pick(BANKS),
-      initiated_by: name(), created_at: isoDate(rng(0,14)),
+      id: i+1, batch_ref: `BATCH-2026-${String(i+100).padStart(4,'0')}`,
+      batch_date: dateStr(rng(0,14)),
+      txn_count: rng(10,150),
+      total_amount_kobo: rng(50,500)*1_000_000_00,
+      status: pick(['completed','pending','failed']),
     }))
   )),
   http.get(u('/api/settlements/batches'), () => ok(

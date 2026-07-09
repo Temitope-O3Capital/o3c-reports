@@ -201,7 +201,7 @@ function NewPlanModal({ open, onClose, onCreated }: {
         </div>
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Notes <span style={{ fontWeight: 400, color: 'var(--txt3)' }}>(optional)</span></label>
-          <textarea
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
             value={notes}
             onChange={e => setNotes(e.target.value)}
             rows={3}

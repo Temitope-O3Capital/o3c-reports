@@ -279,7 +279,7 @@ function SingleSendTab({ onSent }: { onSent: () => void }) {
               <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Your account statement" style={INPUT} />
             </Field>
             <Field label="Message" hint="Appears in the email body above the attachment note">
-              <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Please find your account statement attached." style={TEXTAREA} />
+              <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={message} onChange={e => setMessage(e.target.value)} placeholder="Please find your account statement attached." style={TEXTAREA} />
             </Field>
             <Field label="Password Hint" hint="Appended to message body if the PDF is password-protected">
               <input value={pwHint} onChange={e => setPwHint(e.target.value)} placeholder="e.g. Last 4 digits of your phone number" style={INPUT} />
@@ -425,7 +425,7 @@ function BulkSendTab({ onLaunched }: { onLaunched: () => void }) {
             <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Your O3 Cards statement: {dates}" style={INPUT} />
           </Field>
           <Field label="Message">
-            <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Please find your account statement attached." style={TEXTAREA} />
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={message} onChange={e => setMessage(e.target.value)} placeholder="Please find your account statement attached." style={TEXTAREA} />
           </Field>
           <Field label="Password Hint" hint="Shown in the email body if PDFs are password-protected">
             <input value={pwHint} onChange={e => setPwHint(e.target.value)} placeholder="e.g. Last 4 digits of phone number" style={INPUT} />

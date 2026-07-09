@@ -17,6 +17,7 @@ interface DSAR {
   assigned_to_name: string | null
   created_at:       string
   resolved_at:      string | null
+  processed_at:     string | null
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -110,6 +111,15 @@ export default function DataSubjectRequests() {
       ? <span style={{ fontSize: 12, color: GREEN, ...NUM }}>{fmtDatetime(r.resolved_at)}</span>
       : <span style={{ color: 'var(--txt3)' }}>—</span>
     },
+    { key: 'processed_at', label: 'Erased', render: r => r.request_type !== 'erasure' ? null : r.processed_at
+      ? (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: GREEN, background: `${GREEN}14`, padding: '2px 8px', borderRadius: 8 }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 12 }}>verified</span>
+          {fmtDatetime(r.processed_at)}
+        </span>
+      )
+      : <span style={{ fontSize: 11, color: 'var(--txt3)', fontStyle: 'italic' }}>Pending erasure</span>
+    },
     { key: 'assigned_to_name', label: 'Handler', render: r => <span style={{ fontSize: 12.5 }}>{r.assigned_to_name ?? '—'}</span> },
     { key: 'id', label: '', render: r => r.status !== 'resolved' && r.status !== 'rejected' ? (
       <button onClick={() => setSelected(r)} style={{ padding: '4px 10px', fontSize: 12, fontWeight: 600,
@@ -178,7 +188,7 @@ export default function DataSubjectRequests() {
             </div>
             <div>
               <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Notes</label>
-              <textarea value={formNotes} onChange={e => setFormNotes(e.target.value)} rows={3}
+              <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={formNotes} onChange={e => setFormNotes(e.target.value)} rows={3}
                 placeholder="Details of the request…" style={{ ...inp, resize: 'vertical' }} />
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

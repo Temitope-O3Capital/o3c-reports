@@ -166,7 +166,7 @@ function LogCallTab({ assignmentId, onDone }: { assignmentId: number; onDone: ()
         <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
           Notes
         </label>
-        <textarea
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
           value={notes}
           onChange={e => setNotes(e.target.value)}
           rows={3}
@@ -282,7 +282,7 @@ function EscalateTab({ assignmentId, onDone }: { assignmentId: number; onDone: (
         <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
           Escalation Reason
         </label>
-        <textarea
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
           value={reason}
           onChange={e => setReason(e.target.value)}
           rows={4}
@@ -350,7 +350,7 @@ function AssignAgentTab({ assignmentId, agents, onDone }: {
         <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
           Notes
         </label>
-        <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} rows={3}
           placeholder="Assignment notes…" style={{ ...fieldStyle, resize: 'vertical' }} />
       </div>
       <Btn onClick={submit} loading={saving} disabled={!agentId}>Assign Agent</Btn>
@@ -600,7 +600,7 @@ function ReassignModal({ open, onClose, selectedIds, agents, onDone }: {
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
             Notes
           </label>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} rows={3}
             placeholder="Assignment notes…" style={{ ...fieldStyle, resize: 'vertical' }} />
         </div>
         <div style={{ display: 'flex', gap: 8 }}>

@@ -217,7 +217,7 @@ export default function CampaignEditor() {
                 />
               </Field>
               <Field label="Description">
-                <textarea
+                <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
                   value={description}
                   onChange={e => setDescription(e.target.value)}
                   disabled={!canEdit}
@@ -244,7 +244,7 @@ export default function CampaignEditor() {
                   label="Body"
                   hint='Merge tags: {{firstName}}, {{lastName}}, {{phone}}, {{email}}, {{cifNumber}}'
                 >
-                  <textarea
+                  <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
                     value={emailBody}
                     onChange={e => setEmailBody(e.target.value)}
                     disabled={!canEdit}
@@ -284,7 +284,7 @@ export default function CampaignEditor() {
                 label="Message Body"
                 hint={`${smsBody.length}/160 chars · Merge tags: {{firstName}}, {{lastName}} · Merge tags: {{firstName}}, {{lastName}}`}
               >
-                <textarea
+                <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
                   value={smsBody}
                   onChange={e => setSmsBody(e.target.value)}
                   disabled={!canEdit}

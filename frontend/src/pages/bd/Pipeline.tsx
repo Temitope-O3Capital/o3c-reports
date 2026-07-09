@@ -847,7 +847,7 @@ export default function BDPipeline() {
 
           <div style={{ gridColumn: '1/-1', display: 'flex', flexDirection: 'column', gap: 4 }}>
             <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Notes</label>
-            <textarea
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={newForm.notes}
               onChange={e => setNewForm(f => ({ ...f, notes: e.target.value }))}
               rows={3}

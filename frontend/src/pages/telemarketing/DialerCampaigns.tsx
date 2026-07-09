@@ -4,7 +4,7 @@ import {
   Modal, ConfirmModal,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch, apiPost, apiPut } from '../../lib/api'
+import { apiFetch, apiPost, apiPut, API, getCsrfToken } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER } from '../../lib/design'
 import { toast } from 'sonner'
@@ -97,7 +97,7 @@ function CampaignFormFields({ form, onChange }: { form: CampaignForm; onChange: 
       </div>
       <div>
         <label style={labelSt}>Description</label>
-        <textarea value={form.description} onChange={e => onChange({ ...form, description: e.target.value })} rows={2}
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.description} onChange={e => onChange({ ...form, description: e.target.value })} rows={2}
           style={{ ...inputSt, height: 'auto', padding: '8px 10px', resize: 'vertical' }} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -249,9 +249,10 @@ export default function DialerCampaigns() {
     try {
       const fd = new FormData()
       fd.append('file', uploadFile)
-      const res = await fetch(`/api/dialer/campaigns/${uploadCamp.id}/contacts`, {
+      const res = await fetch(`${API}/api/dialer/campaigns/${uploadCamp.id}/contacts`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token') ?? ''}` },
+        credentials: 'include',
+        headers: { 'X-CSRF-Token': getCsrfToken() },
         body: fd,
       })
       if (!res.ok) throw new Error(await res.text())

@@ -202,6 +202,7 @@ const SECTIONS: Section[] = [
           { label: 'Chart of Accounts', to: '/finance/gl-accounts' },
           { label: 'Cost Tracking',     to: '/finance/costs' },
           { label: 'Budget',            to: '/finance/budget' },
+          { label: 'FX Parallel Rates', to: '/finance/fx-rates' },
         ],
       },
       {

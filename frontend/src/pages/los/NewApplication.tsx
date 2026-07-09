@@ -172,7 +172,7 @@ function Step1({ data, onChange }: { data: PersonalInfo; onChange: (d: PersonalI
       </Field>
       <div style={{ gridColumn: '1 / -1' }}>
         <Field label="Address" required>
-          <textarea style={textareaStyle} value={data.address} onChange={set('address')} placeholder="Residential address" />
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={textareaStyle} value={data.address} onChange={set('address')} placeholder="Residential address" />
         </Field>
       </div>
     </div>
@@ -255,7 +255,7 @@ function Step3({ data, onChange }: { data: LoanRequest; onChange: (d: LoanReques
       </Field>
       <div style={{ gridColumn: '1 / -1' }}>
         <Field label="Purpose" required>
-          <textarea style={textareaStyle} value={data.purpose} onChange={set('purpose')} placeholder="Describe the purpose of this loan" />
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={textareaStyle} value={data.purpose} onChange={set('purpose')} placeholder="Describe the purpose of this loan" />
         </Field>
       </div>
     </div>
@@ -500,7 +500,7 @@ export default function NewApplication() {
         employer:             form.employment.employer,
         monthly_income_kobo:  Math.round(Number(form.employment.monthly_salary) * 100),
       }
-      const res = await apiPost<{ data: { id: number; reference: string } }>('/api/los/', payload)
+      const res = await apiPost<{ data: { id: number; reference: string } }>('/api/los', payload)
       toast.success(`Application ${res.data.reference} created`)
       navigate(`/sales/applications/${res.data.id}`)
     } catch (e: any) {

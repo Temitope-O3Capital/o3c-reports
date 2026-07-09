@@ -684,7 +684,7 @@ export default function TicketDetail() {
                   Internal note
                 </label>
               </div>
-              <textarea
+              <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
                 value={replyText}
                 onChange={e => setReplyText(e.target.value)}
                 placeholder={replyNote ? 'Write internal note…' : 'Write a reply…'}
@@ -985,7 +985,7 @@ export default function TicketDetail() {
       <Modal open={escalateOpen} onClose={() => { setEscalateOpen(false); setEscalateReason('') }} title="Escalate Ticket" width={440}
         footer={<ModalFooter onConfirm={handleEscalate} label="Escalate" disabled={!escalateReason.trim()} />}>
         <p style={{ fontSize: 13, color: 'var(--txt2)', margin: '0 0 12px' }}>Provide a reason. This will be logged as an internal note and the ticket priority set to Urgent.</p>
-        <textarea value={escalateReason} onChange={e => setEscalateReason(e.target.value)} rows={4} placeholder="Escalation reason…"
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={escalateReason} onChange={e => setEscalateReason(e.target.value)} rows={4} placeholder="Escalation reason…"
           style={{ ...inputStyle, height: 'auto', padding: '10px 12px', resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }} />
       </Modal>
 
@@ -1130,7 +1130,7 @@ export default function TicketDetail() {
         }
       >
         <p style={{ fontSize: 13, color: 'var(--txt2)', margin: '0 0 12px' }}>Provide a reason for escalating to the head of customer service.</p>
-        <textarea value={escalateHeadReason} onChange={e => setEscalateHeadReason(e.target.value)} rows={4} placeholder="Reason…"
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={escalateHeadReason} onChange={e => setEscalateHeadReason(e.target.value)} rows={4} placeholder="Reason…"
           style={{ ...inputStyle, height: 'auto', padding: '10px 12px', resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }} />
       </Modal>
 

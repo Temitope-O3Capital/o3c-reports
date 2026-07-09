@@ -197,6 +197,18 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		}
 	}
 
+	// 10. DPD-90 alerts — loans crossing 90-day threshold today
+	batchDPD90Alerts(ctx, db)
+	steps = append(steps, "dpd90_alerts:ok")
+
+	// 11. Vendor integration key expiry alerts — 7-day warning
+	batchAPIKeyExpiryAlerts(ctx, db)
+	steps = append(steps, "api_key_expiry:ok")
+
+	// 12. Campaign delivery failure alerts
+	batchCampaignDeliveryAlerts(ctx, db)
+	steps = append(steps, "campaign_delivery_alerts:ok")
+
 	status := "success"
 	if batchErr != nil {
 		status = "partial"
@@ -821,6 +833,96 @@ func batchMonthlyBoardPack(ctx context.Context, db *core.DB) error {
 
 	slog.Info("Board pack email sent", "month", prevMonth, "recipients", boardList)
 	return nil
+}
+
+// batchDPD90Alerts notifies collections_head and risk_officer when a loan first
+// crosses the 90-day DPD threshold (today's snapshot dpd = 90).
+func batchDPD90Alerts(ctx context.Context, db *core.DB) {
+	rows, err := db.PGQuery(ctx, `
+		SELECT s.cif_number, s.outstanding_kobo, la.id AS loan_id, la.applicant_name
+		FROM loan_dpd_daily_snapshot s
+		JOIN loan_applications la ON la.applicant_cif = s.cif_number
+		WHERE s.snapshot_date = CURRENT_DATE
+		  AND s.dpd = 90
+		  AND la.status IN ('active','repaying','overdue')`)
+	if err != nil {
+		slog.Error("batchDPD90Alerts: query failed", "err", err)
+		return
+	}
+	for _, row := range rows {
+		name := str(row["applicant_name"])
+		cif := str(row["cif_number"])
+		loanID := toInt64(row["loan_id"])
+		body := fmt.Sprintf("Loan for %s (CIF: %s) has reached 90 days past due. Immediate action required.", name, cif)
+		p := NotifPayload{
+			EventType: EvtAccountDPD90,
+			Title:     fmt.Sprintf("DPD-90 alert: %s", name),
+			Body:      body,
+			ActionURL: fmt.Sprintf("/collections/%d", loanID),
+			EntityRef: cif,
+		}
+		go NotifyRole(ctx, db, "collections_head", p)
+		go NotifyRole(ctx, db, "risk_officer", p)
+	}
+}
+
+// batchAPIKeyExpiryAlerts fires when a vendor integration key expires within 7 days.
+func batchAPIKeyExpiryAlerts(ctx context.Context, db *core.DB) {
+	rows, err := db.PGQuery(ctx, `
+		SELECT name, key_expiry
+		FROM vendor_integrations
+		WHERE key_expiry IS NOT NULL
+		  AND key_expiry BETWEEN NOW() AND NOW() + INTERVAL '7 days'
+		  AND status != 'inactive'`)
+	if err != nil {
+		slog.Error("batchAPIKeyExpiryAlerts: query failed", "err", err)
+		return
+	}
+	for _, row := range rows {
+		name := str(row["name"])
+		expiry := str(row["key_expiry"])
+		go NotifyRole(ctx, db, "admin", NotifPayload{
+			EventType: EvtAPIKeyExpiry,
+			Title:     fmt.Sprintf("API key expiring soon: %s", name),
+			Body:      fmt.Sprintf("The API key for %s expires on %s. Rotate it before it lapses.", name, expiry),
+			ActionURL: "/admin/integrations",
+			EntityRef: name,
+		})
+	}
+}
+
+// batchCampaignDeliveryAlerts fires when a campaign's failure count exceeds 10
+// for sends that happened today and no alert has been sent yet today.
+func batchCampaignDeliveryAlerts(ctx context.Context, db *core.DB) {
+	rows, err := db.PGQuery(ctx, `
+		SELECT id, name, email_failed, sms_failed, created_by
+		FROM campaigns
+		WHERE (email_failed + sms_failed) > 10
+		  AND updated_at::date = CURRENT_DATE
+		  AND status IN ('active','paused','completed')`)
+	if err != nil {
+		slog.Error("batchCampaignDeliveryAlerts: query failed", "err", err)
+		return
+	}
+	for _, row := range rows {
+		campaignID := toInt64(row["id"])
+		name := str(row["name"])
+		emailFailed := toInt64(row["email_failed"])
+		smsFailed := toInt64(row["sms_failed"])
+		createdBy := toInt64(row["created_by"])
+		body := fmt.Sprintf("Campaign '%s' had %d email and %d SMS delivery failures today.", name, emailFailed, smsFailed)
+		p := NotifPayload{
+			EventType: EvtCampaignDeliveryFailed,
+			Title:     fmt.Sprintf("Delivery failures: %s", name),
+			Body:      body,
+			ActionURL: fmt.Sprintf("/campaigns/%d", campaignID),
+			EntityRef: fmt.Sprintf("campaign-%d", campaignID),
+		}
+		if createdBy > 0 {
+			go Notify(ctx, db, NotifPayload{EventType: p.EventType, UserID: createdBy, Title: p.Title, Body: p.Body, ActionURL: p.ActionURL, EntityRef: p.EntityRef})
+		}
+		go NotifyRole(ctx, db, "admin", p)
+	}
 }
 
 // splitTrim splits s by sep and trims whitespace from each element.

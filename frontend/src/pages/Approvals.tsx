@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, DataTable, ErrBanner, KpiCard } from '../components/UI'
 import type { TableCol } from '../components/UI'
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiPost } from '../lib/api'
 import { fmtKobo, fmtNum } from '../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM } from '../lib/design'
 
@@ -126,12 +126,7 @@ export default function Approvals() {
     if (!payload.length) return
     setBatchBusy(true)
     try {
-      const token = localStorage.getItem('token') ?? ''
-      await fetch('/api/approvals/batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action, notes: '', items: payload }),
-      })
+      await apiPost('/api/approvals/batch', { action, notes: '', items: payload })
       setSelected(new Set())
       load()
     } catch (e: any) { setErr(e.message) }

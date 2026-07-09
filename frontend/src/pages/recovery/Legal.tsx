@@ -194,7 +194,7 @@ function MilestoneTimeline({
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Note</label>
-            <textarea value={formNote} onChange={e => setFormNote(e.target.value)} rows={2} placeholder="Optional note…" style={{ ...fieldStyle, resize: 'vertical' }} />
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={formNote} onChange={e => setFormNote(e.target.value)} rows={2} placeholder="Optional note…" style={{ ...fieldStyle, resize: 'vertical' }} />
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button

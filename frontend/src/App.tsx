@@ -141,6 +141,7 @@ const FinanceManualPost   = lazy(() => import('./pages/finance/ManualPosting'))
 const FinanceCoA          = lazy(() => import('./pages/finance/ChartOfAccounts'))
 const FinanceFDMaturity   = lazy(() => import('./pages/finance/FDMaturity'))
 const FinanceCosts        = lazy(() => import('./pages/finance/CostTracking'))
+const FinanceFXRates      = lazy(() => import('./pages/finance/FXRates'))
 const FinanceBudget       = lazy(() => import('./pages/finance/Budget'))
 
 // Settlements
@@ -601,7 +602,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
         onConfirm={handleReject}
         onClose={() => { setRejectTarget(null); setRejectReason('') }}
       >
-        <textarea
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
           value={rejectReason}
           onChange={e => setRejectReason(e.target.value)}
           placeholder="Enter rejection reason…"
@@ -970,6 +971,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/finance/fd-maturity"        element={<RequireAccess page="fixed_deposit" user={user}><PageErrorBoundary><FinanceFDMaturity /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/costs"              element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceCosts /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/budget"             element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceBudget /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/fx-rates"           element={<RequireAccess page="fx_rates" user={user}><PageErrorBoundary><FinanceFXRates /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Compliance */}
                   <Route path="/compliance"             element={<RequireAccess page="watch_list" user={user}><Navigate to="/compliance/watchlist" replace /></RequireAccess>} />

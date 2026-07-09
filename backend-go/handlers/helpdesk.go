@@ -67,6 +67,8 @@ func ensureHelpdeskColumns(ctx context.Context, db *core.DB) {
 		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS customer_name TEXT`,
 		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS ticket_ref TEXT`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_tickets_ref ON helpdesk_tickets(ticket_ref) WHERE ticket_ref IS NOT NULL`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS sla_warning_sent BOOLEAN DEFAULT FALSE`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS unassigned_alert_sent BOOLEAN DEFAULT FALSE`,
 	}
 	for _, sql := range alters {
 		db.PGExec(ctx, sql) //nolint:errcheck
@@ -108,6 +110,53 @@ func StartSLABreachMonitor(db *core.DB) {
 					go Notify(ctx, db, NotifPayload{EventType: payload.EventType, UserID: assignedTo, Title: payload.Title, Body: payload.Body, ActionURL: payload.ActionURL, EntityRef: payload.EntityRef})
 				}
 				go NotifyRole(ctx, db, "call_center_head", payload)
+			}
+
+			// SLA warning: 30 min before breach
+			warnRows, _ := db.PGQuery(ctx, `
+				UPDATE helpdesk_tickets
+				SET sla_warning_sent=TRUE, updated_at=NOW()
+				WHERE sla_due_at BETWEEN NOW() AND NOW() + INTERVAL '30 minutes'
+				  AND (sla_warning_sent IS NULL OR sla_warning_sent=FALSE)
+				  AND (sla_breached IS NULL OR sla_breached=FALSE)
+				  AND status NOT IN ('resolved','closed')
+				RETURNING id, ticket_ref, assigned_to`)
+			for _, row := range warnRows {
+				ticketID := toInt64(row["id"])
+				ticketRef := str(row["ticket_ref"])
+				assignedTo := toInt64(row["assigned_to"])
+				p := NotifPayload{
+					EventType: EvtTicketSLAWarning,
+					Title:     fmt.Sprintf("SLA warning: %s", ticketRef),
+					Body:      fmt.Sprintf("Ticket %s will breach its SLA in less than 30 minutes.", ticketRef),
+					ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
+					EntityRef: ticketRef,
+				}
+				if assignedTo > 0 {
+					go Notify(ctx, db, NotifPayload{EventType: p.EventType, UserID: assignedTo, Title: p.Title, Body: p.Body, ActionURL: p.ActionURL, EntityRef: p.EntityRef})
+				}
+				go NotifyRole(ctx, db, "call_center_head", p)
+			}
+
+			// Unassigned alert: tickets open > 1 hour with no assigned agent
+			unassignRows, _ := db.PGQuery(ctx, `
+				UPDATE helpdesk_tickets
+				SET unassigned_alert_sent=TRUE, updated_at=NOW()
+				WHERE assigned_to IS NULL
+				  AND status NOT IN ('resolved','closed')
+				  AND created_at < NOW() - INTERVAL '1 hour'
+				  AND (unassigned_alert_sent IS NULL OR unassigned_alert_sent=FALSE)
+				RETURNING id, ticket_ref`)
+			for _, row := range unassignRows {
+				ticketID := toInt64(row["id"])
+				ticketRef := str(row["ticket_ref"])
+				go NotifyRole(ctx, db, "call_center_head", NotifPayload{
+					EventType: EvtTicketUnassignedAlert,
+					Title:     fmt.Sprintf("Unassigned ticket: %s", ticketRef),
+					Body:      fmt.Sprintf("Ticket %s has been open for over 1 hour with no assigned agent.", ticketRef),
+					ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
+					EntityRef: ticketRef,
+				})
 			}
 		}
 	}()

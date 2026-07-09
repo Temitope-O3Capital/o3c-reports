@@ -377,7 +377,7 @@ export default function CampaignsList() {
           {/* Description */}
           <div>
             <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>DESCRIPTION <span style={{ fontWeight: 400, color: 'var(--txt3)' }}>(optional)</span></div>
-            <textarea
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={form.description}
               onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
               placeholder="Brief description of this campaign's goal"

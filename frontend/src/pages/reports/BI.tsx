@@ -471,7 +471,7 @@ export default function ReportsBI() {
           </div>
           <div>
             <label style={{ ...labelStyle, marginBottom: 6 }}>Description</label>
-            <textarea
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={saveDesc}
               onChange={e => setSaveDesc(e.target.value)}
               placeholder="Optional description…"
@@ -508,7 +508,7 @@ export default function ReportsBI() {
           </div>
           <div>
             <label style={{ ...labelStyle, marginBottom: 6 }}>Recipients (comma-separated emails)</label>
-            <textarea
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={schedRecipients}
               onChange={e => setSchedRecipients(e.target.value)}
               placeholder="john@o3capital.com, jane@o3capital.com"

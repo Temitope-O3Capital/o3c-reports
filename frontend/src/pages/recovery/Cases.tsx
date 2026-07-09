@@ -146,7 +146,7 @@ function AssignAgentTab({ caseId, agents, onDone }: {
       </div>
       <div>
         <label style={labelStyle}>Notes</label>
-        <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} rows={3}
           placeholder="Assignment notes…" style={{ ...fieldStyle, resize: 'vertical' }} />
       </div>
       <Btn onClick={submit} loading={saving} disabled={!agentId}>Assign Agent</Btn>
@@ -206,7 +206,7 @@ function FieldVisitTab({ caseId, onDone }: { caseId: number; onDone: () => void 
       </div>
       <div>
         <label style={labelStyle}>Notes</label>
-        <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} rows={3}
           placeholder="Additional notes…" style={{ ...fieldStyle, resize: 'vertical' }} />
       </div>
       <Btn onClick={submit} loading={saving} disabled={!visitDate || !outcome}>Log Visit</Btn>
@@ -286,7 +286,7 @@ function AddLegalTab({ caseId, onDone }: { caseId: number; onDone: () => void })
       </div>
       <div>
         <label style={labelStyle}>Notes</label>
-        <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} rows={3}
           placeholder="Additional notes…" style={{ ...fieldStyle, resize: 'vertical' }} />
       </div>
       <Btn onClick={submit} loading={saving} disabled={!proceedingType || !filingDate}>Add Legal Filing</Btn>
@@ -395,7 +395,7 @@ function WriteOffTab({ caseId, outstanding, onDone }: { caseId: number; outstand
       </div>
       <div>
         <label style={labelStyle}>Reason <span style={{ color: RED }}>*</span></label>
-        <textarea value={reason} onChange={e => setReason(e.target.value)} rows={4}
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={reason} onChange={e => setReason(e.target.value)} rows={4}
           placeholder="Explain why this account should be written off…"
           style={{ ...fieldStyle, resize: 'vertical' }} />
       </div>
@@ -610,7 +610,7 @@ function ReassignModal({ open, onClose, selectedIds, agents, onDone }: {
         </div>
         <div>
           <label style={labelStyle}>Notes</label>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} rows={3}
             placeholder="Assignment notes…" style={{ ...fieldStyle, resize: 'vertical' }} />
         </div>
         <div style={{ display: 'flex', gap: 8 }}>

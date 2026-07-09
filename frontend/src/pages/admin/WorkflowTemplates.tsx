@@ -161,7 +161,7 @@ function TemplateForm({ open, editing, onClose, onSaved }: TemplateFormProps) {
         </div>
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Description</label>
-          <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="When is this template used?" rows={2}
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={description} onChange={e => setDescription(e.target.value)} placeholder="When is this template used?" rows={2}
             style={{ ...inputStyle, height: 'auto', padding: '8px 10px', resize: 'vertical', fontFamily: "'Sora', sans-serif" }} />
         </div>
 

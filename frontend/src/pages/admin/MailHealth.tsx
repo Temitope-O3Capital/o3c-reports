@@ -169,13 +169,16 @@ export default function AdminMailHealth() {
         </SectionCard>
 
         {/* Deliverability */}
-        <SectionCard title="Deliverability">
-          {deliverability ? (
+        <SectionCard title="Deliverability" subtitle={deliverability?.domain || undefined}>
+          {deliverability?.checks?.length ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {(['spf','dkim','dmarc','reputation'] as const).map(key => (
-                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt)', textTransform: 'uppercase' }}>{key}</span>
-                  <StatusDot status={deliverability[key] ?? 'unknown'} />
+              {deliverability.checks.map(check => (
+                <div key={check.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt)', textTransform: 'uppercase' }}>{check.key}</div>
+                    {check.detail && <div style={{ fontSize: 10.5, color: 'var(--txt3)', marginTop: 1 }}>{check.detail}</div>}
+                  </div>
+                  <StatusDot status={check.ok ? 'pass' : 'fail'} />
                 </div>
               ))}
             </div>

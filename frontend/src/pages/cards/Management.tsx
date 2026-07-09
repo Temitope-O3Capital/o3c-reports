@@ -158,7 +158,7 @@ function ActionCell({ row, onDone }: { row: Cardholder; onDone: () => void }) {
             </p>
             <label style={{ fontSize: 12, color: 'var(--txt2)' }}>
               Reason <span style={{ color: RED }}>*</span>
-              <textarea
+              <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
                 rows={3}
                 value={reason}
                 autoFocus

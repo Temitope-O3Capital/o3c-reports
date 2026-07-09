@@ -1268,7 +1268,7 @@ export default function O3CWorkspace() {
             <div className="compose-head">New message <button onClick={() => setComposeOpen(false)}>✕</button></div>
             <input placeholder="To" value={cmp.to} onChange={e => setCmp(c => ({ ...c, to: e.target.value }))} />
             <input placeholder="Subject" value={cmp.subj} onChange={e => setCmp(c => ({ ...c, subj: e.target.value }))} />
-            <textarea placeholder="Write your message…" value={cmp.body} onChange={e => setCmp(c => ({ ...c, body: e.target.value }))} />
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" placeholder="Write your message…" value={cmp.body} onChange={e => setCmp(c => ({ ...c, body: e.target.value }))} />
             <div className="compose-foot">
               <button className="btn primary" onClick={sendMail}>Send</button>
               <button className="btn" onClick={saveDraft}>Save draft</button>

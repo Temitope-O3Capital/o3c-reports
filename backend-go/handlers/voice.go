@@ -11,6 +11,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,7 +19,10 @@ import (
 	"github.com/o3c/reports/core"
 )
 
-var telnyxCallerID = os.Getenv("TELNYX_CALLER_ID")
+var (
+	telnyxCallerID    = os.Getenv("TELNYX_CALLER_ID")
+	telnyxPhoneNumber = os.Getenv("TELNYX_PHONE_NUMBER") // UK/US Telnyx number AT forwards inbound calls to
+)
 
 // VoiceStatus returns the current user's Telnyx SIP credentials (decrypted).
 // The frontend passes sip_username + sip_password directly to TelnyxRTC.
@@ -120,6 +124,45 @@ func VoiceSetCredentials(db *core.DB) http.HandlerFunc {
 		slog.Info("voice: Telnyx credentials set", "user_id", b.UserID, "sip_user", b.SIPUsername)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"status": "ok", "user": res[0]}) //nolint:errcheck
+	}
+}
+
+// VoiceATInbound handles Africa's Talking inbound voice webhook.
+// AT posts here when a customer dials the Nigerian number.
+// We respond with XML forwarding the call to the Telnyx number,
+// where registered agents' browsers ring via WebRTC.
+// Route: POST /api/voice/at-inbound (no auth — public webhook)
+func VoiceATInbound() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		// isActive=0 is a call-ended notification — just acknowledge
+		if r.FormValue("isActive") == "0" {
+			w.Header().Set("Content-Type", "application/xml")
+			fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`)
+			return
+		}
+
+		callerNumber := r.FormValue("callerNumber")
+		fwdTo := telnyxPhoneNumber
+		if fwdTo == "" {
+			slog.Warn("voice: AT inbound call but TELNYX_PHONE_NUMBER not set", "caller", callerNumber)
+			w.Header().Set("Content-Type", "application/xml")
+			fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><Response><Say>We're sorry, this service is temporarily unavailable.</Say></Response>`)
+			return
+		}
+
+		slog.Info("voice: AT inbound call", "caller", callerNumber, "forwarding_to", fwdTo)
+		w.Header().Set("Content-Type", "application/xml")
+		fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>Please hold while we connect you to an agent.</Say>
+    <Dial record="false" sequential="false" callerId="%s">
+        <Number>%s</Number>
+    </Dial>
+</Response>`, callerNumber, fwdTo)
 	}
 }
 

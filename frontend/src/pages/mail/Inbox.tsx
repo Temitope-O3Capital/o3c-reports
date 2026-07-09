@@ -177,7 +177,7 @@ function ComposeModal({ initialTo, initialSubj, initialBody = '', onClose, onSen
         </div>
         <input placeholder="To" value={to} onChange={e => setTo(e.target.value)} style={fieldStyle} />
         <input placeholder="Subject" value={subj} onChange={e => setSubj(e.target.value)} style={fieldStyle} />
-        <textarea
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
           placeholder="Write your message…"
           value={body}
           onChange={e => setBody(e.target.value)}

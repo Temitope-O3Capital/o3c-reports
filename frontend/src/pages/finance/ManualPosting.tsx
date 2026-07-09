@@ -130,7 +130,7 @@ function ProposeModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
           {field('Amount (₦)', 'amount', 'number')}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Narrative *</label>
-            <textarea
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={form.narrative}
               onChange={e => setForm(f => ({ ...f, narrative: e.target.value }))}
               rows={3}

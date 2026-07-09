@@ -287,7 +287,7 @@ export default function AgentDashboard() {
           </div>
           <div>
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>Notes</label>
-            <textarea
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={notes} onChange={e => setNotes(e.target.value)}
               rows={3} placeholder="Optional notes…"
               style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', boxSizing: 'border-box' }}

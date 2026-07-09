@@ -195,7 +195,7 @@ function NewReviewModal({ onClose, onCreated }: { onClose: () => void; onCreated
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Notes</label>
-            <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2}
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2}
               style={{ ...inputStyle, resize: 'vertical' }} placeholder="Justification for limit change…" />
           </div>
         </div>

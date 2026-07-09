@@ -50,6 +50,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	warnMissingEnv()
+
 	// Shutdown context — cancelled on SIGTERM/SIGINT so the batch loop exits cleanly.
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	go func() {
@@ -193,6 +195,9 @@ func main() {
 		})
 	})
 
+	// Africa's Talking inbound webhook — no auth (AT posts here on incoming calls)
+	r.Post("/api/voice/at-inbound", handlers.VoiceATInbound())
+
 	// Telnyx Voice per-user SIP credentials
 	r.Group(func(r chi.Router) {
 		r.Use(core.AuthMiddleware)
@@ -310,6 +315,8 @@ func main() {
 		})
 		r.Route("/api/finance", func(r chi.Router) {
 			handlers.RegisterFinance(r, db)
+			r.Get("/fx-rates/latest", handlers.FXRatesLatest(db))
+			r.Get("/fx-rates/history", handlers.FXRatesHistory(db))
 		})
 		r.Route("/api/settlement", func(r chi.Router) {
 			handlers.RegisterSettlement(r, db)
@@ -661,6 +668,32 @@ func bdReadOnly(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// warnMissingEnv logs startup warnings for optional-but-important env vars.
+// Missing vars don't stop the server but cause silent failures at runtime.
+func warnMissingEnv() {
+	type check struct {
+		key    string
+		detail string
+	}
+	optional := []check{
+		{"SENDGRID_FROM_EMAIL", "campaign and notification emails will have no from-address"},
+		{"R2_ACCOUNT_ID", "campaign image uploads and mail attachments will fail"},
+		{"R2_BUCKET_NAME", "campaign image uploads and mail attachments will fail"},
+		{"R2_ACCESS_KEY_ID", "campaign image uploads and mail attachments will fail"},
+		{"R2_SECRET_ACCESS_KEY", "campaign image uploads and mail attachments will fail"},
+		{"R2_PUBLIC_BASE_URL", "uploaded asset public URLs will be empty"},
+		{"TELNYX_CALLER_ID", "outbound calls will have no caller ID"},
+		{"TELNYX_PHONE_NUMBER", "Africa's Talking inbound calls cannot be forwarded"},
+		{"WHATSAPP_WEBHOOK_VERIFY_TOKEN", "WhatsApp webhook verification will fail"},
+		{"ZOHO_CLIENT_ID", "Zoho call-centre integration will be unavailable"},
+	}
+	for _, c := range optional {
+		if os.Getenv(c.key) == "" {
+			slog.Warn("missing env var", "key", c.key, "impact", c.detail)
+		}
+	}
 }
 
 // rightmostIP extracts the real client IP — Railway appends it last in X-Forwarded-For.

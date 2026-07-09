@@ -182,7 +182,7 @@ function NewFDDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
           <div style={{ gridColumn: '1/-1' }}>{field('Account Officer', 'account_officer')}</div>
           <div style={{ gridColumn: '1/-1' }}>
             <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Notes</label>
-            <textarea value={form.notes} onChange={e => updateField('notes', e.target.value)}
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.notes} onChange={e => updateField('notes', e.target.value)}
               rows={2} style={{ ...filterInputStyle, height: 'auto', width: '100%', marginTop: 4, resize: 'vertical', padding: '8px 10px' }} />
           </div>
         </div>

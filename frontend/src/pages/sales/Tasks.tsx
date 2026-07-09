@@ -388,7 +388,7 @@ function TaskForm({
       </div>
       <div>
         <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Notes</label>
-        <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
           rows={3} placeholder="Task notes or details…" style={{ ...inputStyle, resize: 'vertical' }} />
       </div>
     </div>

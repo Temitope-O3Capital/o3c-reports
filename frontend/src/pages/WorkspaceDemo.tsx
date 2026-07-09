@@ -1265,7 +1265,7 @@ function ComposeModal({ open, onClose, initialSubj }: { open: boolean; onClose: 
         <div className="compose-head">New message <button onClick={onClose}>✕</button></div>
         <input placeholder="To" value={to} onChange={e => setTo(e.target.value)} />
         <input placeholder="Subject" value={subj} onChange={e => setSubj(e.target.value)} />
-        <textarea placeholder="Write your message…" value={body} onChange={e => setBody(e.target.value)} />
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" placeholder="Write your message…" value={body} onChange={e => setBody(e.target.value)} />
         <div className="compose-foot">
           <button className="btn primary" onClick={onClose}>Send</button>
           <button className="btn" onClick={onClose}>Save draft</button>

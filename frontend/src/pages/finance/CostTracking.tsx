@@ -129,7 +129,7 @@ function NewEntryModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           {row('Budget Amount (₦)', 'budget_amount', 'number')}
           <div style={{ gridColumn: '1/-1' }}>
             <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Description *</label>
-            <textarea value={form.description} onChange={e => update('description', e.target.value)} rows={2}
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.description} onChange={e => update('description', e.target.value)} rows={2}
               style={{ ...filterInputStyle, height: 'auto', padding: '8px 10px', resize: 'vertical', width: '100%', marginTop: 4 }} />
           </div>
         </div>

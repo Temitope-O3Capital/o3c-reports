@@ -108,7 +108,7 @@ function ReasonModal({ open, title, confirmLabel, confirmColor, onClose, onSubmi
         </div>
       }
     >
-      <textarea value={reason} onChange={e => setReason(e.target.value)} rows={4} placeholder="Write a reason…"
+      <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={reason} onChange={e => setReason(e.target.value)} rows={4} placeholder="Write a reason…"
         style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box' }} />
     </Modal>
   )
@@ -233,7 +233,7 @@ function NewPostingModal({ open, onClose, onSuccess }: { open: boolean; onClose:
 
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Description *</label>
-          <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={description} onChange={e => setDescription(e.target.value)} rows={3}
             placeholder="Reason for manual posting…"
             style={{ ...inputStyle, height: 'auto', padding: '8px 10px', resize: 'vertical', fontFamily: "'Sora', sans-serif" }} />
         </div>

@@ -304,7 +304,7 @@ function CreditAssessmentTab({ app, onRefresh }: { app: Application; onRefresh: 
                 style={{ display: 'block', width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid var(--bdr)', borderRadius: 6, fontSize: 14, boxSizing: 'border-box' }} />
             </label>
             <label style={{ fontSize: 12, color: 'var(--txt2)' }}>Bureau Summary
-              <textarea rows={3} value={form.bureau_summary}
+              <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" rows={3} value={form.bureau_summary}
                 onChange={e => setForm(f => ({ ...f, bureau_summary: e.target.value }))}
                 style={{ display: 'block', width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid var(--bdr)', borderRadius: 6, fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }} />
             </label>
@@ -1014,7 +1014,7 @@ export default function ApplicationDetail() {
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
               Notes (optional)
             </div>
-            <textarea
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={advanceNotes}
               onChange={e => setAdvanceNotes(e.target.value)}
               style={{ ...textareaStyle }}
@@ -1038,7 +1038,7 @@ export default function ApplicationDetail() {
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
             Reason <span style={{ color: RED }}>*</span>
           </div>
-          <textarea
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
             value={declineReason}
             onChange={e => setDeclineReason(e.target.value)}
             style={{ ...textareaStyle }}
@@ -1089,7 +1089,7 @@ export default function ApplicationDetail() {
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
             Notes
           </div>
-          <textarea
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
             value={reqInfoNotes}
             onChange={e => setReqInfoNotes(e.target.value)}
             style={{ ...textareaStyle }}
@@ -1129,7 +1129,7 @@ export default function ApplicationDetail() {
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
             Reason <span style={{ color: RED }}>*</span>
           </div>
-          <textarea
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
             value={committeeNote}
             onChange={e => setCommitteeNote(e.target.value)}
             style={{ ...textareaStyle }}
@@ -1177,7 +1177,7 @@ export default function ApplicationDetail() {
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
             Note <span style={{ color: RED }}>*</span>
           </div>
-          <textarea
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
             value={noteBody}
             onChange={e => setNoteBody(e.target.value)}
             style={{ ...textareaStyle, minHeight: 120 }}

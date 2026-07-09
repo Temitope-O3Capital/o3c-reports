@@ -206,7 +206,7 @@ export default function MailCompose() {
 
           {/* Body */}
           <div style={{ padding: '12px 16px' }}>
-            <textarea
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={body}
               onChange={e => setBody(e.target.value)}
               placeholder="Write your message here…"

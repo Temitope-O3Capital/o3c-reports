@@ -666,6 +666,22 @@ func complianceWatchListAdd(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Add failed")
 			return
 		}
+		entryID := toInt64(rows[0]["id"])
+		go NotifyRole(r.Context(), db, "compliance_officer", NotifPayload{
+			EventType: EvtAMLWatchlistHit,
+			Title:     fmt.Sprintf("Watchlist entry added: %s", b.EntityName),
+			Body:      fmt.Sprintf("%s (%s) has been added to the AML watchlist. Reason: %s", b.EntityName, b.EntityType, b.Reason),
+			ActionURL: fmt.Sprintf("/compliance/watch-list/%d", entryID),
+			EntityRef: b.IDValue,
+		})
+		go NotifyRole(r.Context(), db, "compliance_head", NotifPayload{
+			EventType: EvtAMLWatchlistHit,
+			Title:     fmt.Sprintf("Watchlist entry added: %s", b.EntityName),
+			Body:      fmt.Sprintf("%s (%s) added to AML watchlist. Reason: %s", b.EntityName, b.EntityType, b.Reason),
+			ActionURL: fmt.Sprintf("/compliance/watch-list/%d", entryID),
+			EntityRef: b.IDValue,
+		})
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck

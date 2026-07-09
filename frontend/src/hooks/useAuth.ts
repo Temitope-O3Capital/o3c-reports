@@ -12,6 +12,7 @@ export type Role =
   | 'telemarketing_agent' | 'telemarketing_head'
   | 'bd_officer' | 'bd_head'
   | 'payroll_officer' | 'payroll_manager'
+  | 'settlement_officer'
 
 export interface AuthUser {
   id:                  number
@@ -28,7 +29,7 @@ const CAMPAIGNS  = ['campaigns','campaign_analytics','contact_lists','message_te
 const HELPDESK   = ['helpdesk','helpdesk_stats','helpdesk_canned']
 const OPERATIONS = ['credit_portfolio','fixed_deposit','settlement','mobile_app','blink_card']
 
-const FINANCE_PAGES     = ['income','transactions','fixed_deposit','eod']
+const FINANCE_PAGES     = ['income','transactions','fixed_deposit','eod','fx_rates']
 const COLLECTIONS_PAGES = ['collections','recovery','credit_portfolio']
 const RECOVERY_PAGES    = ['recovery','collections','credit_portfolio']
 const HR_PAGES          = ['hr_employees','hr_leave','hr_performance','hr_disciplinary','hr_training']
@@ -92,6 +93,7 @@ export const ROLE_PAGES: Record<string, string[]> = {
 
   // Finance ops
   head_of_reconciliation: ['overview','income','eod','transactions','uploads','reconciliation','credit_portfolio','fixed_deposit','settlement','kpi_dashboard','reports','statements'],
+  settlement_officer:     ['overview','settlement','reconciliation','eod','transactions','credit_portfolio'],
 }
 
 export function parseToken(token: string): { exp: number; [key: string]: unknown } | null {

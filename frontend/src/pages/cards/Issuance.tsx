@@ -149,7 +149,7 @@ function NewIssuanceModal({ onClose, onCreated }: { onClose: () => void; onCreat
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Notes</label>
-            <textarea
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
               rows={3}
               style={{ display: 'block', width: '100%', marginTop: 6, padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 13, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none', resize: 'vertical' }}

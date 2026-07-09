@@ -198,7 +198,7 @@ export default function CSATSurvey() {
           <label style={{ fontSize: 12.5, fontWeight: 600, color: '#6B7280', display: 'block', marginBottom: 6 }}>
             Additional comments (optional)
           </label>
-          <textarea
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
             value={comment}
             onChange={e => setComment(e.target.value)}
             maxLength={500}

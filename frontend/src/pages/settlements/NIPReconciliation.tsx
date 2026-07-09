@@ -128,7 +128,7 @@ function ResolveModal({ ex, onClose, onDone }: { ex: Exception; onClose: () => v
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 20 }}>
           <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Resolution Note</label>
-          <textarea
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
             value={note}
             onChange={e => setNote(e.target.value)}
             rows={3}

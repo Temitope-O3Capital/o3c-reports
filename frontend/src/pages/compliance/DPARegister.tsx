@@ -194,7 +194,7 @@ export default function DPARegister() {
             </div>
             <div>
               <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Purpose *</label>
-              <textarea value={fPurpose} onChange={e => setFPurpose(e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} />
+              <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={fPurpose} onChange={e => setFPurpose(e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
@@ -224,7 +224,7 @@ export default function DPARegister() {
             </div>
             <div>
               <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Security Measures</label>
-              <textarea value={fSecurity} onChange={e => setFSecurity(e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} placeholder="Encryption at rest, TLS in transit…" />
+              <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={fSecurity} onChange={e => setFSecurity(e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} placeholder="Encryption at rest, TLS in transit…" />
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => setShowNew(false)} style={btnSecondary}>Cancel</button>

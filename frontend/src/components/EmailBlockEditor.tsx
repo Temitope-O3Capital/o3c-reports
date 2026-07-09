@@ -235,10 +235,10 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
               style={{ flex: '1 1 calc(50% - 4px)', padding: '5px 0', borderRadius: 6, fontSize: 10.5, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${on ? BLUE : 'rgba(0,0,0,0.13)'}`, background: on ? `${BLUE}12` : 'transparent', color: on ? BLUE : '#64748b' }}>{v}</button>
           )})}
         </div></PPField>
-        <PPField label="Left HTML"><textarea style={{ ...fi, fontFamily: 'monospace', fontSize: 11, resize: 'vertical' }} rows={4} value={block.leftHtml || ''} onChange={e => onUpdate({ leftHtml: e.target.value })} /></PPField>
-        <PPField label="Right HTML"><textarea style={{ ...fi, fontFamily: 'monospace', fontSize: 11, resize: 'vertical' }} rows={4} value={block.rightHtml || ''} onChange={e => onUpdate({ rightHtml: e.target.value })} /></PPField></>
+        <PPField label="Left HTML"><textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...fi, fontFamily: 'monospace', fontSize: 11, resize: 'vertical' }} rows={4} value={block.leftHtml || ''} onChange={e => onUpdate({ leftHtml: e.target.value })} /></PPField>
+        <PPField label="Right HTML"><textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...fi, fontFamily: 'monospace', fontSize: 11, resize: 'vertical' }} rows={4} value={block.rightHtml || ''} onChange={e => onUpdate({ rightHtml: e.target.value })} /></PPField></>
     case 'footer':
-      return <><PPField label="Footer Text"><textarea style={{ ...fi, resize: 'vertical', fontSize: 12 }} rows={3} value={block.text || ''} onChange={e => onUpdate({ text: e.target.value })} /></PPField>
+      return <><PPField label="Footer Text"><textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...fi, resize: 'vertical', fontSize: 12 }} rows={3} value={block.text || ''} onChange={e => onUpdate({ text: e.target.value })} /></PPField>
         <PPField label="Unsubscribe"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={block.unsubscribe !== false} onChange={e => onUpdate({ unsubscribe: e.target.checked })} />Include unsubscribe link</label></PPField></>
     case 'callout':
       return <><PPField label="Theme">
@@ -252,7 +252,7 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
         </div></PPField>
         <PPField label="Icon (emoji)"><PPInp value={block.icon || ''} placeholder="⚠️" onChange={e => onUpdate({ icon: e.target.value })} /></PPField>
         <PPField label="Title"><PPInp value={block.title || ''} onChange={e => onUpdate({ title: e.target.value })} /></PPField>
-        <PPField label="Body"><textarea style={{ ...fi, resize: 'vertical', fontSize: 12, lineHeight: 1.6 }} rows={3} value={block.body || ''} onChange={e => onUpdate({ body: e.target.value })} /></PPField></>
+        <PPField label="Body"><textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...fi, resize: 'vertical', fontSize: 12, lineHeight: 1.6 }} rows={3} value={block.body || ''} onChange={e => onUpdate({ body: e.target.value })} /></PPField></>
     case 'stats': {
       const sc = block.cols || []
       return <><PPField label="Columns">

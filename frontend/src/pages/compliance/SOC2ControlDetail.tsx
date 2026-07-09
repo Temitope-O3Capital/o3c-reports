@@ -287,14 +287,14 @@ export default function SOC2ControlDetail() {
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Evidence Summary</label>
-                <textarea style={{ ...inp, marginTop: 4, resize: 'vertical', minHeight: 80 }}
+                <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...inp, marginTop: 4, resize: 'vertical', minHeight: 80 }}
                   value={editSummary} onChange={e => setEditSummary(e.target.value)}
                   placeholder="What evidence exists for this control?" />
               </div>
               {editStatus === 'waived' && (
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: AMBER }}>Waiver Reason</label>
-                  <textarea style={{ ...inp, marginTop: 4, resize: 'vertical', minHeight: 60 }}
+                  <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...inp, marginTop: 4, resize: 'vertical', minHeight: 60 }}
                     value={editWaiver} onChange={e => setEditWaiver(e.target.value)}
                     placeholder="Why is this control waived?" />
                 </div>
@@ -327,7 +327,7 @@ export default function SOC2ControlDetail() {
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Description</label>
-            <textarea style={{ ...inp, marginTop: 4, resize: 'vertical', minHeight: 80 }}
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...inp, marginTop: 4, resize: 'vertical', minHeight: 80 }}
               value={evDesc} onChange={e => setEvDesc(e.target.value)}
               placeholder="What does this evidence demonstrate?" />
           </div>

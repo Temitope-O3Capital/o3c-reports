@@ -298,7 +298,7 @@ export default function Leave() {
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Reason</label>
-            <textarea value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} rows={3}
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} rows={3}
               style={{ ...inputStyle, resize: 'vertical' }} placeholder="Optional reason…" />
           </div>
         </div>
@@ -319,7 +319,7 @@ export default function Leave() {
         <div style={{ fontSize: 13, color: 'var(--txt2)', marginBottom: 12 }}>
           Declining {rejectEntry?.employee_name}'s {rejectEntry?.leave_type} leave request.
         </div>
-        <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows={3}
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows={3}
           placeholder="Reason for declining (optional)…"
           style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
       </Modal>

@@ -305,7 +305,7 @@ export default function Findings() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Finding Description *</label>
-            <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
               rows={3} placeholder="Describe the finding…" style={{ ...inputStyle, resize: 'vertical' }} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -365,10 +365,10 @@ export default function Findings() {
                 {detail.status !== 'closed' && (
                   <div style={{ marginTop: 8, padding: '14px', background: 'var(--th-bg)', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)' }}>Add Response</div>
-                    <textarea value={respForm.response} onChange={e => setRespForm(f => ({ ...f, response: e.target.value }))}
+                    <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={respForm.response} onChange={e => setRespForm(f => ({ ...f, response: e.target.value }))}
                       rows={3} placeholder="Describe action taken…"
                       style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
-                    <textarea value={respForm.action_plan} onChange={e => setRespForm(f => ({ ...f, action_plan: e.target.value }))}
+                    <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={respForm.action_plan} onChange={e => setRespForm(f => ({ ...f, action_plan: e.target.value }))}
                       rows={2} placeholder="Action plan (optional)…"
                       style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Page, ErrBanner, Spinner, ConfirmModal, TblSearch, filterInputStyle,
+  Page, ErrBanner, Spinner, ConfirmModal, TblSearch,
 } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtDatetime, today } from '../../lib/fmt'
@@ -49,29 +49,20 @@ function dpdBg(dpd: number): string {
   return DARKRED
 }
 
+function priorityColor(p: 'High' | 'Medium' | 'Low'): string {
+  return p === 'High' ? RED : p === 'Medium' ? AMBER : 'var(--chart-lbl)'
+}
+
+// ── Atoms ─────────────────────────────────────────────────────────────────────
+
 function DpdBadge({ dpd }: { dpd: number }) {
   const color = dpdBg(dpd)
   return (
     <span style={{
-      ...NUM,
-      display: 'inline-flex', alignItems: 'center',
-      fontSize: 11, fontWeight: 700,
-      padding: '2px 7px', borderRadius: 20,
-      background: `${color}18`, color,
-      whiteSpace: 'nowrap',
-    }}>
-      DPD {dpd}
-    </span>
-  )
-}
-
-function PriorityDot({ priority }: { priority: 'High' | 'Medium' | 'Low' }) {
-  const bg = priority === 'High' ? RED : priority === 'Medium' ? AMBER : 'var(--chart-lbl)'
-  return (
-    <span style={{
-      display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
-      background: bg, marginRight: 6, flexShrink: 0,
-    }} />
+      ...NUM, display: 'inline-flex', alignItems: 'center',
+      fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
+      background: `${color}18`, color, whiteSpace: 'nowrap',
+    }}>DPD {dpd}</span>
   )
 }
 
@@ -86,44 +77,41 @@ function DispositionPill({ disp, size = 'md' }: { disp: string; size?: 'sm' | 'm
   const s = DISP_COLORS[disp] ?? { bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
   return (
     <span style={{
-      ...NUM,
-      display: 'inline-flex', alignItems: 'center',
+      ...NUM, display: 'inline-flex', alignItems: 'center',
       fontSize: size === 'sm' ? 10.5 : 11.5, fontWeight: 600,
       padding: size === 'sm' ? '1px 6px' : '2px 8px',
-      borderRadius: 20, background: s.bg, color: s.txt,
-      whiteSpace: 'nowrap',
-    }}>
-      {disp}
-    </span>
+      borderRadius: 20, background: s.bg, color: s.txt, whiteSpace: 'nowrap',
+    }}>{disp}</span>
   )
 }
 
-// ── Field style ───────────────────────────────────────────────────────────────
-
-const fieldStyle: React.CSSProperties = {
-  width: '100%', padding: '8px 10px',
-  border: '1px solid var(--input-bdr)', borderRadius: 7,
-  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
-  fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
+function StatChip({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      padding: '8px 10px', borderRadius: 8, flex: 1,
+      background: `${color}0f`, border: `1px solid ${color}28`,
+    }}>
+      <span style={{ ...NUM, fontSize: 20, fontWeight: 800, color, lineHeight: 1 }}>{value}</span>
+      <span style={{ fontSize: 10, color: 'var(--txt2)', marginTop: 3, fontWeight: 500, textAlign: 'center' }}>{label}</span>
+    </div>
+  )
 }
 
-// ── Label / value ─────────────────────────────────────────────────────────────
-
-function LV({ label, value }: { label: string; value: React.ReactNode }) {
+function InfoField({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-      <span style={{ fontSize: 12, color: 'var(--txt2)', width: 130, flexShrink: 0 }}>{label}</span>
-      <span style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 500 }}>{value ?? '—'}</span>
+    <div>
+      <div style={{ fontSize: 10.5, color: 'var(--txt2)', marginBottom: 3, fontWeight: 500 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{value ?? '—'}</div>
     </div>
   )
 }
 
 // ── Call History ──────────────────────────────────────────────────────────────
 
-function CallHistory({ contactId }: { contactId: number }) {
+function CallHistoryTimeline({ contactId, refreshKey }: { contactId: number; refreshKey: number }) {
   const [calls, setCalls] = useState<CallEntry[]>([])
   const [loading, setLoading] = useState(true)
-  const [refresh, setRefresh] = useState(0)
 
   useEffect(() => {
     setLoading(true)
@@ -131,63 +119,83 @@ function CallHistory({ contactId }: { contactId: number }) {
       .then(r => setCalls(r.data ?? []))
       .catch(() => setCalls([]))
       .finally(() => setLoading(false))
-  }, [contactId, refresh])
+  }, [contactId, refreshKey])
 
-  // Expose a way for LogCallForm to trigger a refresh
-  ;(CallHistory as any)._refreshFor = (id: number) => {
-    if (id === contactId) setRefresh(v => v + 1)
-  }
-
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 0', color: 'var(--txt2)', fontSize: 13 }}>
-        <Spinner size={14} color={NAVY} /> Loading…
-      </div>
-    )
-  }
-  if (!calls.length) {
-    return <div style={{ fontSize: 13, color: 'var(--txt3)', padding: '6px 0' }}>No calls logged yet</div>
-  }
+  if (loading) return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '24px 0', color: 'var(--txt2)', fontSize: 13 }}>
+      <Spinner size={14} color={NAVY} /> Loading call history…
+    </div>
+  )
+  if (!calls.length) return (
+    <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt3)', fontSize: 13 }}>
+      No calls logged yet
+    </div>
+  )
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {calls.map(c => (
-        <div key={c.id} style={{
-          padding: '9px 11px', borderRadius: 8,
-          border: '1px solid var(--bdr)', background: 'var(--th-bg)',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-            <DispositionPill disp={c.disposition} size="sm" />
-            <span style={{ fontSize: 11, color: 'var(--txt2)', fontFamily: INTER }}>{fmtDatetime(c.called_at)}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 11.5, color: 'var(--txt)', fontWeight: 500 }}>{c.agent_name}</span>
-            <span style={{ fontSize: 11, color: 'var(--txt2)', fontFamily: INTER }}>{fmtDuration(c.duration_seconds)}</span>
-          </div>
-          {c.notes && (
-            <div
-              title={c.notes}
-              style={{ fontSize: 11.5, color: 'var(--txt2)', marginTop: 4, lineHeight: 1.5,
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-            >
-              {c.notes.slice(0, 60)}{c.notes.length > 60 ? '…' : ''}
+    <div style={{ position: 'relative', paddingLeft: 22 }}>
+      <div style={{ position: 'absolute', left: 6, top: 8, bottom: 8, width: 2, background: 'var(--bdr)' }} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {calls.map((c, i) => (
+          <div key={c.id} style={{ position: 'relative' }}>
+            <div style={{
+              position: 'absolute', left: -18, top: 5,
+              width: 10, height: 10, borderRadius: '50%', boxSizing: 'border-box',
+              background: i === 0 ? NAVY : 'var(--card)',
+              border: `2px solid ${i === 0 ? NAVY : 'var(--bdr)'}`,
+            }} />
+            <div style={{
+              padding: '10px 12px', borderRadius: 8,
+              border: '1px solid var(--bdr)',
+              background: i === 0 ? `${NAVY}06` : 'var(--th-bg)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                <DispositionPill disp={c.disposition} size="sm" />
+                <span style={{ fontSize: 10.5, color: 'var(--txt2)', fontFamily: INTER }}>
+                  {fmtDatetime(c.called_at)}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: 'var(--txt)', fontWeight: 600 }}>{c.agent_name}</span>
+                <span style={{ fontSize: 11, color: 'var(--txt2)', fontFamily: INTER }}>{fmtDuration(c.duration_seconds)}</span>
+              </div>
+              {c.notes && (
+                <div style={{
+                  fontSize: 11.5, color: 'var(--txt2)', marginTop: 6, lineHeight: 1.5,
+                  paddingTop: 6, borderTop: '1px solid var(--bdr)',
+                }}>
+                  {c.notes}
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      ))}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
 
-// ── Log Call form ─────────────────────────────────────────────────────────────
+// ── Log Call Form ─────────────────────────────────────────────────────────────
 
 const DISPOSITIONS = [
-  'Answered-Interested',
-  'Answered-Not Interested',
-  'No Answer',
-  'Wrong Number',
-  'PTP',
-  'Callback',
+  'Answered-Interested', 'Answered-Not Interested',
+  'No Answer', 'Wrong Number', 'PTP', 'Callback',
 ]
+
+const DISP_BTN_COLORS: Record<string, string> = {
+  'Answered-Interested': GREEN,
+  'Answered-Not Interested': RED,
+  'No Answer': 'var(--txt2)',
+  'Wrong Number': PURPLE,
+  'PTP': BLUE,
+  'Callback': AMBER,
+}
+
+const fieldStyle: React.CSSProperties = {
+  width: '100%', padding: '8px 10px',
+  border: '1px solid var(--input-bdr)', borderRadius: 7,
+  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
+  fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
+}
 
 function LogCallForm({ contactId, onDone }: { contactId: number; onDone: () => void }) {
   const [disposition, setDisposition] = useState(DISPOSITIONS[0])
@@ -209,7 +217,7 @@ function LogCallForm({ contactId, onDone }: { contactId: number; onDone: () => v
         body.ptp_amount_kobo = Math.round(parseFloat(ptpAmountNaira || '0') * 100)
       }
       await apiPost(`/api/telemarketing/contacts/${contactId}/log-call`, body)
-      toast.success('Call logged successfully')
+      toast.success('Call logged')
       setNotes('')
       setDisposition(DISPOSITIONS[0])
       setPtpAmountNaira('')
@@ -222,52 +230,50 @@ function LogCallForm({ contactId, onDone }: { contactId: number; onDone: () => v
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <ErrBanner error={err} />
+
+      {/* Outcome buttons */}
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
-          Disposition <span style={{ color: RED }}>*</span>
+        <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.6px', display: 'block', marginBottom: 8 }}>
+          Call Outcome <span style={{ color: RED }}>*</span>
         </label>
-        <select
-          value={disposition}
-          onChange={e => setDisposition(e.target.value)}
-          style={{ ...filterInputStyle, height: 36, width: '100%' }}
-        >
-          {DISPOSITIONS.map(d => <option key={d} value={d}>{d}</option>)}
-        </select>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+          {DISPOSITIONS.map(d => {
+            const on = disposition === d
+            const color = DISP_BTN_COLORS[d] ?? NAVY
+            return (
+              <button key={d} onClick={() => setDisposition(d)} style={{
+                padding: '8px 10px', borderRadius: 7,
+                fontSize: 11.5, fontWeight: 600, textAlign: 'center',
+                border: `1.5px solid ${on ? color : 'var(--bdr)'}`,
+                background: on ? `${color}15` : 'transparent',
+                color: on ? color : 'var(--txt2)',
+                cursor: 'pointer', transition: 'all .12s',
+              }}>{d}</button>
+            )
+          })}
+        </div>
       </div>
+
+      {/* PTP fields */}
       {isPtp && (
-        <>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, padding: '12px', background: `${BLUE}08`, borderRadius: 8, border: `1px solid ${BLUE}20` }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
-              PTP Date
-            </label>
-            <input
-              type="date"
-              value={ptpDate}
-              onChange={e => setPtpDate(e.target.value)}
-              style={{ ...fieldStyle, height: 36 }}
-            />
+            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>PTP Date</label>
+            <input type="date" value={ptpDate} onChange={e => setPtpDate(e.target.value)} style={{ ...fieldStyle, height: 36 }} />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
-              PTP Amount ₦
-            </label>
-            <input
-              type="number"
-              value={ptpAmountNaira}
-              onChange={e => setPtpAmountNaira(e.target.value)}
-              placeholder="e.g. 50000"
-              style={{ ...fieldStyle, height: 36 }}
-            />
+            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>PTP Amount ₦</label>
+            <input type="number" value={ptpAmountNaira} onChange={e => setPtpAmountNaira(e.target.value)} placeholder="50000" style={{ ...fieldStyle, height: 36 }} />
           </div>
-        </>
+        </div>
       )}
+
+      {/* Notes */}
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
-          Notes
-        </label>
-        <textarea
+        <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.6px', display: 'block', marginBottom: 6 }}>Notes</label>
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
           value={notes}
           onChange={e => setNotes(e.target.value)}
           rows={4}
@@ -275,19 +281,23 @@ function LogCallForm({ contactId, onDone }: { contactId: number; onDone: () => v
           style={{ ...fieldStyle, resize: 'vertical' }}
         />
       </div>
+
+      {/* Submit */}
       <button
         onClick={submit}
-        disabled={saving || !disposition}
+        disabled={saving}
         style={{
-          display: 'inline-flex', alignItems: 'center', gap: 7,
-          padding: '7px 15px', background: saving ? `${NAVY}99` : NAVY, color: '#fff',
-          border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
-          cursor: saving || !disposition ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
-          opacity: saving || !disposition ? 0.7 : 1,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          padding: '11px 0', background: saving ? `${NAVY}80` : NAVY,
+          color: '#fff', border: 'none', borderRadius: 8,
+          fontSize: 14, fontWeight: 700,
+          cursor: saving ? 'not-allowed' : 'pointer', width: '100%',
         }}
       >
-        {saving && <Spinner size={13} color="#fff" />}
-        Log Call
+        {saving ? <Spinner size={14} color="#fff" /> : (
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>save</span>
+        )}
+        {saving ? 'Saving…' : 'Log Call'}
       </button>
     </div>
   )
@@ -295,106 +305,215 @@ function LogCallForm({ contactId, onDone }: { contactId: number; onDone: () => v
 
 // ── Detail Panel ──────────────────────────────────────────────────────────────
 
-function DetailPanel({
-  contact,
-  onAction,
-}: {
-  contact: TelemarketingContact
-  onAction: () => void
-}) {
-  const [callHistoryKey, setCallHistoryKey] = useState(0)
+type DetailTab = 'log' | 'history' | 'info'
 
-  function refreshCalls() {
-    setCallHistoryKey(k => k + 1)
+function DetailPanel({ contact, onAction }: { contact: TelemarketingContact; onAction: () => void }) {
+  const navigate = useNavigate()
+  const [tab, setTab] = useState<DetailTab>('log')
+  const [historyKey, setHistoryKey] = useState(0)
+
+  const pColor = priorityColor(contact.priority)
+
+  function afterLog() {
+    setHistoryKey(k => k + 1)
+    setTab('history')
     onAction()
   }
 
+  const tabs: { key: DetailTab; label: string; icon: string }[] = [
+    { key: 'log',     label: 'Log Call',      icon: 'save'    },
+    { key: 'history', label: 'Call History',  icon: 'history' },
+    { key: 'info',    label: 'Customer Info', icon: 'person'  },
+  ]
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto' }}>
-      {/* Customer strip */}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+
+      {/* ── Action header ───────────────────────────────────────────────── */}
       <div style={{
-        padding: '16px 20px',
+        padding: '18px 24px',
         borderBottom: '1px solid var(--bdr)',
-        background: 'var(--th-bg)',
+        background: 'var(--card)',
+        flexShrink: 0,
       }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginBottom: 2 }}>
-          {contact.customer_name}
-        </div>
-        <div style={{ fontSize: 13, color: 'var(--txt)', marginBottom: 2 }}>
-          {contact.phone}
-        </div>
-        {contact.cif && (
-          <div style={{ fontSize: 11.5, color: 'var(--txt2)' }}>CIF: {contact.cif}</div>
-        )}
-        {contact.product_name && (
-          <div style={{ fontSize: 11.5, color: 'var(--txt2)' }}>{contact.product_name}</div>
-        )}
-      </div>
-
-      {/* Relationship summary — only for existing customers */}
-      {contact.is_existing_customer && (
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
-            Relationship
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+          {/* Initials avatar */}
+          <div style={{
+            width: 46, height: 46, borderRadius: '50%', flexShrink: 0,
+            background: `${pColor}1a`, color: pColor,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 16, fontWeight: 800, letterSpacing: '-0.5px',
+          }}>
+            {contact.customer_name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
           </div>
-          <LV label="Loan Outstanding" value={<span style={NUM}>{fmtKobo(contact.outstanding_kobo)}</span>} />
-          <LV label="DPD" value={<DpdBadge dpd={contact.dpd} />} />
-          <LV label="Next Payment" value={fmtDate(contact.next_payment_date)} />
-          <LV label="Loan Product" value={contact.loan_product} />
-        </div>
-      )}
 
-      {/* Call history */}
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Recent Calls
-          </span>
-          <span style={{ fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>last 5</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>
+                {contact.customer_name}
+              </span>
+              <span style={{
+                fontSize: 11, fontWeight: 700, padding: '1px 8px', borderRadius: 99,
+                background: `${pColor}18`, color: pColor,
+              }}>{contact.priority}</span>
+              <DpdBadge dpd={contact.dpd} />
+              {contact.last_disposition && (
+                <DispositionPill disp={contact.last_disposition} size="sm" />
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 14, color: 'var(--txt)', fontFamily: INTER, fontWeight: 600, letterSpacing: '0.3px' }}>
+                {contact.phone}
+              </span>
+              {contact.cif && (
+                <button
+                  onClick={() => navigate(`/contacts/${contact.cif}`)}
+                  style={{ fontSize: 11.5, color: NAVY, background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+                >
+                  CIF: {contact.cif}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Call button */}
+          <a
+            href={`tel:${contact.phone}`}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '9px 16px', background: GREEN, color: '#fff',
+              borderRadius: 8, fontSize: 13, fontWeight: 700,
+              textDecoration: 'none', flexShrink: 0,
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 17 }}>call</span>
+            Call
+          </a>
         </div>
-        <CallHistory key={callHistoryKey} contactId={contact.id} />
+
+        {/* Loan summary strip */}
+        {contact.is_existing_customer && (
+          <div style={{
+            display: 'flex', gap: 0, marginTop: 14,
+            paddingTop: 14, borderTop: '1px solid var(--bdr)',
+          }}>
+            <div style={{ flex: 1, paddingRight: 16, borderRight: '1px solid var(--bdr)' }}>
+              <div style={{ fontSize: 10.5, color: 'var(--txt2)', marginBottom: 3 }}>Outstanding</div>
+              <div style={{ ...NUM, fontSize: 15, fontWeight: 800, color: 'var(--txt)' }}>
+                {fmtKobo(contact.outstanding_kobo)}
+              </div>
+            </div>
+            <div style={{ flex: 1, paddingLeft: 16, paddingRight: 16, borderRight: '1px solid var(--bdr)' }}>
+              <div style={{ fontSize: 10.5, color: 'var(--txt2)', marginBottom: 3 }}>Next Payment</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
+                {fmtDate(contact.next_payment_date) ?? '—'}
+              </div>
+            </div>
+            {contact.loan_product && (
+              <div style={{ flex: 1, paddingLeft: 16 }}>
+                <div style={{ fontSize: 10.5, color: 'var(--txt2)', marginBottom: 3 }}>Product</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
+                  {contact.loan_product}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Log call form */}
-      <div style={{ padding: '16px 20px' }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 }}>
-          Log Call
-        </div>
-        <LogCallForm contactId={contact.id} onDone={refreshCalls} />
+      {/* ── Tabs ────────────────────────────────────────────────────────── */}
+      <div style={{
+        display: 'flex', borderBottom: '1px solid var(--bdr)',
+        background: 'var(--card)', flexShrink: 0, padding: '0 20px',
+      }}>
+        {tabs.map(t => {
+          const on = tab === t.key
+          return (
+            <button key={t.key} onClick={() => setTab(t.key)} style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '10px 12px', fontSize: 12.5,
+              fontWeight: on ? 700 : 500,
+              color: on ? NAVY : 'var(--txt2)',
+              background: 'none', border: 'none', cursor: 'pointer',
+              borderBottom: on ? `2px solid ${NAVY}` : '2px solid transparent',
+              marginBottom: -1,
+            }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{t.icon}</span>
+              {t.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* ── Tab content ─────────────────────────────────────────────────── */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+        {tab === 'log' && (
+          <LogCallForm contactId={contact.id} onDone={afterLog} />
+        )}
+
+        {tab === 'history' && (
+          <CallHistoryTimeline contactId={contact.id} refreshKey={historyKey} />
+        )}
+
+        {tab === 'info' && (
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.7px', marginBottom: 12 }}>
+              Contact Details
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px', marginBottom: 24 }}>
+              <InfoField label="Full Name" value={contact.customer_name} />
+              <InfoField label="Phone" value={<span style={{ fontFamily: INTER }}>{contact.phone}</span>} />
+              <InfoField label="CIF" value={contact.cif} />
+              <InfoField label="Product" value={contact.product_name} />
+              <InfoField label="Last Called" value={contact.last_called_at ? fmtDatetime(contact.last_called_at) : null} />
+              <InfoField label="Last Outcome" value={contact.last_disposition
+                ? <DispositionPill disp={contact.last_disposition} size="sm" />
+                : null}
+              />
+            </div>
+            {contact.is_existing_customer && (
+              <>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.7px', marginBottom: 12 }}>
+                  Loan Summary
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px' }}>
+                  <InfoField label="Outstanding" value={<span style={NUM}>{fmtKobo(contact.outstanding_kobo)}</span>} />
+                  <InfoField label="DPD" value={<DpdBadge dpd={contact.dpd} />} />
+                  <InfoField label="Next Payment" value={fmtDate(contact.next_payment_date)} />
+                  <InfoField label="Loan Product" value={contact.loan_product} />
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
+// ── Filter constants ──────────────────────────────────────────────────────────
+
+const PRIORITY_OPTIONS = ['High', 'Medium', 'Low'] as const
+const DISPOSITION_OPTIONS = [
+  'Answered-Interested', 'Answered-Not Interested',
+  'No Answer', 'Wrong Number', 'PTP', 'Callback',
+] as const
+const DPD_OPTIONS = ['1-30', '31-60', '61-90', '90+'] as const
+
 // ── Main component ────────────────────────────────────────────────────────────
 
-const PRIORITY_OPTIONS = ['All', 'High', 'Medium', 'Low']
-const DISPOSITION_OPTIONS = [
-  'All',
-  'Answered-Interested',
-  'Answered-Not Interested',
-  'No Answer',
-  'Wrong Number',
-  'PTP',
-  'Callback',
-]
-const DPD_OPTIONS = ['All', '1-30', '31-60', '61-90', '90+']
-
 export default function TelemarketingQueue() {
-  const navigate = useNavigate()
   const [items, setItems] = useState<TelemarketingContact[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [selected, setSelected] = useState<TelemarketingContact | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
 
-  // Filters
   const [priority, setPriority] = useState('All')
   const [disposition, setDisposition] = useState('All')
   const [dpd, setDpd] = useState('All')
-  const [agent, setAgent] = useState('')
+  const [search, setSearch] = useState('')
 
-  // Confirm modals
   const [skipConfirm, setSkipConfirm] = useState(false)
   const [skipLoading, setSkipLoading] = useState(false)
 
@@ -405,7 +524,7 @@ export default function TelemarketingQueue() {
     if (priority !== 'All') params.set('priority', priority)
     if (disposition !== 'All') params.set('disposition', disposition)
     if (dpd !== 'All') params.set('dpd', dpd)
-    if (agent) params.set('agent', agent)
+    if (search) params.set('search', search)
     try {
       const res = await apiFetch<{ data: TelemarketingContact[] }>(`/api/telemarketing/queue?${params}`)
       setItems(res.data ?? [])
@@ -414,9 +533,14 @@ export default function TelemarketingQueue() {
     } finally {
       setLoading(false)
     }
-  }, [priority, disposition, dpd, agent])
+  }, [priority, disposition, dpd, search])
 
   useEffect(() => { load() }, [load])
+
+  // Derived stats
+  const highCount = items.filter(i => i.priority === 'High').length
+  const callbackCount = items.filter(i => i.last_disposition === 'Callback').length
+  const anyFilter = priority !== 'All' || disposition !== 'All' || dpd !== 'All' || search !== ''
 
   function toggleCheck(id: number, e: React.MouseEvent) {
     e.stopPropagation()
@@ -432,13 +556,12 @@ export default function TelemarketingQueue() {
   async function handleSkip() {
     setSkipLoading(true)
     try {
-      const ids = [...checkedIds]
-      await apiPost('/api/telemarketing/queue/bulk-skip', { ids })
-      toast.success(`${ids.length} contact(s) skipped`)
+      await apiPost('/api/telemarketing/queue/bulk-skip', { ids: [...checkedIds] })
+      toast.success(`${checkedIds.size} contact(s) skipped`)
       clearChecked()
       load()
     } catch (e: any) {
-      toast.error(e.message ?? 'Failed to skip contacts')
+      toast.error(e.message ?? 'Failed to skip')
     } finally {
       setSkipLoading(false)
       setSkipConfirm(false)
@@ -446,9 +569,8 @@ export default function TelemarketingQueue() {
   }
 
   async function handleExport() {
-    const ids = [...checkedIds]
     try {
-      await apiPost('/api/telemarketing/queue/export', { ids })
+      await apiPost('/api/telemarketing/queue/export', { ids: [...checkedIds] })
       toast.success('Export queued')
     } catch (e: any) {
       toast.error(e.message ?? 'Export failed')
@@ -459,43 +581,43 @@ export default function TelemarketingQueue() {
     <Page title="Outbound Queue" subtitle="Telemarketing call queue" noPad>
       <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
 
-        {/* ── Left panel ─────────────────────────────────────────────────────── */}
+        {/* ── Left panel ─────────────────────────────────────────────────── */}
         <div style={{
-          width: 360, minWidth: 320, maxWidth: 380,
+          width: 380, minWidth: 320, maxWidth: 400,
           borderRight: '1px solid var(--bdr)',
           display: 'flex', flexDirection: 'column',
-          background: 'var(--card)',
-          flexShrink: 0,
+          background: 'var(--card)', flexShrink: 0,
         }}>
-          {/* Title row */}
-          <div style={{
-            padding: '14px 14px 10px',
-            borderBottom: '1px solid var(--bdr)',
-            flexShrink: 0,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)' }}>Outbound Queue</span>
-              <span style={{
-                ...NUM, fontSize: 11, fontWeight: 600,
-                background: 'var(--chip-bg)', color: 'var(--chip-txt)',
-                padding: '1px 7px', borderRadius: 20,
-              }}>
-                {items.length}
-              </span>
+          {/* Header */}
+          <div style={{ padding: '14px 14px 12px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 10 }}>
+              Outbound Queue
+            </div>
+
+            {/* Stats */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+              <StatChip label="Total" value={items.length} color={NAVY} />
+              <StatChip label="High Priority" value={highCount} color={RED} />
+              <StatChip label="Callbacks" value={callbackCount} color={AMBER} />
             </div>
 
             {/* Search */}
-            <TblSearch value={agent} onChange={v => { setAgent(v); setDisposition('All') }}
-              placeholder="Search agent name…" width={0} style={{ marginBottom: 8 }} />
+            <TblSearch
+              value={search}
+              onChange={v => setSearch(v)}
+              placeholder="Search name or phone…"
+              width={0}
+              style={{ marginBottom: 8 }}
+            />
 
             {/* Priority chips */}
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
-              {PRIORITY_OPTIONS.filter(o => o !== 'All').map(o => {
+              {PRIORITY_OPTIONS.map(o => {
                 const on = priority === o
                 const color = o === 'High' ? RED : o === 'Medium' ? AMBER : 'var(--chart-lbl)'
                 return (
                   <button key={o} onClick={() => setPriority(on ? 'All' : o)} style={{
-                    fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 99,
+                    fontSize: 10.5, fontWeight: 600, padding: '2px 9px', borderRadius: 99,
                     border: `1px solid ${on ? color : 'var(--bdr)'}`,
                     background: on ? `${color}18` : 'transparent',
                     color: on ? color : 'var(--txt3)', cursor: 'pointer',
@@ -506,11 +628,11 @@ export default function TelemarketingQueue() {
 
             {/* Disposition chips */}
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
-              {DISPOSITION_OPTIONS.filter(o => o !== 'All').map(o => {
+              {DISPOSITION_OPTIONS.map(o => {
                 const on = disposition === o
                 return (
                   <button key={o} onClick={() => setDisposition(on ? 'All' : o)} style={{
-                    fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 99,
+                    fontSize: 10.5, fontWeight: 600, padding: '2px 9px', borderRadius: 99,
                     border: `1px solid ${on ? NAVY : 'var(--bdr)'}`,
                     background: on ? `${NAVY}12` : 'transparent',
                     color: on ? NAVY : 'var(--txt3)', cursor: 'pointer',
@@ -521,22 +643,26 @@ export default function TelemarketingQueue() {
 
             {/* DPD chips */}
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-              {DPD_OPTIONS.filter(o => o !== 'All').map(o => {
+              {DPD_OPTIONS.map(o => {
                 const on = dpd === o
                 return (
                   <button key={o} onClick={() => setDpd(on ? 'All' : o)} style={{
-                    fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 99,
+                    fontSize: 10.5, fontWeight: 600, padding: '2px 9px', borderRadius: 99,
                     border: `1px solid ${on ? BLUE : 'var(--bdr)'}`,
                     background: on ? `${BLUE}12` : 'transparent',
                     color: on ? BLUE : 'var(--txt3)', cursor: 'pointer',
                   }}>DPD {o}</button>
                 )
               })}
-              {(priority !== 'All' || disposition !== 'All' || dpd !== 'All' || agent) && (
-                <button onClick={() => { setPriority('All'); setDisposition('All'); setDpd('All'); setAgent('') }} style={{
-                  fontSize: 10.5, fontWeight: 500, padding: '2px 8px', borderRadius: 99,
-                  border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt3)', cursor: 'pointer',
-                }}>Clear</button>
+              {anyFilter && (
+                <button
+                  onClick={() => { setPriority('All'); setDisposition('All'); setDpd('All'); setSearch('') }}
+                  style={{
+                    fontSize: 10.5, fontWeight: 500, padding: '2px 9px', borderRadius: 99,
+                    border: '1px solid var(--bdr)', background: 'none',
+                    color: 'var(--txt3)', cursor: 'pointer',
+                  }}
+                >Clear</button>
               )}
             </div>
           </div>
@@ -548,32 +674,12 @@ export default function TelemarketingQueue() {
               padding: '7px 14px', background: '#F0F4FF',
               borderBottom: '1px solid var(--bdr)', flexShrink: 0,
             }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: NAVY }}>
-                {checkedIds.size} selected
-              </span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: NAVY }}>{checkedIds.size} selected</span>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                <button
-                  onClick={() => toast.info('Reassign coming soon')}
-                  style={{ fontSize: 11.5, fontWeight: 500, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: 6, padding: '3px 9px', cursor: 'pointer' }}
-                >
-                  Reassign
-                </button>
-                <button
-                  onClick={() => setSkipConfirm(true)}
-                  style={{ fontSize: 11.5, fontWeight: 500, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: 6, padding: '3px 9px', cursor: 'pointer' }}
-                >
-                  Skip
-                </button>
-                <button
-                  onClick={handleExport}
-                  style={{ fontSize: 11.5, fontWeight: 500, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: 6, padding: '3px 9px', cursor: 'pointer' }}
-                >
-                  Export
-                </button>
-                <button
-                  onClick={clearChecked}
-                  style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)', borderRadius: '50%' }}
-                >
+                <button onClick={() => toast.info('Reassign — coming soon')} style={{ fontSize: 11.5, fontWeight: 500, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: 6, padding: '3px 9px', cursor: 'pointer' }}>Reassign</button>
+                <button onClick={() => setSkipConfirm(true)} style={{ fontSize: 11.5, fontWeight: 500, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: 6, padding: '3px 9px', cursor: 'pointer' }}>Skip</button>
+                <button onClick={handleExport} style={{ fontSize: 11.5, fontWeight: 500, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: 6, padding: '3px 9px', cursor: 'pointer' }}>Export</button>
+                <button onClick={clearChecked} style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)', borderRadius: '50%' }}>
                   <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>
                 </button>
               </div>
@@ -581,13 +687,9 @@ export default function TelemarketingQueue() {
           )}
 
           {/* Error */}
-          {err && (
-            <div style={{ padding: '10px 14px' }}>
-              <ErrBanner error={err} onRetry={load} />
-            </div>
-          )}
+          {err && <div style={{ padding: '10px 14px' }}><ErrBanner error={err} onRetry={load} /></div>}
 
-          {/* List */}
+          {/* Contact list */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {loading ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10, color: 'var(--txt2)', fontSize: 13 }}>
@@ -601,60 +703,57 @@ export default function TelemarketingQueue() {
               items.map(item => {
                 const isSelected = selected?.id === item.id
                 const isChecked = checkedIds.has(item.id)
+                const pColor = priorityColor(item.priority)
                 return (
                   <div
                     key={item.id}
                     onClick={() => setSelected(item)}
                     style={{
-                      padding: '11px 14px',
+                      display: 'flex', alignItems: 'stretch',
                       borderBottom: '1px solid var(--bdr)',
                       cursor: 'pointer',
-                      background: isSelected ? 'rgba(14,40,65,0.06)' : undefined,
-                      display: 'flex', alignItems: 'flex-start', gap: 8,
+                      background: isSelected ? `${NAVY}08` : undefined,
                     }}
                     onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
                     onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = '' }}
                   >
+                    {/* Priority bar */}
+                    <div style={{ width: 3, flexShrink: 0, background: pColor }} />
+
                     {/* Checkbox */}
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onClick={e => toggleCheck(item.id, e)}
-                      onChange={() => {}}
-                      style={{ marginTop: 3, cursor: 'pointer', accentColor: RED, flexShrink: 0 }}
-                    />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      {/* Line 1: name + priority dot */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
-                        <PriorityDot priority={item.priority} />
-                        <span
-                          onClick={item.cif ? (e) => { e.stopPropagation(); navigate(`/contacts/${item.cif}`) } : undefined}
-                          style={{ fontSize: 13, fontWeight: 600, color: item.cif ? NAVY : 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, cursor: item.cif ? 'pointer' : undefined, textDecoration: item.cif ? 'underline' : undefined }}
-                        >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', padding: '12px 8px', flexShrink: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onClick={e => toggleCheck(item.id, e)}
+                        onChange={() => {}}
+                        style={{ marginTop: 2, cursor: 'pointer', accentColor: NAVY, flexShrink: 0 }}
+                      />
+                    </div>
+
+                    {/* Content */}
+                    <div style={{ flex: 1, minWidth: 0, padding: '10px 12px 10px 2px' }}>
+                      {/* Row 1: name + last disposition */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                           {item.customer_name}
                         </span>
-                      </div>
-                      {/* Line 2: phone + CIF */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                        <span style={{ fontSize: 12, color: 'var(--txt)' }}>{item.phone}</span>
-                        {item.cif && (
-                          <span style={{ fontSize: 11, color: 'var(--txt2)' }}>· {item.cif}</span>
+                        {item.last_disposition && (
+                          <DispositionPill disp={item.last_disposition} size="sm" />
                         )}
                       </div>
-                      {/* Line 3: outstanding + DPD badge */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      {/* Row 2: phone + CIF */}
+                      <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginBottom: 4, fontFamily: INTER }}>
+                        {item.phone}{item.cif ? ` · ${item.cif}` : ''}
+                      </div>
+                      {/* Row 3: outstanding + DPD + last called */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ ...NUM, fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>
                           {fmtKobo(item.outstanding_kobo)}
                         </span>
                         <DpdBadge dpd={item.dpd} />
-                      </div>
-                      {/* Right meta: disposition + last called */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                        {item.last_disposition && (
-                          <DispositionPill disp={item.last_disposition} size="sm" />
-                        )}
                         {item.last_called_at && (
-                          <span style={{ fontSize: 10.5, color: 'var(--txt3)', fontFamily: INTER }}>
+                          <span style={{ fontSize: 10.5, color: 'var(--txt3)', fontFamily: INTER, marginLeft: 'auto' }}>
                             {fmtDate(item.last_called_at)}
                           </span>
                         )}
@@ -667,31 +766,20 @@ export default function TelemarketingQueue() {
           </div>
         </div>
 
-        {/* ── Right panel ────────────────────────────────────────────────────── */}
-        <div style={{ flex: 1, minWidth: 0, background: 'var(--bg)', overflow: 'auto' }}>
+        {/* ── Right panel ────────────────────────────────────────────────── */}
+        <div style={{ flex: 1, minWidth: 0, background: 'var(--bg)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {selected ? (
-            <DetailPanel
-              key={selected.id}
-              contact={selected}
-              onAction={load}
-            />
+            <DetailPanel key={selected.id} contact={selected} onAction={load} />
           ) : (
-            <div style={{
-              display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center',
-              height: '100%', gap: 12, color: 'var(--txt2)',
-            }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 48, color: 'var(--txt3)' }}>
-                phone
-              </span>
-              <span style={{ fontSize: 14 }}>Select a contact from the queue</span>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10, color: 'var(--txt2)' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 52, color: 'var(--txt3)' }}>phone_in_talk</span>
+              <span style={{ fontSize: 14 }}>Select a contact to begin calling</span>
             </div>
           )}
         </div>
 
       </div>
 
-      {/* Skip confirm modal */}
       <ConfirmModal
         open={skipConfirm}
         title="Skip Selected Contacts"

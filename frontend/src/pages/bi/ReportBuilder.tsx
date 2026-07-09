@@ -195,7 +195,7 @@ export default function ReportBuilder() {
               <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
                 Description
               </label>
-              <textarea value={description} onChange={e => setDesc(e.target.value)} rows={2}
+              <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={description} onChange={e => setDesc(e.target.value)} rows={2}
                 placeholder="Optional description" style={{ ...inpStyle, width: '100%', boxSizing: 'border-box', resize: 'vertical' }} />
             </div>
 

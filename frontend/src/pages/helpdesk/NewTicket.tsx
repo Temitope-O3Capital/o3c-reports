@@ -107,7 +107,7 @@ function DynamicFields({
           />
         </Field>
         <Field label="Description">
-          <textarea
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
             placeholder="Describe the balance enquiry…"
             rows={3}
             value={custom.description ?? ''}
@@ -193,7 +193,7 @@ function DynamicFields({
           />
         </Field>
         <Field label="Complaint Details">
-          <textarea
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
             placeholder="Describe the loan complaint…"
             rows={3}
             value={custom.complaint_details ?? ''}
@@ -217,7 +217,7 @@ function DynamicFields({
           />
         </Field>
         <Field label="Enquiry Details">
-          <textarea
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
             placeholder="Describe the FD enquiry…"
             rows={3}
             value={custom.enquiry_details ?? ''}
@@ -246,7 +246,7 @@ function DynamicFields({
           </select>
         </Field>
         <Field label="Issue Description">
-          <textarea
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
             placeholder="Describe the technical issue…"
             rows={3}
             value={custom.issue_description ?? ''}
@@ -277,7 +277,7 @@ function DynamicFields({
           </select>
         </Field>
         <Field label="Complaint Details">
-          <textarea
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
             placeholder="Describe the complaint in detail…"
             rows={4}
             value={custom.complaint_details ?? ''}
@@ -291,7 +291,7 @@ function DynamicFields({
 
   return (
     <Field label="Description">
-      <textarea
+      <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
         placeholder="Describe the issue…"
         rows={4}
         value={custom.description ?? ''}
@@ -471,7 +471,7 @@ export default function NewTicketForm({
       {/* Description */}
       <div>
         {sectionHead('Additional Description')}
-        <textarea
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
           placeholder="Any additional context or details…"
           rows={4}
           value={description}

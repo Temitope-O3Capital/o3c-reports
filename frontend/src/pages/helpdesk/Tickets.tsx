@@ -448,7 +448,7 @@ function TicketPanel({
             </button>
           ))}
         </div>
-        <textarea
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
           value={replyText} onChange={e => setReplyText(e.target.value)}
           rows={3} placeholder={isNote ? 'Add an internal note…' : 'Type your reply…'}
           style={{ ...fieldStyle, marginBottom: 8 }}

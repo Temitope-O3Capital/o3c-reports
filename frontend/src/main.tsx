@@ -33,19 +33,26 @@ function isChunkError(e: Error) {
   )
 }
 
+function isDomSyncError(e: Error) {
+  return (
+    e.name === 'NotFoundError' ||
+    /removeChild/.test(e.message) ||
+    /insertBefore/.test(e.message)
+  )
+}
+
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null }
   static getDerivedStateFromError(e: Error) { return { error: e } }
   componentDidCatch(e: Error) {
-    if (isChunkError(e)) {
-      window.location.reload()
-    }
+    if (isChunkError(e)) { window.location.reload() }
   }
   render() {
     if (this.state.error) {
       const e = this.state.error as Error
       if (isChunkError(e)) return null // reloading
       const isDev = import.meta.env.DEV
+      const isTransient = isDomSyncError(e)
       return (
         <div style={{ fontFamily: 'system-ui, sans-serif', padding: 32, background: '#fff', minHeight: '100vh' }}>
           <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: 20, maxWidth: 600 }}>
@@ -53,13 +60,24 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
               Something went wrong
             </p>
             <p style={{ color: '#7f1d1d', fontSize: 14, marginBottom: 12 }}>
-              Please reload the page. If this keeps happening, contact IT support.
+              {isTransient
+                ? 'A browser extension may have interfered with the page. Try again — if this keeps happening, disable extensions or contact IT support.'
+                : 'Please reload the page. If this keeps happening, contact IT support.'}
             </p>
-            <button
-              onClick={() => window.location.reload()}
-              style={{ background: '#0E2841', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}>
-              Reload page
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {isTransient && (
+                <button
+                  onClick={() => this.setState({ error: null })}
+                  style={{ background: '#fff', color: '#0E2841', border: '1px solid #0E2841', borderRadius: 6, padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}>
+                  Try again
+                </button>
+              )}
+              <button
+                onClick={() => window.location.reload()}
+                style={{ background: '#0E2841', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}>
+                Reload page
+              </button>
+            </div>
             {isDev && (
               <details style={{ marginTop: 16 }}>
                 <summary style={{ color: '#991b1b', fontSize: 12, cursor: 'pointer' }}>{e.name}: {e.message}</summary>

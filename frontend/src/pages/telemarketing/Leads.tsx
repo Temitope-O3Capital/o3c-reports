@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Page, ErrBanner, Spinner, TblSearch, filterInputStyle,
+  Page, ErrBanner, Spinner, TblSearch, filterInputStyle, ConfirmModal,
 } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
@@ -29,6 +29,7 @@ interface Lead {
 }
 
 interface TMCampaign { id: number; name: string }
+interface TMAgent    { id: number; full_name: string }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -121,7 +122,7 @@ function DispositionForm({ lead, onDone }: { lead: Lead; onDone: () => void }) {
       </div>
       <div>
         <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>Notes</label>
-        <textarea value={notes} onChange={e => setNotes(e.target.value)}
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)}
           rows={3} placeholder="Call notes…"
           style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', resize: 'none' }} />
       </div>
@@ -153,6 +154,11 @@ function DetailPanel({ lead, onRefresh }: { lead: Lead; onRefresh: () => void })
           {lead.campaign_name && (
             <span style={{ fontSize: 11, background: `${PURPLE}14`, color: PURPLE, padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>
               {lead.campaign_name}
+            </span>
+          )}
+          {lead.agent_name && (
+            <span style={{ fontSize: 11, background: `${NAVY}10`, color: NAVY, padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>
+              {lead.agent_name}
             </span>
           )}
         </div>
@@ -194,6 +200,7 @@ function DetailPanel({ lead, onRefresh }: { lead: Lead; onRefresh: () => void })
 export default function TelemarketingLeads() {
   const [leads, setLeads]         = useState<Lead[]>([])
   const [campaigns, setCampaigns] = useState<TMCampaign[]>([])
+  const [agents, setAgents]       = useState<TMAgent[]>([])
   const [loading, setLoading]     = useState(true)
   const [err, setErr]             = useState<string | null>(null)
   const [selected, setSelected]   = useState<Lead | null>(null)
@@ -203,7 +210,16 @@ export default function TelemarketingLeads() {
   const [status, setStatus]         = useState('')
   const [search, setSearch]         = useState('')
 
-  const load = useCallback(async () => {
+  // Selection
+  const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
+  const [assignAgentId, setAssignAgentId] = useState('')
+
+  // Assign actions
+  const [assigning, setAssigning]       = useState(false)
+  const [distributing, setDistributing] = useState(false)
+  const [distributeConfirm, setDistributeConfirm] = useState(false)
+
+  const load = useCallback(async (refreshSelected?: number) => {
     setLoading(true); setErr(null)
     const p = new URLSearchParams({ limit: '200' })
     if (campaignId) p.set('campaign_id', campaignId)
@@ -211,7 +227,12 @@ export default function TelemarketingLeads() {
     if (search)     p.set('search', search)
     try {
       const res = await apiFetch<Lead[]>(`/api/telemarketing/leads?${p}`)
-      setLeads(Array.isArray(res) ? res : [])
+      const fresh = Array.isArray(res) ? res : []
+      setLeads(fresh)
+      if (refreshSelected !== undefined) {
+        const updated = fresh.find(l => l.id === refreshSelected)
+        setSelected(prev => updated ?? prev)
+      }
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
   }, [campaignId, status, search])
@@ -219,20 +240,78 @@ export default function TelemarketingLeads() {
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    apiFetch<TMCampaign[]>('/api/telemarketing/campaigns').then(r => setCampaigns(Array.isArray(r) ? r : [])).catch(() => {})
+    apiFetch<TMCampaign[]>('/api/telemarketing/campaigns')
+      .then(r => setCampaigns(Array.isArray(r) ? r : [])).catch(() => {})
+    apiFetch<TMAgent[]>('/api/telemarketing/agents')
+      .then(r => setAgents(Array.isArray(r) ? r : [])).catch(() => {})
   }, [])
 
   function handleRefresh() {
-    load()
-    if (selected) {
-      // re-select refreshed lead
-      setSelected(prev => prev ? leads.find(l => l.id === prev.id) ?? prev : null)
+    load(selected?.id)
+  }
+
+  function toggleCheck(id: number, e: React.MouseEvent) {
+    e.stopPropagation()
+    setCheckedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function clearChecked() {
+    setCheckedIds(new Set())
+    setAssignAgentId('')
+  }
+
+  async function handleAssign() {
+    if (!assignAgentId || checkedIds.size === 0) return
+    setAssigning(true)
+    try {
+      const res = await apiPost<{ assigned: number }>('/api/telemarketing/leads/bulk-assign', {
+        lead_ids: [...checkedIds],
+        agent_id: Number(assignAgentId),
+      })
+      const agentName = agents.find(a => a.id === Number(assignAgentId))?.full_name ?? 'agent'
+      toast.success(`${res.assigned} lead(s) assigned to ${agentName}`)
+      clearChecked()
+      load()
+    } catch (ex: any) {
+      toast.error(ex.message ?? 'Assign failed')
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  async function handleDistribute() {
+    setDistributing(true)
+    setDistributeConfirm(false)
+    try {
+      const body: Record<string, any> = {}
+      if (campaignId) body.campaign_id = Number(campaignId)
+      const res = await apiPost<{ distributed: number; breakdown: { agent_name: string; count: number }[] }>(
+        '/api/telemarketing/leads/distribute', body
+      )
+      if (res.distributed === 0) {
+        toast.info('No unassigned pending leads to distribute')
+      } else {
+        const summary = res.breakdown.map(b => `${b.agent_name}: ${b.count}`).join(', ')
+        toast.success(`${res.distributed} leads distributed — ${summary}`)
+        load()
+      }
+    } catch (ex: any) {
+      toast.error(ex.message ?? 'Distribute failed')
+    } finally {
+      setDistributing(false)
     }
   }
 
   const pending   = leads.filter(l => l.status === 'pending').length
   const callbacks = leads.filter(l => l.status === 'callback').length
   const converted = leads.filter(l => l.status === 'converted').length
+  const unassigned = leads.filter(l => !l.assigned_to).length
+
+  const selectedCampaignName = campaigns.find(c => String(c.id) === campaignId)?.name ?? 'All Campaigns'
 
   return (
     <Page title="Marketing Leads" subtitle="Contacts pushed from email & SMS campaigns" noPad>
@@ -242,23 +321,43 @@ export default function TelemarketingLeads() {
         <div style={{ width: 380, minWidth: 320, maxWidth: 420, borderRight: '1px solid var(--bdr)', display: 'flex', flexDirection: 'column', background: 'var(--card)', flexShrink: 0 }}>
           {/* Header */}
           <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
+            {/* Title row */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)' }}>Marketing Leads</span>
+              <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', flex: 1 }}>Marketing Leads</span>
               <span style={{ ...NUM, fontSize: 11, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)', padding: '1px 7px', borderRadius: 20 }}>
                 {leads.length}
               </span>
+              {/* Distribute button */}
+              <button
+                onClick={() => setDistributeConfirm(true)}
+                disabled={distributing || unassigned === 0}
+                title={unassigned === 0 ? 'No unassigned leads' : `Distribute ${unassigned} unassigned lead(s) round-robin`}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  padding: '4px 9px', borderRadius: 7, fontSize: 11.5, fontWeight: 600,
+                  border: `1px solid ${NAVY}30`, background: 'none',
+                  color: unassigned === 0 ? 'var(--txt3)' : NAVY,
+                  cursor: unassigned === 0 ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {distributing ? <Spinner size={12} color={NAVY} /> : (
+                  <span className="material-symbols-rounded" style={{ fontSize: 13 }}>shuffle</span>
+                )}
+                Distribute
+              </button>
             </div>
 
             {/* Mini stats */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
               {[
-                { label: 'Pending',   value: pending,   color: '#6B7280' },
-                { label: 'Callbacks', value: callbacks, color: AMBER },
-                { label: 'Converted', value: converted, color: GREEN },
+                { label: 'Pending',    value: pending,    color: '#6B7280' },
+                { label: 'Callbacks',  value: callbacks,  color: AMBER },
+                { label: 'Converted',  value: converted,  color: GREEN },
+                { label: 'Unassigned', value: unassigned, color: RED },
               ].map(s => (
-                <div key={s.label} style={{ flex: 1, textAlign: 'center', background: 'var(--th-bg)', borderRadius: 8, padding: '6px 4px' }}>
-                  <div style={{ ...NUM, fontSize: 15, fontWeight: 700, color: s.color }}>{s.value}</div>
-                  <div style={{ fontSize: 10, color: 'var(--txt3)' }}>{s.label}</div>
+                <div key={s.label} style={{ flex: 1, textAlign: 'center', background: 'var(--th-bg)', borderRadius: 8, padding: '6px 2px' }}>
+                  <div style={{ ...NUM, fontSize: 14, fontWeight: 700, color: s.color }}>{s.value}</div>
+                  <div style={{ fontSize: 9.5, color: 'var(--txt3)' }}>{s.label}</div>
                 </div>
               ))}
             </div>
@@ -267,7 +366,7 @@ export default function TelemarketingLeads() {
             <TblSearch value={search} onChange={setSearch}
               placeholder="Search name, phone…" width={0} style={{ marginBottom: 8 }} />
 
-            {/* Campaign dropdown (dynamic — stays as select) */}
+            {/* Campaign dropdown */}
             {campaigns.length > 0 && (
               <select value={campaignId} onChange={e => setCampaignId(e.target.value)}
                 style={{ width: '100%', marginBottom: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', outline: 'none' }}>
@@ -305,6 +404,47 @@ export default function TelemarketingLeads() {
             </div>
           </div>
 
+          {/* Batch bar */}
+          {checkedIds.size > 0 && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 10px', background: '#F0F4FF',
+              borderBottom: '1px solid var(--bdr)', flexShrink: 0,
+            }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: NAVY, whiteSpace: 'nowrap' }}>
+                {checkedIds.size} selected
+              </span>
+              <select
+                value={assignAgentId}
+                onChange={e => setAssignAgentId(e.target.value)}
+                style={{ flex: 1, padding: '4px 8px', borderRadius: 6, border: `1px solid ${NAVY}30`, background: 'var(--input-bg)', fontSize: 12, color: 'var(--txt)', outline: 'none', minWidth: 0 }}
+              >
+                <option value="">Assign to…</option>
+                {agents.map(a => <option key={a.id} value={String(a.id)}>{a.full_name}</option>)}
+              </select>
+              <button
+                onClick={handleAssign}
+                disabled={!assignAgentId || assigning}
+                style={{
+                  padding: '4px 10px', borderRadius: 6, border: 'none',
+                  background: !assignAgentId || assigning ? `${NAVY}40` : NAVY,
+                  color: '#fff', fontSize: 12, fontWeight: 600,
+                  cursor: !assignAgentId || assigning ? 'not-allowed' : 'pointer',
+                  whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5,
+                }}
+              >
+                {assigning && <Spinner size={11} color="#fff" />}
+                Assign
+              </button>
+              <button
+                onClick={clearChecked}
+                style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)', borderRadius: '50%', flexShrink: 0 }}
+              >
+                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>
+              </button>
+            </div>
+          )}
+
           {err && <div style={{ padding: '8px 14px' }}><ErrBanner error={err} onRetry={load} /></div>}
 
           {/* Lead list */}
@@ -319,35 +459,64 @@ export default function TelemarketingLeads() {
               </div>
             ) : leads.map(lead => {
               const isSelected = selected?.id === lead.id
+              const isChecked  = checkedIds.has(lead.id)
               const oc = OUTCOME_COLOR[lead.last_outcome ?? ''] ?? '#6B7280'
               return (
                 <div
                   key={lead.id}
                   onClick={() => setSelected(lead)}
                   style={{
-                    padding: '11px 14px', borderBottom: '1px solid var(--bdr)',
-                    cursor: 'pointer',
-                    background: isSelected ? 'rgba(14,40,65,0.06)' : undefined,
+                    display: 'flex', alignItems: 'flex-start', gap: 0,
+                    borderBottom: '1px solid var(--bdr)', cursor: 'pointer',
+                    background: isSelected ? `${NAVY}08` : undefined,
                   }}
                   onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
                   onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = '' }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{lead.customer_name}</span>
-                    <StatusPill status={lead.status} />
+                  {/* Checkbox */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', padding: '12px 8px', flexShrink: 0 }}>
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onClick={e => toggleCheck(lead.id, e)}
+                      onChange={() => {}}
+                      style={{ marginTop: 1, cursor: 'pointer', accentColor: NAVY }}
+                    />
                   </div>
-                  {lead.customer_phone && (
-                    <div style={{ fontSize: 12, color: NAVY, fontWeight: 500, marginBottom: 3 }}>{lead.customer_phone}</div>
-                  )}
-                  {lead.campaign_name && (
-                    <div style={{ fontSize: 11, color: PURPLE, marginBottom: 3 }}>{lead.campaign_name}</div>
-                  )}
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    {lead.last_outcome && (
-                      <span style={{ fontSize: 10.5, color: oc, fontWeight: 600 }}>{lead.last_outcome.replace(/_/g, ' ')}</span>
+
+                  {/* Content */}
+                  <div style={{ flex: 1, minWidth: 0, padding: '10px 12px 10px 2px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, marginRight: 6 }}>
+                        {lead.customer_name}
+                      </span>
+                      <StatusPill status={lead.status} />
+                    </div>
+                    {lead.customer_phone && (
+                      <div style={{ fontSize: 12, color: NAVY, fontWeight: 500, marginBottom: 3, fontFamily: INTER }}>{lead.customer_phone}</div>
                     )}
-                    {lead.last_called_at && (
-                      <span style={{ fontSize: 10.5, color: 'var(--txt3)' }}>{fmtDatetime(lead.last_called_at)}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      {lead.campaign_name && (
+                        <span style={{ fontSize: 10.5, color: PURPLE }}>{lead.campaign_name}</span>
+                      )}
+                      {lead.agent_name ? (
+                        <span style={{ fontSize: 10.5, color: NAVY, fontWeight: 600 }}>
+                          <span className="material-symbols-rounded" style={{ fontSize: 11, verticalAlign: 'middle' }}>person</span>
+                          {' '}{lead.agent_name}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 10.5, color: 'var(--txt3)', fontStyle: 'italic' }}>unassigned</span>
+                      )}
+                    </div>
+                    {(lead.last_outcome || lead.last_called_at) && (
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 3 }}>
+                        {lead.last_outcome && (
+                          <span style={{ fontSize: 10.5, color: oc, fontWeight: 600 }}>{lead.last_outcome.replace(/_/g, ' ')}</span>
+                        )}
+                        {lead.last_called_at && (
+                          <span style={{ fontSize: 10.5, color: 'var(--txt3)' }}>{fmtDatetime(lead.last_called_at)}</span>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -368,6 +537,17 @@ export default function TelemarketingLeads() {
           )}
         </div>
       </div>
+
+      {/* Distribute confirm modal */}
+      <ConfirmModal
+        open={distributeConfirm}
+        title="Distribute Leads Round-Robin"
+        body={`Assign all ${unassigned} unassigned pending lead(s) from "${selectedCampaignName}" evenly across your telemarketing agents?`}
+        confirmLabel="Distribute"
+        loading={distributing}
+        onConfirm={handleDistribute}
+        onClose={() => setDistributeConfirm(false)}
+      />
     </Page>
   )
 }

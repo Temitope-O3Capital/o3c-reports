@@ -347,7 +347,7 @@ export default function CampaignTemplateEditor() {
             {/* Textarea */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5 }}>MESSAGE BODY</div>
-              <textarea
+              <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
                 ref={textareaRef}
                 value={form.sms_body}
                 onChange={e => setForm(f => ({ ...f, sms_body: e.target.value }))}

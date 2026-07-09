@@ -396,7 +396,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
             </div>
             <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{activePhone}</div>
             {activeTicketId && (
-              <button onClick={() => navigate(`/helpdesk/tickets/${activeTicketId}`)} style={{ marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
+              <button onClick={() => navigate(`/helpdesk/${activeTicketId}`)} style={{ marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
                 View ticket #{activeTicketId}
               </button>
             )}
@@ -411,7 +411,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
                 <span className="material-symbols-rounded" style={{ fontSize: 22 }}>call_end</span>
               </button>
               {activeTicketId ? (
-                <button onClick={() => navigate(`/helpdesk/tickets/${activeTicketId}`)} title="View ticket" style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.09)', color: 'rgba(255,255,255,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <button onClick={() => navigate(`/helpdesk/${activeTicketId}`)} title="View ticket" style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.09)', color: 'rgba(255,255,255,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <span className="material-symbols-rounded" style={{ fontSize: 18 }}>open_in_new</span>
                 </button>
               ) : <div style={{ width: 40 }} />}

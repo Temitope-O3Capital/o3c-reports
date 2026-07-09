@@ -377,7 +377,7 @@ export default function SOC2() {
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Description</label>
-            <textarea style={{ ...inp, marginTop: 4, resize: 'vertical', minHeight: 80 }} value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="What this control does…" />
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...inp, marginTop: 4, resize: 'vertical', minHeight: 80 }} value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="What this control does…" />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>

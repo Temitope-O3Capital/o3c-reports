@@ -135,7 +135,7 @@ function CreateModal({ open, onClose, onDone }: {
 
         <div>
           <label style={labelStyle}>Notes</label>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} rows={3}
             placeholder="Additional notes…" style={{ ...fieldStyle, resize: 'vertical' }} />
         </div>
 

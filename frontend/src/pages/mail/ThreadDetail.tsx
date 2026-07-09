@@ -390,7 +390,7 @@ export default function MailThreadDetail() {
                     />
                   </div>
                 )}
-                <textarea
+                <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
                   ref={replyRef}
                   value={replyBody}
                   onChange={e => setReplyBody(e.target.value)}

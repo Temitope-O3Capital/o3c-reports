@@ -95,7 +95,7 @@ function CallCard({
               </button>
             ))}
           </div>
-          <textarea
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
             value={notes} onChange={e => setNotes(e.target.value)}
             placeholder="Optional notes about this call…"
             rows={2}

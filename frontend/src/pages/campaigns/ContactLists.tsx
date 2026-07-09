@@ -577,7 +577,7 @@ export default function ContactLists() {
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
               Description (optional)
             </label>
-            <textarea
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={desc}
               onChange={e => setDesc(e.target.value)}
               rows={3}
