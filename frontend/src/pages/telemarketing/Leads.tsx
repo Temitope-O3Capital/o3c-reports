@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Page, FilterBar, ErrBanner, Spinner, filterInputStyle, SearchInput,
+  Page, ErrBanner, Spinner, TblSearch, filterInputStyle,
 } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
@@ -263,27 +263,46 @@ export default function TelemarketingLeads() {
               ))}
             </div>
 
-            <FilterBar onReset={() => { setCampaignId(''); setStatus(''); setSearch('') }}>
-              <select value={campaignId} onChange={e => setCampaignId(e.target.value)} style={{ ...filterInputStyle, flex: 1 }}>
+            {/* Search */}
+            <TblSearch value={search} onChange={setSearch}
+              placeholder="Search name, phone…" width={0} style={{ marginBottom: 8 }} />
+
+            {/* Campaign dropdown (dynamic — stays as select) */}
+            {campaigns.length > 0 && (
+              <select value={campaignId} onChange={e => setCampaignId(e.target.value)}
+                style={{ width: '100%', marginBottom: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', outline: 'none' }}>
                 <option value="">All Campaigns</option>
                 {campaigns.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
               </select>
-              <select value={status} onChange={e => setStatus(e.target.value)} style={{ ...filterInputStyle, flex: 1 }}>
-                <option value="">All Status</option>
-                <option value="pending">Pending</option>
-                <option value="called">Called</option>
-                <option value="callback">Callback</option>
-                <option value="no_answer">No Answer</option>
-                <option value="converted">Converted</option>
-                <option value="dnc">DNC</option>
-              </select>
-              <SearchInput
-                placeholder="Search name, phone…"
-                value={search}
-                onChange={setSearch}
-                style={{ flex: 1, minWidth: 0 }}
-              />
-            </FilterBar>
+            )}
+
+            {/* Status chips */}
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {[
+                { value: 'pending',   label: 'Pending',   color: '#6B7280' },
+                { value: 'called',    label: 'Called',    color: BLUE },
+                { value: 'callback',  label: 'Callback',  color: AMBER },
+                { value: 'no_answer', label: 'No Answer', color: RED },
+                { value: 'converted', label: 'Converted', color: GREEN },
+                { value: 'dnc',       label: 'DNC',       color: PURPLE },
+              ].map(({ value, label, color }) => {
+                const on = status === value
+                return (
+                  <button key={value} onClick={() => setStatus(on ? '' : value)} style={{
+                    fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 99,
+                    border: `1px solid ${on ? color : 'var(--bdr)'}`,
+                    background: on ? `${color}18` : 'transparent',
+                    color: on ? color : 'var(--txt3)', cursor: 'pointer',
+                  }}>{label}</button>
+                )
+              })}
+              {(status || search || campaignId) && (
+                <button onClick={() => { setStatus(''); setSearch(''); setCampaignId('') }} style={{
+                  fontSize: 10.5, fontWeight: 500, padding: '2px 8px', borderRadius: 99,
+                  border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt3)', cursor: 'pointer',
+                }}>Clear</button>
+              )}
+            </div>
           </div>
 
           {err && <div style={{ padding: '8px 14px' }}><ErrBanner error={err} onRetry={load} /></div>}

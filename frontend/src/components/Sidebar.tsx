@@ -114,7 +114,6 @@ const SECTIONS: Section[] = [
           'compliance_officer',
         ],
         subs: [
-          { label: 'New Ticket',       to: '/helpdesk/new' },
           { label: 'All Tickets',      to: '/helpdesk/tickets' },
           { label: 'Call Log',         to: '/helpdesk/calls' },
           { label: 'Supervisor',       to: '/helpdesk/supervisor' },

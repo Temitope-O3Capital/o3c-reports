@@ -105,7 +105,6 @@ const HelpdeskCalls       = lazy(() => import('./pages/helpdesk/Calls'))
 const HelpdeskStats       = lazy(() => import('./pages/helpdesk/Stats'))
 const HelpdeskKB          = lazy(() => import('./pages/helpdesk/KnowledgeBase'))
 const HelpdeskCanned      = lazy(() => import('./pages/helpdesk/Canned'))
-const HelpdeskNewTicket   = lazy(() => import('./pages/helpdesk/NewTicket'))
 const HelpdeskCBNReport   = lazy(() => import('./pages/helpdesk/CBNReport'))
 
 // Cards
@@ -334,12 +333,6 @@ function HeadTitles() {
   )
 }
 
-
-// Wraps the modal-shaped NewTicket form for standalone page routing
-function NewTicketPage() {
-  const nav = useNavigate()
-  return <HelpdeskNewTicket onClose={() => nav(-1)} onCreated={id => nav(`/helpdesk/${id}`)} />
-}
 
 // ── TopBar icon button ─────────────────────────────────────────────────────────
 
@@ -870,11 +863,11 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/approvals" element={<PageErrorBoundary><ApprovalsPage /></PageErrorBoundary>} />
 
                   {/* Sales & BD */}
-                  <Route path="/bd"             element={<PageErrorBoundary><BDOverview /></PageErrorBoundary>} />
-                  <Route path="/bd/leads"       element={<PageErrorBoundary><BDPipeline /></PageErrorBoundary>} />
-                  <Route path="/bd/pipeline"    element={<PageErrorBoundary><BDPipeline /></PageErrorBoundary>} />
-                  <Route path="/bd/employers"   element={<PageErrorBoundary><BDEmployers /></PageErrorBoundary>} />
-                  <Route path="/bd/analytics"   element={<PageErrorBoundary><BDAnalytics /></PageErrorBoundary>} />
+                  <Route path="/bd"             element={<RequireAccess page="bd" user={user}><PageErrorBoundary><BDOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/bd/leads"       element={<RequireAccess page="bd" user={user}><PageErrorBoundary><BDPipeline /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/bd/pipeline"    element={<RequireAccess page="bd_pipeline" user={user}><PageErrorBoundary><BDPipeline /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/bd/employers"   element={<RequireAccess page="bd_employers" user={user}><PageErrorBoundary><BDEmployers /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/bd/analytics"   element={<RequireAccess page="bd" user={user}><PageErrorBoundary><BDAnalytics /></PageErrorBoundary></RequireAccess>} />
 
                   <Route path="/campaigns"            element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignsList /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/campaigns/templates"          element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignTemplates /></PageErrorBoundary></RequireAccess>} />
@@ -885,166 +878,165 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/campaigns/:id/edit"   element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignEditor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/campaigns/:id/report" element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignReport /></PageErrorBoundary></RequireAccess>} />
 
-                  <Route path="/sales"           element={<PageErrorBoundary><SalesOverview /></PageErrorBoundary>} />
-                  <Route path="/sales/cohort"    element={<PageErrorBoundary><SalesCohort /></PageErrorBoundary>} />
-                  <Route path="/sales/reports"   element={<PageErrorBoundary><SalesReports /></PageErrorBoundary>} />
-                  <Route path="/sales/targets"   element={<PageErrorBoundary><SalesTargets /></PageErrorBoundary>} />
-                  <Route path="/sales/customers"     element={<PageErrorBoundary><CRMContacts /></PageErrorBoundary>} />
-                  <Route path="/sales/customers/:id" element={<PageErrorBoundary><CRMContactDetail /></PageErrorBoundary>} />
-                  <Route path="/contacts/:id"        element={<PageErrorBoundary><ContactProfile /></PageErrorBoundary>} />
-                  <Route path="/sales/crm"           element={<PageErrorBoundary><CRMPipelinePg /></PageErrorBoundary>} />
-                  <Route path="/sales/tasks"         element={<PageErrorBoundary><CRMTasks /></PageErrorBoundary>} />
+                  <Route path="/sales"           element={<RequireAccess page="sales" user={user}><PageErrorBoundary><SalesOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/cohort"    element={<RequireAccess page="cohort" user={user}><PageErrorBoundary><SalesCohort /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/reports"   element={<RequireAccess page="crm_reports" user={user}><PageErrorBoundary><SalesReports /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/targets"   element={<RequireAccess page="sales" user={user}><PageErrorBoundary><SalesTargets /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/customers"     element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><CRMContacts /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/customers/:id" element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><CRMContactDetail /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/contacts/:id"        element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><ContactProfile /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/crm"           element={<RequireAccess page="crm_pipeline" user={user}><PageErrorBoundary><CRMPipelinePg /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/tasks"         element={<RequireAccess page="crm_tasks" user={user}><PageErrorBoundary><CRMTasks /></PageErrorBoundary></RequireAccess>} />
 
-                  <Route path="/sales/applications"     element={<PageErrorBoundary><LOSQueue /></PageErrorBoundary>} />
-                  <Route path="/sales/applications/new" element={<PageErrorBoundary><LOSNewApp /></PageErrorBoundary>} />
-                  <Route path="/sales/applications/:id" element={<PageErrorBoundary><LOSAppDetail /></PageErrorBoundary>} />
+                  <Route path="/sales/applications"     element={<RequireAccess page="loans" user={user}><PageErrorBoundary><LOSQueue /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/applications/new" element={<RequireAccess page="loans" user={user}><PageErrorBoundary><LOSNewApp /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/applications/:id" element={<RequireAccess page="loans" user={user}><PageErrorBoundary><LOSAppDetail /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Marketing */}
-                  <Route path="/marketing/attribution" element={<PageErrorBoundary><MarketingAttribution /></PageErrorBoundary>} />
-                  <Route path="/marketing/funnel"      element={<PageErrorBoundary><MarketingFunnel /></PageErrorBoundary>} />
+                  <Route path="/marketing/attribution" element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><MarketingAttribution /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/marketing/funnel"      element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><MarketingFunnel /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Contact Centre */}
-                  <Route path="/telemarketing"             element={<PageErrorBoundary><TelemarketingQueue /></PageErrorBoundary>} />
-                  <Route path="/telemarketing/queue"       element={<PageErrorBoundary><TelemarketingQueue /></PageErrorBoundary>} />
-                  <Route path="/telemarketing/leads"       element={<PageErrorBoundary><TelemarketingLeads /></PageErrorBoundary>} />
-                  <Route path="/telemarketing/dnc"         element={<PageErrorBoundary><TelemarketingDNC /></PageErrorBoundary>} />
-                  <Route path="/telemarketing/performance"        element={<PageErrorBoundary><TelemarketingPerformance /></PageErrorBoundary>} />
-                  <Route path="/telemarketing/dialer"            element={<PageErrorBoundary><DialerCampaigns /></PageErrorBoundary>} />
-                  <Route path="/telemarketing/dialer/agent"      element={<PageErrorBoundary><DialerAgent /></PageErrorBoundary>} />
-                  <Route path="/telemarketing/dialer/supervisor" element={<PageErrorBoundary><DialerSupervisor /></PageErrorBoundary>} />
+                  <Route path="/telemarketing"             element={<RequireAccess page="telemarketing" user={user}><PageErrorBoundary><TelemarketingQueue /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/telemarketing/queue"       element={<RequireAccess page="telemarketing" user={user}><PageErrorBoundary><TelemarketingQueue /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/telemarketing/leads"       element={<RequireAccess page="telemarketing" user={user}><PageErrorBoundary><TelemarketingLeads /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/telemarketing/dnc"         element={<RequireAccess page="telemarketing" user={user}><PageErrorBoundary><TelemarketingDNC /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/telemarketing/performance"        element={<RequireAccess page="telemarketing_stats" user={user}><PageErrorBoundary><TelemarketingPerformance /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/telemarketing/dialer"            element={<RequireAccess page="telemarketing" user={user}><PageErrorBoundary><DialerCampaigns /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/telemarketing/dialer/agent"      element={<RequireAccess page="telemarketing" user={user}><PageErrorBoundary><DialerAgent /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/telemarketing/dialer/supervisor" element={<RequireAccess page="telemarketing_stats" user={user}><PageErrorBoundary><DialerSupervisor /></PageErrorBoundary></RequireAccess>} />
 
-                  <Route path="/helpdesk"                element={<PageErrorBoundary><HelpdeskTickets /></PageErrorBoundary>} />
-                  <Route path="/helpdesk/tickets"        element={<PageErrorBoundary><HelpdeskTickets /></PageErrorBoundary>} />
-                  <Route path="/helpdesk/calls"          element={<PageErrorBoundary><HelpdeskCalls /></PageErrorBoundary>} />
-                  <Route path="/helpdesk/supervisor"     element={<PageErrorBoundary><HelpdeskSupervisor /></PageErrorBoundary>} />
-                  <Route path="/helpdesk/stats"          element={<PageErrorBoundary><HelpdeskStats /></PageErrorBoundary>} />
-                  <Route path="/helpdesk/knowledge-base" element={<PageErrorBoundary><HelpdeskKB /></PageErrorBoundary>} />
-                  <Route path="/helpdesk/canned"         element={<PageErrorBoundary><HelpdeskCanned /></PageErrorBoundary>} />
-                  <Route path="/helpdesk/cbn-report"     element={<PageErrorBoundary><HelpdeskCBNReport /></PageErrorBoundary>} />
-                  <Route path="/helpdesk/new"            element={<PageErrorBoundary><NewTicketPage /></PageErrorBoundary>} />
-                  <Route path="/helpdesk/:id"            element={<PageErrorBoundary><HelpdeskTicketDetail /></PageErrorBoundary>} />
+                  <Route path="/helpdesk"                element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskTickets /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/helpdesk/tickets"        element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskTickets /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/helpdesk/calls"          element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskCalls /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/helpdesk/supervisor"     element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskSupervisor /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/helpdesk/stats"          element={<RequireAccess page="helpdesk_stats" user={user}><PageErrorBoundary><HelpdeskStats /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/helpdesk/knowledge-base" element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskKB /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/helpdesk/canned"         element={<RequireAccess page="helpdesk_canned" user={user}><PageErrorBoundary><HelpdeskCanned /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/helpdesk/cbn-report"     element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskCBNReport /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/helpdesk/:id"            element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskTicketDetail /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Cards */}
-                  <Route path="/cards"              element={<PageErrorBoundary><CardsOverview /></PageErrorBoundary>} />
-                  <Route path="/cards/management"   element={<PageErrorBoundary><CardsMgmt /></PageErrorBoundary>} />
-                  <Route path="/cards/issuance"     element={<PageErrorBoundary><CardsIssuance /></PageErrorBoundary>} />
-                  <Route path="/cards/disputes"     element={<PageErrorBoundary><CardsDisputes /></PageErrorBoundary>} />
-                  <Route path="/cards/credit-limit" element={<PageErrorBoundary><CardsCreditLimit /></PageErrorBoundary>} />
-                  <Route path="/cards/billing"      element={<PageErrorBoundary><CardsBilling /></PageErrorBoundary>} />
+                  <Route path="/cards"              element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/cards/management"   element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsMgmt /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/cards/issuance"     element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsIssuance /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/cards/disputes"     element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsDisputes /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/cards/credit-limit" element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsCreditLimit /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/cards/billing"      element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsBilling /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Operations — Risk */}
-                  <Route path="/operations/risk"              element={<PageErrorBoundary><RiskAppReview /></PageErrorBoundary>} />
-                  <Route path="/operations/risk/applications" element={<PageErrorBoundary><RiskAppReview /></PageErrorBoundary>} />
-                  <Route path="/operations/risk/portfolio"    element={<PageErrorBoundary><RiskPortfolio /></PageErrorBoundary>} />
-                  <Route path="/operations/risk/eye"          element={<PageErrorBoundary><RiskEyeScore /></PageErrorBoundary>} />
-                  <Route path="/operations/risk/vintage"      element={<PageErrorBoundary><RiskVintage /></PageErrorBoundary>} />
-                  <Route path="/operations/risk/credit-file"  element={<PageErrorBoundary><RiskCreditFile /></PageErrorBoundary>} />
+                  <Route path="/operations/risk"              element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskAppReview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk/applications" element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskAppReview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk/portfolio"    element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskPortfolio /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk/eye"          element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskEyeScore /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk/vintage"      element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskVintage /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk/credit-file"  element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskCreditFile /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Collections */}
-                  <Route path="/collections"                 element={<PageErrorBoundary><CollectionsOverview /></PageErrorBoundary>} />
-                  <Route path="/collections/queue"           element={<PageErrorBoundary><CollectionsQueue /></PageErrorBoundary>} />
-                  <Route path="/collections/promises"        element={<PageErrorBoundary><CollectionsPromises /></PageErrorBoundary>} />
-                  <Route path="/collections/repayment-plans" element={<PageErrorBoundary><CollectionsPlans /></PageErrorBoundary>} />
-                  <Route path="/collections/writeoffs"       element={<PageErrorBoundary><CollectionsWriteoffs /></PageErrorBoundary>} />
+                  <Route path="/collections"                 element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/queue"           element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsQueue /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/promises"        element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPromises /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/repayment-plans" element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPlans /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/writeoffs"       element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsWriteoffs /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Recovery */}
-                  <Route path="/recovery"            element={<PageErrorBoundary><RecoveryOverview /></PageErrorBoundary>} />
-                  <Route path="/recovery/cases"      element={<PageErrorBoundary><RecoveryCases /></PageErrorBoundary>} />
-                  <Route path="/recovery/legal"      element={<PageErrorBoundary><RecoveryLegal /></PageErrorBoundary>} />
-                  <Route path="/recovery/tpa"        element={<PageErrorBoundary><RecoveryTPA /></PageErrorBoundary>} />
-                  <Route path="/recovery/debt-sales" element={<PageErrorBoundary><RecoveryDebtSale /></PageErrorBoundary>} />
+                  <Route path="/recovery"            element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/recovery/cases"      element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryCases /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/recovery/legal"      element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryLegal /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/recovery/tpa"        element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryTPA /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/recovery/debt-sales" element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryDebtSale /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Collections Ops */}
-                  <Route path="/collections-ops/agent" element={<PageErrorBoundary><CollOpsAgentDash /></PageErrorBoundary>} />
+                  <Route path="/collections-ops/agent" element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollOpsAgentDash /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Settlements */}
-                  <Route path="/settlements"                          element={<PageErrorBoundary><SettleOverview /></PageErrorBoundary>} />
-                  <Route path="/settlements/batches"                  element={<PageErrorBoundary><SettleBatches /></PageErrorBoundary>} />
-                  <Route path="/settlements/nip"                      element={<PageErrorBoundary><SettleNIP /></PageErrorBoundary>} />
-                  <Route path="/settlements/nip-recon"                element={<PageErrorBoundary><SettleNIPRecon /></PageErrorBoundary>} />
-                  <Route path="/settlements/reconciliation"           element={<PageErrorBoundary><SettleRecon /></PageErrorBoundary>} />
-                  <Route path="/settlements/failed"                   element={<PageErrorBoundary><SettleFailed /></PageErrorBoundary>} />
-                  <Route path="/settlements/manual-postings"          element={<PageErrorBoundary><SettleManualPost /></PageErrorBoundary>} />
+                  <Route path="/settlements"                          element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/settlements/batches"                  element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleBatches /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/settlements/nip"                      element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleNIP /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/settlements/nip-recon"                element={<RequireAccess page="reconciliation" user={user}><PageErrorBoundary><SettleNIPRecon /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/settlements/reconciliation"           element={<RequireAccess page="reconciliation" user={user}><PageErrorBoundary><SettleRecon /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/settlements/failed"                   element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleFailed /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/settlements/manual-postings"          element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleManualPost /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Finance */}
-                  <Route path="/finance"                    element={<PageErrorBoundary><FinanceOverview /></PageErrorBoundary>} />
-                  <Route path="/finance/transactions"       element={<PageErrorBoundary><FinanceTxns /></PageErrorBoundary>} />
-                  <Route path="/finance/income"             element={<PageErrorBoundary><FinanceIncome /></PageErrorBoundary>} />
-                  <Route path="/finance/fixed-deposit"      element={<PageErrorBoundary><FinanceFD /></PageErrorBoundary>} />
-                  <Route path="/finance/eod"                element={<PageErrorBoundary><FinanceEOD /></PageErrorBoundary>} />
-                  <Route path="/finance/pnl"                element={<PageErrorBoundary><FinancePnL /></PageErrorBoundary>} />
-                  <Route path="/finance/manual-postings"    element={<PageErrorBoundary><FinanceManualPost /></PageErrorBoundary>} />
-                  <Route path="/finance/gl-accounts"        element={<PageErrorBoundary><FinanceCoA /></PageErrorBoundary>} />
-                  <Route path="/finance/fd-maturity"        element={<PageErrorBoundary><FinanceFDMaturity /></PageErrorBoundary>} />
-                  <Route path="/finance/costs"              element={<PageErrorBoundary><FinanceCosts /></PageErrorBoundary>} />
-                  <Route path="/finance/budget"             element={<PageErrorBoundary><FinanceBudget /></PageErrorBoundary>} />
+                  <Route path="/finance"                    element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/transactions"       element={<RequireAccess page="transactions" user={user}><PageErrorBoundary><FinanceTxns /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/income"             element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceIncome /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/fixed-deposit"      element={<RequireAccess page="fixed_deposit" user={user}><PageErrorBoundary><FinanceFD /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/eod"                element={<RequireAccess page="eod" user={user}><PageErrorBoundary><FinanceEOD /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/pnl"                element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinancePnL /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/manual-postings"    element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceManualPost /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/gl-accounts"        element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceCoA /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/fd-maturity"        element={<RequireAccess page="fixed_deposit" user={user}><PageErrorBoundary><FinanceFDMaturity /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/costs"              element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceCosts /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/budget"             element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceBudget /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Compliance */}
-                  <Route path="/compliance"             element={<Navigate to="/compliance/watchlist" replace />} />
-                  <Route path="/compliance/watchlist"   element={<PageErrorBoundary><ComplianceWatchlist /></PageErrorBoundary>} />
-                  <Route path="/compliance/regulatory"  element={<PageErrorBoundary><ComplianceRegCalendar /></PageErrorBoundary>} />
-                  <Route path="/compliance/findings"    element={<PageErrorBoundary><ComplianceFindings /></PageErrorBoundary>} />
-                  <Route path="/compliance/checklists"  element={<PageErrorBoundary><ComplianceChecklists /></PageErrorBoundary>} />
-                  <Route path="/compliance/audit-trail" element={<PageErrorBoundary><ComplianceAuditTrail /></PageErrorBoundary>} />
-                  <Route path="/compliance/kyc-expiry"   element={<PageErrorBoundary><ComplianceKYCExpiry /></PageErrorBoundary>} />
-                  <Route path="/compliance/aml-rules"    element={<PageErrorBoundary><ComplianceAMLRules /></PageErrorBoundary>} />
-                  <Route path="/compliance/prudential"      element={<PageErrorBoundary><CompliancePrudential /></PageErrorBoundary>} />
-                  <Route path="/compliance/dsar"            element={<PageErrorBoundary><ComplianceDSAR /></PageErrorBoundary>} />
-                  <Route path="/compliance/concentration"   element={<PageErrorBoundary><ComplianceConcentration /></PageErrorBoundary>} />
-                  <Route path="/compliance/dpa-register"   element={<PageErrorBoundary><ComplianceDPARegister /></PageErrorBoundary>} />
-                  <Route path="/compliance/soc2"           element={<PageErrorBoundary><ComplianceSOC2 /></PageErrorBoundary>} />
-                  <Route path="/compliance/soc2/:id"       element={<PageErrorBoundary><ComplianceSOC2Detail /></PageErrorBoundary>} />
-                  <Route path="/compliance/pentest"        element={<PageErrorBoundary><CompliancePentest /></PageErrorBoundary>} />
-                  <Route path="/compliance/policies"       element={<PageErrorBoundary><CompliancePolicies /></PageErrorBoundary>} />
+                  <Route path="/compliance"             element={<RequireAccess page="watch_list" user={user}><Navigate to="/compliance/watchlist" replace /></RequireAccess>} />
+                  <Route path="/compliance/watchlist"   element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceWatchlist /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/regulatory"  element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceRegCalendar /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/findings"    element={<RequireAccess page="audit_findings" user={user}><PageErrorBoundary><ComplianceFindings /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/checklists"  element={<RequireAccess page="compliance_checklists" user={user}><PageErrorBoundary><ComplianceChecklists /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/audit-trail" element={<RequireAccess page="audit_trail" user={user}><PageErrorBoundary><ComplianceAuditTrail /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/kyc-expiry"   element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceKYCExpiry /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/aml-rules"    element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceAMLRules /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/prudential"      element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><CompliancePrudential /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/dsar"            element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceDSAR /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/concentration"   element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceConcentration /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/dpa-register"   element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceDPARegister /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/soc2"           element={<RequireAccess page="audit_trail" user={user}><PageErrorBoundary><ComplianceSOC2 /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/soc2/:id"       element={<RequireAccess page="audit_trail" user={user}><PageErrorBoundary><ComplianceSOC2Detail /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/pentest"        element={<RequireAccess page="audit_trail" user={user}><PageErrorBoundary><CompliancePentest /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/policies"       element={<RequireAccess page="compliance_checklists" user={user}><PageErrorBoundary><CompliancePolicies /></PageErrorBoundary></RequireAccess>} />
 
                   {/* People */}
-                  <Route path="/hr"               element={<Navigate to="/hr/employees" replace />} />
-                  <Route path="/hr/employees"     element={<PageErrorBoundary><HREmployees /></PageErrorBoundary>} />
-                  <Route path="/hr/leave"         element={<PageErrorBoundary><HRLeave /></PageErrorBoundary>} />
-                  <Route path="/hr/performance"   element={<PageErrorBoundary><HRPerformance /></PageErrorBoundary>} />
-                  <Route path="/hr/disciplinary"  element={<PageErrorBoundary><HRDisciplinary /></PageErrorBoundary>} />
-                  <Route path="/hr/training"      element={<PageErrorBoundary><HRTraining /></PageErrorBoundary>} />
-                  <Route path="/hr/recruitment"   element={<PageErrorBoundary><HRRecruitment /></PageErrorBoundary>} />
-                  <Route path="/hr/org-chart"     element={<PageErrorBoundary><HROrgChart /></PageErrorBoundary>} />
-                  <Route path="/hr/employees/:id/onboarding"  element={<PageErrorBoundary><HROnboarding /></PageErrorBoundary>} />
-                  <Route path="/hr/employees/:id/offboarding" element={<PageErrorBoundary><HROffboarding /></PageErrorBoundary>} />
+                  <Route path="/hr"               element={<RequireAccess page="hr_employees" user={user}><Navigate to="/hr/employees" replace /></RequireAccess>} />
+                  <Route path="/hr/employees"     element={<RequireAccess page="hr_employees" user={user}><PageErrorBoundary><HREmployees /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/hr/leave"         element={<RequireAccess page="hr_leave" user={user}><PageErrorBoundary><HRLeave /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/hr/performance"   element={<RequireAccess page="hr_performance" user={user}><PageErrorBoundary><HRPerformance /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/hr/disciplinary"  element={<RequireAccess page="hr_disciplinary" user={user}><PageErrorBoundary><HRDisciplinary /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/hr/training"      element={<RequireAccess page="hr_training" user={user}><PageErrorBoundary><HRTraining /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/hr/recruitment"   element={<RequireAccess page="hr_employees" user={user}><PageErrorBoundary><HRRecruitment /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/hr/org-chart"     element={<RequireAccess page="hr_employees" user={user}><PageErrorBoundary><HROrgChart /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/hr/employees/:id/onboarding"  element={<RequireAccess page="hr_employees" user={user}><PageErrorBoundary><HROnboarding /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/hr/employees/:id/offboarding" element={<RequireAccess page="hr_employees" user={user}><PageErrorBoundary><HROffboarding /></PageErrorBoundary></RequireAccess>} />
 
-                  <Route path="/payroll"                          element={<PageErrorBoundary><PayrollOverview /></PageErrorBoundary>} />
-                  <Route path="/payroll/runs/:id"                 element={<PageErrorBoundary><PayrollRunDetail /></PageErrorBoundary>} />
-                  <Route path="/payroll/runs/:runId/items/:itemId" element={<PageErrorBoundary><PayslipView /></PageErrorBoundary>} />
+                  <Route path="/payroll"                          element={<RequireAccess page="payroll" user={user}><PageErrorBoundary><PayrollOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/payroll/runs/:id"                 element={<RequireAccess page="payroll" user={user}><PageErrorBoundary><PayrollRunDetail /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/payroll/runs/:runId/items/:itemId" element={<RequireAccess page="payroll" user={user}><PageErrorBoundary><PayslipView /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Intelligence */}
-                  <Route path="/reports"        element={<PageErrorBoundary><ReportsBI /></PageErrorBoundary>} />
-                  <Route path="/reports/kpi"    element={<PageErrorBoundary><ReportsKPI /></PageErrorBoundary>} />
-                  <Route path="/reports/export" element={<PageErrorBoundary><ReportsExport /></PageErrorBoundary>} />
-                  <Route path="/bi"             element={<PageErrorBoundary><BIOverview /></PageErrorBoundary>} />
-                  <Route path="/bi/builder"     element={<PageErrorBoundary><BIBuilder /></PageErrorBoundary>} />
-                  <Route path="/bi/builder/:id" element={<PageErrorBoundary><BIBuilder /></PageErrorBoundary>} />
-                  <Route path="/bi/scheduled"   element={<PageErrorBoundary><BIScheduled /></PageErrorBoundary>} />
-                  <Route path="/statements"     element={<PageErrorBoundary><Statements /></PageErrorBoundary>} />
+                  <Route path="/reports"        element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsBI /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports/kpi"    element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsKPI /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports/export" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsExport /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/bi"             element={<RequireAccess page="reports" user={user}><PageErrorBoundary><BIOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/bi/builder"     element={<RequireAccess page="reports" user={user}><PageErrorBoundary><BIBuilder /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/bi/builder/:id" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><BIBuilder /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/bi/scheduled"   element={<RequireAccess page="reports" user={user}><PageErrorBoundary><BIScheduled /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/statements"     element={<RequireAccess page="statements" user={user}><PageErrorBoundary><Statements /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Admin */}
-                  <Route path="/admin"                       element={<PageErrorBoundary><AdminOverview /></PageErrorBoundary>} />
-                  <Route path="/admin/overview"              element={<PageErrorBoundary><AdminOverview /></PageErrorBoundary>} />
-                  <Route path="/admin/users"                 element={<PageErrorBoundary><AdminUsers /></PageErrorBoundary>} />
-                  <Route path="/admin/roles"                 element={<PageErrorBoundary><AdminRoles /></PageErrorBoundary>} />
-                  <Route path="/admin/email-senders"         element={<PageErrorBoundary><AdminEmailSenders /></PageErrorBoundary>} />
-                  <Route path="/admin/mail"                  element={<PageErrorBoundary><AdminMailHealth /></PageErrorBoundary>} />
-                  <Route path="/admin/api-keys"              element={<PageErrorBoundary><AdminApiKeys /></PageErrorBoundary>} />
-                  <Route path="/admin/settings"              element={<PageErrorBoundary><AdminSettings /></PageErrorBoundary>} />
-                  <Route path="/admin/notification-settings" element={<PageErrorBoundary><AdminNotificationSettings /></PageErrorBoundary>} />
-                  <Route path="/admin/integrations"          element={<PageErrorBoundary><AdminIntegrations /></PageErrorBoundary>} />
-                  <Route path="/admin/audit"                 element={<PageErrorBoundary><AdminAuditLog /></PageErrorBoundary>} />
-                  <Route path="/admin/sync"                  element={<PageErrorBoundary><AdminSyncStatus /></PageErrorBoundary>} />
-                  <Route path="/admin/helpdesk-settings"     element={<PageErrorBoundary><AdminHelpdeskSettings /></PageErrorBoundary>} />
-                  <Route path="/admin/workflow-templates"   element={<PageErrorBoundary><AdminWorkflowTemplates /></PageErrorBoundary>} />
+                  <Route path="/admin"                       element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/admin/overview"              element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/admin/users"                 element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminUsers /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/admin/roles"                 element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminRoles /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/admin/email-senders"         element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminEmailSenders /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/admin/mail"                  element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminMailHealth /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/admin/api-keys"              element={<RequireAccess page="admin_api_keys" user={user}><PageErrorBoundary><AdminApiKeys /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/admin/settings"              element={<RequireAccess page="settings" user={user}><PageErrorBoundary><AdminSettings /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/admin/notification-settings" element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminNotificationSettings /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/admin/integrations"          element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminIntegrations /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/admin/audit"                 element={<RequireAccess page="sync_status" user={user}><PageErrorBoundary><AdminAuditLog /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/admin/sync"                  element={<RequireAccess page="sync_status" user={user}><PageErrorBoundary><AdminSyncStatus /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/admin/helpdesk-settings"     element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminHelpdeskSettings /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/admin/workflow-templates"    element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminWorkflowTemplates /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Mail */}
-                  <Route path="/mail/inbox"   element={<PageErrorBoundary><MailInbox /></PageErrorBoundary>} />
-                  <Route path="/mail/sent"    element={<PageErrorBoundary><MailInbox /></PageErrorBoundary>} />
-                  <Route path="/mail/drafts"  element={<PageErrorBoundary><MailInbox /></PageErrorBoundary>} />
-                  <Route path="/mail/compose" element={<PageErrorBoundary><MailCompose /></PageErrorBoundary>} />
-                  <Route path="/mail/:id"     element={<PageErrorBoundary><MailThread /></PageErrorBoundary>} />
+                  <Route path="/mail/inbox"   element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><MailInbox /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/mail/sent"    element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><MailInbox /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/mail/drafts"  element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><MailInbox /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/mail/compose" element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><MailCompose /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/mail/:id"     element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><MailThread /></PageErrorBoundary></RequireAccess>} />
 
                   <Route path="/settings" element={<PageErrorBoundary><UserSettings /></PageErrorBoundary>} />
 

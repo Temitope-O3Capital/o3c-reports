@@ -1,8 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Page, FilterBar, ErrBanner, Spinner, ConfirmModal,
-  filterInputStyle,
+  Page, ErrBanner, Spinner, ConfirmModal, TblSearch, filterInputStyle,
 } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtDatetime, today } from '../../lib/fmt'
@@ -474,7 +473,7 @@ export default function TelemarketingQueue() {
             borderBottom: '1px solid var(--bdr)',
             flexShrink: 0,
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)' }}>Outbound Queue</span>
               <span style={{
                 ...NUM, fontSize: 11, fontWeight: 600,
@@ -484,33 +483,62 @@ export default function TelemarketingQueue() {
                 {items.length}
               </span>
             </div>
-            <FilterBar onReset={() => { setPriority('All'); setDisposition('All'); setDpd('All'); setAgent('') }}>
-              <select value={priority} onChange={e => setPriority(e.target.value)} style={{ ...filterInputStyle, flex: 1 }}>
-                {PRIORITY_OPTIONS.map(o => <option key={o} value={o}>{o === 'All' ? 'All Priority' : o}</option>)}
-              </select>
-              <select value={disposition} onChange={e => setDisposition(e.target.value)} style={{ ...filterInputStyle, flex: 1 }}>
-                {DISPOSITION_OPTIONS.map(o => <option key={o} value={o}>{o === 'All' ? 'All Dispositions' : o}</option>)}
-              </select>
-              <select value={dpd} onChange={e => setDpd(e.target.value)} style={{ ...filterInputStyle, flex: 1 }}>
-                {DPD_OPTIONS.map(o => <option key={o} value={o}>{o === 'All' ? 'All DPD' : `DPD ${o}`}</option>)}
-              </select>
-              <input
-                placeholder="Agent name…"
-                value={agent}
-                onChange={e => setAgent(e.target.value)}
-                style={{ ...filterInputStyle, flex: 1 }}
-              />
-            </FilterBar>
-            <button
-              onClick={() => load()}
-              style={{
-                height: 32, padding: '0 14px', borderRadius: 7,
-                border: '1px solid var(--bdr)', background: 'var(--card)',
-                color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', width: '100%',
-              }}
-            >
-              Apply Filters
-            </button>
+
+            {/* Search */}
+            <TblSearch value={agent} onChange={v => { setAgent(v); setDisposition('All') }}
+              placeholder="Search agent name…" width={0} style={{ marginBottom: 8 }} />
+
+            {/* Priority chips */}
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+              {PRIORITY_OPTIONS.filter(o => o !== 'All').map(o => {
+                const on = priority === o
+                const color = o === 'High' ? RED : o === 'Medium' ? AMBER : 'var(--chart-lbl)'
+                return (
+                  <button key={o} onClick={() => setPriority(on ? 'All' : o)} style={{
+                    fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 99,
+                    border: `1px solid ${on ? color : 'var(--bdr)'}`,
+                    background: on ? `${color}18` : 'transparent',
+                    color: on ? color : 'var(--txt3)', cursor: 'pointer',
+                  }}>{o}</button>
+                )
+              })}
+            </div>
+
+            {/* Disposition chips */}
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+              {DISPOSITION_OPTIONS.filter(o => o !== 'All').map(o => {
+                const on = disposition === o
+                return (
+                  <button key={o} onClick={() => setDisposition(on ? 'All' : o)} style={{
+                    fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 99,
+                    border: `1px solid ${on ? NAVY : 'var(--bdr)'}`,
+                    background: on ? `${NAVY}12` : 'transparent',
+                    color: on ? NAVY : 'var(--txt3)', cursor: 'pointer',
+                  }}>{o}</button>
+                )
+              })}
+            </div>
+
+            {/* DPD chips */}
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {DPD_OPTIONS.filter(o => o !== 'All').map(o => {
+                const on = dpd === o
+                return (
+                  <button key={o} onClick={() => setDpd(on ? 'All' : o)} style={{
+                    fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 99,
+                    border: `1px solid ${on ? BLUE : 'var(--bdr)'}`,
+                    background: on ? `${BLUE}12` : 'transparent',
+                    color: on ? BLUE : 'var(--txt3)', cursor: 'pointer',
+                  }}>DPD {o}</button>
+                )
+              })}
+              {(priority !== 'All' || disposition !== 'All' || dpd !== 'All' || agent) && (
+                <button onClick={() => { setPriority('All'); setDisposition('All'); setDpd('All'); setAgent('') }} style={{
+                  fontSize: 10.5, fontWeight: 500, padding: '2px 8px', borderRadius: 99,
+                  border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt3)', cursor: 'pointer',
+                }}>Clear</button>
+              )}
+            </div>
           </div>
 
           {/* Batch bar */}
