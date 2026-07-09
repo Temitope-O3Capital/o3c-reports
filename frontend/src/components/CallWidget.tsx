@@ -82,6 +82,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   const [dialing,        setDialing]        = useState(false)
   const [error,          setError]          = useState('')
   const [zohoEmail,      setZohoEmail]      = useState('')
+  const [sdkLogs,        setSdkLogs]        = useState<string[]>([])
 
   const sdkRef      = useRef<ZohoVoiceInstance | null>(null)
   const tokenRef    = useRef('')          // latest access token for oAuthCallBack
@@ -113,46 +114,56 @@ export default function CallWidget({ user }: { user: AuthUser }) {
       .catch(() => {})
   }, [])
 
+  function addLog(msg: string) {
+    const ts = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    setSdkLogs(prev => [`${ts} ${msg}`, ...prev].slice(0, 8))
+  }
+
   function initSDK(accessToken: string, agentName: string) {
     if (!window.ZohoVoice) {
       setSdkError('SDK script not loaded — refresh the page')
+      addLog('ERROR: window.ZohoVoice not found')
       return
     }
     if (sdkRef.current) return   // already initialised
 
-    // autoRegister: false — prevents the SDK firing its registration attempt before
-    // the OAuth callback is bound. We call sdk.register() manually below once
-    // all hooks are in place, so the token is available on the first SIP frame.
     const sdkConfig: { name?: string; orgId?: string; autoRegister?: boolean; debug?: boolean } = { name: agentName || 'Agent', autoRegister: false, debug: true }
     if (orgIdRef.current) sdkConfig.orgId = orgIdRef.current
+    addLog(`SDK init — orgId=${orgIdRef.current || 'none'} name=${agentName || 'Agent'}`)
     const sdk = new window.ZohoVoice(sdkConfig)
     sdkRef.current = sdk
 
-    // Inject OAuth token — SDK calls this whenever it needs a fresh token.
     sdk.ajaxOpts.isOAuth = true
     sdk.ajaxOpts.oAuthCallBack = (cb) => {
-      // Silently refresh if we can, otherwise return the cached token.
+      addLog('oAuthCallBack — fetching token')
       apiFetch<{ access_token?: string }>('/api/voice/status', { silent: true })
-        .then(d => { if (d.access_token) tokenRef.current = d.access_token })
-        .catch(() => {})
+        .then(d => {
+          if (d.access_token) {
+            tokenRef.current = d.access_token
+            addLog('oAuthCallBack — token refreshed OK')
+          } else {
+            addLog('oAuthCallBack — no token in response')
+          }
+        })
+        .catch(() => { addLog('oAuthCallBack — fetch failed') })
         .finally(() => cb(tokenRef.current))
     }
 
-    // 'regState' fires when SIP registration completes — SDK is ready to call.
     sdk.on('regState', (data) => {
+      const info = data ? JSON.stringify(data) : 'no data'
+      addLog(`regState: ${info}`)
       console.log('[ZohoVoice] regState:', data)
       setSdkReady(true)
       setSdkError('')
     })
 
-    // Timeout: if regState hasn't fired in 20 s, surface what we know.
     const regTimeout = setTimeout(() => {
       if (!sdkRef.current) return
+      addLog('TIMEOUT: regState never fired after 20s')
       setSdkError('SIP registration timed out — check Zoho Voice account setup or reconnect')
     }, 20_000)
     sdk.on('regState', () => clearTimeout(regTimeout))
 
-    // 'callState' covers the full call lifecycle.
     sdk.on('callState', (data) => {
       switch (data?.status) {
         case 'incoming':
@@ -181,11 +192,11 @@ export default function CallWidget({ user }: { user: AuthUser }) {
 
     sdk.on('error', (data) => {
       const msg = typeof data === 'string' ? data : (data as { message?: string })?.message ?? 'SDK error'
+      addLog(`ERROR: ${msg}`)
       setSdkError(msg)
     })
 
-    // All hooks are bound — now trigger SIP registration so the SDK sends
-    // the OAuth token on the very first registration frame.
+    addLog('Calling sdk.register()')
     sdk.register()
   }
 
@@ -463,10 +474,17 @@ export default function CallWidget({ user }: { user: AuthUser }) {
                 Reconnect Zoho Voice
               </button>
             )}
-            {/* Zoho account diagnostic — shows which Zoho account the OAuth token belongs to */}
             {zohoEmail && (
               <div style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.28)', marginTop: 3, letterSpacing: '0.03em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 Zoho: {zohoEmail}
+              </div>
+            )}
+            {/* On-screen SDK log — visible without DevTools */}
+            {sdkLogs.length > 0 && (
+              <div style={{ marginTop: 6, padding: '5px 6px', background: 'rgba(0,0,0,0.4)', borderRadius: 5, maxHeight: 90, overflowY: 'auto' }}>
+                {sdkLogs.map((line, i) => (
+                  <div key={i} style={{ fontSize: 9, color: line.includes('ERROR') || line.includes('TIMEOUT') ? '#FF8080' : 'rgba(255,255,255,0.45)', fontFamily: 'monospace', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{line}</div>
+                ))}
               </div>
             )}
           </div>
