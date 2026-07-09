@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -209,6 +208,9 @@ func notificationsDelete(db *core.DB) http.HandlerFunc {
 
 // notificationsSSE streams real-time notifications via Server-Sent Events.
 // Authenticated via a short-lived ?ticket= query param (EventSource cannot send headers).
+// Uses 4-second polling against the pool rather than a dedicated LISTEN connection,
+// which avoids pgx.Connect failures in environments where private-network DNS
+// resolution or connection limits differ from the main pool.
 func notificationsSSE(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ticket := r.URL.Query().Get("ticket")
@@ -221,7 +223,6 @@ func notificationsSSE(db *core.DB) http.HandlerFunc {
 			respondErr(w, 401, "Invalid or expired SSE ticket")
 			return
 		}
-		// Build a minimal user struct from the ticket claims for the query below.
 		type sseUser struct{ ID int64 }
 		user := &sseUser{ID: claims.ID}
 
@@ -238,71 +239,51 @@ func notificationsSSE(db *core.DB) http.HandlerFunc {
 
 		ctx := r.Context()
 
-		// Seed lastID with the current max so we only push new notifications on connect.
+		// Seed lastID so we only push notifications that arrive after this connection opens.
 		var lastID int64
 		seedRows, err := db.PGQuery(ctx, `SELECT COALESCE(MAX(id), 0) AS max_id FROM notifications WHERE user_id = $1`, user.ID)
 		if err == nil && len(seedRows) > 0 {
 			lastID = toInt64(seedRows[0]["max_id"])
 		}
 
-		// Open a dedicated connection for LISTEN — never borrowed from the pool.
-		lconn, err := db.ListenConn(ctx)
-		if err != nil {
-			slog.Error("SSE: could not open listen connection", "user", user.ID, "err", err)
-			respondErr(w, 500, "Real-time connection failed")
-			return
-		}
-		defer lconn.Close(context.Background()) //nolint:errcheck
-
-		channel := fmt.Sprintf("notifications_%d", user.ID)
-		if _, err := lconn.Exec(ctx, "LISTEN "+channel); err != nil {
-			slog.Error("SSE: LISTEN failed", "channel", channel, "err", err)
-			respondErr(w, 500, "Real-time connection failed")
-			return
-		}
-
-		fmt.Fprintf(w, ":keepalive\n\n")
+		fmt.Fprintf(w, ":keepalive\n\n") //nolint:errcheck
 		flusher.Flush()
 
-		// Block on pg_notify instead of polling. Each WaitForNotification call times
-		// out after 30 s — we use that timeout to send an SSE keepalive comment so
-		// the browser doesn't close the connection. When the parent context is done
-		// (client disconnected), ctx.Err() is set and we exit the loop.
+		poll := time.NewTicker(4 * time.Second)
+		heartbeat := time.NewTicker(25 * time.Second)
+		defer poll.Stop()
+		defer heartbeat.Stop()
+
 		for {
-			waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			notif, err := lconn.WaitForNotification(waitCtx)
-			cancel()
-
-			if ctx.Err() != nil {
-				return // client disconnected
-			}
-			if err != nil {
-				// Timeout — send keepalive and wait again.
-				fmt.Fprintf(w, ":keepalive\n\n")
+			select {
+			case <-ctx.Done():
+				return
+			case <-heartbeat.C:
+				fmt.Fprintf(w, ":keepalive\n\n") //nolint:errcheck
 				flusher.Flush()
-				continue
+			case <-poll.C:
+				rows, err := db.PGQuery(ctx, `
+					SELECT id, type, title, body, entity_type, entity_id, action_url,
+					       is_read, read_at, created_at
+					FROM notifications
+					WHERE user_id = $1 AND id > $2
+					ORDER BY id
+					LIMIT 20`, user.ID, lastID)
+				if err != nil {
+					continue
+				}
+				for _, row := range rows {
+					payload, merr := json.Marshal(row)
+					if merr != nil {
+						continue
+					}
+					fmt.Fprintf(w, "data: %s\n\n", payload) //nolint:errcheck
+					lastID = toInt64(row["id"])
+				}
+				if len(rows) > 0 {
+					flusher.Flush()
+				}
 			}
-
-			// Payload is the notification ID; fetch the full row from the pool.
-			notifID, _ := strconv.ParseInt(notif.Payload, 10, 64)
-			if notifID <= lastID {
-				continue
-			}
-			rows, err := db.PGQuery(ctx, `
-				SELECT id, type, title, body, entity_type, entity_id, action_url,
-				       is_read, read_at, created_at
-				FROM notifications
-				WHERE id = $1 AND user_id = $2`, notifID, user.ID)
-			if err != nil || len(rows) == 0 {
-				continue
-			}
-			payload, err := json.Marshal(rows[0])
-			if err != nil {
-				continue
-			}
-			fmt.Fprintf(w, "data: %s\n\n", payload)
-			flusher.Flush()
-			lastID = notifID
 		}
 	}
 }
