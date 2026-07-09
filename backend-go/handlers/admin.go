@@ -56,6 +56,12 @@ func RegisterAdmin(r chi.Router, db *core.DB) {
 	r.Patch("/integrations/{id}",     updateIntegration(db))
 	r.Delete("/integrations/{id}",    deleteIntegration(db))
 	r.Post("/integrations/{id}/ping", pingIntegration(db))
+
+	// Workflow Templates
+	r.Get("/workflow-templates",        listWorkflowTemplates(db))
+	r.Post("/workflow-templates",       createWorkflowTemplate(db))
+	r.Put("/workflow-templates/{id}",   updateWorkflowTemplate(db))
+	r.Delete("/workflow-templates/{id}", deleteWorkflowTemplate(db))
 }
 
 // RegisterActivityLog is mounted outside the admin guard (any authenticated user can log).
@@ -1212,5 +1218,97 @@ func pingIntegration(db *core.DB) http.HandlerFunc {
 			"status_code": statusCode,
 			"pinged_at":   time.Now(),
 		}, "pg")
+	}
+}
+
+// ── Workflow Templates ────────────────────────────────────────────────────────
+
+func listWorkflowTemplates(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT id, name, description, notify_roles, approver_roles, poster_roles, created_at
+			FROM workflow_templates ORDER BY name`)
+		if err != nil {
+			respondErr(w, 500, "Query failed"); return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
+	}
+}
+
+func createWorkflowTemplate(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Name          string   `json:"name"`
+		Description   string   `json:"description"`
+		NotifyRoles   []string `json:"notify_roles"`
+		ApproverRoles []string `json:"approver_roles"`
+		PosterRoles   []string `json:"poster_roles"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		if strings.TrimSpace(b.Name) == "" {
+			respondErr(w, 422, "name is required"); return
+		}
+		if len(b.ApproverRoles) == 0 {
+			respondErr(w, 422, "approver_roles is required"); return
+		}
+		if len(b.PosterRoles) == 0 {
+			respondErr(w, 422, "poster_roles is required"); return
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO workflow_templates (name, description, notify_roles, approver_roles, poster_roles)
+			VALUES ($1, $2, $3, $4, $5)
+			RETURNING id, name, description, notify_roles, approver_roles, poster_roles, created_at`,
+			b.Name, b.Description, b.NotifyRoles, b.ApproverRoles, b.PosterRoles)
+		if err != nil {
+			respondErr(w, 500, "Create failed"); return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+func updateWorkflowTemplate(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Name          string   `json:"name"`
+		Description   string   `json:"description"`
+		NotifyRoles   []string `json:"notify_roles"`
+		ApproverRoles []string `json:"approver_roles"`
+		PosterRoles   []string `json:"poster_roles"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		if strings.TrimSpace(b.Name) == "" {
+			respondErr(w, 422, "name is required"); return
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			UPDATE workflow_templates
+			SET name=$1, description=$2, notify_roles=$3, approver_roles=$4, poster_roles=$5
+			WHERE id=$6
+			RETURNING id, name, description, notify_roles, approver_roles, poster_roles, created_at`,
+			b.Name, b.Description, b.NotifyRoles, b.ApproverRoles, b.PosterRoles, id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 500, "Update failed"); return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+func deleteWorkflowTemplate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if _, err := db.PGExec(r.Context(), `DELETE FROM workflow_templates WHERE id=$1`, id); err != nil {
+			respondErr(w, 500, "Delete failed"); return
+		}
+		w.WriteHeader(204)
 	}
 }
