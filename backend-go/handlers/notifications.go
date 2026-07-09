@@ -226,16 +226,14 @@ func notificationsSSE(db *core.DB) http.HandlerFunc {
 		type sseUser struct{ ID int64 }
 		user := &sseUser{ID: claims.ID}
 
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			respondErr(w, 500, "Streaming not supported")
-			return
-		}
-
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("X-Accel-Buffering", "no")
+
+		// NewResponseController unwraps any middleware-wrapped ResponseWriter
+		// (e.g. httprate's recorder) to reach the underlying Flusher.
+		rc := http.NewResponseController(w)
 
 		ctx := r.Context()
 
@@ -247,7 +245,7 @@ func notificationsSSE(db *core.DB) http.HandlerFunc {
 		}
 
 		fmt.Fprintf(w, ":keepalive\n\n") //nolint:errcheck
-		flusher.Flush()
+		rc.Flush()                        //nolint:errcheck
 
 		poll := time.NewTicker(4 * time.Second)
 		heartbeat := time.NewTicker(25 * time.Second)
@@ -260,7 +258,7 @@ func notificationsSSE(db *core.DB) http.HandlerFunc {
 				return
 			case <-heartbeat.C:
 				fmt.Fprintf(w, ":keepalive\n\n") //nolint:errcheck
-				flusher.Flush()
+				rc.Flush()                        //nolint:errcheck
 			case <-poll.C:
 				rows, err := db.PGQuery(ctx, `
 					SELECT id, type, title, body, entity_type, entity_id, action_url,
@@ -281,7 +279,7 @@ func notificationsSSE(db *core.DB) http.HandlerFunc {
 					lastID = toInt64(row["id"])
 				}
 				if len(rows) > 0 {
-					flusher.Flush()
+					rc.Flush() //nolint:errcheck
 				}
 			}
 		}
