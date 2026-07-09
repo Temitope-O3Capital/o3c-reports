@@ -81,11 +81,12 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   const [error,          setError]          = useState('')
   const [zohoEmail,      setZohoEmail]      = useState('')
 
-  const sdkRef     = useRef<ZohoVoiceInstance | null>(null)
-  const tokenRef   = useRef('')          // latest access token for oAuthCallBack
-  const timerRef   = useRef<ReturnType<typeof setInterval> | null>(null)
-  const esRef      = useRef<EventSource | null>(null)
-  const cleanupRef = useRef(false)
+  const sdkRef      = useRef<ZohoVoiceInstance | null>(null)
+  const tokenRef    = useRef('')          // latest access token for oAuthCallBack
+  const timerRef    = useRef<ReturnType<typeof setInterval> | null>(null)
+  const esRef       = useRef<EventSource | null>(null)
+  const cleanupRef  = useRef(false)
+  const reconnecting = useRef(false)
 
   // ── Voice status + SDK init ───────────────────────────────────────────────
 
@@ -172,6 +173,30 @@ export default function CallWidget({ user }: { user: AuthUser }) {
       const msg = typeof data === 'string' ? data : (data as { message?: string })?.message ?? 'SDK error'
       setSdkError(msg)
     })
+  }
+
+  // Disconnect + re-run OAuth so the user can pick the correct Zoho account.
+  async function handleReconnect() {
+    if (reconnecting.current) return
+    reconnecting.current = true
+    setSdkError('Reconnecting…')
+    try {
+      await apiFetch('/api/voice/disconnect', { method: 'DELETE' })
+      const data = await apiFetch<{ auth_url: string }>('/api/voice/connect')
+      if (data.auth_url) {
+        // Tear down old SDK instance before opening OAuth
+        sdkRef.current = null
+        setSdkReady(false)
+        setVoiceConnected(false)
+        tokenRef.current = ''
+        window.open(data.auth_url, '_blank', 'width=600,height=700,noopener')
+        setSdkError('Complete the Zoho sign-in window, then refresh this page')
+      }
+    } catch {
+      setSdkError('Reconnect failed — go to Settings → Zoho Voice')
+    } finally {
+      reconnecting.current = false
+    }
   }
 
   // ── SSE — inbound notification fallback ──────────────────────────────────
@@ -312,8 +337,9 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   const isActive   = callState === 'active' || callState === 'dialing'
   const isEnded    = callState === 'ended'
 
+  const sipTimedOut  = sdkError.includes('timed out')
   const statusColor  = sdkReady ? GREEN : sdkError ? RED : voiceConnected ? '#F59E0B' : 'rgba(255,255,255,0.25)'
-  const statusLabel  = sdkReady ? 'Ready' : sdkError ? sdkError : voiceConnected ? 'Connecting…' : 'Not connected'
+  const statusLabel  = sdkReady ? 'Ready' : sdkError ? (sipTimedOut ? 'SIP registration failed' : sdkError) : voiceConnected ? 'Connecting…' : 'Not connected'
 
   return (
     <div style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 9100, fontFamily: INTER }}>
@@ -414,6 +440,15 @@ export default function CallWidget({ user }: { user: AuthUser }) {
                 </button>
               )}
             </div>
+            {/* SIP timeout: show reconnect button inline */}
+            {sipTimedOut && (
+              <button
+                onClick={handleReconnect}
+                style={{ marginTop: 6, width: '100%', padding: '7px 0', borderRadius: 7, border: '1px solid rgba(192,0,0,0.5)', background: 'rgba(192,0,0,0.15)', color: '#FF8080', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: INTER, letterSpacing: '0.04em' }}
+              >
+                Reconnect Zoho Voice
+              </button>
+            )}
             {/* Zoho account diagnostic — shows which Zoho account the OAuth token belongs to */}
             {zohoEmail && (
               <div style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.28)', marginTop: 3, letterSpacing: '0.03em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

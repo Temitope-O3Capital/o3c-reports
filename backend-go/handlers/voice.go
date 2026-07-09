@@ -273,6 +273,7 @@ func VoiceStatus(db *core.DB) http.HandlerFunc {
 		tokenValid := encAccess != "" && time.Now().Add(60*time.Second).Before(expiry)
 
 		accessToken := ""
+		refreshed := false
 		if tokenValid {
 			accessToken, _ = decryptValue(encAccess)
 		} else {
@@ -292,11 +293,35 @@ func VoiceStatus(db *core.DB) http.HandlerFunc {
 			}
 			accessToken = newAccess
 			tokenValid = true
+			refreshed = true
 		}
 
-		// Fetch which Zoho account the token authenticates as — useful for diagnosing
-		// mismatches (e.g. shared admin account vs personal agent account).
+		// Fetch which Zoho account the token authenticates as.
+		// If userinfo returns empty while the token appeared valid by clock, the token
+		// may have been revoked — force a refresh to get a new one.
 		zohoAccountEmail := fetchZohoUserInfo(ctx, accessToken)
+		if zohoAccountEmail == "" && !refreshed {
+			if newAccess, newExpiry, err := voiceRefreshUserToken(ctx, refreshToken); err == nil {
+				accessToken = newAccess
+				if encA, err := encryptValue(newAccess); err == nil {
+					db.PGExec(ctx, `
+						UPDATE o3c_users
+						SET zoho_voice_access_token=$1, zoho_voice_token_expiry=$2
+						WHERE id=$3`,
+						encA, newExpiry, user.ID) //nolint:errcheck
+				}
+				zohoAccountEmail = fetchZohoUserInfo(ctx, accessToken)
+			}
+		}
+
+		// If we now have a token but agent_id is still empty, re-resolve it.
+		if agentID == "" && zohoAccountEmail != "" {
+			if newID := fetchZohoVoiceAgentID(ctx, accessToken, zohoAccountEmail); newID != "" {
+				agentID = newID
+				db.PGExec(ctx, `UPDATE o3c_users SET zoho_voice_agent_id=$1 WHERE id=$2`,
+					agentID, user.ID) //nolint:errcheck
+			}
+		}
 
 		writeVoiceStatus(w, true, accessToken, tokenValid, connectedAt, email, agentID, fullName, zohoAccountEmail)
 	}
@@ -348,11 +373,19 @@ func VoiceConnect(db *core.DB) http.HandlerFunc {
 			VALUES ($1, $2, now() + interval '10 minutes')
 			ON CONFLICT (nonce) DO NOTHING`, state, user.ID) //nolint:errcheck
 
+		// Scopes breakdown:
+		// AaaServer.profile.Read  — allows /oauth/user/info to reveal which Zoho account is linked
+		// ZohoVoice.sdk.ALL       — full WebRTC/SIP SDK access (sdk.READ alone is insufficient)
+		// ZohoVoice.call.*        — outbound/inbound call control
+		// ZohoVoice.agents.*      — agent list lookup for agent-ID resolution
+		// Desk.calls.ALL          — Zoho Desk call log write-back
+		const voiceScope = "AaaServer.profile.Read,Desk.calls.ALL,Desk.settings.READ,Desk.contacts.READ," +
+			"ZohoVoice.sdk.ALL,ZohoVoice.call.READ,ZohoVoice.call.UPDATE,ZohoVoice.agents.READ,ZohoVoice.agents.UPDATE"
 		authURL := fmt.Sprintf(
 			"https://accounts.zoho.%s/oauth/v2/auth?response_type=code&client_id=%s&scope=%s&redirect_uri=%s&access_type=offline&prompt=consent&state=%s",
 			zohoDC,
 			url.QueryEscape(clientID),
-			url.QueryEscape("Desk.calls.ALL,Desk.settings.READ,Desk.contacts.READ,ZohoVoice.sdk.READ,ZohoVoice.call.READ,ZohoVoice.agents.READ,ZohoVoice.agents.UPDATE"),
+			url.QueryEscape(voiceScope),
 			url.QueryEscape(voiceRedirectURI()),
 			url.QueryEscape(state),
 		)
