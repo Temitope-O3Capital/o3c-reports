@@ -11,6 +11,7 @@ declare global {
     // Correct global name per Zoho Voice SDK docs (zohovoice.min.js)
     ZohoVoice: new (config?: {
       name?: string
+      orgId?: string
       autoRegister?: boolean
       debug?: boolean
     }) => ZohoVoiceInstance
@@ -84,6 +85,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
 
   const sdkRef      = useRef<ZohoVoiceInstance | null>(null)
   const tokenRef    = useRef('')          // latest access token for oAuthCallBack
+  const orgIdRef    = useRef('')          // Zoho org ID from backend env
   const timerRef    = useRef<ReturnType<typeof setInterval> | null>(null)
   const esRef       = useRef<EventSource | null>(null)
   const cleanupRef  = useRef(false)
@@ -97,10 +99,12 @@ export default function CallWidget({ user }: { user: AuthUser }) {
       access_token?: string
       full_name?: string
       zoho_account_email?: string
+      org_id?: string
     }>('/api/voice/status', { silent: true })
       .then(d => {
         setVoiceConnected(d.connected ?? false)
         if (d.zoho_account_email) setZohoEmail(d.zoho_account_email)
+        if (d.org_id) orgIdRef.current = d.org_id
         if (d.connected && d.access_token) {
           tokenRef.current = d.access_token
           initSDK(d.access_token, d.full_name ?? '')
@@ -119,7 +123,9 @@ export default function CallWidget({ user }: { user: AuthUser }) {
     // autoRegister: false — prevents the SDK firing its registration attempt before
     // the OAuth callback is bound. We call sdk.register() manually below once
     // all hooks are in place, so the token is available on the first SIP frame.
-    const sdk = new window.ZohoVoice({ name: agentName || 'Agent', autoRegister: false, debug: true })
+    const sdkConfig: { name?: string; orgId?: string; autoRegister?: boolean; debug?: boolean } = { name: agentName || 'Agent', autoRegister: false, debug: true }
+    if (orgIdRef.current) sdkConfig.orgId = orgIdRef.current
+    const sdk = new window.ZohoVoice(sdkConfig)
     sdkRef.current = sdk
 
     // Inject OAuth token — SDK calls this whenever it needs a fresh token.

@@ -342,6 +342,7 @@ func writeVoiceStatus(w http.ResponseWriter, connected bool, accessToken string,
 		"agent_id":           agentID,
 		"full_name":          fullName,
 		"zoho_account_email": zohoAccountEmail,
+		"org_id":             zohoOrgID,
 	})
 }
 
