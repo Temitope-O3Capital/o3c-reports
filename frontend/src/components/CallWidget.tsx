@@ -49,7 +49,7 @@ interface CallStateData {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const CALL_ROLES = new Set(['call_center_agent', 'call_center_head', 'admin', 'super_admin', 'md'])
+const CALL_ROLES = new Set(['call_center_agent', 'call_center_head', 'admin', 'super_admin', 'md', 'head_it'])
 const PAD_KEYS   = ['1','2','3','4','5','6','7','8','9','*','0','#']
 
 type CallState = 'idle' | 'dialing' | 'active' | 'incoming' | 'ended'
