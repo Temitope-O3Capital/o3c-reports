@@ -8,10 +8,10 @@ import type { AuthUser } from '../hooks/useAuth'
 
 declare global {
   interface Window {
-    // Correct global name per Zoho Voice SDK docs (zohovoice.min.js)
     ZohoVoice: new (config?: {
       name?: string
       orgId?: string
+      accessToken?: string
       autoRegister?: boolean
       debug?: boolean
     }) => ZohoVoiceInstance
@@ -127,9 +127,14 @@ export default function CallWidget({ user }: { user: AuthUser }) {
     }
     if (sdkRef.current) return   // already initialised
 
-    const sdkConfig: { name?: string; orgId?: string; autoRegister?: boolean; debug?: boolean } = { name: agentName || 'Agent', autoRegister: false, debug: true }
+    const sdkConfig: { name?: string; orgId?: string; accessToken?: string; autoRegister?: boolean; debug?: boolean } = {
+      name: agentName || 'Agent',
+      accessToken: accessToken,
+      autoRegister: false,
+      debug: true,
+    }
     if (orgIdRef.current) sdkConfig.orgId = orgIdRef.current
-    addLog(`SDK init — orgId=${orgIdRef.current || 'none'} name=${agentName || 'Agent'}`)
+    addLog(`SDK init — orgId=${orgIdRef.current || 'none'} token=${accessToken ? accessToken.slice(-8) : 'MISSING'}`)
     const sdk = new window.ZohoVoice(sdkConfig)
     sdkRef.current = sdk
 
@@ -194,6 +199,13 @@ export default function CallWidget({ user }: { user: AuthUser }) {
       const msg = typeof data === 'string' ? data : (data as { message?: string })?.message ?? 'SDK error'
       addLog(`ERROR: ${msg}`)
       setSdkError(msg)
+    })
+
+    // Catch any other events the SDK fires that we haven't explicitly handled
+    ;['connectionState', 'authState', 'sipState', 'agentState', 'ready', 'registered', 'unregistered', 'registrationFailed'].forEach(ev => {
+      sdk.on(ev, (data?: CallStateData) => {
+        addLog(`${ev}: ${data ? JSON.stringify(data) : 'no data'}`)
+      })
     })
 
     addLog('Calling sdk.register()')
