@@ -714,6 +714,21 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
               >
                 <span className="material-symbols-rounded" style={{ fontSize: 17 }}>settings</span>
               </button>
+
+              <button
+                onClick={onLogout}
+                title="Sign out"
+                style={{
+                  width: 24, height: 24, borderRadius: 4, border: 'none',
+                  background: 'transparent', cursor: 'pointer', flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: 'rgba(255,255,255,.35)', transition: 'color 120ms',
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#C00000' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.35)' }}
+              >
+                <span className="material-symbols-rounded" style={{ fontSize: 17 }}>logout</span>
+              </button>
             </>
           )}
         </div>

@@ -24,12 +24,27 @@ if (import.meta.env.VITE_SENTRY_DSN) {
   })
 }
 
+function isChunkError(e: Error) {
+  return (
+    e.name === 'ChunkLoadError' ||
+    /Failed to fetch dynamically imported module/.test(e.message) ||
+    /Loading chunk \d+ failed/.test(e.message) ||
+    /Importing a module script failed/.test(e.message)
+  )
+}
+
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null }
   static getDerivedStateFromError(e: Error) { return { error: e } }
+  componentDidCatch(e: Error) {
+    if (isChunkError(e)) {
+      window.location.reload()
+    }
+  }
   render() {
     if (this.state.error) {
       const e = this.state.error as Error
+      if (isChunkError(e)) return null // reloading
       const isDev = import.meta.env.DEV
       return (
         <div style={{ fontFamily: 'system-ui, sans-serif', padding: 32, background: '#fff', minHeight: '100vh' }}>

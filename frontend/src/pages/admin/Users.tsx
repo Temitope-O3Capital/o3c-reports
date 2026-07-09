@@ -5,7 +5,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtDatetime } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, BLUE, INTER, SORA, NUM } from '../../lib/design'
 import { toast } from 'sonner'
-import { ROLE_PAGES } from '../../hooks/useAuth'
+import { roleLabel, ROLE_LABELS } from '../../lib/roles'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -27,7 +27,34 @@ interface User {
 
 const DEPARTMENTS = ['Finance', 'Operations', 'IT', 'HR', 'Sales & BD', 'Collections', 'Recovery', 'Compliance', 'Customer Service', 'Cards']
 
-const ALL_ROLES = Object.keys(ROLE_PAGES).sort()
+
+const ROLE_GROUPS = [
+  { label: 'Leadership',            roles: ['md','coo','cfo','cmo','executive'] },
+  { label: 'Management',            roles: ['head_ops','head_it','head_hr','head_sales','head_collections','head_recovery','head_of_reconciliation'] },
+  { label: 'Administration',        roles: ['admin','it_admin'] },
+  { label: 'Finance & Treasury',    roles: ['finance_officer','finance_head','settlement_officer','treasury_officer'] },
+  { label: 'Cards Operations',      roles: ['cards_ops_officer','cards_ops_head'] },
+  { label: 'Collections',           roles: ['collections_agent','collections_head'] },
+  { label: 'Recovery',              roles: ['recovery_agent','recovery_head'] },
+  { label: 'Risk & Credit',         roles: ['risk_officer','risk_head'] },
+  { label: 'Sales & Business Dev',  roles: ['sales_officer','sales_head','bd_officer','bd_head'] },
+  { label: 'Call Centre',           roles: ['call_center_agent','call_center_head'] },
+  { label: 'Human Resources',       roles: ['hr_officer','hr_manager','payroll_officer','payroll_manager'] },
+  { label: 'Compliance & Control',  roles: ['compliance_officer','compliance_head','internal_control_head'] },
+  { label: 'Marketing',             roles: ['telemarketing_agent','telemarketing_head'] },
+].map(g => ({ ...g, roles: g.roles.filter(r => r in ROLE_LABELS) }))
+
+function RoleSelect({ value, onChange, style }: { value: string; onChange: (v: string) => void; style?: React.CSSProperties }) {
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)} style={style}>
+      {ROLE_GROUPS.map(g => (
+        <optgroup key={g.label} label={g.label}>
+          {g.roles.map(r => <option key={r} value={r}>{roleLabel(r)}</option>)}
+        </optgroup>
+      ))}
+    </select>
+  )
+}
 
 const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
   active:   { bg: 'rgba(22,163,74,.1)',  txt: GREEN },
@@ -58,8 +85,8 @@ function RolePill({ role }: { role: string }) {
   }
   const c = colorFor(role)
   return (
-    <span style={{ fontSize: 11.5, fontWeight: 600, background: `${c}15`, color: c, borderRadius: 10, padding: '2px 9px', textTransform: 'capitalize', whiteSpace: 'nowrap' }}>
-      {role.replace(/_/g, ' ')}
+    <span style={{ fontSize: 11.5, fontWeight: 600, background: `${c}15`, color: c, borderRadius: 10, padding: '2px 9px', whiteSpace: 'nowrap' }}>
+      {roleLabel(role)}
     </span>
   )
 }
@@ -80,8 +107,8 @@ function initials(name: string) {
 
 // ── Invite User modal ─────────────────────────────────────────────────────────
 
-function InviteModal({ roles, onClose, onSaved }: {
-  roles: string[]; onClose: () => void; onSaved: (pw: string, name: string) => void
+function InviteModal({ onClose, onSaved }: {
+  onClose: () => void; onSaved: (pw: string, name: string) => void
 }) {
   const [form, setForm] = useState({ first_name: '', last_name: '', email: '', role: 'call_center_agent', department: 'Operations' })
   const [saving, setSaving] = useState(false)
@@ -141,10 +168,9 @@ function InviteModal({ roles, onClose, onSaved }: {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
               <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Role</div>
-              <select value={form.role} onChange={e => field('role', e.target.value)}
-                style={{ display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}>
-                {roles.map(r => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
-              </select>
+              <RoleSelect value={form.role} onChange={v => field('role', v)}
+                style={{ display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+              />
             </div>
             <div>
               <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Department</div>
@@ -173,8 +199,8 @@ function InviteModal({ roles, onClose, onSaved }: {
 
 // ── Edit User modal ───────────────────────────────────────────────────────────
 
-function EditUserModal({ user, roles, onClose, onSaved }: {
-  user: User; roles: string[]; onClose: () => void; onSaved: () => void
+function EditUserModal({ user, onClose, onSaved }: {
+  user: User; onClose: () => void; onSaved: () => void
 }) {
   const [form, setForm] = useState({
     role:       user.role,
@@ -252,10 +278,9 @@ function EditUserModal({ user, roles, onClose, onSaved }: {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
             <div>
               <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Role</div>
-              <select value={form.role} onChange={e => field('role', e.target.value)}
-                style={{ display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}>
-                {roles.map(r => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
-              </select>
+              <RoleSelect value={form.role} onChange={v => field('role', v)}
+                style={{ display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+              />
             </div>
             <div>
               <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Department</div>
@@ -356,7 +381,6 @@ export default function AdminUsers() {
   const [rows,      setRows]      = useState<User[]>([])
   const [loading,   setLoading]   = useState(true)
   const [error,     setError]     = useState<string | null>(null)
-  const [roles,     setRoles]     = useState<string[]>(ALL_ROLES)
   const [editing,   setEditing]   = useState<User | null>(null)
   const [inviting,  setInviting]  = useState(false)
   const [search,    setSearch]    = useState('')
@@ -371,12 +395,8 @@ export default function AdminUsers() {
     setLoading(true)
     setError(null)
     try {
-      const [u, r] = await Promise.all([
-        apiFetch<User[]>('/api/admin/users'),
-        apiFetch<{ name: string }[]>('/api/admin/roles').catch(() => []),
-      ])
+      const u = await apiFetch<User[]>('/api/admin/users')
       setRows(Array.isArray(u) ? u : [])
-      if (Array.isArray(r) && r.length > 0) setRoles(r.map(x => x.name).sort())
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -498,7 +518,7 @@ export default function AdminUsers() {
                 <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--card)', fontSize: 12.5, color: 'var(--txt)', outline: 'none' }}>
                   <option value="">All roles</option>
-                  {[...new Set(rows.map(u => u.role))].sort().map(r => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
+                  {[...new Set(rows.map(u => u.role))].sort().map(r => <option key={r} value={r}>{roleLabel(r)}</option>)}
                 </select>
               </div>
               <div>
@@ -540,7 +560,7 @@ export default function AdminUsers() {
           <div style={{ padding: '8px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {roleFilter && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 5, background: `${NAVY}12`, color: NAVY, borderRadius: 16, padding: '3px 10px', fontSize: 11.5, fontWeight: 600 }}>
-                Role: {roleFilter.replace(/_/g, ' ')}
+                Role: {roleLabel(roleFilter)}
                 <button onClick={() => setRoleFilter('')} style={{ border: 'none', background: 'none', cursor: 'pointer', color: NAVY, display: 'flex', padding: 0 }}>
                   <span className="material-symbols-rounded" style={{ fontSize: 13 }}>close</span>
                 </button>
@@ -597,7 +617,6 @@ export default function AdminUsers() {
 
       {inviting && (
         <InviteModal
-          roles={roles}
           onClose={() => setInviting(false)}
           onSaved={(pw, name) => {
             toast.success(`${name} invited. Temp password: ${pw}`, { duration: 10000 })
@@ -609,7 +628,6 @@ export default function AdminUsers() {
       {editing && (
         <EditUserModal
           user={editing}
-          roles={roles}
           onClose={() => setEditing(null)}
           onSaved={load}
         />

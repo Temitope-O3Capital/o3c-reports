@@ -21,7 +21,6 @@ import { fmtKobo } from './lib/fmt'
 import { ConfirmModal } from './components/UI'
 
 // ── Lazy imports ──────────────────────────────────────────────────────────────
-const CS           = lazy(() => import('./pages/ComingSoon'))
 const CSATSurvey   = lazy(() => import('./pages/helpdesk/CSATSurvey'))
 const UserSettings = lazy(() => import('./pages/Settings'))
 
@@ -1200,38 +1199,6 @@ export default function App() {
     )
   }
 
-  if (typeof window !== 'undefined' && window.location.pathname === '/workspace') {
-    const O3CWorkspace = lazy(() => import('./pages/O3CWorkspace'))
-    return (
-      <BrowserRouter>
-        <Suspense fallback={null}>
-          <Routes><Route path="/workspace" element={<O3CWorkspace />} /></Routes>
-        </Suspense>
-      </BrowserRouter>
-    )
-  }
-
-  if (typeof window !== 'undefined' && window.location.pathname === '/demo') {
-    const WorkspaceDemo = lazy(() => import('./pages/WorkspaceDemo'))
-    return (
-      <BrowserRouter>
-        <Suspense fallback={null}>
-          <Routes><Route path="/demo" element={<WorkspaceDemo />} /></Routes>
-        </Suspense>
-      </BrowserRouter>
-    )
-  }
-
-  if (typeof window !== 'undefined' && window.location.pathname === '/design-demo') {
-    const DesignDemo = lazy(() => import('./pages/DesignDemo'))
-    return (
-      <BrowserRouter>
-        <Suspense fallback={null}>
-          <Routes><Route path="/design-demo" element={<DesignDemo />} /></Routes>
-        </Suspense>
-      </BrowserRouter>
-    )
-  }
 
   if (loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: CANVAS }}>
