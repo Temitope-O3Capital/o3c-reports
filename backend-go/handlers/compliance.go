@@ -147,9 +147,6 @@ func complianceAuditLogList(db *core.DB) http.HandlerFunc {
 
 func complianceAuditLogInsert(db *core.DB) http.HandlerFunc {
 	type body struct {
-		ActorID    int64          `json:"actor_id"`
-		ActorRole  string         `json:"actor_role"`
-		ActorName  string         `json:"actor_name"`
 		Action     string         `json:"action"`
 		EntityType string         `json:"entity_type"`
 		EntityID   string         `json:"entity_id"`
@@ -167,6 +164,9 @@ func complianceAuditLogInsert(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// Actor identity always comes from the authenticated JWT, never the request body.
+		user := core.UserFromCtx(r.Context())
+
 		changesJSON, err := json.Marshal(b.Changes)
 		if err != nil {
 			changesJSON = []byte("{}")
@@ -177,7 +177,7 @@ func complianceAuditLogInsert(db *core.DB) http.HandlerFunc {
 			INSERT INTO audit_logs (actor_id, actor_role, actor_name, action, entity_type,
 				entity_id, changes, ip_address, created_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
-			b.ActorID, b.ActorRole, b.ActorName, b.Action, b.EntityType,
+			user.ID, user.Role, user.FullName, b.Action, b.EntityType,
 			b.EntityID, string(changesJSON), b.IPAddress)
 		if err != nil {
 			respondErr(w, 500, "Insert failed")
@@ -550,8 +550,12 @@ func complianceSAREscalate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.ToStatus == "" {
-			respondErr(w, 422, "to_status is required")
+		validStatuses := map[string]bool{
+			"draft": true, "under_review": true, "submitted_to_nfiu": true,
+			"nfiu_acknowledged": true, "closed": true,
+		}
+		if b.ToStatus == "" || !validStatuses[b.ToStatus] {
+			respondErr(w, 422, "to_status must be one of: draft, under_review, submitted_to_nfiu, nfiu_acknowledged, closed")
 			return
 		}
 
@@ -667,14 +671,16 @@ func complianceWatchListAdd(db *core.DB) http.HandlerFunc {
 			return
 		}
 		entryID := toInt64(rows[0]["id"])
-		go NotifyRole(r.Context(), db, "compliance_officer", NotifPayload{
+		notifCtx := context.Background()
+		payload := NotifPayload{
 			EventType: EvtAMLWatchlistHit,
 			Title:     fmt.Sprintf("Watchlist entry added: %s", b.EntityName),
 			Body:      fmt.Sprintf("%s (%s) has been added to the AML watchlist. Reason: %s", b.EntityName, b.EntityType, b.Reason),
 			ActionURL: fmt.Sprintf("/compliance/watch-list/%d", entryID),
 			EntityRef: b.IDValue,
-		})
-		go NotifyRole(r.Context(), db, "compliance_head", NotifPayload{
+		}
+		go NotifyRole(notifCtx, db, "compliance_officer", payload)
+		go NotifyRole(notifCtx, db, "compliance_head", NotifPayload{
 			EventType: EvtAMLWatchlistHit,
 			Title:     fmt.Sprintf("Watchlist entry added: %s", b.EntityName),
 			Body:      fmt.Sprintf("%s (%s) added to AML watchlist. Reason: %s", b.EntityName, b.EntityType, b.Reason),
@@ -1433,9 +1439,10 @@ func complianceDPARegisterCreate(db *core.DB) http.HandlerFunc {
 func complianceDPARegisterUpdate(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
+		// Use *bool so we can distinguish "field absent" from "field set to false".
 		var b struct {
-			Status       string `json:"status"`
-			DPOReviewed  bool   `json:"dpo_reviewed"`
+			Status           string `json:"status"`
+			DPOReviewed      *bool  `json:"dpo_reviewed"`
 			SecurityMeasures string `json:"security_measures"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
@@ -1448,8 +1455,10 @@ func complianceDPARegisterUpdate(db *core.DB) http.HandlerFunc {
 			args = append(args, b.Status)
 			sets = append(sets, fmt.Sprintf("status=$%d", len(args)))
 		}
-		args = append(args, b.DPOReviewed)
-		sets = append(sets, fmt.Sprintf("dpo_reviewed=$%d", len(args)))
+		if b.DPOReviewed != nil {
+			args = append(args, *b.DPOReviewed)
+			sets = append(sets, fmt.Sprintf("dpo_reviewed=$%d", len(args)))
+		}
 		if b.SecurityMeasures != "" {
 			args = append(args, b.SecurityMeasures)
 			sets = append(sets, fmt.Sprintf("security_measures=$%d", len(args)))

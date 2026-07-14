@@ -121,7 +121,7 @@ export default function DataSubjectRequests() {
       : <span style={{ fontSize: 11, color: 'var(--txt3)', fontStyle: 'italic' }}>Pending erasure</span>
     },
     { key: 'assigned_to_name', label: 'Handler', render: r => <span style={{ fontSize: 12.5 }}>{r.assigned_to_name ?? '—'}</span> },
-    { key: 'id', label: '', render: r => r.status !== 'resolved' && r.status !== 'rejected' ? (
+    { key: 'actions', label: '', render: r => r.status !== 'resolved' && r.status !== 'rejected' ? (
       <button onClick={() => setSelected(r)} style={{ padding: '4px 10px', fontSize: 12, fontWeight: 600,
         borderRadius: 6, border: `1px solid ${NAVY}30`, background: 'none', color: NAVY, cursor: 'pointer', fontFamily: INTER }}>
         Update

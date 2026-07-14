@@ -262,9 +262,12 @@ func tmLogDisposition(db *core.DB) http.HandlerFunc {
 			leadStatus = s
 		}
 
-		db.PGExec(r.Context(), //nolint:errcheck
+		if _, err := db.PGExec(r.Context(),
 			`UPDATE telemarketing_leads SET status=$1, last_called_at=NOW(), updated_at=NOW() WHERE id=$2`,
-			leadStatus, id)
+			leadStatus, id); err != nil {
+			respondErr(w, 500, "Update failed")
+			return
+		}
 
 		// If marked DNC, add to dnc_list
 		if b.Outcome == "dnc" {
@@ -444,12 +447,22 @@ func tmListAgents(db *core.DB) http.HandlerFunc {
 }
 
 // tmBulkAssign assigns a list of leads to a single agent.
+// Restricted to telemarketing_head and management roles.
 func tmBulkAssign(db *core.DB) http.HandlerFunc {
 	type body struct {
 		LeadIDs []int64 `json:"lead_ids"`
 		AgentID int64   `json:"agent_id"`
 	}
+	mgmtRoles := map[string]bool{
+		"md": true, "coo": true, "cfo": true, "cmo": true,
+		"admin": true, "management": true, "head_ops": true, "head_it": true,
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if user.Role != "telemarketing_head" && !mgmtRoles[user.Role] {
+			respondErr(w, 403, "Only team heads can assign leads")
+			return
+		}
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -560,7 +573,14 @@ func tmDistribute(db *core.DB) http.HandlerFunc {
 			groups[agentID] = append(groups[agentID], leadID)
 		}
 
-		// Bulk UPDATE per agent
+		// Bulk UPDATE per agent — all-or-nothing so a mid-loop failure doesn't leave
+		// some agents assigned and others skipped.
+		tx, err := db.PG.BeginTx(ctx, nil)
+		if err != nil {
+			respondErr(w, 500, "Distribute failed")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
 		for agentID, ids := range groups {
 			clause := "$2"
 			upArgs := []any{agentID, ids[0]}
@@ -568,12 +588,16 @@ func tmDistribute(db *core.DB) http.HandlerFunc {
 				clause += fmt.Sprintf(",$%d", i+3)
 				upArgs = append(upArgs, id)
 			}
-			if _, err := db.PGExec(ctx,
+			if _, err := tx.ExecContext(ctx,
 				fmt.Sprintf(`UPDATE telemarketing_leads SET assigned_to=$1, updated_at=NOW() WHERE id IN (%s)`, clause),
 				upArgs...); err != nil {
 				respondErr(w, 500, "Distribute failed")
 				return
 			}
+		}
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "Distribute failed")
+			return
 		}
 
 		// Fetch agent names for the response breakdown
@@ -629,7 +653,8 @@ func tmListQueue(db *core.DB) http.HandlerFunc {
 		             priority, outstanding_kobo, dpd, is_existing_customer,
 		             loan_product, next_payment_date, last_disposition, last_called_at
 		      FROM telemarketing_contacts
-		      WHERE status = 'pending'`
+		      WHERE status = 'pending'
+		        AND phone NOT IN (SELECT phone FROM dnc_list)`
 		var args []any
 		n := 1
 
@@ -751,9 +776,12 @@ func tmBulkSkip(db *core.DB) http.HandlerFunc {
 			clause += fmt.Sprintf(",$%d", i+2)
 			args = append(args, id)
 		}
-		db.PGExec(r.Context(), //nolint:errcheck
+		if _, err := db.PGExec(r.Context(),
 			fmt.Sprintf(`UPDATE telemarketing_contacts SET status='skipped', updated_at=NOW() WHERE id IN (%s)`, clause),
-			args...)
+			args...); err != nil {
+			respondErr(w, 500, "Skip failed")
+			return
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"skipped": len(b.IDs)}) //nolint:errcheck
@@ -805,14 +833,16 @@ func tmBulkRemoveDNC(db *core.DB) http.HandlerFunc {
 			clause += fmt.Sprintf(",$%d", i+2)
 			args = append(args, phone)
 		}
-		if _, err := db.PGExec(r.Context(),
+		res, err := db.PGExec(r.Context(),
 			fmt.Sprintf(`DELETE FROM dnc_list WHERE phone IN (%s)`, clause),
-			args...); err != nil {
+			args...)
+		if err != nil {
 			respondErr(w, 500, "Delete failed")
 			return
 		}
+		removed, _ := res.RowsAffected()
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"removed": len(b.Phones)}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"removed": removed}) //nolint:errcheck
 	}
 }

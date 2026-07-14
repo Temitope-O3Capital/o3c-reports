@@ -559,6 +559,7 @@ export default function TelemarketingQueue() {
       await apiPost('/api/telemarketing/queue/bulk-skip', { ids: [...checkedIds] })
       toast.success(`${checkedIds.size} contact(s) skipped`)
       clearChecked()
+      setSelected(null)
       load()
     } catch (e: any) {
       toast.error(e.message ?? 'Failed to skip')

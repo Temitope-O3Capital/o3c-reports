@@ -198,16 +198,28 @@ func runBatch(ctx context.Context, db *core.DB) error {
 	}
 
 	// 10. DPD-90 alerts — loans crossing 90-day threshold today
-	batchDPD90Alerts(ctx, db)
-	steps = append(steps, "dpd90_alerts:ok")
+	if err := batchDPD90Alerts(ctx, db); err != nil {
+		slog.Error("Batch: DPD-90 alerts failed", "err", err)
+		steps = append(steps, "dpd90_alerts:FAILED")
+	} else {
+		steps = append(steps, "dpd90_alerts:ok")
+	}
 
 	// 11. Vendor integration key expiry alerts — 7-day warning
-	batchAPIKeyExpiryAlerts(ctx, db)
-	steps = append(steps, "api_key_expiry:ok")
+	if err := batchAPIKeyExpiryAlerts(ctx, db); err != nil {
+		slog.Error("Batch: API key expiry alerts failed", "err", err)
+		steps = append(steps, "api_key_expiry:FAILED")
+	} else {
+		steps = append(steps, "api_key_expiry:ok")
+	}
 
 	// 12. Campaign delivery failure alerts
-	batchCampaignDeliveryAlerts(ctx, db)
-	steps = append(steps, "campaign_delivery_alerts:ok")
+	if err := batchCampaignDeliveryAlerts(ctx, db); err != nil {
+		slog.Error("Batch: campaign delivery alerts failed", "err", err)
+		steps = append(steps, "campaign_delivery_alerts:FAILED")
+	} else {
+		steps = append(steps, "campaign_delivery_alerts:ok")
+	}
 
 	status := "success"
 	if batchErr != nil {
@@ -243,8 +255,17 @@ func batchPortfolioSnapshot(ctx context.Context, db *core.DB) error {
 			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 90), 0) AS par90_kobo,
 			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE booked_at::date = $1), 0) AS new_disbursements_kobo
 		FROM loan_applications`, today)
-	if err != nil || len(rows) == 0 {
+	if err != nil {
 		return fmt.Errorf("portfolio query: %w", err)
+	}
+	if len(rows) == 0 {
+		// No loans in the DB yet — write a zero-row snapshot and continue.
+		rows = []map[string]any{{
+			"total_loans": int64(0), "total_outstanding_kobo": int64(0),
+			"total_npls_kobo": int64(0), "npl_ratio_bps": int64(0),
+			"par30_kobo": int64(0), "par60_kobo": int64(0),
+			"par90_kobo": int64(0), "new_disbursements_kobo": int64(0),
+		}}
 	}
 
 	r := rows[0]
@@ -835,19 +856,30 @@ func batchMonthlyBoardPack(ctx context.Context, db *core.DB) error {
 	return nil
 }
 
-// batchDPD90Alerts notifies collections_head and risk_officer when a loan first
-// crosses the 90-day DPD threshold (today's snapshot dpd = 90).
-func batchDPD90Alerts(ctx context.Context, db *core.DB) {
+// batchDPD90Alerts notifies collections_head and risk_officer the first time a
+// customer's DPD crosses the 90-day threshold. Uses dpd >= 90 (not = 90) so
+// loans aren't missed when the batch is skipped on the crossing night.
+// Dedup: only fires when yesterday's snapshot had dpd < 90 (i.e. first crossing).
+// One notification per customer — DISTINCT ON picks the highest-DPD loan per CIF.
+func batchDPD90Alerts(ctx context.Context, db *core.DB) error {
 	rows, err := db.PGQuery(ctx, `
-		SELECT s.cif_number, s.outstanding_kobo, la.id AS loan_id, la.applicant_name
+		SELECT DISTINCT ON (s.cif_number)
+		       s.cif_number, s.outstanding_kobo, la.id AS loan_id, la.applicant_name
 		FROM loan_dpd_daily_snapshot s
 		JOIN loan_applications la ON la.applicant_cif = s.cif_number
 		WHERE s.snapshot_date = CURRENT_DATE
-		  AND s.dpd = 90
-		  AND la.status IN ('active','repaying','overdue')`)
+		  AND s.dpd >= 90
+		  AND la.status IN ('active','repaying','overdue')
+		  AND NOT EXISTS (
+		    SELECT 1 FROM loan_dpd_daily_snapshot prev
+		    WHERE prev.cif_number = s.cif_number
+		      AND prev.snapshot_date = CURRENT_DATE - 1
+		      AND prev.dpd >= 90
+		  )
+		ORDER BY s.cif_number, s.dpd DESC`)
 	if err != nil {
 		slog.Error("batchDPD90Alerts: query failed", "err", err)
-		return
+		return err
 	}
 	for _, row := range rows {
 		name := str(row["applicant_name"])
@@ -864,19 +896,27 @@ func batchDPD90Alerts(ctx context.Context, db *core.DB) {
 		go NotifyRole(ctx, db, "collections_head", p)
 		go NotifyRole(ctx, db, "risk_officer", p)
 	}
+	return nil
 }
 
 // batchAPIKeyExpiryAlerts fires when a vendor integration key expires within 7 days.
-func batchAPIKeyExpiryAlerts(ctx context.Context, db *core.DB) {
+// Deduped: only fires once per integration per day.
+func batchAPIKeyExpiryAlerts(ctx context.Context, db *core.DB) error {
 	rows, err := db.PGQuery(ctx, `
 		SELECT name, key_expiry
 		FROM vendor_integrations
 		WHERE key_expiry IS NOT NULL
 		  AND key_expiry BETWEEN NOW() AND NOW() + INTERVAL '7 days'
-		  AND status != 'inactive'`)
+		  AND status != 'inactive'
+		  AND NOT EXISTS (
+		    SELECT 1 FROM notifications
+		    WHERE entity_ref = name
+		      AND type = $1
+		      AND created_at::date = CURRENT_DATE
+		  )`, EvtAPIKeyExpiry)
 	if err != nil {
 		slog.Error("batchAPIKeyExpiryAlerts: query failed", "err", err)
-		return
+		return err
 	}
 	for _, row := range rows {
 		name := str(row["name"])
@@ -889,20 +929,27 @@ func batchAPIKeyExpiryAlerts(ctx context.Context, db *core.DB) {
 			EntityRef: name,
 		})
 	}
+	return nil
 }
 
 // batchCampaignDeliveryAlerts fires when a campaign's failure count exceeds 10
-// for sends that happened today and no alert has been sent yet today.
-func batchCampaignDeliveryAlerts(ctx context.Context, db *core.DB) {
+// for sends that happened today. Deduped: only fires once per campaign per day.
+func batchCampaignDeliveryAlerts(ctx context.Context, db *core.DB) error {
 	rows, err := db.PGQuery(ctx, `
 		SELECT id, name, email_failed, sms_failed, created_by
 		FROM campaigns
 		WHERE (email_failed + sms_failed) > 10
 		  AND updated_at::date = CURRENT_DATE
-		  AND status IN ('active','paused','completed')`)
+		  AND status IN ('active','paused','completed')
+		  AND NOT EXISTS (
+		    SELECT 1 FROM notifications
+		    WHERE entity_ref = 'campaign-' || id::text
+		      AND type = $1
+		      AND created_at::date = CURRENT_DATE
+		  )`, EvtCampaignDeliveryFailed)
 	if err != nil {
 		slog.Error("batchCampaignDeliveryAlerts: query failed", "err", err)
-		return
+		return err
 	}
 	for _, row := range rows {
 		campaignID := toInt64(row["id"])
@@ -923,6 +970,7 @@ func batchCampaignDeliveryAlerts(ctx context.Context, db *core.DB) {
 		}
 		go NotifyRole(ctx, db, "admin", p)
 	}
+	return nil
 }
 
 // splitTrim splits s by sep and trims whitespace from each element.

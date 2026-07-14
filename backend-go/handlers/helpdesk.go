@@ -555,7 +555,7 @@ func hdBulkCloseTickets(db *core.DB) http.HandlerFunc {
 			args = append(args, id)
 		}
 		if _, err := db.PGExec(r.Context(),
-			fmt.Sprintf("UPDATE helpdesk_tickets SET status='closed', updated_at=NOW() WHERE id IN (%s)",
+			fmt.Sprintf("UPDATE helpdesk_tickets SET status='closed', closed_at=NOW(), updated_at=NOW() WHERE id IN (%s)",
 				strings.Join(placeholders, ",")), args...); err != nil {
 			respondErr(w, 500, "Update failed")
 			return
