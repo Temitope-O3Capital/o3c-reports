@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS api_credentials (
     last_tested_at  TIMESTAMPTZ,
     test_status     TEXT,  -- 'ok' | 'failed' | null
     updated_at      TIMESTAMPTZ DEFAULT NOW(),
-    updated_by      BIGINT REFERENCES users(id)
+    updated_by      BIGINT REFERENCES o3c_users(id)
 );
 
 -- Seed with key names (no values — admin must enter them via the platform settings UI)

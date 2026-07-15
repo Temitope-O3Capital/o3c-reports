@@ -74,15 +74,30 @@ func LoadConfig() (*Config, error) {
 
 	srv := os.Getenv("MSSQL_SERVER")
 	db := os.Getenv("MSSQL_DB")
+	// Accept MSSQL_DATABASE as an alias: the deployed Railway environment set that
+	// name, which this code never read, so MSSQL stayed silently disabled there.
+	if db == "" {
+		db = os.Getenv("MSSQL_DATABASE")
+	}
 	if srv != "" && db != "" {
+		// Older SQL Server (Production_ED is 2014 / v12) negotiates TLS 1.0, which
+		// Go 1.22+ rejects by default ("server selected unsupported protocol
+		// version 301"). tlsmin lets the operator opt back down; default to 1.0 for
+		// these legacy on-prem servers, overridable via MSSQL_TLS_MIN.
+		tlsMin := os.Getenv("MSSQL_TLS_MIN")
+		if tlsMin == "" {
+			tlsMin = "1.0"
+		}
 		if os.Getenv("MSSQL_TRUSTED") == "yes" {
-			c.MSSQLConnStr = fmt.Sprintf("sqlserver://%s?database=%s&trusted_connection=yes", srv, db)
+			c.MSSQLConnStr = fmt.Sprintf(
+				"sqlserver://%s?database=%s&trusted_connection=yes&tlsmin=%s", srv, db, tlsMin)
 		} else {
 			u := url.QueryEscape(os.Getenv("MSSQL_USER"))
 			p := url.QueryEscape(os.Getenv("MSSQL_PASSWORD"))
-			c.MSSQLConnStr = fmt.Sprintf("sqlserver://%s:%s@%s?database=%s", u, p, srv, db)
+			c.MSSQLConnStr = fmt.Sprintf(
+				"sqlserver://%s:%s@%s?database=%s&tlsmin=%s", u, p, srv, db, tlsMin)
 		}
-		slog.Info("MSSQL configured", "server", srv, "database", db)
+		slog.Info("MSSQL configured", "server", srv, "database", db, "tlsmin", tlsMin)
 	} else {
 		slog.Info("MSSQL not configured — Supabase-only mode")
 	}

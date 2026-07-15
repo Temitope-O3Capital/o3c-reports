@@ -1,4 +1,27 @@
--- Core platform tables: departments, grade levels, settings, sync status
+-- Core platform tables: users, departments, grade levels, settings, sync status
+
+-- o3c_users must exist here, not in 014: migrations 012 and 013 declare foreign
+-- keys against it and run first. Production never hit this because these tables
+-- predate the migration runner and were seeded as already-applied -- but a fresh
+-- database (new env, disaster recovery, local dev) could not bootstrap without it.
+-- 014 keeps its own IF NOT EXISTS copy, so both orders remain safe.
+CREATE TABLE IF NOT EXISTS o3c_users (
+    id                   BIGSERIAL PRIMARY KEY,
+    email                TEXT        NOT NULL UNIQUE,
+    password_hash        TEXT        NOT NULL,
+    full_name            TEXT        NOT NULL DEFAULT '',
+    first_name           TEXT        NOT NULL DEFAULT '',
+    last_name            TEXT        NOT NULL DEFAULT '',
+    role                 TEXT        NOT NULL DEFAULT 'staff',
+    department           TEXT,
+    phone                TEXT,
+    is_active            BOOLEAN     NOT NULL DEFAULT TRUE,
+    must_change_password BOOLEAN     NOT NULL DEFAULT TRUE,
+    last_login           TIMESTAMPTZ,
+    deleted_at           TIMESTAMPTZ,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 CREATE TABLE IF NOT EXISTS departments (
     id         SERIAL PRIMARY KEY,

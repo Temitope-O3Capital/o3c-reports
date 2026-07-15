@@ -27,7 +27,7 @@ CREATE INDEX IF NOT EXISTS idx_campaign_events_type        ON campaign_events(ev
 CREATE TABLE IF NOT EXISTS cs_interactions (
     id               BIGSERIAL PRIMARY KEY,
     cif_number       TEXT,
-    agent_id         BIGINT REFERENCES users(id),
+    agent_id         BIGINT REFERENCES o3c_users(id),
     call_type        TEXT,   -- 'inbound' | 'outbound'
     duration_seconds INT,
     outcome          TEXT,   -- 'resolved' | 'escalated' | 'callback' | 'no_answer'

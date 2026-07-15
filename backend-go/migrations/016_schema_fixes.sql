@@ -66,9 +66,17 @@ BEGIN
           AND column_name = 'pages'
           AND data_type   = 'ARRAY'
     ) THEN
+        -- The column carries a TEXT[] default ('{}'), and Postgres refuses to
+        -- retype a column whose default cannot be cast to the new type:
+        --   "default for column pages cannot be cast automatically to type jsonb"
+        -- Drop the default, convert, then restore it as a JSONB default.
+        ALTER TABLE o3c_custom_roles ALTER COLUMN pages DROP DEFAULT;
+
         ALTER TABLE o3c_custom_roles
             ALTER COLUMN pages TYPE JSONB
             USING to_jsonb(pages);
+
+        ALTER TABLE o3c_custom_roles ALTER COLUMN pages SET DEFAULT '[]'::jsonb;
     END IF;
 END $$;
 

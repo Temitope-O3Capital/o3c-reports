@@ -40,3 +40,7 @@ backend-go/reports
 
 # Claude Code local settings
 .claude/
+
+# compiled Go backend
+backend-go/o3c-backend.exe
+backend-go/o3c-backend
