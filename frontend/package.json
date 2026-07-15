@@ -7,9 +7,12 @@
     "dev:mock": "VITE_MOCK=true vite --port 3101",
     "build": "tsc && vite build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "copy-at-sdk": "node scripts/copy-at-sdk.mjs",
+    "postinstall": "node scripts/copy-at-sdk.mjs"
   },
   "dependencies": {
+    "africastalking-client": "^1.0.0",
     "@telnyx/webrtc": "^2.27.4",
     "@tiptap/extension-color": "^3.27.1",
     "@tiptap/extension-link": "^3.27.1",

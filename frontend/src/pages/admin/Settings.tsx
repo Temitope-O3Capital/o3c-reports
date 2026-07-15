@@ -24,6 +24,7 @@ function isSensitive(key: string): boolean {
 function categoryOf(key: string): string {
   if (key.startsWith('sendgrid') || key.startsWith('mail') || key.startsWith('email')) return 'Email'
   if (key.startsWith('zoho')) return 'Zoho'
+  if (key.startsWith('at_')) return 'Call Center'
   if (key.startsWith('supabase') || key.startsWith('database')) return 'Database'
   if (key.startsWith('mssql') || key.startsWith('tunnel')) return 'MSSQL'
   if (key.startsWith('jwt') || key.startsWith('secret') || key.startsWith('encryption')) return 'Security'

@@ -195,15 +195,17 @@ func main() {
 		})
 	})
 
-	// Africa's Talking inbound webhook — no auth (AT posts here on incoming calls)
-	r.Post("/api/voice/at-inbound", handlers.VoiceATInbound())
+	// Africa's Talking inbound webhook — no auth (AT posts here on every call event)
+	r.Post("/api/voice/at-inbound", handlers.VoiceATInbound(db))
 
-	// Telnyx Voice per-user SIP credentials
+	// Voice — protected endpoints
 	r.Group(func(r chi.Router) {
 		r.Use(core.AuthMiddleware)
+		// AT: browser capability token for agent WebRTC (inbound + outbound)
+		r.Get("/api/voice/at-token", handlers.VoiceATCapabilityToken(db))
+		// Telnyx (legacy SIP credential management)
 		r.Get("/api/voice/status", handlers.VoiceStatus(db))
 		r.Delete("/api/voice/disconnect", handlers.VoiceDisconnect(db))
-		// Admin-only: set Telnyx SIP credentials for any user
 		r.Post("/api/voice/credentials", handlers.VoiceSetCredentials(db))
 	})
 	r.Route("/api/mail", func(r chi.Router) {
