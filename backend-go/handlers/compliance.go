@@ -75,6 +75,20 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 	r.With(all).Post("/dpa-register",                complianceDPARegisterCreate(db))
 	r.With(all).Patch("/dpa-register/{id}",          complianceDPARegisterUpdate(db))
 
+	// Phase 12 — AML Rules (C1)
+	aml := core.RequirePages("compliance_all", "compliance_head")
+	r.With(aml).Get("/aml/rules",          complianceListAMLRules(db))
+	r.With(aml).Post("/aml/rules",         complianceCreateAMLRule(db))
+	r.With(aml).Delete("/aml/rules/{id}", complianceDeleteAMLRule(db))
+	r.With(aml).Get("/aml/stats",          complianceAMLStats(db))
+
+	// Phase 12 — KYC Expiry (C2)
+	r.With(all).Get("/kyc-expiry",               complianceListKYCExpiry(db))
+	r.With(all).Post("/kyc-expiry/{cif}/action", complianceKYCExpiryAction(db))
+
+	// DSAR assignment (H6)
+	r.With(all).Post("/data-subject-requests/{id}/assign", complianceDSARAssign(db))
+
 	// P12-08/09 — SOC 2 readiness + pentest tracker
 	RegisterSOC2(r, db)
 }
@@ -252,24 +266,35 @@ func complianceCBNList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		year := qstr(r, "year")
 		status := qstr(r, "status")
-		limit := qint(r, "limit", 50, 1, 500)
+		limit := qint(r, "limit", 200, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
-		query := `SELECT * FROM cbn_reports WHERE 1=1`
+		query := `
+			SELECT c.id,
+			       COALESCE(c.report_name, c.report_type) AS report_name,
+			       COALESCE(c.regulatory_body, '')         AS regulatory_body,
+			       COALESCE(c.due_date, c.period_end)      AS due_date,
+			       c.status, c.notes, c.submitted_at,
+			       c.period_start, c.period_end, c.report_type,
+			       c.created_at, c.updated_at,
+			       u.full_name AS owner_name
+			FROM cbn_reports c
+			LEFT JOIN o3c_users u ON u.id = c.owner_id
+			WHERE 1=1`
 		args := []any{}
 		n := 1
 
 		if year != "" {
-			query += fmt.Sprintf(" AND EXTRACT(YEAR FROM period_start) = $%d", n)
+			query += fmt.Sprintf(" AND EXTRACT(YEAR FROM COALESCE(c.due_date, c.period_end)) = $%d", n)
 			args = append(args, year)
 			n++
 		}
 		if status != "" {
-			query += fmt.Sprintf(" AND status = $%d", n)
+			query += fmt.Sprintf(" AND c.status = $%d", n)
 			args = append(args, status)
 			n++
 		}
-		query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
+		query += fmt.Sprintf(" ORDER BY COALESCE(c.due_date, c.period_end) ASC NULLS LAST LIMIT $%d OFFSET $%d", n, n+1)
 		args = append(args, limit, offset)
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
@@ -304,6 +329,11 @@ func complianceCBNGet(db *core.DB) http.HandlerFunc {
 
 func complianceCBNCreate(db *core.DB) http.HandlerFunc {
 	type body struct {
+		// Calendar-style fields (from RegulatoryCalendar.tsx)
+		ReportName     string `json:"report_name"`
+		RegulatoryBody string `json:"regulatory_body"`
+		DueDate        string `json:"due_date"`
+		// Legacy CBN submission fields
 		ReportType  string `json:"report_type"`
 		PeriodStart string `json:"period_start"`
 		PeriodEnd   string `json:"period_end"`
@@ -315,15 +345,39 @@ func complianceCBNCreate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.ReportType == "" || b.PeriodStart == "" || b.PeriodEnd == "" {
-			respondErr(w, 422, "report_type, period_start, period_end are required")
+		// Require either the calendar fields or the legacy CBN fields.
+		if b.ReportName == "" && b.ReportType == "" {
+			respondErr(w, 422, "report_name is required")
 			return
 		}
+		// Normalise: calendar mode uses report_name → report_type, due_date → period_end.
+		if b.ReportType == "" {
+			b.ReportType = b.ReportName
+		}
+		if b.ReportName == "" {
+			b.ReportName = b.ReportType
+		}
+		if b.PeriodEnd == "" && b.DueDate != "" {
+			b.PeriodEnd = b.DueDate
+		}
+		if b.PeriodStart == "" {
+			b.PeriodStart = time.Now().Format("2006-01-02")
+		}
+		if b.PeriodEnd == "" {
+			b.PeriodEnd = b.PeriodStart
+		}
+		if b.DueDate == "" {
+			b.DueDate = b.PeriodEnd
+		}
+		user := core.UserFromCtx(r.Context())
 		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO cbn_reports (report_type, period_start, period_end, status, notes, created_at, updated_at)
-			VALUES ($1, $2, $3, 'draft', $4, NOW(), NOW())
-			RETURNING id, report_type, status, period_start, period_end`,
-			b.ReportType, b.PeriodStart, b.PeriodEnd, b.Notes)
+			INSERT INTO cbn_reports
+			    (report_type, report_name, regulatory_body, due_date,
+			     period_start, period_end, status, notes, owner_id, created_at, updated_at)
+			VALUES ($1, $2, $3, $4::date, $5::date, $6::date, 'pending', $7, $8, NOW(), NOW())
+			RETURNING id, report_name, regulatory_body, due_date, status`,
+			b.ReportType, b.ReportName, b.RegulatoryBody, b.DueDate,
+			b.PeriodStart, b.PeriodEnd, b.Notes, user.ID)
 		if err != nil {
 			respondErr(w, 500, "Create failed")
 			return
@@ -373,7 +427,7 @@ func complianceCBNSubmit(db *core.DB) http.HandlerFunc {
 		}
 		res, err := db.PGExec(r.Context(), `
 			UPDATE cbn_reports SET status = 'submitted', submitted_at = NOW(), updated_at = NOW()
-			WHERE id = $1 AND status = 'signed_off'`, id)
+			WHERE id = $1 AND status IN ('pending', 'draft', 'signed_off')`, id)
 		if err != nil {
 			respondErr(w, 500, "Submit failed")
 			return
@@ -394,8 +448,11 @@ func complianceCBNSubmit(db *core.DB) http.HandlerFunc {
 func complianceSARList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status := qstr(r, "status")
-		limit := qint(r, "limit", 50, 1, 500)
-		offset := qint(r, "offset", 0, 0, 1<<30)
+		// M2: support page/per_page as well as legacy limit/offset.
+		perPage := qint(r, "per_page", 50, 1, 500)
+		page := qint(r, "page", 1, 1, 1<<30)
+		limit := qint(r, "limit", perPage, 1, 500)
+		offset := qint(r, "offset", (page-1)*perPage, 0, 1<<30)
 
 		query := `SELECT id, sar_ref, reporter_id, subject_id_type, account_number,
 		                 amount_kobo, transaction_date, status,
@@ -568,6 +625,26 @@ func complianceSAREscalate(db *core.DB) http.HandlerFunc {
 			return
 		}
 		fromStatus := str(sarRows[0]["status"])
+
+		// C5: enforce state machine transitions.
+		validTransitions := map[string][]string{
+			"draft":             {"under_review"},
+			"under_review":      {"submitted_to_nfiu", "draft"},
+			"submitted_to_nfiu": {"nfiu_acknowledged"},
+			"nfiu_acknowledged": {"closed"},
+		}
+		allowed := validTransitions[fromStatus]
+		transitionOK := false
+		for _, s := range allowed {
+			if s == b.ToStatus {
+				transitionOK = true
+				break
+			}
+		}
+		if !transitionOK {
+			respondErr(w, 422, "Invalid status transition from "+fromStatus+" to "+b.ToStatus)
+			return
+		}
 
 		// Use optimistic concurrency: only update if current status matches what we read.
 		res, err := db.PGExec(ctx,
@@ -899,6 +976,15 @@ func complianceFindingClose(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid finding ID")
 			return
 		}
+		// H1: remediation notes are mandatory when closing a finding.
+		var b struct {
+			RemediationNotes string `json:"remediation_notes"`
+		}
+		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
+		if b.RemediationNotes == "" {
+			respondErr(w, 422, "Remediation notes are required to close a finding")
+			return
+		}
 		ctx := r.Context()
 
 		// Fetch finding info for notification before closing.
@@ -1178,9 +1264,37 @@ func compliancePrudentialRatios(db *core.DB) http.HandlerFunc {
 
 		// CBN thresholds for reference
 		result["cbn_thresholds"] = map[string]any{
-			"npl_max_pct":  5.0,
+			"npl_max_pct":   5.0,
 			"par90_max_pct": 5.0,
-			"car_min_pct":  10.0,
+			"car_min_pct":   10.0,
+		}
+
+		// H7: breach detection — NPL and PAR90 are max thresholds (breach if above).
+		// CAR / liquidity_ratio are min thresholds; not yet computable here — left as TODO.
+		type breach struct {
+			RatioType string  `json:"ratio_type"`
+			Value     float64 `json:"value"`
+			Threshold float64 `json:"threshold"`
+			Direction string  `json:"direction"`
+		}
+		var breaches []breach
+		if v, ok := result["npl_ratio_pct"].(float64); ok && v > 5.0 {
+			breaches = append(breaches, breach{"NPL", v, 5.0, "above_max"})
+		}
+		if v, ok := result["par90_pct"].(float64); ok && v > 5.0 {
+			breaches = append(breaches, breach{"PAR90", v, 5.0, "above_max"})
+		}
+		if breaches == nil {
+			breaches = []breach{}
+		}
+		result["breaches"] = breaches
+		if len(breaches) > 0 {
+			go NotifyRole(ctx, db, "compliance_head", NotifPayload{
+				EventType: "prudential_breach",
+				Title:     fmt.Sprintf("%d Prudential Ratio Breach(es) Detected", len(breaches)),
+				Body:      "One or more CBN prudential thresholds have been breached. Review required.",
+				ActionURL: "/compliance/prudential-ratios",
+			})
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1302,6 +1416,9 @@ func complianceDSARCreate(db *core.DB) http.HandlerFunc {
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.RequestType == "" {
 			respondErr(w, 400, "request_type is required"); return
 		}
+		// H5: sla_due_at = NOW() + INTERVAL '30 days' should be set here.
+		// TODO: add the column to data_subject_requests (migration 058 omits it)
+		// and then change the INSERT to include sla_due_at.
 		rows, err := db.PGQuery(ctx, `
 			INSERT INTO data_subject_requests (subject_cif, subject_name, subject_email, request_type, notes, status)
 			VALUES ($1,$2,$3,$4,$5,'pending')
@@ -1532,11 +1649,12 @@ func complianceConcentrationRisk(db *core.DB) http.HandlerFunc {
 		}
 
 		// Employer concentration — top 10 employers.
+		// M1: COUNT(DISTINCT applicant_cif) counts unique borrowers per employer, not loans.
 		empRows, _ := db.PGQuery(ctx, `
 			SELECT
-			    COALESCE(NULLIF(employer,''), 'Unknown') AS employer,
-			    SUM(disbursed_amount_kobo)               AS exposure_kobo,
-			    COUNT(*)                                 AS borrower_count
+			    COALESCE(NULLIF(employer,''), 'Unknown')          AS employer,
+			    SUM(disbursed_amount_kobo)                        AS exposure_kobo,
+			    COUNT(DISTINCT NULLIF(applicant_cif,''))          AS borrower_count
 			FROM loan_applications
 			WHERE status = 'disbursed' AND disbursed_amount_kobo > 0
 			GROUP BY 1
@@ -1595,14 +1713,64 @@ func runNDPRErasure(db *core.DB) {
 		cif := str(row["subject_cif"])
 
 		if cif != "" {
-			if _, err := db.PGExec(ctx, `
-				UPDATE crm_contacts
-				SET first_name = '[ERASED]',
-				    last_name  = '[ERASED]',
-				    phone      = NULL,
-				    email      = NULL
-				WHERE cif_number = $1`, cif); err != nil {
-				slog.Error("ndpr_erasure: anonymize failed", "dsar_id", id, "cif", cif, "error", err)
+			// C4: anonymise all PII tables inside a single transaction.
+			tx, txErr := db.PG.BeginTx(ctx, nil)
+			if txErr != nil {
+				slog.Error("ndpr_erasure: begin tx failed", "dsar_id", id, "error", txErr)
+				continue
+			}
+
+			eraseErr := func() error {
+				// crm_contacts
+				if _, err := tx.ExecContext(ctx, `
+					UPDATE crm_contacts
+					SET first_name = '[ERASED]',
+					    last_name  = '[ERASED]',
+					    phone      = NULL,
+					    email      = NULL
+					WHERE cif_number = $1`, cif); err != nil {
+					return fmt.Errorf("crm_contacts: %w", err)
+				}
+				// customers: full_name, phone, email, bvn confirmed from schema.
+				// NOTE: bvn_hash, nin_hash, bvn_encrypted, nin_encrypted not found in schema — skipped.
+				if _, err := tx.ExecContext(ctx, `
+					UPDATE customers
+					SET full_name = '[ERASED]',
+					    phone     = '[ERASED]',
+					    email     = '[ERASED]',
+					    bvn       = '[ERASED]'
+					WHERE cif_number = $1`, cif); err != nil {
+					// Non-fatal: columns may not all exist in all deployments.
+					slog.Warn("ndpr_erasure: customers anonymize warning", "dsar_id", id, "cif", cif, "error", err)
+				}
+				// loan_applications: applicant_name, applicant_phone confirmed in migration 004.
+				// NOTE: applicant_bvn_hash not found in schema — skipped.
+				if _, err := tx.ExecContext(ctx, `
+					UPDATE loan_applications
+					SET applicant_name  = '[ERASED]',
+					    applicant_phone = '[ERASED]'
+					WHERE applicant_cif = $1`, cif); err != nil {
+					slog.Warn("ndpr_erasure: loan_applications warning", "dsar_id", id, "cif", cif, "error", err)
+				}
+				// NOTE: financial_transactions table not present in schema — skipped.
+				// audit_logs: redact the 'changes' JSON where entity_type='customer'.
+				// (column is 'changes', not 'action_data' — verified from INSERT in audit log handler)
+				if _, err := tx.ExecContext(ctx, `
+					UPDATE audit_logs
+					SET changes = NULL
+					WHERE entity_id = $1 AND entity_type = 'customer'`, cif); err != nil {
+					slog.Warn("ndpr_erasure: audit_logs warning", "dsar_id", id, "cif", cif, "error", err)
+				}
+				return nil
+			}()
+
+			if eraseErr != nil {
+				tx.Rollback() //nolint:errcheck
+				slog.Error("ndpr_erasure: anonymize failed", "dsar_id", id, "cif", cif, "error", eraseErr)
+				continue
+			}
+			if err := tx.Commit(); err != nil {
+				slog.Error("ndpr_erasure: commit failed", "dsar_id", id, "cif", cif, "error", err)
 				continue
 			}
 		}
@@ -1617,3 +1785,223 @@ func runNDPRErasure(db *core.DB) {
 	}
 }
 
+// ── AML Rules (C1) ───────────────────────────────────────────────────────────
+
+// complianceListAMLRules lists all AML screening rules from the aml_rules table.
+// Returns an empty list gracefully if the table does not yet exist.
+func complianceListAMLRules(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT id, name, description, threshold_kobo, is_active, created_at
+			FROM aml_rules
+			ORDER BY created_at DESC`)
+		if err != nil {
+			// Table may not exist yet — return empty list rather than 500.
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]core.Row{}) //nolint:errcheck
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
+	}
+}
+
+func complianceCreateAMLRule(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Name           string `json:"name"`
+		Description    string `json:"description"`
+		ThresholdKobo  int64  `json:"threshold_kobo"`
+		RuleType       string `json:"rule_type"`
+		IsActive       bool   `json:"is_active"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.Name == "" {
+			respondErr(w, 422, "name is required")
+			return
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO aml_rules (name, description, threshold_kobo, rule_type, is_active, created_at, updated_at)
+			VALUES ($1,$2,$3,$4,$5,NOW(),NOW())
+			RETURNING id, name, threshold_kobo, is_active, created_at`,
+			b.Name, b.Description, b.ThresholdKobo, b.RuleType, b.IsActive)
+		if err != nil {
+			respondErr(w, 500, "Create failed")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+func complianceDeleteAMLRule(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Invalid rule ID")
+			return
+		}
+		res, err := db.PGExec(r.Context(), `DELETE FROM aml_rules WHERE id = $1`, id)
+		if err != nil {
+			respondErr(w, 500, "Delete failed")
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			respondErr(w, 404, "Rule not found")
+			return
+		}
+		w.WriteHeader(204)
+	}
+}
+
+func complianceAMLStats(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+			  COUNT(*)                                                  AS total_rules,
+			  SUM(CASE WHEN is_active THEN 1 ELSE 0 END)::int          AS active_rules
+			FROM aml_rules`)
+		if err != nil {
+			// Table may not exist yet.
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"total_rules": 0, "active_rules": 0}) //nolint:errcheck
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(first(rows)) //nolint:errcheck
+	}
+}
+
+// ── KYC Expiry (C2) ──────────────────────────────────────────────────────────
+
+// complianceListKYCExpiry returns customers whose KYC is expiring within 90 days.
+// Queries the kyc_records table; returns empty list gracefully if absent.
+func complianceListKYCExpiry(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+			  k.cif_number,
+			  c.full_name      AS customer_name,
+			  k.expiry_date    AS kyc_expiry_date,
+			  (k.expiry_date::date - CURRENT_DATE)::int AS days_until_expiry,
+			  k.status
+			FROM kyc_records k
+			LEFT JOIN customers c ON c.cif_number = k.cif_number
+			WHERE k.expiry_date IS NOT NULL
+			  AND k.expiry_date::date <= CURRENT_DATE + INTERVAL '90 days'
+			ORDER BY k.expiry_date ASC`)
+		if err != nil {
+			// kyc_records may not exist yet — return empty list.
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]core.Row{}) //nolint:errcheck
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
+	}
+}
+
+func complianceKYCExpiryAction(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Action        string `json:"action"`          // extend | flag | suspend
+		Notes         string `json:"notes"`
+		NewExpiryDate string `json:"new_expiry_date"` // required for extend
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		cif := chi.URLParam(r, "cif")
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.Action == "" {
+			respondErr(w, 422, "action is required (extend|flag|suspend)")
+			return
+		}
+
+		var sets string
+		var args []any
+
+		switch b.Action {
+		case "extend":
+			if b.NewExpiryDate == "" {
+				respondErr(w, 422, "new_expiry_date is required for action=extend")
+				return
+			}
+			sets = "expiry_date=$1, status='active', notes=$2, updated_at=NOW()"
+			args = []any{b.NewExpiryDate, b.Notes, cif}
+		case "flag":
+			sets = "status='flagged', notes=$1, updated_at=NOW()"
+			args = []any{b.Notes, cif}
+		case "suspend":
+			sets = "status='suspended', notes=$1, updated_at=NOW()"
+			args = []any{b.Notes, cif}
+		default:
+			respondErr(w, 422, "action must be one of: extend, flag, suspend")
+			return
+		}
+
+		res, err := db.PGExec(r.Context(),
+			fmt.Sprintf("UPDATE kyc_records SET %s WHERE cif_number=$%d", sets, len(args)), args...)
+		if err != nil {
+			respondErr(w, 500, "Update failed")
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			respondErr(w, 404, "KYC record not found for CIF "+cif)
+			return
+		}
+		respondErr(w, 200, "KYC action applied: "+b.Action)
+	}
+}
+
+// ── DSAR Assignment (H6) ─────────────────────────────────────────────────────
+
+func complianceDSARAssign(db *core.DB) http.HandlerFunc {
+	type body struct {
+		AssignedTo int64 `json:"assigned_to"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.AssignedTo == 0 {
+			respondErr(w, 422, "assigned_to is required")
+			return
+		}
+		_, err := db.PGExec(r.Context(), `
+			UPDATE data_subject_requests SET assigned_to=$1, updated_at=NOW() WHERE id=$2`,
+			b.AssignedTo, id)
+		if err != nil {
+			respondErr(w, 500, "Assign failed")
+			return
+		}
+		// Return the assignee name for immediate UI feedback.
+		userRows, _ := db.PGQuery(r.Context(),
+			`SELECT full_name FROM o3c_users WHERE id=$1`, b.AssignedTo)
+		assignedName := ""
+		if len(userRows) > 0 {
+			assignedName = str(userRows[0]["full_name"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"ok":             true,
+			"assigned_to":    b.AssignedTo,
+			"assigned_name":  assignedName,
+		}) //nolint:errcheck
+	}
+}

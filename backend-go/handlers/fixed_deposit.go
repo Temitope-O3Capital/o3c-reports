@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -399,14 +400,46 @@ func fdEarlyWithdrawalApprove(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "Request is not pending"); return
 		}
 
-		_, err = db.PGQuery(ctx,
-			`UPDATE fd_early_withdrawal_requests SET status='approved', approved_by=$1, approved_at=NOW(), updated_at=NOW() WHERE id=$2 RETURNING id`,
+		// C2: wrap both UPDATEs and the GL entry in a single transaction
+		tx, txErr := db.PG.BeginTx(ctx, nil)
+		if txErr != nil {
+			respondErr(w, 500, "Transaction failed"); return
+		}
+		_, err = tx.ExecContext(ctx,
+			`UPDATE fd_early_withdrawal_requests SET status='approved', approved_by=$1, approved_at=NOW(), updated_at=NOW() WHERE id=$2`,
 			user.ID, reqID)
 		if err != nil {
+			tx.Rollback() //nolint:errcheck
 			respondErr(w, 500, "Approve failed"); return
 		}
-		// Mark the FD as liquidated
-		db.PGExec(ctx, `UPDATE fd_transactions SET transaction_type='liquidation', updated_at=NOW() WHERE id=$1`, req["fd_transaction_id"]) //nolint:errcheck
+		_, err = tx.ExecContext(ctx,
+			`UPDATE fd_transactions SET transaction_type='liquidation', updated_at=NOW() WHERE id=$1`,
+			req["fd_transaction_id"])
+		if err != nil {
+			tx.Rollback() //nolint:errcheck
+			respondErr(w, 500, "FD update failed"); return
+		}
+		netPayout := toInt64(req["net_payout_kobo"])
+		if netPayout > 0 {
+			ref := fmt.Sprintf("FD-EW-%v", reqID)
+			if glErr := postJournalTx(ctx, tx, glEntry{
+				Date:          time.Now(),
+				Description:   "FD early withdrawal - " + ref,
+				Reference:     ref,
+				DebitAccount:  "fixed_deposits_liability",
+				CreditAccount: "cash",
+				AmountKobo:    netPayout,
+				SourceType:    "fd_early_withdrawal",
+				SourceID:      toInt64(req["id"]),
+				PostedBy:      user.ID,
+			}); glErr != nil {
+				tx.Rollback() //nolint:errcheck
+				respondErr(w, 500, "GL entry failed: "+glErr.Error()); return
+			}
+		}
+		if commitErr := tx.Commit(); commitErr != nil {
+			respondErr(w, 500, "Commit failed"); return
+		}
 
 		respond(w, map[string]any{"status": "approved", "net_payout_kobo": req["net_payout_kobo"]}, "json")
 	}
@@ -471,30 +504,80 @@ func fdRollover(db *core.DB) http.HandlerFunc {
 		if v, ok := fd["tenor_days"].(float64); ok { tenor = int(v) }
 		if b.TenorDays != nil { tenor = *b.TenorDays }
 
-		principal := (*float64)(nil)
-		if v, ok := fd["principal"].(float64); ok { principal = &v }
+		var principalVal float64
+		if v, ok := fd["principal"].(float64); ok {
+			principalVal = v
+		}
+
+		// H1: carry forward accrued interest into the rolled-over principal
+		if principalVal > 0 && rate > 0 {
+			if txnDate, ok := fd["transaction_date"].(time.Time); ok && !txnDate.IsZero() {
+				daysElapsed := int64(time.Since(txnDate).Hours() / 24)
+				if daysElapsed > 0 {
+					accrued := int64(principalVal * rate / 100 / 365 * float64(daysElapsed))
+					principalVal += float64(accrued)
+				}
+			}
+		}
+		newPrincipal := &principalVal
+
+		tx, txErr := db.PG.BeginTx(ctx, nil)
+		if txErr != nil {
+			respondErr(w, 500, txErr.Error()); return
+		}
+		defer tx.Rollback() //nolint:errcheck
 
 		// Mark old FD as rolled over
-		db.PGExec(ctx, `UPDATE fd_transactions SET transaction_type='rolled_over', updated_at=NOW() WHERE id=$1`, id) //nolint:errcheck
+		if _, txErr = tx.ExecContext(ctx,
+			`UPDATE fd_transactions SET transaction_type='rolled_over', updated_at=NOW() WHERE id=$1`, id); txErr != nil {
+			respondErr(w, 500, "Rollover failed: "+txErr.Error()); return
+		}
 
-		// Create new FD starting today
-		newRows, err := db.PGQuery(ctx, `
+		// Create new FD starting today with the new (interest-inclusive) principal
+		var newID int64
+		var newRow core.Row
+		newRow = core.Row{}
+		err = tx.QueryRowContext(ctx, `
 			INSERT INTO fd_transactions
 			    (transaction_date, customer_name, transaction_type, principal, currency,
 			     location, account_officer, tenor_days, rate, maturity_date, ngn_amount, created_by)
 			VALUES
 			    (NOW()::date, $1, 'inflow', $2, $3, $4, $5, $6, $7,
 			     (NOW()::date + ($6 * INTERVAL '1 day'))::date, $2, $8)
-			RETURNING *`,
-			fd["customer_name"], principal, fd["currency"],
-			fd["location"], fd["account_officer"], tenor, rate, user.ID)
+			RETURNING id`,
+			fd["customer_name"], newPrincipal, fd["currency"],
+			fd["location"], fd["account_officer"], tenor, rate, user.ID).Scan(&newID)
 		if err != nil {
-			respondErr(w, 500, "Rollover failed: "+err.Error()); return
+			respondErr(w, 500, "Rollover insert failed: "+err.Error()); return
+		}
+		newRow["id"] = newID
+
+		// GL: debit and credit the same liability account to record the principal transfer
+		if principalVal > 0 {
+			oldRef := fmt.Sprintf("FD-%v", id)
+			newRef := fmt.Sprintf("FD-%v", newID)
+			if glErr := postJournalTx(ctx, tx, glEntry{
+				Date:          time.Now(),
+				Description:   fmt.Sprintf("FD rollover - old %s to new %s", oldRef, newRef),
+				Reference:     "FDR-" + oldRef,
+				DebitAccount:  "fixed_deposits_liability",
+				CreditAccount: "fixed_deposits_liability",
+				AmountKobo:    int64(principalVal),
+				SourceType:    "fd_rollover",
+				SourceID:      newID,
+				PostedBy:      user.ID,
+			}); glErr != nil {
+				respondErr(w, 500, "GL entry for rollover failed: "+glErr.Error()); return
+			}
+		}
+
+		if txErr = tx.Commit(); txErr != nil {
+			respondErr(w, 500, txErr.Error()); return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(newRows[0]) //nolint:errcheck
+		json.NewEncoder(w).Encode(newRow) //nolint:errcheck
 	}
 }
 
@@ -504,9 +587,10 @@ func fdLiquidate(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
 
 		fdRows, err := db.PGQuery(ctx,
-			`SELECT id, transaction_type FROM fd_transactions WHERE id=$1`, id)
+			`SELECT id, transaction_type, COALESCE(ngn_amount, 0) AS ngn_amount, COALESCE(gross_amount, 0) AS gross_amount FROM fd_transactions WHERE id=$1`, id)
 		if err != nil || len(fdRows) == 0 {
 			respondErr(w, 404, "FD not found"); return
 		}
@@ -514,10 +598,41 @@ func fdLiquidate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "FD is not active"); return
 		}
 
-		_, err = db.PGQuery(ctx,
-			`UPDATE fd_transactions SET transaction_type='liquidation', updated_at=NOW() WHERE id=$1 RETURNING id`, id)
+		// C4: wrap liquidation and GL entry in a transaction
+		amount := toInt64(fdRows[0]["ngn_amount"])
+		if amount <= 0 {
+			amount = toInt64(fdRows[0]["gross_amount"])
+		}
+
+		tx, txErr := db.PG.BeginTx(ctx, nil)
+		if txErr != nil {
+			respondErr(w, 500, "Transaction failed"); return
+		}
+		_, err = tx.ExecContext(ctx,
+			`UPDATE fd_transactions SET transaction_type='liquidation', updated_at=NOW() WHERE id=$1`, id)
 		if err != nil {
+			tx.Rollback() //nolint:errcheck
 			respondErr(w, 500, "Liquidation failed"); return
+		}
+		if amount > 0 {
+			ref := fmt.Sprintf("FD-%v", id)
+			if glErr := postJournalTx(ctx, tx, glEntry{
+				Date:          time.Now(),
+				Description:   "FD liquidation - " + ref,
+				Reference:     ref,
+				DebitAccount:  "fixed_deposits_liability",
+				CreditAccount: "cash",
+				AmountKobo:    amount,
+				SourceType:    "fd_liquidate",
+				SourceID:      toInt64(fdRows[0]["id"]),
+				PostedBy:      user.ID,
+			}); glErr != nil {
+				tx.Rollback() //nolint:errcheck
+				respondErr(w, 500, "GL entry failed: "+glErr.Error()); return
+			}
+		}
+		if commitErr := tx.Commit(); commitErr != nil {
+			respondErr(w, 500, "Commit failed"); return
 		}
 
 		respond(w, map[string]any{"status": "liquidated"}, "json")

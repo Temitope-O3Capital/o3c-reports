@@ -8,6 +8,8 @@ import (
 	"github.com/o3c/reports/core"
 )
 
+// TODO: CREATE TABLE notification_preferences (user_id BIGINT, event_type TEXT, channel TEXT, enabled BOOL, updated_at TIMESTAMPTZ, PRIMARY KEY (user_id, event_type, channel))
+
 // RegisterNotificationPrefs mounts user-facing preference endpoints.
 // Mount under /api/user inside the auth group.
 func RegisterNotificationPrefs(r chi.Router, db *core.DB) {
@@ -32,13 +34,17 @@ func getUserNotifPrefs(db *core.DB) http.HandlerFunc {
 		cfgRows, _ := db.PGQuery(r.Context(),
 			`SELECT event_type, channel, enabled, label, description
 			 FROM notification_event_config ORDER BY event_type, channel`)
+		if cfgRows == nil {
+			cfgRows = []core.Row{}
+		}
 
+		// notification_preferences may not exist yet — ignore error, treat as no overrides.
 		prefRows, _ := db.PGQuery(r.Context(),
 			`SELECT event_type, channel, enabled
 			 FROM notification_preferences WHERE user_id=$1`, user.ID)
 
-		overrides    := map[string]bool{}
-		overrideSet  := map[string]bool{}
+		overrides   := map[string]bool{}
+		overrideSet := map[string]bool{}
 		for _, row := range prefRows {
 			k := str(row["event_type"]) + ":" + str(row["channel"])
 			overrides[k]   = row["enabled"] == true

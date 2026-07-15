@@ -842,6 +842,21 @@ var transparent1x1GIF = []byte{
 	0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b,
 }
 
+// getRealIPFromRequest returns the real client IP using the rightmost X-Forwarded-For value.
+// Railway appends the real IP last; the leftmost value is attacker-controlled.
+// H7: Used in trackClick and trackOpen.
+func getRealIPFromRequest(r *http.Request) string {
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+		parts := strings.Split(fwd, ",")
+		for i := len(parts) - 1; i >= 0; i-- {
+			if v := strings.TrimSpace(parts[i]); v != "" {
+				return v
+			}
+		}
+	}
+	return r.RemoteAddr
+}
+
 func trackOpen(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		trackingID := chi.URLParam(r, "tracking_id")
@@ -850,17 +865,7 @@ func trackOpen(db *core.DB) http.HandlerFunc {
 		if trackingID != "" {
 			// Capture IP and UA before the goroutine; use rightmost X-Forwarded-For value
 			// (Railway appends the real client IP last).
-			ip := func() string {
-				if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-					parts := strings.Split(fwd, ",")
-					for i := len(parts) - 1; i >= 0; i-- {
-						if v := strings.TrimSpace(parts[i]); v != "" {
-							return v
-						}
-					}
-				}
-				return r.RemoteAddr
-			}()
+			ip := getRealIPFromRequest(r)
 			ua := r.UserAgent()
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

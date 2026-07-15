@@ -62,6 +62,9 @@ func RegisterAdmin(r chi.Router, db *core.DB) {
 	r.Post("/workflow-templates",       createWorkflowTemplate(db))
 	r.Put("/workflow-templates/{id}",   updateWorkflowTemplate(db))
 	r.Delete("/workflow-templates/{id}", deleteWorkflowTemplate(db))
+
+	// One-time data migration: encrypt existing plaintext bank details
+	r.With(adminOnly).Post("/employees/reencrypt-bank-details", adminReencryptEmployeeBankDetails(db))
 }
 
 // RegisterActivityLog is mounted outside the admin guard (any authenticated user can log).
@@ -92,7 +95,7 @@ func listUsers(db *core.DB) http.HandlerFunc {
 			       COALESCE(last_name,'')  AS last_name,
 			       role, department, created_at,
 			       must_change_password, last_login, is_active, deleted_at
-			FROM o3c_users `+where+` ORDER BY created_at DESC`)
+			FROM o3c_users `+where+` ORDER BY created_at DESC, id DESC`)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -218,15 +221,43 @@ func updateUser(db *core.DB) http.HandlerFunc {
 			setCols["full_name"] = strings.TrimSpace(fn + " " + ln)
 		}
 		if b.Email != nil {
-			setCols["email"] = *b.Email
+			newEmail := strings.TrimSpace(*b.Email)
+			var emailExists int
+			db.PG.QueryRowContext(r.Context(), //nolint:errcheck
+				`SELECT COUNT(*) FROM o3c_users WHERE email=$1 AND id!=$2 AND deleted_at IS NULL`,
+				newEmail, id).Scan(&emailExists)
+			if emailExists > 0 {
+				respondErr(w, 409, "Email already in use")
+				return
+			}
+			setCols["email"] = newEmail
 		}
 		if b.Role != nil {
+			// Last-admin guard: prevent downgrading the last admin account (C2).
+			if *b.Role != "admin" {
+				curUser, _ := db.PGQuery(r.Context(),
+					`SELECT role FROM o3c_users WHERE id=$1 AND deleted_at IS NULL`, id)
+				if len(curUser) > 0 && str(curUser[0]["role"]) == "admin" {
+					var adminCount int
+					db.PG.QueryRowContext(r.Context(), //nolint:errcheck
+						`SELECT COUNT(*) FROM o3c_users WHERE role='admin' AND is_active=TRUE AND deleted_at IS NULL`,
+					).Scan(&adminCount)
+					if adminCount <= 1 {
+						respondErr(w, 422, "Cannot remove the last admin account")
+						return
+					}
+				}
+			}
 			setCols["role"] = *b.Role
 		}
 		if b.Department != nil {
 			setCols["department"] = *b.Department
 		}
 		if b.Password != nil && *b.Password != "" {
+			if len(*b.Password) < 12 {
+				respondErr(w, 422, "Password must be at least 12 characters")
+				return
+			}
 			hash, err := core.HashPassword(*b.Password)
 			if err != nil {
 				respondErr(w, 500, "Failed to hash password")
@@ -256,6 +287,22 @@ func updateUser(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Update failed")
 			return
 		}
+		// Audit log for role changes (M4)
+		if b.Role != nil {
+			caller := core.UserFromCtx(r.Context())
+			var callerID int64
+			callerRole, callerName := "", ""
+			if caller != nil {
+				callerID = caller.ID
+				callerRole = caller.Role
+				callerName = caller.FullName
+			}
+			changesJSON, _ := json.Marshal(map[string]any{"new_role": *b.Role})
+			db.PGExec(r.Context(), //nolint:errcheck
+				`INSERT INTO audit_logs (actor_id, actor_role, actor_name, action, entity_type, entity_id, changes, ip_address, created_at)
+				 VALUES ($1,$2,$3,'role_changed','user',$4,$5,'',NOW())`,
+				callerID, callerRole, callerName, id, string(changesJSON))
+		}
 		rows, _ := db.PGQuery(r.Context(),
 			`SELECT id,email,full_name,role,department,created_at,must_change_password,last_login FROM o3c_users WHERE id=$1`, id)
 		if len(rows) == 0 {
@@ -274,6 +321,19 @@ func deleteUser(db *core.DB) http.HandlerFunc {
 		if caller != nil && strconv.FormatInt(caller.ID, 10) == id {
 			respondErr(w, 400, "Cannot delete your own account")
 			return
+		}
+		// Last-admin guard: prevent removing the last active admin account (C2).
+		targetUser, _ := db.PGQuery(r.Context(),
+			`SELECT role FROM o3c_users WHERE id=$1 AND deleted_at IS NULL`, id)
+		if len(targetUser) > 0 && str(targetUser[0]["role"]) == "admin" {
+			var adminCount int
+			db.PG.QueryRowContext(r.Context(), //nolint:errcheck
+				`SELECT COUNT(*) FROM o3c_users WHERE role='admin' AND is_active=TRUE AND deleted_at IS NULL`,
+			).Scan(&adminCount)
+			if adminCount <= 1 {
+				respondErr(w, 422, "Cannot remove the last admin account")
+				return
+			}
 		}
 		_, err := db.PGExec(r.Context(),
 			`UPDATE o3c_users SET is_active=FALSE, deleted_at=NOW() WHERE id=$1 AND deleted_at IS NULL`, id)
@@ -322,7 +382,30 @@ func deactivateUser(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Cannot deactivate your own account")
 			return
 		}
-		db.PGExec(r.Context(), `UPDATE o3c_users SET is_active=FALSE WHERE id=$1 AND deleted_at IS NULL`, id) //nolint:errcheck
+		// Last-admin guard: prevent deactivating the last active admin account (C2).
+		targetUser, _ := db.PGQuery(r.Context(),
+			`SELECT role FROM o3c_users WHERE id=$1 AND deleted_at IS NULL`, id)
+		if len(targetUser) > 0 && str(targetUser[0]["role"]) == "admin" {
+			var adminCount int
+			db.PG.QueryRowContext(r.Context(), //nolint:errcheck
+				`SELECT COUNT(*) FROM o3c_users WHERE role='admin' AND is_active=TRUE AND deleted_at IS NULL`,
+			).Scan(&adminCount)
+			if adminCount <= 1 {
+				respondErr(w, 422, "Cannot remove the last admin account")
+				return
+			}
+		}
+		// H3: capture result and check RowsAffected.
+		res, err := db.PGExec(r.Context(),
+			`UPDATE o3c_users SET is_active=FALSE WHERE id=$1 AND deleted_at IS NULL`, id)
+		if err != nil {
+			respondErr(w, 500, "Deactivate failed")
+			return
+		}
+		if affected, _ := res.RowsAffected(); affected == 0 {
+			respondErr(w, 404, "User not found")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"detail": "User deactivated"}) //nolint:errcheck
 	}
@@ -498,18 +581,37 @@ func deleteRole(db *core.DB) http.HandlerFunc {
 			respondErr(w, 409, "Built-in roles cannot be deleted")
 			return
 		}
-		assigned, _ := db.PGQuery(r.Context(), `SELECT COUNT(*) AS count FROM o3c_users WHERE role=$1 AND deleted_at IS NULL`, name)
-		if len(assigned) > 0 && toInt64(assigned[0]["count"]) > 0 {
+		// H7: Wrap in a transaction with SELECT FOR UPDATE to prevent TOCTOU between
+		// the assignment count check and the DELETE.
+		tx, txErr := db.PG.BeginTx(r.Context(), nil)
+		if txErr != nil {
+			respondErr(w, 500, "Transaction failed")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		// Lock the role row so no concurrent user assignment can race the DELETE.
+		var roleID int
+		if err := tx.QueryRowContext(r.Context(),
+			`SELECT id FROM o3c_custom_roles WHERE name=$1 FOR UPDATE`, name).Scan(&roleID); err != nil {
+			respondErr(w, 404, "Role not found")
+			return
+		}
+
+		var assignedCount int
+		tx.QueryRowContext(r.Context(), //nolint:errcheck
+			`SELECT COUNT(*) FROM o3c_users WHERE role=$1 AND deleted_at IS NULL`, name).Scan(&assignedCount)
+		if assignedCount > 0 {
 			respondErr(w, 409, "Role is assigned to active users")
 			return
 		}
-		res, err := db.PGExec(r.Context(), `DELETE FROM o3c_custom_roles WHERE name=$1`, name)
-		if err != nil {
+
+		if _, err := tx.ExecContext(r.Context(), `DELETE FROM o3c_custom_roles WHERE name=$1`, name); err != nil {
 			respondErr(w, 500, "Delete failed")
 			return
 		}
-		if affected, _ := res.RowsAffected(); affected == 0 {
-			respondErr(w, 404, "Role not found")
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed")
 			return
 		}
 		w.WriteHeader(204)
@@ -818,12 +920,17 @@ func updateApiKey(db *core.DB) http.HandlerFunc {
 		if caller != nil {
 			updatedBy = caller.ID // bigint FK — must be int64, not email string
 		}
-		_, err = db.PGExec(r.Context(),
+		res, err := db.PGExec(r.Context(),
 			`UPDATE api_credentials SET encrypted_value=$1, updated_at=NOW(), updated_by=$2,
 			 test_status=NULL, last_tested_at=NULL WHERE key_name=$3`,
 			enc, updatedBy, name)
 		if err != nil {
 			respondErr(w, 500, "Update failed")
+			return
+		}
+		// H4: check RowsAffected to detect missing credential name.
+		if affected, _ := res.RowsAffected(); affected == 0 {
+			respondErr(w, 404, "Credential not found")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -876,7 +983,10 @@ func pingExternalAPI(keyName, category, value string) (status, detail string) {
 
 	switch {
 	case strings.Contains(upper, "SENDGRID"):
-		req, _ := http.NewRequest("GET", "https://api.sendgrid.com/v3/user/account", nil)
+		req, err := http.NewRequest("GET", "https://api.sendgrid.com/v3/user/account", nil)
+		if err != nil {
+			return "failed", "Request build error: " + err.Error()
+		}
 		req.Header.Set("Authorization", "Bearer "+value)
 		resp, err := client.Do(req)
 		if err != nil {
@@ -907,7 +1017,10 @@ func pingExternalAPI(keyName, category, value string) (status, detail string) {
 		return "failed", fmt.Sprintf("Termii responded %d", resp.StatusCode)
 
 	case strings.Contains(upper, "PAYSTACK"):
-		req, _ := http.NewRequest("GET", "https://api.paystack.co/customer", nil)
+		req, err := http.NewRequest("GET", "https://api.paystack.co/customer", nil)
+		if err != nil {
+			return "failed", "Request build error: " + err.Error()
+		}
 		req.Header.Set("Authorization", "Bearer "+value)
 		resp, err := client.Do(req)
 		if err != nil {
@@ -1310,5 +1423,85 @@ func deleteWorkflowTemplate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Delete failed"); return
 		}
 		w.WriteHeader(204)
+	}
+}
+
+// adminReencryptEmployeeBankDetails is a one-time data migration endpoint.
+// It reads every employee row, and for any bank_name / account_number that is not
+// already AES-GCM encrypted (decryptValue returns an error), it re-encrypts the
+// plaintext value in place. Safe to call multiple times — already-encrypted rows
+// are left untouched.
+func adminReencryptEmployeeBankDetails(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		rows, err := db.PGQuery(ctx, `SELECT id, bank_name, account_number FROM employees WHERE bank_name IS NOT NULL OR account_number IS NOT NULL`)
+		if err != nil {
+			respondErr(w, 500, "Query failed: "+err.Error())
+			return
+		}
+
+		var total, reencrypted, skipped int
+		for _, row := range rows {
+			total++
+			id := toInt64(row["id"])
+			bankName := str(row["bank_name"])
+			accountNumber := str(row["account_number"])
+
+			// isPlaintext returns true when decryptValue cannot parse the stored value
+			// as AES-GCM, meaning it was written before encryption was enabled.
+			isPlaintext := func(v string) bool {
+				if v == "" {
+					return false
+				}
+				_, decErr := decryptValue(v)
+				return decErr != nil
+			}
+
+			needsBank := isPlaintext(bankName)
+			needsAccount := isPlaintext(accountNumber)
+			if !needsBank && !needsAccount {
+				skipped++
+				continue
+			}
+
+			q := `UPDATE employees SET updated_at=NOW()`
+			args := []any{}
+			n := 1
+			if needsBank {
+				enc, encErr := encryptValue(bankName)
+				if encErr != nil {
+					respondErr(w, 500, "Encryption failed for employee "+str(id)+": "+encErr.Error())
+					return
+				}
+				q += fmt.Sprintf(", bank_name=$%d", n)
+				args = append(args, enc)
+				n++
+			}
+			if needsAccount {
+				enc, encErr := encryptValue(accountNumber)
+				if encErr != nil {
+					respondErr(w, 500, "Encryption failed for employee "+str(id)+": "+encErr.Error())
+					return
+				}
+				q += fmt.Sprintf(", account_number=$%d", n)
+				args = append(args, enc)
+				n++
+			}
+			args = append(args, id)
+			q += fmt.Sprintf(" WHERE id=$%d", n)
+
+			if _, err := db.PGExec(ctx, q, args...); err != nil {
+				respondErr(w, 500, "Update failed for employee "+str(id)+": "+err.Error())
+				return
+			}
+			reencrypted++
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"total":       total,
+			"reencrypted": reencrypted,
+			"skipped":     skipped,
+		})
 	}
 }

@@ -63,9 +63,12 @@ type SendMailOptions struct {
 	SenderCopyEmail    string
 	SenderCopyName     string
 	SendViaUserMailbox bool
-	Attachments        []MailAttachment
-	CustomArgs         map[string]string
-	TrackOpensAndLinks bool
+	Attachments          []MailAttachment
+	CustomArgs           map[string]string
+	TrackOpensAndLinks   bool
+	// InReplyToMessageID sets the RFC 5322 In-Reply-To and References headers on the outgoing email.
+	// Pass the Message-ID of the email being replied to (value from inbound_mail.message_id).
+	InReplyToMessageID   string
 }
 
 type SendMailResult struct {
@@ -778,9 +781,16 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 	if len(opt.To) == 0 {
 		return SendMailResult{Error: "at least one recipient is required"}
 	}
-	if suppressed, reason := hasSuppressedRecipient(ctx, db, opt.To); suppressed {
-		return SendMailResult{Error: "recipient suppressed: " + reason}
+	// H9: Filter suppressed recipients rather than aborting the entire send.
+	// Only abort when ALL recipients are suppressed.
+	allowed, suppressed := filterSuppressedRecipients(ctx, db, opt.To)
+	if len(suppressed) > 0 {
+		slog.Info("SendMail: suppressed recipients removed", "count", len(suppressed))
 	}
+	if len(allowed) == 0 {
+		return SendMailResult{Error: "all recipients are suppressed"}
+	}
+	opt.To = allowed
 	if opt.SendViaUserMailbox && opt.ReplyToEmail != "" && graphConfigured(ctx, db) {
 		res := sendMailViaGraph(ctx, db, opt)
 		if res.OK {
@@ -921,6 +931,21 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
 		}
 	}
+	// H4: Add threading headers so replies group correctly in mail clients.
+	if opt.InReplyToMessageID != "" {
+		replyHeaders := map[string]string{
+			"In-Reply-To": opt.InReplyToMessageID,
+			"References":  opt.InReplyToMessageID,
+		}
+		// Merge with any existing headers already set above.
+		if existing, ok := payload["headers"].(map[string]string); ok {
+			for k, v := range replyHeaders {
+				existing[k] = v
+			}
+		} else {
+			payload["headers"] = replyHeaders
+		}
+	}
 	if len(opt.Attachments) > 0 {
 		payload["attachments"] = sendgridAttachments(opt.Attachments)
 	}
@@ -971,7 +996,17 @@ func SendTemporaryPasswordEmail(ctx context.Context, db *core.DB, email, name, t
 	})
 }
 
+// hasSuppressedRecipient checks whether any recipient in the list is suppressed.
+// Deprecated: prefer filterSuppressedRecipients so only suppressed addresses are dropped.
 func hasSuppressedRecipient(ctx context.Context, db *core.DB, recipients []MailAddress) (bool, string) {
+	valid, _ := filterSuppressedRecipients(ctx, db, recipients)
+	return len(valid) == 0 && len(recipients) > 0, ""
+}
+
+// filterSuppressedRecipients returns (allowed, suppressed) slices.
+// H9: Callers send to the allowed list only; the send is aborted only when ALL recipients are suppressed.
+func filterSuppressedRecipients(ctx context.Context, db *core.DB, recipients []MailAddress) ([]MailAddress, []MailAddress) {
+	var allowed, suppressed []MailAddress
 	for _, recipient := range recipients {
 		email := strings.ToLower(strings.TrimSpace(recipient.Email))
 		if email == "" {
@@ -982,10 +1017,12 @@ func hasSuppressedRecipient(ctx context.Context, db *core.DB, recipients []MailA
 			WHERE email=$1 AND is_active=true
 			LIMIT 1`, email)
 		if len(rows) > 0 {
-			return true, str(rows[0]["reason"])
+			suppressed = append(suppressed, recipient)
+		} else {
+			allowed = append(allowed, recipient)
 		}
 	}
-	return false, ""
+	return allowed, suppressed
 }
 
 func addSuppression(ctx context.Context, db *core.DB, email, reason, source string) {
@@ -2267,12 +2304,15 @@ func replyToMessage(db *core.DB) http.HandlerFunc {
 			respondErr(w, 403, "You do not have access to this message thread")
 			return
 		}
-		// Reply to most recent inbound sender, or fall back to original TO recipient
+		// Reply to most recent inbound sender, or fall back to original TO recipient.
+		// H4: Also capture the inbound message_id for In-Reply-To/References threading headers.
 		replyTo := firstToAddress(orig[0]["recipients"])
+		inReplyToMsgID := ""
 		if latest, _ := db.PGQuery(r.Context(), `
-			SELECT from_email, from_name FROM inbound_mail
+			SELECT from_email, from_name, message_id FROM inbound_mail
 			WHERE mail_message_id=$1 ORDER BY received_at DESC LIMIT 1`, id); len(latest) > 0 {
 			replyTo = MailAddress{Email: str(latest[0]["from_email"]), Name: str(latest[0]["from_name"])}
+			inReplyToMsgID = str(latest[0]["message_id"])
 		}
 		subject := str(orig[0]["subject"])
 		if !strings.HasPrefix(strings.ToLower(subject), "re:") {
@@ -2293,6 +2333,7 @@ func replyToMessage(db *core.DB) http.HandlerFunc {
 			SenderCopyEmail:    user.Sub,
 			SenderCopyName:     user.FullName,
 			SendViaUserMailbox: true,
+			InReplyToMessageID: inReplyToMsgID,
 		})
 		if !res.OK {
 			slog.Warn("Reply send failed", "user_id", user.ID, "error", res.Error)

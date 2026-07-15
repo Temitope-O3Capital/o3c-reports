@@ -12,6 +12,32 @@ import (
 	"github.com/o3c/reports/core"
 )
 
+// encryptEmployeeField encrypts a sensitive employee field using AES-GCM.
+// Falls back to storing plaintext when ENCRYPTION_KEY is not configured (dev/test).
+func encryptEmployeeField(val string) string {
+	if val == "" {
+		return ""
+	}
+	enc, err := encryptValue(val)
+	if err != nil {
+		return val
+	}
+	return enc
+}
+
+// decryptEmployeeField decrypts a stored employee field, returning the raw value
+// unchanged for rows written before encryption was introduced.
+func decryptEmployeeField(stored string) string {
+	if stored == "" {
+		return ""
+	}
+	dec, err := decryptValue(stored)
+	if err != nil {
+		return stored
+	}
+	return dec
+}
+
 func RegisterHR(r chi.Router, db *core.DB) {
 	read := core.RequirePages("hr_employees")
 	mgr := core.RequirePages("hr_manager")
@@ -149,7 +175,10 @@ func hrEmployeeGet(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Employee not found")
 			return
 		}
-		respond(w, rows[0], "pg")
+		emp := rows[0]
+		emp["bank_name"] = decryptEmployeeField(str(emp["bank_name"]))
+		emp["account_number"] = decryptEmployeeField(str(emp["account_number"]))
+		respond(w, emp, "pg")
 	}
 }
 
@@ -189,7 +218,8 @@ func hrEmployeeCreate(db *core.DB) http.HandlerFunc {
 			RETURNING id, staff_id, first_name, last_name, email, status`,
 			b.StaffID, b.UserID, b.FirstName, b.LastName, b.MiddleName,
 			b.Email, b.Phone, b.DepartmentID, b.GradeLevelID, b.JobTitle, b.EmploymentType,
-			b.EmploymentDate, b.SalaryKobo, b.BankName, b.AccountNumber)
+			b.EmploymentDate, b.SalaryKobo,
+			encryptEmployeeField(b.BankName), encryptEmployeeField(b.AccountNumber))
 		if err != nil {
 			respondErr(w, 500, "Create failed")
 			return

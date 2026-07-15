@@ -602,7 +602,12 @@ func recoveryOpsApproveWriteOff(db *core.DB) http.HandlerFunc {
 					SourceID:      wid,
 					PostedBy:      user.ID,
 				})
-				tx.Commit() //nolint:errcheck
+				// C4: propagate Commit error — discarding it could silently leave the
+				// case unclosed and the GL entry unposted.
+				if commitErr := tx.Commit(); commitErr != nil {
+					respondErr(w, 500, "Write-off commit failed — please retry")
+					return
+				}
 			}
 		}
 
@@ -658,18 +663,15 @@ func recoveryOpsDashboard(db *core.DB) http.HandlerFunc {
 				WHERE DATE_TRUNC('month', visit_date::date) = DATE_TRUNC('month', CURRENT_DATE)`},
 		}
 
+		// H9: individual stat failures return 0 rather than aborting the whole dashboard.
 		result := map[string]any{}
 		for _, s := range stats {
 			rows, err := db.PGQuery(ctx, s.sql)
-			if err != nil {
-				respondErr(w, 500, "Dashboard query failed: "+s.key)
-				return
-			}
-			if len(rows) > 0 {
-				result[s.key] = rows[0]["val"]
-			} else {
+			if err != nil || len(rows) == 0 {
 				result[s.key] = 0
+				continue
 			}
+			result[s.key] = rows[0]["val"]
 		}
 
 		respond(w, result, "pg")

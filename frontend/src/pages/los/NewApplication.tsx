@@ -488,17 +488,28 @@ export default function NewApplication() {
     setSubmitting(true)
     setStepError(null)
     try {
+      // C2: send ALL collected fields. interest_rate_bps is intentionally omitted
+      // so the backend can compute or default it rather than receiving a hardcoded 0.
       const payload = {
-        applicant_name:       form.personal.full_name,
-        applicant_email:      form.personal.email,
-        applicant_phone:      form.personal.phone,
-        product_type:         form.loan.product_type,
+        // Step 1 — identity
+        applicant_name:        form.personal.full_name,
+        applicant_email:       form.personal.email,
+        applicant_phone:       form.personal.phone,
+        bvn:                   form.personal.bvn,
+        nin:                   form.personal.nin,
+        date_of_birth:         form.personal.dob,
+        address:               form.personal.address,
+        // Step 2 — employment
+        employer:              form.employment.employer,
+        job_title:             form.employment.job_title,
+        employment_type:       form.employment.employment_type,
+        employment_start_date: form.employment.start_date,
+        monthly_income_kobo:   Math.round(Number(form.employment.monthly_salary) * 100),
+        // Step 3 — loan request
+        product_type:          form.loan.product_type,
         amount_requested_kobo: Math.round(Number(form.loan.amount) * 100),
-        tenor_months:         Number(form.loan.tenor_months),
-        interest_rate_bps:    0,
-        purpose:              form.loan.purpose,
-        employer:             form.employment.employer,
-        monthly_income_kobo:  Math.round(Number(form.employment.monthly_salary) * 100),
+        tenor_months:          Number(form.loan.tenor_months),
+        purpose:               form.loan.purpose,
       }
       const res = await apiPost<{ data: { id: number; reference: string } }>('/api/los', payload)
       toast.success(`Application ${res.data.reference} created`)

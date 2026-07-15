@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -23,6 +24,7 @@ func RegisterFinance(r chi.Router, db *core.DB) {
 	r.With(access).Post("/manual-postings",                 finPostingsCreate(db))
 	r.With(access).Patch("/manual-postings/{id}/approve",   finPostingsApprove(db))
 	r.With(access).Patch("/manual-postings/{id}/reject",    finPostingsReject(db))
+	r.With(access).Post("/manual-postings/{id}/reverse",    finPostingsReverse(db))
 
 	// P&L
 	r.With(access).Get("/pnl", finPnL(db))
@@ -250,6 +252,12 @@ func finPostingsApprove(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// C8: block self-approval
+		if toInt64(existing[0]["initiated_by"]) == user.ID {
+			respondErr(w, 422, "Cannot approve your own posting")
+			return
+		}
+
 		// Approve and post GL journal entry
 		tx, err := db.PG.BeginTx(r.Context(), nil)
 		if err != nil {
@@ -332,6 +340,91 @@ func finPostingsReject(db *core.DB) http.HandlerFunc {
 	}
 }
 
+/* ── C7: GL Posting Reversal ─────────────────────────────────────────────── */
+
+func finPostingsReverse(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		user := core.UserFromCtx(r.Context())
+
+		// Only finance_head or above may reverse
+		if user.Role != "finance_head" && user.Role != "cfo" && user.Role != "admin" && user.Role != "md" {
+			respondErr(w, 403, "Only finance_head or above can reverse a posting")
+			return
+		}
+
+		// Fetch original approved posting
+		existing, err := db.PGQuery(r.Context(),
+			`SELECT * FROM manual_postings WHERE id=$1 AND status='approved'`, id)
+		if err != nil || len(existing) == 0 {
+			respondErr(w, 404, "Posting not found or not in approved state")
+			return
+		}
+		p := existing[0]
+
+		tx, txErr := db.PG.BeginTx(r.Context(), nil)
+		if txErr != nil {
+			respondErr(w, 500, "Transaction failed")
+			return
+		}
+
+		// Insert reversal posting (swapped dr/cr accounts)
+		var reversalID int64
+		err = tx.QueryRowContext(r.Context(), `
+			INSERT INTO manual_postings
+			    (dr_account, cr_account, amount_kobo, narrative, initiated_by, status)
+			VALUES ($1, $2, $3, $4, $5, 'approved')
+			RETURNING id`,
+			fmt.Sprintf("%v", p["cr_account"]),
+			fmt.Sprintf("%v", p["dr_account"]),
+			toInt64(p["amount_kobo"]),
+			"REVERSAL: "+fmt.Sprintf("%v", p["narrative"]),
+			user.ID).Scan(&reversalID)
+		if err != nil {
+			tx.Rollback() //nolint:errcheck
+			respondErr(w, 500, "Create reversal failed: "+err.Error())
+			return
+		}
+
+		// Mark original as reversed
+		_, err = tx.ExecContext(r.Context(),
+			`UPDATE manual_postings SET status='reversed', updated_at=NOW() WHERE id=$1`, id)
+		if err != nil {
+			tx.Rollback() //nolint:errcheck
+			respondErr(w, 500, "Status update failed: "+err.Error())
+			return
+		}
+
+		// Post GL reversal entry (swapped debit/credit)
+		ref := fmt.Sprintf("MP-%v-REV", id)
+		if glErr := postJournalTx(r.Context(), tx, glEntry{
+			Date:          time.Now(),
+			Description:   "REVERSAL: " + fmt.Sprintf("%v", p["narrative"]),
+			Reference:     ref,
+			DebitAccount:  fmt.Sprintf("%v", p["cr_account"]),
+			CreditAccount: fmt.Sprintf("%v", p["dr_account"]),
+			AmountKobo:    toInt64(p["amount_kobo"]),
+			SourceType:    "manual_posting_reversal",
+			SourceID:      toInt64(p["id"]),
+			PostedBy:      user.ID,
+		}); glErr != nil {
+			tx.Rollback() //nolint:errcheck
+			respondErr(w, 500, "GL reversal entry failed")
+			return
+		}
+
+		if commitErr := tx.Commit(); commitErr != nil {
+			respondErr(w, 500, "Commit failed")
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"status": "reversed", "reversal_id": reversalID,
+		})
+	}
+}
+
 /* ── P&L ─────────────────────────────────────────────────────────────────── */
 
 func finPnL(db *core.DB) http.HandlerFunc {
@@ -355,14 +448,15 @@ func finPnL(db *core.DB) http.HandlerFunc {
 		}
 		_ = n
 
-		// Revenue from EOD credits, Cost from EOD debits — approximate P&L from transaction data
+		// C9: For a card issuer, DR to customer = bank revenue (fees/interest charged),
+		// CR to customer = bank cost (cash advance, payments out). Swap from naive convention.
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
 			    COALESCE(product_name, 'Other') AS product,
-			    COALESCE(SUM(amount) FILTER (WHERE sign='CR'), 0) AS revenue,
-			    COALESCE(SUM(amount) FILTER (WHERE sign='DR'), 0) AS cost,
-			    COALESCE(SUM(amount) FILTER (WHERE sign='CR'), 0)
-			    - COALESCE(SUM(amount) FILTER (WHERE sign='DR'), 0) AS net
+			    COALESCE(SUM(amount) FILTER (WHERE sign='DR'), 0) AS revenue,
+			    COALESCE(SUM(amount) FILTER (WHERE sign='CR'), 0) AS cost,
+			    COALESCE(SUM(amount) FILTER (WHERE sign='DR'), 0)
+			    - COALESCE(SUM(amount) FILTER (WHERE sign='CR'), 0) AS net
 			FROM eod_transactions
 			WHERE %s
 			GROUP BY COALESCE(product_name, 'Other')
@@ -453,6 +547,14 @@ func finBudgetCreate(db *core.DB) http.HandlerFunc {
 		}
 		if b.CostCentre == "" || b.Category == "" || b.Period == "" {
 			respondErr(w, 422, "cost_centre, category and period are required")
+			return
+		}
+		// H4: block overwrite of ratified budgets
+		existing, _ := db.PGQuery(r.Context(),
+			`SELECT status FROM budget_lines WHERE cost_centre=$1 AND category=$2 AND period=$3 LIMIT 1`,
+			b.CostCentre, b.Category, b.Period)
+		if len(existing) > 0 && fmt.Sprintf("%v", existing[0]["status"]) == "ratified" {
+			respondErr(w, 422, "Cannot overwrite a ratified budget. Create a new budget revision instead.")
 			return
 		}
 		user := core.UserFromCtx(r.Context())

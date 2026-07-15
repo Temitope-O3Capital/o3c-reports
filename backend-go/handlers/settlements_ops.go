@@ -22,6 +22,7 @@ func RegisterSettlementOps(r chi.Router, db *core.DB) {
 	r.With(access).Post("/", soaBatchCreate(db))
 	r.With(access).Get("/kpis", soaKPIs(db))
 	r.With(access).Get("/{id}/transactions", soaBatchTxns(db))
+	r.With(access).Get("/{id}/export", soaBatchExport(db)) // M2: CSV export
 
 	// NIP reconciliation
 	r.With(access).Get("/nip", soaNIPList(db))
@@ -184,6 +185,32 @@ func soaBatchTxns(db *core.DB) http.HandlerFunc {
 	}
 }
 
+/* ── M2: Settlement Batch CSV Export ─────────────────────────────────────── */
+
+func soaBatchExport(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+			  id,
+			  txn_ref         AS reference,
+			  amount_kobo,
+			  status,
+			  TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS created_at
+			FROM settlement_exceptions
+			WHERE batch_id = $1
+			ORDER BY created_at`, id)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if rows == nil {
+			rows = []map[string]any{}
+		}
+		streamCSV(w, fmt.Sprintf("settlement-batch-%s.csv", id), rows)
+	}
+}
+
 /* ── NIP Reconciliation ──────────────────────────────────────────────────── */
 
 func soaNIPList(db *core.DB) http.HandlerFunc {
@@ -336,8 +363,12 @@ func soaFailedRetry(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Transaction not found")
 			return
 		}
-		db.PGExec(r.Context(), //nolint:errcheck
-			`UPDATE settlement_exceptions SET status='open', updated_at=NOW() WHERE id=$1`, id)
+		// H6: surface update errors; set status='open' so batch processor picks it up
+		if _, err = db.PGExec(r.Context(),
+			`UPDATE settlement_exceptions SET status='open', updated_at=NOW() WHERE id=$1`, id); err != nil {
+			respondErr(w, 500, "Retry queue failed")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(202)
 		json.NewEncoder(w).Encode(map[string]string{"status": "retry_queued"}) //nolint:errcheck

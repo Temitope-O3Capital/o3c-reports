@@ -254,6 +254,9 @@ func overviewCCStages(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(ctx, `
 			SELECT
 				COUNT(CASE WHEN status = 'pending'                        THEN 1 END) AS application,
+				COUNT(CASE WHEN status = 'doc_review'                     THEN 1 END) AS doc_review,
+				COUNT(CASE WHEN status = 'credit_check'                   THEN 1 END) AS credit_check,
+				COUNT(CASE WHEN status = 'risk_review'                    THEN 1 END) AS risk_review,
 				COUNT(CASE WHEN status = 'approved'                       THEN 1 END) AS approved,
 				COUNT(CASE WHEN status IN ('processing','dispatched')      THEN 1 END) AS issuance
 			FROM card_issuance_requests`)
@@ -272,11 +275,13 @@ func overviewCCStages(db *core.DB) http.HandlerFunc {
 		}
 
 		row := rows[0]
+		// C5 TODO: doc_review, credit_check, risk_review have no matching status values in
+		// card_issuance_requests. Map these when the card issuance workflow adds intermediate stages.
 		respond(w, map[string]any{
 			"application":  toInt64(row["application"]),
-			"doc_review":   0,
-			"credit_check": 0,
-			"risk_review":  0,
+			"doc_review":   toInt64(row["doc_review"]),
+			"credit_check": toInt64(row["credit_check"]),
+			"risk_review":  toInt64(row["risk_review"]),
 			"approved":     toInt64(row["approved"]),
 			"issuance":     toInt64(row["issuance"]),
 			"active":       active,
@@ -365,20 +370,23 @@ func overviewCardsSummary(db *core.DB) http.HandlerFunc {
 		}
 
 		row := rows[0]
+		// C5 TODO: outstanding/balance fields are 0 because the live card data source (MSSQL dbo.Account)
+		// does not expose per-tier outstanding balance columns in the current schema. Query the
+		// Outstanding_Balance or Available_Credit column once confirmed available.
 		respond(w, map[string]any{
-			"disputes_open":            disputes,
-			"green_count":              toInt64(row["green_count"]),
-			"green_outstanding_kobo":   0,
-			"gold_count":               toInt64(row["gold_count"]),
-			"gold_outstanding_kobo":    0,
-			"platinum_count":           toInt64(row["platinum_count"]),
-			"platinum_outstanding_kobo": 0,
-			"prepaid_ngn_count":        toInt64(row["prepaid_ngn_count"]),
-			"prepaid_ngn_balance_kobo": 0,
-			"prepaid_usd_count":        toInt64(row["prepaid_usd_count"]),
-			"prepaid_usd_balance_cents": 0,
-			"credit_ngn_count":         toInt64(row["credit_ngn_count"]),
-			"credit_ngn_balance_kobo":  0,
+			"disputes_open":             disputes,
+			"green_count":               toInt64(row["green_count"]),
+			"green_outstanding_kobo":    0, // TODO: query from MSSQL when balance column confirmed
+			"gold_count":                toInt64(row["gold_count"]),
+			"gold_outstanding_kobo":     0, // TODO: query from MSSQL when balance column confirmed
+			"platinum_count":            toInt64(row["platinum_count"]),
+			"platinum_outstanding_kobo": 0, // TODO: query from MSSQL when balance column confirmed
+			"prepaid_ngn_count":         toInt64(row["prepaid_ngn_count"]),
+			"prepaid_ngn_balance_kobo":  0, // TODO: query from MSSQL when balance column confirmed
+			"prepaid_usd_count":         toInt64(row["prepaid_usd_count"]),
+			"prepaid_usd_balance_cents": 0, // TODO: query from MSSQL when balance column confirmed
+			"credit_ngn_count":          toInt64(row["credit_ngn_count"]),
+			"credit_ngn_balance_kobo":   0, // TODO: query from MSSQL when balance column confirmed
 		}, "pg")
 	}
 }

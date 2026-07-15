@@ -231,7 +231,10 @@ func cardAdvanceIssuance(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "invalid JSON")
 			return
 		}
-		valid := map[string]bool{"approved": true, "rejected": true, "processing": true, "dispatched": true}
+		valid := map[string]bool{
+			"doc_review": true, "credit_check": true, "risk_review": true,
+			"approved": true, "rejected": true, "processing": true, "dispatched": true,
+		}
 		if !valid[req.Status] {
 			respondErr(w, 400, "invalid status")
 			return
@@ -303,6 +306,7 @@ func cardCreateDispute(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "customer_name and dispute_type required")
 			return
 		}
+		user := core.UserFromCtx(r.Context())
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO card_disputes
 			  (cif_number, customer_name, card_type, amount_kobo, dispute_type, notes)
@@ -316,6 +320,24 @@ func cardCreateDispute(db *core.DB) http.HandlerFunc {
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 500, "create failed")
 			return
+		}
+		// C5: provisional credit GL entry for the dispute
+		if req.AmountKobo > 0 {
+			ref := fmt.Sprintf("DSP-%04v", rows[0]["id"])
+			if glErr := postJournal(r.Context(), db, glEntry{
+				Date:          time.Now(),
+				Description:   "Card dispute provisional credit - " + ref,
+				Reference:     ref,
+				DebitAccount:  "dispute_suspense",
+				CreditAccount: "card_liability",
+				AmountKobo:    req.AmountKobo,
+				SourceType:    "card_dispute",
+				SourceID:      toInt64(rows[0]["id"]),
+				PostedBy:      user.ID,
+			}); glErr != nil {
+				respondErr(w, 500, "GL entry failed: "+glErr.Error())
+				return
+			}
 		}
 		NotifyRoles(r.Context(), db, []string{"cards_ops_officer", "cards_ops_head"}, NotifPayload{
 			EventType: EvtCardDisputeFiled,
@@ -360,7 +382,7 @@ func cardAdvanceDispute(db *core.DB) http.HandlerFunc {
 		res, err := db.PGQuery(r.Context(),
 			fmt.Sprintf(`UPDATE card_disputes SET status=$1%s, updated_at=NOW()
 			 WHERE id=$2 AND status NOT IN ('resolved','declined')
-			 RETURNING id`, resolvedClause),
+			 RETURNING id, amount_kobo`, resolvedClause),
 			req.Status, id)
 		if err != nil {
 			respondErr(w, 500, "update failed")
@@ -369,6 +391,34 @@ func cardAdvanceDispute(db *core.DB) http.HandlerFunc {
 		if len(res) == 0 {
 			respondErr(w, 409, "dispute is already in a terminal state")
 			return
+		}
+		// C6: GL entry for chargeback outcome
+		disputeAmount := toInt64(res[0]["amount_kobo"])
+		if disputeAmount > 0 && (req.Status == "resolved" || req.Status == "declined") {
+			ref := fmt.Sprintf("DSP-%04d", id)
+			user := core.UserFromCtx(r.Context())
+			var drAcct, crAcct string
+			if req.Status == "resolved" {
+				// Customer wins: pay out from suspense
+				drAcct, crAcct = "dispute_suspense", "cash"
+			} else {
+				// Dispute declined (bank wins): reverse provisional credit
+				drAcct, crAcct = "card_liability", "dispute_suspense"
+			}
+			if glErr := postJournal(r.Context(), db, glEntry{
+				Date:          time.Now(),
+				Description:   fmt.Sprintf("Card dispute %s - %s", req.Status, ref),
+				Reference:     ref,
+				DebitAccount:  drAcct,
+				CreditAccount: crAcct,
+				AmountKobo:    disputeAmount,
+				SourceType:    "card_dispute_resolution",
+				SourceID:      id,
+				PostedBy:      user.ID,
+			}); glErr != nil {
+				respondErr(w, 500, "GL entry failed: "+glErr.Error())
+				return
+			}
 		}
 		writeJSON(w, map[string]any{"id": id, "status": req.Status})
 	}
@@ -544,6 +594,15 @@ func cardGenerateBilling(db *core.DB) http.HandlerFunc {
 		now := time.Now().UTC()
 		cycleStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 		cycleEnd := cycleStart.AddDate(0, 1, -1)
+
+		// H7: idempotency check — block if cycles for this period already exist
+		existRows, _ := db.PGQuery(r.Context(),
+			`SELECT COUNT(*) AS cnt FROM card_billing_cycles WHERE cycle_start = $1`,
+			cycleStart.Format("2006-01-02"))
+		if len(existRows) > 0 && toInt64(existRows[0]["cnt"]) > 0 {
+			respondErr(w, 409, "Billing cycles already exist for this period")
+			return
+		}
 
 		type result struct {
 			Product string `json:"product"`

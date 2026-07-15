@@ -157,11 +157,12 @@ func updateContactList(db *core.DB) http.HandlerFunc {
 func deleteContactList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
-		// Guard: refuse deletion if any draft or scheduled campaign still references this list.
+		// H10: refuse deletion if ANY campaign references this list (not just draft/scheduled),
+		// because completed campaigns still need the list for audit/re-send purposes.
 		guard, _ := db.PGQuery(r.Context(),
-			"SELECT COUNT(*) AS n FROM campaigns WHERE list_id=$1 AND status IN ('draft','scheduled')", id)
+			"SELECT COUNT(*) AS n FROM campaigns WHERE list_id=$1", id)
 		if len(guard) > 0 && toInt64(guard[0]["n"]) > 0 {
-			respondErr(w, 409, "Cannot delete: active campaigns reference this list")
+			respondErr(w, 409, "Cannot delete a contact list referenced by campaigns")
 			return
 		}
 		db.PGExec(r.Context(), "DELETE FROM contact_list_members WHERE list_id=$1", id) //nolint:errcheck

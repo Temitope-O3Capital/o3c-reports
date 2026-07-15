@@ -341,6 +341,9 @@ func ResumeStatementRuns(db *core.DB) {
 	}
 }
 
+// processStatementRun sends statements for a run, using a small worker pool for concurrency. M5.
+const statementWorkerCount = 5
+
 func processStatementRun(ctx context.Context, db *core.DB, runID int64) {
 	rows, err := db.PGQuery(ctx, "SELECT * FROM customer_statement_runs WHERE id=$1", runID)
 	if err != nil || len(rows) == 0 {
@@ -351,67 +354,80 @@ func processStatementRun(ctx context.Context, db *core.DB, runID int64) {
 		return
 	}
 	_, _ = db.PGExec(ctx, "UPDATE customer_statement_runs SET status='active', started_at=COALESCE(started_at,NOW()), updated_at=NOW() WHERE id=$1", runID)
-	delay := time.Duration(intSetting(ctx, db, "statement_send_delay_ms", intSetting(ctx, db, "campaign_send_delay_ms", 250))) * time.Millisecond
 	dailyLimit := intSetting(ctx, db, "statement_daily_email_limit", intSetting(ctx, db, "campaign_daily_email_limit", 0))
+
+	// Worker pool semaphore: up to statementWorkerCount sends in parallel.
+	sem := make(chan struct{}, statementWorkerCount)
+	var wg sync.WaitGroup
 
 	for {
 		select {
 		case <-ctx.Done():
+			wg.Wait()
 			return
 		default:
 		}
 		stRows, _ := db.PGQuery(ctx, "SELECT status, date_from, date_to, subject, message, password_hint, created_by FROM customer_statement_runs WHERE id=$1", runID)
 		if len(stRows) == 0 {
-			return
+			break
 		}
 		run = stRows[0]
 		if st := str(run["status"]); st == "paused" || st == "cancelled" || st == "completed" {
-			return
+			break
 		}
 		if dailyLimit > 0 && statementMailSentToday(ctx, db) >= dailyLimit {
 			_, _ = db.PGExec(ctx, "UPDATE customer_statement_runs SET status='paused', last_error='Daily statement email limit reached', updated_at=NOW() WHERE id=$1", runID)
-			return
+			break
 		}
+		// Fetch a batch of pending recipients (one per worker slot).
 		recRows, err := db.PGQuery(ctx, `
 			SELECT id, cif_number, recipient_email
 			FROM customer_statement_run_recipients
 			WHERE run_id=$1 AND status='pending'
 			ORDER BY id ASC
-			LIMIT 1`, runID)
+			LIMIT $2`, runID, statementWorkerCount)
 		if err != nil {
 			_, _ = db.PGExec(ctx, "UPDATE customer_statement_runs SET status='paused', last_error=$2, updated_at=NOW() WHERE id=$1", runID, err.Error())
-			return
+			break
 		}
 		if len(recRows) == 0 {
+			wg.Wait() // drain any in-flight goroutines
 			_, _ = db.PGExec(ctx, "UPDATE customer_statement_runs SET status='completed', completed_at=NOW(), updated_at=NOW() WHERE id=$1 AND status='active'", runID)
 			return
 		}
-		rec := recRows[0]
-		input := statementSendRequest{
-			CIF:            str(rec["cif_number"]),
-			RecipientEmail: str(rec["recipient_email"]),
-			DateFrom:       statementDateString(run["date_from"]),
-			DateTo:         statementDateString(run["date_to"]),
-			Subject:        str(run["subject"]),
-			Message:        str(run["message"]),
-			PasswordHint:   str(run["password_hint"]),
+		// Mark fetched recipients as 'sending' to avoid double-pickup by concurrent loops.
+		for _, rec := range recRows {
+			db.PGExec(ctx, `UPDATE customer_statement_run_recipients SET status='sending', updated_at=NOW() WHERE id=$1 AND status='pending'`, rec["id"]) //nolint:errcheck
 		}
-		res, sendErr := sendStatementToRecipient(ctx, db, toInt64(run["created_by"]), input)
-		if sendErr != nil {
-			_, _ = db.PGExec(ctx, `
-				UPDATE customer_statement_run_recipients
-				SET status='failed', last_error=$2, updated_at=NOW()
-				WHERE id=$1`, rec["id"], sendErr.Error())
-			_, _ = db.PGExec(ctx, "UPDATE customer_statement_runs SET failed_count=failed_count+1, last_error=$2, updated_at=NOW() WHERE id=$1", runID, sendErr.Error())
-		} else {
-			_, _ = db.PGExec(ctx, `
-				UPDATE customer_statement_run_recipients
-				SET status='queued', statement_email_id=$2, updated_at=NOW()
-				WHERE id=$1`, rec["id"], nullableID(toInt64(res["id"])))
-			_, _ = db.PGExec(ctx, "UPDATE customer_statement_runs SET sent_count=sent_count+1, updated_at=NOW() WHERE id=$1", runID)
+		runSnap := run // capture for goroutines
+		for _, rec := range recRows {
+			rec := rec
+			sem <- struct{}{}
+			wg.Add(1)
+			go func() {
+				defer func() { <-sem; wg.Done() }()
+				input := statementSendRequest{
+					CIF:            str(rec["cif_number"]),
+					RecipientEmail: str(rec["recipient_email"]),
+					DateFrom:       statementDateString(runSnap["date_from"]),
+					DateTo:         statementDateString(runSnap["date_to"]),
+					Subject:        str(runSnap["subject"]),
+					Message:        str(runSnap["message"]),
+				}
+				res, sendErr := sendStatementToRecipient(ctx, db, toInt64(runSnap["created_by"]), input)
+				if sendErr != nil {
+					db.PGExec(ctx, `UPDATE customer_statement_run_recipients SET status='failed', last_error=$2, updated_at=NOW() WHERE id=$1`, rec["id"], sendErr.Error()) //nolint:errcheck
+					db.PGExec(ctx, `UPDATE customer_statement_runs SET failed_count=failed_count+1, last_error=$2, updated_at=NOW() WHERE id=$1`, runID, sendErr.Error())    //nolint:errcheck
+				} else {
+					db.PGExec(ctx, `UPDATE customer_statement_run_recipients SET status='queued', statement_email_id=$2, updated_at=NOW() WHERE id=$1`, rec["id"], nullableID(toInt64(res["id"]))) //nolint:errcheck
+					db.PGExec(ctx, `UPDATE customer_statement_runs SET sent_count=sent_count+1, updated_at=NOW() WHERE id=$1`, runID)                                                              //nolint:errcheck
+				}
+			}()
 		}
-		time.Sleep(delay)
+		// Wait for this batch before fetching the next, so the daily limit check stays accurate.
+		wg.Wait()
 	}
+	wg.Wait()
 }
 
 func statementDateString(v any) string {
@@ -470,9 +486,10 @@ func sendStatementToRecipient(ctx context.Context, db *core.DB, createdBy int64,
 	if message == "" {
 		message = "Please find your account statement attached to this email."
 	}
-	if hint := strings.TrimSpace(b.PasswordHint); hint != "" {
-		message += "\n\nPassword hint: " + hint
-	}
+	// H5: The PDF is NOT password-protected, so we must not imply it is.
+	// The PasswordHint field is preserved for API compatibility but is no longer appended
+	// to the email body to avoid misleading the recipient.
+	// TODO: implement actual PDF encryption if password protection is required.
 	html := statementEmailHTML(name, message, dateFrom, dateTo)
 
 	rows, err := db.PGQuery(ctx, `
@@ -776,13 +793,19 @@ func pdfEscape(s string) string {
 	return s
 }
 
+// pdfSafe strips control characters from s while preserving Unicode letters and punctuation.
+// H6: The previous version stripped all non-ASCII, breaking Yoruba/Igbo names (ẹ, ọ, ị, ụ, etc.).
+// Now only C0/C1 control characters (except newline and tab) are removed.
 func pdfSafe(s string) string {
 	var b strings.Builder
 	for _, r := range s {
-		if r >= 32 && r <= 126 {
+		switch {
+		case r == '\n' || r == '\t':
 			b.WriteRune(r)
-		} else if r == '\t' {
-			b.WriteByte(' ')
+		case r < 32 || (r >= 0x7F && r <= 0x9F):
+			// Strip C0 and C1 control characters; keep all other Unicode including extended Latin
+		default:
+			b.WriteRune(r)
 		}
 	}
 	return b.String()

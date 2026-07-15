@@ -1,10 +1,15 @@
 package handlers
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -372,10 +377,12 @@ func biExportReport(db *core.DB) http.HandlerFunc {
 
 		cw := csv.NewWriter(w)
 		if len(rows) > 0 {
+			// H3: Sort column headers so CSV output is deterministic across runs.
 			headers := make([]string, 0, len(rows[0]))
 			for k := range rows[0] {
 				headers = append(headers, k)
 			}
+			sort.Strings(headers)
 			cw.Write(headers) //nolint:errcheck
 			for _, row := range rows {
 				record := make([]string, len(headers))
@@ -479,4 +486,118 @@ func biListRuns(db *core.DB) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}
+}
+
+// batchRunScheduledBIReports finds all active scheduled BI reports due for execution,
+// generates each as CSV, emails it to the configured recipients, and updates next_run_at.
+// H8: Wire this into batch.go's runBatch (step 13) to enable scheduled report delivery.
+func batchRunScheduledBIReports(ctx context.Context, db *core.DB) error {
+	schedules, err := db.PGQuery(ctx, `
+		SELECT s.id, s.report_id, s.cron_expr, s.recipients, s.format,
+		       d.name AS report_name, d.module, d.query_template, d.filters
+		FROM bi_scheduled_reports s
+		JOIN bi_report_definitions d ON d.id = s.report_id
+		WHERE s.is_active = TRUE
+		  AND (s.next_run_at IS NULL OR s.next_run_at <= NOW())`)
+	if err != nil {
+		return fmt.Errorf("batchRunScheduledBIReports: query schedules: %w", err)
+	}
+	if len(schedules) == 0 {
+		return nil
+	}
+
+	var lastErr error
+	for _, sched := range schedules {
+		schedID := toInt64(sched["id"])
+		reportID := toInt64(sched["report_id"])
+		reportName := str(sched["report_name"])
+
+		// Record run start
+		runRows, err := db.PGQuery(ctx,
+			`INSERT INTO bi_report_runs (report_id, status, started_at)
+			 VALUES ($1,'running',NOW()) RETURNING id`, reportID)
+		if err != nil {
+			slog.Error("batchRunScheduledBIReports: create run record", "schedule_id", schedID, "err", err)
+			lastErr = err
+			continue
+		}
+		runID := toInt64(runRows[0]["id"])
+
+		// Build and execute the report query (reuse biQueryForReport logic)
+		defRows, _ := db.PGQuery(ctx, `SELECT * FROM bi_report_definitions WHERE id=$1`, reportID)
+		if len(defRows) == 0 {
+			db.PGExec(ctx, `UPDATE bi_report_runs SET status='failed', error_message='report definition not found', finished_at=NOW() WHERE id=$1`, runID) //nolint:errcheck
+			continue
+		}
+
+		// Build CSV in memory
+		fakeReq, _ := http.NewRequestWithContext(ctx, "GET", "/", nil)
+		q, _, qErr := biQueryForReport(fakeReq, defRows[0])
+		if qErr != nil {
+			db.PGExec(ctx, `UPDATE bi_report_runs SET status='failed', error_message=$2, finished_at=NOW() WHERE id=$1`, runID, qErr.Error()) //nolint:errcheck
+			lastErr = qErr
+			continue
+		}
+
+		rows, qErr := db.PGQuery(ctx, q)
+		if qErr != nil {
+			db.PGExec(ctx, `UPDATE bi_report_runs SET status='failed', error_message=$2, finished_at=NOW() WHERE id=$1`, runID, qErr.Error()) //nolint:errcheck
+			lastErr = qErr
+			continue
+		}
+
+		var csvBuf strings.Builder
+		cw := csv.NewWriter(&csvBuf)
+		if len(rows) > 0 {
+			headers := make([]string, 0, len(rows[0]))
+			for k := range rows[0] {
+				headers = append(headers, k)
+			}
+			sort.Strings(headers)
+			cw.Write(headers) //nolint:errcheck
+			for _, row := range rows {
+				record := make([]string, len(headers))
+				for i, h := range headers {
+					record[i] = fmt.Sprintf("%v", row[h])
+				}
+				cw.Write(record) //nolint:errcheck
+			}
+		}
+		cw.Flush()
+
+		// Email to recipients
+		recipJSON := str(sched["recipients"])
+		var recipients []string
+		json.Unmarshal([]byte(recipJSON), &recipients) //nolint:errcheck
+
+		fname := fmt.Sprintf("%s_%s.csv", reportName, time.Now().Format("20060102"))
+		if len(recipients) > 0 {
+			to := make([]MailAddress, 0, len(recipients))
+			for _, email := range recipients {
+				if email != "" {
+					to = append(to, MailAddress{Email: email})
+				}
+			}
+			if len(to) > 0 {
+				SendMail(ctx, db, SendMailOptions{
+					To:          to,
+					Subject:     fmt.Sprintf("Scheduled Report: %s (%s)", reportName, time.Now().Format("2006-01-02")),
+					TextBody:    fmt.Sprintf("Scheduled BI report attached: %s\nGenerated: %s", reportName, time.Now().Format("2006-01-02 15:04")),
+					HTMLBody:    fmt.Sprintf("<p>Scheduled BI report attached: <strong>%s</strong></p><p>Generated: %s</p>", reportName, time.Now().Format("2006-01-02 15:04")),
+					Kind:        "report",
+					Category:    "scheduled_report",
+					Attachments: []MailAttachment{{Filename: fname, ContentType: "text/csv", Content: base64.StdEncoding.EncodeToString([]byte(csvBuf.String()))}},
+				})
+			}
+		}
+
+		db.PGExec(ctx, `UPDATE bi_report_runs SET status='success', row_count=$2, finished_at=NOW() WHERE id=$1`, runID, len(rows)) //nolint:errcheck
+
+		// Advance next_run_at by 24 hours (simple daily schedule).
+		// TODO: parse cron_expr for more precise scheduling.
+		db.PGExec(ctx, `UPDATE bi_scheduled_reports SET last_run_at=NOW(), next_run_at=NOW()+INTERVAL '24 hours' WHERE id=$1`, schedID) //nolint:errcheck
+
+		slog.Info("batchRunScheduledBIReports: report sent", "report", reportName, "recipients", len(recipients), "rows", len(rows))
+	}
+	return lastErr
 }

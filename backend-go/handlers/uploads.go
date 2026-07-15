@@ -23,6 +23,15 @@ func uploadAuditLog(db *core.DB) http.HandlerFunc {
 			where += fmt.Sprintf(" AND a.report_type=$%d", n)
 			args = append(args, v); n++
 		}
+		// L1: optional date-range filter on uploaded_at.
+		if v := qstr(r, "from"); v != "" {
+			where += fmt.Sprintf(" AND a.uploaded_at >= $%d::timestamptz", n)
+			args = append(args, v); n++
+		}
+		if v := qstr(r, "to"); v != "" {
+			where += fmt.Sprintf(" AND a.uploaded_at <= $%d::timestamptz", n)
+			args = append(args, v); n++
+		}
 		args = append(args, limit)
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT a.id, a.report_type, a.file_names, a.cycle_label,

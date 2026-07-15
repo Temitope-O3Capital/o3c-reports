@@ -59,19 +59,25 @@ func settingsList(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		// Mask sensitive values — never return decrypted credentials to the client.
-		for _, row := range rows {
+		// M3: Mask sensitive values in a new slice of new maps — don't mutate original rows.
+		masked := make([]map[string]any, len(rows))
+		for i, row := range rows {
+			newRow := make(map[string]any, len(row))
+			for k, v := range row {
+				newRow[k] = v
+			}
 			k, _ := row["key"].(string)
 			if sensitiveSettingKey(k) {
 				if enc, _ := row["value"].(string); enc != "" {
-					row["value"] = "••••••••"
-					row["has_value"] = true
+					newRow["value"] = "••••••••"
+					newRow["has_value"] = true
 				} else {
-					row["has_value"] = false
+					newRow["has_value"] = false
 				}
 			}
+			masked[i] = newRow
 		}
-		respond(w, rows, "pg")
+		respond(w, masked, "pg")
 	}
 }
 
@@ -305,8 +311,9 @@ func settingsUserDelete(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// H5: also set is_active=FALSE so deactivation is immediate regardless of query filters.
 		_, err = db.PGExec(r.Context(), `
-			UPDATE o3c_users SET deleted_at = NOW() WHERE id = $1`, id)
+			UPDATE o3c_users SET is_active = FALSE, deleted_at = NOW() WHERE id = $1`, id)
 		if err != nil {
 			respondErr(w, 500, "Delete failed")
 			return

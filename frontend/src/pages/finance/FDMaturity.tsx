@@ -145,7 +145,7 @@ function makeCols(onDone: () => void): TableCol<FDRecord>[] { return [
   { key: 'account_officer', label: 'Officer',
     render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.account_officer || '—'}</span> },
   { key: '_crosssell', label: '', width: 36, render: r => {
-    const amountKobo = r.ngn_amount || r.principal * 100
+    const amountKobo = r.ngn_amount || r.principal
     if (amountKobo < 50_000_000) return null // below ₦500k
     return (
       <span

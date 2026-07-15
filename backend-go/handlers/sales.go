@@ -104,11 +104,12 @@ func salesMonthlyDisbursements(db *core.DB) http.HandlerFunc {
 func salesRecentApplications(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
+		// H13: use o3c_users (not legacy users table) and full_name column
 		q := `SELECT la.id, la.stage, la.status, la.amount_requested_kobo,
 		             la.amount_approved_kobo, la.created_at, la.updated_at,
-		             la.officer_id, u.name AS officer_name
+		             la.officer_id, u.full_name AS officer_name
 		      FROM loan_applications la
-		      LEFT JOIN users u ON u.id = la.officer_id
+		      LEFT JOIN o3c_users u ON u.id = la.officer_id
 		      WHERE 1=1`
 		args := []any{}
 		n := 1
@@ -131,15 +132,16 @@ func salesRecentApplications(db *core.DB) http.HandlerFunc {
 // salesTopPerformers returns top 10 officers by disbursements this month.
 func salesTopPerformers(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// H13: use o3c_users (not legacy users table) and full_name column
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT u.name, u.role,
+			SELECT u.full_name, u.role,
 			       COALESCE(SUM(la.amount_approved_kobo), 0) AS amount_kobo,
 			       COUNT(la.id) AS count
 			FROM loan_applications la
-			JOIN users u ON u.id = la.officer_id
+			JOIN o3c_users u ON u.id = la.officer_id
 			WHERE la.stage = 'active'
 			  AND DATE_TRUNC('month', la.updated_at) = DATE_TRUNC('month', NOW())
-			GROUP BY u.id, u.name, u.role
+			GROUP BY u.id, u.full_name, u.role
 			ORDER BY amount_kobo DESC LIMIT 10`)
 		if err != nil {
 			respond(w, []any{}, "pg")

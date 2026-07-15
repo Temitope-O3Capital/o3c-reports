@@ -217,16 +217,20 @@ func riskPortfolioKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
-				-- NPL ratio: active loans with dpd > 90 / total active loans
+				-- C10: compute DPD on-the-fly from maturity_date rather than relying on the
+				-- never-auto-populated dpd column.
+				-- NPL ratio: active loans overdue by >90 days
 				CASE WHEN COUNT(*) FILTER (WHERE status = 'active') > 0
 				     THEN ROUND(100.0
-				          * COUNT(*) FILTER (WHERE status = 'active' AND COALESCE(dpd,0) > 90)
+				          * COUNT(*) FILTER (WHERE status = 'active'
+				            AND GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 90)
 				          / COUNT(*) FILTER (WHERE status = 'active'), 2)
 				     ELSE 0 END AS npl_ratio_pct,
-				-- PAR30 rate
+				-- PAR30 rate: active loans overdue by >30 days
 				CASE WHEN COUNT(*) FILTER (WHERE status = 'active') > 0
 				     THEN ROUND(100.0
-				          * COUNT(*) FILTER (WHERE status = 'active' AND COALESCE(dpd,0) > 30)
+				          * COUNT(*) FILTER (WHERE status = 'active'
+				            AND GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 30)
 				          / COUNT(*) FILTER (WHERE status = 'active'), 2)
 				     ELSE 0 END AS par30_rate_pct,
 				-- Avg eye score for active loans
@@ -430,29 +434,28 @@ func riskVintage(db *core.DB) http.HandlerFunc {
 			args = append(args, product)
 		}
 
-		// Vintage analysis: group by booking month, compute current PAR30 rate.
-		// Columns par30_Nm are NULL if the cohort is younger than N months old
-		// (no meaningful data yet for that age bracket).
+		// H3: group by disbursement month (not application creation month) so cohort
+		// timing reflects when the loan was actually booked, not applied for.
 		rows, err := db.PGQuery(ctx, `
 			SELECT
-				TO_CHAR(DATE_TRUNC('month', created_at), 'Mon YYYY') AS booking_month,
-				DATE_TRUNC('month', created_at) AS _sort,
+				TO_CHAR(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)), 'Mon YYYY') AS booking_month,
+				DATE_TRUNC('month', COALESCE(disbursed_at, created_at)) AS _sort,
 				COUNT(*) AS cohort_count,
-				CASE WHEN DATE_TRUNC('month', created_at) <= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
+				CASE WHEN DATE_TRUNC('month', COALESCE(disbursed_at, created_at)) <= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
 				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
 				          / NULLIF(COUNT(*), 0), 1) END AS par30_1m,
-				CASE WHEN DATE_TRUNC('month', created_at) <= DATE_TRUNC('month', NOW()) - INTERVAL '3 months'
+				CASE WHEN DATE_TRUNC('month', COALESCE(disbursed_at, created_at)) <= DATE_TRUNC('month', NOW()) - INTERVAL '3 months'
 				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
 				          / NULLIF(COUNT(*), 0), 1) END AS par30_3m,
-				CASE WHEN DATE_TRUNC('month', created_at) <= DATE_TRUNC('month', NOW()) - INTERVAL '6 months'
+				CASE WHEN DATE_TRUNC('month', COALESCE(disbursed_at, created_at)) <= DATE_TRUNC('month', NOW()) - INTERVAL '6 months'
 				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
 				          / NULLIF(COUNT(*), 0), 1) END AS par30_6m,
-				CASE WHEN DATE_TRUNC('month', created_at) <= DATE_TRUNC('month', NOW()) - INTERVAL '12 months'
+				CASE WHEN DATE_TRUNC('month', COALESCE(disbursed_at, created_at)) <= DATE_TRUNC('month', NOW()) - INTERVAL '12 months'
 				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
 				          / NULLIF(COUNT(*), 0), 1) END AS par30_12m
 			FROM loan_applications
 			WHERE 1=1`+productClause+`
-			GROUP BY DATE_TRUNC('month', created_at)
+			GROUP BY DATE_TRUNC('month', COALESCE(disbursed_at, created_at))
 			ORDER BY _sort DESC
 			LIMIT 24`, args...)
 		if err != nil {
@@ -488,12 +491,12 @@ func riskVintageKPIs(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(ctx, `
 			WITH cohorts AS (
 				SELECT
-					DATE_TRUNC('month', created_at) AS booking_month,
+					DATE_TRUNC('month', COALESCE(disbursed_at, created_at)) AS booking_month,
 					ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
 					      / NULLIF(COUNT(*), 0), 1) AS par30_rate
 				FROM loan_applications
 				WHERE 1=1`+productClause+`
-				GROUP BY DATE_TRUNC('month', created_at)
+				GROUP BY DATE_TRUNC('month', COALESCE(disbursed_at, created_at))
 			)
 			SELECT
 				ROUND(AVG(par30_rate) FILTER (

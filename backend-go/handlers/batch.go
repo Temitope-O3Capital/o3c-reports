@@ -221,6 +221,22 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, "campaign_delivery_alerts:ok")
 	}
 
+	// 13. Auto-close resolved helpdesk tickets idle for 7+ days
+	if err := batchAutoCloseTickets(ctx, db); err != nil {
+		slog.Error("Batch: auto-close tickets failed", "err", err)
+		steps = append(steps, "auto_close_tickets:FAILED")
+	} else {
+		steps = append(steps, "auto_close_tickets:ok")
+	}
+
+	// 14. Scheduled BI report delivery
+	if err := batchRunScheduledBIReports(ctx, db); err != nil {
+		slog.Error("Batch: scheduled BI reports failed", "err", err)
+		steps = append(steps, "bi_scheduled_reports:FAILED")
+	} else {
+		steps = append(steps, "bi_scheduled_reports:ok")
+	}
+
 	status := "success"
 	if batchErr != nil {
 		status = "partial"

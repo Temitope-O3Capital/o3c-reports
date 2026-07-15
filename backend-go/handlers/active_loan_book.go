@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -15,6 +16,7 @@ func RegisterActiveLoanBook(r chi.Router, db *core.DB) {
 	r.Get("/stats", albStats(db))
 	r.Get("/{id}", albGet(db))
 	r.Patch("/{id}", albUpdate(db))
+	r.Post("/{id}/repayment", albRecordRepayment(db))
 }
 
 func albList(db *core.DB) http.HandlerFunc {
@@ -127,6 +129,101 @@ func albGet(db *core.DB) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+func albRecordRepayment(db *core.DB) http.HandlerFunc {
+	type body struct {
+		AmountKobo  int64  `json:"amount_kobo"`
+		PaymentDate string `json:"payment_date"`
+		Reference   string `json:"reference"`
+		Channel     string `json:"channel"`
+		Notes       string `json:"notes"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		user := core.UserFromCtx(r.Context())
+
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.AmountKobo <= 0 {
+			respondErr(w, 422, "amount_kobo must be greater than zero")
+			return
+		}
+		payDate := b.PaymentDate
+		if payDate == "" {
+			payDate = time.Now().Format("2006-01-02")
+		}
+		channel := b.Channel
+		if channel == "" {
+			channel = "manual"
+		}
+
+		// Read current outstanding balance
+		rows, err := db.PGQuery(r.Context(), `SELECT outstanding_kobo FROM loan_applications WHERE id=$1`, id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Loan not found")
+			return
+		}
+		outstanding := toInt64(rows[0]["outstanding_kobo"])
+		newOutstanding := outstanding - b.AmountKobo
+		if newOutstanding < 0 {
+			newOutstanding = 0
+		}
+
+		tx, err := db.PG.BeginTx(r.Context(), nil)
+		if err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		var repaymentID int64
+		err = tx.QueryRowContext(r.Context(), `
+			INSERT INTO loan_repayments (loan_id, amount_kobo, payment_date, reference, channel, notes, recorded_by)
+			VALUES ($1, $2, $3::date, $4, $5, $6, $7)
+			RETURNING id`,
+			id, b.AmountKobo, payDate, b.Reference, channel, b.Notes, user.ID).Scan(&repaymentID)
+		if err != nil {
+			respondErr(w, 500, "Failed to record repayment: "+err.Error())
+			return
+		}
+
+		_, err = tx.ExecContext(r.Context(), `
+			UPDATE loan_applications SET outstanding_kobo=$1, updated_at=NOW() WHERE id=$2`,
+			newOutstanding, id)
+		if err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+
+		if err = postJournalTx(r.Context(), tx, glEntry{
+			Date:          time.Now(),
+			Description:   fmt.Sprintf("Loan %s repayment", id),
+			Reference:     b.Reference,
+			DebitAccount:  "1001",
+			CreditAccount: "1100",
+			AmountKobo:    b.AmountKobo,
+			SourceType:    "loan_repayment",
+			PostedBy:      user.ID,
+		}); err != nil {
+			respondErr(w, 500, "GL journal failed: "+err.Error())
+			return
+		}
+
+		if err = tx.Commit(); err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"id":               repaymentID,
+			"outstanding_kobo": newOutstanding,
+		})
 	}
 }
 

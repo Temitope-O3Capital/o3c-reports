@@ -244,6 +244,23 @@ func executiveSummary(db *core.DB) http.HandlerFunc {
 		for _, row := range txnTrend {
 			txnByMonth[str(row["month"])] = row
 		}
+		// Build month→ISO-date-string index for chronological sorting.
+		// sort_key from SQL is the first-of-month date; "2006-01-02" sorts correctly as string.
+		monthSortKey := map[string]string{}
+		for _, src := range [][]core.Row{collTrend, recTrend, txnTrend} {
+			for _, row := range src {
+				m := str(row["month"])
+				if _, seen := monthSortKey[m]; seen {
+					continue
+				}
+				switch v := row["sort_key"].(type) {
+				case time.Time:
+					monthSortKey[m] = v.Format("2006-01-02")
+				case string:
+					monthSortKey[m] = v
+				}
+			}
+		}
 		allMonths := make(map[string]bool)
 		for m := range collByMonth {
 			allMonths[m] = true
@@ -258,7 +275,9 @@ func executiveSummary(db *core.DB) http.HandlerFunc {
 		for m := range allMonths {
 			monthKeys = append(monthKeys, m)
 		}
-		sort.Strings(monthKeys)
+		sort.Slice(monthKeys, func(i, j int) bool {
+			return monthSortKey[monthKeys[i]] < monthSortKey[monthKeys[j]]
+		})
 
 		mergedTrend := make([]map[string]any, 0, len(monthKeys))
 		for _, m := range monthKeys {

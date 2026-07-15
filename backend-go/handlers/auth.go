@@ -141,6 +141,18 @@ func ForgotPasswordHandler(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		name := str(rows[0]["full_name"])
+		uid := toInt64(rows[0]["id"])
+
+		// H1: Send email BEFORE updating the DB — if email fails the user's password
+		// should not be changed, otherwise they'd be locked out with no recovery path.
+		mailRes := SendTemporaryPasswordEmail(ctx, db, b.Email, name, tempPW, uid)
+		if !mailRes.OK {
+			slog.Error("forgotPassword: email send failed", "email", b.Email, "err", mailRes.Error)
+			respondErr(w, 500, "Failed to send reset email")
+			return
+		}
+
 		_, err = db.PGExec(ctx,
 			`UPDATE o3c_users SET password_hash=$1, must_change_password=TRUE WHERE id=$2`,
 			hash, rows[0]["id"])
@@ -149,10 +161,6 @@ func ForgotPasswordHandler(db *core.DB) http.HandlerFunc {
 			w.WriteHeader(204)
 			return
 		}
-
-		name := str(rows[0]["full_name"])
-		uid := toInt64(rows[0]["id"])
-		go SendTemporaryPasswordEmail(ctx, db, b.Email, name, tempPW, uid)
 
 		w.WriteHeader(204)
 	}
@@ -483,6 +491,8 @@ func changePasswordHandler(db *core.DB) http.HandlerFunc {
 		db.PGExec(r.Context(), //nolint:errcheck
 			`UPDATE o3c_users SET password_hash = $1, must_change_password = FALSE WHERE id = $2`,
 			hash, user.ID)
+		// H8: Invalidate all existing sessions so open sessions are forced to re-authenticate.
+		db.PGExec(r.Context(), `DELETE FROM user_sessions WHERE user_id=$1`, user.ID) //nolint:errcheck
 		respondErr(w, 200, "Password updated successfully")
 	}
 }

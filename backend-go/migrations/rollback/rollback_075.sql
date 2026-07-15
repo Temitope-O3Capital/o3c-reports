@@ -1,0 +1,3 @@
+-- Rollback for 075_mail_suppressions
+-- Intentionally left empty: ensureMailSchema re-creates this table at runtime,
+-- so dropping it would be immediately undone on next server start.

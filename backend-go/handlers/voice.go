@@ -49,27 +49,37 @@ func VoiceStatus(db *core.DB) http.HandlerFunc {
 		sipPassEnc, _ := row["telnyx_sip_password_enc"].(string)
 
 		if sipUser == "" || sipPassEnc == "" {
-			writeTelnyxStatus(w, false, "", "", fullName)
+			writeTelnyxStatus(w, false, "", fullName)
 			return
 		}
 
 		sipPass, err := decryptValue(sipPassEnc)
 		if err != nil {
 			slog.Error("voice: decrypt sip password", "user_id", user.ID, "err", err)
-			writeTelnyxStatus(w, false, "", "", fullName)
+			writeTelnyxStatus(w, false, "", fullName)
 			return
 		}
+		// Security: SIP credentials are never returned to the browser. C4.
+		_ = sipPass // decrypted only to confirm the account is properly configured; discarded here
 
-		writeTelnyxStatus(w, true, sipUser, sipPass, fullName)
+		writeTelnyxStatus(w, true, sipUser, fullName)
 	}
 }
 
-func writeTelnyxStatus(w http.ResponseWriter, configured bool, sipUsername, sipPassword, fullName string) {
+// writeTelnyxStatus writes the voice connection status JSON response.
+// Security: SIP credentials are never returned to the browser (C4).
+// The UI receives only a masked username so it can show which account is connected.
+func writeTelnyxStatus(w http.ResponseWriter, configured bool, sipUsername, fullName string) {
+	maskedUser := ""
+	if len(sipUsername) > 3 {
+		maskedUser = sipUsername[:3] + "***"
+	} else if sipUsername != "" {
+		maskedUser = "***"
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 		"configured":   configured,
-		"sip_username": sipUsername,
-		"sip_password": sipPassword,
+		"sip_username": maskedUser,
 		"full_name":    fullName,
 		"caller_id":    telnyxCallerID,
 	})

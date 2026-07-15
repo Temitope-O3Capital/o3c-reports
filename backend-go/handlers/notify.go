@@ -128,9 +128,10 @@ func Notify(ctx context.Context, db *core.DB, p NotifPayload) {
 
 	// ── In-app ────────────────────────────────────────────────────────────────
 	if channelOn("in_app") {
+		// C3: use the full unified column set; entity_type and entity_id are NULL for this path.
 		if _, err := db.PGExec(ctx,
-			`INSERT INTO notifications (user_id, type, title, body, action_url, entity_ref)
-			 VALUES ($1,$2,$3,$4,$5,$6)`,
+			`INSERT INTO notifications (user_id, type, title, body, action_url, entity_ref, entity_type, entity_id, is_read, created_at)
+			 VALUES ($1,$2,$3,$4,$5,$6, NULL, NULL, FALSE, NOW())`,
 			p.UserID, p.EventType, p.Title, p.Body, p.ActionURL, p.EntityRef); err != nil {
 			slog.Error("notify: in_app insert failed", "error", err, "event", p.EventType)
 		}

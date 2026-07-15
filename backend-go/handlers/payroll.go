@@ -3,10 +3,12 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -20,6 +22,7 @@ func RegisterPayroll(r chi.Router, db *core.DB) {
 	r.With(read).Get("/runs", payrollRunList(db))
 	r.With(read).Get("/runs/{id}", payrollRunGet(db))
 	r.With(read).Get("/runs/{id}/items", payrollItemList(db))
+	r.With(read).Get("/payslips/{runId}/{employeeId}", payrollPayslipGet(db))
 	r.With(mgr).Post("/runs", payrollRunCreate(db))
 	r.With(mgr).Patch("/runs/{id}/items/{itemId}", payrollItemUpdate(db))
 	r.With(mgr).Post("/runs/{id}/submit", payrollRunSubmit(db))
@@ -281,7 +284,8 @@ func payrollRunCreate(db *core.DB) http.HandlerFunc {
 				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
 				runID, empID, emp["full_name"], emp["staff_id"],
 				emp["department"], emp["grade_level"], emp["job_title"],
-				emp["bank_name"], emp["account_number"],
+				decryptEmployeeField(str(emp["bank_name"])),
+				decryptEmployeeField(str(emp["account_number"])),
 				gross, basic, housing, transport, other,
 				paye, pension, nhf, loanDeduction, net)
 			if err != nil {
@@ -452,9 +456,29 @@ func payrollRunPay(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Notify HR and Finance heads that payroll has been disbursed.
+		// GL: debit Salary Expense, credit Cash for the total net payout.
 		runRows, _ := db.PGQuery(ctx,
-			`SELECT period_year, period_month, headcount FROM payroll_runs WHERE id=$1`, id)
+			`SELECT period_year, period_month, headcount, total_net_kobo FROM payroll_runs WHERE id=$1`, id)
+		if len(runRows) > 0 {
+			user := core.UserFromCtx(ctx)
+			netKobo := toInt64(runRows[0]["total_net_kobo"])
+			if netKobo > 0 {
+				if glErr := postJournal(ctx, db, glEntry{
+					Date:          time.Now(),
+					Description:   fmt.Sprintf("Payroll disbursement — run %s", id),
+					Reference:     "PAYROLL-" + id,
+					DebitAccount:  "salary_expense",
+					CreditAccount: "cash",
+					AmountKobo:    netKobo,
+					SourceType:    "payroll_run",
+					PostedBy:      user.ID,
+				}); glErr != nil {
+					slog.Error("GL entry for payroll disbursement failed", "err", glErr, "run_id", id)
+				}
+			}
+		}
+
+		// Notify HR and Finance heads that payroll has been disbursed.
 		if len(runRows) > 0 {
 			months := []string{"", "January", "February", "March", "April", "May", "June",
 				"July", "August", "September", "October", "November", "December"}
@@ -478,6 +502,35 @@ func payrollRunPay(db *core.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true}) //nolint:errcheck
+	}
+}
+
+func payrollPayslipGet(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		runID := chi.URLParam(r, "runId")
+		employeeID := chi.URLParam(r, "employeeId")
+
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT pi.employee_id,
+			       pi.employee_name,
+			       pr.period_month,
+			       pr.period_year,
+			       pi.gross_kobo,
+			       pi.net_kobo,
+			       pi.paye_kobo,
+			       pi.employee_pension_kobo AS pension_kobo,
+			       pi.other_deduction_kobo  AS other_deductions_kobo,
+			       NOW()                    AS generated_at
+			FROM payroll_items pi
+			JOIN payroll_runs pr ON pr.id = pi.run_id
+			WHERE pi.run_id = $1 AND pi.employee_id = $2`,
+			runID, employeeID)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "payslip not found")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
 }
 

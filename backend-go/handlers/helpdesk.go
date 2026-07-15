@@ -294,6 +294,10 @@ func hdCreateTicket(db *core.DB) http.HandlerFunc {
 
 		// Look up SLA for priority (DB trigger will also set it from ticket_type)
 		slaDueAt := hdComputeSLADue(r.Context(), db, priority)
+		firstResponseDue := hdComputeFirstResponseDue(r.Context(), db, priority) // H2
+
+		// C1: Generate CSAT token at ticket creation so CSAT emails can be sent immediately on resolve.
+		csatToken := hdNewUUID()
 
 		// Custom fields: pass as JSON string for JSONB column; nil if absent
 		var customFieldsArg any
@@ -306,15 +310,15 @@ func hdCreateTicket(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO helpdesk_tickets
 			    (channel, status, priority, subject, customer_cif, customer_name,
-			     customer_email, customer_phone, department, sla_due_at,
-			     ticket_type, queue, custom_fields)
-			VALUES ($1,'open',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+			     customer_email, customer_phone, department, sla_due_at, first_response_due,
+			     ticket_type, queue, custom_fields, csat_token)
+			VALUES ($1,'open',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 			RETURNING *`,
 			b.Channel, priority, b.Subject,
 			ptrOrNil(b.CustomerCIF), ptrOrNil(b.CustomerName),
 			ptrOrNil(b.CustomerEmail), ptrOrNil(b.CustomerPhone),
-			ptrOrNil(b.Department), slaDueAt,
-			ptrOrNil(b.TicketType), ptrOrNil(b.Queue), customFieldsArg)
+			ptrOrNil(b.Department), slaDueAt, firstResponseDue,
+			ptrOrNil(b.TicketType), ptrOrNil(b.Queue), customFieldsArg, csatToken)
 		if err != nil {
 			slog.Error("hdCreateTicket: insert ticket", "err", err)
 			respondErr(w, 500, "Could not create ticket")
@@ -1641,6 +1645,22 @@ func hdComputeSLADue(ctx context.Context, db *core.DB, priority string) *time.Ti
 		return nil
 	}
 	hours := toInt64(rows[0]["resolution_hours"])
+	if hours <= 0 {
+		return nil
+	}
+	t := time.Now().Add(time.Duration(hours) * time.Hour)
+	return &t
+}
+
+// hdComputeFirstResponseDue returns the first-response SLA deadline for the given priority. H2.
+func hdComputeFirstResponseDue(ctx context.Context, db *core.DB, priority string) *time.Time {
+	rows, err := db.PGQuery(ctx,
+		"SELECT first_response_hours FROM helpdesk_sla_policies WHERE priority=$1 AND is_active=true LIMIT 1",
+		priority)
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	hours := toInt64(rows[0]["first_response_hours"])
 	if hours <= 0 {
 		return nil
 	}
@@ -3589,6 +3609,16 @@ func httpGetBearer(url, token string, timeout time.Duration) (*http.Response, er
 	req.Header.Set("Accept", "application/json")
 	client := &http.Client{Timeout: timeout}
 	return client.Do(req)
+}
+
+// batchAutoCloseTickets closes resolved tickets that have had no activity for 7+ days.
+func batchAutoCloseTickets(ctx context.Context, db *core.DB) error {
+	_, err := db.PGExec(ctx, `
+		UPDATE helpdesk_tickets
+		SET status = 'closed', closed_at = NOW(), updated_at = NOW()
+		WHERE status = 'resolved'
+		  AND updated_at < NOW() - INTERVAL '7 days'`)
+	return err
 }
 
 // httpPatchBearer performs a PATCH request with a Bearer token and JSON body.

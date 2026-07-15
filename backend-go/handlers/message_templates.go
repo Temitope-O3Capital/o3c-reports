@@ -206,6 +206,14 @@ func updateTemplate(db *core.DB) http.HandlerFunc {
 func deleteTemplate(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
+		// M1: refuse deletion if template is referenced by active or scheduled campaigns.
+		var refCount int
+		db.PG.QueryRowContext(r.Context(), //nolint:errcheck
+			`SELECT COUNT(*) FROM campaigns WHERE template_id=$1 AND status IN ('active','scheduled','sending')`, id).Scan(&refCount)
+		if refCount > 0 {
+			respondErr(w, 409, "Cannot delete a template used by active or scheduled campaigns")
+			return
+		}
 		db.PGExec(r.Context(), "DELETE FROM message_templates WHERE id=$1", id) //nolint:errcheck
 		w.WriteHeader(204)
 	}

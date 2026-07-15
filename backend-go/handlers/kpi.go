@@ -10,6 +10,18 @@ import (
 	"github.com/o3c/reports/core"
 )
 
+// kpiThresholds holds CBN-mandated regulatory limits used as default alert thresholds.
+// H11: These are the fallback defaults. Operational thresholds are stored in the alert_rules
+// DB table (managed via Admin → KPI Alerts) and override these at runtime.
+// To change defaults, update this struct and re-seed the alert_rules table.
+var kpiThresholds = map[string]float64{
+	"npl_ratio":            5.0,  // CBN max NPL ratio: 5%
+	"car":                  10.0, // CBN min Capital Adequacy Ratio: 10%
+	"liquidity_ratio":      30.0, // CBN min liquidity ratio: 30%
+	"par30_pct":            10.0, // internal PAR-30 warning: 10%
+	"sar_aging_hours":      48.0, // SAR must be filed within 48 hours of detection
+}
+
 func RegisterKPI(r chi.Router, db *core.DB) {
 	access := core.RequirePages("kpi_dashboard")
 	admin := core.RequirePages("settings")

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -658,6 +660,26 @@ func recoveryCreateDebtSale(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "No row returned")
 			return
 		}
+
+		// M3: Post GL entry — debit Cash (sale proceeds in), credit Loan Receivable.
+		user := core.UserFromCtx(r.Context())
+		saleID := toInt64(rows[0]["id"])
+		if body.SalePriceKobo > 0 {
+			if glErr := postJournal(r.Context(), db, glEntry{
+				Date:          time.Now(),
+				Description:   fmt.Sprintf("Debt sale to %s", body.BuyerName),
+				Reference:     fmt.Sprintf("DS-%d", saleID),
+				DebitAccount:  "1001", // Cash/Bank Clearing
+				CreditAccount: "1100", // Loan Receivable
+				AmountKobo:    body.SalePriceKobo,
+				SourceType:    "debt_sale",
+				SourceID:      saleID,
+				PostedBy:      user.ID,
+			}); glErr != nil {
+				slog.Error("GL journal post failed for debt sale", "id", saleID, "err", glErr)
+			}
+		}
+
 		go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
 			EventType: EvtRecoveryDebtSale,
 			Title:     "Debt Sale Recorded",
@@ -669,6 +691,10 @@ func recoveryCreateDebtSale(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// M3: recoveryDeleteDebtSale performs a soft delete so the sale record is
+// preserved for audit purposes.
+//
+// TODO: ALTER TABLE debt_sales ADD COLUMN deleted_at TIMESTAMPTZ, ADD COLUMN deleted_by BIGINT;
 func recoveryDeleteDebtSale(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -676,8 +702,10 @@ func recoveryDeleteDebtSale(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid id")
 			return
 		}
-		_, err := db.PGQuery(r.Context(), `DELETE FROM debt_sales WHERE id=$1`, id)
-		if err != nil {
+		user := core.UserFromCtx(r.Context())
+		if _, err := db.PGExec(r.Context(),
+			`UPDATE debt_sales SET deleted_at=NOW(), deleted_by=$1 WHERE id=$2 AND deleted_at IS NULL`,
+			user.ID, id); err != nil {
 			respondErr(w, 500, "Delete failed")
 			return
 		}

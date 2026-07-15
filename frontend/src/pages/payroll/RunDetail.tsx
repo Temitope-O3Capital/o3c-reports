@@ -11,6 +11,64 @@ import { NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 import type { AuthUser } from '../../hooks/useAuth'
 
+// ── Payslip modal ──────────────────────────────────────────────────────────────
+
+interface PayslipData {
+  employee_id: number
+  employee_name?: string
+  period_month?: number
+  period_year?: number
+  gross_kobo: number
+  net_kobo: number
+  paye_kobo: number
+  pension_kobo: number
+  other_deductions_kobo: number
+  generated_at?: string
+}
+
+function PayslipModal({ data, period, onClose }: { data: PayslipData; period: string; onClose: () => void }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: 380, maxWidth: '95vw', border: '1px solid var(--card-bdr)', boxShadow: '0 8px 40px rgba(0,0,0,.18)' }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 2 }}>Payslip — {period}</div>
+            {data.employee_name && <div style={{ fontSize: 12, color: 'var(--txt2)' }}>{data.employee_name}</div>}
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--txt3)', lineHeight: 1 }}>×</button>
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <tbody>
+            {[
+              { label: 'Gross Pay', value: fmtKobo(data.gross_kobo), bold: false },
+              { label: 'PAYE Tax', value: `– ${fmtKobo(data.paye_kobo)}`, bold: false },
+              { label: 'Pension', value: `– ${fmtKobo(data.pension_kobo)}`, bold: false },
+              { label: 'Other Deductions', value: `– ${fmtKobo(data.other_deductions_kobo)}`, bold: false },
+              { label: 'Net Pay', value: fmtKobo(data.net_kobo), bold: true },
+            ].map(row => (
+              <tr key={row.label} style={{ borderTop: '1px solid var(--bdr)' }}>
+                <td style={{ padding: '8px 0', color: 'var(--txt2)', fontWeight: row.bold ? 700 : 400 }}>{row.label}</td>
+                <td style={{ padding: '8px 0', textAlign: 'right', fontFamily: 'Inter, monospace', fontWeight: row.bold ? 700 : 500, color: row.bold ? GREEN : 'var(--txt)' }}>{row.value}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {data.generated_at && (
+          <div style={{ fontSize: 11, color: 'var(--txt3)', marginTop: 12, textAlign: 'center' }}>
+            Generated {fmtDate(data.generated_at)}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface PayrollRun {
@@ -96,6 +154,19 @@ export default function RunDetail() {
   const [approveOpen, setApproveOpen] = useState(false)
   const [payOpen, setPayOpen] = useState(false)
   const [actioning, setActioning] = useState(false)
+
+  // C6: Payslip modal state
+  const [payslip, setPayslip] = useState<PayslipData | null>(null)
+
+  async function viewPayslip(item: PayrollItem, e: React.MouseEvent) {
+    e.stopPropagation() // don't trigger row click navigation
+    try {
+      const data = await apiFetch<PayslipData>(`/api/payroll/payslips/${id}/${item.employee_id}`)
+      setPayslip({ ...data, employee_name: item.employee_name })
+    } catch {
+      toast.error('Could not load payslip')
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -189,6 +260,19 @@ export default function RunDetail() {
       key: 'net_kobo', label: 'Net Pay', align: 'right',
       render: r => <span style={{ ...NUM, fontWeight: 700, color: GREEN }}>{fmtKobo(r.net_kobo)}</span>,
     },
+    // C6: Payslip download button — only shown for paid runs
+    ...(run?.status === 'paid' ? [{
+      key: 'payslip' as keyof PayrollItem,
+      label: '',
+      render: (r: PayrollItem) => (
+        <button
+          onClick={e => viewPayslip(r, e)}
+          style={{ ...btnSecondary, fontSize: 11.5, padding: '3px 10px' }}
+        >
+          Payslip
+        </button>
+      ),
+    }] : []),
   ]
 
   if (loading && !run) {
@@ -320,6 +404,9 @@ export default function RunDetail() {
         onConfirm={() => { setPayOpen(false); doAction('pay', 'Payroll marked as paid') }}
         onClose={() => setPayOpen(false)}
       />
+
+      {/* C6: Payslip modal */}
+      {payslip && <PayslipModal data={payslip} period={period} onClose={() => setPayslip(null)} />}
     </Page>
   )
 }

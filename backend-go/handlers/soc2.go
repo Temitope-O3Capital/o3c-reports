@@ -29,6 +29,7 @@ func RegisterSOC2(r chi.Router, db *core.DB) {
 
 	// Policy documents
 	r.With(all).Get("/soc2/policies",          soc2PolicyList(db))
+	r.With(all).Post("/soc2/policies",         soc2CreatePolicy(db))
 	r.With(all).Patch("/soc2/policies/{id}",   soc2PolicyUpdate(db))
 
 	// Pentest engagements
@@ -211,6 +212,22 @@ func soc2ControlUpdate(db *core.DB) http.HandlerFunc {
 			sets += fmt.Sprintf(", waiver_reason=$%d", n)
 			args = append(args, *b.WaiverReason)
 			n++
+		}
+		// M3: notes was in the struct but missing from the SET clause — fixed.
+		if b.Notes != nil {
+			sets += fmt.Sprintf(", notes=$%d", n)
+			args = append(args, *b.Notes)
+			n++
+		}
+		// H4: require at least one evidence item before marking a control as implemented.
+		if b.Status != nil && *b.Status == "implemented" {
+			var evidenceCount int
+			db.PG.QueryRowContext(r.Context(),
+				`SELECT COUNT(*) FROM soc2_evidence WHERE control_id=$1`, id).Scan(&evidenceCount) //nolint:errcheck
+			if evidenceCount == 0 {
+				respondErr(w, 422, "At least one evidence item is required before marking a control as implemented")
+				return
+			}
 		}
 		args = append(args, id)
 		_, err := db.PGExec(r.Context(),
@@ -417,6 +434,16 @@ func soc2PolicyUpdate(db *core.DB) http.HandlerFunc {
 		args := []any{}
 		n := 1
 		if b.Status != nil {
+			// H3: policy owner cannot approve their own policy.
+			if *b.Status == "approved" {
+				var ownerID int64
+				db.PG.QueryRowContext(r.Context(), //nolint:errcheck
+					`SELECT owner_id FROM soc2_policy_documents WHERE id=$1`, id).Scan(&ownerID)
+				if ownerID == user.ID {
+					respondErr(w, 422, "Policy owner cannot approve their own policy")
+					return
+				}
+			}
 			sets += fmt.Sprintf(", status=$%d", n)
 			args = append(args, *b.Status)
 			n++
@@ -727,5 +754,59 @@ func pentestFindingDelete(db *core.DB) http.HandlerFunc {
 		}
 		db.PGExec(r.Context(), "DELETE FROM pentest_findings WHERE id=$1", fid) //nolint:errcheck
 		w.WriteHeader(204)
+	}
+}
+
+// ── SOC 2 policy creation (H2) ────────────────────────────────────────────────
+
+// soc2CreatePolicy creates a new SOC 2 policy document at draft status.
+// Note: the soc2_policy_documents table (migration 063) does not have a content
+// or policy_type column. Those fields are accepted but not persisted until a
+// migration adds them. The handler uses the existing name/version/notes columns.
+func soc2CreatePolicy(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		var b struct {
+			Name       string `json:"name"`
+			Version    string `json:"version"`
+			Content    string `json:"content"`     // stored in notes until schema supports it
+			OwnerID    int64  `json:"owner_id"`
+			PolicyType string `json:"policy_type"` // used as category
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.Name == "" {
+			respondErr(w, 422, "name is required")
+			return
+		}
+		if b.Version == "" {
+			b.Version = "1.0"
+		}
+		ownerID := b.OwnerID
+		if ownerID == 0 {
+			ownerID = user.ID
+		}
+		category := b.PolicyType
+		if category == "" {
+			category = "general"
+		}
+		// content is stored in notes (no dedicated column yet in soc2_policy_documents).
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO soc2_policy_documents
+			  (name, version, category, owner_id, status, notes, sort_order, created_at, updated_at)
+			VALUES ($1,$2,$3,$4,'draft',$5,
+			        (SELECT COALESCE(MAX(sort_order),0)+10 FROM soc2_policy_documents),
+			        NOW(),NOW())
+			RETURNING *`,
+			b.Name, b.Version, category, ownerID, nullIfBlank(b.Content))
+		if err != nil {
+			respondErr(w, 500, "Create failed")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
 }

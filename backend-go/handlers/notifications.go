@@ -151,15 +151,17 @@ func notificationsMarkRead(db *core.DB) http.HandlerFunc {
 		}
 		user := core.UserFromCtx(r.Context())
 
-		_, err = db.PGExec(r.Context(), `
+		// M2: capture result to return count of affected rows.
+		res, err := db.PGExec(r.Context(), `
 			UPDATE notifications SET is_read = TRUE, read_at = NOW()
 			WHERE id = $1 AND user_id = $2`, id, user.ID)
 		if err != nil {
 			respondErr(w, 500, "Update failed")
 			return
 		}
+		count, _ := res.RowsAffected()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"status": "ok", "count": count}) //nolint:errcheck
 	}
 }
 
@@ -167,15 +169,17 @@ func notificationsReadAll(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
 
-		_, err := db.PGExec(r.Context(), `
+		// M2: capture result to return count of affected rows.
+		res, err := db.PGExec(r.Context(), `
 			UPDATE notifications SET is_read = TRUE, read_at = NOW()
 			WHERE user_id = $1 AND is_read = FALSE`, user.ID)
 		if err != nil {
 			respondErr(w, 500, "Update failed")
 			return
 		}
+		count, _ := res.RowsAffected()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"status": "ok", "count": count}) //nolint:errcheck
 	}
 }
 
@@ -289,9 +293,10 @@ func notificationsSSE(db *core.DB) http.HandlerFunc {
 // sendNotification inserts a notification row and fires NOTIFY on the per-user channel.
 // Used by other handlers (LOS assignment, helpdesk, collections, recovery) to push real-time alerts.
 func sendNotification(ctx context.Context, db *core.DB, userID int64, notifType, title, body, entityType string, entityID int64) error {
+	// C3: use the full unified column set; action_url and entity_ref are NULL for this path.
 	rows, err := db.PGQuery(ctx, `
-		INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id, is_read, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, FALSE, NOW())
+		INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id, action_url, entity_ref, is_read, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, FALSE, NOW())
 		RETURNING id`,
 		userID, notifType, title, body, entityType, entityID)
 	if err != nil {

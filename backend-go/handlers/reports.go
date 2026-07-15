@@ -9,6 +9,23 @@ import (
 	"github.com/o3c/reports/core"
 )
 
+// reportExportAllowed returns true if the caller's role may export report data.
+// H12: Exports contain sensitive financial data; restrict to finance/compliance leadership.
+var reportExportRoles = map[string]bool{
+	"admin":            true,
+	"finance_head":     true,
+	"cfo":              true,
+	"coo":              true,
+	"md":               true,
+	"compliance_head":  true,
+	"it_admin":         true,
+}
+
+func reportExportAllowed(r *http.Request) bool {
+	user := core.UserFromCtx(r.Context())
+	return user != nil && reportExportRoles[user.Role]
+}
+
 func RegisterReports(r chi.Router, db *core.DB) {
 	read := core.RequirePages("reports")
 	audit := core.RequirePages("audit_export")
@@ -137,6 +154,10 @@ func reportMonthlyBusiness(db *core.DB) http.HandlerFunc {
 
 		sources := []string{src1, src2, src3}
 		if qstr(r, "format") == "csv" {
+			if !reportExportAllowed(r) {
+				respondErr(w, 403, "Insufficient permissions to export reports")
+				return
+			}
 			// Flatten disbursements for CSV
 			streamCSV(w, fmt.Sprintf("monthly_business_%s_%s.csv", dateFrom, dateTo), disbRows)
 			return
@@ -207,6 +228,10 @@ func reportLoanPortfolio(db *core.DB) http.HandlerFunc {
 		}
 
 		if qstr(r, "format") == "csv" {
+			if !reportExportAllowed(r) {
+				respondErr(w, 403, "Insufficient permissions to export reports")
+				return
+			}
 			streamCSV(w, fmt.Sprintf("loan_portfolio_%s_%s.csv", coalesce(dateFrom, "all"), coalesce(dateTo, "all")), statusRows)
 			return
 		}
@@ -285,6 +310,10 @@ func reportCollectionsPerformance(db *core.DB) http.HandlerFunc {
 		}
 
 		if qstr(r, "format") == "csv" {
+			if !reportExportAllowed(r) {
+				respondErr(w, 403, "Insufficient permissions to export reports")
+				return
+			}
 			streamCSV(w, fmt.Sprintf("collections_performance_%s_%s.csv", dateFrom, dateTo), agentRows)
 			return
 		}
@@ -388,6 +417,10 @@ func reportSettlementRecon(db *core.DB) http.HandlerFunc {
 		}
 
 		if qstr(r, "format") == "csv" {
+			if !reportExportAllowed(r) {
+				respondErr(w, 403, "Insufficient permissions to export reports")
+				return
+			}
 			streamCSV(w, fmt.Sprintf("settlement_recon_%s_%s.csv", dateFrom, dateTo), collRows)
 			return
 		}
@@ -445,6 +478,10 @@ func reportAgentPerformance(db *core.DB) http.HandlerFunc {
 		}
 
 		if qstr(r, "format") == "csv" {
+			if !reportExportAllowed(r) {
+				respondErr(w, 403, "Insufficient permissions to export reports")
+				return
+			}
 			streamCSV(w, fmt.Sprintf("agent_performance_%s_%s.csv", dateFrom, dateTo), rows)
 			return
 		}
@@ -634,6 +671,10 @@ func reportNPLReturn(db *core.DB) http.HandlerFunc {
 		}
 
 		if qstr(r, "format") == "csv" {
+			if !reportExportAllowed(r) {
+				respondErr(w, 403, "Insufficient permissions to export reports")
+				return
+			}
 			streamCSV(w, fmt.Sprintf("npl_return_%s.csv", dateTo), bucketRows)
 			return
 		}
