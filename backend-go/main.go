@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -396,6 +397,38 @@ func main() {
 		})
 
 	})
+
+	// ── Static frontend (single-origin deploy) ───────────────────────────────────
+	// Serves the built React SPA so frontend and API share one origin/port. All
+	// API, upload and tracking routes are registered above and match first; anything
+	// unmatched falls through here. A missing /api path returns JSON 404 (not the
+	// HTML shell); any other path serves the requested file, or index.html so the
+	// client-side router can handle it. Disabled when FRONTEND_DIR is unset/absent.
+	frontendDir := os.Getenv("FRONTEND_DIR")
+	if frontendDir == "" {
+		frontendDir = "frontend-dist"
+	}
+	if st, err := os.Stat(frontendDir); err == nil && st.IsDir() {
+		indexPath := filepath.Join(frontendDir, "index.html")
+		fileServer := http.FileServer(http.Dir(frontendDir))
+		r.NotFound(func(w http.ResponseWriter, req *http.Request) {
+			if strings.HasPrefix(req.URL.Path, "/api/") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"error":"not found"}`))
+				return
+			}
+			full := filepath.Join(frontendDir, filepath.Clean(req.URL.Path))
+			if fi, err := os.Stat(full); err == nil && !fi.IsDir() {
+				fileServer.ServeHTTP(w, req)
+				return
+			}
+			http.ServeFile(w, req, indexPath) // SPA fallback
+		})
+		slog.Info("serving frontend", "dir", frontendDir)
+	} else {
+		slog.Info("frontend not served (FRONTEND_DIR absent)", "dir", frontendDir)
+	}
 
 	// ── Server ─────────────────────────────────────────────────────────────────
 	srv := &http.Server{
