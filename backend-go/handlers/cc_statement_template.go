@@ -123,7 +123,10 @@ func ccLoad(ctx context.Context, db *core.DB, id string) (core.Row, []core.Row, 
 		FROM cc_statements s
 		LEFT JOIN o3c_users u ON u.id = s.created_by
 		WHERE s.id = $1`, id)
-	if err != nil || len(stmts) == 0 {
+	if err != nil {
+		return nil, nil, fmt.Errorf("db error: %w", err)
+	}
+	if len(stmts) == 0 {
 		return nil, nil, errors.New("statement not found")
 	}
 	txns, err := db.PGQuery(ctx, `

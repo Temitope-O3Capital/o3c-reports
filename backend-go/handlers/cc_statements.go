@@ -423,7 +423,11 @@ func ccDetail(db *core.DB) http.HandlerFunc {
 			FROM cc_statements s
 			LEFT JOIN o3c_users u ON u.id = s.created_by
 			WHERE s.id = $1`, id)
-		if err != nil || len(stmts) == 0 {
+		if err != nil {
+			respondErr(w, 500, "db error: "+err.Error())
+			return
+		}
+		if len(stmts) == 0 {
 			respondErr(w, 404, "statement not found")
 			return
 		}
