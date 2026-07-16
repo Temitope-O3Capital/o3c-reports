@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: o3c_workspace
+      POSTGRES_USER: o3c
+      POSTGRES_PASSWORD: o3c_dev
+    volumes:
+      - o3c-pg-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U o3c -d o3c_workspace"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  o3c-pg-data:
