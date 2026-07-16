@@ -148,6 +148,10 @@ func (d *DB) DualQuery(ctx context.Context, msQ, pgQ string, args ...any) ([]Row
 	defer cancel()
 	rows, err := queryRows(pgCtx, d.PG, pgQ, args)
 	if err != nil {
+		if isTableMissing(err) {
+			d.log.Warn("DualQuery: PG table not found — returning empty result", "err", err)
+			return []Row{}, "supabase_empty", nil
+		}
 		return nil, "", err
 	}
 	return rows, "supabase_snapshot", nil

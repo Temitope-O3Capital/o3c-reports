@@ -603,7 +603,7 @@ var RolePages = map[string][]string{
 	"call_centre":      {"overview", "transactions", "call_center", "customer_service", "crm_contacts", "uploads"},
 	"head_hr":          {"overview", "hr_employees", "hr_leave", "hr_performance", "hr_disciplinary", "hr_payroll", "hr_training", "uploads", "kpi_dashboard"},
 	"cmo":              {"overview", "sales", "cohort", "executive", "uploads", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates", "statements"},
-	"head_sales":       {"sales", "overview", "uploads", "executive", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates", "statements"},
+	"head_sales":       {"sales", "overview", "uploads", "executive", "loans", "credit_portfolio", "bd", "bd_employers", "bd_pipeline", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates", "statements"},
 	"head_collections": {"collections", "recovery", "overview", "eod", "uploads", "executive", "reconciliation", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks"},
 	"head_recovery":    {"recovery", "collections", "overview", "eod", "uploads", "executive", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks"},
 

@@ -247,7 +247,7 @@ export default function DialerAgent() {
         <>
           {/* ── Session stats ───────────────────────────────────────────────── */}
           <div style={{ display: 'flex', gap: 10, marginBottom: SP[4], flexWrap: 'wrap' }}>
-            <StatTile label="Status" value={session.status.toUpperCase()} colour={session.status === 'ready' ? GREEN : session.status === 'on_call' ? AMBER : '#6B7280'} />
+            <StatTile label="Status" value={(session.status ?? '').toUpperCase()} colour={session.status === 'ready' ? GREEN : session.status === 'on_call' ? AMBER : '#6B7280'} />
             <StatTile label="Calls Made" value={session.calls_made} />
             <StatTile label="Calls Answered" value={session.calls_answered} />
             <StatTile label="Campaign" value={session.campaign_name ?? 'Any'} />

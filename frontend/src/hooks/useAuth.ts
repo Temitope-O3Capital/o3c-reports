@@ -38,14 +38,14 @@ const ADMIN_PAGES       = ['admin_users','admin_api_keys','settings','sync_statu
 
 export const ROLE_PAGES: Record<string, string[]> = {
   // Legacy roles
-  md:               ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS, ...HELPDESK],
+  md:               ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center','loans','bd','bd_employers','bd_pipeline','telemarketing','telemarketing_stats', ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS, ...HELPDESK],
   coo:              ['overview','transactions','collections','recovery','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center','loans',          ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS, ...HELPDESK],
   cfo:              ['overview','income','collections','recovery','executive','transactions','eod','uploads','reconciliation','loans','credit_portfolio','fixed_deposit','settlement','statements', ...FINANCE_PAGES],
   head_it:          ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','admin','executive','income','eod','uploads','reconciliation','call_center','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS, 'mobile_app','blink_card', ...ADMIN_PAGES, ...HELPDESK],
   head_hr:          ['overview','sales','uploads', ...HR_PAGES],
   cmo:              ['overview','sales','cohort','executive','uploads', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
   head_ops:         ['overview','transactions','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','credit_portfolio','fixed_deposit','settlement', ...CRM, ...HELPDESK],
-  head_sales:       ['sales','overview','uploads','executive','loans','credit_portfolio', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
+  head_sales:       ['sales','overview','uploads','executive','loans','credit_portfolio','bd','bd_employers','bd_pipeline', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
   head_collections: ['collections','recovery','overview','eod','uploads','executive','reconciliation','loans','credit_portfolio', ...CRM, ...HELPDESK],
   head_recovery:    ['recovery','collections','overview','eod','uploads','executive','loans','credit_portfolio', ...CRM, ...HELPDESK],
   admin:            ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','admin','executive','income','eod','uploads','reconciliation','call_center','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS, ...ADMIN_PAGES, ...HELPDESK],

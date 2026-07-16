@@ -452,7 +452,7 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 		period := qstr(r, "period")
 		periodExpr := "DATE_TRUNC('month', NOW())"
 		if period != "" && period != "current" {
-			periodExpr = fmt.Sprintf("DATE_TRUNC('month', '%s'::date)", period)
+			periodExpr = fmt.Sprintf("DATE_TRUNC('month', '%s-01'::date)", period)
 		}
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT u.id AS user_id, u.full_name,

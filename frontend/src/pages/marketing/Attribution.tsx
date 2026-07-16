@@ -61,7 +61,7 @@ export default function Attribution() {
         apiFetch<CampaignAttr[]>(`/api/sales/campaign-attribution${qs ? `?${qs}` : ''}`),
         apiFetch<LeadSourceRow[]>(`/api/sales/by-lead-source${qs ? `?${qs}` : ''}`),
       ])
-      setCampaigns(cam ?? []); setLeadSources(ls ?? [])
+      setCampaigns(Array.isArray(cam) ? cam : []); setLeadSources(Array.isArray(ls) ? ls : [])
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [from, to])

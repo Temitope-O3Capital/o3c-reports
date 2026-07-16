@@ -70,7 +70,7 @@ const SECTIONS: Section[] = [
         icon: 'trending_up', label: 'Sales', to: '/sales',
         vis: ['sales_officer','sales_head','head_sales'],
         subs: [
-          { label: 'Overview',         to: '/sales' },
+          { label: 'Overview',         to: '/sales/overview' },
           { label: 'Cohort Analysis',  to: '/sales/cohort' },
           { label: 'Targets',          to: '/sales/targets' },
           { label: 'Reports',          to: '/sales/reports' },

@@ -209,7 +209,7 @@ function homeFor(role: string): string {
   const map: Record<string, string> = {
     md: '/', coo: '/', cfo: '/', cmo: '/', executive: '/',
     admin: '/', management: '/', head_ops: '/', head_it: '/admin/overview',
-    sales_officer: '/sales',       sales_head: '/sales',
+    sales_officer: '/sales',       sales_head: '/sales',   head_sales: '/sales',
     bd_officer: '/bd',             bd_head: '/bd',
     risk_officer: '/operations/risk', risk_head: '/operations/risk',
     finance_officer: '/finance',   finance_head: '/finance',
@@ -886,6 +886,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/campaigns/:id/report" element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignReport /></PageErrorBoundary></RequireAccess>} />
 
                   <Route path="/sales"           element={<RequireAccess page="sales" user={user}><PageErrorBoundary><SalesOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/overview" element={<RequireAccess page="sales" user={user}><PageErrorBoundary><SalesOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/cohort"    element={<RequireAccess page="cohort" user={user}><PageErrorBoundary><SalesCohort /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/reports"   element={<RequireAccess page="crm_reports" user={user}><PageErrorBoundary><SalesReports /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/targets"   element={<RequireAccess page="sales" user={user}><PageErrorBoundary><SalesTargets /></PageErrorBoundary></RequireAccess>} />
