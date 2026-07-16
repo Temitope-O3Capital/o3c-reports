@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Page, SectionCard, DataTable, Tabs, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, API } from '../../lib/api'
 import { fmtDate, fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { GREEN, RED, AMBER, NAVY, BLUE, INTER, SORA, NUM } from '../../lib/design'
 import { toast } from 'sonner'
@@ -214,15 +214,35 @@ const TEXTAREA: React.CSSProperties = {
 // ── Single send tab ───────────────────────────────────────────────────────────
 
 function SingleSendTab({ onSent }: { onSent: () => void }) {
-  const [customer,  setCustomer]  = useState<CustomerResult | null>(null)
-  const [dateFrom,  setDateFrom]  = useState(monthStart())
-  const [dateTo,    setDateTo]    = useState(today())
-  const [email,     setEmail]     = useState('')
-  const [subject,   setSubject]   = useState('')
-  const [message,   setMessage]   = useState('')
-  const [pwHint,    setPwHint]    = useState('')
-  const [sending,   setSending]   = useState(false)
-  const [showOpts,  setShowOpts]  = useState(false)
+  const [customer,    setCustomer]    = useState<CustomerResult | null>(null)
+  const [dateFrom,    setDateFrom]    = useState(monthStart())
+  const [dateTo,      setDateTo]      = useState(today())
+  const [stmtType,    setStmtType]    = useState<'account' | 'credit_card'>('account')
+  const [email,       setEmail]       = useState('')
+  const [subject,     setSubject]     = useState('')
+  const [message,     setMessage]     = useState('')
+  const [pwHint,      setPwHint]      = useState('')
+  const [sending,     setSending]     = useState(false)
+  const [previewing,  setPreviewing]  = useState(false)
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
+  const [showOpts,    setShowOpts]    = useState(false)
+
+  async function preview() {
+    if (!customer) { toast.error('Select a customer first'); return }
+    setPreviewing(true)
+    try {
+      const res = await fetch(
+        `${API}/api/statements/preview?cif=${encodeURIComponent(customer.cif)}&from=${dateFrom}&to=${dateTo}&type=${stmtType}`,
+        { credentials: 'include' },
+      )
+      if (!res.ok) { toast.error('Failed to generate preview'); return }
+      setPreviewHtml(await res.text())
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setPreviewing(false)
+    }
+  }
 
   async function send() {
     if (!customer) { toast.error('Select a customer first'); return }
@@ -234,6 +254,7 @@ function SingleSendTab({ onSent }: { onSent: () => void }) {
           cif: customer.cif,
           date_from: dateFrom,
           date_to:   dateTo,
+          type:      stmtType,
           recipient_email: email.trim() || undefined,
           subject:  subject.trim() || undefined,
           message:  message.trim() || undefined,
@@ -246,6 +267,7 @@ function SingleSendTab({ onSent }: { onSent: () => void }) {
       setSubject('')
       setMessage('')
       setPwHint('')
+      setPreviewHtml(null)
       onSent()
     } catch (e: any) {
       toast.error(e.message)
@@ -254,56 +276,163 @@ function SingleSendTab({ onSent }: { onSent: () => void }) {
     }
   }
 
+  const typeLabel = stmtType === 'credit_card' ? 'Credit Card Statement' : 'Account Statement'
+
   return (
-    <SectionCard title="Send Statement to Customer" subtitle="Generates a PDF statement and emails it directly to the customer">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '400px 1fr', gap: 20, alignItems: 'start' }}>
 
-        <Field label="Customer">
-          <CustomerSearch onSelect={c => { setCustomer(c); if (c.email) setEmail(c.email) }} />
-        </Field>
+      {/* ── Left: form ── */}
+      <SectionCard title="Send Statement" subtitle="Generate a PDF statement and email it to the customer">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
 
-        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
+          <Field label="Customer">
+            <CustomerSearch onSelect={c => { setCustomer(c); if (c.email) setEmail(c.email); setPreviewHtml(null) }} />
+          </Field>
 
-        {/* Optional fields toggle */}
-        <button onClick={() => setShowOpts(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: 12.5, fontWeight: 600, padding: 0, fontFamily: INTER, width: 'fit-content' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 15, transition: 'transform .15s', transform: showOpts ? 'rotate(90deg)' : 'none' }}>chevron_right</span>
-          {showOpts ? 'Hide' : 'Show'} optional fields
-        </button>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); setPreviewHtml(null) }} />
 
-        {showOpts && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '16px', background: 'var(--input-bg)', borderRadius: 10, border: '1px solid var(--bdr)' }}>
-            <Field label="Recipient Email Override" hint="Leave blank to use the customer's email on file">
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@email.com" style={INPUT} />
-            </Field>
-            <Field label="Custom Subject" hint="Default: Your O3 Cards statement: {dates}">
-              <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Your account statement" style={INPUT} />
-            </Field>
-            <Field label="Message" hint="Appears in the email body above the attachment note">
-              <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={message} onChange={e => setMessage(e.target.value)} placeholder="Please find your account statement attached." style={TEXTAREA} />
-            </Field>
-            <Field label="Password Hint" hint="Appended to message body if the PDF is password-protected">
-              <input value={pwHint} onChange={e => setPwHint(e.target.value)} placeholder="e.g. Last 4 digits of your phone number" style={INPUT} />
-            </Field>
+          <Field label="Statement Type">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {([
+                { key: 'account',     icon: 'receipt_long',  label: 'Account Statement'     },
+                { key: 'credit_card', icon: 'credit_card',   label: 'Credit Card Statement' },
+              ] as const).map(t => (
+                <button key={t.key} onClick={() => { setStmtType(t.key); setPreviewHtml(null) }}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                    padding: '12px 8px', borderRadius: 10, cursor: 'pointer', fontFamily: INTER,
+                    border: `1.5px solid ${stmtType === t.key ? NAVY : 'var(--bdr)'}`,
+                    background: stmtType === t.key ? `${NAVY}0d` : 'transparent',
+                    color: stmtType === t.key ? NAVY : 'var(--txt2)',
+                    transition: 'all .15s',
+                  }}
+                >
+                  <span className="material-symbols-rounded" style={{ fontSize: 22, opacity: stmtType === t.key ? 1 : .5 }}>{t.icon}</span>
+                  <span style={{ fontSize: 11.5, fontWeight: 600 }}>{t.label}</span>
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          {/* Optional fields */}
+          <button onClick={() => setShowOpts(o => !o)}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: 12, fontWeight: 600, padding: 0, fontFamily: INTER, width: 'fit-content' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 14, transition: 'transform .15s', transform: showOpts ? 'rotate(90deg)' : 'none' }}>chevron_right</span>
+            {showOpts ? 'Hide' : 'Show'} optional fields
+          </button>
+
+          {showOpts && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '14px', background: 'var(--input-bg)', borderRadius: 10, border: '1px solid var(--bdr)' }}>
+              <Field label="Recipient Email Override" hint="Leave blank to use the customer's email on file">
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@email.com" style={INPUT} />
+              </Field>
+              <Field label="Custom Subject">
+                <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Your account statement" style={INPUT} />
+              </Field>
+              <Field label="Message">
+                <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={message} onChange={e => setMessage(e.target.value)} placeholder="Please find your account statement attached." style={TEXTAREA} />
+              </Field>
+              <Field label="Password Hint" hint="Appended to message if the PDF is password-protected">
+                <input value={pwHint} onChange={e => setPwHint(e.target.value)} placeholder="e.g. Last 4 digits of your phone number" style={INPUT} />
+              </Field>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={preview} disabled={!customer || previewing}
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                padding: '10px 0', borderRadius: 10,
+                border: `1.5px solid ${customer ? NAVY : 'var(--bdr)'}`,
+                background: 'transparent',
+                color: customer ? NAVY : 'var(--txt3)',
+                fontSize: 13, fontWeight: 700, cursor: customer ? 'pointer' : 'not-allowed', fontFamily: INTER,
+              }}
+            >
+              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>preview</span>
+              {previewing ? 'Loading…' : 'Preview'}
+            </button>
+            <button
+              onClick={send} disabled={!customer || sending}
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                padding: '10px 0', borderRadius: 10,
+                border: 'none', background: customer ? NAVY : 'var(--bdr)',
+                color: customer ? '#fff' : 'var(--txt3)',
+                fontSize: 13, fontWeight: 700, cursor: customer ? 'pointer' : 'not-allowed', fontFamily: INTER,
+                transition: 'background .15s',
+              }}
+            >
+              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>send</span>
+              {sending ? 'Sending…' : 'Send'}
+            </button>
+          </div>
+
+        </div>
+      </SectionCard>
+
+      {/* ── Right: preview panel ── */}
+      <div style={{
+        display: 'flex', flexDirection: 'column',
+        height: 'calc(100vh - 220px)', minHeight: 520,
+        border: '1.5px solid var(--bdr)', borderRadius: 12, overflow: 'hidden',
+        background: 'var(--card)',
+      }}>
+        {previewHtml ? (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', background: NAVY, flexShrink: 0 }}>
+              <span style={{ color: '#fff', fontSize: 12.5, fontWeight: 600, fontFamily: INTER }}>
+                {customer?.name} — {typeLabel}
+              </span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  onClick={() => { const f = document.getElementById('stmt-frame') as HTMLIFrameElement; f?.contentWindow?.print() }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 6, border: '1.5px solid rgba(255,255,255,.3)', background: 'transparent', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: INTER }}
+                >
+                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>print</span>
+                  Print / PDF
+                </button>
+                <button
+                  onClick={() => setPreviewHtml(null)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 6, border: '1.5px solid rgba(255,255,255,.25)', background: 'transparent', color: 'rgba(255,255,255,.7)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>
+                </button>
+              </div>
+            </div>
+            <iframe
+              id="stmt-frame"
+              srcDoc={previewHtml}
+              style={{ flex: 1, border: 'none', background: '#fff' }}
+              title="Statement Preview"
+            />
+          </>
+        ) : (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: 'var(--txt3)', padding: 32 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 52, opacity: .2 }}>description</span>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt2)', marginBottom: 6 }}>Statement Preview</div>
+              <div style={{ fontSize: 12.5, color: 'var(--txt3)', fontFamily: INTER, maxWidth: 260 }}>
+                {customer
+                  ? 'Click Preview to generate a statement for ' + customer.name
+                  : 'Select a customer to get started'}
+              </div>
+            </div>
+            {customer && (
+              <button
+                onClick={preview} disabled={previewing}
+                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 20px', borderRadius: 10, border: `1.5px solid ${NAVY}`, background: 'transparent', color: NAVY, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER }}
+              >
+                <span className="material-symbols-rounded" style={{ fontSize: 16 }}>preview</span>
+                {previewing ? 'Loading…' : 'Preview Statement'}
+              </button>
+            )}
           </div>
         )}
-
-        <div>
-          <button
-            onClick={send} disabled={!customer || sending}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 10,
-              border: 'none', background: customer ? NAVY : 'var(--bdr)', color: customer ? '#fff' : 'var(--txt3)',
-              fontSize: 13, fontWeight: 700, cursor: customer ? 'pointer' : 'not-allowed', fontFamily: INTER,
-              transition: 'background .15s',
-            }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>send</span>
-            {sending ? 'Sending…' : 'Send Statement'}
-          </button>
-        </div>
-
       </div>
-    </SectionCard>
+
+    </div>
   )
 }
 

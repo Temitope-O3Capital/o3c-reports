@@ -42,6 +42,7 @@ var statementRunWorkers sync.Map
 func RegisterStatements(r chi.Router, db *core.DB) {
 	access := core.RequirePages("statements", "reports")
 	bulk := core.RequirePages("statements")
+	r.With(access).Get("/preview", previewCustomerStatement(db))
 	r.With(access).Post("/send", sendCustomerStatementEmail(db))
 	r.With(access).Get("/emails", listStatementEmails(db))
 	r.With(bulk).Get("/runs", listStatementRuns(db))
@@ -809,4 +810,161 @@ func pdfSafe(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// ── HTML preview ──────────────────────────────────────────────────────────────
+
+func previewCustomerStatement(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cif := strings.TrimSpace(r.URL.Query().Get("cif"))
+		fromQ := r.URL.Query().Get("from")
+		toQ := r.URL.Query().Get("to")
+		stmtType := r.URL.Query().Get("type")
+		if cif == "" {
+			respondErr(w, 422, "cif is required")
+			return
+		}
+		dateFrom, dateTo, err := normalizeStatementDates(fromQ, toQ)
+		if err != nil {
+			respondErr(w, 422, err.Error())
+			return
+		}
+		data, err := loadCustomerStatement(r.Context(), db, cif, dateFrom, dateTo)
+		if err != nil {
+			respondErr(w, 500, "Failed to load statement data")
+			return
+		}
+		if len(data.Account) == 0 {
+			respondErr(w, 404, "Customer not found")
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(buildStatementHTMLPreview(data, stmtType))) //nolint:errcheck
+	}
+}
+
+func buildStatementHTMLPreview(data customerStatementData, stmtType string) string {
+	name := statementCustomerName(data.Account)
+	emailAddr := escapeHTML(getRowString(data.Account, "Email"))
+	phone := escapeHTML(coalesce(getRowString(data.Account, "Phone", "Phone Number"), "—"))
+	city := getRowString(data.Account, "City")
+	state := getRowString(data.Account, "State")
+	location := escapeHTML(strings.Trim(strings.Join([]string{city, state}, ", "), ", "))
+	if location == "" {
+		location = "—"
+	}
+	genTime := time.Now().Format("02 Jan 2006 15:04")
+	stmtRef := fmt.Sprintf("STMT-%d-%04d", time.Now().Year(), time.Now().UnixMilli()%10000)
+	titleLabel := "Account Statement"
+	if stmtType == "credit_card" {
+		titleLabel = "Credit Card Statement"
+	}
+
+	const css = `*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;font-size:11px;color:#111;background:#fff;max-width:920px;margin:0 auto}.hd{background:#0E2841;color:#fff;padding:22px 36px;display:flex;justify-content:space-between;align-items:flex-start}.logo{font-size:20px;font-weight:800;letter-spacing:-.3px}.dot{color:#C00000}.tagline{font-size:7.5px;letter-spacing:2.5px;text-transform:uppercase;opacity:.5;margin-top:2px}.addr{text-align:right;font-size:9px;line-height:1.9;opacity:.75}.tb{border-bottom:3px solid #0E2841;padding:12px 36px;display:flex;justify-content:space-between;align-items:center;background:#f8f9fa}.tb h1{font-size:14px;font-weight:700;color:#0E2841}.tb .meta{font-size:9.5px;color:#777;text-align:right;line-height:1.7}.sref{font-family:"Courier New",monospace;font-size:8.5px;background:#0E2841;color:#fff;padding:2px 7px;border-radius:3px;letter-spacing:.5px;display:inline-block;margin-top:3px}.info{display:flex;justify-content:space-between;padding:16px 36px;border-bottom:1px solid #e8eaed;gap:40px}.cname{font-size:14px;font-weight:700;color:#0E2841;margin-bottom:4px}.il{font-size:10px;color:#555;line-height:1.9}.lbl{font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#aaa;display:block;margin-top:6px}.th{display:flex;justify-content:space-between;align-items:center;padding:14px 36px 6px}.th-lbl{font-size:10px;font-weight:700;color:#0E2841;text-transform:uppercase;letter-spacing:.6px}.th-ct{font-size:9.5px;color:#999}table{width:calc(100% - 72px);margin:0 36px 0;border-collapse:collapse}thead tr{background:#0E2841}thead th{padding:9px 10px;text-align:left;color:rgba(255,255,255,.85);font-size:8px;text-transform:uppercase;letter-spacing:.7px;font-weight:700;white-space:nowrap}th.r{text-align:right}tbody tr{border-bottom:1px solid #f0f2f5}tbody tr:nth-child(even){background:#fafbfc}td{padding:8px 10px;color:#333;vertical-align:middle}td.dt{color:#888;white-space:nowrap;font-size:9.5px;font-family:"Courier New",monospace}td.ds{font-size:10.5px;max-width:220px}td.mn{font-size:9.5px;color:#999;max-width:160px}td.am{text-align:right;font-family:"Courier New",monospace;font-size:10.5px;white-space:nowrap;font-weight:600}td.am.dr{color:#C00000}td.am.cr{color:#15803d}.empty{text-align:center;padding:28px;color:#aaa;font-style:italic}.ft{margin:20px 36px 0;padding:14px 0;border-top:2px solid #0E2841}.comp{text-align:center;font-size:7.5px;color:#aaa;letter-spacing:1.2px;text-transform:uppercase;padding:10px 0;border-bottom:1px solid #eee;margin-bottom:12px}.fg{display:grid;grid-template-columns:1fr 1fr;gap:20px}.ft-h{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#0E2841;margin-bottom:4px}.ft-p{font-size:8.5px;color:#888;line-height:1.75}.ft-p li{margin-left:14px;list-style:disc}.ft-b{margin-top:12px;padding-top:10px;border-top:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center}.gen{font-size:7.5px;color:#ccc;font-family:"Courier New",monospace}.flogo{font-size:12px;font-weight:800;color:#0E2841}.nobr{white-space:nowrap}`
+
+	var txnRows strings.Builder
+	for _, t := range data.Transactions {
+		date := shortDate(getRowString(t, "Transaction_Date", "Transaction Date"))
+		desc := getRowString(t, "Description")
+		if desc == "" {
+			desc = "—"
+		}
+		merchant := getRowString(t, "Merchant_Name", "Merchant Name")
+		amt := toFloat(t["Amount"])
+		amtStr := formatStatementAmount(t["Amount"])
+		cls := "cr"
+		if amt < 0 {
+			cls = "dr"
+		}
+		txnRows.WriteString(fmt.Sprintf(
+			`<tr><td class="dt nobr">%s</td><td class="ds">%s</td><td class="mn">%s</td><td class="am %s">%s</td></tr>`,
+			escapeHTML(date), escapeHTML(desc), escapeHTML(merchant), cls, escapeHTML(amtStr),
+		))
+	}
+	if len(data.Transactions) == 0 {
+		txnRows.WriteString(`<tr><td colspan="4" class="empty">No transactions found for this period</td></tr>`)
+	}
+
+	var productRows strings.Builder
+	for _, p := range data.Products {
+		pname := coalesce(getRowString(p, "Product_Name", "Product Name"), "Product")
+		status := coalesce(getRowString(p, "Account_Status", "Account Status"), "—")
+		nameOnCard := coalesce(getRowString(p, "Name_On_Card", "Name On Card"), "—")
+		manager := coalesce(getRowString(p, "Account_Manager", "Account Manager"), "—")
+		productRows.WriteString(fmt.Sprintf(
+			`<tr><td class="ds">%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
+			escapeHTML(pname), escapeHTML(status), escapeHTML(nameOnCard), escapeHTML(manager),
+		))
+	}
+
+	txnCount := len(data.Transactions)
+
+	return fmt.Sprintf(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>O3 Capital — %s</title><style>%s</style></head>
+<body>
+<div class="hd">
+  <div><div class="logo">O3 Capital<span class="dot">.</span></div><div class="tagline">credible · accessible · reliable</div></div>
+  <div class="addr">7th Floor Churchgate Tower 1<br>Plot 30, Churchgate Street<br>Victoria Island, Lagos 101001<br>care@o3cards.com</div>
+</div>
+<div class="tb">
+  <h1>%s</h1>
+  <div class="meta">Period: %s to %s<br>Generated: %s<br><span class="sref">%s</span></div>
+</div>
+<div class="info">
+  <div>
+    <div class="cname">%s</div>
+    <span class="lbl">CIF Number</span><div class="il">%s</div>
+    <span class="lbl">Email</span><div class="il">%s</div>
+    <span class="lbl">Phone</span><div class="il">%s</div>
+  </div>
+  <div style="text-align:right">
+    <span class="lbl">Location</span><div class="il">%s</div>
+  </div>
+</div>
+%s
+<div class="th"><span class="th-lbl">Transactions</span><span class="th-ct">%d transaction(s)</span></div>
+<table>
+  <thead><tr><th>Date</th><th>Description</th><th>Merchant</th><th class="r">Amount (₦)</th></tr></thead>
+  <tbody>%s</tbody>
+</table>
+<div class="ft">
+  <div class="comp">This is a computer generated statement — it does not require a signature or stamp</div>
+  <div class="fg">
+    <div><div class="ft-h">Important Notice</div><p class="ft-p">This statement is confidential and intended solely for the named account holder. Transactions reflect activity within the stated period only.</p></div>
+    <div><div class="ft-h">Disputes &amp; Enquiries</div><ul class="ft-p"><li>Email: care@o3cards.com</li><li>Call: +234 201 330 1070</li><li>O3 Cards mobile app</li></ul></div>
+  </div>
+  <div class="ft-b"><span class="gen">Generated %s &nbsp;|&nbsp; Ref: %s &nbsp;|&nbsp; Period: %s to %s</span><span class="flogo">O3<span style="color:#C00000"> Capital</span></span></div>
+</div>
+</body></html>`,
+		escapeHTML(titleLabel), css,
+		escapeHTML(titleLabel),
+		escapeHTML(data.DateFrom), escapeHTML(data.DateTo),
+		escapeHTML(genTime), escapeHTML(stmtRef),
+		escapeHTML(name), escapeHTML(data.CIF),
+		emailAddr, phone, location,
+		buildProductsSection(data.Products),
+		txnCount, txnRows.String(),
+		escapeHTML(genTime), escapeHTML(stmtRef), escapeHTML(data.DateFrom), escapeHTML(data.DateTo),
+	)
+}
+
+func buildProductsSection(products []core.Row) string {
+	if len(products) == 0 {
+		return ""
+	}
+	var rows strings.Builder
+	for _, p := range products {
+		pname := coalesce(getRowString(p, "Product_Name", "Product Name"), "Product")
+		status := coalesce(getRowString(p, "Account_Status", "Account Status"), "—")
+		nameOnCard := coalesce(getRowString(p, "Name_On_Card", "Name On Card"), "—")
+		manager := coalesce(getRowString(p, "Account_Manager", "Account Manager"), "—")
+		rows.WriteString(fmt.Sprintf(
+			`<tr><td class="ds">%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
+			escapeHTML(pname), escapeHTML(status), escapeHTML(nameOnCard), escapeHTML(manager),
+		))
+	}
+	return fmt.Sprintf(`<div class="th" style="margin-top:14px"><span class="th-lbl">Products</span></div>
+<table>
+  <thead><tr><th>Product</th><th>Status</th><th>Name on Card</th><th>Account Manager</th></tr></thead>
+  <tbody>%s</tbody>
+</table>`, rows.String())
 }

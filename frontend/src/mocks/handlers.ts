@@ -1886,18 +1886,218 @@ const REPORTS = [
     }))
   )),
   http.get(u('/api/statements/runs'), () => ok(
-    Array.from({ length: 6 }, (_, i) => ({
-      id: i+1, period: MONTHS_ISO[6-i] ?? '2026-01',
-      status: i === 0 ? 'pending' : 'sent',
-      total_sent: rng(800,1400), failed: rng(0,20),
-      triggered_by: name(), triggered_at: isoDate(rng(0,30) + i*30),
-    }))
+    Array.from({ length: 6 }, (_, i) => {
+      const total = rng(900, 1400)
+      const sent  = i === 0 ? rng(200, 400) : total - rng(0, 15)
+      const failed = i === 0 ? rng(2, 8) : rng(0, 12)
+      return {
+        id: i+1,
+        status: i === 0 ? 'active' : 'completed',
+        date_from: isoDate(35 + i*30), date_to: isoDate(5 + i*30),
+        total_recipients: total, sent_count: sent, failed_count: failed,
+        created_at: isoDate(i*30),
+      }
+    })
   )),
+  http.get(u('/api/statements/preview'), ({ request }) => {
+    const url   = new URL(request.url)
+    const cif   = url.searchParams.get('cif')  || '00039657'
+    const dfrom = url.searchParams.get('from') || '2026-04-15'
+    const dto   = url.searchParams.get('to')   || '2026-05-14'
+    const type  = url.searchParams.get('type') || 'account'
+
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    const fmtD = (s: string) => { const p = s.split('-'); return `${parseInt(p[2])} ${MONTHS[parseInt(p[1])-1]} ${p[0]}` }
+    const fmt  = (n: number) => '₦' + n.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const genTime = new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    const stmtRef = 'STMT-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random() * 9000) + 1000)
+
+    const CSS = '*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;font-size:11px;color:#111;background:#fff;max-width:920px;margin:0 auto}.hd{background:#0E2841;color:#fff;padding:24px 40px;display:flex;justify-content:space-between;align-items:flex-start}.logo{font-size:22px;font-weight:800;letter-spacing:-.3px}.dot{color:#C00000}.tagline{font-size:7.5px;letter-spacing:2.5px;text-transform:uppercase;opacity:.5;margin-top:3px}.addr{text-align:right;font-size:9px;line-height:1.9;opacity:.8}.tb{border-bottom:3px solid #0E2841;padding:12px 40px;display:flex;justify-content:space-between;align-items:center;background:#f8f9fa}.tb h1{font-size:15px;font-weight:700;color:#0E2841;letter-spacing:-.2px}.tb .meta{font-size:9.5px;color:#777;text-align:right;line-height:1.7}.sref{font-family:"Courier New",Courier,monospace;font-size:8.5px;background:#0E2841;color:#fff;padding:2px 7px;border-radius:3px;letter-spacing:.5px;display:inline-block;margin-top:4px}.info{display:flex;justify-content:space-between;padding:18px 40px;border-bottom:1px solid #e8eaed;gap:40px}.cname{font-size:14px;font-weight:700;color:#0E2841;margin-bottom:4px}.il{font-size:10px;color:#555;line-height:1.9}.lbl{font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#aaa;display:block;margin-top:7px}.ar{text-align:right;min-width:210px}.actbadge{display:inline-block;font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:2px 9px;border-radius:20px;background:#dcfce7;color:#15803d;margin-top:3px}.sum{display:grid;margin:20px 40px;border:1px solid #dde1e7;border-radius:6px;overflow:hidden}.sc{padding:14px 18px;border-right:1px solid #dde1e7}.sc:last-child{border-right:none}.sc.nv{background:#0E2841}.sc-lbl{font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#aaa;margin-bottom:5px}.sc.nv .sc-lbl{color:rgba(255,255,255,.5)}.sc-val{font-family:"Courier New",Courier,monospace;font-size:16px;font-weight:700;color:#0E2841}.sc.nv .sc-val{color:#fff}.sc.red .sc-val{color:#C00000}.sc.grn .sc-val{color:#15803d}.th{display:flex;justify-content:space-between;align-items:center;padding:0 40px;margin:16px 0 0}.th-lbl{font-size:10px;font-weight:700;color:#0E2841;text-transform:uppercase;letter-spacing:.6px}.th-ct{font-size:9.5px;color:#999}table{width:calc(100% - 80px);margin:8px 40px 0;border-collapse:collapse}thead tr{background:#0E2841}thead th{padding:9px 10px;text-align:left;color:rgba(255,255,255,.85);font-size:8px;text-transform:uppercase;letter-spacing:.7px;font-weight:700;white-space:nowrap}th.r{text-align:right}tbody tr{border-bottom:1px solid #f0f2f5}tbody tr:nth-child(even){background:#fafbfc}td{padding:8px 10px;color:#333;vertical-align:middle}td.dt{color:#888;white-space:nowrap;font-size:9.5px;font-family:"Courier New",Courier,monospace}td.rf{font-family:"Courier New",Courier,monospace;font-size:8.5px;color:#999;white-space:nowrap}td.ds{font-size:10.5px;max-width:200px}td.am{text-align:right;font-family:"Courier New",Courier,monospace;font-size:10.5px;white-space:nowrap}td.am.dr{color:#C00000}td.am.cr{color:#15803d}td.am.em{color:#ddd}td.bal{text-align:right;font-family:"Courier New",Courier,monospace;font-size:10.5px;font-weight:600;color:#0E2841;white-space:nowrap}.bdr{display:inline-block;font-size:7.5px;font-weight:700;padding:1px 5px;border-radius:3px;letter-spacing:.3px;margin-left:5px}.bdr.dr{background:rgba(192,0,0,.1);color:#C00000}.bdr.cr{background:rgba(21,128,61,.1);color:#15803d}tr.op td{background:#f8f9fa;color:#888;font-size:10px}tr.op td.bal{color:#0E2841;font-weight:700}tr.tot{background:#0E2841 !important}tr.tot td{color:#fff;font-weight:700;padding:10px;font-family:"Courier New",Courier,monospace;font-size:10.5px}tr.tot td.am.dr{color:#ffb3b3}tr.tot td.am.cr{color:#86efac}tr.tot td.bal{color:rgba(255,255,255,.6);font-size:9px}.ft{margin:24px 40px 0;padding:14px 0 0;border-top:2px solid #0E2841;padding-bottom:32px}.comp{text-align:center;font-size:7.5px;color:#aaa;letter-spacing:1.2px;text-transform:uppercase;padding:10px 0;border-bottom:1px solid #eee;margin-bottom:14px}.fg{display:grid;grid-template-columns:1fr 1fr;gap:20px}.ft-h{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#0E2841;margin-bottom:5px}.ft-p{font-size:8.5px;color:#888;line-height:1.75;padding:0}.ft-p li{margin-left:14px;list-style:disc}.ft-b{margin-top:16px;padding-top:10px;border-top:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center}.gen{font-size:7.5px;color:#ccc;font-family:"Courier New",Courier,monospace}.flogo{font-size:12px;font-weight:800;color:#0E2841}.util-wrap{margin:0 40px;padding:12px 0 16px;border-bottom:1px solid #e5e7eb}.util-lbl{font-size:8.5px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;display:flex;justify-content:space-between}.util-track{height:7px;background:#f0f0f0;border-radius:4px;overflow:hidden}.util-fill{height:100%;border-radius:4px}.alert{margin:14px 40px 0;background:#fff8e1;border:1.5px solid #f59e0b;border-radius:8px;padding:11px 15px;display:flex;align-items:flex-start;gap:9px;font-size:9.5px;color:#92400e;line-height:1.6}.alert-icon{color:#f59e0b;font-size:13px;font-weight:700;flex-shrink:0}.chg-box{margin:14px 40px 0;padding:11px 15px;background:#f5f7fa;border-radius:6px;font-size:8.5px;color:#666;line-height:1.8}@media print{body{max-width:none}@page{size:A4;margin:10mm}html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}'
+
+    const HEADER = '<div class="hd"><div><div class="logo">O3 Capital<span class="dot">.</span></div><div class="tagline">credible · accessible · reliable</div></div><div class="addr">7th Floor Churchgate Tower 1<br>Plot 30, Churchgate Street<br>Victoria Island, Lagos 101001<br>www.o3cards.com &nbsp;|&nbsp; care@o3cards.com<br>+234 201 330 1070</div></div>'
+
+    const FOOTER = `<div class="ft"><div class="comp">This is a computer generated statement &mdash; it does not require a signature or stamp</div><div class="fg"><div><div class="ft-h">Important Notice</div><p class="ft-p">This statement is confidential and intended solely for the named account holder. Transactions reflect activity within the stated period only. For disputes, contact us within 30 days of statement date.</p></div><div><div class="ft-h">Disputes &amp; Enquiries</div><ul class="ft-p"><li>Email: care@o3cards.com</li><li>Call: +234 201 330 1070</li><li>O3 Cards mobile app</li></ul></div></div><div class="ft-b"><span class="gen">Generated ${genTime} &nbsp;|&nbsp; Ref: ${stmtRef} &nbsp;|&nbsp; Period: ${fmtD(dfrom)} to ${fmtD(dto)}</span><span class="flogo">O3<span style="color:#C00000"> Capital</span></span></div></div>`
+
+    let html: string
+
+    if (type === 'credit_card') {
+      const txns = [
+        { date: '2026-04-16', ref: 'POS/SHRTE/260416/001', desc: 'SHOPRITE LEKKI PHASE 1',    cat: 'Retail',        isDebit: true,  amount: 487520  },
+        { date: '2026-04-18', ref: 'POS/UBRN/260418/001',  desc: 'UBER NIGERIA',               cat: 'Transport',     isDebit: true,  amount: 76400   },
+        { date: '2026-04-19', ref: 'WEB/JMIA/260419/001',  desc: 'JUMIA ONLINE SHOPPING',      cat: 'E-Commerce',    isDebit: true,  amount: 195000  },
+        { date: '2026-04-21', ref: 'PMT/INWD/260421/001',  desc: 'PAYMENT — THANK YOU',   cat: '',              isDebit: false, amount: 1500000 },
+        { date: '2026-04-24', ref: 'POS/DMNZ/260424/001',  desc: 'DOMINOS PIZZA VI',           cat: 'Food & Dining', isDebit: true,  amount: 62500   },
+        { date: '2026-04-25', ref: 'WEB/NFLX/260425/001',  desc: 'NETFLIX INTERNATIONAL',      cat: 'Subscriptions', isDebit: true,  amount: 45750   },
+        { date: '2026-04-28', ref: 'ATM/ZNTH/260428/001',  desc: 'ZENITH BANK ATM WITHDRAWAL', cat: 'Cash Advance',  isDebit: true,  amount: 500000  },
+        { date: '2026-04-30', ref: 'POS/TOTL/260430/001',  desc: 'TOTAL ENERGIES VI',          cat: 'Fuel',          isDebit: true,  amount: 132000  },
+        { date: '2026-05-02', ref: 'POS/IKJM/260502/001',  desc: 'IKEJA CITY MALL',            cat: 'Retail',        isDebit: true,  amount: 284300  },
+        { date: '2026-05-05', ref: 'POS/SMTH/260505/001',  desc: 'SMOOTHIE FACTORY VGC',       cat: 'Food & Dining', isDebit: true,  amount: 18500   },
+        { date: '2026-05-07', ref: 'PMT/INWD/260507/001',  desc: 'PAYMENT — THANK YOU',   cat: '',              isDebit: false, amount: 800000  },
+        { date: '2026-05-09', ref: 'WEB/AWSS/260509/001',  desc: 'AMAZON WEB SERVICES',        cat: 'Subscriptions', isDebit: true,  amount: 231840  },
+        { date: '2026-05-12', ref: 'POS/NNPC/260512/001',  desc: 'NNPC FILLING STATION VGC',   cat: 'Fuel',          isDebit: true,  amount: 97200   },
+        { date: '2026-05-14', ref: 'POS/CKRP/260514/001',  desc: 'CHICKEN REPUBLIC VGC',       cat: 'Food & Dining', isDebit: true,  amount: 24600   },
+      ]
+      const openBal     = 2_840_500   // kobo = ₦28,405.00
+      const creditLimit = 5_000_000   // kobo = ₦50,000.00
+      const finCharge   = 14_225      // kobo = ₦142.25
+
+      let bal = openBal
+      const ccRows = txns.map(t => {
+        if (t.isDebit) bal += t.amount; else bal -= t.amount
+        const badge   = t.isDebit ? '<span class="bdr dr">DR</span>' : '<span class="bdr cr">CR</span>'
+        const amtCell = t.isDebit
+          ? `<td class="am dr">${fmt(t.amount/100)}</td><td class="am em">&mdash;</td>`
+          : `<td class="am em">&mdash;</td><td class="am cr">${fmt(t.amount/100)}</td>`
+        return `<tr><td class="dt">${fmtD(t.date)}</td><td class="rf">${t.ref}</td><td class="ds">${t.desc}${badge}</td><td style="font-size:9.5px;color:#999">${t.cat}</td>${amtCell}<td class="bal">${fmt(bal/100)}</td></tr>`
+      }).join('')
+
+      bal += finCharge
+      const fcRef  = 'CHG/FINC/' + dto.replace(/-/g,'').slice(2) + '/001'
+      const fcRow  = `<tr style="background:#fffbeb"><td class="dt">${fmtD(dto)}</td><td class="rf">${fcRef}</td><td class="ds">FINANCE CHARGE<span class="bdr dr">DR</span></td><td style="font-size:9.5px;color:#999">Finance</td><td class="am dr">${fmt(finCharge/100)}</td><td class="am em">&mdash;</td><td class="bal">${fmt(bal/100)}</td></tr>`
+
+      const closingBal = bal
+      const purchases  = txns.filter(t => t.isDebit && t.cat !== 'Cash Advance').reduce((s,t) => s+t.amount, 0)
+      const cashAdv    = txns.filter(t => t.cat === 'Cash Advance').reduce((s,t) => s+t.amount, 0)
+      const payments   = txns.filter(t => !t.isDebit).reduce((s,t) => s+t.amount, 0)
+      const availCredit = creditLimit - closingBal
+      const minPayment  = Math.round(Math.max(500_000, closingBal * 0.05))
+      const utilPct     = Math.round((closingBal / creditLimit) * 100)
+      const utilColor   = utilPct > 80 ? '#C00000' : utilPct > 60 ? '#f59e0b' : '#15803d'
+
+      html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>O3 Capital — Credit Card Statement</title>
+<style>${CSS}.sum{grid-template-columns:repeat(5,1fr)}</style></head>
+<body>${HEADER}
+<div class="tb"><h1>Credit Card Statement</h1><div class="meta">Period: ${fmtD(dfrom)} to ${fmtD(dto)}<br>Generated: ${genTime}<br><span class="sref">${stmtRef}</span></div></div>
+<div class="info">
+  <div><div class="cname">TEMITOPE BABATUNDE</div><div class="il">Victoria Island, Lagos</div><span class="lbl">CIF Number</span><div class="il">${cif}</div><span class="lbl">Email</span><div class="il">babatundeopemiposi@gmail.com</div></div>
+  <div class="ar">
+    <span class="lbl">Card Number</span><div class="il" style="font-family:'Courier New',monospace;letter-spacing:2px;font-weight:600">&bull;&bull;&bull;&bull; &bull;&bull;&bull;&bull; &bull;&bull;&bull;&bull; 4821</div>
+    <span class="lbl">Card Type</span><div class="il" style="font-weight:600">O3 Classic Naira Card</div>
+    <span class="lbl">Payment Due Date</span><div class="il" style="font-weight:700;color:#C00000">1 Jun 2026</div>
+    <span class="lbl">Minimum Payment</span><div class="il" style="font-weight:700;color:#C00000">${fmt(minPayment/100)}</div>
+    <span class="lbl">Status</span><div><span class="actbadge">Active</span></div>
+  </div>
+</div>
+<div class="sum">
+  <div class="sc"><div class="sc-lbl">Opening Balance</div><div class="sc-val">${fmt(openBal/100)}</div></div>
+  <div class="sc red"><div class="sc-lbl">Purchases</div><div class="sc-val">${fmt(purchases/100)}</div></div>
+  <div class="sc red"><div class="sc-lbl">Cash Advances</div><div class="sc-val">${fmt(cashAdv/100)}</div></div>
+  <div class="sc grn"><div class="sc-lbl">Payments</div><div class="sc-val">${fmt(payments/100)}</div></div>
+  <div class="sc nv"><div class="sc-lbl">Closing Balance</div><div class="sc-val">${fmt(closingBal/100)}</div></div>
+</div>
+<div class="util-wrap">
+  <div class="util-lbl"><span>Credit Utilisation &mdash; ${utilPct}% of ${fmt(creditLimit/100)} limit</span><span style="color:${utilColor}">${fmt(availCredit/100)} available</span></div>
+  <div class="util-track"><div class="util-fill" style="width:${utilPct}%;background:${utilColor}"></div></div>
+</div>
+${utilPct > 70 ? `<div class="alert"><span class="alert-icon">!</span>Your credit utilisation is above 70%. High utilisation may affect your credit profile. Consider paying more than the minimum payment of ${fmt(minPayment/100)}.</div>` : ''}
+<div class="th" style="margin-top:16px"><span class="th-lbl">Transactions</span><span class="th-ct">${txns.length + 1} transactions in period</span></div>
+<table>
+  <thead><tr><th>Date</th><th>Reference</th><th>Description</th><th>Category</th><th class="r">Charge (&#8358;)</th><th class="r">Payment (&#8358;)</th><th class="r">Balance (&#8358;)</th></tr></thead>
+  <tbody>
+    <tr class="op"><td class="dt">${fmtD(dfrom)}</td><td class="rf"></td><td class="ds">Opening Balance</td><td></td><td class="am em">&mdash;</td><td class="am em">&mdash;</td><td class="bal">${fmt(openBal/100)}</td></tr>
+    ${ccRows}${fcRow}
+    <tr class="tot"><td colspan="4">Period Totals</td><td class="am dr">${fmt((purchases+cashAdv+finCharge)/100)}</td><td class="am cr">${fmt(payments/100)}</td><td class="bal">Closing: ${fmt(closingBal/100)}</td></tr>
+  </tbody>
+</table>
+<div class="chg-box"><strong style="color:#0E2841">Finance Charges:</strong>&nbsp; Cash advance fee: ${fmt(finCharge/100)} (3% p.m. on ${fmt(cashAdv/100)}) &nbsp;|&nbsp; Purchase APR: 2.5%/month &nbsp;|&nbsp; Cash advance APR: 3.0%/month &nbsp;|&nbsp; Late payment fee: &#8358;2,500</div>
+${FOOTER}</body></html>`
+    } else {
+      const txns = [
+        { date: '2026-04-15', ref: 'NIP/INWD/260415/001',  desc: 'TRANSFER FROM ZENITH BANK',        isDebit: false, amount: 5_000_000  },
+        { date: '2026-04-17', ref: 'POS/SHRTE/260417/001', desc: 'SHOPRITE LEKKI PHASE 1',            isDebit: true,  amount: 1_245_000  },
+        { date: '2026-04-18', ref: 'NIP/O3CTB/260418/001', desc: 'TRANSFER TO GTB ACCOUNT',           isDebit: true,  amount: 2_500_000  },
+        { date: '2026-04-21', ref: 'WEB/O3CTB/260421/001', desc: 'AIRTIME RECHARGE — MTN',       isDebit: true,  amount: 500_000    },
+        { date: '2026-04-22', ref: 'NIP/INWD/260422/001',  desc: 'TRANSFER FROM UBA BANK',            isDebit: false, amount: 10_000_000 },
+        { date: '2026-04-24', ref: 'POS/DMNZ/260424/001',  desc: 'DOMINOS PIZZA VI',                  isDebit: true,  amount: 725_000    },
+        { date: '2026-04-28', ref: 'NIP/O3CTB/260428/001', desc: 'TRANSFER TO ACCESS BANK',           isDebit: true,  amount: 8_000_000  },
+        { date: '2026-04-30', ref: 'CHG/O3CTB/260430/001', desc: 'MONTHLY MAINTENANCE FEE',           isDebit: true,  amount: 50_000     },
+        { date: '2026-05-02', ref: 'POS/TOTL/260502/001',  desc: 'TOTAL ENERGIES VI',                 isDebit: true,  amount: 1_500_000  },
+        { date: '2026-05-05', ref: 'NIP/INWD/260505/001',  desc: 'SALARY PAYMENT — O3 CAPITAL',  isDebit: false, amount: 35_000_000 },
+        { date: '2026-05-07', ref: 'NIP/O3CTB/260507/001', desc: 'TRANSFER TO KUDA BANK',             isDebit: true,  amount: 5_000_000  },
+        { date: '2026-05-09', ref: 'WEB/O3CTB/260509/001', desc: 'ELECTRICITY BILL — IKEDC',     isDebit: true,  amount: 1_850_000  },
+        { date: '2026-05-12', ref: 'POS/IKJM/260512/001',  desc: 'IKEJA CITY MALL',                   isDebit: true,  amount: 2_200_000  },
+        { date: '2026-05-14', ref: 'NIP/O3CTB/260514/001', desc: 'TRANSFER TO FIRST BANK',            isDebit: true,  amount: 4_000_000  },
+      ]
+      const openBal = 24_580_000 // kobo = ₦245,800.00
+
+      let bal = openBal
+      const rows = txns.map(t => {
+        if (t.isDebit) bal -= t.amount; else bal += t.amount
+        const badge   = t.isDebit ? '<span class="bdr dr">DR</span>' : '<span class="bdr cr">CR</span>'
+        const amtCell = t.isDebit
+          ? `<td class="am dr">${fmt(t.amount/100)}</td><td class="am em">&mdash;</td>`
+          : `<td class="am em">&mdash;</td><td class="am cr">${fmt(t.amount/100)}</td>`
+        return `<tr><td class="dt">${fmtD(t.date)}</td><td class="rf">${t.ref}</td><td class="ds">${t.desc}${badge}</td>${amtCell}<td class="bal">${fmt(bal/100)}</td></tr>`
+      }).join('')
+
+      const totalDebits  = txns.filter(t => t.isDebit).reduce((s,t) => s+t.amount, 0)
+      const totalCredits = txns.filter(t => !t.isDebit).reduce((s,t) => s+t.amount, 0)
+      const closingBal   = bal
+
+      html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>O3 Capital — Account Statement</title>
+<style>${CSS}.sum{grid-template-columns:repeat(4,1fr)}</style></head>
+<body>${HEADER}
+<div class="tb"><h1>Account Statement</h1><div class="meta">Period: ${fmtD(dfrom)} to ${fmtD(dto)}<br>Generated: ${genTime}<br><span class="sref">${stmtRef}</span></div></div>
+<div class="info">
+  <div><div class="cname">TEMITOPE BABATUNDE</div><div class="il">Victoria Island, Lagos</div><span class="lbl">CIF Number</span><div class="il">${cif}</div><span class="lbl">Email</span><div class="il">babatundeopemiposi@gmail.com</div></div>
+  <div class="ar">
+    <span class="lbl">Account Number</span><div class="il" style="font-family:'Courier New',monospace;font-weight:600;letter-spacing:.5px">0123456789</div>
+    <span class="lbl">Account Name</span><div class="il" style="font-weight:600">TEMITOPE BABATUNDE</div>
+    <span class="lbl">Product</span><div class="il">O3 Cards Savings Account</div>
+    <span class="lbl">Currency</span><div class="il">Nigerian Naira (NGN)</div>
+    <span class="lbl">Status</span><div><span class="actbadge">Active</span></div>
+  </div>
+</div>
+<div class="sum">
+  <div class="sc"><div class="sc-lbl">Opening Balance</div><div class="sc-val">${fmt(openBal/100)}</div></div>
+  <div class="sc red"><div class="sc-lbl">Total Debits</div><div class="sc-val">${fmt(totalDebits/100)}</div></div>
+  <div class="sc grn"><div class="sc-lbl">Total Credits</div><div class="sc-val">${fmt(totalCredits/100)}</div></div>
+  <div class="sc nv"><div class="sc-lbl">Closing Balance</div><div class="sc-val">${fmt(closingBal/100)}</div></div>
+</div>
+<div class="th"><span class="th-lbl">Transactions</span><span class="th-ct">${txns.length} transactions in period</span></div>
+<table>
+  <thead><tr><th>Date</th><th>Reference</th><th>Description</th><th class="r">Debit (&#8358;)</th><th class="r">Credit (&#8358;)</th><th class="r">Balance (&#8358;)</th></tr></thead>
+  <tbody>
+    <tr class="op"><td class="dt">${fmtD(dfrom)}</td><td class="rf"></td><td class="ds">Opening Balance</td><td class="am em">&mdash;</td><td class="am em">&mdash;</td><td class="bal">${fmt(openBal/100)}</td></tr>
+    ${rows}
+    <tr class="tot"><td colspan="3">Period Totals</td><td class="am dr">${fmt(totalDebits/100)}</td><td class="am cr">${fmt(totalCredits/100)}</td><td class="bal">Closing: ${fmt(closingBal/100)}</td></tr>
+  </tbody>
+</table>
+${FOOTER}</body></html>`
+    }
+
+    return new HttpResponse(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+  }),
   http.post(u('/api/statements/send'), () => ok({ status: 'queued', count: 1 })),
-  http.post(u('/api/statements/bulk-send'), () => ok({ status: 'queued', count: 1247, eligible: 1247 })),
+  http.post(u('/api/statements/bulk-send'), ({ request }) =>
+    request.json().then((body: any) =>
+      body?.dry_run
+        ? ok({ count: 1247, eligible: 1310, sample: [
+            { cif_number: 'CIF000100', name: 'Aisha Musa',   email: 'aisha.musa@example.ng'   },
+            { cif_number: 'CIF000101', name: 'Emeka Obi',    email: 'emeka.obi@example.ng'    },
+            { cif_number: 'CIF000102', name: 'Bola James',   email: 'bola.james@example.ng'   },
+            { cif_number: 'CIF000103', name: 'Yemi Adeyemi', email: 'yemi.adeyemi@example.ng' },
+            { cif_number: 'CIF000104', name: 'Chinwe Nwosu', email: 'chinwe.nwosu@example.ng' },
+          ] })
+        : ok({ total: 1247, eligible: 1310, status: 'queued' })
+    )
+  ),
+  http.post(u('/api/statements/runs/:id/pause'),  () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/statements/runs/:id/resume'), () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/statements/runs/:id/retry'),  () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/statements/runs/:id/cancel'), () => new HttpResponse(null, { status: 204 })),
-  http.get(u('/api/statements/emails'), () => ok([])),
+  http.get(u('/api/statements/emails'), () => ok(
+    Array.from({ length: 12 }, (_, i) => ({
+      id: i+1, cif_number: `CIF${String(1000+i).padStart(6,'0')}`,
+      customer_name: pick(['Aisha Musa','Emeka Obi','Bola James','Yemi Adeyemi','Chinwe Nwosu','Tunde Bello']),
+      recipient_email: `customer${i+1}@example.com`,
+      date_from: isoDate(35), date_to: isoDate(5),
+      subject: 'Account Statement — June 2026',
+      status: pick(['delivered','delivered','delivered','opened','bounced']),
+      delivered_at: isoDate(rng(1,5)), sent_by_name: pick(['System','Amaka Obi','Tunde Bello']),
+      created_at: isoDate(rng(1,10)),
+    }))
+  )),
 
   // Customer 360
   http.get(u('/api/customer360/search'), () => ok({

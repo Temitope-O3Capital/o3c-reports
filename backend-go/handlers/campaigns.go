@@ -36,16 +36,24 @@ var (
 	campaignDispatchWorkers  sync.Map
 )
 
-// resolveCredKey returns the credential value: env var first, then DB-stored (encrypted).
+// resolveCredKey returns the credential value: env var first, then DB-stored.
+// Non-secret credentials (is_secret=FALSE) are stored as plain text; secrets are AES-GCM encrypted.
 func resolveCredKey(ctx context.Context, db *core.DB, envKey string) string {
 	if v := os.Getenv(envKey); v != "" {
 		return v
 	}
-	rows, _ := db.PGQuery(ctx, `SELECT encrypted_value FROM api_credentials WHERE key_name=$1`, envKey)
+	rows, _ := db.PGQuery(ctx, `SELECT encrypted_value, is_secret FROM api_credentials WHERE key_name=$1`, envKey)
 	if len(rows) == 0 {
 		return ""
 	}
 	enc, _ := rows[0]["encrypted_value"].(string)
+	if enc == "" {
+		return ""
+	}
+	isSecret, _ := rows[0]["is_secret"].(bool)
+	if !isSecret {
+		return enc // non-secret values (EMAIL_FROM_ADDRESS, EMAIL_FROM_NAME, etc.) stored as plain text
+	}
 	plain, _ := decryptValue(enc)
 	return plain
 }
