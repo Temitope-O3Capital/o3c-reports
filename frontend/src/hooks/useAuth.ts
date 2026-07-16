@@ -62,8 +62,8 @@ export const ROLE_PAGES: Record<string, string[]> = {
   sales_head:            ['sales','overview','loans','credit_portfolio','reports','statements','bd','bd_employers','bd_pipeline', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
   risk_officer:          ['credit_portfolio','los_all','income'],
   risk_head:             ['credit_portfolio','los_all','income','reports','statements'],
-  finance_officer:       [...FINANCE_PAGES, 'overview'],
-  finance_head:          [...FINANCE_PAGES, 'overview','reports','statements','settlement','reconciliation','credit_portfolio','fixed_deposit'],
+  finance_officer:       [...FINANCE_PAGES, 'overview', 'core-banking'],
+  finance_head:          [...FINANCE_PAGES, 'overview','reports','statements','settlement','reconciliation','credit_portfolio','fixed_deposit','core-banking'],
   cards_ops_officer:     ['cards','card_trends','transactions','overview','eod','blink_card','mobile_app', ...HELPDESK],
   cards_ops_head:        ['cards','card_trends','transactions','overview','eod','blink_card','mobile_app','reports','statements', ...HELPDESK],
   collections_agent:     [...COLLECTIONS_PAGES, 'eod','uploads', ...HELPDESK],
@@ -77,7 +77,7 @@ export const ROLE_PAGES: Record<string, string[]> = {
   compliance_officer:    [...COMPLIANCE_PAGES],
   compliance_head:       [...COMPLIANCE_PAGES, 'reports','statements'],
   internal_control_head: [...COMPLIANCE_PAGES, 'reports','statements','audit_trail'],
-  it_admin:              [...ADMIN_PAGES, 'overview', ...HELPDESK],
+  it_admin:              [...ADMIN_PAGES, 'overview', 'core-banking', ...HELPDESK],
 
   // Telemarketing
   telemarketing_agent:   ['overview','telemarketing','customer360'],

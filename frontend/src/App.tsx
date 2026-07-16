@@ -198,6 +198,7 @@ const HRRecruitment  = lazy(() => import('./pages/hr/Recruitment'))
 const HROrgChart     = lazy(() => import('./pages/hr/OrgChart'))
 const HROnboarding   = lazy(() => import('./pages/hr/Onboarding'))
 const HROffboarding  = lazy(() => import('./pages/hr/Offboarding'))
+const CoreBanking    = lazy(() => import('./pages/core-banking/CoreBanking'))
 
 // ── Role → home ───────────────────────────────────────────────────────────────
 
@@ -305,6 +306,7 @@ const MODULE_TITLES: [string, string, string][] = [
   ['/reports',         'Analytics',         'Reports & BI'],
   ['/bi',              'Analytics',         'Reports & BI'],
   ['/statements',      'Analytics',         'Statements'],
+  ['/core-banking',    'Analytics',         'Core Banking'],
   ['/admin',           'Admin',             'System Admin'],
   ['/settings',        'Workspace',         'Settings'],
   ['/',                '',                  'Overview'],
@@ -1015,6 +1017,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/bi/builder"     element={<RequireAccess page="reports" user={user}><PageErrorBoundary><BIBuilder /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/bi/builder/:id" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><BIBuilder /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/bi/scheduled"   element={<RequireAccess page="reports" user={user}><PageErrorBoundary><BIScheduled /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/core-banking"   element={<RequireAccess page="core-banking" user={user}><PageErrorBoundary><CoreBanking /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/statements"     element={<RequireAccess page="statements" user={user}><PageErrorBoundary><Statements /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Admin */}

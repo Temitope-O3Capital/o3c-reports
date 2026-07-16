@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/httprate"
 	"github.com/o3c/reports/core"
 	"github.com/o3c/reports/handlers"
+	"github.com/o3c/reports/udara"
 )
 
 func main() {
@@ -52,6 +53,19 @@ func main() {
 	}
 
 	warnMissingEnv()
+
+	// Udara360 Core Banking System client — optional; boots without credentials
+	// and returns 503 on CBS endpoints until UDARA360_* env vars are configured.
+	cbsClient := udara.New(
+		os.Getenv("UDARA360_BASE_URL"),
+		os.Getenv("UDARA360_CLIENT_ID"),
+		os.Getenv("UDARA360_CLIENT_SECRET"),
+	)
+	if cbsClient.IsConfigured() {
+		slog.Info("Udara360 CBS configured", "base_url", os.Getenv("UDARA360_BASE_URL"))
+	} else {
+		slog.Warn("Udara360 CBS not configured — /api/cbs/* endpoints will return 503 until UDARA360_CLIENT_ID, UDARA360_CLIENT_SECRET, and UDARA360_BASE_URL are set")
+	}
 
 	// Shutdown context — cancelled on SIGTERM/SIGINT so the batch loop exits cleanly.
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
@@ -395,6 +409,9 @@ func main() {
 		r.Route("/api/bi", func(r chi.Router) {
 			handlers.RegisterBI(r, db)
 		})
+		r.Route("/api/cbs", func(r chi.Router) {
+			handlers.RegisterCoreBanking(r, cbsClient)
+		})
 
 	})
 
@@ -723,6 +740,9 @@ func warnMissingEnv() {
 		{"TELNYX_PHONE_NUMBER", "Africa's Talking inbound calls cannot be forwarded"},
 		{"WHATSAPP_WEBHOOK_VERIFY_TOKEN", "WhatsApp webhook verification will fail"},
 		{"ZOHO_CLIENT_ID", "Zoho call-centre integration will be unavailable"},
+		{"UDARA360_BASE_URL", "Udara360 CBS integration will be unavailable (all /api/cbs/* return 503)"},
+		{"UDARA360_CLIENT_ID", "Udara360 CBS integration will be unavailable"},
+		{"UDARA360_CLIENT_SECRET", "Udara360 CBS integration will be unavailable"},
 	}
 	for _, c := range optional {
 		if os.Getenv(c.key) == "" {
