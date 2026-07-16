@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Page, SectionCard } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, API } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER } from '../../lib/design'
 
@@ -146,12 +146,12 @@ export default function CCStatementDetail() {
 
   const openPreview = async () => {
     try {
-      const res = await apiFetch(`/api/cc-statements/${id}/render`)
+      // Use raw fetch: apiFetch always JSON-parses; the render endpoint returns HTML.
+      const res = await fetch(`${API}/api/cc-statements/${id}/render`, { credentials: 'include' })
       if (!res.ok) throw new Error('Could not load preview')
       const html = await res.text()
       const blob = new Blob([html], { type: 'text/html' })
-      const url = URL.createObjectURL(blob)
-      window.open(url, '_blank')
+      window.open(URL.createObjectURL(blob), '_blank')
     } catch (e: any) {
       toast.error(e.message)
     }
@@ -160,13 +160,13 @@ export default function CCStatementDetail() {
   useEffect(() => {
     if (!id) return
     setLoading(true)
-    apiFetch(`/api/cc-statements/${id}`)
-      .then(r => r.json())
+    apiFetch<any>(`/api/cc-statements/${id}`)
       .then(d => {
         const payload = d.data ?? d
         setStatement(payload.statement ?? null)
         setTransactions(payload.transactions ?? [])
       })
+      .catch(() => {})
       .finally(() => setLoading(false))
   }, [id])
 

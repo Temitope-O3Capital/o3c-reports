@@ -55,9 +55,9 @@ export default function CCStatements() {
     const params = new URLSearchParams()
     if (search) params.set('account_number', search)
     if (sourceFilter) params.set('source', sourceFilter)
-    apiFetch(`/api/cc-statements?${params}`)
-      .then(r => r.json())
+    apiFetch<any>(`/api/cc-statements?${params}`)
       .then(d => setRows(Array.isArray(d?.data) ? d.data : []))
+      .catch(() => {})
       .finally(() => setLoading(false))
   }
 
