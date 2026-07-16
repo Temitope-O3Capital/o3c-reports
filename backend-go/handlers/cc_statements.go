@@ -22,10 +22,11 @@ import (
 func RegisterCCStatements(r chi.Router, db *core.DB) {
 	access := core.RequirePages("statements", "reports", "cards")
 	r.With(access).Get("/", ccList(db))
-	r.With(access).Get("/{id}", ccDetail(db))
 	r.With(access).Post("/upload", ccUpload(db))
 	r.With(access).Post("/bulk", ccBulk(db))
 	r.With(access).Post("/from-db", ccFromDB(db))
+	registerCCTemplateRoutes(r, db)   // /{id}/render, /{id}/send
+	r.With(access).Get("/{id}", ccDetail(db))
 }
 
 // ── Parsed data structures ────────────────────────────────────────────────────

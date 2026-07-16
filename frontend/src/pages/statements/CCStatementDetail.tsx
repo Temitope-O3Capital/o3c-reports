@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { Page, SectionCard } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
@@ -55,6 +56,85 @@ function Metric({ label, value, color, warn }: { label: string; value: string; c
   )
 }
 
+// ── Send-by-email modal ───────────────────────────────────────────────────────
+function SendModal({ statementId, customerName, onClose }: {
+  statementId: number
+  customerName: string
+  onClose: () => void
+}) {
+  const [email, setEmail] = useState('')
+  const [subject, setSubject] = useState('')
+  const [sending, setSending] = useState(false)
+  const emailRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { emailRef.current?.focus() }, [])
+
+  const send = async () => {
+    if (!email.includes('@')) { toast.error('Enter a valid email address'); return }
+    setSending(true)
+    try {
+      const res = await apiFetch(`/api/cc-statements/${statementId}/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipient_email: email, subject }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d?.error ?? 'Send failed')
+      toast.success(`Statement emailed to ${email}`)
+      onClose()
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: '#fff', borderRadius: 10, width: 440, padding: 28, boxShadow: '0 8px 32px rgba(0,0,0,.2)' }}>
+        <div style={{ fontWeight: 700, fontSize: 16, color: NAVY, marginBottom: 4 }}>Send Statement by Email</div>
+        <div style={{ fontSize: 13, color: '#64748B', marginBottom: 20 }}>Statement for {customerName} will be sent as a formatted email.</div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 5 }}>Recipient Email *</label>
+          <input
+            ref={emailRef}
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') send() }}
+            placeholder="customer@example.com"
+            style={{ width: '100%', padding: '9px 12px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 13, outline: 'none' }}
+          />
+        </div>
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 5 }}>Subject (optional)</label>
+          <input
+            type="text"
+            value={subject}
+            onChange={e => setSubject(e.target.value)}
+            placeholder="Auto-generated if blank"
+            style={{ width: '100%', padding: '9px 12px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 13, outline: 'none' }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '8px 16px', border: '1px solid #E2E8F0', borderRadius: 6, background: '#fff', fontSize: 13, cursor: 'pointer', color: '#64748B' }}>
+            Cancel
+          </button>
+          <button
+            onClick={send}
+            disabled={sending}
+            style={{ padding: '8px 20px', background: sending ? '#94A3B8' : NAVY, color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: sending ? 'default' : 'pointer' }}
+          >
+            {sending ? 'Sending…' : 'Send Email'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main detail page ──────────────────────────────────────────────────────────
 export default function CCStatementDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -62,6 +142,20 @@ export default function CCStatementDetail() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
   const [cardFilter, setCardFilter] = useState('')
+  const [showSend, setShowSend] = useState(false)
+
+  const openPreview = async () => {
+    try {
+      const res = await apiFetch(`/api/cc-statements/${id}/render`)
+      if (!res.ok) throw new Error('Could not load preview')
+      const html = await res.text()
+      const blob = new Blob([html], { type: 'text/html' })
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+    } catch (e: any) {
+      toast.error(e.message)
+    }
+  }
 
   useEffect(() => {
     if (!id) return
@@ -99,17 +193,41 @@ export default function CCStatementDetail() {
   const nonFinanceCount = transactions.filter(t => !t.is_finance_charge).length
 
   return (
+    <>
+    {showSend && statement && (
+      <SendModal
+        statementId={statement.id}
+        customerName={statement.customer_name}
+        onClose={() => setShowSend(false)}
+      />
+    )}
     <Page
       title={statement.customer_name}
       subtitle={`Account ${statement.account_number} · Statement ${fmtDate(statement.statement_date)}`}
       actions={
-        <button
-          onClick={() => navigate('/statements/credit-cards')}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid #E2E8F0', borderRadius: 6, background: '#fff', fontSize: 13, cursor: 'pointer', color: '#64748B' }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_back</span>
-          All Statements
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={() => navigate('/statements/credit-cards')}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid #E2E8F0', borderRadius: 6, background: '#fff', fontSize: 13, cursor: 'pointer', color: '#64748B' }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_back</span>
+            All Statements
+          </button>
+          <button
+            onClick={openPreview}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid #E2E8F0', borderRadius: 6, background: '#fff', fontSize: 13, cursor: 'pointer', color: NAVY }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>open_in_new</span>
+            Preview
+          </button>
+          <button
+            onClick={() => setShowSend(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: NAVY, color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>send</span>
+            Send by Email
+          </button>
+        </div>
       }
     >
       {/* Customer header */}
@@ -247,5 +365,6 @@ export default function CCStatementDetail() {
         )}
       </SectionCard>
     </Page>
+    </>
   )
 }
