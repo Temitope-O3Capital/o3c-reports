@@ -4,7 +4,7 @@ import { Page, SectionCard, KpiCard, DataTable, FilterBar, filterInputStyle, Err
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtPct } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   PieChart, Pie, Cell,
@@ -98,14 +98,14 @@ export default function CampaignAnalytics() {
   const topCols: TableCol<TopCampaign>[] = [
     {
       key: 'name', label: 'Campaign',
-      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', cursor: 'pointer' }}
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', cursor: 'pointer' }}
         onClick={() => navigate(`/campaigns/${r.id}/report`)}>{r.name}</span>,
     },
     {
       key: 'channel', label: 'Type',
       render: r => {
         const c = CHANNEL_COLORS[r.channel] ?? NAVY
-        return <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${c}14`, color: c }}>{r.channel.toUpperCase()}</span>
+        return <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${c}14`, color: c }}>{r.channel.toUpperCase()}</span>
       },
     },
     { key: 'sent',         label: 'Sent',      align: 'right', render: r => <span style={NUM}>{fmtNum(toN(r.sent))}</span> },
@@ -119,7 +119,7 @@ export default function CampaignAnalytics() {
       key: 'channel', label: 'Channel',
       render: r => {
         const c = CHANNEL_COLORS[r.channel] ?? NAVY
-        return <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${c}14`, color: c }}>{r.channel.toUpperCase()}</span>
+        return <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${c}14`, color: c }}>{r.channel.toUpperCase()}</span>
       },
     },
     { key: 'sent',         label: 'Sent',      align: 'right', render: r => <span style={NUM}>{fmtNum(toN(r.sent))}</span> },
@@ -146,7 +146,7 @@ export default function CampaignAnalytics() {
       </FilterBar>
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: SP[3], marginBottom: SP[5] }}>
         <KpiCard label="Campaigns"     value={fmtNum(toN(s?.total_campaigns))} loading={loading} />
         <KpiCard label="Total Sent"    value={fmtNum(toN(s?.total_sent))}      loading={loading} />
         <KpiCard label="Delivered"     value={fmtNum(toN(s?.total_delivered))} accent={GREEN} loading={loading} />
@@ -162,16 +162,16 @@ export default function CampaignAnalytics() {
             <ResponsiveContainer width="100%" height={210}>
               <BarChart data={monthlyData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 10.5, fill: 'var(--txt2)' }} />
-                <YAxis tick={{ fontSize: 10.5, fill: 'var(--txt2)' }} allowDecimals={false} />
-                <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-                <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+                <XAxis dataKey="month" tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} />
+                <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} allowDecimals={false} />
+                <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
+                <Legend iconSize={10} wrapperStyle={{ fontSize: TEXT.xs }} />
                 <Bar dataKey="email" fill={BLUE}   name="Email" radius={[3,3,0,0]} stackId="a" />
                 <Bar dataKey="sms"   fill={PURPLE} name="SMS"   radius={[3,3,0,0]} stackId="a" />
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div style={{ height: 210, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: 13 }}>
+            <div style={{ height: 210, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>
               No volume data
             </div>
           )}
@@ -184,12 +184,12 @@ export default function CampaignAnalytics() {
                 <Pie data={channelSplit} cx="50%" cy="44%" innerRadius={48} outerRadius={75} dataKey="count" nameKey="channel">
                   {channelSplit.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                 </Pie>
-                <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-                <Legend iconSize={9} wrapperStyle={{ fontSize: 11 }} formatter={v => String(v).toUpperCase()} />
+                <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
+                <Legend iconSize={9} wrapperStyle={{ fontSize: TEXT.xs }} formatter={v => String(v).toUpperCase()} />
               </PieChart>
             </ResponsiveContainer>
           ) : (
-            <div style={{ height: 210, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: 13 }}>
+            <div style={{ height: 210, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>
               No data
             </div>
           )}

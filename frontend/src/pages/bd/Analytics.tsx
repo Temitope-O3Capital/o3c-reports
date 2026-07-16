@@ -3,7 +3,7 @@ import { Page, SectionCard, KpiCard, DataTable, ErrBanner } from '../../componen
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar,
   PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -80,7 +80,7 @@ function MouPill({ status }: { status?: string }) {
   const s = status?.toLowerCase()
   const color = s === 'signed' ? GREEN : s === 'pending' ? AMBER : s === 'expired' ? RED : '#6B7280'
   return (
-    <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${color}18`, color }}>
+    <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: `2px ${SP[2]}`, borderRadius: RADIUS['2xl'], background: `${color}18`, color }}>
       {status ?? '—'}
     </span>
   )
@@ -123,10 +123,10 @@ export default function BDAnalytics() {
   const topEmpl      = [...employers].sort((a, b) => Number(b.lead_count ?? 0) - Number(a.lead_count ?? 0))
 
   const empCols: TableCol<Employer>[] = [
-    { key: 'name',   label: 'Employer', render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</span> },
-    { key: 'sector', label: 'Sector',   render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.sector ?? '—'}</span> },
+    { key: 'name',   label: 'Employer', render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.name}</span> },
+    { key: 'sector', label: 'Sector',   render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.sector ?? '—'}</span> },
     { key: 'staff_count',         label: 'Staff',   align: 'right', render: r => <span style={NUM}>{fmtNum(r.staff_count ?? 0)}</span> },
-    { key: 'lead_count',          label: 'Leads',   align: 'right', render: r => <span style={{ ...NUM, fontWeight: 700 }}>{Number(r.lead_count ?? 0)}</span> },
+    { key: 'lead_count',          label: 'Leads',   align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{Number(r.lead_count ?? 0)}</span> },
     { key: 'monthly_payroll_kobo',label: 'Payroll', align: 'right', render: r => <span style={NUM}>{r.monthly_payroll_kobo ? fmtKobo(r.monthly_payroll_kobo) : '—'}</span> },
     { key: 'mou_status',          label: 'MOU',     render: r => <MouPill status={r.mou_status} /> },
   ]
@@ -135,7 +135,7 @@ export default function BDAnalytics() {
     <Page title="BD Analytics" subtitle="Business development performance and pipeline overview">
       <ErrBanner error={err} onRetry={load} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[5] }}>
         <KpiCard label="Total Leads"      value={fmtNum(totalLeads)}     />
         <KpiCard label="Won"              value={fmtNum(wonLeads)}       accent={GREEN} />
         <KpiCard label="Active Employers" value={fmtNum(activeEmpl)}     />
@@ -153,9 +153,9 @@ export default function BDAnalytics() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 10.5, fill: 'var(--txt2)' }} />
-              <YAxis tick={{ fontSize: 10.5, fill: 'var(--txt2)' }} allowDecimals={false} />
-              <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
+              <XAxis dataKey="month" tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} />
+              <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} allowDecimals={false} />
+              <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
               <Area type="monotone" dataKey="leads" stroke={NAVY} strokeWidth={2} fill="url(#bdAreaGrad)" name="Leads" />
             </AreaChart>
           </ResponsiveContainer>
@@ -168,12 +168,12 @@ export default function BDAnalytics() {
                 <Pie data={sourceBreak} cx="50%" cy="44%" innerRadius={46} outerRadius={72} dataKey="value" nameKey="name">
                   {sourceBreak.map((_, i) => <Cell key={i} fill={SOURCE_COLORS[i % SOURCE_COLORS.length]} />)}
                 </Pie>
-                <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-                <Legend iconSize={9} wrapperStyle={{ fontSize: 11 }} />
+                <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
+                <Legend iconSize={9} wrapperStyle={{ fontSize: TEXT.xs }} />
               </PieChart>
             </ResponsiveContainer>
           ) : (
-            <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: 13 }}>
+            <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>
               No lead source data
             </div>
           )}
@@ -185,10 +185,10 @@ export default function BDAnalytics() {
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={officerPerf} margin={{ top: 4, right: 8, bottom: 20, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--txt2)' }} interval={0} textAnchor="middle" />
-              <YAxis tick={{ fontSize: 10.5, fill: 'var(--txt2)' }} allowDecimals={false} />
-              <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-              <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+              <XAxis dataKey="name" tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} interval={0} textAnchor="middle" />
+              <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} allowDecimals={false} />
+              <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
+              <Legend iconSize={10} wrapperStyle={{ fontSize: TEXT.xs }} />
               <Bar dataKey="total" fill={NAVY}  radius={[4, 4, 0, 0]} name="Total Leads" />
               <Bar dataKey="won"   fill={GREEN} radius={[4, 4, 0, 0]} name="Won" />
             </BarChart>

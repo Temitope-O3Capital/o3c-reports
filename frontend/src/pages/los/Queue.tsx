@@ -4,7 +4,7 @@ import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, SearchIn
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDatetime } from '../../lib/fmt'
-import { RED, AMBER, BLUE, NAVY, INTER, SORA, NUM } from '../../lib/design'
+import { RED, AMBER, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 interface LoanApp {
   id: number
@@ -56,7 +56,7 @@ function StagePill({ stage }: { stage: string }) {
   const label = stage.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
   return (
     <span style={{
-      fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'],
       background: s.bg, color: s.txt, whiteSpace: 'nowrap',
     }}>{label}</span>
   )
@@ -66,7 +66,7 @@ function ProductPill({ product }: { product: string }) {
   const label = product.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
   return (
     <span style={{
-      fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'],
       background: 'var(--chip-bg)', color: 'var(--chip-txt)', whiteSpace: 'nowrap',
     }}>{label}</span>
   )
@@ -99,14 +99,14 @@ function PageBtn({ children, active, disabled, onClick, icon }: {
 }) {
   return (
     <button onClick={onClick} disabled={disabled} style={{
-      width: 28, height: 28, borderRadius: 6,
+      width: 28, height: 28, borderRadius: RADIUS.sm,
       border: active ? 'none' : '1.5px solid var(--input-bdr)',
       background: active ? RED : 'transparent',
       color: active ? '#fff' : disabled ? 'var(--txt3)' : 'var(--txt2)',
-      fontSize: 12, fontWeight: 600, cursor: disabled ? 'default' : 'pointer',
+      fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: disabled ? 'default' : 'pointer',
       display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: INTER,
     }}>
-      {icon ? <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{icon}</span> : children}
+      {icon ? <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>{icon}</span> : children}
     </button>
   )
 }
@@ -206,14 +206,14 @@ export default function LOSQueue() {
   const cols: TableCol<LoanApp>[] = [
     {
       key: 'id', label: 'App #', width: 110,
-      render: r => <span style={{ ...NUM, fontSize: 12.5, fontWeight: 600, color: NAVY }}>APP-{r.id}</span>,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>APP-{r.id}</span>,
     },
     {
       key: 'applicant_name', label: 'Applicant',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)', fontFamily: SORA }}>{r.applicant_name}</div>
-          {r.reference && <div style={{ fontSize: 10.5, color: 'var(--txt2)', fontFamily: INTER }}>{r.reference}</div>}
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)', fontFamily: SORA }}>{r.applicant_name}</div>
+          {r.reference && <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER }}>{r.reference}</div>}
         </div>
       ),
     },
@@ -227,12 +227,12 @@ export default function LOSQueue() {
     {
       key: 'assigned_officer_name', label: 'Officer',
       render: r => r.assigned_officer_name
-        ? <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{r.assigned_officer_name}</span>
+        ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.assigned_officer_name}</span>
         : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
     {
       key: 'updated_at', label: 'Last Updated',
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDatetime(r.updated_at)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDatetime(r.updated_at)}</span>,
     },
   ]
 
@@ -248,11 +248,11 @@ export default function LOSQueue() {
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 7,
               padding: '7px 15px', background: NAVY, color: '#fff',
-              border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
+              border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold,
               cursor: 'pointer', whiteSpace: 'nowrap',
             }}
           >
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
             New Application
           </button>
         </div>
@@ -261,7 +261,7 @@ export default function LOSQueue() {
       <ErrBanner error={err} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="In Queue"          value={inQueue}      icon="inbox"         loading={loading} />
         <KpiCard label="Pending Docs"      value={pendingDocs}  icon="description"   loading={loading} />
         <KpiCard label="Awaiting Risk"     value={awaitingRisk} icon="shield"        loading={loading} />
@@ -273,8 +273,8 @@ export default function LOSQueue() {
         badge={filtered.length}
         padding={false}
         actions={
-          <button onClick={() => exportLOSCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
+          <button onClick={() => exportLOSCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
             Export CSV
           </button>
         }
@@ -292,7 +292,7 @@ export default function LOSQueue() {
             onClick={() => setFilterOpen(o => !o)}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 600,
+              padding: '6px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
               border: `1.5px solid ${activeFilterCount > 0 ? RED : 'var(--input-bdr)'}`,
               background: 'transparent',
               color: activeFilterCount > 0 ? RED : 'var(--txt2)',
@@ -306,14 +306,14 @@ export default function LOSQueue() {
                 position: 'absolute', top: -6, right: -6,
                 width: 16, height: 16, borderRadius: '50%',
                 background: RED, color: '#fff',
-                fontSize: 9, fontWeight: 700, fontFamily: INTER,
+                fontSize: 9, fontWeight: FW.bold, fontFamily: INTER,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>{activeFilterCount}</span>
             )}
           </button>
 
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
               {filtered.length} of {rows.length}
             </span>
           </div>
@@ -326,7 +326,7 @@ export default function LOSQueue() {
 
               {/* Stage */}
               <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>STAGE</div>
+                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>STAGE</div>
                 {STAGES.map(s => {
                   const sc = STAGE_COLORS[s]
                   const count = dateFiltered.filter(r => r.stage === s).length
@@ -335,8 +335,8 @@ export default function LOSQueue() {
                     <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
                       <input type="checkbox" checked={fStages.has(s)} onChange={() => setFStages(toggleSet(fStages, s))}
                         style={{ accentColor: sc?.txt ?? NAVY, width: 14, height: 14, cursor: 'pointer' }} />
-                      <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: sc?.bg ?? 'var(--chip-bg)', color: sc?.txt ?? 'var(--chip-txt)' }}>{label}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
+                      <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: sc?.bg ?? 'var(--chip-bg)', color: sc?.txt ?? 'var(--chip-txt)' }}>{label}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
                     </label>
                   )
                 })}
@@ -344,7 +344,7 @@ export default function LOSQueue() {
 
               {/* Status */}
               <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>STATUS</div>
+                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>STATUS</div>
                 {statuses.map(s => {
                   const count = dateFiltered.filter(r => r.status === s).length
                   const label = s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
@@ -352,8 +352,8 @@ export default function LOSQueue() {
                     <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
                       <input type="checkbox" checked={fStatuses.has(s)} onChange={() => setFStatuses(toggleSet(fStatuses, s))}
                         style={{ accentColor: NAVY, width: 14, height: 14, cursor: 'pointer' }} />
-                      <span style={{ fontSize: 12, color: 'var(--txt)', fontFamily: INTER }}>{label}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
+                      <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER }}>{label}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
                     </label>
                   )
                 })}
@@ -361,7 +361,7 @@ export default function LOSQueue() {
 
               {/* Product */}
               <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>PRODUCT</div>
+                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>PRODUCT</div>
                 {products.map(p => {
                   const count = dateFiltered.filter(r => r.product_type === p).length
                   const label = p.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
@@ -369,8 +369,8 @@ export default function LOSQueue() {
                     <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
                       <input type="checkbox" checked={fProducts.has(p)} onChange={() => setFProducts(toggleSet(fProducts, p))}
                         style={{ accentColor: BLUE, width: 14, height: 14, cursor: 'pointer' }} />
-                      <span style={{ fontSize: 12, color: 'var(--txt)', fontFamily: SORA }}>{label}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
+                      <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA }}>{label}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
                     </label>
                   )
                 })}
@@ -378,9 +378,9 @@ export default function LOSQueue() {
 
               {/* Officer */}
               <div style={{ paddingLeft: 20 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>OFFICER</div>
+                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>OFFICER</div>
                 {officers.length === 0
-                  ? <span style={{ fontSize: 12, color: 'var(--txt3)' }}>No assignments yet</span>
+                  ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No assignments yet</span>
                   : officers.map(o => {
                   const count = dateFiltered.filter(r => r.assigned_officer_name === o).length
                   return (
@@ -388,7 +388,7 @@ export default function LOSQueue() {
                       <input type="checkbox" checked={fOfficers.has(o)} onChange={() => setFOfficers(toggleSet(fOfficers, o))}
                         style={{ accentColor: NAVY, width: 14, height: 14, cursor: 'pointer' }} />
                       <span style={{ fontSize: 12, color: 'var(--txt)', fontFamily: INTER, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER, flexShrink: 0 }}>{count}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER, flexShrink: 0 }}>{count}</span>
                     </label>
                   )
                 })}
@@ -400,19 +400,19 @@ export default function LOSQueue() {
               padding: '14px 20px', borderTop: '1px solid var(--bdr)', marginTop: 16,
               display: 'flex', alignItems: 'center', gap: 12,
             }}>
-              <span style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: SORA }}>
                 {activeFilterCount === 0
                   ? `No filters applied — showing all ${rows.length} applications`
                   : `${activeFilterCount} filter${activeFilterCount !== 1 ? 's' : ''} active`}
               </span>
               <button onClick={resetFilters} style={{
-                padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+                padding: '5px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
                 border: '1.5px solid var(--input-bdr)', background: 'transparent',
                 color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA,
               }}>Reset</button>
               <button onClick={() => setFilterOpen(false)} style={{
-                marginLeft: 'auto', padding: '5px 16px', borderRadius: 7,
-                fontSize: 12, fontWeight: 600,
+                marginLeft: 'auto', padding: '5px 16px', borderRadius: RADIUS.md,
+                fontSize: TEXT.sm, fontWeight: FW.semibold,
                 border: 'none', background: RED, color: '#fff',
                 cursor: 'pointer', fontFamily: SORA,
               }}>Done · {filtered.length} results</button>
@@ -430,28 +430,28 @@ export default function LOSQueue() {
               const sc = STAGE_COLORS[s]
               const label = s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
               return (
-                <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: sc?.bg ?? 'var(--chip-bg)', color: sc?.txt ?? 'var(--chip-txt)' }}>
-                  {label}<span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setFStages(toggleSet(fStages, s))}>close</span>
+                <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: sc?.bg ?? 'var(--chip-bg)', color: sc?.txt ?? 'var(--chip-txt)' }}>
+                  {label}<span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFStages(toggleSet(fStages, s))}>close</span>
                 </span>
               )
             })}
             {[...fProducts].map(p => (
-              <span key={p} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: 'rgba(37,99,235,.10)', color: BLUE }}>
-                {p}<span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setFProducts(toggleSet(fProducts, p))}>close</span>
+              <span key={p} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: 'rgba(37,99,235,.10)', color: BLUE }}>
+                {p}<span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFProducts(toggleSet(fProducts, p))}>close</span>
               </span>
             ))}
             {[...fStatuses].map(s => (
-              <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
+              <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
                 {s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
-                <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setFStatuses(toggleSet(fStatuses, s))}>close</span>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFStatuses(toggleSet(fStatuses, s))}>close</span>
               </span>
             ))}
             {[...fOfficers].map(o => (
-              <span key={o} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: `${AMBER}18`, color: AMBER }}>
-                {o}<span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setFOfficers(toggleSet(fOfficers, o))}>close</span>
+              <span key={o} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: `${AMBER}18`, color: AMBER }}>
+                {o}<span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFOfficers(toggleSet(fOfficers, o))}>close</span>
               </span>
             ))}
-            <button onClick={resetFilters} style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--txt3)', padding: 0, fontFamily: SORA }}>Clear all</button>
+            <button onClick={resetFilters} style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', padding: 0, fontFamily: SORA }}>Clear all</button>
           </div>
         )}
 
@@ -470,7 +470,7 @@ export default function LOSQueue() {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '12px 18px', borderTop: '1px solid var(--bdr)',
         }}>
-          <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
             {filtered.length === 0
               ? 'No applications'
               : `Showing ${showStart}–${showEnd} of ${filtered.length} applications`}

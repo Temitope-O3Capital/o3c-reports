@@ -5,7 +5,7 @@ import {
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { NAVY, RED, AMBER } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ const ACTION_STYLE: Record<string, { color: string; bg: string }> = {
 
 function RuleTypeBadge({ type }: { type: string }) {
   return (
-    <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--input-bg)', color: 'var(--txt2)', border: '1px solid var(--bdr)' }}>
+    <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: 'var(--input-bg)', color: 'var(--txt2)', border: '1px solid var(--bdr)' }}>
       {RULE_TYPE_LABEL[type] ?? type}
     </span>
   )
@@ -48,7 +48,7 @@ function RuleTypeBadge({ type }: { type: string }) {
 function ActionBadge({ action }: { action: string }) {
   const s = ACTION_STYLE[action] ?? ACTION_STYLE.flag
   return (
-    <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color }}>
+    <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: s.bg, color: s.color }}>
       {action.charAt(0).toUpperCase() + action.slice(1)}
     </span>
   )
@@ -116,8 +116,8 @@ const inputStyle: React.CSSProperties = {
   width: '100%',
   padding: '8px 10px',
   border: '1px solid var(--input-bdr)',
-  borderRadius: 7,
-  fontSize: 13,
+  borderRadius: RADIUS.md,
+  fontSize: TEXT.base,
   background: 'var(--input-bg)',
   color: 'var(--txt)',
   outline: 'none',
@@ -210,7 +210,7 @@ export default function AMLRules() {
   const cols: TableCol<AMLRule>[] = [
     {
       key: 'name', label: 'Rule Name',
-      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.name}</span>,
     },
     {
       key: 'rule_type', label: 'Type',
@@ -218,7 +218,7 @@ export default function AMLRules() {
     },
     {
       key: 'threshold_kobo', label: 'Threshold / Velocity',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{thresholdDisplay(r)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{thresholdDisplay(r)}</span>,
     },
     {
       key: 'action', label: 'Action',
@@ -231,13 +231,13 @@ export default function AMLRules() {
           onClick={e => { e.stopPropagation(); handleToggleActive(r) }}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 5,
-            padding: '3px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+            padding: '3px 10px', borderRadius: RADIUS.sm, cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold,
             border: `1.5px solid ${r.active ? '#16A34A40' : 'var(--bdr)'}`,
             background: r.active ? 'rgba(22,163,74,.08)' : 'transparent',
             color: r.active ? '#16A34A' : 'var(--txt2)',
           }}
         >
-          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{r.active ? 'toggle_on' : 'toggle_off'}</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>{r.active ? 'toggle_on' : 'toggle_off'}</span>
           {r.active ? 'Active' : 'Inactive'}
         </button>
       ),
@@ -248,13 +248,13 @@ export default function AMLRules() {
         <div style={{ display: 'flex', gap: 6 }}>
           <button
             onClick={e => { e.stopPropagation(); openEdit(r) }}
-            style={{ padding: '3px 10px', borderRadius: 6, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+            style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
           >
             Edit
           </button>
           <button
             onClick={e => { e.stopPropagation(); setDeleteTarget(r) }}
-            style={{ padding: '3px 10px', borderRadius: 6, border: `1.5px solid ${RED}30`, background: 'transparent', color: RED, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+            style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${RED}30`, background: 'transparent', color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
           >
             Delete
           </button>
@@ -269,7 +269,7 @@ export default function AMLRules() {
       subtitle="Configure automated flagging rules for suspicious transaction patterns"
       actions={
         <button onClick={openNew} style={btnPrimary}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
           New Rule
         </button>
       }
@@ -296,10 +296,10 @@ export default function AMLRules() {
         title={editTarget ? `Edit Rule — ${editTarget.name}` : 'New AML Rule'}
         width={480}
         footer={
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
             <button
               onClick={() => setModalOpen(false)}
-              style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}
+              style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}
             >
               Cancel
             </button>
@@ -314,7 +314,7 @@ export default function AMLRules() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* Name */}
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Name *</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Name *</label>
             <input
               value={form.name}
               onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
@@ -325,7 +325,7 @@ export default function AMLRules() {
 
           {/* Rule Type */}
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Rule Type *</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Rule Type *</label>
             <select
               value={form.rule_type}
               onChange={e => setForm(f => ({ ...f, rule_type: e.target.value }))}
@@ -340,7 +340,7 @@ export default function AMLRules() {
           {/* Amount Threshold fields */}
           {form.rule_type === 'amount_threshold' && (
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Threshold Amount (₦) *</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Threshold Amount (₦) *</label>
               <input
                 type="number"
                 min="0"
@@ -356,7 +356,7 @@ export default function AMLRules() {
           {form.rule_type === 'velocity' && (
             <div style={{ display: 'flex', gap: 10 }}>
               <div style={{ flex: 1 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Max Transactions *</label>
+                <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Max Transactions *</label>
                 <input
                   type="number"
                   min="1"
@@ -367,7 +367,7 @@ export default function AMLRules() {
                 />
               </div>
               <div style={{ flex: 1 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Time Window (hours) *</label>
+                <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Time Window (hours) *</label>
                 <input
                   type="number"
                   min="1"
@@ -382,7 +382,7 @@ export default function AMLRules() {
 
           {/* Action */}
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Action *</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Action *</label>
             <select
               value={form.action}
               onChange={e => setForm(f => ({ ...f, action: e.target.value }))}
@@ -395,7 +395,7 @@ export default function AMLRules() {
           </div>
 
           {/* Active */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--txt)', userSelect: 'none' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer', fontSize: TEXT.base, color: 'var(--txt)', userSelect: 'none' }}>
             <input
               type="checkbox"
               checked={form.active}

@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { GREEN, AMBER, NAVY, BLUE, INTER } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, GREEN, AMBER, NAVY, BLUE, INTER } from '../../lib/design'
 import { toast } from 'sonner'
 
 interface ChecklistItem {
@@ -44,10 +44,10 @@ const CAT_LABEL: Record<string, string> = {
 
 function StatusIcon({ status }: { status: string }) {
   if (status === 'done')
-    return <span className="material-symbols-rounded" style={{ fontSize: 18, color: GREEN }}>check_circle</span>
+    return <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: GREEN }}>check_circle</span>
   if (status === 'skipped')
-    return <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--chart-lbl)' }}>cancel</span>
-  return <span className="material-symbols-rounded" style={{ fontSize: 18, color: '#D1D5DB' }}>radio_button_unchecked</span>
+    return <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: 'var(--chart-lbl)' }}>cancel</span>
+  return <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: '#D1D5DB' }}>radio_button_unchecked</span>
 }
 
 export default function Onboarding() {
@@ -112,7 +112,7 @@ export default function Onboarding() {
       subtitle={employee ? `${employee.job_title} · ${employee.department_name}` : ''}
       actions={
         <button onClick={initChecklist} disabled={initing}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 9, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: initing ? 'wait' : 'pointer', opacity: initing ? 0.7 : 1, fontFamily: INTER }}>
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: initing ? 'wait' : 'pointer', opacity: initing ? 0.7 : 1, fontFamily: INTER }}>
           {initing && <Spinner size={13} color="#fff" />}
           {items.length > 0 ? 'Re-initialise' : 'Initialise Checklist'}
         </button>
@@ -122,13 +122,13 @@ export default function Onboarding() {
 
       {/* Progress bar */}
       {total > 0 && (
-        <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>Overall Progress</span>
-            <span style={{ fontSize: 14, fontWeight: 800, color: progClr }}>{done}/{total} tasks · {pct}%</span>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: '16px 20px', marginBottom: SP[5] }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP[2] }}>
+            <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>Overall Progress</span>
+            <span style={{ fontSize: TEXT.md, fontWeight: FW.extrabold, color: progClr }}>{done}/{total} tasks · {pct}%</span>
           </div>
-          <div style={{ height: 8, background: 'var(--bdr)', borderRadius: 4, overflow: 'hidden' }}>
-            <div style={{ width: `${pct}%`, height: '100%', background: progClr, borderRadius: 4, transition: 'width .3s' }} />
+          <div style={{ height: 8, background: 'var(--bdr)', borderRadius: RADIUS.xs, overflow: 'hidden' }}>
+            <div style={{ width: `${pct}%`, height: '100%', background: progClr, borderRadius: RADIUS.xs, transition: 'width .3s' }} />
           </div>
         </div>
       )}
@@ -136,7 +136,7 @@ export default function Onboarding() {
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner size={32} /></div>
       ) : items.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 80, color: 'var(--txt3)', fontSize: 14 }}>
+        <div style={{ textAlign: 'center', padding: 80, color: 'var(--txt3)', fontSize: TEXT.md }}>
           No checklist yet. Click "Initialise Checklist" to generate the default onboarding tasks.
         </div>
       ) : (
@@ -153,8 +153,8 @@ export default function Onboarding() {
                 {catItems.sort((a, b) => a.sort_order - b.sort_order).map(item => (
                   <div key={item.id}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
-                      borderRadius: 8, background: item.status === 'done' ? `${color}08` : 'transparent',
+                      display: 'flex', alignItems: 'center', gap: SP[3], padding: '10px 14px',
+                      borderRadius: RADIUS.md, background: item.status === 'done' ? `${color}08` : 'transparent',
                       border: `1px solid ${item.status === 'done' ? `${color}25` : 'transparent'}`,
                     }}
                   >
@@ -169,11 +169,11 @@ export default function Onboarding() {
                       }
                     </button>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: item.status === 'done' ? 400 : 600, color: item.status === 'done' ? 'var(--txt3)' : 'var(--txt)', textDecoration: item.status === 'done' ? 'line-through' : 'none' }}>
+                      <div style={{ fontSize: TEXT.base, fontWeight: item.status === 'done' ? 400 : 600, color: item.status === 'done' ? 'var(--txt3)' : 'var(--txt)', textDecoration: item.status === 'done' ? 'line-through' : 'none' }}>
                         {item.task}
                       </div>
                       {item.due_date && (
-                        <div style={{ fontSize: 11, color: 'var(--txt3)', marginTop: 2 }}>
+                        <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>
                           Due: {fmtDate(item.due_date)}
                           {item.completed_at && ` · Done: ${fmtDate(item.completed_at)}`}
                         </div>
@@ -181,7 +181,7 @@ export default function Onboarding() {
                     </div>
                     <button
                       onClick={() => updateItem(item.id, item.status === 'skipped' ? 'pending' : 'skipped')}
-                      style={{ padding: '2px 8px', borderRadius: 5, border: '1px solid var(--bdr)', background: 'none', fontSize: 10.5, color: 'var(--txt3)', cursor: 'pointer' }}
+                      style={{ padding: '2px 8px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'none', fontSize: TEXT.xs, color: 'var(--txt3)', cursor: 'pointer' }}
                     >
                       {item.status === 'skipped' ? 'Unskip' : 'Skip'}
                     </button>

@@ -4,7 +4,7 @@ import {
 } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
-import { GREEN, AMBER, RED, BLUE, PURPLE, NAVY, NUM, INTER } from '../../lib/design'
+import { GREEN, AMBER, RED, BLUE, PURPLE, NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ function StatusPill({ status }: { status: string }) {
   const c = STATUS_COLOR[status] ?? '#6B7280'
   const label = status.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
   return (
-    <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${c}14`, color: c }}>
+    <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${c}14`, color: c }}>
       {label}
     </span>
   )
@@ -99,10 +99,10 @@ function DispositionForm({ lead, onDone }: { lead: Lead; onDone: () => void }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {err && <div style={{ color: '#EF4444', fontSize: 12 }}>{err}</div>}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+      {err && <div style={{ color: '#EF4444', fontSize: TEXT.sm }}>{err}</div>}
       <div>
-        <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>Outcome *</label>
+        <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1], fontFamily: INTER }}>Outcome *</label>
         <select value={outcome} onChange={e => setOutcome(e.target.value)}
           style={{ ...filterInputStyle, width: '100%' }}>
           {OUTCOMES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -110,24 +110,24 @@ function DispositionForm({ lead, onDone }: { lead: Lead; onDone: () => void }) {
       </div>
       {isCallback && (
         <div>
-          <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>Callback Date/Time</label>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1], fontFamily: INTER }}>Callback Date/Time</label>
           <input type="datetime-local" value={callbackAt} onChange={e => setCallbackAt(e.target.value)}
             style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
         </div>
       )}
       <div>
-        <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>Duration (seconds)</label>
+        <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1], fontFamily: INTER }}>Duration (seconds)</label>
         <input type="number" value={duration} onChange={e => setDuration(e.target.value)}
           placeholder="e.g. 120" style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
       </div>
       <div>
-        <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>Notes</label>
+        <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1], fontFamily: INTER }}>Notes</label>
         <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)}
           rows={3} placeholder="Call notes…"
           style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', resize: 'none' }} />
       </div>
       <button onClick={submit} disabled={saving}
-        style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: 6, fontFamily: INTER }}>
+        style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: 6, fontFamily: INTER }}>
         {saving && <Spinner size={13} color="#fff" />}
         Log Disposition
       </button>
@@ -142,22 +142,22 @@ function DetailPanel({ lead, onRefresh }: { lead: Lead; onRefresh: () => void })
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto' }}>
       {/* Contact header */}
       <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--bdr)', background: 'var(--th-bg)' }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--txt)', marginBottom: 2 }}>{lead.customer_name}</div>
+        <div style={{ fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 2 }}>{lead.customer_name}</div>
         {lead.customer_phone && (
-          <div style={{ fontSize: 14, color: NAVY, fontWeight: 600, marginBottom: 4 }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14, verticalAlign: 'middle', marginRight: 4 }}>call</span>
+          <div style={{ fontSize: TEXT.md, color: NAVY, fontWeight: FW.semibold, marginBottom: SP[1] }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, verticalAlign: 'middle', marginRight: 4 }}>call</span>
             {lead.customer_phone}
           </div>
         )}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+        <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap', marginTop: 6 }}>
           <StatusPill status={lead.status} />
           {lead.campaign_name && (
-            <span style={{ fontSize: 11, background: `${PURPLE}14`, color: PURPLE, padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>
+            <span style={{ fontSize: TEXT.xs, background: `${PURPLE}14`, color: PURPLE, padding: '2px 8px', borderRadius: RADIUS['2xl'], fontWeight: FW.semibold }}>
               {lead.campaign_name}
             </span>
           )}
           {lead.agent_name && (
-            <span style={{ fontSize: 11, background: `${NAVY}10`, color: NAVY, padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>
+            <span style={{ fontSize: TEXT.xs, background: `${NAVY}10`, color: NAVY, padding: '2px 8px', borderRadius: RADIUS['2xl'], fontWeight: FW.semibold }}>
               {lead.agent_name}
             </span>
           )}
@@ -166,7 +166,7 @@ function DetailPanel({ lead, onRefresh }: { lead: Lead; onRefresh: () => void })
 
       {/* Lead info */}
       <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--bdr)' }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>Lead Info</div>
+        <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>Lead Info</div>
         {[
           ['CIF',          lead.customer_cif],
           ['Employer',     lead.employer],
@@ -178,17 +178,17 @@ function DetailPanel({ lead, onRefresh }: { lead: Lead; onRefresh: () => void })
           ['Notes',        lead.notes],
         ].map(([label, value]) =>
           value ? (
-            <div key={label as string} style={{ display: 'flex', gap: 8, marginBottom: 7 }}>
-              <span style={{ fontSize: 12, color: 'var(--txt3)', minWidth: 90, flexShrink: 0 }}>{label}</span>
-              <span style={{ fontSize: 12.5, color: 'var(--txt)', fontWeight: 500 }}>{value}</span>
+            <div key={label as string} style={{ display: 'flex', gap: SP[2], marginBottom: 7 }}>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', minWidth: 90, flexShrink: 0 }}>{label}</span>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.medium }}>{value}</span>
             </div>
           ) : null
         )}
       </div>
 
       {/* Log disposition */}
-      <div style={{ padding: '16px 20px' }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 }}>Log Call</div>
+      <div style={{ padding: `${SP[4]} ${SP[5]}` }}>
+        <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: SP[3] }}>Log Call</div>
         <DispositionForm lead={lead} onDone={onRefresh} />
       </div>
     </div>
@@ -322,9 +322,9 @@ export default function TelemarketingLeads() {
           {/* Header */}
           <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
             {/* Title row */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', flex: 1 }}>Marketing Leads</span>
-              <span style={{ ...NUM, fontSize: 11, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)', padding: '1px 7px', borderRadius: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: 10 }}>
+              <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)', flex: 1 }}>Marketing Leads</span>
+              <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, background: 'var(--chip-bg)', color: 'var(--chip-txt)', padding: '1px 7px', borderRadius: RADIUS['2xl'] }}>
                 {leads.length}
               </span>
               {/* Distribute button */}
@@ -333,15 +333,15 @@ export default function TelemarketingLeads() {
                 disabled={distributing || unassigned === 0}
                 title={unassigned === 0 ? 'No unassigned leads' : `Distribute ${unassigned} unassigned lead(s) round-robin`}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 4,
-                  padding: '4px 9px', borderRadius: 7, fontSize: 11.5, fontWeight: 600,
+                  display: 'flex', alignItems: 'center', gap: SP[1],
+                  padding: '4px 9px', borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.semibold,
                   border: `1px solid ${NAVY}30`, background: 'none',
                   color: unassigned === 0 ? 'var(--txt3)' : NAVY,
                   cursor: unassigned === 0 ? 'not-allowed' : 'pointer',
                 }}
               >
                 {distributing ? <Spinner size={12} color={NAVY} /> : (
-                  <span className="material-symbols-rounded" style={{ fontSize: 13 }}>shuffle</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.base }}>shuffle</span>
                 )}
                 Distribute
               </button>
@@ -355,28 +355,28 @@ export default function TelemarketingLeads() {
                 { label: 'Converted',  value: converted,  color: GREEN },
                 { label: 'Unassigned', value: unassigned, color: RED },
               ].map(s => (
-                <div key={s.label} style={{ flex: 1, textAlign: 'center', background: 'var(--th-bg)', borderRadius: 8, padding: '6px 2px' }}>
-                  <div style={{ ...NUM, fontSize: 14, fontWeight: 700, color: s.color }}>{s.value}</div>
-                  <div style={{ fontSize: 9.5, color: 'var(--txt3)' }}>{s.label}</div>
+                <div key={s.label} style={{ flex: 1, textAlign: 'center', background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: '6px 2px' }}>
+                  <div style={{ ...NUM, fontSize: TEXT.md, fontWeight: FW.bold, color: s.color }}>{s.value}</div>
+                  <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{s.label}</div>
                 </div>
               ))}
             </div>
 
             {/* Search */}
             <TblSearch value={search} onChange={setSearch}
-              placeholder="Search name, phone…" width={0} style={{ marginBottom: 8 }} />
+              placeholder="Search name, phone…" width={0} style={{ marginBottom: SP[2] }} />
 
             {/* Campaign dropdown */}
             {campaigns.length > 0 && (
               <select value={campaignId} onChange={e => setCampaignId(e.target.value)}
-                style={{ width: '100%', marginBottom: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', outline: 'none' }}>
+                style={{ width: '100%', marginBottom: 6, padding: '6px 10px', borderRadius: RADIUS.md, border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', outline: 'none' }}>
                 <option value="">All Campaigns</option>
                 {campaigns.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
               </select>
             )}
 
             {/* Status chips */}
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap' }}>
               {[
                 { value: 'pending',   label: 'Pending',   color: '#6B7280' },
                 { value: 'called',    label: 'Called',    color: BLUE },
@@ -388,7 +388,7 @@ export default function TelemarketingLeads() {
                 const on = status === value
                 return (
                   <button key={value} onClick={() => setStatus(on ? '' : value)} style={{
-                    fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 99,
+                    fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full,
                     border: `1px solid ${on ? color : 'var(--bdr)'}`,
                     background: on ? `${color}18` : 'transparent',
                     color: on ? color : 'var(--txt3)', cursor: 'pointer',
@@ -397,7 +397,7 @@ export default function TelemarketingLeads() {
               })}
               {(status || search || campaignId) && (
                 <button onClick={() => { setStatus(''); setSearch(''); setCampaignId('') }} style={{
-                  fontSize: 10.5, fontWeight: 500, padding: '2px 8px', borderRadius: 99,
+                  fontSize: TEXT['2xs'], fontWeight: FW.medium, padding: '2px 8px', borderRadius: RADIUS.full,
                   border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt3)', cursor: 'pointer',
                 }}>Clear</button>
               )}
@@ -411,13 +411,13 @@ export default function TelemarketingLeads() {
               padding: '7px 10px', background: '#F0F4FF',
               borderBottom: '1px solid var(--bdr)', flexShrink: 0,
             }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: NAVY, whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY, whiteSpace: 'nowrap' }}>
                 {checkedIds.size} selected
               </span>
               <select
                 value={assignAgentId}
                 onChange={e => setAssignAgentId(e.target.value)}
-                style={{ flex: 1, padding: '4px 8px', borderRadius: 6, border: `1px solid ${NAVY}30`, background: 'var(--input-bg)', fontSize: 12, color: 'var(--txt)', outline: 'none', minWidth: 0 }}
+                style={{ flex: 1, padding: `${SP[1]} ${SP[2]}`, borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', outline: 'none', minWidth: 0 }}
               >
                 <option value="">Assign to…</option>
                 {agents.map(a => <option key={a.id} value={String(a.id)}>{a.full_name}</option>)}
@@ -426,9 +426,9 @@ export default function TelemarketingLeads() {
                 onClick={handleAssign}
                 disabled={!assignAgentId || assigning}
                 style={{
-                  padding: '4px 10px', borderRadius: 6, border: 'none',
+                  padding: '4px 10px', borderRadius: RADIUS.sm, border: 'none',
                   background: !assignAgentId || assigning ? `${NAVY}40` : NAVY,
-                  color: '#fff', fontSize: 12, fontWeight: 600,
+                  color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold,
                   cursor: !assignAgentId || assigning ? 'not-allowed' : 'pointer',
                   whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5,
                 }}
@@ -440,7 +440,7 @@ export default function TelemarketingLeads() {
                 onClick={clearChecked}
                 style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)', borderRadius: '50%', flexShrink: 0 }}
               >
-                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>close</span>
               </button>
             </div>
           )}
@@ -450,11 +450,11 @@ export default function TelemarketingLeads() {
           {/* Lead list */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {loading ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10, color: 'var(--txt2)', fontSize: 13 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10, color: 'var(--txt2)', fontSize: TEXT.base }}>
                 <Spinner size={16} color={NAVY} /> Loading…
               </div>
             ) : leads.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--txt2)', fontSize: 13 }}>
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--txt2)', fontSize: TEXT.base }}>
                 No leads yet. Push contacts from a campaign report.
               </div>
             ) : leads.map(lead => {
@@ -487,34 +487,34 @@ export default function TelemarketingLeads() {
                   {/* Content */}
                   <div style={{ flex: 1, minWidth: 0, padding: '10px 12px 10px 2px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, marginRight: 6 }}>
+                      <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, marginRight: 6 }}>
                         {lead.customer_name}
                       </span>
                       <StatusPill status={lead.status} />
                     </div>
                     {lead.customer_phone && (
-                      <div style={{ fontSize: 12, color: NAVY, fontWeight: 500, marginBottom: 3, fontFamily: INTER }}>{lead.customer_phone}</div>
+                      <div style={{ fontSize: TEXT.sm, color: NAVY, fontWeight: FW.medium, marginBottom: 3, fontFamily: INTER }}>{lead.customer_phone}</div>
                     )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       {lead.campaign_name && (
-                        <span style={{ fontSize: 10.5, color: PURPLE }}>{lead.campaign_name}</span>
+                        <span style={{ fontSize: TEXT['2xs'], color: PURPLE }}>{lead.campaign_name}</span>
                       )}
                       {lead.agent_name ? (
-                        <span style={{ fontSize: 10.5, color: NAVY, fontWeight: 600 }}>
-                          <span className="material-symbols-rounded" style={{ fontSize: 11, verticalAlign: 'middle' }}>person</span>
+                        <span style={{ fontSize: TEXT['2xs'], color: NAVY, fontWeight: FW.semibold }}>
+                          <span className="material-symbols-rounded" style={{ fontSize: TEXT.xs, verticalAlign: 'middle' }}>person</span>
                           {' '}{lead.agent_name}
                         </span>
                       ) : (
-                        <span style={{ fontSize: 10.5, color: 'var(--txt3)', fontStyle: 'italic' }}>unassigned</span>
+                        <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontStyle: 'italic' }}>unassigned</span>
                       )}
                     </div>
                     {(lead.last_outcome || lead.last_called_at) && (
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 3 }}>
+                      <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', marginTop: 3 }}>
                         {lead.last_outcome && (
-                          <span style={{ fontSize: 10.5, color: oc, fontWeight: 600 }}>{lead.last_outcome.replace(/_/g, ' ')}</span>
+                          <span style={{ fontSize: TEXT['2xs'], color: oc, fontWeight: FW.semibold }}>{lead.last_outcome.replace(/_/g, ' ')}</span>
                         )}
                         {lead.last_called_at && (
-                          <span style={{ fontSize: 10.5, color: 'var(--txt3)' }}>{fmtDatetime(lead.last_called_at)}</span>
+                          <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{fmtDatetime(lead.last_called_at)}</span>
                         )}
                       </div>
                     )}
@@ -530,9 +530,9 @@ export default function TelemarketingLeads() {
           {selected ? (
             <DetailPanel key={selected.id} lead={selected} onRefresh={handleRefresh} />
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12, color: 'var(--txt2)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: SP[3], color: 'var(--txt2)' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 48, color: 'var(--txt3)' }}>contacts</span>
-              <span style={{ fontSize: 14 }}>Select a lead to log a call</span>
+              <span style={{ fontSize: TEXT.md }}>Select a lead to log a call</span>
             </div>
           )}
         </div>

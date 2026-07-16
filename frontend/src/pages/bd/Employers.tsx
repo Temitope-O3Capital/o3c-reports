@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, ErrBanner, Modal, Spinner, SearchInput } 
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate, fmtNum } from '../../lib/fmt'
-import { RED, AMBER, GREEN, NAVY, INTER, SORA, NUM } from '../../lib/design'
+import { RED, AMBER, GREEN, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 interface Employer {
@@ -24,7 +24,7 @@ function MOUPill({ status }: { status: string }) {
   const c = MOU_COLORS[status?.toLowerCase()] ?? '#6B7280'
   return (
     <span style={{
-      fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
       background: `${c}18`, color: c, whiteSpace: 'nowrap', textTransform: 'capitalize',
     }}>{status || 'None'}</span>
   )
@@ -37,14 +37,14 @@ function PageBtn({ children, active, disabled, onClick, icon }: {
 }) {
   return (
     <button onClick={onClick} disabled={disabled} style={{
-      width: 28, height: 28, borderRadius: 6,
+      width: 28, height: 28, borderRadius: RADIUS.sm,
       border: active ? 'none' : '1.5px solid var(--input-bdr)',
       background: active ? RED : 'transparent',
       color: active ? '#fff' : disabled ? 'var(--txt3)' : 'var(--txt2)',
-      fontSize: 12, fontWeight: 600, cursor: disabled ? 'default' : 'pointer',
+      fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: disabled ? 'default' : 'pointer',
       display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: INTER,
     }}>
-      {icon ? <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{icon}</span> : children}
+      {icon ? <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>{icon}</span> : children}
     </button>
   )
 }
@@ -53,8 +53,8 @@ function PageBtn({ children, active, disabled, onClick, icon }: {
 
 const IS: React.CSSProperties = {
   width: '100%', height: 36, padding: '0 10px',
-  border: '1px solid var(--input-bdr)', borderRadius: 7,
-  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
+  border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
   outline: 'none', boxSizing: 'border-box', fontFamily: SORA,
 }
 
@@ -98,7 +98,7 @@ function AddEmployerModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
 
   const F = ({ label, k, type = 'text' }: { label: string; k: keyof AddEmployerForm; type?: string }) => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>{label}</label>
+      <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>{label}</label>
       <input type={type} value={form[k]} onChange={set(k)} style={IS} />
     </div>
   )
@@ -111,8 +111,8 @@ function AddEmployerModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
       onClose={onClose}
       footer={
         <>
-          <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={submit} disabled={saving} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 20px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+          <button onClick={onClose} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={submit} disabled={saving} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
             {saving && <Spinner size={14} color="#fff" />}
             Register
           </button>
@@ -130,7 +130,7 @@ function AddEmployerModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
         <F label="Contact Phone" k="contact_phone" />
         <div style={{ gridColumn: '1/-1' }}><F label="Contact Email" k="contact_email" type="email" /></div>
         <div style={{ gridColumn: '1/-1', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>MOU Status</label>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>MOU Status</label>
           <select value={form.mou_status} onChange={set('mou_status')} style={{ ...IS, height: 36 }}>
             <option value="none">None</option>
             <option value="pending">Pending</option>
@@ -149,14 +149,14 @@ function EmployerDetailModal({ employer, onClose }: { employer: Employer; onClos
   const mouColor = MOU_COLORS[employer.mou_status?.toLowerCase()] ?? '#6B7280'
   const row = (label: string, value: React.ReactNode) => (
     <div key={label} style={{ display: 'flex', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--bdr)' }}>
-      <span style={{ fontSize: 12, color: 'var(--txt2)', minWidth: 130, flexShrink: 0 }}>{label}</span>
-      <span style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 500 }}>{value ?? '—'}</span>
+      <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', minWidth: 130, flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium }}>{value ?? '—'}</span>
     </div>
   )
 
   return (
     <Modal open title={employer.name} width={500} onClose={onClose}
-      footer={<button onClick={onClose} style={{ padding: '8px 20px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Close</button>}
+      footer={<button onClick={onClose} style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Close</button>}
     >
       <div style={{ display: 'flex', flexDirection: 'column' }}>
         {row('RC Number', employer.rc_number)}
@@ -165,11 +165,11 @@ function EmployerDetailModal({ employer, onClose }: { employer: Employer; onClos
         {row('Address', employer.address)}
         {row('Staff Count', fmtNum(employer.staff_count))}
         {row('Active Loans', fmtNum(employer.active_loans))}
-        {row('MOU Status', <span style={{ fontWeight: 600, color: mouColor, textTransform: 'capitalize' }}>{employer.mou_status || 'None'}</span>)}
+        {row('MOU Status', <span style={{ fontWeight: FW.semibold, color: mouColor, textTransform: 'capitalize' }}>{employer.mou_status || 'None'}</span>)}
         {row('MOU Signed', employer.mou_signed_date ? fmtDate(employer.mou_signed_date) : null)}
         {row('MOU Expiry', employer.mou_expiry_date ? fmtDate(employer.mou_expiry_date) : null)}
-        <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 10, background: 'var(--th-bg)', border: '1px solid var(--bdr)' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 8 }}>Contact</div>
+        <div style={{ marginTop: 14, padding: `${SP[3]} 14px`, borderRadius: RADIUS.lg, background: 'var(--th-bg)', border: '1px solid var(--bdr)' }}>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 8 }}>Contact</div>
           {row('Name', employer.contact_name)}
           {row('Phone', employer.contact_phone)}
           {row('Email', employer.contact_email)}
@@ -281,20 +281,20 @@ export default function Employers() {
       render: row => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{
-            width: 30, height: 30, borderRadius: '50%', background: NAVY, flexShrink: 0,
+            width: 30, height: 30, borderRadius: RADIUS.full, background: NAVY, flexShrink: 0,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 11, fontWeight: 700, color: '#fff', fontFamily: INTER,
+            fontSize: TEXT.xs, fontWeight: FW.bold, color: '#fff', fontFamily: INTER,
           }}>{(row.name ?? '?').charAt(0).toUpperCase()}</div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', fontFamily: SORA }}>{row.name}</div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt2)', fontFamily: INTER }}>RC: {row.rc_number ?? '—'}</div>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', fontFamily: SORA }}>{row.name}</div>
+            <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER }}>RC: {row.rc_number ?? '—'}</div>
           </div>
         </div>
       ),
     },
     {
       key: 'sector', label: 'Sector', sortable: true,
-      render: row => <span style={{ color: 'var(--txt2)', fontSize: 12 }}>{row.sector ?? '—'}</span>,
+      render: row => <span style={{ color: 'var(--txt2)', fontSize: TEXT.sm }}>{row.sector ?? '—'}</span>,
     },
     {
       key: 'mou_status', label: 'MOU Status', sortable: true,
@@ -308,9 +308,9 @@ export default function Employers() {
         const color = days < 30 ? RED : days < 90 ? AMBER : 'var(--txt2)'
         return (
           <div>
-            <div style={{ fontSize: 12, color }}>{fmtDate(row.mou_expiry_date)}</div>
+            <div style={{ fontSize: TEXT.sm, color }}>{fmtDate(row.mou_expiry_date)}</div>
             {days >= 0 && days <= 90 && (
-              <div style={{ fontSize: 11, color, fontWeight: 600 }}>{days}d left</div>
+              <div style={{ fontSize: TEXT.xs, color, fontWeight: FW.semibold }}>{days}d left</div>
             )}
           </div>
         )
@@ -328,14 +328,14 @@ export default function Employers() {
       key: 'contact_name', label: 'Contact', sortable: true,
       render: row => (
         <div>
-          <div style={{ fontSize: 12, color: 'var(--txt)' }}>{row.contact_name ?? '—'}</div>
-          {row.contact_phone && <div style={{ fontSize: 11, color: 'var(--txt3)' }}>{row.contact_phone}</div>}
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{row.contact_name ?? '—'}</div>
+          {row.contact_phone && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{row.contact_phone}</div>}
         </div>
       ),
     },
     {
       key: 'state', label: 'State', sortable: true,
-      render: row => <span style={{ color: 'var(--txt2)', fontSize: 12 }}>{row.state ?? '—'}</span>,
+      render: row => <span style={{ color: 'var(--txt2)', fontSize: TEXT.sm }}>{row.state ?? '—'}</span>,
     },
   ]
 
@@ -346,7 +346,7 @@ export default function Employers() {
       actions={
         <button
           onClick={() => setShowAdd(true)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
         >
           <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>
           Add Employer
@@ -356,7 +356,7 @@ export default function Employers() {
       <ErrBanner error={err} onRetry={load} />
 
       {/* Summary strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: SP[4] }}>
         {[
           { label: 'Total Employers', value: fmtNum(employers.length), icon: 'corporate_fare', color: NAVY },
           { label: 'MOU Signed',      value: fmtNum(mouSigned),        icon: 'handshake',       color: GREEN },
@@ -364,25 +364,25 @@ export default function Employers() {
           { label: 'Total Staff',     value: fmtNum(totalStaff),       icon: 'group',           color: '#7C3AED' },
         ].map(item => (
           <div key={item.label} style={{
-            background: 'var(--card)', borderRadius: 12, padding: '14px 16px',
+            background: 'var(--card)', borderRadius: RADIUS.xl, padding: '14px 16px',
             border: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', gap: 12,
           }}>
             <div style={{
-              width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+              width: 38, height: 38, borderRadius: RADIUS.lg, flexShrink: 0,
               background: `${item.color}12`,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 18, color: item.color }}>{item.icon}</span>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: item.color }}>{item.icon}</span>
             </div>
             <div>
-              <div style={{ ...NUM, fontSize: 20, fontWeight: 700, color: 'var(--txt)', lineHeight: 1 }}>{item.value}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginTop: 3 }}>{item.label}</div>
+              <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)', lineHeight: 1 }}>{item.value}</div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3 }}>{item.label}</div>
             </div>
           </div>
         ))}
       </div>
 
-      <SectionCard title="Employers" badge={employers.length} padding={false} actions={<button onClick={() => exportEmployersCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Employers" badge={employers.length} padding={false} actions={<button onClick={() => exportEmployersCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
 
         {/* Filter bar */}
         <div style={{
@@ -396,7 +396,7 @@ export default function Employers() {
             onClick={() => setFilterOpen(o => !o)}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 600,
+              padding: `6px ${SP[3]}`, borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
               border: `1.5px solid ${activeFilterCount > 0 ? RED : 'var(--input-bdr)'}`,
               background: 'transparent',
               color: activeFilterCount > 0 ? RED : 'var(--txt2)',
@@ -408,16 +408,16 @@ export default function Employers() {
             {activeFilterCount > 0 && (
               <span style={{
                 position: 'absolute', top: -6, right: -6,
-                width: 16, height: 16, borderRadius: '50%',
+                width: 16, height: 16, borderRadius: RADIUS.full,
                 background: RED, color: '#fff',
-                fontSize: 9, fontWeight: 700, fontFamily: INTER,
+                fontSize: TEXT['2xs'], fontWeight: FW.bold, fontFamily: INTER,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>{activeFilterCount}</span>
             )}
           </button>
 
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
               {filtered.length} of {employers.length}
             </span>
           </div>
@@ -430,17 +430,17 @@ export default function Employers() {
 
               {/* Sector */}
               <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>SECTOR</div>
+                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>SECTOR</div>
                 {uniqueSectors.length === 0 ? (
-                  <span style={{ fontSize: 12, color: 'var(--txt3)' }}>No sectors recorded</span>
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No sectors recorded</span>
                 ) : uniqueSectors.map(s => {
                   const count = employers.filter(e => e.sector === s).length
                   return (
                     <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
                       <input type="checkbox" checked={fSectors.has(s)} onChange={() => setFSectors(toggleSet(fSectors, s))}
                         style={{ accentColor: NAVY, width: 14, height: 14, cursor: 'pointer' }} />
-                      <span style={{ fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA }}>{s}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
+                      <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA }}>{s}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
                     </label>
                   )
                 })}
@@ -448,7 +448,7 @@ export default function Employers() {
 
               {/* MOU Status */}
               <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>MOU STATUS</div>
+                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>MOU STATUS</div>
                 {MOU_STATUSES.map(s => {
                   const c = MOU_COLORS[s]
                   const count = employers.filter(e => (e.mou_status?.toLowerCase() || 'none') === s).length
@@ -457,10 +457,10 @@ export default function Employers() {
                       <input type="checkbox" checked={fMOU.has(s)} onChange={() => setFMOU(toggleSet(fMOU, s))}
                         style={{ accentColor: c, width: 14, height: 14, cursor: 'pointer' }} />
                       <span style={{
-                        fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20,
+                        fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
                         background: `${c}18`, color: c, textTransform: 'capitalize',
                       }}>{s}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
                     </label>
                   )
                 })}
@@ -468,17 +468,17 @@ export default function Employers() {
 
               {/* State */}
               <div style={{ paddingLeft: 20 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>STATE</div>
+                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>STATE</div>
                 {uniqueStates.length === 0 ? (
-                  <span style={{ fontSize: 12, color: 'var(--txt3)' }}>No states recorded</span>
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No states recorded</span>
                 ) : uniqueStates.map(s => {
                   const count = employers.filter(e => e.state === s).length
                   return (
                     <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
                       <input type="checkbox" checked={fStates.has(s)} onChange={() => setFStates(toggleSet(fStates, s))}
                         style={{ accentColor: RED, width: 14, height: 14, cursor: 'pointer' }} />
-                      <span style={{ fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA }}>{s}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
+                      <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA }}>{s}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
                     </label>
                   )
                 })}
@@ -490,19 +490,19 @@ export default function Employers() {
               padding: '14px 20px', borderTop: '1px solid var(--bdr)', marginTop: 16,
               display: 'flex', alignItems: 'center', gap: 12,
             }}>
-              <span style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: SORA }}>
                 {activeFilterCount === 0
                   ? `No filters applied — showing all ${employers.length} employers`
                   : `${activeFilterCount} filter${activeFilterCount !== 1 ? 's' : ''} active`}
               </span>
               <button onClick={resetFilters} style={{
-                padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+                padding: '5px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
                 border: '1.5px solid var(--input-bdr)', background: 'transparent',
                 color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA,
               }}>Reset</button>
               <button onClick={() => setFilterOpen(false)} style={{
-                marginLeft: 'auto', padding: '5px 16px', borderRadius: 7,
-                fontSize: 12, fontWeight: 600,
+                marginLeft: 'auto', padding: '5px 16px', borderRadius: RADIUS.md,
+                fontSize: TEXT.sm, fontWeight: FW.semibold,
                 border: 'none', background: RED, color: '#fff',
                 cursor: 'pointer', fontFamily: SORA,
               }}>Apply · {filtered.length} results</button>
@@ -517,24 +517,24 @@ export default function Employers() {
             display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
           }}>
             {[...fSectors].map(s => (
-              <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: `${NAVY}12`, color: NAVY }}>
-                {s}<span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setFSectors(toggleSet(fSectors, s))}>close</span>
+              <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: `${NAVY}12`, color: NAVY }}>
+                {s}<span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFSectors(toggleSet(fSectors, s))}>close</span>
               </span>
             ))}
             {[...fMOU].map(s => {
               const c = MOU_COLORS[s]
               return (
-                <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: `${c}18`, color: c, textTransform: 'capitalize' }}>
-                  {s}<span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setFMOU(toggleSet(fMOU, s))}>close</span>
+                <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: `${c}18`, color: c, textTransform: 'capitalize' }}>
+                  {s}<span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFMOU(toggleSet(fMOU, s))}>close</span>
                 </span>
               )
             })}
             {[...fStates].map(s => (
-              <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
-                {s}<span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setFStates(toggleSet(fStates, s))}>close</span>
+              <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
+                {s}<span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFStates(toggleSet(fStates, s))}>close</span>
               </span>
             ))}
-            <button onClick={resetFilters} style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--txt3)', padding: 0, fontFamily: SORA }}>Clear all</button>
+            <button onClick={resetFilters} style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', padding: 0, fontFamily: SORA }}>Clear all</button>
           </div>
         )}
 
@@ -552,7 +552,7 @@ export default function Employers() {
           bulkBar={
             <>
               <button style={{
-                padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+                padding: '5px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
                 cursor: 'pointer', fontFamily: SORA,
                 border: 'none', background: NAVY, color: '#fff',
               }}>Assign Sales Officer</button>
@@ -565,7 +565,7 @@ export default function Employers() {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '12px 18px', borderTop: '1px solid var(--bdr)',
         }}>
-          <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
             {filtered.length === 0
               ? 'No employers'
               : `Showing ${showStart}–${showEnd} of ${filtered.length} employers`}

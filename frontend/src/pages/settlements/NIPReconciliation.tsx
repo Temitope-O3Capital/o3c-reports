@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, ErrBanner, StatusBadge, FilterBar, filter
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, today } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -40,27 +40,27 @@ interface Exception {
 function ExcCols(onResolve: (ex: Exception) => void): TableCol<Exception>[] {
   return [
     { key: 'txn_date', label: 'Date', width: 100,
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.txn_date)}</span> },
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.txn_date)}</span> },
     { key: 'txn_ref', label: 'Ref',
-      render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{r.txn_ref || '—'}</span> },
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.txn_ref || '—'}</span> },
     { key: 'batch_ref', label: 'Batch',
-      render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{r.batch_ref || '—'}</span> },
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.batch_ref || '—'}</span> },
     { key: 'amount_kobo', label: 'Amount ₦', align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.amount_kobo)}</span> },
+      render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.amount_kobo)}</span> },
     { key: 'exception_type', label: 'Type',
       render: r => (
-        <span style={{ ...NUM, fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+        <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'],
           background: 'rgba(192,0,0,0.08)', color: RED }}>
           {r.exception_type.replace(/_/g, ' ')}
         </span>
       )},
     { key: 'description', label: 'Description',
-      render: r => <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240, fontSize: 12.5 }}>{r.description || '—'}</span> },
+      render: r => <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240, fontSize: TEXT.sm }}>{r.description || '—'}</span> },
     { key: 'status', label: 'Status', render: r => <StatusBadge status={r.status} /> },
     { key: '_actions', label: '', render: r => r.status === 'open' ? (
       <button onClick={e => { e.stopPropagation(); onResolve(r) }}
-        style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: 'rgba(22,163,74,.1)',
-          color: GREEN, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+        style={{ padding: '4px 10px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(22,163,74,.1)',
+          color: GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
         Resolve
       </button>
     ) : null },
@@ -71,17 +71,17 @@ function ExcCols(onResolve: (ex: Exception) => void): TableCol<Exception>[] {
 
 const BATCH_COLS: TableCol<Batch>[] = [
   { key: 'batch_date', label: 'Date', width: 110,
-    render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.batch_date)}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.batch_date)}</span> },
   { key: 'batch_ref', label: 'Ref',
-    render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{r.batch_ref || '—'}</span> },
+    render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.batch_ref || '—'}</span> },
   { key: 'txn_count', label: 'Txns', align: 'right',
     render: r => <span style={NUM}>{r.txn_count.toLocaleString()}</span> },
   { key: 'total_credits', label: 'Credits ₦', align: 'right',
-    render: r => <span style={{ ...NUM, color: GREEN, fontWeight: 600 }}>{fmtKobo(r.total_credits)}</span> },
+    render: r => <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtKobo(r.total_credits)}</span> },
   { key: 'total_debits', label: 'Debits ₦', align: 'right',
-    render: r => <span style={{ ...NUM, color: RED, fontWeight: 600 }}>{fmtKobo(r.total_debits)}</span> },
+    render: r => <span style={{ ...NUM, color: RED, fontWeight: FW.semibold }}>{fmtKobo(r.total_debits)}</span> },
   { key: 'exception_count', label: 'Exceptions', align: 'right',
-    render: r => <span style={{ ...NUM, fontWeight: 600, color: r.exception_count > 0 ? AMBER : 'var(--txt2)' }}>{r.exception_count}</span> },
+    render: r => <span style={{ ...NUM, fontWeight: FW.semibold, color: r.exception_count > 0 ? AMBER : 'var(--txt2)' }}>{r.exception_count}</span> },
   { key: 'status', label: 'Status', render: r => <StatusBadge status={r.status} /> },
 ]
 
@@ -107,27 +107,27 @@ function ResolveModal({ ex, onClose, onDone }: { ex: Exception; onClose: () => v
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)' }} onClick={onClose} />
-      <div style={{ position: 'relative', background: 'var(--card)', borderRadius: 14, padding: 24, width: 440, zIndex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>Resolve Exception</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: 18 }}>×</button>
+      <div style={{ position: 'relative', background: 'var(--card)', borderRadius: RADIUS.xl, padding: SP[6], width: 440, zIndex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[4] }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: FW.bold, color: 'var(--txt)' }}>Resolve Exception</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: TEXT.xl }}>×</button>
         </div>
-        <div style={{ marginBottom: 14, padding: '10px 14px', background: 'var(--bg)', borderRadius: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontSize: 12, color: 'var(--txt2)' }}>Ref</span>
-            <span style={{ ...NUM, fontSize: 12, fontWeight: 600 }}>{ex.txn_ref || '—'}</span>
+        <div style={{ marginBottom: 14, padding: '10px 14px', background: 'var(--bg)', borderRadius: RADIUS.md }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: SP[1] }}>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Ref</span>
+            <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{ex.txn_ref || '—'}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontSize: 12, color: 'var(--txt2)' }}>Amount</span>
-            <span style={{ ...NUM, fontSize: 12, fontWeight: 600 }}>{fmtKobo(ex.amount_kobo)}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: SP[1] }}>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Amount</span>
+            <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtKobo(ex.amount_kobo)}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 12, color: 'var(--txt2)' }}>Type</span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: RED }}>{ex.exception_type.replace(/_/g, ' ')}</span>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Type</span>
+            <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: RED }}>{ex.exception_type.replace(/_/g, ' ')}</span>
           </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 20 }}>
-          <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Resolution Note</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1], marginBottom: SP[5] }}>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Resolution Note</label>
           <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
             value={note}
             onChange={e => setNote(e.target.value)}
@@ -136,9 +136,9 @@ function ResolveModal({ ex, onClose, onDone }: { ex: Exception; onClose: () => v
             style={{ ...filterInputStyle, height: 'auto', padding: '8px 10px', resize: 'vertical' }}
           />
         </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={submit} disabled={saving} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={submit} disabled={saving} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
             {saving ? 'Saving…' : 'Mark Resolved'}
           </button>
         </div>
@@ -229,18 +229,18 @@ export default function NIPReconciliation() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* Summary strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 20 }}>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '16px 18px' }}>
-          <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', marginBottom: 6 }}>Open Exceptions</div>
-          <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: openCount > 0 ? RED : GREEN }}>{openCount}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: SP[4], marginBottom: SP[5] }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: '16px 18px' }}>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', marginBottom: 6 }}>Open Exceptions</div>
+          <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: openCount > 0 ? RED : GREEN }}>{openCount}</div>
         </div>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '16px 18px' }}>
-          <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', marginBottom: 6 }}>Exception Value</div>
-          <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: 'var(--txt)' }}>{fmtKobo(totalExcAmount)}</div>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: '16px 18px' }}>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', marginBottom: 6 }}>Exception Value</div>
+          <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)' }}>{fmtKobo(totalExcAmount)}</div>
         </div>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '16px 18px' }}>
-          <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', marginBottom: 6 }}>Batches on Date</div>
-          <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: 'var(--txt)' }}>{batches.length}</div>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: '16px 18px' }}>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', marginBottom: 6 }}>Batches on Date</div>
+          <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)' }}>{batches.length}</div>
         </div>
       </div>
 
@@ -252,17 +252,17 @@ export default function NIPReconciliation() {
           <option value="resolved">Resolved</option>
           <option value="">All</option>
         </select>
-        <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Apply</button>
+        <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
       </FilterBar>
 
       {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--bdr)', marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--bdr)', marginBottom: SP[4] }}>
         {(['exceptions', 'batches'] as const).map(t => {
           const labels = { exceptions: `Exceptions (${exceptions.length})`, batches: `Batch Summary (${batches.length})` }
           const active = tab === t
           return (
             <button key={t} onClick={() => setTab(t)} style={{
-              padding: '8px 14px', fontSize: 13, fontWeight: active ? 600 : 500,
+              padding: '8px 14px', fontSize: TEXT.base, fontWeight: active ? FW.semibold : FW.medium,
               color: active ? 'var(--txt)' : 'var(--txt2)',
               background: 'none', border: 'none', cursor: 'pointer',
               borderBottom: active ? `2px solid ${RED}` : '2px solid transparent',
@@ -273,7 +273,7 @@ export default function NIPReconciliation() {
       </div>
 
       {tab === 'exceptions' && (
-        <SectionCard padding={false} actions={<button onClick={() => exportExceptionsCsv(exceptions)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+        <SectionCard padding={false} actions={<button onClick={() => exportExceptionsCsv(exceptions)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
           <DataTable
             cols={excCols}
             rows={exceptions}
@@ -288,7 +288,7 @@ export default function NIPReconciliation() {
       )}
 
       {tab === 'batches' && (
-        <SectionCard padding={false} actions={<button onClick={() => exportBatchesCsv(batches)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+        <SectionCard padding={false} actions={<button onClick={() => exportBatchesCsv(batches)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
           <DataTable
             cols={BATCH_COLS}
             rows={batches}

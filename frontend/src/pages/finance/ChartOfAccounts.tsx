@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Page, SectionCard, DataTable, StatusBadge, filterInputStyle, SearchInput, ErrBanner, Spinner } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { NAVY, GREEN, AMBER, RED, BLUE, PURPLE, NUM, INTER, SORA } from '../../lib/design'
+import { NAVY, GREEN, AMBER, RED, BLUE, PURPLE, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -70,41 +70,41 @@ function EditAccountModal({ account, onClose, onSaved }: { account: GLAccount; o
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)' }} onClick={onClose} />
-      <div style={{ position: 'relative', background: 'var(--card)', borderRadius: 14, padding: 24, width: 440, zIndex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+      <div style={{ position: 'relative', background: 'var(--card)', borderRadius: RADIUS.xl, padding: SP[6], width: 440, zIndex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[5] }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>Edit GL Account</h3>
-            <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginTop: 2 }}>{account.code}</div>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: FW.bold, color: 'var(--txt)' }}>Edit GL Account</h3>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>{account.code}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: 18 }}>×</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: TEXT.xl }}>×</button>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Account Name *</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
+            <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Account Name *</label>
             <input value={name} onChange={e => setName(e.target.value)} style={{ ...filterInputStyle, height: 36 }} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Class</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
+              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Class</label>
               <select value={cls} onChange={e => setCls(e.target.value as AccountClass)} style={{ ...filterInputStyle, height: 36 }}>
                 {(['Asset','Liability','Income','Expense','Equity'] as AccountClass[]).map(c => <option key={c}>{c}</option>)}
               </select>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Normal Balance</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
+              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Normal Balance</label>
               <select value={normalBalance} onChange={e => setNormalBalance(e.target.value as 'Dr' | 'Cr')} style={{ ...filterInputStyle, height: 36 }}>
                 <option value="Dr">Debit (Dr)</option>
                 <option value="Cr">Credit (Cr)</option>
               </select>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Currency</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
+              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Currency</label>
               <select value={currency} onChange={e => setCurrency(e.target.value)} style={{ ...filterInputStyle, height: 36 }}>
                 <option>NGN</option><option>USD</option><option>GBP</option><option>EUR</option>
               </select>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Status</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
+              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Status</label>
               <select value={isActive ? 'active' : 'inactive'} onChange={e => setIsActive(e.target.value === 'active')} style={{ ...filterInputStyle, height: 36 }}>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
@@ -112,9 +112,9 @@ function EditAccountModal({ account, onClose, onSaved }: { account: GLAccount; o
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
-          <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={submit} disabled={saving} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end', marginTop: SP[5] }}>
+          <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={submit} disabled={saving} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
             {saving ? 'Saving…' : 'Save Changes'}
           </button>
         </div>
@@ -127,22 +127,22 @@ function EditAccountModal({ account, onClose, onSaved }: { account: GLAccount; o
 
 function makeCols(onEdit: (a: GLAccount) => void): TableCol<GLAccount>[] { return [
   { key: 'code', label: 'Code', render: r => (
-    <span style={{ ...NUM, fontWeight: 700, paddingLeft: r.parent_code ? 20 : 0 }}>{r.code}</span>
+    <span style={{ ...NUM, fontWeight: FW.bold, paddingLeft: r.parent_code ? SP[5] : 0 }}>{r.code}</span>
   )},
   { key: 'name', label: 'Account Name', sortable: true, render: r => (
-    <span style={{ paddingLeft: r.parent_code ? 20 : 0, fontWeight: r.parent_code ? 400 : 600 }}>
-      {!r.parent_code && <span className="material-symbols-rounded" style={{ fontSize: 13, marginRight: 6, verticalAlign: 'middle', color: 'var(--txt2)' }}>folder</span>}
+    <span style={{ paddingLeft: r.parent_code ? SP[5] : 0, fontWeight: r.parent_code ? FW.normal : FW.semibold }}>
+      {!r.parent_code && <span className="material-symbols-rounded" style={{ fontSize: TEXT.base, marginRight: 6, verticalAlign: 'middle', color: 'var(--txt2)' }}>folder</span>}
       {r.name}
     </span>
   )},
   { key: 'class', label: 'Class', render: r => (
-    <span style={{ ...NUM, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+    <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'],
       background: `${CLASS_COLORS[r.class]}18`, color: CLASS_COLORS[r.class] }}>
       {r.class}
     </span>
   )},
   { key: 'normal_balance', label: 'Normal', align: 'center', render: r => (
-    <span style={{ ...NUM, fontSize: 11.5, fontWeight: 600, padding: '2px 7px', borderRadius: 20,
+    <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 7px', borderRadius: RADIUS['2xl'],
       background: r.normal_balance === 'Dr' ? 'rgba(37,99,235,.1)' : 'rgba(22,163,74,.1)',
       color: r.normal_balance === 'Dr' ? '#2563EB' : GREEN }}>
       {r.normal_balance}
@@ -152,8 +152,8 @@ function makeCols(onEdit: (a: GLAccount) => void): TableCol<GLAccount>[] { retur
   { key: 'profit_centre', label: 'Profit Centre', render: r => r.profit_centre ?? '—' },
   { key: 'is_active', label: 'Status', render: r => <StatusBadge status={r.is_active ? 'Active' : 'Inactive'} /> },
   { key: 'id', label: '', align: 'center', render: r => (
-    <button onClick={() => onEdit(r)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', padding: 4, borderRadius: 6, display: 'flex', alignItems: 'center' }}>
-      <span className="material-symbols-rounded" style={{ fontSize: 16 }}>edit</span>
+    <button onClick={() => onEdit(r)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', padding: SP[1], borderRadius: RADIUS.sm, display: 'flex', alignItems: 'center' }}>
+      <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>edit</span>
     </button>
   )},
 ]}
@@ -185,44 +185,44 @@ function AddAccountModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)' }} onClick={onClose} />
-      <div style={{ position: 'relative', background: 'var(--card)', borderRadius: 14, padding: 24, width: 420, zIndex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>Add GL Account</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: 18 }}>×</button>
+      <div style={{ position: 'relative', background: 'var(--card)', borderRadius: RADIUS.xl, padding: SP[6], width: 420, zIndex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[5] }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: FW.bold, color: 'var(--txt)' }}>Add GL Account</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: TEXT.xl }}>×</button>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
           {[['Account Code', code, setCode], ['Account Name', name, setName]].map(([label, val, setter]) => (
-            <div key={label as string} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>{label as string} *</label>
+            <div key={label as string} style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
+              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>{label as string} *</label>
               <input value={val as string} onChange={e => (setter as (v: string) => void)(e.target.value)}
                 style={{ ...filterInputStyle, height: 36 }} />
             </div>
           ))}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Class</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
+              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Class</label>
               <select value={cls} onChange={e => setCls(e.target.value as AccountClass)} style={{ ...filterInputStyle, height: 36 }}>
                 {(['Asset','Liability','Income','Expense','Equity'] as AccountClass[]).map(c => <option key={c}>{c}</option>)}
               </select>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Normal Balance</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
+              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Normal Balance</label>
               <select value={normalBalance} onChange={e => setNormalBalance(e.target.value as 'Dr' | 'Cr')} style={{ ...filterInputStyle, height: 36 }}>
                 <option value="Dr">Debit (Dr)</option>
                 <option value="Cr">Credit (Cr)</option>
               </select>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Currency</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
+              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Currency</label>
               <select value={currency} onChange={e => setCurrency(e.target.value)} style={{ ...filterInputStyle, height: 36 }}>
                 <option>NGN</option><option>USD</option><option>GBP</option><option>EUR</option>
               </select>
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
-          <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={submit} disabled={saving} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end', marginTop: SP[5] }}>
+          <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={submit} disabled={saving} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
             {saving ? 'Saving…' : 'Add Account'}
           </button>
         </div>
@@ -294,8 +294,8 @@ export default function FinanceChartOfAccounts() {
       actions={
         <button onClick={() => setShowAdd(true)} style={{
           display: 'flex', alignItems: 'center', gap: 6,
-          padding: '6px 14px', borderRadius: 8, border: 'none',
-          background: NAVY, color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+          padding: '6px 14px', borderRadius: RADIUS.md, border: 'none',
+          background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
         }}>
           <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>Add Account
         </button>
@@ -306,7 +306,7 @@ export default function FinanceChartOfAccounts() {
 
       {!loading && !error && (
         <SectionCard title="GL Accounts" badge={filtered.length} padding={false} actions={
-          <button onClick={() => exportAccountsCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+          <button onClick={() => exportAccountsCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
             <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
             Export CSV
           </button>
@@ -316,7 +316,7 @@ export default function FinanceChartOfAccounts() {
           <div style={{
             padding: '12px 18px',
             borderBottom: filterOpen ? 'none' : '1px solid var(--bdr)',
-            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+            display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap',
           }}>
             <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
 
@@ -324,7 +324,7 @@ export default function FinanceChartOfAccounts() {
               onClick={() => setFilterOpen(o => !o)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
-                padding: '6px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 600,
+                padding: '6px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
                 border: `1.5px solid ${activeFilterCount > 0 ? RED : 'var(--input-bdr)'}`,
                 background: 'transparent',
                 color: activeFilterCount > 0 ? RED : 'var(--txt2)',
@@ -338,13 +338,13 @@ export default function FinanceChartOfAccounts() {
                   position: 'absolute', top: -6, right: -6,
                   width: 16, height: 16, borderRadius: '50%',
                   background: RED, color: '#fff',
-                  fontSize: 9, fontWeight: 700, fontFamily: INTER,
+                  fontSize: 9, fontWeight: FW.bold, fontFamily: INTER,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>{activeFilterCount}</span>
               )}
             </button>
 
-            <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+            <div style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
               {filtered.length} of {accounts.length}
             </div>
           </div>
@@ -355,8 +355,8 @@ export default function FinanceChartOfAccounts() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '20px 20px 0' }}>
 
                 {/* Class */}
-                <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>CLASS</div>
+                <div style={{ paddingRight: SP[5], borderRight: '1px solid var(--bdr)' }}>
+                  <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>CLASS</div>
                   {(['', 'Asset', 'Liability', 'Income', 'Expense', 'Equity'] as const).map(cls => {
                     const color = cls ? CLASS_COLORS[cls as AccountClass] : NAVY
                     const count = cls ? accounts.filter(a => a.class === cls).length : accounts.length
@@ -364,10 +364,10 @@ export default function FinanceChartOfAccounts() {
                       <label key={cls || 'all'} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
                         <input type="radio" name="gl_class" value={cls} checked={classFilter === cls} onChange={() => setClassFilter(cls as any)}
                           style={{ accentColor: color, width: 14, height: 14, cursor: 'pointer' }} />
-                        <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: cls ? `${color}18` : 'var(--chip-bg)', color: cls ? color : 'var(--chip-txt)' }}>
+                        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: cls ? `${color}18` : 'var(--chip-bg)', color: cls ? color : 'var(--chip-txt)' }}>
                           {cls || 'All classes'}
                         </span>
-                        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
                       </label>
                     )
                   })}
@@ -375,40 +375,40 @@ export default function FinanceChartOfAccounts() {
 
                 {/* Summary */}
                 <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>SUMMARY</div>
+                  <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>SUMMARY</div>
                   {[
                     { label: 'Debit normal (Dr)',  count: accounts.filter(a => a.normal_balance === 'Dr').length,  color: BLUE },
                     { label: 'Credit normal (Cr)', count: accounts.filter(a => a.normal_balance === 'Cr').length,  color: GREEN },
                     { label: 'Active',             count: accounts.filter(a => a.is_active).length,                color: GREEN },
                   ].map(s => (
-                    <div key={s.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: SORA }}>{s.label}</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: s.color, fontFamily: INTER }}>{s.count}</span>
+                    <div key={s.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: SP[2] }}>
+                      <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: SORA }}>{s.label}</span>
+                      <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: s.color, fontFamily: INTER }}>{s.count}</span>
                     </div>
                   ))}
                 </div>
 
-                <div style={{ paddingLeft: 20 }} />
+                <div style={{ paddingLeft: SP[5] }} />
 
               </div>
 
               <div style={{
                 padding: '14px 20px', borderTop: '1px solid var(--bdr)', marginTop: 16,
-                display: 'flex', alignItems: 'center', gap: 12,
+                display: 'flex', alignItems: 'center', gap: SP[3],
               }}>
-                <span style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>
+                <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: SORA }}>
                   {activeFilterCount === 0
                     ? `No filters — showing all ${accounts.length} accounts`
                     : `${activeFilterCount} filter active`}
                 </span>
                 <button onClick={resetFilters} style={{
-                  padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+                  padding: '5px 12px', borderRadius: 7, fontSize: TEXT.sm, fontWeight: FW.semibold,
                   border: '1.5px solid var(--input-bdr)', background: 'transparent',
                   color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA,
                 }}>Reset</button>
                 <button onClick={() => setFilterOpen(false)} style={{
                   marginLeft: 'auto', padding: '5px 16px', borderRadius: 7,
-                  fontSize: 12, fontWeight: 600, border: 'none', background: RED, color: '#fff',
+                  fontSize: TEXT.sm, fontWeight: FW.semibold, border: 'none', background: RED, color: '#fff',
                   cursor: 'pointer', fontFamily: SORA,
                 }}>Apply · {filtered.length} results</button>
               </div>
@@ -421,9 +421,9 @@ export default function FinanceChartOfAccounts() {
               padding: '8px 18px', borderBottom: '1px solid var(--bdr)',
               display: 'flex', alignItems: 'center', gap: 6,
             }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: `${CLASS_COLORS[classFilter]}18`, color: CLASS_COLORS[classFilter] }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: SP[1], padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: `${CLASS_COLORS[classFilter]}18`, color: CLASS_COLORS[classFilter] }}>
                 {classFilter}
-                <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setClassFilter('')}>close</span>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setClassFilter('')}>close</span>
               </span>
             </div>
           )}

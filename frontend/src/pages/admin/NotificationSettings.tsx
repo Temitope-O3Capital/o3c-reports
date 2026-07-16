@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { GREEN, NAVY, INTER } from '../../lib/design'
+import { GREEN, NAVY, INTER, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -17,7 +17,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
     <button
       onClick={() => onChange(!checked)}
       style={{
-        width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
+        width: 40, height: 22, borderRadius: RADIUS.lg, border: 'none', cursor: 'pointer',
         background: checked ? GREEN : 'var(--bdr)',
         position: 'relative', flexShrink: 0, transition: 'background .2s',
       }}
@@ -124,8 +124,8 @@ export default function AdminNotificationSettings() {
       actions={
         dirty ? (
           <button onClick={save} disabled={saving} style={{
-            display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 9,
-            border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER,
+            display: 'flex', alignItems: 'center', gap: SP[1], padding: '8px 18px', borderRadius: RADIUS.md,
+            border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
           }}>
             {saving ? 'Saving…' : 'Save Changes'}
           </button>
@@ -137,14 +137,14 @@ export default function AdminNotificationSettings() {
       {loading ? (
         <div style={{ textAlign: 'center', padding: 40, color: 'var(--txt3)' }}>Loading…</div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4] }}>
           {GROUPS.map(group => (
             <SectionCard key={group.label} title={group.label}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
                 {group.keys.map(key => (
-                  <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                  <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP[3] }}>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{labelOf(key)}</div>
+                      <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{labelOf(key)}</div>
                     </div>
                     <Toggle checked={Boolean(settings[key])} onChange={v => toggle(key, v)} />
                   </div>

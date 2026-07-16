@@ -3,7 +3,7 @@ import { Page, SectionCard, ErrBanner, Spinner, DataTable, Modal, btnPrimary, bt
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
-import { GREEN, AMBER, RED, NAVY, BLUE, INTER, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, BLUE, INTER, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 interface DSAR {
@@ -34,7 +34,7 @@ const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
 
 function StatusPill({ status }: { status: string }) {
   const s = STATUS_STYLE[status] ?? STATUS_STYLE.pending
-  return <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 8, ...s }}>{status.replace('_', ' ')}</span>
+  return <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.md, ...s }}>{status.replace('_', ' ')}</span>
 }
 
 export default function DataSubjectRequests() {
@@ -94,44 +94,44 @@ export default function DataSubjectRequests() {
   }
 
   const COLS: TableCol<DSAR>[] = [
-    { key: 'id', label: 'Ref', render: r => <span style={{ ...NUM, fontWeight: 700, color: NAVY }}>DSAR-{r.id}</span> },
+    { key: 'id', label: 'Ref', render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY }}>DSAR-{r.id}</span> },
     { key: 'subject_name', label: 'Subject', render: r => (
       <div>
-        <div style={{ fontWeight: 600 }}>{r.subject_name || '—'}</div>
-        {r.subject_cif && <div style={{ fontSize: 11, color: 'var(--txt3)' }}>CIF: {r.subject_cif}</div>}
-        {r.subject_email && <div style={{ fontSize: 11, color: 'var(--txt3)' }}>{r.subject_email}</div>}
+        <div style={{ fontWeight: FW.semibold }}>{r.subject_name || '—'}</div>
+        {r.subject_cif && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>CIF: {r.subject_cif}</div>}
+        {r.subject_email && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.subject_email}</div>}
       </div>
     )},
     { key: 'request_type', label: 'Type', render: r => (
-      <span style={{ fontSize: 12, fontWeight: 700, color: NAVY }}>{TYPE_LABELS[r.request_type] ?? r.request_type}</span>
+      <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY }}>{TYPE_LABELS[r.request_type] ?? r.request_type}</span>
     )},
     { key: 'status', label: 'Status', render: r => <StatusPill status={r.status} /> },
-    { key: 'created_at', label: 'Received', render: r => <span style={{ fontSize: 12, ...NUM }}>{fmtDatetime(r.created_at)}</span> },
+    { key: 'created_at', label: 'Received', render: r => <span style={{ fontSize: TEXT.sm, ...NUM }}>{fmtDatetime(r.created_at)}</span> },
     { key: 'resolved_at', label: 'Resolved', render: r => r.resolved_at
-      ? <span style={{ fontSize: 12, color: GREEN, ...NUM }}>{fmtDatetime(r.resolved_at)}</span>
+      ? <span style={{ fontSize: TEXT.sm, color: GREEN, ...NUM }}>{fmtDatetime(r.resolved_at)}</span>
       : <span style={{ color: 'var(--txt3)' }}>—</span>
     },
     { key: 'processed_at', label: 'Erased', render: r => r.request_type !== 'erasure' ? null : r.processed_at
       ? (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: GREEN, background: `${GREEN}14`, padding: '2px 8px', borderRadius: 8 }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 12 }}>verified</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: SP[1], fontSize: TEXT.xs, fontWeight: FW.bold, color: GREEN, background: `${GREEN}14`, padding: '2px 8px', borderRadius: RADIUS.md }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm }}>verified</span>
           {fmtDatetime(r.processed_at)}
         </span>
       )
-      : <span style={{ fontSize: 11, color: 'var(--txt3)', fontStyle: 'italic' }}>Pending erasure</span>
+      : <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontStyle: 'italic' }}>Pending erasure</span>
     },
-    { key: 'assigned_to_name', label: 'Handler', render: r => <span style={{ fontSize: 12.5 }}>{r.assigned_to_name ?? '—'}</span> },
+    { key: 'assigned_to_name', label: 'Handler', render: r => <span style={{ fontSize: TEXT.sm }}>{r.assigned_to_name ?? '—'}</span> },
     { key: 'actions', label: '', render: r => r.status !== 'resolved' && r.status !== 'rejected' ? (
-      <button onClick={() => setSelected(r)} style={{ padding: '4px 10px', fontSize: 12, fontWeight: 600,
-        borderRadius: 6, border: `1px solid ${NAVY}30`, background: 'none', color: NAVY, cursor: 'pointer', fontFamily: INTER }}>
+      <button onClick={() => setSelected(r)} style={{ padding: '4px 10px', fontSize: TEXT.sm, fontWeight: FW.semibold,
+        borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: 'none', color: NAVY, cursor: 'pointer', fontFamily: INTER }}>
         Update
       </button>
     ) : null },
   ]
 
   const inp: React.CSSProperties = {
-    padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
-    fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: INTER, width: '100%', boxSizing: 'border-box',
+    padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+    fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: INTER, width: '100%', boxSizing: 'border-box',
   }
 
   return (
@@ -143,7 +143,7 @@ export default function DataSubjectRequests() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* Filter */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+      <div style={{ display: 'flex', gap: 10, marginBottom: SP[5] }}>
         <select value={statusF} onChange={e => setStatusF(e.target.value)}
           style={{ ...inp, width: 160 }}>
           <option value="">All statuses</option>
@@ -166,32 +166,32 @@ export default function DataSubjectRequests() {
       {showNew && (
         <Modal open title="New Data Subject Request" onClose={() => setShowNew(false)} width={560}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>CIF Number</label>
+                <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>CIF Number</label>
                 <input value={formCIF} onChange={e => setFormCIF(e.target.value)} placeholder="CIF-…" style={inp} />
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Subject Name</label>
+                <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Subject Name</label>
                 <input value={formName} onChange={e => setFormName(e.target.value)} placeholder="Full name" style={inp} />
               </div>
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Email</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Email</label>
               <input type="email" value={formEmail} onChange={e => setFormEmail(e.target.value)} placeholder="email@example.com" style={inp} />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Request Type *</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Request Type *</label>
               <select value={formType} onChange={e => setFormType(e.target.value)} style={inp}>
                 {Object.entries(TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Notes</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Notes</label>
               <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={formNotes} onChange={e => setFormNotes(e.target.value)} rows={3}
                 placeholder="Details of the request…" style={{ ...inp, resize: 'vertical' }} />
             </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
               <button onClick={() => setShowNew(false)} style={btnSecondary}>Cancel</button>
               <button onClick={create} disabled={saving} style={btnPrimary}>{saving ? 'Creating…' : 'Create'}</button>
             </div>
@@ -202,15 +202,15 @@ export default function DataSubjectRequests() {
       {/* Status update modal */}
       {selected && (
         <Modal open title={`Update DSAR-${selected.id}`} onClose={() => setSelected(null)} width={420}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ fontSize: 13, color: 'var(--txt2)', marginBottom: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+            <div style={{ fontSize: TEXT.base, color: 'var(--txt2)', marginBottom: SP[2] }}>
               <strong>{TYPE_LABELS[selected.request_type]}</strong> request from {selected.subject_name || selected.subject_email || 'unknown'}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
               {(['in_progress', 'resolved', 'rejected'] as const).map(s => (
                 <button key={s} onClick={() => updateStatus(selected.id, s)}
-                  style={{ padding: '10px 16px', borderRadius: 8, border: `1px solid ${STATUS_STYLE[s].color}40`,
-                    background: STATUS_STYLE[s].bg, color: STATUS_STYLE[s].color, fontSize: 13, fontWeight: 700,
+                  style={{ padding: '10px 16px', borderRadius: RADIUS.md, border: `1px solid ${STATUS_STYLE[s].color}40`,
+                    background: STATUS_STYLE[s].bg, color: STATUS_STYLE[s].color, fontSize: TEXT.base, fontWeight: FW.bold,
                     cursor: 'pointer', fontFamily: INTER, textAlign: 'left' }}>
                   Mark as {s.replace('_', ' ')}
                 </button>

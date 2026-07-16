@@ -7,7 +7,7 @@ import { Page, KpiCard, SectionCard, DataTable, ErrBanner } from '../../componen
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtPct, fmtNum } from '../../lib/fmt'
-import { RED, DARKRED, AMBER, GREEN, BLUE, NUM } from '../../lib/design'
+import { RED, DARKRED, AMBER, GREEN, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -59,14 +59,14 @@ function KoboTooltip({ active, payload, label }: any) {
   return (
     <div style={{
       background: 'var(--card)', border: '1px solid var(--card-bdr)',
-      borderRadius: 8, padding: '10px 14px', fontSize: 12,
+      borderRadius: RADIUS.md, padding: '10px 14px', fontSize: TEXT.sm,
     }}>
-      <div style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 6 }}>{label}</div>
+      <div style={{ fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 6 }}>{label}</div>
       {payload.map((p: any) => (
-        <div key={p.name} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 2 }}>
+        <div key={p.name} style={{ display: 'flex', gap: SP[2], alignItems: 'center', marginBottom: 2 }}>
           <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: 'inline-block' }} />
           <span style={{ color: 'var(--txt2)' }}>{p.name}:</span>
-          <span style={{ ...NUM, color: 'var(--txt)', fontWeight: 600 }}>{fmtKobo(p.value)}</span>
+          <span style={{ ...NUM, color: 'var(--txt)', fontWeight: FW.semibold }}>{fmtKobo(p.value)}</span>
         </div>
       ))}
     </div>
@@ -91,21 +91,21 @@ const AGENT_COLS: TableCol<AgentRow>[] = [
 
 function RollBars({ data }: { data: RollBucket[] }) {
   if (!data.length) return (
-    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>
+    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>
       No DPD data available
     </div>
   )
   const maxKobo = Math.max(...data.map(d => Number(d.outstanding_kobo)), 1)
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '4px 0' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3], padding: '4px 0' }}>
       {data.map(d => {
         const pct = (Number(d.outstanding_kobo) / maxKobo) * 100
         const color = dpdColor(d.dpd_bucket)
         return (
           <div key={d.dpd_bucket}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color }}>DPD {d.dpd_bucket}</span>
-              <span style={{ ...NUM, fontSize: 12, color: 'var(--txt)' }}>
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color }}>DPD {d.dpd_bucket}</span>
+              <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt)' }}>
                 {fmtKobo(d.outstanding_kobo)}
                 <span style={{ color: 'var(--txt2)', marginLeft: 6 }}>({fmtNum(d.account_count)} accts)</span>
               </span>
@@ -170,7 +170,7 @@ export default function CollectionsOverview() {
       <ErrBanner error={err} onRetry={load} />
 
       {/* KPI strip — PAR30, PAR90, Total Outstanding, Current Rate */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
         <KpiCard
           label="PAR30 Total"
           value={fmtKobo(kpis?.par30_kobo)}
@@ -206,7 +206,7 @@ export default function CollectionsOverview() {
       </div>
 
       {/* Chart row: stacked DPD trend + DPD bucket distribution */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: SP[4], marginBottom: SP[5] }}>
         {/* Left: stacked area — 6-month PAR trend */}
         <SectionCard title="6-Month DPD Trend (PAR30 / PAR60 / PAR90)" padding={false}>
           <div style={{ padding: '16px 18px' }}>
@@ -285,7 +285,7 @@ export default function CollectionsOverview() {
 
       {/* Agent bar chart */}
       {agents.length > 0 && (
-        <SectionCard title="Top 10 Agents — Collections Bar" padding={false} style={{ marginTop: 16 }}>
+        <SectionCard title="Top 10 Agents — Collections Bar" padding={false} style={{ marginTop: SP[4] }}>
           <div style={{ padding: '16px 18px' }}>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart

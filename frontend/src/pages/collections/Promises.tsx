@@ -7,7 +7,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPut } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
-import { AMBER, GREEN, RED, NAVY, NUM } from '../../lib/design'
+import { AMBER, GREEN, RED, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -43,8 +43,8 @@ function PtpPill({ status }: { status: string }) {
   return (
     <span style={{
       ...NUM, display: 'inline-flex', alignItems: 'center',
-      fontSize: 11.5, fontWeight: 600, padding: '2px 8px',
-      borderRadius: 20, background: s.bg, color: s.txt, whiteSpace: 'nowrap',
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px',
+      borderRadius: RADIUS['2xl'], background: s.bg, color: s.txt, whiteSpace: 'nowrap',
     }}>
       {status}
     </span>
@@ -150,9 +150,9 @@ export default function CollectionsPromises() {
       label: 'Customer',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.account_cif}</div>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.account_cif}</div>
           {r.customer_name && (
-            <div style={{ fontSize: 11, color: 'var(--txt2)', marginTop: 1 }}>{r.customer_name}</div>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 1 }}>{r.customer_name}</div>
           )}
         </div>
       ),
@@ -161,20 +161,20 @@ export default function CollectionsPromises() {
       key: 'outstanding_kobo',
       label: 'Outstanding ₦',
       align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: 600, color: 'var(--txt)' }}>{fmtKobo(r.outstanding_kobo)}</span>,
+      render: r => <span style={{ ...NUM, fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtKobo(r.outstanding_kobo)}</span>,
     },
     {
       key: 'promise_amount_kobo',
       label: 'PTP Amount ₦',
       align: 'right',
       sortable: true,
-      render: r => <span style={{ ...NUM, fontWeight: 600, color: NAVY }}>{fmtKobo(r.promise_amount_kobo)}</span>,
+      render: r => <span style={{ ...NUM, fontWeight: FW.semibold, color: NAVY }}>{fmtKobo(r.promise_amount_kobo)}</span>,
     },
     {
       key: 'promise_date',
       label: 'Due Date',
       sortable: true,
-      render: r => <span style={{ fontSize: 13, color: 'var(--txt)' }}>{fmtDate(r.promise_date)}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, color: 'var(--txt)' }}>{fmtDate(r.promise_date)}</span>,
     },
     {
       key: 'status',
@@ -184,12 +184,12 @@ export default function CollectionsPromises() {
     {
       key: 'agent_name',
       label: 'Agent',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{r.agent_name ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.agent_name ?? '—'}</span>,
     },
     {
       key: 'created_at',
       label: 'Created',
-      render: r => <span style={{ fontSize: 11.5, color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span>,
+      render: r => <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span>,
     },
     {
       key: '_actions',
@@ -202,8 +202,8 @@ export default function CollectionsPromises() {
             onClick={e => openAction(r, 'kept', e)}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 4,
-              padding: '4px 10px', borderRadius: 7, border: 'none', cursor: 'pointer',
-              fontSize: 11.5, fontWeight: 600,
+              padding: '4px 10px', borderRadius: RADIUS.md, border: 'none', cursor: 'pointer',
+              fontSize: TEXT.xs, fontWeight: FW.semibold,
               background: `${GREEN}1F`, color: GREEN,
             }}
           >
@@ -213,8 +213,8 @@ export default function CollectionsPromises() {
             onClick={e => openAction(r, 'broken', e)}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 4,
-              padding: '4px 10px', borderRadius: 7, border: 'none', cursor: 'pointer',
-              fontSize: 11.5, fontWeight: 600,
+              padding: '4px 10px', borderRadius: RADIUS.md, border: 'none', cursor: 'pointer',
+              fontSize: TEXT.xs, fontWeight: FW.semibold,
               background: `${RED}1A`, color: RED,
             }}
           >
@@ -229,7 +229,7 @@ export default function CollectionsPromises() {
 
   const bulkBar = selectedIds.size > 0 ? (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: '#F0F4FF', borderBottom: '1px solid var(--bdr)' }}>
-      <span style={{ fontSize: 12.5, fontWeight: 600, color: NAVY }}>{selectedIds.size} selected</span>
+      <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>{selectedIds.size} selected</span>
       <div style={{ marginLeft: 'auto' }}>
         <button
           onClick={() => exportPromisesCsv(selectedRows)}
@@ -255,14 +255,14 @@ export default function CollectionsPromises() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="Total Promises" value={kpis ? fmtNum(kpis.total) : '—'} icon="handshake" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="Kept" value={kpis ? fmtNum(kpis.kept) : '—'} icon="check_circle" accent={GREEN} loading={kpiLoading} />
         <KpiCard label="Broken" value={kpis ? fmtNum(kpis.broken) : '—'} icon="cancel" accent={RED} loading={kpiLoading} />
         <KpiCard label="Amount Promised ₦" value={kpis ? fmtKobo(kpis.amount_promised_kobo) : '—'} icon="payments" accent={AMBER} loading={kpiLoading} />
       </div>
 
-      <SectionCard title="Promises" badge={rows.length} padding={false} actions={<button onClick={() => exportPromisesCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Promises" badge={rows.length} padding={false} actions={<button onClick={() => exportPromisesCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <div style={{ padding: '12px 16px 0' }}>
           <FilterBar onReset={() => { setStatus(''); setDateFrom(monthStart()); setDateTo(today()); setQ('') }}>
             <select value={status} onChange={e => setStatus(e.target.value)} style={filterInputStyle}>
@@ -280,7 +280,7 @@ export default function CollectionsPromises() {
             />
             <button
               onClick={() => load()}
-              style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
+              style={{ height: 32, padding: '0 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
             >
               Apply
             </button>

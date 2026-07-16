@@ -3,7 +3,7 @@ import { Page, SectionCard, KpiCard, DataTable, ErrBanner } from '../../componen
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtNum } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP } from '../../lib/design'
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar,
   PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -95,11 +95,11 @@ export default function SalesReports() {
   useEffect(() => { load() }, [load])
 
   const agentCols: TableCol<AgentReport>[] = [
-    { key: 'full_name',      label: 'Agent',      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.full_name}</span> },
-    { key: 'role',           label: 'Role',       render: r => <span style={{ fontSize: 12, color: 'var(--txt2)', textTransform: 'capitalize' }}>{r.role}</span> },
+    { key: 'full_name',      label: 'Agent',      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.full_name}</span> },
+    { key: 'role',           label: 'Role',       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', textTransform: 'capitalize' }}>{r.role}</span> },
     { key: 'contacts_owned', label: 'Contacts',   align: 'right', render: r => <span style={NUM}>{toN(r.contacts_owned)}</span> },
     { key: 'deals_owned',    label: 'Deals',      align: 'right', render: r => <span style={NUM}>{toN(r.deals_owned)}</span> },
-    { key: 'deals_won',      label: 'Won',        align: 'right', render: r => <span style={{ ...NUM, color: toN(r.deals_won) > 0 ? GREEN : 'var(--txt3)', fontWeight: 700 }}>{toN(r.deals_won)}</span> },
+    { key: 'deals_won',      label: 'Won',        align: 'right', render: r => <span style={{ ...NUM, color: toN(r.deals_won) > 0 ? GREEN : 'var(--txt3)', fontWeight: FW.bold }}>{toN(r.deals_won)}</span> },
     { key: 'activities',     label: 'Activities (30d)', align: 'right', render: r => <span style={NUM}>{toN(r.activities)}</span> },
     {
       key: 'tasks_done', label: 'Tasks Done', align: 'right',
@@ -118,7 +118,7 @@ export default function SalesReports() {
       <ErrBanner error={err} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: SP[3], marginBottom: SP[5] }}>
         <KpiCard label="Total Contacts" value={fmtNum(toN(kpis?.total_contacts))} loading={loading} />
         <KpiCard label="Leads"          value={fmtNum(toN(kpis?.total_leads))}    loading={loading} />
         <KpiCard label="Customers"      value={fmtNum(toN(kpis?.total_customers))} accent={GREEN} loading={loading} />
@@ -143,10 +143,10 @@ export default function SalesReports() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 10.5, fill: 'var(--txt2)' }} />
-              <YAxis tick={{ fontSize: 10.5, fill: 'var(--txt2)' }} allowDecimals={false} />
-              <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-              <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+              <XAxis dataKey="month" tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} />
+              <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} allowDecimals={false} />
+              <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
+              <Legend iconSize={10} wrapperStyle={{ fontSize: TEXT.xs }} />
               <Area type="monotone" dataKey="new_contacts" stroke={NAVY}  strokeWidth={2} fill="url(#repContactGrad)" name="New Contacts" />
               <Area type="monotone" dataKey="converted"    stroke={GREEN} strokeWidth={2} fill="url(#repConvGrad)"    name="Converted" />
             </AreaChart>
@@ -160,12 +160,12 @@ export default function SalesReports() {
                 <Pie data={sources} cx="50%" cy="44%" innerRadius={48} outerRadius={75} dataKey="total" nameKey="source">
                   {sources.map((_, i) => <Cell key={i} fill={SOURCE_COLORS[i % SOURCE_COLORS.length]} />)}
                 </Pie>
-                <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-                <Legend iconSize={9} wrapperStyle={{ fontSize: 11 }} formatter={(v) => String(v).replace(/_/g, ' ')} />
+                <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
+                <Legend iconSize={9} wrapperStyle={{ fontSize: TEXT.xs }} formatter={(v) => String(v).replace(/_/g, ' ')} />
               </PieChart>
             </ResponsiveContainer>
           ) : (
-            <div style={{ height: 210, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: 13 }}>
+            <div style={{ height: 210, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>
               No source data
             </div>
           )}
@@ -178,9 +178,9 @@ export default function SalesReports() {
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={pipeline} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--txt2)' }} />
-              <YAxis tick={{ fontSize: 10.5, fill: 'var(--txt2)' }} allowDecimals={false} />
-              <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
+              <XAxis dataKey="name" tick={{ fontSize: TEXT.xs, fill: 'var(--txt2)' }} />
+              <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} allowDecimals={false} />
+              <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
               <Bar dataKey="deal_count" fill={NAVY} radius={[4, 4, 0, 0]} name="Deals">
                 {pipeline.map((entry, i) => (
                   <Cell key={i} fill={entry.color || SOURCE_COLORS[i % SOURCE_COLORS.length]} />

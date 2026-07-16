@@ -4,7 +4,7 @@ import type { TableCol } from '../../components/UI'
 import { DataTable } from '../../components/UI'
 import { apiFetch, apiPut, apiPost } from '../../lib/api'
 import { fmtKobo, fmtKoboExact, fmtNum, fmtDate, today } from '../../lib/fmt'
-import { GREEN, RED, AMBER, NAVY, NUM } from '../../lib/design'
+import { GREEN, RED, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -38,7 +38,7 @@ function MatchStatusPill({ status }: { status: string }) {
   else if (s === 'exception') { bg = 'rgba(192,0,0,.1)'; txt = RED }
   else { bg = 'rgba(217,119,6,.12)'; txt = AMBER }
   return (
-    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: bg, color: txt, whiteSpace: 'nowrap' }}>
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: bg, color: txt, whiteSpace: 'nowrap' }}>
       {status}
     </span>
   )
@@ -80,8 +80,8 @@ function ResolveModal({ open, rowId, onClose, onSuccess }: ResolveModalProps) {
     <Modal open={open} onClose={onClose} title="Resolve Exception"
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={handleSubmit} disabled={saving || !resolutionType} style={{ padding: '7px 15px', borderRadius: 8, border: 'none', background: '#0E2841', color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving || !resolutionType ? 'not-allowed' : 'pointer', opacity: saving || !resolutionType ? 0.6 : 1 }}>
+          <button onClick={onClose} style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.medium, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={handleSubmit} disabled={saving || !resolutionType} style={{ padding: '7px 15px', borderRadius: RADIUS.md, border: 'none', background: '#0E2841', color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving || !resolutionType ? 'not-allowed' : 'pointer', opacity: saving || !resolutionType ? 0.6 : 1 }}>
             {saving ? 'Saving…' : 'Resolve'}
           </button>
         </div>
@@ -89,7 +89,7 @@ function ResolveModal({ open, rowId, onClose, onSuccess }: ResolveModalProps) {
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Resolution Type</label>
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Resolution Type</label>
           <select value={resolutionType} onChange={e => setResolutionType(e.target.value)} style={{ ...filterInputStyle, width: '100%', height: 36 }}>
             <option value="">Select resolution type…</option>
             <option value="Manual Match">Manual Match</option>
@@ -98,8 +98,8 @@ function ResolveModal({ open, rowId, onClose, onSuccess }: ResolveModalProps) {
           </select>
         </div>
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Notes</label>
-          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Add resolution notes…" rows={4} style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box' }} />
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Notes</label>
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Add resolution notes…" rows={4} style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box' }} />
         </div>
       </div>
     </Modal>
@@ -141,18 +141,18 @@ function NipKpis({ rows }: { rows: NIPRow[] }) {
   ]
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3], marginBottom: SP[4] }}>
       {/* KPI row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 10 }}>
         {kpis.map(k => (
-          <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 11, padding: '12px 14px' }}>
+          <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.lg, padding: '12px 14px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 7 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--txt2)' }}>{k.label}</span>
-              <div style={{ width: 24, height: 24, borderRadius: 6, background: `${k.accent}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 13, color: k.accent }}>{k.icon}</span>
+              <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--txt2)' }}>{k.label}</span>
+              <div style={{ width: 24, height: 24, borderRadius: RADIUS.sm, background: `${k.accent}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.base, color: k.accent }}>{k.icon}</span>
               </div>
             </div>
-            <div style={{ ...NUM, fontSize: 19, fontWeight: 700, color: 'var(--txt)' }}>{k.value}</div>
+            <div style={{ ...NUM, fontSize: 19, fontWeight: FW.bold, color: 'var(--txt)' }}>{k.value}</div>
           </div>
         ))}
       </div>
@@ -160,8 +160,8 @@ function NipKpis({ rows }: { rows: NIPRow[] }) {
       {/* Volume comparison + exception aging */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         {/* Volume comparison */}
-        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 11, padding: '12px 14px' }}>
-          <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', margin: '0 0 10px' }}>Volume Comparison</p>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.lg, padding: '12px 14px' }}>
+          <p style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 10px' }}>Volume Comparison</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {[
               { label: 'NIP Total', value: nipTotal, color: NAVY },
@@ -170,14 +170,14 @@ function NipKpis({ rows }: { rows: NIPRow[] }) {
               <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ width: 8, height: 8, borderRadius: 2, background: row.color, display: 'inline-block' }} />
-                  <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{row.label}</span>
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{row.label}</span>
                 </div>
-                <span style={{ ...NUM, fontSize: 13, fontWeight: 700, color: row.color }}>{fmtKoboExact(row.value)}</span>
+                <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: row.color }}>{fmtKoboExact(row.value)}</span>
               </div>
             ))}
             <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>Delta (at risk)</span>
-              <span style={{ ...NUM, fontSize: 13, fontWeight: 700, color: deltaColor }}>{delta === 0 ? '₦0.00' : fmtKoboExact(delta)}</span>
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>Delta (at risk)</span>
+              <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: deltaColor }}>{delta === 0 ? '₦0.00' : fmtKoboExact(delta)}</span>
             </div>
           </div>
           {/* Recon rate bar */}
@@ -189,12 +189,12 @@ function NipKpis({ rows }: { rows: NIPRow[] }) {
         </div>
 
         {/* Exception aging */}
-        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 11, padding: '12px 14px' }}>
-          <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', margin: '0 0 10px' }}>Exception Aging</p>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.lg, padding: '12px 14px' }}>
+          <p style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 10px' }}>Exception Aging</p>
           {exceptions === 0 ? (
             <div style={{ textAlign: 'center', padding: '10px 0', color: GREEN }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 24, display: 'block', marginBottom: 4 }}>check_circle</span>
-              <span style={{ fontSize: 12 }}>No open exceptions</span>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], display: 'block', marginBottom: 4 }}>check_circle</span>
+              <span style={{ fontSize: TEXT.sm }}>No open exceptions</span>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -205,8 +205,8 @@ function NipKpis({ rows }: { rows: NIPRow[] }) {
                 { label: '> 7 days (stale)', count: aging.gt7, color: RED },
               ].map(b => b.count > 0 && (
                 <div key={b.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: '1px solid var(--bdr)' }}>
-                  <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{b.label}</span>
-                  <span style={{ ...NUM, fontSize: 13, fontWeight: 700, color: b.color }}>{b.count}</span>
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{b.label}</span>
+                  <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: b.color }}>{b.count}</span>
                 </div>
               ))}
             </div>
@@ -293,15 +293,15 @@ export default function NIPReconciliation() {
   const cols: TableCol<NIPRow>[] = [
     {
       key: 'nip_ref', label: 'NIP Ref',
-      render: r => <span style={{ ...NUM, fontSize: 12.5, fontWeight: 600, color: '#0E2841' }}>{r.nip_ref}</span>,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: '#0E2841' }}>{r.nip_ref}</span>,
     },
     {
       key: 'amount_kobo', label: 'Amount ₦', align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.amount_kobo)}</span>,
+      render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.amount_kobo)}</span>,
     },
     {
       key: 'value_date', label: 'Value Date',
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.value_date)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.value_date)}</span>,
     },
     {
       key: 'customer_name', label: 'Customer',
@@ -310,8 +310,8 @@ export default function NIPReconciliation() {
     {
       key: 'core_banking_credited', label: 'Core Banking Credit', align: 'center',
       render: r => r.core_banking_credited
-        ? <span className="material-symbols-rounded" style={{ fontSize: 18, color: GREEN }}>check_circle</span>
-        : <span style={{ color: 'var(--txt3)', fontSize: 13 }}>—</span>,
+        ? <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: GREEN }}>check_circle</span>
+        : <span style={{ color: 'var(--txt3)', fontSize: TEXT.base }}>—</span>,
     },
     {
       key: 'match_status', label: 'Match Status',
@@ -319,7 +319,7 @@ export default function NIPReconciliation() {
     },
     {
       key: 'exception_type', label: 'Exception Type',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.exception_type ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.exception_type ?? '—'}</span>,
     },
     {
       key: '_actions', label: '', sortable: false, width: 100,
@@ -330,7 +330,7 @@ export default function NIPReconciliation() {
           <div style={{ display: 'flex', gap: 5 }} onClick={e => e.stopPropagation()}>
             <button
               onClick={() => setResolveRow(r)}
-              style={{ padding: '4px 10px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+              style={{ padding: '4px 10px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', whiteSpace: 'nowrap' }}
             >
               Resolve
             </button>
@@ -341,12 +341,12 @@ export default function NIPReconciliation() {
   ]
 
   const bulkBar = checkedIds.size > 0 ? (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{checkedIds.size} selected</span>
-      <button onClick={handleExportExceptions} style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+      <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{checkedIds.size} selected</span>
+      <button onClick={handleExportExceptions} style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
         Export Exceptions
       </button>
-      <button onClick={handleMarkResolved} style={{ padding: '5px 12px', borderRadius: 7, border: 'none', background: '#0E2841', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+      <button onClick={handleMarkResolved} style={{ padding: '5px 12px', borderRadius: 7, border: 'none', background: '#0E2841', color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
         Mark Resolved
       </button>
     </div>
@@ -358,7 +358,7 @@ export default function NIPReconciliation() {
 
       <NipKpis rows={rows} />
 
-      <SectionCard title="NIP Entries" badge={sorted.length} padding={false} actions={<button onClick={handleExportExceptions} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="NIP Entries" badge={sorted.length} padding={false} actions={<button onClick={handleExportExceptions} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <div style={{ padding: '12px 16px 0' }}>
           <FilterBar onReset={() => { setDateFilter(today()); setStatusFilter('') }}>
             <DateFilter from={dateFilter} to={dateFilter} onChange={(f) => setDateFilter(f)} />
@@ -368,7 +368,7 @@ export default function NIPReconciliation() {
               <option value="Unmatched">Unmatched</option>
               <option value="Exception">Exception</option>
             </select>
-            <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Apply</button>
+            <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
           </FilterBar>
         </div>
         <DataTable

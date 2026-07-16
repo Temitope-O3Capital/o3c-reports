@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { AuthUser } from '../hooks/useAuth'
 import { API, storeCsrfToken } from '../lib/api'
+import { TEXT, FW, RADIUS, SP } from '../lib/design'
+
 
 // ── CSS (pseudo-selectors + keyframes must live outside inline styles) ─────────
 
@@ -116,7 +118,7 @@ function FloatingField({ id, label, type = 'text', value, onChange, autoFocus, a
       <div style={{
         position: 'relative',
         height: 58,
-        borderRadius: 14,
+        borderRadius: RADIUS.xl,
         border: `1.5px solid ${focused ? '#0E2841' : active ? 'rgba(14,40,65,0.18)' : 'rgba(14,40,65,0.1)'}`,
         background: focused ? '#fff' : '#F9FAFC',
         boxShadow: focused ? '0 0 0 4px rgba(14,40,65,0.06)' : 'none',
@@ -266,15 +268,15 @@ function PrimaryBtn({
       onMouseLeave={() => setHov(false)}
       style={{
         width: '100%', height: 52,
-        borderRadius: 14, border: 'none',
+        borderRadius: RADIUS.xl, border: 'none',
         background: '#0E2841',
         color: '#fff',
-        fontSize: 15, fontWeight: 600,
+        fontSize: 15, fontWeight: FW.semibold,
         fontFamily: "'Sora', sans-serif",
         letterSpacing: '-0.15px',
         cursor: loading ? 'not-allowed' : 'pointer',
         opacity: loading ? 0.65 : 1,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: SP[2],
         transition: 'background 160ms ease, transform 120ms ease, box-shadow 180ms ease, opacity 180ms ease',
         transform: hov && !loading ? 'translateY(-1.5px)' : 'none',
         boxShadow: hov && !loading ? '0 12px 32px rgba(14,40,65,0.32)' : '0 2px 10px rgba(14,40,65,0.18)',
@@ -305,7 +307,7 @@ function ErrorMsg({ msg }: { msg: string }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'flex-start', gap: 9,
-      padding: '11px 14px', borderRadius: 12,
+      padding: '11px 14px', borderRadius: RADIUS.xl,
       background: 'rgba(192,0,0,0.05)',
       border: '1px solid rgba(192,0,0,0.13)',
       animation: 'o3fade 180ms ease',
@@ -313,7 +315,7 @@ function ErrorMsg({ msg }: { msg: string }) {
       <span className="material-symbols-rounded icon-fill" style={{ fontSize: 15, color: '#C00000', flexShrink: 0, marginTop: 1 }}>
         error
       </span>
-      <span style={{ fontSize: 13, color: '#C00000', fontWeight: 500, lineHeight: 1.45 }}>
+      <span style={{ fontSize: TEXT.base, color: '#C00000', fontWeight: FW.medium, lineHeight: 1.45 }}>
         {msg}
       </span>
     </div>
@@ -382,10 +384,10 @@ function BrandPanel() {
         </div>
 
         {/* Wordmark */}
-        <div style={{ color: 'rgba(255,255,255,0.94)', fontWeight: 700, fontSize: 20, letterSpacing: '-0.3px', lineHeight: 1 }}>
+        <div style={{ color: 'rgba(255,255,255,0.94)', fontWeight: FW.bold, fontSize: TEXT['2xl'], letterSpacing: '-0.3px', lineHeight: 1 }}>
           O3 Capital
         </div>
-        <div style={{ marginTop: 5, color: 'rgba(255,255,255,0.2)', fontSize: 10, fontWeight: 700, letterSpacing: '0.22em', textTransform: 'uppercase' }}>
+        <div style={{ marginTop: 5, color: 'rgba(255,255,255,0.2)', fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.22em', textTransform: 'uppercase' }}>
           Workspace
         </div>
 
@@ -393,7 +395,7 @@ function BrandPanel() {
         <div style={{ marginTop: 40, width: 28, height: 1, background: 'rgba(255,255,255,0.1)' }} />
 
         {/* Tagline */}
-        <p style={{ marginTop: 32, color: 'rgba(255,255,255,0.35)', fontSize: 14, lineHeight: 1.8, maxWidth: 260, letterSpacing: '-0.05px' }}>
+        <p style={{ marginTop: 32, color: 'rgba(255,255,255,0.35)', fontSize: TEXT.md, lineHeight: 1.8, maxWidth: 260, letterSpacing: '-0.05px' }}>
           The nerve centre of O3 Capital — loans, cards, collections, compliance, and everything in between.
         </p>
 
@@ -401,14 +403,14 @@ function BrandPanel() {
         <div style={{ display: 'flex', gap: 32, marginTop: 40 }}>
           {[['14', 'Depts'], ['24', 'Roles'], ['74+', 'Modules']].map(([n, l]) => (
             <div key={l} style={{ textAlign: 'center' }}>
-              <div style={{ color: 'rgba(255,255,255,0.84)', fontWeight: 800, fontSize: 19, letterSpacing: '-0.5px' }}>{n}</div>
-              <div style={{ color: 'rgba(255,255,255,0.22)', fontSize: 9.5, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 3 }}>{l}</div>
+              <div style={{ color: 'rgba(255,255,255,0.84)', fontWeight: FW.extrabold, fontSize: 19, letterSpacing: '-0.5px' }}>{n}</div>
+              <div style={{ color: 'rgba(255,255,255,0.22)', fontSize: 9.5, fontWeight: FW.semibold, letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 3 }}>{l}</div>
             </div>
           ))}
         </div>
       </div>
 
-      <div style={{ position: 'absolute', bottom: 28, color: 'rgba(255,255,255,0.12)', fontSize: 11, letterSpacing: '0.04em' }}>
+      <div style={{ position: 'absolute', bottom: 28, color: 'rgba(255,255,255,0.12)', fontSize: TEXT.xs, letterSpacing: '0.04em' }}>
         Internal platform · Confidential
       </div>
     </div>
@@ -608,8 +610,8 @@ export default function Login({ onLogin }: LoginProps) {
                 style={{ display: 'block', filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.5))' }}
               />
             </div>
-            <div style={{ marginTop: 14, color: 'rgba(255,255,255,0.9)', fontWeight: 700, fontSize: 18 }}>O3 Capital</div>
-            <div style={{ marginTop: 3, color: 'rgba(255,255,255,0.2)', fontSize: 10, fontWeight: 700, letterSpacing: '0.22em', textTransform: 'uppercase' }}>Workspace</div>
+            <div style={{ marginTop: 14, color: 'rgba(255,255,255,0.9)', fontWeight: FW.bold, fontSize: TEXT.xl }}>O3 Capital</div>
+            <div style={{ marginTop: 3, color: 'rgba(255,255,255,0.2)', fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.22em', textTransform: 'uppercase' }}>Workspace</div>
           </div>
         )}
 
@@ -628,8 +630,8 @@ export default function Login({ onLogin }: LoginProps) {
             }}>
               <img src="/o3-logo.svg" width={46} height={27} alt="O3 Capital" style={{ display: 'block' }} />
               <div>
-                <div style={{ color: '#0E2841', fontWeight: 700, fontSize: 15, letterSpacing: '-0.25px', lineHeight: 1.1 }}>O3 Capital</div>
-                <div style={{ color: '#C0C9D6', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', marginTop: 2 }}>Workspace</div>
+                <div style={{ color: '#0E2841', fontWeight: FW.bold, fontSize: 15, letterSpacing: '-0.25px', lineHeight: 1.1 }}>O3 Capital</div>
+                <div style={{ color: '#C0C9D6', fontSize: 9.5, fontWeight: FW.bold, letterSpacing: '0.16em', textTransform: 'uppercase', marginTop: 2 }}>Workspace</div>
               </div>
             </div>
           )}
@@ -638,10 +640,10 @@ export default function Login({ onLogin }: LoginProps) {
           {step === 'credentials' && !forgotMode && !regMode && (
             <>
               <div style={{ marginBottom: 32, animation: 'o3rise 340ms cubic-bezier(0.4,0,0.2,1) both' }}>
-                <h1 style={{ fontSize: 26, fontWeight: 800, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.6px', lineHeight: 1.2 }}>
+                <h1 style={{ fontSize: 26, fontWeight: FW.extrabold, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.6px', lineHeight: 1.2 }}>
                   {greeting}.
                 </h1>
-                <p style={{ fontSize: 14, color: txtSecondary, margin: 0, lineHeight: 1.65, letterSpacing: '-0.05px' }}>
+                <p style={{ fontSize: TEXT.md, color: txtSecondary, margin: 0, lineHeight: 1.65, letterSpacing: '-0.05px' }}>
                   Sign in with your O3 Capital account.
                 </p>
               </div>
@@ -673,11 +675,11 @@ export default function Login({ onLogin }: LoginProps) {
                   {err && <ErrorMsg msg={err} />}
                   <PrimaryBtn loading={loading} delay={120}>
                     <span>Sign in</span>
-                    <span className="material-symbols-rounded" style={{ fontSize: 18, fontVariationSettings: "'wght' 500" }}>east</span>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, fontVariationSettings: "'wght' 500" }}>east</span>
                   </PrimaryBtn>
                 </div>
 
-                <div style={{ textAlign: 'center', marginTop: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ textAlign: 'center', marginTop: 20, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
                   <button type="button" className="o3-ghost" onClick={() => { setForgotMode(true); setForgotEmail(email); setForgotErr(''); setForgotDone(false) }}>
                     Forgot your password?
                   </button>
@@ -693,10 +695,10 @@ export default function Login({ onLogin }: LoginProps) {
           {forgotMode && (
             <>
               <div style={{ marginBottom: 28, animation: 'o3rise 300ms cubic-bezier(0.4,0,0.2,1) both' }}>
-                <h1 style={{ fontSize: 22, fontWeight: 800, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.5px' }}>
+                <h1 style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.5px' }}>
                   Reset your password
                 </h1>
-                <p style={{ fontSize: 13.5, color: txtSecondary, margin: 0, lineHeight: 1.65 }}>
+                <p style={{ fontSize: TEXT.base, color: txtSecondary, margin: 0, lineHeight: 1.65 }}>
                   {forgotDone
                     ? "Check your inbox. If that email is registered, a temporary password has been sent. Use it to log in, then change your password in Settings."
                     : "Enter your work email and we'll send you a temporary password."}
@@ -735,10 +737,10 @@ export default function Login({ onLogin }: LoginProps) {
           {regMode && !forgotMode && (
             <>
               <div style={{ marginBottom: 28, animation: 'o3rise 300ms cubic-bezier(0.4,0,0.2,1) both' }}>
-                <h1 style={{ fontSize: 22, fontWeight: 800, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.5px' }}>
+                <h1 style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.5px' }}>
                   Request access
                 </h1>
-                <p style={{ fontSize: 13.5, color: txtSecondary, margin: 0, lineHeight: 1.65 }}>
+                <p style={{ fontSize: TEXT.base, color: txtSecondary, margin: 0, lineHeight: 1.65 }}>
                   {regDone
                     ? "Request received. The IT Admin will review and send your login credentials by email."
                     : "Fill in your details and the IT Admin will activate your account."}
@@ -777,7 +779,7 @@ export default function Login({ onLogin }: LoginProps) {
             <>
               <div style={{ marginBottom: 28, animation: 'o3rise 300ms cubic-bezier(0.4,0,0.2,1) both' }}>
                 <div style={{
-                  width: 44, height: 44, borderRadius: 13,
+                  width: 44, height: 44, borderRadius: RADIUS.xl,
                   background: wide ? 'rgba(14,40,65,0.06)' : 'rgba(255,255,255,0.07)',
                   border: wide ? 'none' : '1px solid rgba(255,255,255,0.1)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -787,22 +789,22 @@ export default function Login({ onLogin }: LoginProps) {
                     shield_lock
                   </span>
                 </div>
-                <h1 style={{ fontSize: 22, fontWeight: 800, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.5px' }}>
+                <h1 style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.5px' }}>
                   Verify your identity
                 </h1>
-                <p style={{ fontSize: 13.5, color: txtSecondary, margin: 0, lineHeight: 1.65 }}>
+                <p style={{ fontSize: TEXT.base, color: txtSecondary, margin: 0, lineHeight: 1.65 }}>
                   Enter the 6-digit code from your authenticator app.
                 </p>
               </div>
 
               <form onSubmit={e => e.preventDefault()}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: SP[5] }}>
                   <TotpBoxes onComplete={handleTotp} disabled={loading} />
 
                   {loading && (
                     <div style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      gap: 9, color: txtSecondary, fontSize: 13,
+                      gap: 9, color: txtSecondary, fontSize: TEXT.base,
                     }}>
                       <span style={{
                         width: 14, height: 14,
@@ -822,7 +824,7 @@ export default function Login({ onLogin }: LoginProps) {
                     onClick={() => { setStep('credentials'); setErr('') }}
                     style={{ display: 'flex', alignItems: 'center', gap: 5 }}
                   >
-                    <span className="material-symbols-rounded" style={{ fontSize: 14 }}>arrow_back</span>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>arrow_back</span>
                     Back to sign in
                   </button>
                 </div>
@@ -833,7 +835,7 @@ export default function Login({ onLogin }: LoginProps) {
 
         <div style={{
           position: 'absolute', bottom: 24,
-          fontSize: 11.5,
+          fontSize: TEXT.xs,
           color: wide ? '#D0D8E2' : 'rgba(255,255,255,0.11)',
           letterSpacing: '0.01em',
         }}>

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Page, ErrBanner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
-import { RED, GREEN, AMBER, NAVY, BLUE, NUM, INTER, SORA } from '../../lib/design'
+import { RED, GREEN, AMBER, NAVY, BLUE, NUM, INTER, SORA, TEXT, FW, RADIUS, SP } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -126,7 +126,7 @@ function ModuleTile({
         alignItems: 'flex-start',
         gap: 0,
         padding: '20px 20px 18px',
-        borderRadius: 14,
+        borderRadius: RADIUS.xl,
         border: `1.5px solid ${hovered ? accent + '50' : 'var(--card-bdr)'}`,
         background: hovered ? `${accent}07` : 'var(--card)',
         cursor: 'pointer',
@@ -138,20 +138,20 @@ function ModuleTile({
     >
       {/* Icon */}
       <div style={{
-        width: 44, height: 44, borderRadius: 12,
+        width: 44, height: 44, borderRadius: RADIUS.xl,
         background: hovered ? `${accent}20` : `${accent}12`,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         marginBottom: 14, transition: 'background 150ms',
         flexShrink: 0,
       }}>
-        <span className="material-symbols-rounded" style={{ fontSize: 22, color: accent }}>
+        <span className="material-symbols-rounded" style={{ fontSize: TEXT['2xl'], color: accent }}>
           {mod.icon}
         </span>
       </div>
 
       {/* Label */}
       <div style={{
-        fontSize: 14, fontWeight: 700, color: 'var(--txt)',
+        fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)',
         marginBottom: 6, lineHeight: 1.2, fontFamily: SORA,
       }}>
         {mod.label}
@@ -159,7 +159,7 @@ function ModuleTile({
 
       {/* Description */}
       <div style={{
-        fontSize: 12.5, color: 'var(--txt2)', lineHeight: 1.5,
+        fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5,
         marginBottom: stat ? 14 : 0, fontFamily: INTER,
         flex: 1,
       }}>
@@ -169,10 +169,10 @@ function ModuleTile({
       {/* Stat badge */}
       {stat && (
         <div style={{
-          fontSize: 11.5, fontWeight: 600,
+          fontSize: TEXT.xs, fontWeight: FW.semibold,
           color: accent,
           background: `${accent}12`,
-          borderRadius: 20, padding: '3px 10px',
+          borderRadius: RADIUS['2xl'], padding: '3px 10px',
           fontFamily: INTER, marginTop: 'auto',
         }}>
           {stat}
@@ -195,44 +195,44 @@ function ActivityFeed({ activity, loading }: { activity: Activity[]; loading: bo
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
         {[...Array(5)].map((_, i) => (
-          <div key={i} style={{ height: 40, borderRadius: 8, background: 'var(--sk-bg)' }} className="sk" />
+          <div key={i} style={{ height: 40, borderRadius: RADIUS.md, background: 'var(--sk-bg)' }} className="sk" />
         ))}
       </div>
     )
   }
   if (activity.length === 0) {
-    return <div style={{ textAlign: 'center', color: 'var(--txt3)', fontSize: 13, padding: '20px 0' }}>No recent activity</div>
+    return <div style={{ textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base, padding: '20px 0' }}>No recent activity</div>
   }
 
   return (
     <div>
       {activity.slice(0, 8).map(a => (
         <div key={a.id} style={{
-          display: 'flex', gap: 10, alignItems: 'flex-start',
+          display: 'flex', gap: SP[2], alignItems: 'flex-start',
           padding: '10px 0', borderBottom: '1px solid var(--bdr)',
         }}>
           <div style={{
             width: 30, height: 30, borderRadius: '50%', background: `${NAVY}12`,
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14, color: NAVY }}>person</span>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, color: NAVY }}>person</span>
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {a.full_name ?? a.email ?? 'Unknown'} — <span style={{ color: 'var(--txt2)' }}>{a.action}</span>
             </div>
-            <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 1 }}>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 1 }}>
               {a.page} · {fmtDatetime(a.ts)}
             </div>
           </div>
         </div>
       ))}
       <button onClick={() => navigate('/admin/audit')} style={{
-        marginTop: 12, padding: '7px 0', width: '100%', borderRadius: 8,
+        marginTop: 12, padding: '7px 0', width: '100%', borderRadius: RADIUS.md,
         border: '1.5px solid var(--bdr)', background: 'transparent',
-        fontSize: 12.5, fontWeight: 600, color: NAVY, cursor: 'pointer', fontFamily: INTER,
+        fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY, cursor: 'pointer', fontFamily: INTER,
       }}>
         View full audit log →
       </button>
@@ -280,14 +280,14 @@ export default function AdminOverview() {
     <Page title="Admin" subtitle={loading ? undefined : `${activeUsers} of ${totalUsers} users active`}>
       <ErrBanner error={error} onRetry={load} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 24, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: SP[6], alignItems: 'start' }}>
 
         {/* Module grid */}
         <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 14, fontFamily: INTER }}>
+          <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 14, fontFamily: INTER }}>
             Modules
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, position: 'relative' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: SP[3], position: 'relative' }}>
             {MODULES.map(mod => (
               <ModuleTile
                 key={mod.to}
@@ -301,18 +301,18 @@ export default function AdminOverview() {
 
         {/* Right sidebar: recent activity */}
         <div style={{ position: 'sticky', top: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 14, fontFamily: INTER }}>
+          <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 14, fontFamily: INTER }}>
             Recent Activity
           </div>
           <div style={{
             background: 'var(--card)', border: '1.5px solid var(--card-bdr)',
-            borderRadius: 14, padding: '16px 18px',
+            borderRadius: RADIUS.xl, padding: '16px 18px',
           }}>
             <ActivityFeed activity={activity} loading={loading} />
           </div>
 
           {/* Quick stats */}
-          <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[2] }}>
             {[
               { label: 'Total Users',  value: totalUsers,  color: 'var(--txt)' },
               { label: 'Active',       value: activeUsers, color: GREEN },
@@ -321,10 +321,10 @@ export default function AdminOverview() {
             ].map(({ label, value, color }) => (
               <div key={label} style={{
                 background: 'var(--card)', border: '1.5px solid var(--card-bdr)',
-                borderRadius: 10, padding: '12px 14px',
+                borderRadius: RADIUS.lg, padding: '12px 14px',
               }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
-                <div style={{ ...NUM, fontSize: 20, fontWeight: 700, color }}>
+                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
+                <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color }}>
                   {loading ? '—' : value}
                 </div>
               </div>

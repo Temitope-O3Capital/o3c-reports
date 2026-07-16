@@ -7,7 +7,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtNum, fmtDatetime, fmtPct } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, INTER } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ const TYPE_COLOR: Record<string, string> = { email: BLUE, sms: PURPLE, multi: GR
 function TypePill({ type }: { type: string }) {
   const c = TYPE_COLOR[type] ?? NAVY
   return (
-    <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${c}14`, color: c }}>
+    <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${c}14`, color: c }}>
       {type.toUpperCase()}
     </span>
   )
@@ -64,7 +64,7 @@ const STATUS_META: Record<string, { color: string; label: string }> = {
 function StatusPill({ status }: { status: string }) {
   const m = STATUS_META[status] ?? { color: '#6B7280', label: status }
   return (
-    <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${m.color}14`, color: m.color }}>
+    <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${m.color}14`, color: m.color }}>
       {m.label}
     </span>
   )
@@ -199,8 +199,8 @@ export default function CampaignsList() {
       key: 'name', label: 'Campaign',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</div>
-          {r.list_name && <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{r.list_name}</div>}
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.name}</div>
+          {r.list_name && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.list_name}</div>}
         </div>
       ),
     },
@@ -240,7 +240,7 @@ export default function CampaignsList() {
     {
       key: 'scheduled_at', label: 'Scheduled',
       render: r => r.scheduled_at
-        ? <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDatetime(r.scheduled_at)}</span>
+        ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDatetime(r.scheduled_at)}</span>
         : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
     ...(canWrite ? [{
@@ -249,25 +249,25 @@ export default function CampaignsList() {
         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
           {r.status === 'draft' || r.status === 'scheduled' ? (
             <button onClick={e => { e.stopPropagation(); doAction(r.id, 'start') }}
-              style={{ ...btnPrimary, fontSize: 11, padding: '3px 10px', background: GREEN }}>
+              style={{ ...btnPrimary, fontSize: TEXT.xs, padding: '3px 10px', background: GREEN }}>
               Start
             </button>
           ) : null}
           {r.status === 'active' ? (
             <button onClick={e => { e.stopPropagation(); doAction(r.id, 'pause') }}
-              style={{ ...btnSecondary, fontSize: 11, padding: '3px 10px' }}>
+              style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px' }}>
               Pause
             </button>
           ) : null}
           {r.status === 'paused' ? (
             <button onClick={e => { e.stopPropagation(); doAction(r.id, 'start') }}
-              style={{ ...btnPrimary, fontSize: 11, padding: '3px 10px' }}>
+              style={{ ...btnPrimary, fontSize: TEXT.xs, padding: '3px 10px' }}>
               Resume
             </button>
           ) : null}
           {r.status !== 'cancelled' && r.status !== 'completed' ? (
             <button onClick={e => { e.stopPropagation(); doAction(r.id, 'cancel') }}
-              style={{ ...btnSecondary, fontSize: 11, padding: '3px 10px', color: RED, borderColor: `${RED}40` }}>
+              style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px', color: RED, borderColor: `${RED}40` }}>
               Cancel
             </button>
           ) : null}
@@ -291,7 +291,7 @@ export default function CampaignsList() {
       {actionErr && <ErrBanner error={actionErr} />}
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: SP[5] }}>
         <KpiCard label="Active"    value={fmtNum(active)}    accent={GREEN} loading={loading} />
         <KpiCard label="Scheduled" value={fmtNum(scheduled)} accent={AMBER} loading={loading} />
         <KpiCard label="Completed" value={fmtNum(completed)} accent={NAVY}  loading={loading} />
@@ -316,9 +316,9 @@ export default function CampaignsList() {
         </select>
       </FilterBar>
 
-      <SectionCard title="All Campaigns" badge={campaigns.length} padding={false} actions={<button onClick={() => exportCampaignsCsv(campaigns)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="All Campaigns" badge={campaigns.length} padding={false} actions={<button onClick={() => exportCampaignsCsv(campaigns)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         {hasMore && (
-          <div style={{ padding: '6px 16px', background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)', fontSize: 12, color: 'var(--txt3)' }}>
+          <div style={{ padding: '6px 16px', background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)', fontSize: TEXT.sm, color: 'var(--txt3)' }}>
             Showing {campaigns.length} of {fmtNum(total)} campaigns
           </div>
         )}
@@ -336,7 +336,7 @@ export default function CampaignsList() {
         {hasMore && (
           <div style={{ padding: '12px', borderTop: '1px solid var(--bdr)', textAlign: 'center' }}>
             <button onClick={loadMore} disabled={loadingMore}
-              style={{ padding: '7px 20px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: loadingMore ? 'default' : 'pointer', fontFamily: INTER }}>
+              style={{ padding: '7px 20px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: loadingMore ? 'default' : 'pointer', fontFamily: INTER }}>
               {loadingMore ? 'Loading…' : `Load more (${fmtNum(total - campaigns.length)} remaining)`}
             </button>
           </div>
@@ -351,7 +351,7 @@ export default function CampaignsList() {
         width={580}
         footer={
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ fontSize: 12, color: RED }}>{actionErr || ''}</div>
+            <div style={{ fontSize: TEXT.sm, color: RED }}>{actionErr || ''}</div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => { setShowCreate(false); setForm(BLANK); setActionErr(null) }} style={btnSecondary}>Cancel</button>
               <button onClick={create} disabled={saving || !form.name.trim()} style={btnPrimary}>
@@ -364,7 +364,7 @@ export default function CampaignsList() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Name */}
           <div>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>CAMPAIGN NAME *</div>
+            <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>CAMPAIGN NAME *</div>
             <input
               value={form.name}
               onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
@@ -376,7 +376,7 @@ export default function CampaignsList() {
 
           {/* Description */}
           <div>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>DESCRIPTION <span style={{ fontWeight: 400, color: 'var(--txt3)' }}>(optional)</span></div>
+            <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>DESCRIPTION <span style={{ fontWeight: 400, color: 'var(--txt3)' }}>(optional)</span></div>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={form.description}
               onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
@@ -388,7 +388,7 @@ export default function CampaignsList() {
 
           {/* Channel */}
           <div>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 8 }}>CHANNEL</div>
+            <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 8 }}>CHANNEL</div>
             <div style={{ display: 'flex', gap: 8 }}>
               {([
                 { value: 'email', icon: 'mail',       label: 'Email' },
@@ -399,12 +399,12 @@ export default function CampaignsList() {
                   key={ch.value}
                   onClick={() => setForm(f => ({ ...f, type: ch.value }))}
                   style={{
-                    flex: 1, padding: '10px 8px', borderRadius: 8, cursor: 'pointer',
+                    flex: 1, padding: '10px 8px', borderRadius: RADIUS.md, cursor: 'pointer',
                     border: `1.5px solid ${form.type === ch.value ? BLUE : 'var(--bdr)'}`,
                     background: form.type === ch.value ? `${BLUE}10` : 'var(--card)',
                     color: form.type === ch.value ? BLUE : 'var(--txt2)',
                     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-                    fontSize: 12, fontWeight: 600, fontFamily: INTER, transition: 'all 0.12s',
+                    fontSize: TEXT.sm, fontWeight: FW.semibold, fontFamily: INTER, transition: 'all 0.12s',
                   }}
                 >
                   <span className="material-symbols-rounded" style={{ fontSize: 20 }}>{ch.icon}</span>
@@ -417,7 +417,7 @@ export default function CampaignsList() {
           {/* Contact list + Schedule (2-col) */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>CONTACT LIST</div>
+              <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>CONTACT LIST</div>
               <select value={form.list_id} onChange={e => setForm(f => ({ ...f, list_id: e.target.value }))}
                 style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', height: 36 }}>
                 <option value="">— Select a list —</option>
@@ -427,7 +427,7 @@ export default function CampaignsList() {
               </select>
             </div>
             <div>
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>SCHEDULE <span style={{ fontWeight: 400 }}>(optional)</span></div>
+              <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>SCHEDULE <span style={{ fontWeight: 400 }}>(optional)</span></div>
               <input
                 type="datetime-local"
                 value={form.scheduled_at}

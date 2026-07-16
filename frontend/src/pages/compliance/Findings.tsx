@@ -6,7 +6,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -43,7 +43,7 @@ const SEV_STYLE: Record<string, { color: string; bg: string }> = {
 function SeverityPill({ sev }: { sev: string }) {
   const s = SEV_STYLE[sev] ?? SEV_STYLE.Low
   return (
-    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color }}>
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.full, background: s.bg, color: s.color }}>
       {sev}
     </span>
   )
@@ -58,7 +58,7 @@ const STATUS_STYLE: Record<string, { color: string; bg: string; label: string }>
 function StatusPill({ status }: { status: string }) {
   const s = STATUS_STYLE[status] ?? STATUS_STYLE.open
   return (
-    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color }}>
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.full, background: s.bg, color: s.color }}>
       {s.label}
     </span>
   )
@@ -186,12 +186,12 @@ export default function Findings() {
   const cols: TableCol<Finding>[] = [
     {
       key: 'finding_ref', label: 'Ref#',
-      render: r => <span style={{ ...NUM, fontSize: 12.5, fontWeight: 700, color: NAVY }}>{r.finding_ref}</span>,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY }}>{r.finding_ref}</span>,
     },
     {
       key: 'description', label: 'Finding',
       render: r => (
-        <span style={{ fontSize: 13, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300, display: 'block' }}>
+        <span style={{ fontSize: TEXT.base, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300, display: 'block' }}>
           {r.description}
         </span>
       ),
@@ -206,7 +206,7 @@ export default function Findings() {
     },
     {
       key: 'assigned_to_name', label: 'Owner',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.assigned_to_name ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.assigned_to_name ?? '—'}</span>,
     },
     {
       key: 'due_date', label: 'Due / Overdue',
@@ -214,9 +214,9 @@ export default function Findings() {
         const od = daysOverdue(r.due_date)
         return r.due_date ? (
           <div>
-            <div style={{ fontSize: 12.5, color: 'var(--txt)' }}>{fmtDate(r.due_date)}</div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{fmtDate(r.due_date)}</div>
             {od !== null && r.status !== 'closed' && (
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: RED }}>{od}d overdue</div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: RED }}>{od}d overdue</div>
             )}
           </div>
         ) : <span style={{ color: 'var(--txt3)' }}>—</span>
@@ -225,8 +225,8 @@ export default function Findings() {
   ]
 
   const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
-    fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
+    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+    fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
   }
 
   return (
@@ -256,7 +256,7 @@ export default function Findings() {
       </FilterBar>
 
       <SectionCard title="Findings" badge={findings.length} padding={false} actions={
-        <button onClick={() => exportFindingsCsv(findings)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+        <button onClick={() => exportFindingsCsv(findings)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
           <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
           Export CSV
         </button>
@@ -275,7 +275,7 @@ export default function Findings() {
           selectedIds={sel}
           onSelect={setSel}
           bulkBar={
-            <button onClick={handleBulkClose} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#C00000', color: 'white', cursor: 'pointer', fontSize: 12 }}>
+            <button onClick={handleBulkClose} style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: 'none', background: '#C00000', color: 'white', cursor: 'pointer', fontSize: TEXT.sm }}>
               Close Selected
             </button>
           }
@@ -291,7 +291,7 @@ export default function Findings() {
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button onClick={() => setNewOpen(false)}
-              style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
+              style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
               Cancel
             </button>
             <button onClick={handleCreate} disabled={saving}
@@ -304,20 +304,20 @@ export default function Findings() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Finding Description *</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Finding Description *</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
               rows={3} placeholder="Describe the finding…" style={{ ...inputStyle, resize: 'vertical' }} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Severity</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Severity</label>
               <select value={form.severity} onChange={e => setForm(f => ({ ...f, severity: e.target.value }))}
                 style={{ ...inputStyle, height: 36, padding: '0 10px' }}>
                 {['Critical', 'High', 'Medium', 'Low'].map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Due Date</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Due Date</label>
               <input type="date" value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))}
                 style={{ ...inputStyle, height: 36 }} />
             </div>
@@ -335,7 +335,7 @@ export default function Findings() {
           detail?.status !== 'closed' ? (
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => setCloseEntry(detail!)}
-                style={{ padding: '8px 14px', borderRadius: 8, border: `1.5px solid ${GREEN}40`, background: 'transparent', color: GREEN, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                style={{ padding: '8px 14px', borderRadius: RADIUS.md, border: `1.5px solid ${GREEN}40`, background: 'transparent', color: GREEN, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
                 Close Finding
               </button>
             </div>
@@ -355,22 +355,22 @@ export default function Findings() {
                   <SeverityPill sev={detail.severity} />
                   <StatusPill status={detail.status} />
                 </div>
-                <p style={{ fontSize: 14, color: 'var(--txt)', lineHeight: 1.6, margin: 0 }}>{detail.description}</p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
+                <p style={{ fontSize: TEXT.md, color: 'var(--txt)', lineHeight: 1.6, margin: 0 }}>{detail.description}</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[2], fontSize: TEXT.base }}>
                   <div><span style={{ color: 'var(--txt2)' }}>Owner:</span> <strong>{detail.assigned_to_name ?? '—'}</strong></div>
                   <div><span style={{ color: 'var(--txt2)' }}>Due:</span> <strong style={{ color: daysOverdue(detail.due_date) ? RED : 'var(--txt)' }}>{detail.due_date ? fmtDate(detail.due_date) : '—'}</strong></div>
                   <div><span style={{ color: 'var(--txt2)' }}>Created:</span> <strong>{fmtDate(detail.created_at)}</strong></div>
                 </div>
                 {/* Respond form */}
                 {detail.status !== 'closed' && (
-                  <div style={{ marginTop: 8, padding: '14px', background: 'var(--th-bg)', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)' }}>Add Response</div>
+                  <div style={{ marginTop: 8, padding: '14px', background: 'var(--th-bg)', borderRadius: RADIUS.lg, display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+                    <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)' }}>Add Response</div>
                     <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={respForm.response} onChange={e => setRespForm(f => ({ ...f, response: e.target.value }))}
                       rows={3} placeholder="Describe action taken…"
-                      style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+                      style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
                     <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={respForm.action_plan} onChange={e => setRespForm(f => ({ ...f, action_plan: e.target.value }))}
                       rows={2} placeholder="Action plan (optional)…"
-                      style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+                      style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                       <button onClick={handleRespond} disabled={responding}
                         style={{ ...btnPrimary, padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: 6, opacity: responding ? 0.7 : 1 }}>
@@ -385,17 +385,17 @@ export default function Findings() {
             {detailTab === 'responses' && (
               <div style={{ paddingTop: 16 }}>
                 {(detail.responses ?? []).length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--txt2)', fontSize: 13 }}>No responses yet.</div>
+                  <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>No responses yet.</div>
                 ) : (
                   (detail.responses ?? []).map(resp => (
                     <div key={resp.id} style={{ padding: '12px 0', borderBottom: '1px solid var(--bdr)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{resp.responder_name ?? 'System'}</span>
-                        <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{fmtDate(resp.created_at)}</span>
+                        <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{resp.responder_name ?? 'System'}</span>
+                        <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDate(resp.created_at)}</span>
                       </div>
-                      <p style={{ margin: 0, fontSize: 13, color: 'var(--txt)', lineHeight: 1.5 }}>{resp.response}</p>
+                      <p style={{ margin: 0, fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.5 }}>{resp.response}</p>
                       {resp.action_plan && (
-                        <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--txt2)', lineHeight: 1.4 }}>
+                        <p style={{ margin: '4px 0 0', fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.4 }}>
                           <em>Action plan:</em> {resp.action_plan}
                         </p>
                       )}

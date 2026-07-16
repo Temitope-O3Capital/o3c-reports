@@ -4,7 +4,7 @@ import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Modal, filterInputSty
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, today, monthStart } from '../../lib/fmt'
-import { RED, AMBER, GREEN, BLUE, NAVY, INTER, SORA, NUM } from '../../lib/design'
+import { RED, AMBER, GREEN, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 interface PipelineKPIs {
@@ -58,7 +58,7 @@ function StagePill({ stage }: { stage: string }) {
   const c = STAGE_COLORS[stage] ?? '#6B7280'
   return (
     <span style={{
-      fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
       background: `${c}18`, color: c, whiteSpace: 'nowrap', textTransform: 'capitalize',
     }}>{stage}</span>
   )
@@ -70,11 +70,11 @@ function AssignedCell({ name }: { name?: string | null }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
       <div style={{
-        width: 24, height: 24, borderRadius: '50%', background: ac, flexShrink: 0,
+        width: 24, height: 24, borderRadius: RADIUS.full, background: ac, flexShrink: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 9.5, fontWeight: 700, color: '#fff', fontFamily: INTER,
+        fontSize: TEXT['2xs'], fontWeight: FW.bold, color: '#fff', fontFamily: INTER,
       }}>{initials(name)}</div>
-      <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{name}</span>
+      <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{name}</span>
     </div>
   )
 }
@@ -87,7 +87,7 @@ function ScoreBar({ score }: { score?: number | null }) {
       <div style={{ width: 56, height: 4, borderRadius: 2, background: 'var(--bdr)', flexShrink: 0 }}>
         <div style={{ width: `${Math.min(100, score)}%`, height: '100%', borderRadius: 2, background: color }} />
       </div>
-      <span style={{ ...NUM, fontSize: 12.5, color: 'var(--txt)' }}>{score}</span>
+      <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt)' }}>{score}</span>
     </div>
   )
 }
@@ -102,15 +102,15 @@ function PageBtn({ children, active, disabled, onClick, icon }: {
       onClick={onClick}
       disabled={disabled}
       style={{
-        width: 28, height: 28, borderRadius: 6,
+        width: 28, height: 28, borderRadius: RADIUS.sm,
         border: active ? 'none' : '1.5px solid var(--input-bdr)',
         background: active ? RED : 'transparent',
         color: active ? '#fff' : disabled ? 'var(--txt3)' : 'var(--txt2)',
-        fontSize: 12, fontWeight: 600, cursor: disabled ? 'default' : 'pointer',
+        fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: disabled ? 'default' : 'pointer',
         display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: INTER,
       }}
     >
-      {icon ? <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{icon}</span> : children}
+      {icon ? <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>{icon}</span> : children}
     </button>
   )
 }
@@ -120,7 +120,7 @@ function FormField({ label, value, onChange, fullWidth, type = 'text' }: {
 }) {
   return (
     <div style={{ gridColumn: fullWidth ? '1/-1' : undefined, display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>{label}</label>
+      <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>{label}</label>
       <input type={type} value={value} onChange={e => onChange(e.target.value)} style={{ ...filterInputStyle, height: 36 }} />
     </div>
   )
@@ -308,21 +308,21 @@ export default function BDPipeline() {
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
-              width: 30, height: 30, borderRadius: et === 'company' ? 8 : '50%', background: color, flexShrink: 0,
+              width: 30, height: 30, borderRadius: et === 'company' ? RADIUS.md : RADIUS.full, background: color, flexShrink: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: et === 'company' ? 11 : 14, fontWeight: 700, color: '#fff',
+              color: '#fff',
             }}>
               {et === 'company'
-                ? <span style={{ fontSize: 11, fontWeight: 700, fontFamily: INTER }}>{primaryName.charAt(0).toUpperCase()}</span>
+                ? <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, fontFamily: INTER }}>{primaryName.charAt(0).toUpperCase()}</span>
                 : <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{icon}</span>
               }
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', lineHeight: 1.3, fontFamily: SORA }}>{primaryName}</span>
+                <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', lineHeight: 1.3, fontFamily: SORA }}>{primaryName}</span>
               </div>
               {subName && (
-                <div style={{ fontSize: 10.5, color: 'var(--txt2)', fontFamily: INTER }}>
+                <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER }}>
                   {et === 'individual_at_company' ? `@ ${subName}` : subName}
                 </div>
               )}
@@ -335,12 +335,12 @@ export default function BDPipeline() {
       key: 'contact_name', label: 'Contact', sortable: true,
       render: row => {
         const et = row.entity_type ?? 'company'
-        if (et !== 'company') return <span style={{ color: 'var(--txt3)', fontSize: 12 }}>—</span>
+        if (et !== 'company') return <span style={{ color: 'var(--txt3)', fontSize: TEXT.sm }}>—</span>
         return row.contact_name ? (
           <div>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)', fontFamily: SORA }}>{row.contact_name}</div>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)', fontFamily: SORA }}>{row.contact_name}</div>
             {row.contact_email && (
-              <div style={{ fontSize: 10.5, color: 'var(--txt2)', fontFamily: INTER }}>{row.contact_email}</div>
+              <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER }}>{row.contact_email}</div>
             )}
           </div>
         ) : <span style={{ color: 'var(--txt3)' }}>—</span>
@@ -349,7 +349,7 @@ export default function BDPipeline() {
     {
       key: 'lead_type', label: 'Type', sortable: true,
       render: row => row.lead_type
-        ? <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{row.lead_type}</span>
+        ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{row.lead_type}</span>
         : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
     {
@@ -366,7 +366,7 @@ export default function BDPipeline() {
     },
     {
       key: 'potential_value_kobo', label: 'Est. Value', sortable: true, align: 'right',
-      render: row => <span style={{ ...NUM, fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{fmtKobo(row.potential_value_kobo)}</span>,
+      render: row => <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtKobo(row.potential_value_kobo)}</span>,
     },
     {
       key: '_actions', label: '', sortable: false,
@@ -376,7 +376,7 @@ export default function BDPipeline() {
             <button
               key={ic}
               style={{
-                width: 28, height: 28, borderRadius: 7,
+                width: 28, height: 28, borderRadius: RADIUS.md,
                 border: '1.5px solid var(--input-bdr)', background: 'transparent',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 cursor: 'pointer', color: 'var(--txt2)',
@@ -392,7 +392,7 @@ export default function BDPipeline() {
                 el.style.color = 'var(--txt2)'
               }}
             >
-              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{ic}</span>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>{ic}</span>
             </button>
           ))}
         </div>
@@ -415,7 +415,7 @@ export default function BDPipeline() {
             onClick={() => setView(v => v === 'table' ? 'kanban' : 'table')}
             style={{
               display: 'flex', alignItems: 'center', gap: 5,
-              padding: '7px 12px', borderRadius: 8, fontSize: 13, fontWeight: 500,
+              padding: '7px 12px', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.medium,
               border: '1px solid var(--bdr)', background: 'var(--card)',
               color: 'var(--txt)', cursor: 'pointer',
             }}
@@ -429,8 +429,8 @@ export default function BDPipeline() {
             onClick={() => setNewOpen(true)}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
-              padding: '7px 14px', borderRadius: 8, border: 'none',
-              background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              padding: '7px 14px', borderRadius: RADIUS.md, border: 'none',
+              background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer',
             }}
           >
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>
@@ -442,7 +442,7 @@ export default function BDPipeline() {
       <ErrBanner error={err} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="Total Leads" value={kpis ? fmtNum(kpis.total_leads) : '—'} icon="groups" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="This Month" value={kpis ? fmtNum(kpis.this_month) : '—'} icon="today" accent={BLUE} loading={kpiLoading} />
         <KpiCard label="Conversion Rate" value={kpis ? `${kpis.conversion_rate_pct.toFixed(1)}%` : '—'} icon="trending_up" accent={GREEN} loading={kpiLoading} />
@@ -451,7 +451,7 @@ export default function BDPipeline() {
 
       {view === 'table' ? (
 
-        <SectionCard title="All Leads" badge={leads.length} padding={false} actions={<button onClick={() => exportLeadsCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+        <SectionCard title="All Leads" badge={leads.length} padding={false} actions={<button onClick={() => exportLeadsCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
 
           {/* ── Filter bar ─────────────────────────────────────────────────── */}
           <div style={{
@@ -465,7 +465,7 @@ export default function BDPipeline() {
               onClick={() => setFilterOpen(o => !o)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
-                padding: '8px 13px', borderRadius: 9, fontSize: 12.5, fontWeight: 600,
+                padding: `${SP[2]} 13px`, borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
                 border: `1.5px solid ${activeFilterCount > 0 ? RED : 'var(--input-bdr)'}`,
                 background: 'transparent',
                 color: activeFilterCount > 0 ? RED : 'var(--txt2)',
@@ -476,23 +476,23 @@ export default function BDPipeline() {
               Filters
               {activeFilterCount > 0 && (
                 <span style={{
-                  minWidth: 17, height: 17, borderRadius: 99,
+                  minWidth: 17, height: 17, borderRadius: RADIUS.full,
                   background: RED, color: '#fff',
-                  fontSize: 10, fontWeight: 700, fontFamily: INTER,
+                  fontSize: TEXT['2xs'], fontWeight: FW.bold, fontFamily: INTER,
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                 }}>{activeFilterCount}</span>
               )}
             </button>
 
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 11.5, color: 'var(--txt2)', fontFamily: INTER }}>{filtered.length} of {leads.length}</span>
+              <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>{filtered.length} of {leads.length}</span>
               <button style={{
                 display: 'flex', alignItems: 'center', gap: 5,
-                padding: '7px 11px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                padding: '7px 11px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
                 border: '1.5px solid var(--input-bdr)', background: 'transparent',
                 color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA,
               }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>view_column</span>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>view_column</span>
                 Columns
               </button>
             </div>
@@ -505,7 +505,7 @@ export default function BDPipeline() {
 
                 {/* Stage */}
                 <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>STAGE</div>
+                  <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>STAGE</div>
                   {STAGES.map(s => {
                     const c = STAGE_COLORS[s]
                     const count = leads.filter(l => l.stage === s).length
@@ -518,10 +518,10 @@ export default function BDPipeline() {
                           style={{ accentColor: c, width: 14, height: 14, cursor: 'pointer' }}
                         />
                         <span style={{
-                          fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20,
+                          fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
                           background: `${c}18`, color: c, textTransform: 'capitalize',
                         }}>{s}</span>
-                        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
                       </label>
                     )
                   })}
@@ -529,9 +529,9 @@ export default function BDPipeline() {
 
                 {/* Lead Type */}
                 <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>TYPE</div>
+                  <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>TYPE</div>
                   {uniqueTypes.length === 0 ? (
-                    <span style={{ fontSize: 12, color: 'var(--txt3)' }}>No types recorded</span>
+                    <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No types recorded</span>
                   ) : uniqueTypes.map(t => {
                     const count = leads.filter(l => l.lead_type === t).length
                     return (
@@ -542,8 +542,8 @@ export default function BDPipeline() {
                           onChange={() => setFTypes(toggleSet(fTypes, t))}
                           style={{ accentColor: RED, width: 14, height: 14, cursor: 'pointer' }}
                         />
-                        <span style={{ fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA }}>{t}</span>
-                        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
+                        <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA }}>{t}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
                       </label>
                     )
                   })}
@@ -551,9 +551,9 @@ export default function BDPipeline() {
 
                 {/* Assignee */}
                 <div style={{ paddingLeft: 20 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>ASSIGNEE</div>
+                  <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>ASSIGNEE</div>
                   {uniqueAssignees.length === 0 ? (
-                    <span style={{ fontSize: 12, color: 'var(--txt3)' }}>No assignees</span>
+                    <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No assignees</span>
                   ) : uniqueAssignees.map(name => {
                     const ac = avatarColor(name)
                     const count = leads.filter(l => l.assigned_name === name).length
@@ -566,12 +566,12 @@ export default function BDPipeline() {
                           style={{ accentColor: ac, width: 14, height: 14, cursor: 'pointer' }}
                         />
                         <div style={{
-                          width: 22, height: 22, borderRadius: '50%', background: ac, flexShrink: 0,
+                          width: 22, height: 22, borderRadius: RADIUS.full, background: ac, flexShrink: 0,
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: 8.5, fontWeight: 700, color: '#fff', fontFamily: INTER,
+                          fontSize: TEXT['2xs'], fontWeight: FW.bold, color: '#fff', fontFamily: INTER,
                         }}>{initials(name)}</div>
-                        <span style={{ fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA }}>{name}</span>
-                        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
+                        <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA }}>{name}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
                       </label>
                     )
                   })}
@@ -584,7 +584,7 @@ export default function BDPipeline() {
                 padding: '14px 20px', borderTop: '1px solid var(--bdr)', marginTop: 16,
                 display: 'flex', alignItems: 'center', gap: 12,
               }}>
-                <span style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>
+                <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: SORA }}>
                   {activeFilterCount === 0
                     ? `No filters applied — showing all ${leads.length} leads`
                     : `${activeFilterCount} filter${activeFilterCount !== 1 ? 's' : ''} active`}
@@ -592,7 +592,7 @@ export default function BDPipeline() {
                 <button
                   onClick={resetFilters}
                   style={{
-                    padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+                    padding: '5px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
                     border: '1.5px solid var(--input-bdr)', background: 'transparent',
                     color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA,
                   }}
@@ -600,8 +600,8 @@ export default function BDPipeline() {
                 <button
                   onClick={() => setFilterOpen(false)}
                   style={{
-                    marginLeft: 'auto', padding: '5px 16px', borderRadius: 7,
-                    fontSize: 12, fontWeight: 600,
+                    marginLeft: 'auto', padding: '5px 16px', borderRadius: RADIUS.md,
+                    fontSize: TEXT.sm, fontWeight: FW.semibold,
                     border: 'none', background: RED, color: '#fff',
                     cursor: 'pointer', fontFamily: SORA,
                   }}
@@ -621,39 +621,39 @@ export default function BDPipeline() {
                 return (
                   <span key={s} style={{
                     display: 'flex', alignItems: 'center', gap: 4,
-                    padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600,
+                    padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold,
                     background: `${c}18`, color: c,
                   }}>
                     {s}
-                    <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setFStages(toggleSet(fStages, s))}>close</span>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFStages(toggleSet(fStages, s))}>close</span>
                   </span>
                 )
               })}
               {[...fTypes].map(t => (
                 <span key={t} style={{
                   display: 'flex', alignItems: 'center', gap: 4,
-                  padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600,
+                  padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold,
                   background: 'rgba(192,0,0,0.10)', color: RED,
                 }}>
                   {t}
-                  <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setFTypes(toggleSet(fTypes, t))}>close</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFTypes(toggleSet(fTypes, t))}>close</span>
                 </span>
               ))}
               {[...fAssignees].map(name => (
                 <span key={name} style={{
                   display: 'flex', alignItems: 'center', gap: 4,
-                  padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600,
+                  padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold,
                   background: 'var(--chip-bg)', color: 'var(--chip-txt)',
                 }}>
                   {name}
-                  <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setFAssignees(toggleSet(fAssignees, name))}>close</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFAssignees(toggleSet(fAssignees, name))}>close</span>
                 </span>
               ))}
               <button
                 onClick={resetFilters}
                 style={{
                   marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer',
-                  fontSize: 11.5, fontWeight: 600, color: 'var(--txt3)', padding: 0, fontFamily: SORA,
+                  fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', padding: 0, fontFamily: SORA,
                 }}
               >Clear all</button>
             </div>
@@ -675,8 +675,8 @@ export default function BDPipeline() {
               <>
                 {BULK_ACTIONS.map(b => (
                   <button key={b.label} style={{
-                    padding: '5px 12px', borderRadius: 7,
-                    fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: SORA,
+                    padding: '5px 12px', borderRadius: RADIUS.md,
+                    fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA,
                     border: b.primary ? 'none' : '1.5px solid var(--input-bdr)',
                     background: b.primary ? RED : 'transparent',
                     color: b.primary ? '#fff' : 'var(--txt2)',
@@ -691,7 +691,7 @@ export default function BDPipeline() {
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '12px 18px', borderTop: '1px solid var(--bdr)',
           }}>
-            <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
               {filtered.length === 0
                 ? 'No leads'
                 : `Showing ${showStart}–${showEnd} of ${filtered.length} leads`
@@ -721,7 +721,7 @@ export default function BDPipeline() {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
             <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
-            <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
               {filtered.length} of {leads.length}
             </span>
           </div>
@@ -734,7 +734,7 @@ export default function BDPipeline() {
               return (
                 <div key={s} style={{
                   minWidth: 220, flex: '0 0 220px',
-                  background: 'var(--card)', borderRadius: 12,
+                  background: 'var(--card)', borderRadius: RADIUS.xl,
                   border: '1px solid var(--bdr)', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
                 }}>
                   <div style={{
@@ -743,38 +743,38 @@ export default function BDPipeline() {
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                       <div style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />
-                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', textTransform: 'capitalize' }}>{s}</span>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: c, background: `${c}14`, borderRadius: 10, padding: '1px 6px' }}>{col.length}</span>
+                      <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', textTransform: 'capitalize' }}>{s}</span>
+                      <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: c, background: `${c}14`, borderRadius: RADIUS.lg, padding: '1px 6px' }}>{col.length}</span>
                     </div>
-                    <span style={{ fontSize: 11, color: 'var(--txt2)', fontFamily: INTER }}>{fmtKobo(colValue)}</span>
+                    <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>{fmtKobo(colValue)}</span>
                   </div>
                   <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 'calc(100vh - 260px)', overflowY: 'auto' }}>
                     {col.length === 0 ? (
-                      <div style={{ padding: '16px 8px', textAlign: 'center', color: 'var(--txt3)', fontSize: 12 }}>No leads</div>
+                      <div style={{ padding: '16px 8px', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No leads</div>
                     ) : col.map(lead => (
                       <div
                         key={lead.id}
                         style={{
-                          padding: '10px 12px', borderRadius: 8,
+                          padding: '10px 12px', borderRadius: RADIUS.md,
                           background: 'var(--bg)', border: '1px solid var(--bdr)', cursor: 'pointer',
                         }}
                         onMouseEnter={e => (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'}
                         onMouseLeave={e => (e.currentTarget as HTMLElement).style.boxShadow = 'none'}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
-                          <div style={{ width: 22, height: 22, borderRadius: '50%', background: c, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff', fontFamily: INTER }}>
+                          <div style={{ width: 22, height: 22, borderRadius: RADIUS.full, background: c, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT['2xs'], fontWeight: FW.bold, color: '#fff', fontFamily: INTER }}>
                             {(lead.company_name ?? lead.title ?? '?').charAt(0).toUpperCase()}
                           </div>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {lead.company_name ?? lead.title}
                           </span>
                         </div>
                         {lead.contact_name && (
-                          <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 4 }}>{lead.contact_name}</div>
+                          <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 4 }}>{lead.contact_name}</div>
                         )}
-                        <div style={{ ...NUM, fontSize: 11.5, fontWeight: 600, color: NAVY }}>{fmtKobo(lead.potential_value_kobo)}</div>
+                        <div style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY }}>{fmtKobo(lead.potential_value_kobo)}</div>
                         {lead.assigned_name && (
-                          <div style={{ fontSize: 11, color: 'var(--txt3)', marginTop: 4 }}>{lead.assigned_name}</div>
+                          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>{lead.assigned_name}</div>
                         )}
                       </div>
                     ))}
@@ -794,21 +794,21 @@ export default function BDPipeline() {
         width={520}
         footer={
           <>
-            <button onClick={() => { setNewOpen(false); setNewForm(EMPTY_LEAD) }} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button onClick={doCreateLead} disabled={saving} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+            <button onClick={() => { setNewOpen(false); setNewForm(EMPTY_LEAD) }} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={doCreateLead} disabled={saving} style={{ padding: `${SP[2]} 18px`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
               {saving ? 'Creating…' : 'Create Lead'}
             </button>
           </>
         }
       >
         {/* Entity type toggle */}
-        <div style={{ display: 'flex', gap: 4, marginBottom: 18, padding: 4, background: 'var(--th-bg)', borderRadius: 10 }}>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 18, padding: 4, background: 'var(--th-bg)', borderRadius: RADIUS.lg }}>
           {(['company', 'individual', 'individual_at_company'] as EntityType[]).map(et => {
             const active = newForm.entity_type === et
             return (
               <button key={et} onClick={() => setNewForm(f => ({ ...f, entity_type: et }))} style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                padding: '7px 8px', borderRadius: 7, fontSize: 12, fontWeight: active ? 600 : 500,
+                padding: '7px 8px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: active ? FW.semibold : FW.medium,
                 border: 'none', cursor: 'pointer',
                 background: active ? 'var(--card)' : 'transparent',
                 color: active ? 'var(--txt)' : 'var(--txt2)',
@@ -846,7 +846,7 @@ export default function BDPipeline() {
           </>)}
 
           <div style={{ gridColumn: '1/-1', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Notes</label>
+            <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Notes</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={newForm.notes}
               onChange={e => setNewForm(f => ({ ...f, notes: e.target.value }))}
@@ -880,11 +880,11 @@ export default function BDPipeline() {
                 if (detailLead.lead_type)    params.set('product', detailLead.lead_type)
                 navigate(`/los/new?${params.toString()}`)
               }}
-              style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: RED, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              style={{ padding: `${SP[2]} 18px`, borderRadius: RADIUS.md, border: 'none', background: RED, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}
             >
               Create Application
             </button>
-            <button onClick={() => setDetailLead(null)} style={{ padding: '8px 18px', borderRadius: 8, border: '1.5px solid var(--bdr)', background: 'none', color: 'var(--txt)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Close</button>
+            <button onClick={() => setDetailLead(null)} style={{ padding: `${SP[2]} 18px`, borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)', background: 'none', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>Close</button>
           </div>
         }
       >
@@ -916,13 +916,13 @@ export default function BDPipeline() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 8 }}>
                 {fields.filter(f => f.value && f.label !== 'X').map(({ label, value }) => (
                   <div key={label}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt3)', marginBottom: 2 }}>{label}</div>
-                    <div style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 500 }}>{value}</div>
+                    <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', marginBottom: 2 }}>{label}</div>
+                    <div style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium }}>{value}</div>
                   </div>
                 ))}
               </div>
               {detailLead.notes && (
-                <div style={{ marginTop: 4, padding: '10px 12px', borderRadius: 8, background: 'var(--th-bg)', fontSize: 13, color: 'var(--txt)', lineHeight: 1.5 }}>
+                <div style={{ marginTop: 4, padding: '10px 12px', borderRadius: RADIUS.md, background: 'var(--th-bg)', fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.5 }}>
                   {detailLead.notes}
                 </div>
               )}

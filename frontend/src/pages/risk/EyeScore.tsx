@@ -3,7 +3,7 @@ import { Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, Err
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtPct, fmtNum, today, monthStart } from '../../lib/fmt'
-import { NAVY, GREEN, AMBER, RED, INTER, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, GREEN, AMBER, RED, INTER, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ function BandPill({ band }: { band: string }) {
   return (
     <span style={{
       ...NUM, display: 'inline-flex', alignItems: 'center',
-      fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full,
       background: s.bg, color: s.txt, whiteSpace: 'nowrap',
     }}>{band}</span>
   )
@@ -124,15 +124,15 @@ export default function EyeScore() {
       key: 'applicant_name', label: 'Applicant',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{r.applicant_name}</div>
-          <div style={{ fontSize: 10.5, color: 'var(--txt2)' }}>{r.product_type}</div>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.applicant_name}</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{r.product_type}</div>
         </div>
       ),
     },
     {
       key: 'score', label: 'Score', align: 'right', sortable: true,
       render: r => (
-        <span style={{ ...NUM, fontSize: 14, fontWeight: 700, color: eyeScoreColor(r.score) }}>
+        <span style={{ ...NUM, fontSize: TEXT.md, fontWeight: FW.bold, color: eyeScoreColor(r.score) }}>
           {r.score}
         </span>
       ),
@@ -144,7 +144,7 @@ export default function EyeScore() {
     {
       key: 'top_factor', label: 'Key Factor',
       render: r => (
-        <span style={{ fontSize: 12, color: 'var(--txt2)', fontStyle: r.top_factor ? 'normal' : 'italic' }}>
+        <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontStyle: r.top_factor ? 'normal' : 'italic' }}>
           {r.top_factor ?? 'N/A'}
         </span>
       ),
@@ -159,7 +159,7 @@ export default function EyeScore() {
     },
     {
       key: 'scored_at', label: 'Date', sortable: true,
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.scored_at)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.scored_at)}</span>,
     },
   ]
 
@@ -174,7 +174,7 @@ export default function EyeScore() {
       <ErrBanner error={error} onRetry={() => load(0)} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
         <KpiCard
           label="Scored Today"
           value={kpis?.scored_today ?? 0}
@@ -226,7 +226,7 @@ export default function EyeScore() {
             </select>
             <button
               onClick={() => load(0)}
-              style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
+              style={{ height: 32, padding: '0 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
             >Apply</button>
           </FilterBar>
         </div>
@@ -242,19 +242,19 @@ export default function EyeScore() {
 
         {pages > 1 && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderTop: '1px solid var(--bdr)' }}>
-            <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
               Page {currentPage} of {pages} · {total.toLocaleString()} records
             </span>
             <div style={{ display: 'flex', gap: 6 }}>
               <button
                 onClick={() => load(Math.max(0, offset - PAGE_SIZE))}
                 disabled={offset === 0}
-                style={{ padding: '4px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset === 0 ? 'not-allowed' : 'pointer', opacity: offset === 0 ? 0.5 : 1, fontSize: 12 }}
+                style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset === 0 ? 'not-allowed' : 'pointer', opacity: offset === 0 ? 0.5 : 1, fontSize: TEXT.sm }}
               >← Prev</button>
               <button
                 onClick={() => load(offset + PAGE_SIZE)}
                 disabled={currentPage >= pages}
-                style={{ padding: '4px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: currentPage >= pages ? 'not-allowed' : 'pointer', opacity: currentPage >= pages ? 0.5 : 1, fontSize: 12 }}
+                style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: currentPage >= pages ? 'not-allowed' : 'pointer', opacity: currentPage >= pages ? 0.5 : 1, fontSize: TEXT.sm }}
               >Next →</button>
             </div>
           </div>

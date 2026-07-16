@@ -5,7 +5,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { GREEN, AMBER, RED, NAVY, BLUE, INTER, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, BLUE, INTER, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ const STAGE_COLOR: Record<string, string> = {
 function Pill({ value, colorMap }: { value: string; colorMap: Record<string, string> }) {
   const c = colorMap[value] ?? 'var(--chart-lbl)'
   return (
-    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: `${c}18`, color: c, textTransform: 'capitalize' }}>
+    <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.lg, background: `${c}18`, color: c, textTransform: 'capitalize' }}>
       {value.replace(/_/g, ' ')}
     </span>
   )
@@ -138,24 +138,24 @@ export default function Recruitment() {
   const STAGES = ['applied','screened','interview','offer','hired','rejected']
 
   const JOB_COLS: TableCol<Job>[] = [
-    { key: 'title',           label: 'Role',       render: r => <span style={{ fontWeight: 600 }}>{r.title}</span> },
+    { key: 'title',           label: 'Role',       render: r => <span style={{ fontWeight: FW.semibold }}>{r.title}</span> },
     { key: 'department',      label: 'Dept',       render: r => r.department },
     { key: 'job_type',        label: 'Type',       render: r => <Pill value={r.job_type} colorMap={{ full_time: NAVY, contract: BLUE, intern: AMBER }} /> },
     { key: 'status',          label: 'Status',     render: r => <Pill value={r.status} colorMap={JOB_STATUS} /> },
-    { key: 'applicant_count', label: 'Applicants', render: r => <span style={{ ...NUM, fontWeight: 700 }}>{r.applicant_count}</span> },
+    { key: 'applicant_count', label: 'Applicants', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{r.applicant_count}</span> },
     { key: 'target_date',     label: 'Target',     render: r => r.target_date ? fmtDate(r.target_date) : '—' },
     { key: 'id',              label: '',           render: r => (
       <button onClick={() => setActiveJob(r === activeJob ? null : r)}
-        style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: r === activeJob ? NAVY : `${NAVY}12`, color: r === activeJob ? '#fff' : NAVY, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+        style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: 'none', background: r === activeJob ? NAVY : `${NAVY}12`, color: r === activeJob ? '#fff' : NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
         {r === activeJob ? 'All' : 'View'}
       </button>
     )},
   ]
 
   const APP_COLS: TableCol<Applicant>[] = [
-    { key: 'full_name', label: 'Applicant', render: r => <span style={{ fontWeight: 600 }}>{r.full_name}</span> },
-    { key: 'job_title', label: 'Role',      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{r.job_title}</span> },
-    { key: 'source',    label: 'Source',    render: r => <span style={{ fontSize: 12 }}>{r.source}</span> },
+    { key: 'full_name', label: 'Applicant', render: r => <span style={{ fontWeight: FW.semibold }}>{r.full_name}</span> },
+    { key: 'job_title', label: 'Role',      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.job_title}</span> },
+    { key: 'source',    label: 'Source',    render: r => <span style={{ fontSize: TEXT.sm }}>{r.source}</span> },
     { key: 'stage',     label: 'Stage',     render: r => <Pill value={r.stage} colorMap={STAGE_COLOR} /> },
     { key: 'interview_date', label: 'Interview', render: r => r.interview_date ? fmtDate(r.interview_date) : '—' },
     { key: 'id',        label: '',          render: r => (
@@ -163,7 +163,7 @@ export default function Recruitment() {
         value={r.stage}
         disabled={stagingId === r.id}
         onChange={e => advanceStage(r, e.target.value)}
-        style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: 11.5, cursor: 'pointer' }}
+        style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: TEXT.xs, cursor: 'pointer' }}
       >
         {STAGES.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
       </select>
@@ -178,8 +178,8 @@ export default function Recruitment() {
       subtitle="Job openings and applicant pipeline"
       actions={
         <button onClick={() => setShowNewJob(true)}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 9, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
           New Job
         </button>
       }
@@ -187,16 +187,16 @@ export default function Recruitment() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[5] }}>
         {[
           { label: 'Open Roles',      value: openCount,                                           color: GREEN },
           { label: 'Total Applicants',value: applicants.length,                                   color: NAVY  },
           { label: 'In Interview',    value: applicants.filter(a=>a.stage==='interview').length,  color: AMBER },
           { label: 'Hired This Cycle',value: applicants.filter(a=>a.stage==='hired').length,      color: BLUE  },
         ].map(({ label, value, color }) => (
-          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '14px 16px' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color, ...NUM }}>{value}</div>
+          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
+            <div style={{ fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color, ...NUM }}>{value}</div>
           </div>
         ))}
       </div>
@@ -212,7 +212,7 @@ export default function Recruitment() {
             badge={displayedApplicants.length}
             actions={activeJob && (
               <button onClick={() => setShowNewApp(true)}
-                style={{ padding: '5px 12px', borderRadius: 7, border: 'none', background: `${NAVY}12`, color: NAVY, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: 'none', background: `${NAVY}12`, color: NAVY, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
                 + Add Applicant
               </button>
             )}
@@ -225,12 +225,12 @@ export default function Recruitment() {
       {/* New Job modal */}
       <Modal open={showNewJob} onClose={() => setShowNewJob(false)} title="Create Job Opening" width={440}
         footer={
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: SP[2] }}>
             <button onClick={createJob} disabled={saving}
-              style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              style={{ padding: '8px 20px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {saving && <Spinner size={13} color="#fff" />}Create
             </button>
-            <button onClick={() => setShowNewJob(false)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={() => setShowNewJob(false)} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
           </div>
         }
       >
@@ -240,24 +240,24 @@ export default function Recruitment() {
             { label: 'Department',  value: jDept,  set: setJDept,  type: 'text' },
           ].map(({ label, value, set, type }) => (
             <div key={label}>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>
+              <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>
               <input type={type} value={value} onChange={e => set(e.target.value)}
-                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
             </div>
           ))}
           <div>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>Type</label>
+            <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Type</label>
             <select value={jType} onChange={e => setJType(e.target.value)}
-              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }}>
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }}>
               <option value="full_time">Full Time</option>
               <option value="contract">Contract</option>
               <option value="intern">Intern</option>
             </select>
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>Description</label>
+            <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Description</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={jDesc} onChange={e => setJDesc(e.target.value)} rows={3}
-              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box', resize: 'vertical' }} />
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box', resize: 'vertical' }} />
           </div>
         </div>
       </Modal>
@@ -265,12 +265,12 @@ export default function Recruitment() {
       {/* New Applicant modal */}
       <Modal open={showNewApp} onClose={() => setShowNewApp(false)} title="Add Applicant" width={420}
         footer={
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: SP[2] }}>
             <button onClick={createApplicant} disabled={saving}
-              style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              style={{ padding: '8px 20px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {saving && <Spinner size={13} color="#fff" />}Add
             </button>
-            <button onClick={() => setShowNewApp(false)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={() => setShowNewApp(false)} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
           </div>
         }
       >
@@ -281,15 +281,15 @@ export default function Recruitment() {
             { label: 'Phone',     value: aPhone, set: setAPhone, type: 'tel'   },
           ].map(({ label, value, set, type }) => (
             <div key={label}>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>
+              <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>
               <input type={type} value={value} onChange={e => set(e.target.value)}
-                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
             </div>
           ))}
           <div>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>Source</label>
+            <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Source</label>
             <select value={aSrc} onChange={e => setASrc(e.target.value)}
-              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }}>
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }}>
               {['direct','referral','linkedin','agency','website'].map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
             </select>
           </div>

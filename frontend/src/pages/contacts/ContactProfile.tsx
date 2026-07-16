@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner, Tabs } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtKobo } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, SORA, INTER } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, SORA, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -128,8 +128,8 @@ function Badge({ label, colour, outline }: { label: string; colour: string; outl
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center',
-      padding: '2px 9px', borderRadius: 12,
-      fontSize: 11, fontWeight: 700, fontFamily: SORA,
+      padding: '2px 9px', borderRadius: RADIUS.xl,
+      fontSize: TEXT.xs, fontWeight: FW.bold, fontFamily: SORA,
       background: outline ? 'transparent' : `${colour}18`,
       color: colour,
       border: `1.5px solid ${colour}40`,
@@ -142,9 +142,9 @@ function Badge({ label, colour, outline }: { label: string; colour: string; outl
 function InfoPair({ label, value, mono }: { label: string; value?: string | number | null; mono?: boolean }) {
   if (!value && value !== 0) return null
   return (
-    <div style={{ display: 'flex', gap: 8, fontSize: 13, marginBottom: 6 }}>
+    <div style={{ display: 'flex', gap: 8, fontSize: TEXT.base, marginBottom: 6 }}>
       <span style={{ color: 'var(--txt2)', minWidth: 140, flexShrink: 0 }}>{label}</span>
-      <span style={{ color: 'var(--txt)', fontFamily: mono ? 'var(--font-mono)' : undefined, fontWeight: mono ? 600 : 400 }}>
+      <span style={{ color: 'var(--txt)', fontFamily: mono ? 'var(--font-mono)' : undefined, fontWeight: mono ? FW.semibold : FW.normal }}>
         {value}
       </span>
     </div>
@@ -175,7 +175,7 @@ function LifecycleBar({ profile }: { profile: ContactProfileData }) {
     is_card_holder: PURPLE, is_delinquent: AMBER, is_in_recovery: RED, is_written_off: '#6B7280',
   }
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'wrap', padding: '14px 20px', background: 'var(--card)', borderRadius: 10, border: '1px solid var(--bdr)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'wrap', padding: '14px 20px', background: 'var(--card)', borderRadius: RADIUS.lg, border: '1px solid var(--bdr)' }}>
       {LIFECYCLE_STEPS.map((step, i) => {
         const active = profile[step.key as keyof ContactProfileData] as boolean
         const colour = active ? STEP_COLOUR[step.key] : 'var(--txt3)'
@@ -195,7 +195,7 @@ function LifecycleBar({ profile }: { profile: ContactProfileData }) {
                   {step.icon}
                 </span>
               </div>
-              <span style={{ fontSize: 10.5, fontWeight: active ? 700 : 400, color: active ? colour : 'var(--txt3)', whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: TEXT['2xs'], fontWeight: active ? FW.bold : FW.normal, color: active ? colour : 'var(--txt3)', whiteSpace: 'nowrap' }}>
                 {step.label}
               </span>
             </div>
@@ -236,9 +236,9 @@ function OverviewTab({ profile }: { profile: ContactProfileData }) {
           <InfoPair label="Since"        value={fmtDate(profile.crm.created_at)} />
           {profile.crm.deals.length > 0 && (
             <div style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Deals</div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Deals</div>
               {profile.crm.deals.map(d => (
-                <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderTop: '1px solid var(--bdr)', fontSize: 12.5 }}>
+                <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderTop: '1px solid var(--bdr)', fontSize: TEXT.sm }}>
                   <span style={{ color: 'var(--txt)' }}>{d.title}</span>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <span style={NUM}>{fmtKobo(d.value_kobo)}</span>
@@ -278,7 +278,7 @@ function OverviewTab({ profile }: { profile: ContactProfileData }) {
 function LoansTab({ profile }: { profile: ContactProfileData }) {
   const hasContent = profile.applications.length > 0 || profile.active_loans.length > 0
   if (!hasContent) return (
-    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>No loan applications or active loans found.</div>
+    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No loan applications or active loans found.</div>
   )
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -287,15 +287,15 @@ function LoansTab({ profile }: { profile: ContactProfileData }) {
           {profile.active_loans.map(l => (
             <div key={l.id} style={{ padding: '12px 0', borderBottom: '1px solid var(--bdr)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginBottom: 2 }}>{l.ref}</div>
-                <div style={{ fontSize: 12, color: 'var(--txt2)' }}>{l.product_type}</div>
+                <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 2 }}>{l.ref}</div>
+                <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{l.product_type}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ ...NUM, fontSize: 14, fontWeight: 700, color: l.dpd > 0 ? RED : 'var(--txt)' }}>
+                <div style={{ ...NUM, fontSize: TEXT.md, fontWeight: FW.bold, color: l.dpd > 0 ? RED : 'var(--txt)' }}>
                   {fmtKobo(l.outstanding_kobo)}
                 </div>
                 {l.dpd > 0 && (
-                  <div style={{ fontSize: 11, fontWeight: 700, color: RED, marginBottom: 2 }}>{l.dpd}d DPD</div>
+                  <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: RED, marginBottom: 2 }}>{l.dpd}d DPD</div>
                 )}
                 <StagePill stage={l.status} />
               </div>
@@ -308,11 +308,11 @@ function LoansTab({ profile }: { profile: ContactProfileData }) {
           {profile.applications.map(a => (
             <div key={a.id} style={{ padding: '12px 0', borderBottom: '1px solid var(--bdr)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginBottom: 2 }}>{a.ref}</div>
-                <div style={{ fontSize: 12, color: 'var(--txt2)' }}>{a.product_type} · {fmtDate(a.created_at)}</div>
+                <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 2 }}>{a.ref}</div>
+                <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{a.product_type} · {fmtDate(a.created_at)}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ ...NUM, fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginBottom: 4 }}>
+                <div style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 4 }}>
                   {fmtKobo(a.amount_requested_kobo)}
                 </div>
                 <StagePill stage={a.stage} />
@@ -327,22 +327,22 @@ function LoansTab({ profile }: { profile: ContactProfileData }) {
 
 function CardsTab({ profile }: { profile: ContactProfileData }) {
   if (profile.cards.length === 0) return (
-    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>No cards found for this customer.</div>
+    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No cards found for this customer.</div>
   )
   const schemeIcon: Record<string, string> = { Visa: '💳', Mastercard: '💳', Verve: '💳' }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {profile.cards.map(c => (
-        <div key={c.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', background: 'var(--card)', borderRadius: 10, border: '1px solid var(--bdr)', gap: 12 }}>
+        <div key={c.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', background: 'var(--card)', borderRadius: RADIUS.lg, border: '1px solid var(--bdr)', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <span style={{ fontSize: 24 }}>{schemeIcon[c.scheme] ?? '💳'}</span>
+            <span style={{ fontSize: TEXT['3xl'] }}>{schemeIcon[c.scheme] ?? '💳'}</span>
             <div>
-              <div style={{ ...NUM, fontSize: 13.5, fontWeight: 600, color: 'var(--txt)', marginBottom: 2 }}>{c.card_number_masked}</div>
-              <div style={{ fontSize: 12, color: 'var(--txt2)' }}>{c.scheme} · Issued {fmtDate(c.issued_at)}</div>
+              <div style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 2 }}>{c.card_number_masked}</div>
+              <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{c.scheme} · Issued {fmtDate(c.issued_at)}</div>
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ ...NUM, fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginBottom: 4 }}>{fmtKobo(c.balance_kobo)}</div>
+            <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 4 }}>{fmtKobo(c.balance_kobo)}</div>
             <Badge label={c.status} colour={statusColour(c.status)} />
           </div>
         </div>
@@ -354,7 +354,7 @@ function CardsTab({ profile }: { profile: ContactProfileData }) {
 function CollectionsTab({ profile }: { profile: ContactProfileData }) {
   const c = profile.collections
   if (!c) return (
-    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>No collections record for this customer.</div>
+    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No collections record for this customer.</div>
   )
   const dpdColour = c.dpd >= 90 ? '#7F1D1D' : c.dpd >= 60 ? RED : c.dpd >= 30 ? '#EA580C' : c.dpd > 0 ? AMBER : GREEN
   return (
@@ -366,9 +366,9 @@ function CollectionsTab({ profile }: { profile: ContactProfileData }) {
           { label: 'Outstanding', value: fmtKobo(c.outstanding_kobo), colour: 'var(--txt)' },
           { label: 'Stage', value: c.current_stage ?? '—', colour: 'var(--txt)' },
         ].map(({ label, value, colour }) => (
-          <div key={label} style={{ padding: '12px 14px', background: 'var(--th-bg)', borderRadius: 8 }}>
-            <div style={{ fontSize: 11, color: 'var(--txt3)', fontWeight: 600, marginBottom: 4 }}>{label}</div>
-            <div style={{ ...NUM, fontSize: 18, fontWeight: 800, color: colour }}>{value}</div>
+          <div key={label} style={{ padding: '12px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md }}>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, marginBottom: 4 }}>{label}</div>
+            <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.extrabold, color: colour }}>{value}</div>
           </div>
         ))}
       </div>
@@ -382,7 +382,7 @@ function CollectionsTab({ profile }: { profile: ContactProfileData }) {
 function RecoveryTab({ profile }: { profile: ContactProfileData }) {
   const r = profile.recovery_case
   if (!r) return (
-    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>No recovery case found.</div>
+    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No recovery case found.</div>
   )
   const net = r.outstanding_kobo - r.recovered_kobo
   return (
@@ -393,9 +393,9 @@ function RecoveryTab({ profile }: { profile: ContactProfileData }) {
           { label: 'Recovered',   value: fmtKobo(r.recovered_kobo),   colour: GREEN },
           { label: 'Net',         value: fmtKobo(net),                  colour: net > 0 ? RED : GREEN },
         ].map(({ label, value, colour }) => (
-          <div key={label} style={{ padding: '12px 14px', background: 'var(--th-bg)', borderRadius: 8 }}>
-            <div style={{ fontSize: 11, color: 'var(--txt3)', fontWeight: 600, marginBottom: 4 }}>{label}</div>
-            <div style={{ ...NUM, fontSize: 17, fontWeight: 800, color: colour }}>{value}</div>
+          <div key={label} style={{ padding: '12px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md }}>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, marginBottom: 4 }}>{label}</div>
+            <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.extrabold, color: colour }}>{value}</div>
           </div>
         ))}
       </div>
@@ -412,7 +412,7 @@ function RecoveryTab({ profile }: { profile: ContactProfileData }) {
 function HelpdeskTab({ profile }: { profile: ContactProfileData }) {
   const navigate = useNavigate()
   if (profile.helpdesk_tickets.length === 0) return (
-    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>No helpdesk tickets found.</div>
+    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No helpdesk tickets found.</div>
   )
   const priorityColour: Record<string, string> = { high: RED, medium: AMBER, low: GREEN, critical: '#7F1D1D' }
   return (
@@ -421,13 +421,13 @@ function HelpdeskTab({ profile }: { profile: ContactProfileData }) {
         <div
           key={t.id}
           onClick={() => navigate(`/helpdesk/tickets/${t.id}`)}
-          style={{ padding: '12px 16px', background: 'var(--card)', borderRadius: 8, border: '1px solid var(--bdr)', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}
+          style={{ padding: '12px 16px', background: 'var(--card)', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}
           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'var(--card)' }}
         >
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginBottom: 2 }}>{t.subject}</div>
-            <div style={{ fontSize: 11.5, color: 'var(--txt2)' }}>{t.ticket_ref} · {fmtDate(t.created_at)}</div>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 2 }}>{t.subject}</div>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{t.ticket_ref} · {fmtDate(t.created_at)}</div>
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <Badge label={t.priority} colour={priorityColour[t.priority] ?? AMBER} />
@@ -441,7 +441,7 @@ function HelpdeskTab({ profile }: { profile: ContactProfileData }) {
 
 function ActivityTab({ profile }: { profile: ContactProfileData }) {
   if (profile.activity_log.length === 0) return (
-    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>No activity recorded yet.</div>
+    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No activity recorded yet.</div>
   )
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -449,12 +449,12 @@ function ActivityTab({ profile }: { profile: ContactProfileData }) {
         <div key={a.id} style={{ display: 'flex', gap: 14, paddingBottom: 16 }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <div style={{
-              width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+              width: 28, height: 28, borderRadius: RADIUS.full, flexShrink: 0,
               background: `${MODULE_COLOUR[a.module] ?? '#6B7280'}18`,
               border: `2px solid ${MODULE_COLOUR[a.module] ?? '#6B7280'}40`,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 13, color: MODULE_COLOUR[a.module] ?? '#6B7280' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.base, color: MODULE_COLOUR[a.module] ?? '#6B7280' }}>
                 {a.module === 'crm' ? 'handshake' : a.module === 'los' ? 'description' : a.module === 'helpdesk' ? 'support_agent' : a.module === 'collections' ? 'phone_in_talk' : a.module === 'recovery' ? 'gavel' : 'history'}
               </span>
             </div>
@@ -463,10 +463,10 @@ function ActivityTab({ profile }: { profile: ContactProfileData }) {
             )}
           </div>
           <div style={{ flex: 1, paddingTop: 2 }}>
-            <div style={{ fontSize: 13, color: 'var(--txt)', marginBottom: 2 }}>{a.description}</div>
-            <div style={{ fontSize: 11.5, color: 'var(--txt2)' }}>
+            <div style={{ fontSize: TEXT.base, color: 'var(--txt)', marginBottom: 2 }}>{a.description}</div>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
               {a.created_by} · {fmtDate(a.created_at)}
-              <span style={{ marginLeft: 8, padding: '1px 7px', borderRadius: 8, background: `${MODULE_COLOUR[a.module] ?? '#6B7280'}14`, color: MODULE_COLOUR[a.module] ?? '#6B7280', fontSize: 10.5, fontWeight: 600 }}>
+              <span style={{ marginLeft: 8, padding: '1px 7px', borderRadius: RADIUS.md, background: `${MODULE_COLOUR[a.module] ?? '#6B7280'}14`, color: MODULE_COLOUR[a.module] ?? '#6B7280', fontSize: TEXT['2xs'], fontWeight: FW.semibold }}>
                 {a.module}
               </span>
             </div>
@@ -552,46 +552,46 @@ export default function ContactProfile() {
       actions={
         <button
           onClick={() => navigate(-1)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', cursor: 'pointer', fontFamily: SORA }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', cursor: 'pointer', fontFamily: SORA }}
         >
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_back</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>arrow_back</span>
           Back
         </button>
       }
     >
       {/* Header card */}
-      <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '20px 24px', marginBottom: 16, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: `${SP[5]} ${SP[6]}`, marginBottom: SP[4], display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         {/* Avatar */}
         <div style={{
-          width: 56, height: 56, borderRadius: '50%', flexShrink: 0,
+          width: 56, height: 56, borderRadius: RADIUS.full, flexShrink: 0,
           background: `${NAVY}18`, border: `2px solid ${NAVY}30`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 28, color: NAVY }}>person</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], color: NAVY }}>person</span>
         </div>
 
         {/* Name + meta */}
         <div style={{ flex: 1, minWidth: 200 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 6, flexWrap: 'wrap' }}>
-            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: 'var(--txt)', fontFamily: SORA }}>{profile.name}</h1>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--txt2)', fontWeight: 600 }}>{profile.cif}</span>
+            <h1 style={{ margin: 0, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: 'var(--txt)', fontFamily: SORA }}>{profile.name}</h1>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.semibold }}>{profile.cif}</span>
           </div>
           <LifecycleBadges profile={profile} />
           <div style={{ marginTop: 10, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
             {profile.phone && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'var(--txt2)' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT.base, color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 15 }}>call</span>
                 {profile.phone}
               </span>
             )}
             {profile.email && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'var(--txt2)' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT.base, color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 15 }}>mail</span>
                 {profile.email}
               </span>
             )}
             {profile.state && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'var(--txt2)' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT.base, color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 15 }}>location_on</span>
                 {profile.state}
               </span>
@@ -603,14 +603,14 @@ export default function ContactProfile() {
         <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
           <a
             href={`tel:${profile.phone}`}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: GREEN, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', textDecoration: 'none', fontFamily: SORA }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: GREEN, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', textDecoration: 'none', fontFamily: SORA }}
           >
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>call</span>
             Call
           </a>
           <button
             onClick={() => navigate(`/helpdesk/tickets/new?cif=${profile.cif}&name=${encodeURIComponent(profile.name)}`)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--card)', color: NAVY, border: `1.5px solid ${NAVY}30`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: SORA }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--card)', color: NAVY, border: `1.5px solid ${NAVY}30`, borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA }}
           >
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add_comment</span>
             Open Ticket

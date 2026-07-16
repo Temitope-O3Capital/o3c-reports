@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner, Modal, btnPrimary, btnSecondary } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
-import { GREEN, AMBER, RED, NAVY, BLUE, INTER } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, BLUE, INTER } from '../../lib/design'
 import { toast } from 'sonner'
 
 interface DPAEntry {
@@ -38,15 +38,15 @@ const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
 function StatusPill({ status }: { status: string }) {
   const s = STATUS_STYLE[status] ?? STATUS_STYLE.under_review
   return (
-    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 8, ...s }}>
+    <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.md, ...s }}>
       {status.replace('_', ' ')}
     </span>
   )
 }
 
 const inp: React.CSSProperties = {
-  padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
-  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: INTER,
+  padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: INTER,
   width: '100%', boxSizing: 'border-box',
 }
 
@@ -111,7 +111,7 @@ export default function DPARegister() {
   }
 
   const th: React.CSSProperties = {
-    textAlign: 'left', padding: '8px 12px', fontSize: 11, fontWeight: 700,
+    textAlign: 'left', padding: '8px 12px', fontSize: TEXT.xs, fontWeight: FW.bold,
     textTransform: 'uppercase' as const, letterSpacing: '.4px',
     color: 'var(--txt2)', background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)',
   }
@@ -130,7 +130,7 @@ export default function DPARegister() {
       ) : (
         <SectionCard title="Processing Activities" badge={items.length} padding={false}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
               <thead>
                 <tr>
                   {['Processing Activity', 'Purpose', 'Legal Basis', 'Data Categories', 'Retention', 'DPO', 'Status', ''].map(h => (
@@ -144,34 +144,34 @@ export default function DPARegister() {
                     onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                   >
-                    <td style={{ ...td, fontWeight: 600, color: NAVY, maxWidth: 200 }}>
+                    <td style={{ ...td, fontWeight: FW.semibold, color: NAVY, maxWidth: 200 }}>
                       <div>{row.processing_name}</div>
                       {row.third_country_transfers && (
-                        <div style={{ fontSize: 10, color: AMBER, fontWeight: 700, marginTop: 2 }}>⚠ Third-country transfer</div>
+                        <div style={{ fontSize: TEXT.xs, color: AMBER, fontWeight: FW.bold, marginTop: 2 }}>⚠ Third-country transfer</div>
                       )}
                     </td>
-                    <td style={{ ...td, color: 'var(--txt2)', maxWidth: 200, fontSize: 12 }}>{row.purpose}</td>
+                    <td style={{ ...td, color: 'var(--txt2)', maxWidth: 200, fontSize: TEXT.sm }}>{row.purpose}</td>
                     <td style={{ ...td }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 8,
+                      <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.md,
                         background: `${BLUE}18`, color: BLUE }}>
                         {BASIS_LABELS[row.legal_basis] ?? row.legal_basis}
                       </span>
                     </td>
-                    <td style={{ ...td, fontSize: 11.5, color: 'var(--txt2)' }}>
+                    <td style={{ ...td, fontSize: TEXT.xs, color: 'var(--txt2)' }}>
                       {(row.data_categories ?? []).join(', ') || '—'}
                     </td>
-                    <td style={{ ...td, fontSize: 12, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>
+                    <td style={{ ...td, fontSize: TEXT.sm, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>
                       {row.retention_period || '—'}
                     </td>
                     <td style={{ ...td }}>
                       {row.dpo_reviewed
-                        ? <span style={{ fontSize: 11, color: GREEN, fontWeight: 700 }}>✓ Reviewed</span>
-                        : <span style={{ fontSize: 11, color: AMBER, fontWeight: 600 }}>Pending</span>}
+                        ? <span style={{ fontSize: TEXT.xs, color: GREEN, fontWeight: FW.bold }}>✓ Reviewed</span>
+                        : <span style={{ fontSize: TEXT.xs, color: AMBER, fontWeight: FW.semibold }}>Pending</span>}
                     </td>
                     <td style={td}><StatusPill status={row.status} /></td>
                     <td style={td}>
                       <button onClick={() => setSelected(row)}
-                        style={{ padding: '3px 10px', fontSize: 12, fontWeight: 600, borderRadius: 6,
+                        style={{ padding: '3px 10px', fontSize: TEXT.sm, fontWeight: FW.semibold, borderRadius: RADIUS.sm,
                           border: `1px solid ${NAVY}30`, background: 'none', color: NAVY, cursor: 'pointer', fontFamily: INTER }}>
                         Edit
                       </button>
@@ -187,46 +187,46 @@ export default function DPARegister() {
       {/* Add new */}
       {showNew && (
         <Modal open title="Add Processing Activity" onClose={() => setShowNew(false)} width={580}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Processing Name *</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>Processing Name *</label>
               <input value={fName} onChange={e => setFName(e.target.value)} placeholder="e.g. KYC Verification" style={inp} />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Purpose *</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>Purpose *</label>
               <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={fPurpose} onChange={e => setFPurpose(e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Legal Basis *</label>
+                <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>Legal Basis *</label>
                 <select value={fBasis} onChange={e => setFBasis(e.target.value)} style={inp}>
                   {Object.entries(BASIS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Retention Period</label>
+                <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>Retention Period</label>
                 <input value={fRetention} onChange={e => setFRetention(e.target.value)} placeholder="e.g. 7 years" style={inp} />
               </div>
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Data Categories (comma-separated)</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>Data Categories (comma-separated)</label>
               <input value={fCategories} onChange={e => setFCategories(e.target.value)} placeholder="identity, financial, contact" style={inp} />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Data Subjects</label>
+                <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>Data Subjects</label>
                 <input value={fSubjects} onChange={e => setFSubjects(e.target.value)} placeholder="Loan applicants" style={inp} />
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Recipients</label>
+                <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>Recipients</label>
                 <input value={fRecipients} onChange={e => setFRecipients(e.target.value)} placeholder="CBN, credit bureaux" style={inp} />
               </div>
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Security Measures</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>Security Measures</label>
               <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={fSecurity} onChange={e => setFSecurity(e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} placeholder="Encryption at rest, TLS in transit…" />
             </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
               <button onClick={() => setShowNew(false)} style={btnSecondary}>Cancel</button>
               <button onClick={create} disabled={saving} style={btnPrimary}>{saving ? 'Adding…' : 'Add Activity'}</button>
             </div>
@@ -238,20 +238,20 @@ export default function DPARegister() {
       {selected && (
         <Modal open title={`Edit: ${selected.processing_name}`} onClose={() => setSelected(null)} width={420}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ fontSize: 12.5, color: 'var(--txt2)', marginBottom: 6 }}>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginBottom: 6 }}>
               Legal basis: <strong>{BASIS_LABELS[selected.legal_basis]}</strong> · Last updated: {fmtDatetime(selected.updated_at)}
             </div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)', marginBottom: 4 }}>Change Status</div>
+            <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', marginBottom: SP[1] }}>Change Status</div>
             {(['active', 'under_review', 'discontinued'] as const).map(s => (
               <button key={s} onClick={() => updateStatus(selected.id, s, selected.dpo_reviewed)}
-                style={{ padding: '9px 14px', borderRadius: 8, border: `1px solid ${STATUS_STYLE[s].color}40`,
-                  background: STATUS_STYLE[s].bg, color: STATUS_STYLE[s].color, fontSize: 13, fontWeight: 700,
+                style={{ padding: '9px 14px', borderRadius: RADIUS.md, border: `1px solid ${STATUS_STYLE[s].color}40`,
+                  background: STATUS_STYLE[s].bg, color: STATUS_STYLE[s].color, fontSize: TEXT.base, fontWeight: FW.bold,
                   cursor: 'pointer', fontFamily: INTER, textAlign: 'left' as const }}>
                 {s.replace('_', ' ')}
               </button>
             ))}
             <button onClick={() => updateStatus(selected.id, selected.status, !selected.dpo_reviewed)}
-              style={{ marginTop: 4, padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+              style={{ marginTop: SP[1], padding: '9px 14px', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold,
                 border: `1px solid ${NAVY}30`, background: `${NAVY}0a`, color: NAVY, cursor: 'pointer', fontFamily: INTER }}>
               {selected.dpo_reviewed ? 'Mark DPO Review Pending' : 'Mark DPO Reviewed ✓'}
             </button>

@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, ErrBanner, Modal, Sk, btnPrimary, btnSeco
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtNum, today, monthStart } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, INTER } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 import { ResponsiveContainer, AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 
@@ -45,18 +45,18 @@ function Tip({ active, payload, label, isKobo }: {
   if (!active || !payload?.length) return null
   const f = isKobo ? (v: number) => fmtKobo(v) : (v: number) => fmtNum(v)
   return (
-    <div style={{ background: '#0E2841', borderRadius: 10, padding: '10px 14px',
+    <div style={{ background: '#0E2841', borderRadius: RADIUS.lg, padding: '10px 14px',
       boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)' }}>
       {label && (
-        <div style={{ fontSize: 9.5, fontWeight: 600, color: 'rgba(255,255,255,.4)', fontFamily: INTER,
+        <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'rgba(255,255,255,.4)', fontFamily: INTER,
           marginBottom: 7, letterSpacing: 0.5, textTransform: 'uppercase' }}>{label}</div>
       )}
       {payload.map((p, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: i > 0 ? 5 : 0 }}>
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginTop: i > 0 ? 5 : 0 }}>
           <div style={{ width: 7, height: 7, borderRadius: '50%', background: p.color ?? '#fff', flexShrink: 0 }} />
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: INTER }}>{f(p.value)}</span>
+          <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: '#fff', fontFamily: INTER }}>{f(p.value)}</span>
           {p.name && payload.length > 1 && (
-            <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,.4)', fontFamily: INTER }}>{p.name}</span>
+            <span style={{ fontSize: TEXT['2xs'], color: 'rgba(255,255,255,.4)', fontFamily: INTER }}>{p.name}</span>
           )}
         </div>
       ))}
@@ -197,10 +197,10 @@ export default function ReportsBI() {
         align: col === 'period' ? 'left' : 'right',
         render: (row) => {
           const val = row[col]
-          if (col === 'period') return <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>{String(val)}</span>
+          if (col === 'period') return <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{String(val)}</span>
           if (typeof val === 'number') {
             const formatted = col.includes('₦') ? fmtKobo(val) : fmtNum(val)
-            return <span style={{ fontFamily: INTER, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{formatted}</span>
+            return <span style={{ fontFamily: INTER, fontVariantNumeric: 'tabular-nums', fontWeight: FW.semibold }}>{formatted}</span>
           }
           return <span>{String(val ?? '—')}</span>
         },
@@ -223,13 +223,13 @@ export default function ReportsBI() {
 
   const inputStyle: React.CSSProperties = {
     height: 32, padding: '0 10px', border: '1px solid var(--input-bdr)',
-    borderRadius: 7, fontSize: 12.5, background: 'var(--input-bg)',
+    borderRadius: RADIUS.md, fontSize: TEXT.sm, background: 'var(--input-bg)',
     color: 'var(--txt)', fontFamily: "'Sora', sans-serif", outline: 'none', width: '100%',
     boxSizing: 'border-box',
   }
 
   const labelStyle: React.CSSProperties = {
-    fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase',
+    fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase',
     letterSpacing: 0.5, fontFamily: INTER, display: 'block', marginBottom: 6,
   }
 
@@ -240,7 +240,7 @@ export default function ReportsBI() {
         {/* Left config panel */}
         <div style={{
           width: 300, flexShrink: 0, borderRight: '1px solid var(--bdr)',
-          background: 'var(--card)', padding: 20, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 20,
+          background: 'var(--card)', padding: SP[5], overflow: 'auto', display: 'flex', flexDirection: 'column', gap: SP[5],
         }}>
           {/* Module select */}
           <div>
@@ -257,30 +257,30 @@ export default function ReportsBI() {
           {/* Metrics multi-select */}
           <div>
             <label style={labelStyle}>Metrics</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
               {availableMetrics.map(m => {
                 const checked = selectedMetrics.includes(m)
                 return (
                   <label
                     key={m}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
-                      padding: '5px 8px', borderRadius: 7,
+                      display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer',
+                      padding: '5px 8px', borderRadius: RADIUS.md,
                       background: checked ? 'rgba(14,40,65,0.06)' : 'transparent',
                     }}
                   >
                     <div
                       onClick={() => toggleMetric(m)}
                       style={{
-                        width: 16, height: 16, borderRadius: 4, flexShrink: 0, cursor: 'pointer',
+                        width: 16, height: 16, borderRadius: RADIUS.xs, flexShrink: 0, cursor: 'pointer',
                         border: `1.5px solid ${checked ? NAVY : 'var(--input-bdr)'}`,
                         background: checked ? NAVY : 'transparent',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}
                     >
-                      {checked && <span className="material-symbols-rounded" style={{ fontSize: 12, color: '#fff', lineHeight: 1 }}>check</span>}
+                      {checked && <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, color: '#fff', lineHeight: 1 }}>check</span>}
                     </div>
-                    <span style={{ fontSize: 12.5, color: checked ? 'var(--txt)' : 'var(--txt2)', fontWeight: checked ? 600 : 400 }}>{m}</span>
+                    <span style={{ fontSize: TEXT.sm, color: checked ? 'var(--txt)' : 'var(--txt2)', fontWeight: checked ? 600 : 400 }}>{m}</span>
                   </label>
                 )
               })}
@@ -296,9 +296,9 @@ export default function ReportsBI() {
           {/* Granularity */}
           <div>
             <label style={labelStyle}>Granularity</label>
-            <div style={{ display: 'flex', gap: 12 }}>
+            <div style={{ display: 'flex', gap: SP[3] }}>
               {(['daily', 'weekly', 'monthly'] as const).map(g => (
-                <label key={g} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 12.5, color: 'var(--txt)' }}>
+                <label key={g} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt)' }}>
                   <input
                     type="radio"
                     name="granularity"
@@ -323,7 +323,7 @@ export default function ReportsBI() {
           </button>
 
           {/* Save & Schedule */}
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: SP[2] }}>
             <button
               onClick={() => setSaveOpen(true)}
               style={{ ...btnSecondary, flex: 1, justifyContent: 'center', opacity: hasRun ? 1 : 0.45, cursor: hasRun ? 'pointer' : 'not-allowed' }}
@@ -342,23 +342,23 @@ export default function ReportsBI() {
         </div>
 
         {/* Right output area */}
-        <div style={{ flex: 1, padding: 20, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ flex: 1, padding: SP[5], overflow: 'auto', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
           <ErrBanner error={error} onRetry={runReport} />
 
           {!hasRun && !loading && (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-              <div style={{ width: 56, height: 56, borderRadius: 16, background: 'rgba(14,40,65,.06)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 28, color: 'var(--txt3)' }}>analytics</span>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: SP[3] }}>
+              <div style={{ width: 56, height: 56, borderRadius: RADIUS['2xl'], background: 'rgba(14,40,65,.06)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], color: 'var(--txt3)' }}>analytics</span>
               </div>
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', marginBottom: 4 }}>No report yet</div>
-                <div style={{ fontSize: 12.5, color: 'var(--txt2)' }}>Configure a report on the left and click Run Report</div>
+                <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: SP[1] }}>No report yet</div>
+                <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Configure a report on the left and click Run Report</div>
               </div>
             </div>
           )}
 
           {loading && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
               {Array.from({ length: 6 }).map((_, i) => <Sk key={i} h={28} />)}
             </div>
           )}
@@ -377,8 +377,8 @@ export default function ReportsBI() {
                         </linearGradient>
                       </defs>
                       <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                      <XAxis dataKey="period" tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                      <XAxis dataKey="period" tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
                       <Tooltip content={(p: any) => <Tip {...p} isKobo={hasKoboMetric} />} />
                       <Area
                         type="monotone"
@@ -394,8 +394,8 @@ export default function ReportsBI() {
                   ) : (
                     <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
                       <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                      <XAxis dataKey="period" tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                      <XAxis dataKey="period" tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
                       <Tooltip content={(p: any) => <Tip {...p} isKobo={hasKoboMetric} />} />
                       {selectedMetrics.map((m, i) => (
                         <Line
@@ -415,9 +415,9 @@ export default function ReportsBI() {
 
                 {/* Line legend for multi-metric */}
                 {!singleMetric && (
-                  <div style={{ display: 'flex', gap: 16, marginTop: 10, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: SP[4], marginTop: 10, flexWrap: 'wrap' }}>
                     {selectedMetrics.map((m, i) => (
-                      <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: 'var(--txt2)', fontFamily: INTER }}>
+                      <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER }}>
                         <div style={{ width: 16, height: 2.5, borderRadius: 2, background: METRIC_COLORS[i % METRIC_COLORS.length] }} />
                         {m}
                       </div>
@@ -428,9 +428,9 @@ export default function ReportsBI() {
 
               {/* Export + Table */}
               <div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: SP[2] }}>
                   <button onClick={handleExport} style={btnSecondary}>
-                    <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
                     Export CSV
                   </button>
                 </div>
@@ -451,7 +451,7 @@ export default function ReportsBI() {
       {/* Save Report Modal */}
       <Modal open={saveOpen} onClose={() => setSaveOpen(false)} title="Save Report" width={480}
         footer={
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
             <button onClick={() => setSaveOpen(false)} style={btnSecondary}>Cancel</button>
             <button onClick={handleSave} style={btnPrimary} disabled={saveLoading}>
               {saveLoading ? 'Saving…' : 'Save Report'}
@@ -466,7 +466,7 @@ export default function ReportsBI() {
               value={saveName}
               onChange={e => setSaveName(e.target.value)}
               placeholder="e.g. Monthly Collections Summary"
-              style={{ height: 36, padding: '0 12px', border: '1px solid var(--input-bdr)', borderRadius: 8, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', width: '100%', boxSizing: 'border-box', outline: 'none' }}
+              style={{ height: 36, padding: '0 12px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', width: '100%', boxSizing: 'border-box', outline: 'none' }}
             />
           </div>
           <div>
@@ -476,7 +476,7 @@ export default function ReportsBI() {
               onChange={e => setSaveDesc(e.target.value)}
               placeholder="Optional description…"
               rows={3}
-              style={{ padding: '8px 12px', border: '1px solid var(--input-bdr)', borderRadius: 8, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', width: '100%', boxSizing: 'border-box', outline: 'none', resize: 'vertical', fontFamily: "'Sora', sans-serif" }}
+              style={{ padding: `${SP[2]} ${SP[3]}`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', width: '100%', boxSizing: 'border-box', outline: 'none', resize: 'vertical', fontFamily: "'Sora', sans-serif" }}
             />
           </div>
         </div>
@@ -485,7 +485,7 @@ export default function ReportsBI() {
       {/* Schedule Modal */}
       <Modal open={schedOpen} onClose={() => setSchedOpen(false)} title="Schedule Report" width={480}
         footer={
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
             <button onClick={() => setSchedOpen(false)} style={btnSecondary}>Cancel</button>
             <button onClick={handleSchedule} style={btnPrimary} disabled={schedLoading}>
               {schedLoading ? 'Scheduling…' : 'Create Schedule'}
@@ -499,7 +499,7 @@ export default function ReportsBI() {
             <select
               value={schedFreq}
               onChange={e => setSchedFreq(e.target.value)}
-              style={{ height: 36, padding: '0 12px', border: '1px solid var(--input-bdr)', borderRadius: 8, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', width: '100%', boxSizing: 'border-box', outline: 'none' }}
+              style={{ height: 36, padding: '0 12px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', width: '100%', boxSizing: 'border-box', outline: 'none' }}
             >
               <option value="daily">Daily</option>
               <option value="weekly">Weekly</option>
@@ -513,7 +513,7 @@ export default function ReportsBI() {
               onChange={e => setSchedRecipients(e.target.value)}
               placeholder="john@o3capital.com, jane@o3capital.com"
               rows={3}
-              style={{ padding: '8px 12px', border: '1px solid var(--input-bdr)', borderRadius: 8, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', width: '100%', boxSizing: 'border-box', outline: 'none', resize: 'vertical', fontFamily: "'Sora', sans-serif" }}
+              style={{ padding: `${SP[2]} ${SP[3]}`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', width: '100%', boxSizing: 'border-box', outline: 'none', resize: 'vertical', fontFamily: "'Sora', sans-serif" }}
             />
           </div>
         </div>

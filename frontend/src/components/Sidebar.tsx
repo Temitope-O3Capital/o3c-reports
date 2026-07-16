@@ -549,33 +549,49 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
 
       {/* ── Brand row ─────────────────────────────────────────────────────── */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: collapsed ? '16px 8px 14px' : '16px 14px 14px',
-        borderBottom: '1px solid rgba(255,255,255,.08)',
-        justifyContent: collapsed ? 'center' : undefined,
+        display: 'flex', alignItems: 'center',
+        padding: collapsed ? '14px 0' : '12px 12px 11px',
+        borderBottom: '1px solid rgba(255,255,255,.07)',
+        justifyContent: collapsed ? 'center' : 'space-between',
         flexShrink: 0, overflow: 'hidden',
       }}>
-        {/* Brand mark — sky gradient matching demo */}
-        <div style={{
-          width: 28, height: 28, minWidth: 28, borderRadius: 4,
-          background: 'linear-gradient(135deg,#0EA5E9,#0369A1)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontWeight: 700, fontSize: 13, color: '#fff', fontFamily: SORA,
-        }}>
-          O3
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, overflow: 'hidden', minWidth: 0 }}>
+          {/* Mark */}
+          <img
+            src="/o3-logo-transparent.svg"
+            width={50} height={27}
+            alt="O3 Capital"
+            style={{ display: 'block', flexShrink: 0 }}
+          />
+
+          {!collapsed && (
+            <div style={{ overflow: 'hidden', minWidth: 0 }}>
+              <div style={{
+                fontWeight: 700, fontSize: 13.5, color: '#fff',
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                fontFamily: SORA, letterSpacing: '-0.2px', lineHeight: 1.15,
+              }}>
+                O3 Capital
+              </div>
+              <div style={{
+                fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase',
+                letterSpacing: '1.4px', color: 'rgba(255,255,255,.28)',
+                fontFamily: SORA, marginTop: 3, whiteSpace: 'nowrap',
+              }}>
+                Workspace
+              </div>
+            </div>
+          )}
         </div>
 
         {!collapsed && (
-          <>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 13, color: '#fff', whiteSpace: 'nowrap', fontFamily: SORA }}>
-                O3 Capital
-              </div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,.45)', letterSpacing: '.04em', whiteSpace: 'nowrap', fontFamily: SORA }}>
-                WORKSPACE
-              </div>
-            </div>
-          </>
+          <span
+            className="material-symbols-rounded"
+            title="Switch workspace"
+            style={{ fontSize: 16, color: 'rgba(255,255,255,.18)', flexShrink: 0, cursor: 'pointer', marginLeft: 4 }}
+          >
+            unfold_more
+          </span>
         )}
       </div>
 

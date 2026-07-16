@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Page, ErrBanner, btnPrimary, btnSecondary, filterInputStyle } from '../../components/UI'
 import { apiFetch, apiPost, apiDelete } from '../../lib/api'
-import { NAVY, INTER } from '../../lib/design'
+import { NAVY, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -27,7 +27,7 @@ function parseAddresses(raw: string): MailAddress[] {
 }
 
 function labelStyle(): React.CSSProperties {
-  return { fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }
+  return { fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1], fontFamily: INTER }
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
@@ -109,11 +109,11 @@ export default function MailCompose() {
   if (sent) {
     return (
       <Page title="Compose" subtitle="Message sent">
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, marginTop: 60 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[4], marginTop: 60 }}>
           <span className="material-symbols-rounded" style={{ fontSize: 52, color: '#10B981' }}>check_circle</span>
-          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--txt)' }}>Message sent</div>
-          <div style={{ fontSize: 14, color: 'var(--txt3)' }}>Your email has been delivered successfully.</div>
-          <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+          <div style={{ fontSize: TEXT.xl, fontWeight: FW.bold, color: 'var(--txt)' }}>Message sent</div>
+          <div style={{ fontSize: TEXT.md, color: 'var(--txt3)' }}>Your email has been delivered successfully.</div>
+          <div style={{ display: 'flex', gap: 10, marginTop: SP[2] }}>
             <button onClick={() => { setSent(false); setTo(''); setSubject(''); setBody('') }} style={btnSecondary}>
               Compose Another
             </button>
@@ -131,7 +131,7 @@ export default function MailCompose() {
       title="Compose"
       subtitle="New message"
       actions={
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: SP[2] }}>
           <button onClick={() => navigate(-1)} style={btnSecondary}>Discard</button>
           <button onClick={saveDraft} disabled={savingDraft} style={btnSecondary}>
             {savingDraft ? 'Saving…' : 'Save Draft'}
@@ -149,63 +149,63 @@ export default function MailCompose() {
 
       <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 0 }}>
         {/* Header card */}
-        <div style={{ background: 'var(--card)', borderRadius: 12, border: '1px solid var(--bdr)', overflow: 'hidden' }}>
+        <div style={{ background: 'var(--card)', borderRadius: RADIUS.xl, border: '1px solid var(--bdr)', overflow: 'hidden' }}>
           {/* To */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--bdr)', padding: '10px 16px', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--bdr)', padding: '10px 16px', gap: SP[3] }}>
             <span style={{ ...labelStyle(), marginBottom: 0, paddingTop: 3, minWidth: 36 }}>To</span>
             <div style={{ flex: 1 }}>
               <input
                 value={to}
                 onChange={e => setTo(e.target.value)}
                 placeholder="recipient@example.com, another@example.com"
-                style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', border: 'none', background: 'transparent', padding: '2px 0', fontSize: 13 }}
+                style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', border: 'none', background: 'transparent', padding: '2px 0', fontSize: TEXT.base }}
               />
             </div>
-            <div style={{ display: 'flex', gap: 8, paddingTop: 2 }}>
-              {!showCc  && <button onClick={() => setShowCc(true)}  style={{ fontSize: 11.5, color: NAVY, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Cc</button>}
-              {!showBcc && <button onClick={() => setShowBcc(true)} style={{ fontSize: 11.5, color: NAVY, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Bcc</button>}
+            <div style={{ display: 'flex', gap: SP[2], paddingTop: 2 }}>
+              {!showCc  && <button onClick={() => setShowCc(true)}  style={{ fontSize: TEXT.xs, color: NAVY, background: 'none', border: 'none', cursor: 'pointer', fontWeight: FW.semibold }}>Cc</button>}
+              {!showBcc && <button onClick={() => setShowBcc(true)} style={{ fontSize: TEXT.xs, color: NAVY, background: 'none', border: 'none', cursor: 'pointer', fontWeight: FW.semibold }}>Bcc</button>}
             </div>
           </div>
 
           {/* Cc */}
           {showCc && (
-            <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--bdr)', padding: '10px 16px', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--bdr)', padding: '10px 16px', gap: SP[3] }}>
               <span style={{ ...labelStyle(), marginBottom: 0, minWidth: 36 }}>Cc</span>
               <input
                 value={cc}
                 onChange={e => setCc(e.target.value)}
                 placeholder="cc@example.com"
-                style={{ ...filterInputStyle, flex: 1, border: 'none', background: 'transparent', padding: '2px 0', fontSize: 13 }}
+                style={{ ...filterInputStyle, flex: 1, border: 'none', background: 'transparent', padding: '2px 0', fontSize: TEXT.base }}
               />
             </div>
           )}
 
           {/* Bcc */}
           {showBcc && (
-            <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--bdr)', padding: '10px 16px', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--bdr)', padding: '10px 16px', gap: SP[3] }}>
               <span style={{ ...labelStyle(), marginBottom: 0, minWidth: 36 }}>Bcc</span>
               <input
                 value={bcc}
                 onChange={e => setBcc(e.target.value)}
                 placeholder="bcc@example.com"
-                style={{ ...filterInputStyle, flex: 1, border: 'none', background: 'transparent', padding: '2px 0', fontSize: 13 }}
+                style={{ ...filterInputStyle, flex: 1, border: 'none', background: 'transparent', padding: '2px 0', fontSize: TEXT.base }}
               />
             </div>
           )}
 
           {/* Subject */}
-          <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--bdr)', padding: '10px 16px', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--bdr)', padding: '10px 16px', gap: SP[3] }}>
             <span style={{ ...labelStyle(), marginBottom: 0, minWidth: 36 }}>Subject</span>
             <input
               value={subject}
               onChange={e => setSubject(e.target.value)}
               placeholder="Subject"
-              style={{ ...filterInputStyle, flex: 1, border: 'none', background: 'transparent', padding: '2px 0', fontSize: 13, fontWeight: 600 }}
+              style={{ ...filterInputStyle, flex: 1, border: 'none', background: 'transparent', padding: '2px 0', fontSize: TEXT.base, fontWeight: FW.semibold }}
             />
           </div>
 
           {/* Body */}
-          <div style={{ padding: '12px 16px' }}>
+          <div style={{ padding: `${SP[3]} ${SP[4]}` }}>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={body}
               onChange={e => setBody(e.target.value)}

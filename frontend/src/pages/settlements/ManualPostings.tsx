@@ -4,7 +4,7 @@ import type { TableCol } from '../../components/UI'
 import { DataTable } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
-import { GREEN, RED, AMBER, NAVY, NUM } from '../../lib/design'
+import { GREEN, RED, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { roleLabel } from '../../lib/roles'
 import type { WorkflowTemplate } from '../admin/WorkflowTemplates'
 import { toast } from 'sonner'
@@ -72,7 +72,7 @@ function StageStepper({ stage }: { stage: ManualPosting['stage'] }) {
           )
         })}
       </div>
-      <span style={{ fontSize: 11, fontWeight: 600, color: stageColor }}>{stageText}</span>
+      <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: stageColor }}>{stageText}</span>
     </div>
   )
 }
@@ -82,7 +82,7 @@ function StageStepper({ stage }: { stage: ManualPosting['stage'] }) {
 function TypePill({ type }: { type: string }) {
   const isCredit = type === 'Credit'
   return (
-    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: isCredit ? 'rgba(22,163,74,.12)' : 'rgba(192,0,0,.1)', color: isCredit ? GREEN : RED, whiteSpace: 'nowrap' }}>
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: isCredit ? 'rgba(22,163,74,.12)' : 'rgba(192,0,0,.1)', color: isCredit ? GREEN : RED, whiteSpace: 'nowrap' }}>
       {type}
     </span>
   )
@@ -99,17 +99,17 @@ function ReasonModal({ open, title, confirmLabel, confirmColor, onClose, onSubmi
   return (
     <Modal open={open} onClose={onClose} title={title} width={420}
       footer={
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
           <button onClick={() => onSubmit(reason)} disabled={saving || !reason.trim()}
-            style={{ padding: '7px 15px', borderRadius: 8, border: 'none', background: confirmColor, color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving || !reason.trim() ? 'not-allowed' : 'pointer', opacity: saving || !reason.trim() ? 0.6 : 1 }}>
+            style={{ padding: '7px 15px', borderRadius: RADIUS.md, border: 'none', background: confirmColor, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving || !reason.trim() ? 'not-allowed' : 'pointer', opacity: saving || !reason.trim() ? 0.6 : 1 }}>
             {saving ? 'Saving…' : confirmLabel}
           </button>
         </div>
       }
     >
       <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={reason} onChange={e => setReason(e.target.value)} rows={4} placeholder="Write a reason…"
-        style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box' }} />
+        style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box' }} />
     </Modal>
   )
 }
@@ -159,15 +159,15 @@ function NewPostingModal({ open, onClose, onSuccess }: { open: boolean; onClose:
 
   const inputStyle: React.CSSProperties = {
     width: '100%', height: 36, padding: '0 10px', boxSizing: 'border-box',
-    border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13,
+    border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: TEXT.base,
     background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none',
   }
 
   return (
     <Modal open={open} onClose={onClose} title="New Manual Posting" width={540}
       footer={
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
           <button onClick={handleSubmit} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1 }}>
             {saving ? 'Submitting…' : 'Submit for Approval'}
           </button>
@@ -178,7 +178,7 @@ function NewPostingModal({ open, onClose, onSuccess }: { open: boolean; onClose:
 
         {/* Template selector */}
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Approval Workflow *</label>
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Approval Workflow *</label>
           <select value={templateId} onChange={e => setTemplateId(Number(e.target.value) || '')}
             style={{ ...inputStyle, appearance: 'auto' }}>
             <option value="">Select a workflow template…</option>
@@ -188,20 +188,20 @@ function NewPostingModal({ open, onClose, onSuccess }: { open: boolean; onClose:
 
         {/* Template summary */}
         {selectedTemplate && (
-          <div style={{ padding: '10px 12px', borderRadius: 8, background: 'var(--th-bg)', border: '1px solid var(--bdr)', display: 'flex', flexDirection: 'column', gap: 5 }}>
-            {selectedTemplate.description && <p style={{ fontSize: 12, color: 'var(--txt2)', margin: '0 0 4px' }}>{selectedTemplate.description}</p>}
+          <div style={{ padding: '10px 12px', borderRadius: RADIUS.md, background: 'var(--th-bg)', border: '1px solid var(--bdr)', display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {selectedTemplate.description && <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: '0 0 4px' }}>{selectedTemplate.description}</p>}
             {[
               { label: 'Notified', roles: selectedTemplate.notify_roles, color: AMBER },
               { label: 'Approver', roles: selectedTemplate.approver_roles, color: NAVY },
               { label: 'Poster',   roles: selectedTemplate.poster_roles,   color: GREEN },
             ].map(row => (
               <div key={row.label} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: row.color, width: 52, flexShrink: 0, marginTop: 2 }}>{row.label}</span>
+                <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.05em', color: row.color, width: 52, flexShrink: 0, marginTop: 2 }}>{row.label}</span>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                   {row.roles.length === 0
-                    ? <span style={{ fontSize: 12, color: 'var(--txt3)', fontStyle: 'italic' }}>—</span>
+                    ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontStyle: 'italic' }}>—</span>
                     : row.roles.map(r => (
-                      <span key={r} style={{ fontSize: 12, fontWeight: 600, padding: '1px 6px', borderRadius: 5, background: `${row.color}12`, color: row.color }}>{roleLabel(r)}</span>
+                      <span key={r} style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, padding: '1px 6px', borderRadius: 5, background: `${row.color}12`, color: row.color }}>{roleLabel(r)}</span>
                     ))}
                 </div>
               </div>
@@ -212,36 +212,36 @@ function NewPostingModal({ open, onClose, onSuccess }: { open: boolean; onClose:
         {/* Posting details */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Type *</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Type *</label>
             <select value={type} onChange={e => setType(e.target.value as 'Credit' | 'Debit')} style={{ ...inputStyle, appearance: 'auto' }}>
               <option value="Credit">Credit</option>
               <option value="Debit">Debit</option>
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Amount ₦ (naira) *</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Amount ₦ (naira) *</label>
             <input type="number" value={amountNaira} onChange={e => setAmountNaira(e.target.value)}
               placeholder="0.00" min={0} step="0.01" style={inputStyle} />
           </div>
         </div>
 
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Account Number *</label>
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Account Number *</label>
           <input type="text" value={account} onChange={e => setAccount(e.target.value)}
             placeholder="Enter account number" style={inputStyle} />
         </div>
 
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Description *</label>
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Description *</label>
           <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={description} onChange={e => setDescription(e.target.value)} rows={3}
             placeholder="Reason for manual posting…"
             style={{ ...inputStyle, height: 'auto', padding: '8px 10px', resize: 'vertical', fontFamily: "'Sora', sans-serif" }} />
         </div>
 
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Supporting Document (optional)</label>
-          <input type="file" style={{ fontSize: 12.5, color: 'var(--txt2)' }} />
-          <p style={{ margin: '4px 0 0', fontSize: 11.5, color: 'var(--txt3)' }}>File upload not yet implemented</p>
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Supporting Document (optional)</label>
+          <input type="file" style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }} />
+          <p style={{ margin: '4px 0 0', fontSize: TEXT.xs, color: 'var(--txt3)' }}>File upload not yet implemented</p>
         </div>
       </div>
     </Modal>
@@ -291,8 +291,8 @@ function DetailModal({ posting, onClose }: { posting: ManualPosting | null; onCl
   function Row({ label, value }: { label: string; value: React.ReactNode }) {
     return (
       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid var(--bdr)' }}>
-        <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{label}</span>
-        <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--txt)', textAlign: 'right', maxWidth: '60%' }}>{value}</span>
+        <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{label}</span>
+        <span style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt)', textAlign: 'right', maxWidth: '60%' }}>{value}</span>
       </div>
     )
   }
@@ -301,10 +301,10 @@ function DetailModal({ posting, onClose }: { posting: ManualPosting | null; onCl
 
   return (
     <Modal open onClose={onClose} title={`Posting ${posting.ref}`} width={480}
-      footer={<button onClick={onClose} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Close</button>}
+      footer={<button onClick={onClose} style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Close</button>}
     >
       {/* Stage stepper */}
-      <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 8, background: 'var(--th-bg)' }}>
+      <div style={{ marginBottom: SP[4], padding: '10px 12px', borderRadius: RADIUS.md, background: 'var(--th-bg)' }}>
         <StageStepper stage={posting.stage} />
       </div>
 
@@ -323,8 +323,8 @@ function DetailModal({ posting, onClose }: { posting: ManualPosting | null; onCl
         {posting.rejected_by && <Row label="Rejected by" value={`${posting.rejected_by} on ${fmtDate(posting.rejected_at)}`} />}
         {posting.rejection_reason && (
           <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 7, background: 'rgba(192,0,0,0.06)', border: '1px solid rgba(192,0,0,0.12)' }}>
-            <p style={{ fontSize: 11, fontWeight: 600, color: RED, margin: '0 0 3px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Reason for {posting.stage}</p>
-            <p style={{ fontSize: 12.5, color: 'var(--txt)', margin: 0 }}>{posting.rejection_reason}</p>
+            <p style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: RED, margin: '0 0 3px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Reason for {posting.stage}</p>
+            <p style={{ fontSize: TEXT.sm, color: 'var(--txt)', margin: 0 }}>{posting.rejection_reason}</p>
           </div>
         )}
 
@@ -335,10 +335,10 @@ function DetailModal({ posting, onClose }: { posting: ManualPosting | null; onCl
             { label: 'Poster roles',   roles: posting.poster_roles,   color: GREEN },
           ].map(row => (
             <div key={row.label} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 5 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: row.color, width: 90, flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 2 }}>{row.label}</span>
+              <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: row.color, width: 90, flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 2 }}>{row.label}</span>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                 {row.roles.map(r => (
-                  <span key={r} style={{ fontSize: 12, fontWeight: 600, padding: '1px 6px', borderRadius: 5, background: `${row.color}12`, color: row.color }}>{roleLabel(r)}</span>
+                  <span key={r} style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, padding: '1px 6px', borderRadius: 5, background: `${row.color}12`, color: row.color }}>{roleLabel(r)}</span>
                 ))}
               </div>
             </div>
@@ -461,11 +461,11 @@ export default function ManualPostings() {
   const cols: TableCol<ManualPosting>[] = [
     {
       key: 'ref', label: 'Ref',
-      render: r => <span style={{ ...NUM, fontSize: 12.5, fontWeight: 600, color: NAVY, cursor: 'pointer' }} onClick={() => setDetail(r)}>{r.ref}</span>,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY, cursor: 'pointer' }} onClick={() => setDetail(r)}>{r.ref}</span>,
     },
     {
       key: 'workflow_template_name', label: 'Workflow',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.workflow_template_name ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.workflow_template_name ?? '—'}</span>,
     },
     {
       key: 'type', label: 'Type',
@@ -473,23 +473,23 @@ export default function ManualPostings() {
     },
     {
       key: 'amount_kobo', label: 'Amount ₦', align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.amount_kobo)}</span>,
+      render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.amount_kobo)}</span>,
     },
     {
       key: 'account', label: 'Account',
-      render: r => <span style={{ ...NUM, fontSize: 12.5, color: 'var(--txt2)' }}>{r.account}</span>,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.account}</span>,
     },
     {
       key: 'description', label: 'Description',
-      render: r => <span title={r.description} style={{ fontSize: 12.5, color: 'var(--txt)', display: 'block', maxWidth: 180, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.description}</span>,
+      render: r => <span title={r.description} style={{ fontSize: TEXT.sm, color: 'var(--txt)', display: 'block', maxWidth: 180, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.description}</span>,
     },
     {
       key: 'initiated_by', label: 'Raised by',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.initiated_by}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.initiated_by}</span>,
     },
     {
       key: 'created_at', label: 'Date',
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span>,
     },
     {
       key: 'stage', label: 'Stage', width: 140,
@@ -503,15 +503,15 @@ export default function ManualPostings() {
         if (!canApprove && !canPost) return null
 
         return (
-          <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
+          <div style={{ display: 'flex', gap: SP[1] }} onClick={e => e.stopPropagation()}>
             {canApprove && (
               <>
                 <button onClick={() => setConfirmApprove(r)}
-                  style={{ padding: '3px 8px', borderRadius: 6, border: 'none', background: 'rgba(22,163,74,.12)', color: GREEN, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(22,163,74,.12)', color: GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   Approve
                 </button>
                 <button onClick={() => setRejectRow(r)}
-                  style={{ padding: '3px 8px', borderRadius: 6, border: 'none', background: 'rgba(192,0,0,.1)', color: RED, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+                  style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(192,0,0,.1)', color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
                   Reject
                 </button>
               </>
@@ -519,11 +519,11 @@ export default function ManualPostings() {
             {canPost && (
               <>
                 <button onClick={() => setPostRow(r)}
-                  style={{ padding: '3px 8px', borderRadius: 6, border: 'none', background: `${NAVY}12`, color: NAVY, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+                  style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: 'none', background: `${NAVY}12`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
                   Post
                 </button>
                 <button onClick={() => setReturnRow(r)}
-                  style={{ padding: '3px 8px', borderRadius: 6, border: 'none', background: 'rgba(217,119,6,.12)', color: AMBER, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+                  style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(217,119,6,.12)', color: AMBER, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
                   Return
                 </button>
               </>
@@ -557,7 +557,7 @@ export default function ManualPostings() {
       actions={
         isSettlementOfficer ? (
           <button onClick={() => setNewOpen(true)} style={btnPrimary}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
             New Posting
           </button>
         ) : undefined
@@ -567,15 +567,15 @@ export default function ManualPostings() {
 
       {/* Action required banner */}
       {pendingCount > 0 && (
-        <div style={{ display: 'flex', gap: 10, padding: '12px 16px', borderRadius: 10, background: `${AMBER}10`, border: `1px solid ${AMBER}30`, marginBottom: 16, alignItems: 'center' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 18, color: AMBER, flexShrink: 0 }}>pending_actions</span>
-          <p style={{ fontSize: 13, color: 'var(--txt)', margin: 0 }}>
+        <div style={{ display: 'flex', gap: 10, padding: '12px 16px', borderRadius: RADIUS.lg, background: `${AMBER}10`, border: `1px solid ${AMBER}30`, marginBottom: SP[4], alignItems: 'center' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: AMBER, flexShrink: 0 }}>pending_actions</span>
+          <p style={{ fontSize: TEXT.base, color: 'var(--txt)', margin: 0 }}>
             <strong>{pendingCount} posting{pendingCount > 1 ? 's' : ''}</strong> require your action.
           </p>
         </div>
       )}
 
-      <SectionCard title="Manual Postings" badge={rows.length} padding={false} actions={<button onClick={() => exportCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Manual Postings" badge={rows.length} padding={false} actions={<button onClick={() => exportCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <div style={{ padding: '12px 16px 0' }}>
           <FilterBar onReset={() => { setStatusFilter(''); setInitiatorSearch('') }}>
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
@@ -584,7 +584,7 @@ export default function ManualPostings() {
             <input type="text" value={initiatorSearch} onChange={e => setInitiatorSearch(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && load()}
               placeholder="Search initiator…" style={{ ...filterInputStyle, minWidth: 160 }} />
-            <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Apply</button>
+            <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
           </FilterBar>
         </div>
         <DataTable

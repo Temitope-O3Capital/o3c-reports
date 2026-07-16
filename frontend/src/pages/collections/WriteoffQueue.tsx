@@ -7,7 +7,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
-import { RED, DARKRED, GREEN, AMBER, NAVY, NUM } from '../../lib/design'
+import { RED, DARKRED, GREEN, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -36,7 +36,7 @@ function DpdBadge({ dpd }: { dpd: number }) {
   return (
     <span style={{
       ...NUM, display: 'inline-flex', alignItems: 'center',
-      fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 7px', borderRadius: RADIUS['2xl'],
       background: `${color}22`, color, whiteSpace: 'nowrap',
     }}>
       {dpd} DPD
@@ -167,9 +167,9 @@ export default function WriteoffQueue() {
       label: 'Customer',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.account_cif}</div>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.account_cif}</div>
           {r.customer_name && (
-            <div style={{ fontSize: 11, color: 'var(--txt2)', marginTop: 1 }}>{r.customer_name}</div>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 1 }}>{r.customer_name}</div>
           )}
         </div>
       ),
@@ -190,7 +190,7 @@ export default function WriteoffQueue() {
       key: 'last_payment_date',
       label: 'Last Payment',
       render: r => (
-        <span style={{ fontSize: 12.5, color: r.last_payment_date ? 'var(--txt)' : 'var(--txt3)' }}>
+        <span style={{ fontSize: TEXT.sm, color: r.last_payment_date ? 'var(--txt)' : 'var(--txt3)' }}>
           {r.last_payment_date ? fmtDate(r.last_payment_date) : 'Never'}
         </span>
       ),
@@ -201,15 +201,15 @@ export default function WriteoffQueue() {
       align: 'center',
       render: r => (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 14, color: 'var(--txt2)' }}>info</span>
-          <span style={{ ...NUM, fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{fmtNum(r.recovery_attempts)}</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, color: 'var(--txt2)' }}>info</span>
+          <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtNum(r.recovery_attempts)}</span>
         </div>
       ),
     },
     {
       key: 'recommended_by',
       label: 'Recommended By',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{r.recommended_by ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.recommended_by ?? '—'}</span>,
     },
     ...(canAct ? [{
       key: '_actions',
@@ -222,8 +222,8 @@ export default function WriteoffQueue() {
             onClick={() => setModal({ type: 'approve', row: r })}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 4,
-              padding: '4px 10px', borderRadius: 7, border: 'none', cursor: 'pointer',
-              fontSize: 11.5, fontWeight: 600, background: RED, color: '#fff',
+              padding: '4px 10px', borderRadius: RADIUS.md, border: 'none', cursor: 'pointer',
+              fontSize: TEXT.xs, fontWeight: FW.semibold, background: RED, color: '#fff',
             }}
           >
             Approve Write-off
@@ -232,8 +232,8 @@ export default function WriteoffQueue() {
             onClick={() => setModal({ type: 'return', row: r })}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 4,
-              padding: '4px 10px', borderRadius: 7, cursor: 'pointer',
-              fontSize: 11.5, fontWeight: 500,
+              padding: '4px 10px', borderRadius: RADIUS.md, cursor: 'pointer',
+              fontSize: TEXT.xs, fontWeight: FW.medium,
               background: 'var(--card)', color: 'var(--txt)',
               border: '1px solid var(--bdr)',
             }}
@@ -247,17 +247,17 @@ export default function WriteoffQueue() {
 
   const bulkBar = canAct && selectedIds.size > 0 ? (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: '#F0F4FF', borderBottom: '1px solid var(--bdr)' }}>
-      <span style={{ fontSize: 12.5, fontWeight: 600, color: NAVY }}>{selectedIds.size} selected</span>
+      <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>{selectedIds.size} selected</span>
       <div style={{ marginLeft: 'auto' }}>
         <button
           onClick={() => setModal({ type: 'bulk-approve' })}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
             padding: '6px 14px', background: RED, color: '#fff',
-            border: 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+            border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
           }}
         >
-          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>check_circle</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>check_circle</span>
           Bulk Approve Write-offs
         </button>
       </div>
@@ -292,7 +292,7 @@ export default function WriteoffQueue() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="Total Write-offs" value={kpis ? fmtNum(kpis.total) : '—'} icon="delete_forever" accent={RED} loading={kpiLoading} />
         <KpiCard label="Total Amount ₦" value={kpis ? fmtKobo(kpis.amount_kobo) : '—'} icon="account_balance" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="Recovery Rate %" value={kpis ? `${kpis.recovery_rate_pct.toFixed(1)}%` : '—'} icon="trending_up" accent={GREEN} loading={kpiLoading} />
@@ -302,15 +302,15 @@ export default function WriteoffQueue() {
       {/* Info banner */}
       <SectionCard padding style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 18, color: RED, flexShrink: 0, marginTop: 1 }}>warning</span>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--txt)', lineHeight: 1.6 }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: RED, flexShrink: 0, marginTop: 1 }}>warning</span>
+          <p style={{ margin: 0, fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.6 }}>
             Accounts with DPD &gt; 180 days that have exhausted collection attempts.
             Collections Heads can approve write-offs — this triggers a GL entry.
           </p>
         </div>
       </SectionCard>
 
-      <SectionCard title="Write-off Queue" badge={rows.length} padding={false} actions={<button onClick={() => exportWriteoffCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Write-off Queue" badge={rows.length} padding={false} actions={<button onClick={() => exportWriteoffCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <div style={{ padding: '12px 16px 0' }}>
           <FilterBar onReset={() => { setDpdRange(''); setQ('') }}>
             <select value={dpdRange} onChange={e => setDpdRange(e.target.value)} style={filterInputStyle}>
@@ -328,7 +328,7 @@ export default function WriteoffQueue() {
             />
             <button
               onClick={() => load()}
-              style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
+              style={{ height: 32, padding: '0 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
             >
               Apply
             </button>

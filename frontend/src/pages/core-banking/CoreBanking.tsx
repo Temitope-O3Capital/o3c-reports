@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Page } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { NAVY, RED, GREEN, AMBER } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -267,12 +267,12 @@ function MethodBadge({ method }: { method: string }) {
   return (
     <span style={{
       fontFamily: 'DM Mono, monospace',
-      fontSize: 10,
-      fontWeight: 700,
+      fontSize: TEXT['2xs'],
+      fontWeight: FW.bold,
       letterSpacing: '0.06em',
       color: '#fff',
       background: METHOD_COLOR[method] ?? '#6B7280',
-      borderRadius: 4,
+      borderRadius: RADIUS.xs,
       padding: '2px 6px',
       flexShrink: 0,
     }}>{method}</span>
@@ -285,19 +285,19 @@ function EndpointRow({ ep }: { ep: Endpoint }) {
       display: 'flex',
       alignItems: 'center',
       gap: 10,
-      padding: '8px 0',
+      padding: `${SP[2]} 0`,
       borderBottom: '1px solid #F1F5F9',
     }}>
       <MethodBadge method={ep.method} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: '#1E293B' }}>{ep.label}</div>
+        <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: '#1E293B' }}>{ep.label}</div>
         {ep.params && ep.params.length > 0 && (
-          <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2, fontFamily: 'DM Mono, monospace' }}>
+          <div style={{ fontSize: TEXT.xs, color: '#94A3B8', marginTop: 2, fontFamily: 'DM Mono, monospace' }}>
             {ep.params.join(' · ')}
           </div>
         )}
       </div>
-      <span style={{ fontSize: 11, color: '#CBD5E1', fontFamily: 'DM Mono, monospace', flexShrink: 0, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <span style={{ fontSize: TEXT.xs, color: '#CBD5E1', fontFamily: 'DM Mono, monospace', flexShrink: 0, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {ep.path}
       </span>
     </div>
@@ -310,7 +310,7 @@ function ModuleCard({ mod, defaultOpen = false }: { mod: Module; defaultOpen?: b
     <div style={{
       background: '#fff',
       border: '1px solid #E2E8F0',
-      borderRadius: 8,
+      borderRadius: RADIUS.md,
       overflow: 'hidden',
     }}>
       <button
@@ -327,31 +327,31 @@ function ModuleCard({ mod, defaultOpen = false }: { mod: Module; defaultOpen?: b
           textAlign: 'left',
         }}
       >
-        <span className="material-symbols-rounded" style={{ fontSize: 22, color: RED, flexShrink: 0 }}>
+        <span className="material-symbols-rounded" style={{ fontSize: TEXT['2xl'], color: RED, flexShrink: 0 }}>
           {mod.icon}
         </span>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: NAVY }}>{mod.label}</div>
-          <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>{mod.description}</div>
+          <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: NAVY }}>{mod.label}</div>
+          <div style={{ fontSize: TEXT.sm, color: '#64748B', marginTop: 2 }}>{mod.description}</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexShrink: 0 }}>
           <span style={{
-            fontSize: 11,
-            fontWeight: 600,
+            fontSize: TEXT.xs,
+            fontWeight: FW.semibold,
             color: '#475569',
             background: '#F1F5F9',
-            borderRadius: 12,
+            borderRadius: RADIUS.xl,
             padding: '2px 8px',
           }}>
             {mod.endpoints.length} endpoints
           </span>
-          <span className="material-symbols-rounded" style={{ fontSize: 18, color: '#94A3B8', transition: 'transform 0.2s', transform: open ? 'rotate(180deg)' : 'none' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: '#94A3B8', transition: 'transform 0.2s', transform: open ? 'rotate(180deg)' : 'none' }}>
             expand_more
           </span>
         </div>
       </button>
       {open && (
-        <div style={{ padding: '0 16px 12px' }}>
+        <div style={{ padding: `0 ${SP[4]} ${SP[3]}` }}>
           {mod.endpoints.map(ep => <EndpointRow key={ep.method + ep.path} ep={ep} />)}
         </div>
       )}
@@ -367,25 +367,25 @@ function StatusBanner({ status }: { status: CBSStatus | null }) {
       <div style={{
         background: '#FFFBEB',
         border: '1px solid #FDE68A',
-        borderRadius: 8,
+        borderRadius: RADIUS.md,
         padding: '14px 18px',
         display: 'flex',
         alignItems: 'flex-start',
         gap: 12,
-        marginBottom: 24,
+        marginBottom: SP[6],
       }}>
-        <span className="material-symbols-rounded" style={{ fontSize: 22, color: AMBER, flexShrink: 0 }}>warning</span>
+        <span className="material-symbols-rounded" style={{ fontSize: TEXT['2xl'], color: AMBER, flexShrink: 0 }}>warning</span>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#92400E' }}>CBS Not Configured</div>
-          <div style={{ fontSize: 13, color: '#78350F', marginTop: 4 }}>
+          <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: '#92400E' }}>CBS Not Configured</div>
+          <div style={{ fontSize: TEXT.base, color: '#78350F', marginTop: 4 }}>
             Set three environment variables on Railway to activate all endpoints:
           </div>
-          <div style={{ marginTop: 8, fontFamily: 'DM Mono, monospace', fontSize: 12, color: '#78350F', background: '#FEF3C7', borderRadius: 4, padding: '8px 12px', display: 'inline-block' }}>
+          <div style={{ marginTop: SP[2], fontFamily: 'DM Mono, monospace', fontSize: TEXT.sm, color: '#78350F', background: '#FEF3C7', borderRadius: RADIUS.xs, padding: `${SP[2]} ${SP[3]}`, display: 'inline-block' }}>
             UDARA360_BASE_URL=https://openapi.udara360.io<br />
             UDARA360_CLIENT_ID=your-client-id<br />
             UDARA360_CLIENT_SECRET=your-client-secret
           </div>
-          <div style={{ fontSize: 12, color: '#92400E', marginTop: 8 }}>
+          <div style={{ fontSize: TEXT.sm, color: '#92400E', marginTop: SP[2] }}>
             Use <code style={{ background: '#FDE68A', borderRadius: 3, padding: '1px 4px' }}>https://openapi.test.udara360.io</code> for the test environment.
           </div>
         </div>
@@ -395,20 +395,20 @@ function StatusBanner({ status }: { status: CBSStatus | null }) {
 
   if (status.connected === false) {
     return (
-      <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-        <span className="material-symbols-rounded" style={{ fontSize: 22, color: '#EF4444', flexShrink: 0 }}>error</span>
+      <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: RADIUS.md, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, marginBottom: SP[6] }}>
+        <span className="material-symbols-rounded" style={{ fontSize: TEXT['2xl'], color: '#EF4444', flexShrink: 0 }}>error</span>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#991B1B' }}>CBS Unreachable</div>
-          <div style={{ fontSize: 13, color: '#7F1D1D', marginTop: 2 }}>Credentials are set but the Udara360 API could not be reached. {status.error}</div>
+          <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: '#991B1B' }}>CBS Unreachable</div>
+          <div style={{ fontSize: TEXT.base, color: '#7F1D1D', marginTop: 2 }}>Credentials are set but the Udara360 API could not be reached. {status.error}</div>
         </div>
       </div>
     )
   }
 
   return (
-    <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-      <span className="material-symbols-rounded" style={{ fontSize: 22, color: GREEN, flexShrink: 0 }}>check_circle</span>
-      <div style={{ fontSize: 14, fontWeight: 600, color: '#14532D' }}>
+    <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: RADIUS.md, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, marginBottom: SP[6] }}>
+      <span className="material-symbols-rounded" style={{ fontSize: TEXT['2xl'], color: GREEN, flexShrink: 0 }}>check_circle</span>
+      <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: '#14532D' }}>
         Udara360 CBS Connected — all {MODULES.reduce((s, m) => s + m.endpoints.length, 0)} endpoints active
       </div>
     </div>
@@ -447,10 +447,10 @@ export default function CoreBanking() {
       <StatusBanner status={status} />
 
       {/* Search */}
-      <div style={{ position: 'relative', marginBottom: 20 }}>
+      <div style={{ position: 'relative', marginBottom: SP[5] }}>
         <span className="material-symbols-rounded" style={{
-          position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
-          fontSize: 18, color: '#94A3B8', pointerEvents: 'none',
+          position: 'absolute', left: SP[3], top: '50%', transform: 'translateY(-50%)',
+          fontSize: TEXT.xl, color: '#94A3B8', pointerEvents: 'none',
         }}>search</span>
         <input
           value={filter}
@@ -461,8 +461,8 @@ export default function CoreBanking() {
             boxSizing: 'border-box',
             padding: '10px 14px 10px 38px',
             border: '1px solid #E2E8F0',
-            borderRadius: 8,
-            fontSize: 14,
+            borderRadius: RADIUS.md,
+            fontSize: TEXT.md,
             outline: 'none',
             background: '#fff',
             color: NAVY,
@@ -471,32 +471,32 @@ export default function CoreBanking() {
         {filter && (
           <button
             onClick={() => setFilter('')}
-            style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: '#94A3B8', fontSize: 18, display: 'flex' }}
+            style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: '#94A3B8', fontSize: TEXT.xl, display: 'flex' }}
           >
-            <span className="material-symbols-rounded" style={{ fontSize: 18 }}>close</span>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl }}>close</span>
           </button>
         )}
       </div>
 
       {/* Summary row */}
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 24 }}>
+      <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', marginBottom: SP[6] }}>
         {[
           { label: 'Modules', value: MODULES.length },
           { label: 'Total Endpoints', value: totalEndpoints },
           { label: 'Read (GET)', value: MODULES.flatMap(m => m.endpoints).filter(e => e.method === 'GET').length },
           { label: 'Write (POST/PUT)', value: MODULES.flatMap(m => m.endpoints).filter(e => e.method !== 'GET').length },
         ].map(s => (
-          <div key={s.label} style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 8, padding: '12px 20px', minWidth: 130 }}>
-            <div style={{ fontSize: 24, fontWeight: 700, color: NAVY, fontFamily: 'DM Mono, monospace' }}>{s.value}</div>
-            <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>{s.label}</div>
+          <div key={s.label} style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: RADIUS.md, padding: `${SP[3]} ${SP[5]}`, minWidth: 130 }}>
+            <div style={{ fontSize: TEXT['3xl'], fontWeight: FW.bold, color: NAVY, fontFamily: 'DM Mono, monospace' }}>{s.value}</div>
+            <div style={{ fontSize: TEXT.sm, color: '#64748B', marginTop: 2 }}>{s.label}</div>
           </div>
         ))}
       </div>
 
       {/* Module list */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
         {visible.length === 0 && (
-          <div style={{ textAlign: 'center', padding: 48, color: '#94A3B8', fontSize: 14 }}>
+          <div style={{ textAlign: 'center', padding: SP[12], color: '#94A3B8', fontSize: TEXT.md }}>
             No endpoints match "{filter}"
           </div>
         )}
@@ -506,7 +506,7 @@ export default function CoreBanking() {
       </div>
 
       {/* Footer note */}
-      <div style={{ marginTop: 32, padding: '14px 18px', background: '#F8FAFC', borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12, color: '#64748B' }}>
+      <div style={{ marginTop: SP[8], padding: '14px 18px', background: '#F8FAFC', borderRadius: RADIUS.md, border: '1px solid #E2E8F0', fontSize: TEXT.sm, color: '#64748B' }}>
         <strong style={{ color: NAVY }}>Integration pattern:</strong> The O3C backend proxies all requests to{' '}
         <code style={{ background: '#E2E8F0', borderRadius: 3, padding: '1px 4px' }}>openapi.udara360.io</code>{' '}
         on behalf of authenticated staff — Udara360 credentials are never exposed to the browser.

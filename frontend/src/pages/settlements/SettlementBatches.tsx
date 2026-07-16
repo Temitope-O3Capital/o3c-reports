@@ -3,7 +3,7 @@ import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, FilterBa
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, today, monthStart } from '../../lib/fmt'
-import { NAVY, GREEN, RED, AMBER, NUM } from '../../lib/design'
+import { NAVY, GREEN, RED, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -25,12 +25,12 @@ interface Batch {
 
 const COLS: TableCol<Batch>[] = [
   { key: 'batch_date', label: 'Date', sortable: true, width: 110,
-    render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.batch_date)}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.batch_date)}</span> },
   { key: 'batch_ref', label: 'Batch Ref', sortable: true,
-    render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{r.batch_ref || '—'}</span> },
+    render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.batch_ref || '—'}</span> },
   { key: 'batch_type', label: 'Type',
     render: r => (
-      <span style={{ ...NUM, fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+      <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'],
         background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
         {r.batch_type}
       </span>
@@ -38,12 +38,12 @@ const COLS: TableCol<Batch>[] = [
   { key: 'txn_count', label: 'Txns', align: 'right', sortable: true,
     render: r => <span style={NUM}>{fmtNum(r.txn_count)}</span> },
   { key: 'total_credits', label: 'Credits ₦', align: 'right', sortable: true,
-    render: r => <span style={{ ...NUM, color: GREEN, fontWeight: 600 }}>{fmtKobo(r.total_credits)}</span> },
+    render: r => <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtKobo(r.total_credits)}</span> },
   { key: 'total_debits', label: 'Debits ₦', align: 'right', sortable: true,
-    render: r => <span style={{ ...NUM, color: RED, fontWeight: 600 }}>{fmtKobo(r.total_debits)}</span> },
+    render: r => <span style={{ ...NUM, color: RED, fontWeight: FW.semibold }}>{fmtKobo(r.total_debits)}</span> },
   { key: 'exception_count', label: 'Exceptions', align: 'right',
     render: r => (
-      <span style={{ ...NUM, fontWeight: 600, color: r.exception_count > 0 ? AMBER : 'var(--txt2)' }}>
+      <span style={{ ...NUM, fontWeight: FW.semibold, color: r.exception_count > 0 ? AMBER : 'var(--txt2)' }}>
         {r.exception_count}
       </span>
     )},
@@ -105,7 +105,7 @@ export default function SettlementBatches() {
     <Page title="Settlement Batches" subtitle="NIP/NIBSS daily settlement overview">
       <ErrBanner error={error} onRetry={load} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[5] }}>
         <KpiCard label="Total Credits" value={fmtKobo(totalCredits)} icon="south_east" accent={GREEN} loading={loading} />
         <KpiCard label="Total Debits" value={fmtKobo(totalDebits)} icon="north_west" accent={RED} loading={loading} />
         <KpiCard label="Open Batches" value={String(openBatches)} icon="pending" accent={AMBER} loading={loading} />
@@ -120,10 +120,10 @@ export default function SettlementBatches() {
           <option value="exceptions">Has Exceptions</option>
         </select>
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
-        <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Apply</button>
+        <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
       </FilterBar>
 
-      <SectionCard padding={false} actions={<button onClick={() => exportBatchesCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard padding={false} actions={<button onClick={() => exportBatchesCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <DataTable
           cols={COLS}
           rows={rows}

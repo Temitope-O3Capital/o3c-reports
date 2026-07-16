@@ -4,7 +4,7 @@ import type { TableCol } from '../../components/UI'
 import { DataTable } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDatetime, fmtNum, today, monthStart } from '../../lib/fmt'
-import { NUM } from '../../lib/design'
+import { NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ function ChannelPill({ channel }: { channel: string }) {
     bg = 'var(--chip-bg)'; txt = 'var(--chip-txt)'
   }
   return (
-    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: bg, color: txt, whiteSpace: 'nowrap' }}>
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: bg, color: txt, whiteSpace: 'nowrap' }}>
       {channel}
     </span>
   )
@@ -74,16 +74,16 @@ function ResolveManuallyModal({ open, rowId, onClose, onSuccess }: ResolveModalP
   return (
     <Modal open={open} onClose={onClose} title="Resolve Manually" width={480}
       footer={
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={handleSubmit} disabled={saving} style={{ padding: '7px 15px', borderRadius: 8, border: 'none', background: '#0E2841', color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1 }}>
+        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.medium, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={handleSubmit} disabled={saving} style={{ padding: '7px 15px', borderRadius: RADIUS.md, border: 'none', background: '#0E2841', color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1 }}>
             {saving ? 'Saving…' : 'Resolve'}
           </button>
         </div>
       }
     >
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Resolution Notes</label>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Resolution Notes</label>
         <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Describe how this was resolved…" rows={4} style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box' }} />
       </div>
     </Modal>
@@ -205,9 +205,9 @@ export default function FailedTransactions() {
   }
 
   const bulkBar = checkedIds.size > 0 ? (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{checkedIds.size} selected</span>
-      <button onClick={handleExportCsv} style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+      <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{checkedIds.size} selected</span>
+      <button onClick={handleExportCsv} style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
         Export CSV
       </button>
     </div>
@@ -216,11 +216,11 @@ export default function FailedTransactions() {
   const cols: TableCol<FailedTxn>[] = [
     {
       key: 'txn_ref', label: 'Txn Ref',
-      render: r => <span style={{ ...NUM, fontSize: 12.5, fontWeight: 600, color: '#0E2841' }}>{r.txn_ref}</span>,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: '#0E2841' }}>{r.txn_ref}</span>,
     },
     {
       key: 'amount_kobo', label: 'Amount ₦', align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.amount_kobo)}</span>,
+      render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.amount_kobo)}</span>,
     },
     {
       key: 'customer_name', label: 'Customer',
@@ -235,7 +235,7 @@ export default function FailedTransactions() {
       render: r => (
         <span
           title={r.failure_reason}
-          style={{ fontSize: 12.5, color: 'var(--txt2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', maxWidth: 220 }}
+          style={{ fontSize: TEXT.sm, color: 'var(--txt2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', maxWidth: 220 }}
         >
           {r.failure_reason.length > 40 ? r.failure_reason.slice(0, 40) + '…' : r.failure_reason}
         </span>
@@ -243,7 +243,7 @@ export default function FailedTransactions() {
     },
     {
       key: 'failed_at', label: 'Failed Date',
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDatetime(r.failed_at)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDatetime(r.failed_at)}</span>,
     },
     {
       key: 'retry_count', label: 'Retry Count', align: 'right',
@@ -255,19 +255,19 @@ export default function FailedTransactions() {
         <div style={{ display: 'flex', gap: 5 }} onClick={e => e.stopPropagation()}>
           <button
             onClick={() => setRetryRow(r)}
-            style={{ padding: '3px 9px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+            style={{ padding: '3px 9px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
           >
             Retry
           </button>
           <button
             onClick={() => setResolveRow(r)}
-            style={{ padding: '3px 9px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+            style={{ padding: '3px 9px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
           >
             Resolve Manually
           </button>
           <button
             onClick={() => setEscalateRow(r)}
-            style={{ padding: '3px 9px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+            style={{ padding: '3px 9px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
           >
             Escalate
           </button>
@@ -280,7 +280,7 @@ export default function FailedTransactions() {
     <Page title="Failed Transactions" subtitle="Investigate and action failed settlement transactions">
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="Failed Transactions" badge={filtered.length} padding={false} actions={<button onClick={handleExportCsv} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Failed Transactions" badge={filtered.length} padding={false} actions={<button onClick={handleExportCsv} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <div style={{ padding: '12px 16px 0' }}>
           <FilterBar onReset={() => { setReasonFilter(''); setDateFrom(monthStart()); setDateTo(today()); setMinNaira(''); setMaxNaira('') }}>
             <select value={reasonFilter} onChange={e => setReasonFilter(e.target.value)} style={filterInputStyle}>
@@ -303,7 +303,7 @@ export default function FailedTransactions() {
               style={{ ...filterInputStyle, minWidth: 110 }}
               min={0}
             />
-            <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Apply</button>
+            <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
           </FilterBar>
         </div>
         <DataTable

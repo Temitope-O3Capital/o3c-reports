@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, ErrBanner, Modal, ConfirmModal, Spinner }
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { NAVY, NUM, INTER } from '../../lib/design'
+import { NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -28,7 +28,7 @@ function CatPill({ cat }: { cat: string }) {
     <span style={{
       ...NUM,
       display: 'inline-flex', alignItems: 'center',
-      fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'],
       background: 'var(--chip-bg)', color: 'var(--chip-txt)', whiteSpace: 'nowrap',
     }}>
       {cat}
@@ -44,14 +44,14 @@ function RowBtn({ icon, label, onClick }: { icon: string; label: string; onClick
       onClick={e => { e.stopPropagation(); onClick() }}
       title={label}
       style={{
-        width: 28, height: 28, borderRadius: 7, border: '1.5px solid var(--input-bdr)',
+        width: 28, height: 28, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)',
         background: 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         cursor: 'pointer', color: 'var(--txt2)',
       }}
       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--txt2)'; (e.currentTarget as HTMLElement).style.color = 'var(--txt)' }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--input-bdr)'; (e.currentTarget as HTMLElement).style.color = 'var(--txt2)' }}
     >
-      <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{icon}</span>
+      <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>{icon}</span>
     </button>
   )
 }
@@ -67,13 +67,13 @@ interface FormState {
 function CannedForm({ form, onChange }: { form: FormState; onChange: (f: FormState) => void }) {
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)',
-    borderRadius: 7, fontSize: 13, background: 'var(--input-bg)',
+    borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)',
     color: 'var(--txt)', fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Title</label>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Title</label>
         <input
           value={form.title}
           onChange={e => onChange({ ...form, title: e.target.value })}
@@ -82,7 +82,7 @@ function CannedForm({ form, onChange }: { form: FormState; onChange: (f: FormSta
         />
       </div>
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Category</label>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Category</label>
         <select
           value={form.category}
           onChange={e => onChange({ ...form, category: e.target.value })}
@@ -93,7 +93,7 @@ function CannedForm({ form, onChange }: { form: FormState; onChange: (f: FormSta
         </select>
       </div>
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Body</label>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Body</label>
         <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
           value={form.body}
           onChange={e => onChange({ ...form, body: e.target.value })}
@@ -220,7 +220,7 @@ export default function Canned() {
     {
       key: 'title',
       label: 'Title',
-      render: r => <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{r.title}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.title}</span>,
     },
     {
       key: 'category',
@@ -231,7 +231,7 @@ export default function Canned() {
       key: 'last_used_at',
       label: 'Last Used',
       render: r => (
-        <span style={{ fontSize: 12, color: 'var(--txt2)' }}>
+        <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
           {r.last_used_at ? fmtDate(r.last_used_at) : 'Never'}
         </span>
       ),
@@ -239,7 +239,7 @@ export default function Canned() {
     {
       key: 'created_by',
       label: 'Created By',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)', fontFamily: INTER }}>{r.created_by}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{r.created_by}</span>,
     },
     {
       key: '_actions',
@@ -257,17 +257,17 @@ export default function Canned() {
   ]
 
   const modalFooter = (onSave: () => void) => (
-    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+    <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
       <button
         onClick={() => { setNewOpen(false); setEditItem(null) }}
-        style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}
+        style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}
       >
         Cancel
       </button>
       <button
         onClick={onSave}
         disabled={saving}
-        style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 8 }}
+        style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', opacity: saving ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: SP[2] }}
       >
         {saving && <Spinner size={14} color="#fff" />}
         Save
@@ -280,15 +280,15 @@ export default function Canned() {
       title="Canned Responses"
       subtitle="Saved replies for common queries"
       actions={
-        <button onClick={openNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+        <button onClick={openNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
           New Response
         </button>
       }
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard padding={false} badge={rows.length} actions={<button onClick={() => exportCannedCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard padding={false} badge={rows.length} actions={<button onClick={() => exportCannedCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <DataTable<CannedResponse>
           cols={cols}
           rows={rows}
@@ -333,13 +333,13 @@ export default function Canned() {
       >
         {previewItem && (
           <div>
-            <div style={{ marginBottom: 12 }}>
+            <div style={{ marginBottom: SP[3] }}>
               <CatPill cat={previewItem.category} />
             </div>
             <div style={{
-              whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: 13,
+              whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: TEXT.base,
               color: 'var(--txt)', padding: '12px 14px',
-              background: 'var(--th-bg)', borderRadius: 8,
+              background: 'var(--th-bg)', borderRadius: RADIUS.md,
             }}>
               {previewItem.body || <span style={{ color: 'var(--txt3)', fontStyle: 'italic' }}>No content.</span>}
             </div>

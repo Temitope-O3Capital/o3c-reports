@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { NAVY, GREEN, AMBER, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, GREEN, AMBER, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -33,10 +33,10 @@ function ProgressBar({ done, total }: { done: number; total: number }) {
   const color = pct === 100 ? GREEN : pct >= 50 ? AMBER : 'var(--chart-lbl)'
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <div style={{ flex: 1, height: 6, background: 'var(--bdr)', borderRadius: 10, overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 10, transition: 'width 300ms' }} />
+      <div style={{ flex: 1, height: 6, background: 'var(--bdr)', borderRadius: RADIUS.lg, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: RADIUS.lg, transition: 'width 300ms' }} />
       </div>
-      <span style={{ ...NUM, fontSize: 12, fontWeight: 700, color, minWidth: 34 }}>{pct}%</span>
+      <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color, minWidth: 34 }}>{pct}%</span>
     </div>
   )
 }
@@ -85,13 +85,13 @@ function ChecklistRow({ checklist, onRefresh }: { checklist: Checklist; onRefres
         onMouseEnter={e => { if (!expanded) (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
         onMouseLeave={e => { if (!expanded) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
       >
-        <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--txt3)', transition: 'transform 200ms', transform: expanded ? 'rotate(90deg)' : 'none' }}>
+        <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: 'var(--txt3)', transition: 'transform 200ms', transform: expanded ? 'rotate(90deg)' : 'none' }}>
           chevron_right
         </span>
 
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)', marginBottom: 2 }}>{checklist.name}</div>
-          <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--txt2)' }}>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 2 }}>{checklist.name}</div>
+          <div style={{ display: 'flex', gap: SP[3], fontSize: TEXT.sm, color: 'var(--txt2)' }}>
             {checklist.checklist_type && <span>{checklist.checklist_type}</span>}
             {checklist.period && <span>Period: {checklist.period}</span>}
           </div>
@@ -102,7 +102,7 @@ function ChecklistRow({ checklist, onRefresh }: { checklist: Checklist; onRefres
         </div>
 
         <div style={{ flexShrink: 0, minWidth: 60, textAlign: 'right' }}>
-          <span style={{ ...NUM, fontSize: 12.5, fontWeight: 600, color: 'var(--txt2)' }}>
+          <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>
             {doneCount > 0 ? doneCount : checklist.done_items} / {checklist.total_items}
           </span>
         </div>
@@ -116,30 +116,30 @@ function ChecklistRow({ checklist, onRefresh }: { checklist: Checklist; onRefres
               <Spinner size={20} />
             </div>
           ) : items.length === 0 ? (
-            <div style={{ padding: '16px 0', color: 'var(--txt2)', fontSize: 13 }}>No items found.</div>
+            <div style={{ padding: '16px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>No items found.</div>
           ) : (
             items.map(item => (
-              <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--bdr)' }}>
+              <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', gap: SP[3], padding: '10px 0', borderBottom: '1px solid var(--bdr)' }}>
                 <button
                   onClick={() => toggle(item)}
                   disabled={checking === item.id}
                   style={{
-                    width: 20, height: 20, borderRadius: 5, flexShrink: 0, marginTop: 2, cursor: 'pointer',
+                    width: 20, height: 20, borderRadius: RADIUS.sm, flexShrink: 0, marginTop: 2, cursor: 'pointer',
                     border: `2px solid ${item.status === 'done' ? GREEN : 'var(--input-bdr)'}`,
                     background: item.status === 'done' ? GREEN : 'transparent',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}
                 >
                   {item.status === 'done' && (
-                    <span className="material-symbols-rounded" style={{ fontSize: 13, color: '#fff' }}>check</span>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.base, color: '#fff' }}>check</span>
                   )}
                 </button>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, color: item.status === 'done' ? 'var(--txt3)' : 'var(--txt)', textDecoration: item.status === 'done' ? 'line-through' : 'none' }}>
+                  <div style={{ fontSize: TEXT.base, color: item.status === 'done' ? 'var(--txt3)' : 'var(--txt)', textDecoration: item.status === 'done' ? 'line-through' : 'none' }}>
                     {item.description}
                   </div>
                   {item.completed_by && item.completed_at && (
-                    <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 2 }}>
+                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>
                       Completed by {item.completed_by} on {fmtDate(item.completed_at)}
                     </div>
                   )}
@@ -181,14 +181,14 @@ export default function Checklists() {
             <Spinner size={28} />
           </div>
         ) : checklists.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--txt2)', fontSize: 13 }}>No checklists found.</div>
+          <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>No checklists found.</div>
         ) : (
           <div>
             {/* Table header */}
             <div style={{
               display: 'flex', alignItems: 'center', gap: 14, padding: '8px 18px',
               background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)',
-              fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.06em',
+              fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.06em',
             }}>
               <div style={{ width: 18 }} />
               <div style={{ flex: 1 }}>Checklist</div>

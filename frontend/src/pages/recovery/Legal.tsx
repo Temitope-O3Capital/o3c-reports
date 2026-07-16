@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, ErrBanner, FilterBar, filterInputStyle, S
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtNum, today } from '../../lib/fmt'
-import { BLUE, AMBER, GREEN, RED, PURPLE, NAVY, NUM, INTER } from '../../lib/design'
+import { BLUE, AMBER, GREEN, RED, PURPLE, NAVY, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -51,8 +51,8 @@ function MilestonePill({ milestone }: { milestone: string }) {
   return (
     <span style={{
       ...NUM, display: 'inline-flex', alignItems: 'center',
-      fontSize: 11.5, fontWeight: 600, padding: '2px 8px',
-      borderRadius: 20, background: s.bg, color: s.txt, whiteSpace: 'nowrap',
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px',
+      borderRadius: RADIUS['2xl'], background: s.bg, color: s.txt, whiteSpace: 'nowrap',
     }}>
       {milestone}
     </span>
@@ -63,8 +63,8 @@ function MilestonePill({ milestone }: { milestone: string }) {
 
 const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
-  border: '1px solid var(--input-bdr)', borderRadius: 7,
-  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
+  border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
   fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
 }
 
@@ -138,7 +138,7 @@ function MilestoneTimeline({
                   flexShrink: 0,
                 }}>
                   {completed && (
-                    <span className="material-symbols-rounded" style={{ fontSize: 12, color: '#fff' }}>check</span>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, color: '#fff' }}>check</span>
                   )}
                 </div>
                 {idx < MILESTONE_ORDER.length - 1 && (
@@ -148,17 +148,17 @@ function MilestoneTimeline({
               {/* Content */}
               <div style={{ flex: 1, paddingBottom: idx < MILESTONE_ORDER.length - 1 ? 8 : 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: completed ? 'var(--txt)' : 'var(--txt2)' }}>
+                  <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: completed ? 'var(--txt)' : 'var(--txt2)' }}>
                     {ms}
                   </span>
                   {completed?.milestone_date && (
-                    <span style={{ fontSize: 11, color: 'var(--txt2)', fontFamily: INTER }}>
+                    <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>
                       {fmtDate(completed.milestone_date)}
                     </span>
                   )}
                 </div>
                 {completed?.notes && (
-                  <div style={{ fontSize: 12, color: 'var(--txt2)', lineHeight: 1.5 }}>{completed.notes}</div>
+                  <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>{completed.notes}</div>
                 )}
               </div>
             </div>
@@ -169,31 +169,31 @@ function MilestoneTimeline({
       {/* Add milestone */}
       {!showForm ? (
         <button onClick={() => setShowForm(true)} style={{
-          marginTop: 14, fontSize: 12.5, fontWeight: 600, color: NAVY,
+          marginTop: 14, fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY,
           background: 'none', border: `1px solid ${NAVY}30`,
-          borderRadius: 7, padding: '5px 12px', cursor: 'pointer',
+          borderRadius: RADIUS.md, padding: '5px 12px', cursor: 'pointer',
           display: 'inline-flex', alignItems: 'center', gap: 5,
         }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>add</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>add</span>
           Add Milestone
         </button>
       ) : (
         <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10, padding: '12px', borderRadius: 8, background: 'var(--card)', border: '1px solid var(--bdr)' }}>
           {formErr && (
-            <div style={{ fontSize: 12.5, color: RED }}>{formErr}</div>
+            <div style={{ fontSize: TEXT.sm, color: RED }}>{formErr}</div>
           )}
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Milestone</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Milestone</label>
             <select value={formMilestone} onChange={e => setFormMilestone(e.target.value)} style={{ ...filterInputStyle, height: 34, width: '100%' }}>
               {MILESTONE_ORDER.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Date</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Date</label>
             <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} style={{ ...fieldStyle, height: 34 }} />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Note</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Note</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={formNote} onChange={e => setFormNote(e.target.value)} rows={2} placeholder="Optional note…" style={{ ...fieldStyle, resize: 'vertical' }} />
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -203,7 +203,7 @@ function MilestoneTimeline({
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 5,
                 padding: '6px 14px', background: NAVY, color: '#fff',
-                border: 'none', borderRadius: 7, fontSize: 12.5, fontWeight: 600,
+                border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
                 cursor: !formDate || saving ? 'not-allowed' : 'pointer',
                 opacity: !formDate || saving ? 0.6 : 1,
               }}
@@ -213,7 +213,7 @@ function MilestoneTimeline({
             </button>
             <button onClick={() => { setShowForm(false); setFormErr(null) }} style={{
               padding: '6px 12px', background: 'none', border: '1px solid var(--bdr)',
-              borderRadius: 7, fontSize: 12.5, cursor: 'pointer', color: 'var(--txt2)',
+              borderRadius: RADIUS.md, fontSize: TEXT.sm, cursor: 'pointer', color: 'var(--txt2)',
             }}>
               Cancel
             </button>
@@ -322,10 +322,10 @@ export default function RecoveryLegal() {
       sortable: true,
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>
             {r.customer_name ?? '—'}
           </div>
-          <div style={{ fontSize: 10.5, color: 'var(--txt2)' }}>{r.account_cif}</div>
+          <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)' }}>{r.account_cif}</div>
         </div>
       ),
     },
@@ -346,17 +346,17 @@ export default function RecoveryLegal() {
       key: 'solicitor',
       label: 'Solicitor',
       sortable: true,
-      render: r => <span style={{ fontSize: 13, color: 'var(--txt)' }}>{r.solicitor ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, color: 'var(--txt)' }}>{r.solicitor ?? '—'}</span>,
     },
     {
       key: 'next_court_date',
       label: 'Next Court Date',
       sortable: true,
       render: r => {
-        if (!r.next_court_date) return <span style={{ color: 'var(--txt2)', fontSize: 13 }}>—</span>
+        if (!r.next_court_date) return <span style={{ color: 'var(--txt2)', fontSize: TEXT.base }}>—</span>
         const isPast = r.next_court_date < todayStr
         return (
-          <span style={{ ...NUM, fontSize: 13, fontWeight: isPast ? 600 : 400, color: isPast ? RED : 'var(--txt)' }}>
+          <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: isPast ? FW.semibold : FW.normal, color: isPast ? RED : 'var(--txt)' }}>
             {fmtDate(r.next_court_date)}
           </span>
         )
@@ -367,7 +367,7 @@ export default function RecoveryLegal() {
       label: 'Days in Legal',
       sortable: true,
       align: 'right',
-      render: r => <span style={{ ...NUM, fontSize: 13 }}>{fmtNum(r.days_in_legal)}</span>,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.base }}>{fmtNum(r.days_in_legal)}</span>,
     },
   ]
 
@@ -383,9 +383,9 @@ export default function RecoveryLegal() {
           onClick={() => exportLegalCsv(rows)}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '7px 14px', borderRadius: 8, border: '1.5px solid var(--bdr)',
+            padding: '7px 14px', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)',
             background: 'var(--card)', color: 'var(--txt)',
-            fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+            fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
           }}
         >
           <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
@@ -408,13 +408,13 @@ export default function RecoveryLegal() {
           style={{ ...filterInputStyle, minWidth: 200 }}
         />
         <button onClick={() => load()} style={{
-          height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)',
-          background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+          height: 32, padding: '0 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
+          background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
         }}>Apply</button>
       </FilterBar>
 
       {/* KPI cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: SP[5] }}>
         <KpiCard label="Total Cases" value={kpis ? fmtNum(kpis.total_cases) : '—'} icon="gavel" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="Active" value={kpis ? fmtNum(kpis.active) : '—'} icon="pending_actions" accent={AMBER} loading={kpiLoading} />
         <KpiCard label="Won" value={kpis ? fmtNum(kpis.won) : '—'} icon="verified" accent={GREEN} loading={kpiLoading} />
@@ -428,14 +428,14 @@ export default function RecoveryLegal() {
       >
         {/* Table with inline expand */}
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
             <thead>
               <tr style={{ background: 'var(--th-bg)' }}>
                 {cols.map(col => (
                   <th key={col.key} style={{
                     padding: '10px 14px',
                     textAlign: col.align === 'right' ? 'right' : 'left',
-                    fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)',
+                    fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)',
                     letterSpacing: '0.2px', whiteSpace: 'nowrap',
                     borderBottom: '1px solid var(--bdr)',
                   }}>
@@ -459,7 +459,7 @@ export default function RecoveryLegal() {
                 ))
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={cols.length + 1} style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>
+                  <td colSpan={cols.length + 1} style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>
                     No legal cases found.
                   </td>
                 </tr>
@@ -482,7 +482,7 @@ export default function RecoveryLegal() {
                         </td>
                       ))}
                       <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                        <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt2)' }}>
+                        <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: 'var(--txt2)' }}>
                           {expandedId === row.id ? 'expand_less' : 'expand_more'}
                         </span>
                       </td>
@@ -491,7 +491,7 @@ export default function RecoveryLegal() {
                       <tr key={`${row.id}-expand`} style={{ background: 'var(--bg)' }}>
                         <td colSpan={cols.length + 1} style={{ padding: '0 16px 16px', borderBottom: '1px solid var(--bdr)' }}>
                           {expandedData[row.case_id] === 'loading' ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '20px 0', color: 'var(--txt2)', fontSize: 13 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '20px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>
                               <Spinner size={14} color={NAVY} /> Loading milestones…
                             </div>
                           ) : (

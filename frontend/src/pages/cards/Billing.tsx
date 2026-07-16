@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, ErrBanner, Sk, FilterBar, filterInputStyle } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
-import { RED, GREEN, AMBER, NAVY, NUM } from '../../lib/design'
+import { RED, GREEN, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -50,7 +50,7 @@ function StatusPill({ date }: { date: string }) {
     ? { bg: 'rgba(107,114,128,.1)', color: 'var(--chart-lbl)', label: 'Closed' }
     : { bg: 'rgba(22,163,74,.1)',   color: GREEN,     label: 'Open' }
   return (
-    <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20, background: s.bg, color: s.color }}>
+    <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'], background: s.bg, color: s.color }}>
       {s.label}
     </span>
   )
@@ -61,7 +61,7 @@ function CatPill({ category }: { category: string }) {
     ? { bg: 'rgba(14,40,65,.08)',  color: NAVY }
     : { bg: 'rgba(192,0,0,.08)',   color: RED }
   return (
-    <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: s.bg, color: s.color, textTransform: 'capitalize' as const }}>
+    <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.xl, background: s.bg, color: s.color, textTransform: 'capitalize' as const }}>
       {category}
     </span>
   )
@@ -92,19 +92,19 @@ function AccountPanel({ cycleDate, productCode }: { cycleDate: string; productCo
 
   useEffect(() => { load(0) }, [load])
 
-  if (loading) return <div style={{ padding: 16, color: 'var(--txt2)', fontSize: 13 }}>Loading accounts…</div>
-  if (!rows.length) return <div style={{ padding: 16, color: 'var(--txt2)', fontSize: 13 }}>No accounts</div>
+  if (loading) return <div style={{ padding: SP[4], color: 'var(--txt2)', fontSize: TEXT.base }}>Loading accounts…</div>
+  if (!rows.length) return <div style={{ padding: SP[4], color: 'var(--txt2)', fontSize: TEXT.base }}>No accounts</div>
 
   return (
     <div style={{ padding: '12px 16px', background: 'var(--bg)' }}>
-      <div style={{ fontSize: 12, color: 'var(--txt2)', marginBottom: 10 }}>
+      <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginBottom: 10 }}>
         {total.toLocaleString()} accounts · showing {offset + 1}–{Math.min(offset + PAGE, total)}
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.sm }}>
         <thead>
           <tr style={{ background: 'var(--th-bg)' }}>
             {['Account', 'CIF', 'CCY', 'Outstanding', 'Overdue', 'Interest', 'Fees', 'Limit'].map(h => (
-              <th key={h} style={{ padding: '8px 10px', textAlign: h === 'Account' || h === 'CIF' ? 'left' : 'right', color: 'var(--txt2)', fontWeight: 600 }}>{h}</th>
+              <th key={h} style={{ padding: '8px 10px', textAlign: h === 'Account' || h === 'CIF' ? 'left' : 'right', color: 'var(--txt2)', fontWeight: FW.semibold }}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -114,9 +114,9 @@ function AccountPanel({ cycleDate, productCode }: { cycleDate: string; productCo
               onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
               onMouseLeave={e => (e.currentTarget.style.background = '')}
             >
-              <td style={{ padding: '8px 10px', ...NUM, fontSize: 11.5, color: 'var(--txt2)' }}>{a.account_number}</td>
-              <td style={{ padding: '8px 10px', ...NUM, fontSize: 11.5, color: 'var(--txt2)' }}>{a.cif}</td>
-              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, fontWeight: 600 }}>{a.currency}</td>
+              <td style={{ padding: '8px 10px', ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)' }}>{a.account_number}</td>
+              <td style={{ padding: '8px 10px', ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)' }}>{a.cif}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, fontWeight: FW.semibold }}>{a.currency}</td>
               <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM }}>{fmtKobo(a.outstanding_balance_kobo)}</td>
               <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, color: a.overdue_amount_kobo > 0 ? RED : 'var(--txt2)' }}>{fmtKobo(a.overdue_amount_kobo)}</td>
               <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, color: GREEN }}>{fmtKobo(a.interest_charged_kobo)}</td>
@@ -129,9 +129,9 @@ function AccountPanel({ cycleDate, productCode }: { cycleDate: string; productCo
       {total > PAGE && (
         <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
           <button disabled={offset === 0} onClick={() => load(offset - PAGE)}
-            style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset === 0 ? 'not-allowed' : 'pointer', opacity: offset === 0 ? 0.4 : 1 }}>← Prev</button>
+            style={{ padding: `${SP[1]} ${SP[3]}`, borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset === 0 ? 'not-allowed' : 'pointer', opacity: offset === 0 ? 0.4 : 1 }}>← Prev</button>
           <button disabled={offset + PAGE >= total} onClick={() => load(offset + PAGE)}
-            style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset + PAGE >= total ? 'not-allowed' : 'pointer', opacity: offset + PAGE >= total ? 0.4 : 1 }}>Next →</button>
+            style={{ padding: `${SP[1]} ${SP[3]}`, borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset + PAGE >= total ? 'not-allowed' : 'pointer', opacity: offset + PAGE >= total ? 0.4 : 1 }}>Next →</button>
         </div>
       )}
     </div>
@@ -198,17 +198,17 @@ export default function CardsBilling() {
 
       {/* Cycle summary strip */}
       {selectedDate && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: SP[4], marginBottom: SP[5] }}>
           {[
             { label: 'Total Accounts',  value: totals.accounts.toLocaleString(), icon: 'credit_card',    color: NAVY },
             { label: 'Outstanding',     value: fmtKobo(totals.outstanding),     icon: 'account_balance', color: '#0EA5E9' },
             { label: 'Overdue',         value: fmtKobo(totals.overdue),         icon: 'warning',         color: RED },
           ].map(k => (
-            <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: `${SP[4]} ${SP[5]}`, display: 'flex', alignItems: 'center', gap: 14 }}>
               <span className="material-symbols-rounded" style={{ fontSize: 28, color: k.color, opacity: 0.85 }}>{k.icon}</span>
               <div>
-                <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 2 }}>{k.label}</div>
-                <div style={{ ...NUM, fontSize: 18, fontWeight: 700, color: 'var(--txt)' }}>{k.value}</div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 2 }}>{k.label}</div>
+                <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.bold, color: 'var(--txt)' }}>{k.value}</div>
               </div>
             </div>
           ))}
@@ -218,11 +218,11 @@ export default function CardsBilling() {
       {/* Products table */}
       <SectionCard padding={false} title={selectedDate ? `Products · cycle ending ${fmtDate(selectedDate)}` : 'Products'}>
         {loading ? <Sk h={300} /> : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
             <thead>
               <tr style={{ background: 'var(--th-bg)' }}>
                 {['Product', 'Category', 'Cycle Start', 'Cycle End', 'Accounts', 'Total Outstanding', 'Overdue Accounts', 'Status', ''].map(h => (
-                  <th key={h} style={{ padding: '10px 14px', textAlign: ['Accounts','Overdue Accounts'].includes(h) ? 'right' : h === 'Total Outstanding' ? 'right' : 'left', color: 'var(--txt2)', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>{h}</th>
+                  <th key={h} style={{ padding: '10px 14px', textAlign: ['Accounts','Overdue Accounts'].includes(h) ? 'right' : h === 'Total Outstanding' ? 'right' : 'left', color: 'var(--txt2)', fontWeight: FW.semibold, fontSize: TEXT.sm, whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -237,16 +237,16 @@ export default function CardsBilling() {
                     onMouseLeave={e => { if (!expanded) e.currentTarget.style.background = '' }}
                     onClick={() => toggleExpand(key)}
                   >
-                    <td style={{ padding: '10px 14px', fontWeight: 500, color: 'var(--txt)' }}>{row.product_name}</td>
+                    <td style={{ padding: '10px 14px', fontWeight: FW.medium, color: 'var(--txt)' }}>{row.product_name}</td>
                     <td style={{ padding: '10px 14px' }}><CatPill category={row.category} /></td>
-                    <td style={{ padding: '10px 14px', ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(cycleStart(row.cycle_date))}</td>
-                    <td style={{ padding: '10px 14px', ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(row.cycle_date)}</td>
+                    <td style={{ padding: '10px 14px', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(cycleStart(row.cycle_date))}</td>
+                    <td style={{ padding: '10px 14px', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(row.cycle_date)}</td>
                     <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM }}>{Number(row.account_count).toLocaleString()}</td>
-                    <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, fontWeight: 600 }}>{fmtKobo(row.total_outstanding_kobo)}</td>
+                    <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, fontWeight: FW.semibold }}>{fmtKobo(row.total_outstanding_kobo)}</td>
                     <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, color: Number(row.overdue_accounts) > 0 ? RED : 'var(--txt2)' }}>{Number(row.overdue_accounts).toLocaleString()}</td>
                     <td style={{ padding: '10px 14px' }}><StatusPill date={row.cycle_date} /></td>
                     <td style={{ padding: '10px 14px', textAlign: 'center', color: 'var(--txt2)' }}>
-                      <span className="material-symbols-rounded" style={{ fontSize: 18, verticalAlign: 'middle' }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, verticalAlign: 'middle' }}>
                         {expanded ? 'expand_less' : 'expand_more'}
                       </span>
                     </td>

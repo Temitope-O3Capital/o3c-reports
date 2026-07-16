@@ -3,7 +3,7 @@ import { Page, SectionCard, ErrBanner, Spinner, DataTable, DateFilter } from '..
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtPct } from '../../lib/fmt'
-import { GREEN, AMBER, RED, NAVY, BLUE, NUM, INTER } from '../../lib/design'
+import { GREEN, AMBER, RED, NAVY, BLUE, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -38,7 +38,7 @@ function ConvBar({ value, max }: { value: number; max: number }) {
       <div style={{ width: 80, height: 6, background: 'var(--bdr)', borderRadius: 3, overflow: 'hidden', flexShrink: 0 }}>
         <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', background: color, borderRadius: 3 }} />
       </div>
-      <span style={{ fontSize: 11.5, fontWeight: 600, color, ...NUM }}>{pct.toFixed(1)}%</span>
+      <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color, ...NUM }}>{pct.toFixed(1)}%</span>
     </div>
   )
 }
@@ -74,35 +74,35 @@ export default function Attribution() {
   const totalLoans = campaigns.reduce((s, c) => s + c.loans_disbursed, 0)
 
   const CAMP_COLS: TableCol<CampaignAttr>[] = [
-    { key: 'campaign_name', label: 'Campaign', render: r => <span style={{ fontWeight: 600 }}>{r.campaign_name}</span> },
+    { key: 'campaign_name', label: 'Campaign', render: r => <span style={{ fontWeight: FW.semibold }}>{r.campaign_name}</span> },
     { key: 'campaign_type', label: 'Type', render: r => (
-      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: `${TYPE_COLOR[r.campaign_type] ?? NAVY}15`, color: TYPE_COLOR[r.campaign_type] ?? NAVY }}>
+      <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.md, background: `${TYPE_COLOR[r.campaign_type] ?? NAVY}15`, color: TYPE_COLOR[r.campaign_type] ?? NAVY }}>
         {r.campaign_type}
       </span>
     )},
-    { key: 'contacts_reached', label: 'Reached', render: r => <span style={{ ...NUM, fontWeight: 700 }}>{fmtNum(r.contacts_reached)}</span> },
-    { key: 'applications', label: 'Applications', render: r => <span style={{ ...NUM, fontWeight: 700 }}>{fmtNum(r.applications)}</span> },
+    { key: 'contacts_reached', label: 'Reached', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.contacts_reached)}</span> },
+    { key: 'applications', label: 'Applications', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.applications)}</span> },
     { key: 'loans_disbursed', label: 'Loans → Conv.', render: r => (
       <div>
-        <div style={{ ...NUM, fontWeight: 700, fontSize: 13 }}>{fmtNum(r.loans_disbursed)}</div>
+        <div style={{ ...NUM, fontWeight: FW.bold, fontSize: TEXT.base }}>{fmtNum(r.loans_disbursed)}</div>
         <ConvBar value={r.applications} max={r.contacts_reached} />
       </div>
     )},
-    { key: 'disbursement_kobo', label: 'Disbursed', align: 'right', render: r => <span style={{ ...NUM, fontWeight: 700, color: NAVY }}>{fmtKobo(r.disbursement_kobo)}</span> },
+    { key: 'disbursement_kobo', label: 'Disbursed', align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY }}>{fmtKobo(r.disbursement_kobo)}</span> },
   ]
 
   const LS_COLS: TableCol<LeadSourceRow>[] = [
-    { key: 'lead_source', label: 'Source', render: r => <span style={{ fontWeight: 600, textTransform: 'capitalize' }}>{r.lead_source.replace(/_/g,' ')}</span> },
-    { key: 'total_applications', label: 'Applications', render: r => <span style={{ ...NUM, fontWeight: 700 }}>{fmtNum(r.total_applications)}</span> },
+    { key: 'lead_source', label: 'Source', render: r => <span style={{ fontWeight: FW.semibold, textTransform: 'capitalize' }}>{r.lead_source.replace(/_/g,' ')}</span> },
+    { key: 'total_applications', label: 'Applications', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.total_applications)}</span> },
     { key: 'approved', label: 'Approved', render: r => (
       <div>
-        <span style={{ ...NUM, fontWeight: 700 }}>{fmtNum(r.approved)}</span>
-        <span style={{ marginLeft: 6, fontSize: 11.5, color: r.approved/Math.max(r.total_applications,1) >= .5 ? GREEN : AMBER }}>
+        <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.approved)}</span>
+        <span style={{ marginLeft: 6, fontSize: TEXT.xs, color: r.approved/Math.max(r.total_applications,1) >= .5 ? GREEN : AMBER }}>
           ({fmtPct(r.approved / Math.max(r.total_applications, 1))})
         </span>
       </div>
     )},
-    { key: 'disbursement_kobo', label: 'Disbursed', align: 'right', render: r => <span style={{ ...NUM, fontWeight: 700, color: NAVY }}>{fmtKobo(r.disbursement_kobo)}</span> },
+    { key: 'disbursement_kobo', label: 'Disbursed', align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY }}>{fmtKobo(r.disbursement_kobo)}</span> },
   ]
 
   return (
@@ -119,9 +119,9 @@ export default function Attribution() {
           { label: 'Loans Disbursed', value: fmtNum(totalLoans),        color: GREEN },
           { label: 'Total Value',     value: fmtKobo(totalDisb),        color: AMBER },
         ].map(({ label, value, color }) => (
-          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '14px 16px' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color, ...NUM }}>{value}</div>
+          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
+            <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color, ...NUM }}>{value}</div>
           </div>
         ))}
       </div>

@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, ErrBanner } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtNum } from '../../lib/fmt'
-import { RED, GREEN, AMBER, NAVY, INTER, SORA, NUM } from '../../lib/design'
+import { RED, GREEN, AMBER, NAVY, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -43,11 +43,11 @@ interface Deliverability {
 
 function MetricCard({ label, value, pct, color }: { label: string; value: number; pct?: number; color: string }) {
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '14px 16px' }}>
-      <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 6 }}>{label}</div>
-      <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color }}>{fmtNum(value)}</div>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>
+      <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 6 }}>{label}</div>
+      <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color }}>{fmtNum(value)}</div>
       {pct !== undefined && (
-        <div style={{ fontSize: 12, color: 'var(--txt3)', marginTop: 3, fontFamily: INTER }}>{pct.toFixed(1)}%</div>
+        <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', marginTop: 3, fontFamily: INTER }}>{pct.toFixed(1)}%</div>
       )}
     </div>
   )
@@ -60,9 +60,9 @@ function StatusDot({ status }: { status: string }) {
   const warn = status === 'neutral' || status === 'moderate'
   const c = ok ? GREEN : warn ? AMBER : RED
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: SP[1] }}>
       <div style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />
-      <span style={{ fontSize: 12.5, color: 'var(--txt)', textTransform: 'capitalize' }}>{status}</span>
+      <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', textTransform: 'capitalize' }}>{status}</span>
     </div>
   )
 }
@@ -71,13 +71,13 @@ function StatusDot({ status }: { status: string }) {
 
 const SUP_COLS: TableCol<Suppression>[] = [
   { key: 'email', label: 'Email',
-    render: r => <span style={{ fontSize: 12.5, fontFamily: 'monospace', color: 'var(--txt)' }}>{r.email}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, fontFamily: 'monospace', color: 'var(--txt)' }}>{r.email}</span> },
   { key: 'source', label: 'Source',
-    render: r => <span style={{ fontSize: 12, background: 'var(--chip-bg)', color: 'var(--chip-txt)', borderRadius: 6, padding: '2px 9px', fontWeight: 600, textTransform: 'capitalize' }}>{r.source || '—'}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, background: 'var(--chip-bg)', color: 'var(--chip-txt)', borderRadius: RADIUS.sm, padding: '2px 9px', fontWeight: FW.semibold, textTransform: 'capitalize' }}>{r.source || '—'}</span> },
   { key: 'reason', label: 'Reason',
-    render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.reason || '—'}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.reason || '—'}</span> },
   { key: 'updated_at', label: 'Updated', width: 145,
-    render: r => <span style={{ ...NUM, fontSize: 11.5, color: 'var(--txt3)' }}>{fmtDatetime(r.updated_at)}</span> },
+    render: r => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDatetime(r.updated_at)}</span> },
 ]
 
 // ── Test email ────────────────────────────────────────────────────────────────
@@ -101,15 +101,15 @@ function TestEmailPanel() {
   }
 
   return (
-    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+    <div style={{ display: 'flex', gap: SP[2], alignItems: 'center' }}>
       <input
         value={to} onChange={e => setTo(e.target.value)}
         placeholder="recipient@example.com"
-        style={{ flex: 1, padding: '8px 12px', borderRadius: 9, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 13, color: 'var(--txt)', fontFamily: SORA, outline: 'none' }}
+        style={{ flex: 1, padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, outline: 'none' }}
       />
       <button onClick={send} disabled={sending} style={{
-        padding: '8px 16px', borderRadius: 9, border: 'none', background: NAVY, color: '#fff',
-        fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER, whiteSpace: 'nowrap',
+        padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff',
+        fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER, whiteSpace: 'nowrap',
       }}>
         {sending ? 'Sending…' : 'Send Test'}
       </button>
@@ -152,7 +152,7 @@ export default function AdminMailHealth() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* Metrics strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: SP[3], marginBottom: 20 }}>
         <MetricCard label="Sent"      value={metrics?.total_sent ?? 0}      color="var(--txt)" />
         <MetricCard label="Delivered" value={metrics?.total_delivered ?? 0} color={GREEN} pct={metrics?.delivery_rate} />
         <MetricCard label="Opened"    value={metrics?.total_opened ?? 0}    color={NAVY}  pct={metrics?.open_rate} />
@@ -161,7 +161,7 @@ export default function AdminMailHealth() {
         <MetricCard label="Spam"      value={metrics?.total_spam ?? 0}      color={metrics?.total_spam && metrics.total_spam > 0 ? RED : 'var(--txt)' } />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: SP[4], marginBottom: 16 }}>
 
         {/* Send test email */}
         <SectionCard title="Send Test Email" subtitle="Verify your sending configuration">
@@ -171,19 +171,19 @@ export default function AdminMailHealth() {
         {/* Deliverability */}
         <SectionCard title="Deliverability" subtitle={deliverability?.domain || undefined}>
           {deliverability?.checks?.length ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
               {deliverability.checks.map(check => (
-                <div key={check.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                <div key={check.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: SP[2] }}>
                   <div>
-                    <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt)', textTransform: 'uppercase' }}>{check.key}</div>
-                    {check.detail && <div style={{ fontSize: 10.5, color: 'var(--txt3)', marginTop: 1 }}>{check.detail}</div>}
+                    <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt)', textTransform: 'uppercase' }}>{check.key}</div>
+                    {check.detail && <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 1 }}>{check.detail}</div>}
                   </div>
                   <StatusDot status={check.ok ? 'pass' : 'fail'} />
                 </div>
               ))}
             </div>
           ) : (
-            <div style={{ color: 'var(--txt3)', fontSize: 13, textAlign: 'center', padding: '12px 0' }}>
+            <div style={{ color: 'var(--txt3)', fontSize: TEXT.base, textAlign: 'center', padding: '12px 0' }}>
               {loading ? 'Loading…' : 'No deliverability data'}
             </div>
           )}

@@ -7,7 +7,7 @@ import { Page, KpiCard, SectionCard, DataTable, ErrBanner } from '../../componen
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtPct } from '../../lib/fmt'
-import { RED, GREEN, AMBER, BLUE, NAVY, NUM } from '../../lib/design'
+import { RED, GREEN, AMBER, BLUE, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -48,8 +48,8 @@ const PIE_FALLBACK = [RED, BLUE, GREEN, AMBER, NAVY, '#7C3AED']
 function VolumeTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
-      <div style={{ fontWeight: 600, marginBottom: 4, color: 'var(--txt)' }}>{label}</div>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: '10px 14px', fontSize: TEXT.sm }}>
+      <div style={{ fontWeight: FW.semibold, marginBottom: 4, color: 'var(--txt)' }}>{label}</div>
       <div style={{ color: NAVY }}>Volume: ₦{fmtNum(payload[0]?.value / 100)}</div>
       <div style={{ color: 'var(--txt2)' }}>Txns: {fmtNum(payload[1]?.value ?? 0)}</div>
     </div>
@@ -64,15 +64,15 @@ const PRODUCT_COLS: TableCol<ProductRow>[] = [
       const name = r.Product_Name ?? r.product_name ?? '—'
       const c = PRODUCT_COLORS[name] ?? '#6B7280'
       return (
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: c, flexShrink: 0, display: 'inline-block' }} />
-          <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{name}</span>
+          <span style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{name}</span>
         </span>
       )
     },
   },
   { key: 'count', label: 'Cards', align: 'right',
-    render: r => <span style={{ ...NUM, fontWeight: 700 }}>{fmtNum(r.count)}</span> },
+    render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.count)}</span> },
 ]
 
 // ── Main page ──────────────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ export default function CardsOverview() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[5] }}>
         <KpiCard label="Total Issued" value={fmtNum(kpis?.total_issued ?? 0)} loading={loading} />
         <KpiCard label="Active Cards" value={fmtNum(kpis?.active ?? 0)} loading={loading}
           sub={kpis ? `${fmtPct(kpis.activation_rate)} activation rate` : undefined} />
@@ -133,12 +133,12 @@ export default function CardsOverview() {
       </div>
 
       {/* Charts row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 16, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: SP[4], marginBottom: SP[5] }}>
 
         {/* Bar: volume by product */}
         <SectionCard title="Transaction Volume by Product">
           {volumeData.length === 0 && !loading ? (
-            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: 13 }}>
+            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>
               No transaction data for current period
             </div>
           ) : (
@@ -163,7 +163,7 @@ export default function CardsOverview() {
         {/* Donut: card type mix */}
         <SectionCard title="Card Type Mix">
           {pieData.length === 0 && !loading ? (
-            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: 13 }}>
+            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>
               No product data
             </div>
           ) : (
@@ -182,7 +182,7 @@ export default function CardsOverview() {
       </div>
 
       {/* Status distribution */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4] }}>
 
         <SectionCard title="By Product" badge={products.length} padding={false}>
           <DataTable
@@ -203,8 +203,8 @@ export default function CardsOverview() {
               const pct = (r.count / total) * 100
               return (
                 <div key={i}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12.5 }}>
-                    <span style={{ color: 'var(--txt)', fontWeight: 500 }}>{name}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: TEXT.sm }}>
+                    <span style={{ color: 'var(--txt)', fontWeight: FW.medium }}>{name}</span>
                     <span style={{ ...NUM, color: 'var(--txt2)' }}>{fmtNum(r.count)} ({pct.toFixed(1)}%)</span>
                   </div>
                   <div style={{ height: 6, borderRadius: 3, background: 'var(--bdr)' }}>
@@ -214,7 +214,7 @@ export default function CardsOverview() {
               )
             })}
             {statuses.length === 0 && !loading && (
-              <div style={{ textAlign: 'center', color: 'var(--txt3)', fontSize: 13, padding: '24px 0' }}>No status data</div>
+              <div style={{ textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base, padding: '24px 0' }}>No status data</div>
             )}
           </div>
         </SectionCard>

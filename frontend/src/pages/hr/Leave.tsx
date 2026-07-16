@@ -6,7 +6,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 import type { AuthUser } from '../../hooks/useAuth'
 
@@ -37,7 +37,7 @@ const TYPE_COLORS: Record<string, string> = {
 function TypePill({ type }: { type: string }) {
   const color = TYPE_COLORS[type] ?? NAVY
   return (
-    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${color}14`, color }}>
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${color}14`, color }}>
       {type}
     </span>
   )
@@ -155,14 +155,14 @@ export default function Leave() {
   }
 
   const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
-    fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
+    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+    fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
   }
 
   const cols: TableCol<Leave>[] = [
     {
       key: 'employee_name', label: 'Employee',
-      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.employee_name}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.employee_name}</span>,
     },
     {
       key: 'leave_type', label: 'Type',
@@ -170,11 +170,11 @@ export default function Leave() {
     },
     {
       key: 'start_date', label: 'From',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{fmtDate(r.start_date)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{fmtDate(r.start_date)}</span>,
     },
     {
       key: 'end_date', label: 'To',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{fmtDate(r.end_date)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{fmtDate(r.end_date)}</span>,
     },
     {
       key: 'days', label: 'Days', align: 'right',
@@ -186,7 +186,7 @@ export default function Leave() {
     },
     {
       key: 'applied_at', label: 'Applied',
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{fmtDate(r.applied_at)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDate(r.applied_at)}</span>,
     },
     ...(canApprove ? [{
       key: 'id' as const, label: '',
@@ -195,13 +195,13 @@ export default function Leave() {
           <button
             onClick={() => handleApprove(r.id)}
             disabled={approving === r.id}
-            style={{ padding: '3px 10px', borderRadius: 6, border: `1.5px solid ${GREEN}40`, background: 'transparent', color: GREEN, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+            style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${GREEN}40`, background: 'transparent', color: GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
           >
             {approving === r.id ? '…' : 'Approve'}
           </button>
           <button
             onClick={() => { setRejectEntry(r); setRejectReason('') }}
-            style={{ padding: '3px 10px', borderRadius: 6, border: '1.5px solid rgba(192,0,0,.3)', background: 'transparent', color: RED, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+            style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: '1.5px solid rgba(192,0,0,.3)', background: 'transparent', color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
           >
             Decline
           </button>
@@ -216,7 +216,7 @@ export default function Leave() {
       subtitle="Employee leave requests and approvals"
       actions={
         <button onClick={() => { setForm(BLANK); setNewOpen(true) }} style={btnPrimary}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
           New Request
         </button>
       }
@@ -236,7 +236,7 @@ export default function Leave() {
         </select>
       </FilterBar>
 
-      <SectionCard title="Leave Requests" badge={leaves.length} padding={false} actions={<button onClick={() => exportLeaveCsv(leaves)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Leave Requests" badge={leaves.length} padding={false} actions={<button onClick={() => exportLeaveCsv(leaves)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <DataTable<Leave>
           cols={cols}
           rows={leaves}
@@ -253,11 +253,11 @@ export default function Leave() {
           bulkBar={
             <div style={{ display: 'flex', gap: 6 }}>
               <button onClick={handleBatchApprove}
-                style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: GREEN, color: 'white', cursor: 'pointer', fontSize: 12 }}>
+                style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: 'none', background: GREEN, color: 'white', cursor: 'pointer', fontSize: TEXT.sm }}>
                 Approve Selected
               </button>
               <button onClick={handleBatchDecline}
-                style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#C00000', color: 'white', cursor: 'pointer', fontSize: 12 }}>
+                style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: 'none', background: '#C00000', color: 'white', cursor: 'pointer', fontSize: TEXT.sm }}>
                 Decline Selected
               </button>
             </div>
@@ -268,8 +268,8 @@ export default function Leave() {
       {/* New Request modal */}
       <Modal open={newOpen} onClose={() => setNewOpen(false)} title="New Leave Request" width={440}
         footer={
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={() => setNewOpen(false)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
+            <button onClick={() => setNewOpen(false)} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
             <button onClick={handleCreate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {saving && <Spinner size={14} color="#fff" />}
               Submit Request
@@ -279,25 +279,25 @@ export default function Leave() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Leave Type *</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Leave Type *</label>
             <select value={form.leave_type_id} onChange={e => setForm(f => ({ ...f, leave_type_id: e.target.value }))}
               style={{ ...inputStyle, height: 36, padding: '0 10px' }}>
               <option value="">— Select —</option>
               {leaveTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>From *</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>From *</label>
               <input type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} style={{ ...inputStyle, height: 36 }} />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>To *</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>To *</label>
               <input type="date" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} style={{ ...inputStyle, height: 36 }} />
             </div>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Reason</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Reason</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} rows={3}
               style={{ ...inputStyle, resize: 'vertical' }} placeholder="Optional reason…" />
           </div>
@@ -307,21 +307,21 @@ export default function Leave() {
       {/* Decline modal */}
       <Modal open={!!rejectEntry} onClose={() => setRejectEntry(null)} title="Decline Leave Request" width={400}
         footer={
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={() => setRejectEntry(null)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button onClick={handleReject} disabled={rejecting} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: RED, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: rejecting ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
+            <button onClick={() => setRejectEntry(null)} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={handleReject} disabled={rejecting} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: 'none', background: RED, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', opacity: rejecting ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {rejecting && <Spinner size={14} color="#fff" />}
               Decline
             </button>
           </div>
         }
       >
-        <div style={{ fontSize: 13, color: 'var(--txt2)', marginBottom: 12 }}>
+        <div style={{ fontSize: TEXT.base, color: 'var(--txt2)', marginBottom: SP[3] }}>
           Declining {rejectEntry?.employee_name}'s {rejectEntry?.leave_type} leave request.
         </div>
         <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows={3}
           placeholder="Reason for declining (optional)…"
-          style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+          style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
       </Modal>
     </Page>
   )

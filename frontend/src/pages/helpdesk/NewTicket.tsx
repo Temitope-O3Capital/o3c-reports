@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Spinner, ErrBanner } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { RED, NAVY } from '../../lib/design'
+import { RED, NAVY, FW, RADIUS, SP, TEXT } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -17,13 +17,13 @@ type TicketType = typeof TICKET_TYPES[number]
 
 const inputStyle: React.CSSProperties = {
   width: '100%', height: 38, padding: '0 12px',
-  border: '1px solid var(--input-bdr)', borderRadius: 8,
-  fontSize: 13.5, background: 'var(--input-bg)', color: 'var(--txt)',
+  border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
   outline: 'none', boxSizing: 'border-box',
 }
 
 const labelStyle: React.CSSProperties = {
-  display: 'block', fontSize: 12.5, fontWeight: 600,
+  display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold,
   color: 'var(--txt2)', marginBottom: 5,
 }
 
@@ -371,7 +371,7 @@ export default function NewTicketForm({
   }
 
   const sectionHead = (text: string) => (
-    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12 }}>
+    <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3] }}>
       {text}
     </div>
   )
@@ -383,7 +383,7 @@ export default function NewTicketForm({
       {/* Ticket Type */}
       <div>
         {sectionHead('Ticket Type')}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: SP[2] }}>
           {TICKET_TYPES.map(t => {
             const isSelected = ticketType === t
             return (
@@ -392,11 +392,11 @@ export default function NewTicketForm({
                 type="button"
                 onClick={() => { setTicketType(t); setCustomFields({}) }}
                 style={{
-                  padding: '10px 8px', borderRadius: 9, cursor: 'pointer',
+                  padding: '10px 8px', borderRadius: RADIUS.md, cursor: 'pointer',
                   border: isSelected ? `2px solid ${RED}` : '2px solid var(--bdr)',
                   background: isSelected ? `${RED}08` : 'var(--th-bg)',
                   color: isSelected ? RED : 'var(--txt)',
-                  fontSize: 12.5, fontWeight: isSelected ? 700 : 500,
+                  fontSize: TEXT.sm, fontWeight: isSelected ? 700 : 500,
                   transition: 'border 120ms, background 120ms', textAlign: 'center',
                 }}
                 onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.borderColor = `${RED}60` }}
@@ -412,7 +412,7 @@ export default function NewTicketForm({
       {/* Customer */}
       <div>
         {sectionHead('Customer')}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
           <Field label="Customer Name">
             <input type="text" placeholder="Full name" value={customerName}
               onChange={e => setCustomerName(e.target.value)} style={inputStyle} />
@@ -431,12 +431,12 @@ export default function NewTicketForm({
       {/* Details */}
       <div>
         {sectionHead('Details')}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
           <Field label="Subject" required>
             <input type="text" placeholder="Brief summary of the issue" value={subject}
               onChange={e => setSubject(e.target.value)} required style={inputStyle} />
           </Field>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <Field label="Priority">
               <select value={priority} onChange={e => setPriority(e.target.value)}
                 style={{ ...inputStyle, height: 38 }}>
@@ -486,10 +486,10 @@ export default function NewTicketForm({
           type="submit"
           disabled={submitting}
           style={{
-            padding: '9px 24px', borderRadius: 8, border: 'none',
-            background: NAVY, color: '#fff', fontSize: 13.5, fontWeight: 700,
+            padding: '9px 24px', borderRadius: RADIUS.md, border: 'none',
+            background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold,
             cursor: submitting ? 'wait' : 'pointer', opacity: submitting ? 0.7 : 1,
-            display: 'flex', alignItems: 'center', gap: 8,
+            display: 'flex', alignItems: 'center', gap: SP[2],
           }}
         >
           {submitting && <Spinner size={15} color="#fff" />}
@@ -499,9 +499,9 @@ export default function NewTicketForm({
           type="button"
           onClick={onClose}
           style={{
-            padding: '9px 18px', borderRadius: 8,
+            padding: '9px 18px', borderRadius: RADIUS.md,
             border: '1px solid var(--bdr)', background: 'var(--card)',
-            color: 'var(--txt)', fontSize: 13.5, fontWeight: 500, cursor: 'pointer',
+            color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.medium, cursor: 'pointer',
           }}
         >
           Cancel

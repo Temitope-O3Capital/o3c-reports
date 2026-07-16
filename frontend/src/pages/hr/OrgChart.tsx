@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Page, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { NAVY, BLUE, AMBER, INTER, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, BLUE, AMBER, INTER, NUM } from '../../lib/design'
 
 interface OrgNode {
   id:          number
@@ -51,7 +51,7 @@ function NodeCard({ node, depth }: { node: OrgNode; depth: number }) {
           cursor: hasChildren ? 'pointer' : 'default',
           background: 'var(--card)',
           border: `2px solid ${color}`,
-          borderRadius: 10,
+          borderRadius: RADIUS.lg,
           padding: '10px 14px',
           minWidth: 140,
           maxWidth: 180,
@@ -60,14 +60,14 @@ function NodeCard({ node, depth }: { node: OrgNode; depth: number }) {
           userSelect: 'none',
         }}
       >
-        <div style={{ width: 36, height: 36, borderRadius: '50%', background: `${color}20`, border: `2px solid ${color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 6px', fontSize: 15, fontWeight: 700, color, fontFamily: INTER }}>
+        <div style={{ width: 36, height: 36, borderRadius: '50%', background: `${color}20`, border: `2px solid ${color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 6px', fontSize: 15, fontWeight: FW.bold, color, fontFamily: INTER }}>
           {node.full_name.charAt(0).toUpperCase()}
         </div>
-        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)', lineHeight: 1.3 }}>{node.full_name}</div>
-        <div style={{ fontSize: 10.5, color: 'var(--txt2)', marginTop: 2, lineHeight: 1.3 }}>{node.title || '—'}</div>
-        <div style={{ fontSize: 10, color, fontWeight: 600, marginTop: 3, background: `${color}15`, borderRadius: 6, padding: '1px 6px', display: 'inline-block' }}>{node.department}</div>
+        <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', lineHeight: 1.3 }}>{node.full_name}</div>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2, lineHeight: 1.3 }}>{node.title || '—'}</div>
+        <div style={{ fontSize: TEXT.xs, color, fontWeight: FW.semibold, marginTop: 3, background: `${color}15`, borderRadius: RADIUS.sm, padding: '1px 6px', display: 'inline-block' }}>{node.department}</div>
         {hasChildren && (
-          <div style={{ position: 'absolute', bottom: -10, left: '50%', transform: 'translateX(-50%)', width: 18, height: 18, borderRadius: '50%', background: color, color: '#fff', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+          <div style={{ position: 'absolute', bottom: -10, left: '50%', transform: 'translateX(-50%)', width: 18, height: 18, borderRadius: '50%', background: color, color: '#fff', fontSize: TEXT.sm, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: FW.bold }}>
             {expanded ? '−' : '+'}
           </div>
         )}
@@ -79,7 +79,7 @@ function NodeCard({ node, depth }: { node: OrgNode; depth: number }) {
           {/* Stem down */}
           <div style={{ width: 2, height: 20, background: 'var(--bdr)' }} />
           {/* Horizontal bar + children */}
-          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', position: 'relative' }}>
+          <div style={{ display: 'flex', gap: SP[4], alignItems: 'flex-start', position: 'relative' }}>
             {/* Horizontal line spanning children */}
             {node.children!.length > 1 && (
               <div style={{
@@ -140,31 +140,31 @@ export default function OrgChart() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[5] }}>
         {[
           { label: 'Total Staff',   value: nodes.length,                                       color: NAVY },
           { label: 'Departments',   value: Object.keys(deptCounts).length,                     color: BLUE },
           { label: 'Reporting Lines', value: nodes.filter(n => n.manager_id !== null).length,  color: AMBER },
           { label: 'Direct Reports (CEO)', value: nodes.filter(n => n.manager_id === null).length - 1 < 0 ? 0 : roots.flatMap(r => r.children ?? []).length, color: '#8B5CF6' },
         ].map(({ label, value, color }) => (
-          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '14px 16px' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color, ...NUM }}>{value}</div>
+          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
+            <div style={{ fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color, ...NUM }}>{value}</div>
           </div>
         ))}
       </div>
 
       {/* Search + legend */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: SP[5], flexWrap: 'wrap' }}>
         <input
           value={query} onChange={e => setQuery(e.target.value)}
           placeholder="Search by name, title or department…"
-          style={{ padding: '8px 12px', border: '1px solid var(--input-bdr)', borderRadius: 8, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', width: 280 }}
+          style={{ padding: '8px 12px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', width: 280 }}
         />
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
           {Object.entries(DEPT_COLOR).map(([dept, color]) => (
             deptCounts[dept] ? (
-              <span key={dept} style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 8, background: `${color}15`, color, border: `1px solid ${color}30` }}>
+              <span key={dept} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '3px 9px', borderRadius: RADIUS.md, background: `${color}15`, color, border: `1px solid ${color}30` }}>
                 {dept} ({deptCounts[dept]})
               </span>
             ) : null
@@ -175,10 +175,10 @@ export default function OrgChart() {
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner size={36} /></div>
       ) : roots.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 80, color: 'var(--txt3)', fontSize: 14 }}>No employees found</div>
+        <div style={{ textAlign: 'center', padding: 80, color: 'var(--txt3)', fontSize: TEXT.md }}>No employees found</div>
       ) : (
         <div style={{ overflowX: 'auto', paddingBottom: 40 }}>
-          <div style={{ display: 'flex', gap: 32, justifyContent: 'center', minWidth: 'max-content', paddingTop: 20 }}>
+          <div style={{ display: 'flex', gap: SP[8], justifyContent: 'center', minWidth: 'max-content', paddingTop: 20 }}>
             {roots.map(r => <NodeCard key={r.id} node={r} depth={0} />)}
           </div>
         </div>

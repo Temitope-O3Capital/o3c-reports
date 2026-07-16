@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
+import { FW, RADIUS, SP, TEXT } from '../../lib/design'
 
 const NAVY = '#0E2841'
 const GREEN = '#16A34A'
@@ -29,7 +30,7 @@ function StarRating({ value, onChange }: { value: number; onChange: (v: number) 
             background: 'none',
             border: 'none',
             cursor: 'pointer',
-            padding: 4,
+            padding: SP[1],
             fontSize: 40,
             lineHeight: 1,
             color: n <= (hover || value) ? STAR_GOLD : '#D1D5DB',
@@ -101,13 +102,13 @@ export default function CSATSurvey() {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: '24px 16px',
+    padding: `${SP[6]} ${SP[4]}`,
     fontFamily: "'Sora', 'Inter', sans-serif",
   }
 
   const boxStyle: React.CSSProperties = {
     background: '#fff',
-    borderRadius: 16,
+    borderRadius: RADIUS['2xl'],
     boxShadow: '0 4px 24px rgba(0,0,0,.08)',
     padding: '40px 36px',
     maxWidth: 480,
@@ -119,7 +120,7 @@ export default function CSATSurvey() {
     return (
       <div style={cardStyle}>
         <div style={boxStyle}>
-          <div style={{ color: 'var(--chart-lbl)', fontSize: 14 }}>Loading survey…</div>
+          <div style={{ color: 'var(--chart-lbl)', fontSize: TEXT.md }}>Loading survey…</div>
         </div>
       </div>
     )
@@ -129,9 +130,9 @@ export default function CSATSurvey() {
     return (
       <div style={cardStyle}>
         <div style={boxStyle}>
-          <div style={{ fontSize: 40, marginBottom: 16 }}>⚠️</div>
-          <h2 style={{ fontSize: 20, fontWeight: 700, color: NAVY, margin: '0 0 8px' }}>Survey unavailable</h2>
-          <p style={{ color: '#6B7280', fontSize: 14, margin: 0 }}>{error}</p>
+          <div style={{ fontSize: 40, marginBottom: SP[4] }}>⚠️</div>
+          <h2 style={{ fontSize: TEXT['2xl'], fontWeight: FW.bold, color: NAVY, margin: '0 0 8px' }}>Survey unavailable</h2>
+          <p style={{ color: '#6B7280', fontSize: TEXT.md, margin: 0 }}>{error}</p>
         </div>
       </div>
     )
@@ -141,12 +142,12 @@ export default function CSATSurvey() {
     return (
       <div style={cardStyle}>
         <div style={boxStyle}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>🎉</div>
-          <h2 style={{ fontSize: 22, fontWeight: 700, color: NAVY, margin: '0 0 10px' }}>Thank you!</h2>
-          <p style={{ color: '#6B7280', fontSize: 14, lineHeight: 1.6, margin: 0 }}>
+          <div style={{ fontSize: 48, marginBottom: SP[4] }}>🎉</div>
+          <h2 style={{ fontSize: TEXT['2xl'], fontWeight: FW.bold, color: NAVY, margin: '0 0 10px' }}>Thank you!</h2>
+          <p style={{ color: '#6B7280', fontSize: TEXT.md, lineHeight: 1.6, margin: 0 }}>
             Your feedback has been recorded. We appreciate you taking the time to let us know how we did.
           </p>
-          <div style={{ marginTop: 24, padding: '12px 16px', background: '#F0F9FF', borderRadius: 10, fontSize: 13, color: '#0369A1' }}>
+          <div style={{ marginTop: SP[6], padding: `${SP[3]} ${SP[4]}`, background: '#F0F9FF', borderRadius: RADIUS.lg, fontSize: TEXT.base, color: '#0369A1' }}>
             O3 Capital Customer Support
           </div>
         </div>
@@ -159,43 +160,43 @@ export default function CSATSurvey() {
       <div style={boxStyle}>
         {/* Brand */}
         <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 8,
-          background: NAVY, color: '#fff', borderRadius: 8,
-          padding: '6px 14px', fontSize: 13, fontWeight: 700, marginBottom: 28,
+          display: 'inline-flex', alignItems: 'center', gap: SP[2],
+          background: NAVY, color: '#fff', borderRadius: RADIUS.md,
+          padding: '6px 14px', fontSize: TEXT.base, fontWeight: FW.bold, marginBottom: 28,
         }}>
           O3 Capital
         </div>
 
-        <h1 style={{ fontSize: 20, fontWeight: 700, color: NAVY, margin: '0 0 6px' }}>
+        <h1 style={{ fontSize: TEXT['2xl'], fontWeight: FW.bold, color: NAVY, margin: '0 0 6px' }}>
           How did we do?
         </h1>
 
         {data && (
-          <p style={{ fontSize: 13, color: '#6B7280', margin: '0 0 6px' }}>
+          <p style={{ fontSize: TEXT.base, color: '#6B7280', margin: '0 0 6px' }}>
             {data.customer_name ? `Hi ${data.customer_name},` : 'Hi there,'} your request{' '}
             <strong style={{ color: NAVY }}>#{data.ticket_ref}</strong> has been resolved.
           </p>
         )}
         {data?.subject && (
-          <p style={{ fontSize: 12, color: 'var(--chart-lbl)', margin: '0 0 28px', fontStyle: 'italic' }}>
+          <p style={{ fontSize: TEXT.sm, color: 'var(--chart-lbl)', margin: '0 0 28px', fontStyle: 'italic' }}>
             "{data.subject}"
           </p>
         )}
 
-        <p style={{ fontSize: 14, color: '#374151', fontWeight: 600, marginBottom: 16 }}>
+        <p style={{ fontSize: TEXT.md, color: '#374151', fontWeight: FW.semibold, marginBottom: SP[4] }}>
           Rate your experience (1 = Poor, 5 = Excellent)
         </p>
 
         <StarRating value={score} onChange={setScore} />
 
         {score > 0 && (
-          <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: score >= 4 ? GREEN : score === 3 ? AMBER : RED }}>
+          <div style={{ marginTop: SP[2], fontSize: TEXT.base, fontWeight: FW.semibold, color: score >= 4 ? GREEN : score === 3 ? AMBER : RED }}>
             {LABELS[score]}
           </div>
         )}
 
-        <div style={{ marginTop: 24, textAlign: 'left' }}>
-          <label style={{ fontSize: 12.5, fontWeight: 600, color: '#6B7280', display: 'block', marginBottom: 6 }}>
+        <div style={{ marginTop: SP[6], textAlign: 'left' }}>
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: '#6B7280', display: 'block', marginBottom: 6 }}>
             Additional comments (optional)
           </label>
           <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
@@ -206,18 +207,18 @@ export default function CSATSurvey() {
             placeholder="Tell us more about your experience…"
             style={{
               width: '100%', resize: 'vertical', padding: '10px 12px',
-              border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 13,
+              border: '1px solid #D1D5DB', borderRadius: RADIUS.md, fontSize: TEXT.base,
               color: '#374151', lineHeight: 1.5, outline: 'none',
               boxSizing: 'border-box', fontFamily: 'inherit',
             }}
           />
-          <div style={{ fontSize: 11, color: 'var(--chart-lbl)', textAlign: 'right', marginTop: 2 }}>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--chart-lbl)', textAlign: 'right', marginTop: 2 }}>
             {comment.length}/500
           </div>
         </div>
 
         {error && (
-          <div style={{ marginTop: 12, padding: '10px 14px', background: `${RED}10`, borderRadius: 8, color: RED, fontSize: 13 }}>
+          <div style={{ marginTop: SP[3], padding: '10px 14px', background: `${RED}10`, borderRadius: RADIUS.md, color: RED, fontSize: TEXT.base }}>
             {error}
           </div>
         )}
@@ -226,10 +227,10 @@ export default function CSATSurvey() {
           onClick={submit}
           disabled={!score || submitting}
           style={{
-            marginTop: 20, width: '100%', padding: '12px 0',
+            marginTop: SP[5], width: '100%', padding: '12px 0',
             background: score ? NAVY : '#D1D5DB',
             color: score ? '#fff' : 'var(--chart-lbl)',
-            border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700,
+            border: 'none', borderRadius: RADIUS.lg, fontSize: TEXT.md, fontWeight: FW.bold,
             cursor: score && !submitting ? 'pointer' : 'not-allowed',
             transition: 'background 150ms',
           }}
@@ -237,7 +238,7 @@ export default function CSATSurvey() {
           {submitting ? 'Submitting…' : 'Submit Feedback'}
         </button>
 
-        <p style={{ marginTop: 20, fontSize: 11, color: 'var(--chart-lbl)' }}>
+        <p style={{ marginTop: SP[5], fontSize: TEXT.xs, color: 'var(--chart-lbl)' }}>
           O3 Capital · Customer Support Survey
         </p>
       </div>

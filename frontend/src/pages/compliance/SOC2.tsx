@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner, Modal, btnPrimary, btnSecondary } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { GREEN, AMBER, RED, NAVY, BLUE, INTER } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, BLUE, INTER } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -65,8 +65,8 @@ const CRITERIA_LABELS: Record<string, string> = {
 }
 
 const inp: React.CSSProperties = {
-  padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
-  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: INTER,
+  padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: INTER,
   width: '100%', boxSizing: 'border-box',
 }
 
@@ -77,8 +77,8 @@ const sel: React.CSSProperties = { ...inp, cursor: 'pointer' }
 function StatChip({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div style={{ textAlign: 'center', minWidth: 72 }}>
-      <div style={{ fontSize: 28, fontWeight: 800, color, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-      <div style={{ fontSize: 11, color: 'var(--txt-muted)', marginTop: 2 }}>{label}</div>
+      <div style={{ fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      <div style={{ fontSize: TEXT.xs, color: 'var(--txt-muted)', marginTop: 2 }}>{label}</div>
     </div>
   )
 }
@@ -98,7 +98,7 @@ function ReadinessRing({ pct, size = 80 }: { pct: number; size?: number }) {
         style={{ transition: 'stroke-dasharray .5s ease' }} />
       <text x={size/2} y={size/2} textAnchor="middle" dominantBaseline="central"
         style={{ transform: 'rotate(90deg)', transformOrigin: `${size/2}px ${size/2}px`,
-                 fontSize: 14, fontWeight: 800, fill: color, fontFamily: INTER }}>
+                 fontSize: TEXT.md, fontWeight: FW.extrabold, fill: color, fontFamily: INTER }}>
         {pct}%
       </text>
     </svg>
@@ -110,7 +110,7 @@ function ReadinessRing({ pct, size = 80 }: { pct: number; size?: number }) {
 function StatusPill({ status }: { status: string }) {
   const s = STATUS_STYLE[status] ?? STATUS_STYLE.not_started
   return (
-    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 8, ...s }}>
+    <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.md, ...s }}>
       {s.label}
     </span>
   )
@@ -194,8 +194,8 @@ export default function SOC2() {
   return (
     <Page title="SOC 2 Type II Readiness">
       {/* ── Header bar ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--txt)', margin: 0, flex: 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: SP[5], flexWrap: 'wrap' }}>
+        <h1 style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: 'var(--txt)', margin: 0, flex: 1 }}>
           SOC 2 Type II Readiness
         </h1>
         <button style={btnSecondary} onClick={handleExport}>Export CSV</button>
@@ -204,14 +204,14 @@ export default function SOC2() {
 
       {/* ── Overview stat cards ── */}
       {totals && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, marginBottom: 24 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: SP[4], marginBottom: SP[6] }}>
           {/* Overall readiness */}
           <SectionCard>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: SP[5] }}>
               <ReadinessRing pct={pctComplete} />
               <div>
-                <div style={{ fontSize: 13, color: 'var(--txt-muted)', marginBottom: 6 }}>Overall Readiness</div>
-                <div style={{ display: 'flex', gap: 20 }}>
+                <div style={{ fontSize: TEXT.base, color: 'var(--txt-muted)', marginBottom: 6 }}>Overall Readiness</div>
+                <div style={{ display: 'flex', gap: SP[5] }}>
                   <StatChip label="Complete"    value={totals.done}        color={GREEN} />
                   <StatChip label="In Progress" value={totals.in_progress} color={BLUE}  />
                   <StatChip label="Not Started" value={totals.not_started} color={'var(--txt-muted)'} />
@@ -225,17 +225,17 @@ export default function SOC2() {
             const pct = cr.total > 0 ? Math.round((cr.done / cr.total) * 100) : 0
             return (
               <SectionCard key={cr.trust_criteria}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: SP[4] }}>
                   <ReadinessRing pct={pct} size={64} />
                   <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt-muted)', marginBottom: 4 }}>
+                    <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt-muted)', marginBottom: SP[1] }}>
                       {CRITERIA_LABELS[cr.trust_criteria] ?? cr.trust_criteria}
                     </div>
-                    <div style={{ fontSize: 13, color: 'var(--txt)' }}>
+                    <div style={{ fontSize: TEXT.base, color: 'var(--txt)' }}>
                       {cr.done}/{cr.total} controls complete
                     </div>
                     {cr.in_progress > 0 && (
-                      <div style={{ fontSize: 12, color: BLUE, marginTop: 2 }}>{cr.in_progress} in progress</div>
+                      <div style={{ fontSize: TEXT.sm, color: BLUE, marginTop: 2 }}>{cr.in_progress} in progress</div>
                     )}
                   </div>
                 </div>
@@ -245,28 +245,28 @@ export default function SOC2() {
 
           {/* Policy docs */}
           <SectionCard>
-            <div style={{ fontSize: 13, color: 'var(--txt-muted)', marginBottom: 8, fontWeight: 600 }}>Policy Documents</div>
-            <div style={{ display: 'flex', gap: 16 }}>
+            <div style={{ fontSize: TEXT.base, color: 'var(--txt-muted)', marginBottom: SP[2], fontWeight: FW.semibold }}>Policy Documents</div>
+            <div style={{ display: 'flex', gap: SP[4] }}>
               <StatChip label="Approved" value={overview?.policies.approved ?? 0} color={GREEN} />
               <StatChip label="Pending"  value={overview?.policies.pending ?? 0}  color={AMBER}  />
               <StatChip label="Total"    value={overview?.policies.total ?? 0}    color={'var(--txt)'} />
             </div>
             <button onClick={() => navigate('/compliance/policies')}
-              style={{ marginTop: 12, fontSize: 12, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+              style={{ marginTop: SP[3], fontSize: TEXT.sm, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
               Manage Policies →
             </button>
           </SectionCard>
 
           {/* Open pentest findings */}
           <SectionCard>
-            <div style={{ fontSize: 13, color: 'var(--txt-muted)', marginBottom: 8, fontWeight: 600 }}>Open Pentest Findings</div>
-            <div style={{ display: 'flex', gap: 16 }}>
+            <div style={{ fontSize: TEXT.base, color: 'var(--txt-muted)', marginBottom: SP[2], fontWeight: FW.semibold }}>Open Pentest Findings</div>
+            <div style={{ display: 'flex', gap: SP[4] }}>
               <StatChip label="Critical" value={overview?.findings.open_critical ?? 0} color={RED}   />
               <StatChip label="High"     value={overview?.findings.open_high ?? 0}     color={AMBER}  />
               <StatChip label="Overdue"  value={overview?.findings.overdue ?? 0}       color={RED}    />
             </div>
             <button onClick={() => navigate('/compliance/pentest')}
-              style={{ marginTop: 12, fontSize: 12, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+              style={{ marginTop: SP[3], fontSize: TEXT.sm, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
               View Pentest Tracker →
             </button>
           </SectionCard>
@@ -275,8 +275,8 @@ export default function SOC2() {
 
       {/* ── Control register ── */}
       <SectionCard>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--txt)', flex: 1 }}>Control Register</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: SP[4], flexWrap: 'wrap' }}>
+          <span style={{ fontWeight: FW.bold, fontSize: 15, color: 'var(--txt)', flex: 1 }}>Control Register</span>
           <select style={{ ...sel, width: 160 }} value={filterSt} onChange={e => setFilterSt(e.target.value)}>
             <option value="">All statuses</option>
             <option value="complete">Complete</option>
@@ -293,12 +293,12 @@ export default function SOC2() {
         </div>
 
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
             <thead>
               <tr style={{ background: 'var(--th-bg)' }}>
                 {['Code', 'Title', 'Criteria', 'Type', 'Status', 'Owner', 'Target', 'Evidence', ''].map(h => (
-                  <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600,
-                    fontSize: 11, color: 'var(--txt-muted)', whiteSpace: 'nowrap',
+                  <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: FW.semibold,
+                    fontSize: TEXT.xs, color: 'var(--txt-muted)', whiteSpace: 'nowrap',
                     borderBottom: '1px solid var(--border)' }}>
                     {h}
                   </th>
@@ -310,33 +310,33 @@ export default function SOC2() {
                 <tr key={c.id} style={{ borderBottom: '1px solid var(--border)' }}
                   onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
                   onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                  <td style={{ padding: '9px 12px', fontFamily: 'monospace', fontSize: 12, color: NAVY, fontWeight: 700, whiteSpace: 'nowrap' }}>{c.criteria_code}</td>
+                  <td style={{ padding: '9px 12px', fontFamily: 'monospace', fontSize: TEXT.sm, color: NAVY, fontWeight: FW.bold, whiteSpace: 'nowrap' }}>{c.criteria_code}</td>
                   <td style={{ padding: '9px 12px', maxWidth: 280 }}>
-                    <div style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 2 }}>{c.title}</div>
+                    <div style={{ fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 2 }}>{c.title}</div>
                     {c.evidence_summary && (
-                      <div style={{ fontSize: 11, color: 'var(--txt-muted)', lineHeight: 1.4,
+                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt-muted)', lineHeight: 1.4,
                         display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                         {c.evidence_summary}
                       </div>
                     )}
                   </td>
-                  <td style={{ padding: '9px 12px', whiteSpace: 'nowrap', color: 'var(--txt-muted)', fontSize: 12 }}>
+                  <td style={{ padding: '9px 12px', whiteSpace: 'nowrap', color: 'var(--txt-muted)', fontSize: TEXT.sm }}>
                     {CRITERIA_LABELS[c.trust_criteria] ?? c.trust_criteria}
                   </td>
-                  <td style={{ padding: '9px 12px', whiteSpace: 'nowrap', color: 'var(--txt-muted)', fontSize: 12, textTransform: 'capitalize' }}>{c.control_type}</td>
+                  <td style={{ padding: '9px 12px', whiteSpace: 'nowrap', color: 'var(--txt-muted)', fontSize: TEXT.sm, textTransform: 'capitalize' }}>{c.control_type}</td>
                   <td style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}><StatusPill status={c.status} /></td>
-                  <td style={{ padding: '9px 12px', color: 'var(--txt-muted)', fontSize: 12, whiteSpace: 'nowrap' }}>{c.owner_name ?? '—'}</td>
-                  <td style={{ padding: '9px 12px', color: 'var(--txt-muted)', fontSize: 12, whiteSpace: 'nowrap' }}>{c.target_date ? fmtDate(c.target_date) : '—'}</td>
+                  <td style={{ padding: '9px 12px', color: 'var(--txt-muted)', fontSize: TEXT.sm, whiteSpace: 'nowrap' }}>{c.owner_name ?? '—'}</td>
+                  <td style={{ padding: '9px 12px', color: 'var(--txt-muted)', fontSize: TEXT.sm, whiteSpace: 'nowrap' }}>{c.target_date ? fmtDate(c.target_date) : '—'}</td>
                   <td style={{ padding: '9px 12px', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
                     <span style={{ background: c.evidence_count > 0 ? `${GREEN}18` : 'var(--th-bg)',
                       color: c.evidence_count > 0 ? GREEN : 'var(--txt-muted)',
-                      padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700 }}>
+                      padding: '2px 8px', borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.bold }}>
                       {c.evidence_count}
                     </span>
                   </td>
                   <td style={{ padding: '9px 12px' }}>
                     <button onClick={() => navigate(`/compliance/soc2/${c.id}`)}
-                      style={{ fontSize: 12, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', padding: 0, whiteSpace: 'nowrap' }}>
+                      style={{ fontSize: TEXT.sm, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', padding: 0, whiteSpace: 'nowrap' }}>
                       View →
                     </button>
                   </td>
@@ -352,45 +352,45 @@ export default function SOC2() {
 
       {/* ── New control modal ── */}
       <Modal open={showNew} onClose={() => setShowNew(false)} title="Add Custom Control">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Criteria Code *</label>
-              <input style={{ ...inp, marginTop: 4 }} value={newCode} onChange={e => setNewCode(e.target.value)} placeholder="e.g. CC6.9" />
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Criteria Code *</label>
+              <input style={{ ...inp, marginTop: SP[1] }} value={newCode} onChange={e => setNewCode(e.target.value)} placeholder="e.g. CC6.9" />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Criteria Group</label>
-              <input style={{ ...inp, marginTop: 4 }} value={newGroup} onChange={e => setNewGroup(e.target.value)} placeholder="e.g. CC6" />
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Criteria Group</label>
+              <input style={{ ...inp, marginTop: SP[1] }} value={newGroup} onChange={e => setNewGroup(e.target.value)} placeholder="e.g. CC6" />
             </div>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Trust Criteria</label>
-            <select style={{ ...sel, marginTop: 4 }} value={newCrit} onChange={e => setNewCrit(e.target.value)}>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Trust Criteria</label>
+            <select style={{ ...sel, marginTop: SP[1] }} value={newCrit} onChange={e => setNewCrit(e.target.value)}>
               <option value="security">Security</option>
               <option value="availability">Availability</option>
               <option value="confidentiality">Confidentiality</option>
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Title *</label>
-            <input style={{ ...inp, marginTop: 4 }} value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="Control title" />
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Title *</label>
+            <input style={{ ...inp, marginTop: SP[1] }} value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="Control title" />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Description</label>
-            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...inp, marginTop: 4, resize: 'vertical', minHeight: 80 }} value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="What this control does…" />
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Description</label>
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...inp, marginTop: SP[1], resize: 'vertical', minHeight: 80 }} value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="What this control does…" />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Control Type</label>
-              <select style={{ ...sel, marginTop: 4 }} value={newType} onChange={e => setNewType(e.target.value)}>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Control Type</label>
+              <select style={{ ...sel, marginTop: SP[1] }} value={newType} onChange={e => setNewType(e.target.value)}>
                 <option value="preventive">Preventive</option>
                 <option value="detective">Detective</option>
                 <option value="corrective">Corrective</option>
               </select>
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Frequency</label>
-              <select style={{ ...sel, marginTop: 4 }} value={newFreq} onChange={e => setNewFreq(e.target.value)}>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Frequency</label>
+              <select style={{ ...sel, marginTop: SP[1] }} value={newFreq} onChange={e => setNewFreq(e.target.value)}>
                 <option value="continuous">Continuous</option>
                 <option value="daily">Daily</option>
                 <option value="weekly">Weekly</option>
@@ -400,7 +400,7 @@ export default function SOC2() {
               </select>
             </div>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: SP[2] }}>
             <button style={btnSecondary} onClick={() => setShowNew(false)} disabled={saving}>Cancel</button>
             <button style={btnPrimary}   onClick={handleCreate}             disabled={saving}>{saving ? 'Saving…' : 'Add Control'}</button>
           </div>

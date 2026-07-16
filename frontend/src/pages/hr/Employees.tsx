@@ -6,7 +6,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDate, fmtKobo } from '../../lib/fmt'
-import { NAVY, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 import type { AuthUser } from '../../hooks/useAuth'
 
@@ -145,31 +145,31 @@ export default function Employees() {
   }
 
   const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
-    fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
+    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+    fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
   }
 
   const cols: TableCol<Employee>[] = [
     {
       key: 'staff_id', label: 'Staff ID',
-      render: r => <span style={{ ...NUM, fontSize: 12, fontWeight: 700, color: NAVY }}>{r.staff_id ?? '—'}</span>,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY }}>{r.staff_id ?? '—'}</span>,
     },
     {
       key: 'first_name', label: 'Name',
-      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.first_name} {r.last_name}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.first_name} {r.last_name}</span>,
     },
     {
       key: 'department', label: 'Department',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.department ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.department ?? '—'}</span>,
     },
     {
       key: 'job_title', label: 'Job Title',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.job_title ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.job_title ?? '—'}</span>,
     },
     {
       key: 'grade_level', label: 'Grade',
       render: r => r.grade_level ? (
-        <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${BLUE}12`, color: BLUE }}>
+        <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${BLUE}12`, color: BLUE }}>
           {r.grade_level}
         </span>
       ) : <span style={{ color: 'var(--txt3)' }}>—</span>,
@@ -194,7 +194,7 @@ export default function Employees() {
       actions={
         canManage ? (
           <button onClick={() => { setForm(BLANK); setAddOpen(true) }} style={btnPrimary}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>person_add</span>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>person_add</span>
             Add Employee
           </button>
         ) : undefined
@@ -219,7 +219,7 @@ export default function Employees() {
         </select>
       </FilterBar>
 
-      <SectionCard title="Employees" badge={employees.length} padding={false} actions={<button onClick={() => exportEmployeesCsv(employees)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Employees" badge={employees.length} padding={false} actions={<button onClick={() => exportEmployeesCsv(employees)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <DataTable<Employee>
           cols={cols}
           rows={employees}
@@ -236,7 +236,7 @@ export default function Employees() {
           onSelect={setSel}
           bulkBar={
             <button onClick={() => { setSel(new Set()) }}
-              style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#C00000', color: 'white', cursor: 'pointer', fontSize: 12 }}>
+              style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: 'none', background: '#C00000', color: 'white', cursor: 'pointer', fontSize: TEXT.sm }}>
               Deactivate Selected
             </button>
           }
@@ -246,8 +246,8 @@ export default function Employees() {
       {/* Add modal */}
       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Employee" width={580}
         footer={
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={() => setAddOpen(false)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
+            <button onClick={() => setAddOpen(false)} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
             <button onClick={handleCreate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {saving && <Spinner size={14} color="#fff" />}
               Add Employee
@@ -255,16 +255,16 @@ export default function Employees() {
           </div>
         }
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             {([['First Name *', 'first_name'], ['Last Name *', 'last_name'], ['Email', 'email'], ['Phone', 'phone'], ['Job Title', 'job_title']] as [string, keyof Employee][]).map(([label, key]) => (
               <div key={key}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>{label}</label>
+                <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>{label}</label>
                 <input value={(form[key] as string) ?? ''} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} style={inputStyle} />
               </div>
             ))}
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Department</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>Department</label>
               <select value={form.department_id ?? ''} onChange={e => setForm(f => ({ ...f, department_id: Number(e.target.value) || undefined }))}
                 style={{ ...inputStyle, height: 36, padding: '0 10px' }}>
                 <option value="">— Select —</option>
@@ -272,7 +272,7 @@ export default function Employees() {
               </select>
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Grade Level</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>Grade Level</label>
               <select value={form.grade_level_id ?? ''} onChange={e => setForm(f => ({ ...f, grade_level_id: Number(e.target.value) || undefined }))}
                 style={{ ...inputStyle, height: 36, padding: '0 10px' }}>
                 <option value="">— Select —</option>
@@ -280,15 +280,15 @@ export default function Employees() {
               </select>
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Gross Salary (₦)</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>Gross Salary (₦)</label>
               <input type="number" value={form.salary_kobo ? form.salary_kobo / 100 : ''} onChange={e => setForm(f => ({ ...f, salary_kobo: Math.round(Number(e.target.value) * 100) }))} style={inputStyle} />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Bank Name</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>Bank Name</label>
               <input value={form.bank_name ?? ''} onChange={e => setForm(f => ({ ...f, bank_name: e.target.value }))} style={inputStyle} />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Account Number</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>Account Number</label>
               <input value={form.account_number ?? ''} onChange={e => setForm(f => ({ ...f, account_number: e.target.value }))} style={inputStyle} />
             </div>
           </div>
@@ -299,14 +299,14 @@ export default function Employees() {
       <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? `${detail.first_name} ${detail.last_name}` : ''} width={560}>
         {detail && (
           <div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: SP[2], marginBottom: SP[4] }}>
               <StatusBadge status={detail.status} />
-              {detail.staff_id && <span style={{ ...NUM, fontSize: 12, fontWeight: 700, color: NAVY }}>{detail.staff_id}</span>}
+              {detail.staff_id && <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY }}>{detail.staff_id}</span>}
             </div>
             <Tabs tabs={detailTabs} active={detailTab} onChange={setDetailTab} />
             <div style={{ paddingTop: 16 }}>
               {detailTab === 'personal' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
                   {[
                     ['Date of Birth',     detail.date_of_birth ? fmtDate(detail.date_of_birth) : '—'],
                     ['Gender',            detail.gender ?? '—'],
@@ -316,15 +316,15 @@ export default function Employees() {
                     ['Emergency Contact', detail.emergency_contact_name ?? '—'],
                     ['Emergency Phone',   detail.emergency_contact_phone ?? '—'],
                   ].map(([label, value]) => (
-                    <div key={label} style={{ display: 'flex', gap: 12, fontSize: 13 }}>
+                    <div key={label} style={{ display: 'flex', gap: SP[3], fontSize: TEXT.base }}>
                       <span style={{ color: 'var(--txt2)', minWidth: 140, flexShrink: 0 }}>{label}</span>
-                      <span style={{ color: 'var(--txt)', fontWeight: 500 }}>{value}</span>
+                      <span style={{ color: 'var(--txt)', fontWeight: FW.medium }}>{value}</span>
                     </div>
                   ))}
                 </div>
               )}
               {detailTab === 'employment' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
                   {[
                     ['Staff ID',       detail.staff_id ?? '—'],
                     ['Department',     detail.department ?? '—'],
@@ -334,15 +334,15 @@ export default function Employees() {
                     ['Manager',        detail.manager_name ?? '—'],
                     ['Contract Type',  detail.contract_type ?? '—'],
                   ].map(([label, value]) => (
-                    <div key={label} style={{ display: 'flex', gap: 12, fontSize: 13 }}>
+                    <div key={label} style={{ display: 'flex', gap: SP[3], fontSize: TEXT.base }}>
                       <span style={{ color: 'var(--txt2)', minWidth: 140, flexShrink: 0 }}>{label}</span>
-                      <span style={{ color: 'var(--txt)', fontWeight: 500 }}>{value}</span>
+                      <span style={{ color: 'var(--txt)', fontWeight: FW.medium }}>{value}</span>
                     </div>
                   ))}
                 </div>
               )}
               {detailTab === 'payroll' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
                   {[
                     ['Bank',           detail.bank_name ?? '—'],
                     ['Account Number', detail.account_number ?? '—'],
@@ -350,9 +350,9 @@ export default function Employees() {
                     ['Pension RSA PIN',detail.pension_rsa_pin ?? '—'],
                     ['HMO Plan',       detail.hmo_plan ?? '—'],
                   ].map(([label, value]) => (
-                    <div key={label} style={{ display: 'flex', gap: 12, fontSize: 13 }}>
+                    <div key={label} style={{ display: 'flex', gap: SP[3], fontSize: TEXT.base }}>
                       <span style={{ color: 'var(--txt2)', minWidth: 140, flexShrink: 0 }}>{label}</span>
-                      <span style={{ color: 'var(--txt)', fontWeight: 500 }}>{value}</span>
+                      <span style={{ color: 'var(--txt)', fontWeight: FW.medium }}>{value}</span>
                     </div>
                   ))}
                 </div>
@@ -361,20 +361,20 @@ export default function Employees() {
                 loadingLeave ? (
                   <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}><Spinner size={24} /></div>
                 ) : leaveBalances.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--txt2)', fontSize: 13 }}>No leave balances found.</div>
+                  <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>No leave balances found.</div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {leaveBalances.map(lb => (
-                      <div key={lb.leave_type} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'var(--th-bg)', borderRadius: 8 }}>
+                      <div key={lb.leave_type} style={{ display: 'flex', alignItems: 'center', gap: SP[3], padding: '10px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginBottom: 3 }}>{lb.leave_type}</div>
-                          <div style={{ height: 5, background: 'var(--bdr)', borderRadius: 10, overflow: 'hidden' }}>
-                            <div style={{ width: `${lb.total_days > 0 ? (lb.remaining_days / lb.total_days) * 100 : 0}%`, height: '100%', background: GREEN, borderRadius: 10 }} />
+                          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 3 }}>{lb.leave_type}</div>
+                          <div style={{ height: 5, background: 'var(--bdr)', borderRadius: RADIUS.lg, overflow: 'hidden' }}>
+                            <div style={{ width: `${lb.total_days > 0 ? (lb.remaining_days / lb.total_days) * 100 : 0}%`, height: '100%', background: GREEN, borderRadius: RADIUS.lg }} />
                           </div>
                         </div>
                         <div style={{ textAlign: 'right', minWidth: 70 }}>
-                          <div style={{ ...NUM, fontSize: 15, fontWeight: 700, color: GREEN }}>{lb.remaining_days}</div>
-                          <div style={{ fontSize: 11, color: 'var(--txt3)' }}>of {lb.total_days} left</div>
+                          <div style={{ ...NUM, fontSize: 15, fontWeight: FW.bold, color: GREEN }}>{lb.remaining_days}</div>
+                          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>of {lb.total_days} left</div>
                         </div>
                       </div>
                     ))}

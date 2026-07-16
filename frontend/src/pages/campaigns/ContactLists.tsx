@@ -6,7 +6,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiDelete, API, getCsrfToken } from '../../lib/api'
 import { fmtNum, fmtDatetime } from '../../lib/fmt'
-import { NAVY, GREEN, RED, AMBER, SORA, INTER, NUM } from '../../lib/design'
+import { NAVY, GREEN, RED, AMBER, SORA, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { filterInputStyle } from '../../components/UI'
 import { toast } from 'sonner'
 
@@ -161,23 +161,23 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
       key: 'contact_name', label: 'Name',
       render: m => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{memberName(m)}</div>
-          {m.cif_number && <div style={{ fontSize: 11, color: 'var(--txt3)', fontFamily: 'monospace' }}>{m.cif_number}</div>}
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{memberName(m)}</div>
+          {m.cif_number && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: 'monospace' }}>{m.cif_number}</div>}
         </div>
       ),
     },
-    { key: 'phone', label: 'Phone', render: m => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{m.phone ?? '—'}</span> },
-    { key: 'email', label: 'Email', render: m => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{m.email ?? '—'}</span> },
+    { key: 'phone', label: 'Phone', render: m => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{m.phone ?? '—'}</span> },
+    { key: 'email', label: 'Email', render: m => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{m.email ?? '—'}</span> },
     {
       key: 'added_at', label: 'Added',
-      render: m => <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{fmtDatetime(m.added_at ?? m.created_at ?? '')}</span>,
+      render: m => <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDatetime(m.added_at ?? m.created_at ?? '')}</span>,
     },
     ...(canWrite ? [{
       key: 'id', label: '', align: 'right' as const,
       render: (m: Member) => (
         <button
           onClick={() => setRemoveTarget(m)}
-          style={{ ...btnSecondary, fontSize: 11, padding: '2px 9px', color: RED, borderColor: `${RED}40` }}
+          style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '2px 9px', color: RED, borderColor: `${RED}40` }}
         >
           Remove
         </button>
@@ -185,7 +185,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
     }] : []),
   ]
 
-  const lbl: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }
+  const lbl: React.CSSProperties = { fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }
   const inp: React.CSSProperties = { ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const }
 
   return (
@@ -211,8 +211,8 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
           display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexShrink: 0,
         }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--txt)', fontFamily: SORA }}>{list.name}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--txt2)', marginTop: 2 }}>
+            <div style={{ fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: SORA }}>{list.name}</div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2 }}>
               {fmtNum(members.length)} member{members.length !== 1 ? 's' : ''}
               {list.description ? ` · ${list.description}` : ''}
             </div>
@@ -226,8 +226,8 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
 
           {/* Add member */}
           {canWrite && (
-            <div style={{ background: 'var(--bg)', borderRadius: 10, padding: 16, border: '1px solid var(--bdr)' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: SORA, marginBottom: 12 }}>
+            <div style={{ background: 'var(--bg)', borderRadius: RADIUS.lg, padding: 16, border: '1px solid var(--bdr)' }}>
+              <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: SORA, marginBottom: 12 }}>
                 Add Member
               </div>
               <label style={lbl}>Search by name, phone, email, or CIF</label>
@@ -244,10 +244,10 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
                   </span>
                 )}
               </div>
-              {addErr && <div style={{ fontSize: 12, color: RED, marginTop: 6 }}>{addErr}</div>}
+              {addErr && <div style={{ fontSize: TEXT.sm, color: RED, marginTop: 6 }}>{addErr}</div>}
               {results.length > 0 && (
                 <div style={{
-                  marginTop: 6, border: '1px solid var(--bdr)', borderRadius: 8,
+                  marginTop: 6, border: '1px solid var(--bdr)', borderRadius: RADIUS.md,
                   background: 'var(--card)', maxHeight: 180, overflowY: 'auto',
                 }}>
                   {results.map(r => (
@@ -262,25 +262,25 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
                     >
                       <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt3)' }}>person</span>
                       <div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
+                        <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
                           {r.name ?? ([r.first_name, r.last_name].filter(Boolean).join(' ') || '—')}
                         </div>
-                        <div style={{ fontSize: 11.5, color: 'var(--txt2)' }}>
+                        <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
                           {[r.cif_number, r.phone, r.email].filter(Boolean).join(' · ')}
                         </div>
                       </div>
-                      <span style={{ marginLeft: 'auto', fontSize: 11.5, color: NAVY, fontWeight: 600 }}>Add →</span>
+                      <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: NAVY, fontWeight: FW.semibold }}>Add →</span>
                     </button>
                   ))}
                 </div>
               )}
               {search.length >= 2 && !searching && results.length === 0 && (
-                <div style={{ fontSize: 12, color: 'var(--txt3)', marginTop: 6 }}>No contacts found for "{search}"</div>
+                <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', marginTop: 6 }}>No contacts found for "{search}"</div>
               )}
 
               <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ flex: 1, height: 1, background: 'var(--bdr)' }} />
-                <span style={{ fontSize: 11, color: 'var(--txt3)', flexShrink: 0 }}>or</span>
+                <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', flexShrink: 0 }}>or</span>
                 <div style={{ flex: 1, height: 1, background: 'var(--bdr)' }} />
               </div>
 
@@ -292,7 +292,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
                 <span className="material-symbols-rounded" style={{ fontSize: 16 }}>upload_file</span>
                 Upload CSV
               </button>
-              <p style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 5, textAlign: 'center' }}>
+              <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 5, textAlign: 'center' }}>
                 CSV must have a <code>cif_number</code> column. Each row adds one member.
               </p>
             </div>
@@ -300,7 +300,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
 
           {/* Members table */}
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: SORA, marginBottom: 10 }}>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: SORA, marginBottom: 10 }}>
               Members ({fmtNum(members.length)})
             </div>
             {loading ? (
@@ -347,25 +347,25 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
                 ['Valid',        preflight.valid,   GREEN],
                 ['Invalid',      preflight.invalid, preflight.invalid > 0 ? RED : '#6B7280'],
               ].map(([label, val, color]) => (
-                <div key={String(label)} style={{ background: 'var(--bg)', borderRadius: 8, padding: '12px 14px', textAlign: 'center' as const }}>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: String(color), fontFamily: SORA }}>
+                <div key={String(label)} style={{ background: 'var(--bg)', borderRadius: RADIUS.md, padding: '12px 14px', textAlign: 'center' as const }}>
+                  <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: String(color), fontFamily: SORA }}>
                     {fmtNum(Number(val))}
                   </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginTop: 2 }}>{label}</div>
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>{label}</div>
                 </div>
               ))}
             </div>
             {preflight.errors && preflight.errors.length > 0 && (
-              <div style={{ background: '#FFF1F1', borderRadius: 8, padding: 12, border: `1px solid ${RED}30` }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: RED, marginBottom: 6 }}>Issues found:</div>
-                <ul style={{ margin: 0, padding: '0 0 0 16px', fontSize: 12, color: '#7F1D1D', lineHeight: 1.7 }}>
+              <div style={{ background: '#FFF1F1', borderRadius: RADIUS.md, padding: 12, border: `1px solid ${RED}30` }}>
+                <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: RED, marginBottom: 6 }}>Issues found:</div>
+                <ul style={{ margin: 0, padding: '0 0 0 16px', fontSize: TEXT.sm, color: '#7F1D1D', lineHeight: 1.7 }}>
                   {preflight.errors.slice(0, 8).map((e, i) => <li key={i}>{e}</li>)}
                   {preflight.errors.length > 8 && <li>…and {preflight.errors.length - 8} more</li>}
                 </ul>
               </div>
             )}
             {preflight.valid === 0 && (
-              <div style={{ color: RED, fontSize: 13, fontWeight: 500 }}>
+              <div style={{ color: RED, fontSize: TEXT.base, fontWeight: FW.medium }}>
                 No valid rows to import. Check your CSV format.
               </div>
             )}
@@ -457,36 +457,36 @@ export default function ContactLists() {
       key: 'name', label: 'List',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</div>
-          {r.description && <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{r.description}</div>}
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.name}</div>
+          {r.description && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.description}</div>}
         </div>
       ),
     },
     {
       key: 'member_count', label: 'Members', align: 'right',
       render: r => (
-        <span style={{ ...NUM, color: Number(r.member_count ?? 0) > 0 ? GREEN : 'var(--txt3)', fontWeight: 700 }}>
+        <span style={{ ...NUM, color: Number(r.member_count ?? 0) > 0 ? GREEN : 'var(--txt3)', fontWeight: FW.bold }}>
           {fmtNum(Number(r.member_count ?? 0))}
         </span>
       ),
     },
-    { key: 'created_by_name', label: 'Created By', render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.created_by_name ?? '—'}</span> },
-    { key: 'created_at', label: 'Created', render: r => <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{fmtDatetime(r.created_at)}</span> },
+    { key: 'created_by_name', label: 'Created By', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.created_by_name ?? '—'}</span> },
+    { key: 'created_at', label: 'Created', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDatetime(r.created_at)}</span> },
     {
       key: 'id', label: '', align: 'right' as const,
       render: (r: ContactList) => (
         <div style={{ display: 'flex', gap: 6 }}>
           <button
             onClick={e => { e.stopPropagation(); setOpenList(r) }}
-            style={{ ...btnSecondary, fontSize: 11, padding: '3px 10px', gap: 4, display: 'flex', alignItems: 'center' }}
+            style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px', gap: 4, display: 'flex', alignItems: 'center' }}
           >
-            <span className="material-symbols-rounded" style={{ fontSize: 13 }}>group</span>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.base }}>group</span>
             Members
           </button>
           {canWrite && (
             <button
               onClick={e => { e.stopPropagation(); setDeleteTarget(r) }}
-              style={{ ...btnSecondary, fontSize: 11, padding: '3px 10px', color: RED, borderColor: `${RED}40` }}
+              style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px', color: RED, borderColor: `${RED}40` }}
             >
               Delete
             </button>
@@ -516,7 +516,7 @@ export default function ContactLists() {
         actions={
           <button
             onClick={() => exportListsCsv(lists)}
-            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}
           >
             <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
             Export CSV
@@ -560,10 +560,10 @@ export default function ContactLists() {
           </div>
         }
       >
-        {saveErr && <div style={{ color: RED, fontSize: 12.5, marginBottom: 10 }}>{saveErr}</div>}
+        {saveErr && <div style={{ color: RED, fontSize: TEXT.sm, marginBottom: 10 }}>{saveErr}</div>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
               List Name *
             </label>
             <input
@@ -574,7 +574,7 @@ export default function ContactLists() {
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
               Description (optional)
             </label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
@@ -582,7 +582,7 @@ export default function ContactLists() {
               onChange={e => setDesc(e.target.value)}
               rows={3}
               placeholder="What's this list for?"
-              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', resize: 'none', fontSize: 13 }}
+              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', resize: 'none', fontSize: TEXT.base }}
             />
           </div>
         </div>

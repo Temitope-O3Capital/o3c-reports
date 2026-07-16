@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo } from '../../lib/fmt'
-import { NAVY, GREEN, AMBER, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, GREEN, AMBER, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -93,35 +93,38 @@ export default function PayslipView() {
   return (
     <div style={{ minHeight: '100vh', background: '#F4F6F8', padding: '32px 16px', fontFamily: "'Sora', 'Inter', sans-serif" }}>
       {/* Print / Download actions */}
-      <div style={{ maxWidth: 680, margin: '0 auto 16px', display: 'flex', gap: 8, justifyContent: 'flex-end' }} className="no-print">
+      <div style={{ maxWidth: 680, margin: '0 auto 16px', display: 'flex', gap: SP[2], justifyContent: 'flex-end' }} className="no-print">
         <button
           onClick={() => window.print()}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', border: '1px solid var(--bdr)', borderRadius: 8, background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}
         >
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>print</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>print</span>
           Print
         </button>
       </div>
 
       {/* Payslip card */}
-      <div id="payslip" style={{ maxWidth: 680, margin: '0 auto', background: '#fff', borderRadius: 12, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,.07)' }}>
+      <div id="payslip" style={{ maxWidth: 680, margin: '0 auto', background: '#fff', borderRadius: RADIUS.xl, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,.07)' }}>
         {/* Header */}
         <div style={{ background: NAVY, color: '#fff', padding: '28px 32px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.5px' }}>O3 Capital</div>
-              <div style={{ fontSize: 13, opacity: 0.75, marginTop: 2 }}>Pay Advice — {periodLabel}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <img src="/o3-logo-transparent.svg" width={56} height={31} alt="O3 Capital" style={{ display: 'block' }} />
+                <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, letterSpacing: '-0.5px' }}>O3 Capital</div>
+              </div>
+              <div style={{ fontSize: TEXT.base, opacity: 0.75, marginTop: 2 }}>Pay Advice — {periodLabel}</div>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 11, opacity: 0.65, marginBottom: 2 }}>CONFIDENTIAL</div>
-              <div style={{ fontSize: 12, opacity: 0.8 }}>Payslip for {periodLabel}</div>
+              <div style={{ fontSize: TEXT.xs, opacity: 0.65, marginBottom: 2 }}>CONFIDENTIAL</div>
+              <div style={{ fontSize: TEXT.sm, opacity: 0.8 }}>Payslip for {periodLabel}</div>
             </div>
           </div>
         </div>
 
         {/* Employee info */}
         <div style={{ padding: '20px 32px', borderBottom: '1px solid #E5E7EB', background: '#F9FAFB' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             {[
               ['Employee Name',  item.employee_name],
               ['Staff ID',       item.staff_id ?? '—'],
@@ -131,8 +134,8 @@ export default function PayslipView() {
               ['Bank / Account', item.bank_name ? `${item.bank_name} — ${item.account_number ?? ''}` : '—'],
             ].map(([label, value]) => (
               <div key={label}>
-                <div style={{ fontSize: 10.5, color: 'var(--txt2)', fontWeight: 600, marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 13, color: '#111827', fontWeight: label === 'Employee Name' ? 700 : 400 }}>{value}</div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontWeight: FW.semibold, marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: TEXT.base, color: '#111827', fontWeight: label === 'Employee Name' ? 700 : 400 }}>{value}</div>
               </div>
             ))}
           </div>
@@ -142,48 +145,48 @@ export default function PayslipView() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
           {/* Earnings */}
           <div style={{ padding: '20px 24px 20px 32px', borderRight: '1px solid #E5E7EB' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: NAVY, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Earnings</div>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: NAVY, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Earnings</div>
             {earnings.map(e => (
-              <div key={e.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7, fontSize: 13 }}>
+              <div key={e.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7, fontSize: TEXT.base }}>
                 <span style={{ color: '#374151' }}>{e.label}</span>
-                <span style={{ ...NUM, fontWeight: 500 }}>{fmtKobo(e.amount)}</span>
+                <span style={{ ...NUM, fontWeight: FW.medium }}>{fmtKobo(e.amount)}</span>
               </div>
             ))}
-            <div style={{ borderTop: '1.5px solid #E5E7EB', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: NAVY }}>Gross Pay</span>
-              <span style={{ ...NUM, fontWeight: 700, color: NAVY }}>{fmtKobo(item.gross_kobo)}</span>
+            <div style={{ borderTop: '1.5px solid #E5E7EB', marginTop: SP[2], paddingTop: 8, display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: NAVY }}>Gross Pay</span>
+              <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY }}>{fmtKobo(item.gross_kobo)}</span>
             </div>
           </div>
 
           {/* Deductions */}
           <div style={{ padding: '20px 32px 20px 24px' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#C00000', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Deductions</div>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: '#C00000', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Deductions</div>
             {deductions.map(d => (
-              <div key={d.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7, fontSize: 13 }}>
+              <div key={d.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7, fontSize: TEXT.base }}>
                 <span style={{ color: '#374151' }}>{d.label}</span>
-                <span style={{ ...NUM, fontWeight: 500, color: AMBER }}>{fmtKobo(d.amount)}</span>
+                <span style={{ ...NUM, fontWeight: FW.medium, color: AMBER }}>{fmtKobo(d.amount)}</span>
               </div>
             ))}
-            <div style={{ borderTop: '1.5px solid #E5E7EB', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#C00000' }}>Total Deductions</span>
-              <span style={{ ...NUM, fontWeight: 700, color: '#C00000' }}>{fmtKobo(totalDeductions)}</span>
+            <div style={{ borderTop: '1.5px solid #E5E7EB', marginTop: SP[2], paddingTop: 8, display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: '#C00000' }}>Total Deductions</span>
+              <span style={{ ...NUM, fontWeight: FW.bold, color: '#C00000' }}>{fmtKobo(totalDeductions)}</span>
             </div>
           </div>
         </div>
 
         {/* Net Pay highlight */}
-        <div style={{ margin: '0 32px 24px', background: `${GREEN}10`, border: `1.5px solid ${GREEN}30`, borderRadius: 10, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ margin: '0 32px 24px', background: `${GREEN}10`, border: `1.5px solid ${GREEN}30`, borderRadius: RADIUS.lg, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: 12, color: GREEN, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Net Pay</div>
-            <div style={{ fontSize: 11, color: 'var(--txt2)', marginTop: 2 }}>Amount to be credited to bank account</div>
+            <div style={{ fontSize: TEXT.sm, color: GREEN, fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Net Pay</div>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>Amount to be credited to bank account</div>
           </div>
-          <div style={{ fontSize: 26, fontWeight: 800, color: GREEN, fontFamily: 'Inter, sans-serif' }}>{fmtKobo(item.net_kobo)}</div>
+          <div style={{ fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color: GREEN, fontFamily: 'Inter, sans-serif' }}>{fmtKobo(item.net_kobo)}</div>
         </div>
 
         {/* Employer contributions */}
         <div style={{ margin: '0 32px 24px', borderTop: '1px solid #E5E7EB', paddingTop: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Employer Contributions</div>
-          <div style={{ display: 'flex', gap: 24, fontSize: 12.5, color: '#374151' }}>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', marginBottom: SP[2], textTransform: 'uppercase', letterSpacing: '0.08em' }}>Employer Contributions</div>
+          <div style={{ display: 'flex', gap: SP[6], fontSize: TEXT.sm, color: '#374151' }}>
             <div>
               <span style={{ color: 'var(--txt2)' }}>Employer Pension (10%): </span>
               <span style={NUM}>{fmtKobo(employerPension)}</span>
@@ -193,8 +196,8 @@ export default function PayslipView() {
 
         {/* Footer */}
         <div style={{ padding: '14px 32px', background: '#F9FAFB', borderTop: '1px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: 'var(--chart-lbl)' }}>This is a computer-generated payslip and does not require a signature.</span>
-          <span style={{ fontSize: 11, color: 'var(--chart-lbl)' }}>O3 Capital · {periodLabel}</span>
+          <span style={{ fontSize: TEXT.xs, color: 'var(--chart-lbl)' }}>This is a computer-generated payslip and does not require a signature.</span>
+          <span style={{ fontSize: TEXT.xs, color: 'var(--chart-lbl)' }}>O3 Capital · {periodLabel}</span>
         </div>
       </div>
 

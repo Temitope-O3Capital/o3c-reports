@@ -8,7 +8,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtCurrencyMinor, fmtKoboExact, fmtDate } from '../../lib/fmt'
-import { GREEN, AMBER, RED, NAVY, BLUE, PURPLE, NUM } from '../../lib/design'
+import { GREEN, AMBER, RED, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -100,7 +100,7 @@ function n(v: unknown): number { return Number(v ?? 0) }
 
 function TypePill({ type, color }: { type: string; color: string }) {
   return (
-    <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20, background: color + '1A', color }}>
+    <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'], background: color + '1A', color }}>
       {type}
     </span>
   )
@@ -110,7 +110,7 @@ function CurrencyBadge({ currency }: { currency: string }) {
   const isUsd = currency === 'USD'
   return (
     <span style={{
-      fontSize: 10.5, fontWeight: 700, padding: '1px 7px', borderRadius: 10, letterSpacing: 0.3,
+      fontSize: 10.5, fontWeight: FW.bold, padding: '1px 7px', borderRadius: RADIUS.lg, letterSpacing: 0.3,
       background: isUsd ? 'rgba(37,99,235,.1)' : 'rgba(22,163,74,.1)',
       color: isUsd ? BLUE : GREEN,
     }}>{currency}</span>
@@ -120,13 +120,13 @@ function CurrencyBadge({ currency }: { currency: string }) {
 function ChartTip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
-      <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--txt)' }}>{label}</div>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.md, padding: '10px 14px', fontSize: TEXT.sm }}>
+      <div style={{ fontWeight: FW.semibold, marginBottom: SP[1], color: 'var(--txt)' }}>{label}</div>
       {payload.map((p: any) => (
-        <div key={p.name} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 2 }}>
+        <div key={p.name} style={{ display: 'flex', gap: SP[2], alignItems: 'center', marginBottom: 2 }}>
           <span style={{ width: 8, height: 8, borderRadius: 2, background: p.fill, display: 'inline-block' }} />
           <span style={{ color: 'var(--txt2)' }}>{p.name}:</span>
-          <span style={{ ...NUM, fontWeight: 600, color: 'var(--txt)' }}>{fmtKoboExact(p.value)}</span>
+          <span style={{ ...NUM, fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtKoboExact(p.value)}</span>
         </div>
       ))}
     </div>
@@ -136,8 +136,8 @@ function ChartTip({ active, payload, label }: any) {
 function EmptyState({ icon, message }: { icon: string; message: string }) {
   return (
     <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--txt2)' }}>
-      <span className="material-symbols-rounded" style={{ fontSize: 36, opacity: 0.3, display: 'block', marginBottom: 10 }}>{icon}</span>
-      <div style={{ fontSize: 13 }}>{message}</div>
+      <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], opacity: 0.3, display: 'block', marginBottom: 10 }}>{icon}</span>
+      <div style={{ fontSize: TEXT.base }}>{message}</div>
     </div>
   )
 }
@@ -153,18 +153,18 @@ const MATURITY_STATUS_COLORS: Record<string, string> = {
 
 const LOAN_COLS: TableCol<LoanRow>[] = [
   { key: 'loan_ref', label: 'Ref', width: 120,
-    render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{r.loan_ref || `#${r.id}`}</span> },
+    render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.loan_ref || `#${r.id}`}</span> },
   { key: 'applicant_name', label: 'Borrower', sortable: true,
-    render: r => <span style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 500 }}>{r.applicant_name || '—'}</span> },
+    render: r => <span style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium }}>{r.applicant_name || '—'}</span> },
   { key: 'disbursed_amount_kobo', label: 'Principal', align: 'right', sortable: true,
-    render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKoboExact(r.disbursed_amount_kobo)}</span> },
+    render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKoboExact(r.disbursed_amount_kobo)}</span> },
   { key: 'rate_pct', label: 'Rate %', align: 'right', sortable: true,
     render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{Number(r.rate_pct).toFixed(2)}%</span> },
   { key: 'maturity_status', label: 'Status', sortable: true,
     render: r => {
       const color = MATURITY_STATUS_COLORS[r.maturity_status] ?? 'var(--chart-lbl)'
       return (
-        <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 20, background: color + '1A', color }}>
+        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 9px', borderRadius: RADIUS['2xl'], background: color + '1A', color }}>
           {r.maturity_status}
         </span>
       )
@@ -172,11 +172,11 @@ const LOAN_COLS: TableCol<LoanRow>[] = [
   { key: 'days_active', label: 'Tenor Days', align: 'right',
     render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{r.days_active}</span> },
   { key: 'interest_earned_kobo', label: 'Interest Earned', align: 'right', sortable: true,
-    render: r => <span style={{ ...NUM, fontWeight: 600, color: GREEN }}>{fmtKoboExact(r.interest_earned_kobo)}</span> },
+    render: r => <span style={{ ...NUM, fontWeight: FW.semibold, color: GREEN }}>{fmtKoboExact(r.interest_earned_kobo)}</span> },
   { key: 'disbursed_at', label: 'Disbursed', sortable: true,
-    render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.disbursed_at)}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.disbursed_at)}</span> },
   { key: 'maturity_date', label: 'Matures', sortable: true,
-    render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.maturity_date)}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.maturity_date)}</span> },
 ]
 
 // ── CSV export ────────────────────────────────────────────────────────────────
@@ -336,7 +336,7 @@ export default function FinanceIncome() {
       <ErrBanner error={error} onRetry={() => setError(null)} />
 
       {/* ── Top KPI strip — income items ────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[5] }}>
         <KpiCard
           label="Card Interest (NGN)"
           value={fmtKoboExact(s?.card_interest_ngn ?? 0)}
@@ -371,7 +371,7 @@ export default function FinanceIncome() {
       {tab === 'cards' && (
         <>
           {/* Balance KPI section — NGN vs USD separated */}
-          <SectionCard title="Card Balances" subtitle="Outstanding, billed & credit limits" style={{ marginBottom: 16 }}>
+          <SectionCard title="Card Balances" subtitle="Outstanding, billed & credit limits" style={{ marginBottom: SP[4] }}>
             {loading ? <Sk h={100} /> : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
                 {/* NGN balances */}
@@ -383,9 +383,9 @@ export default function FinanceIncome() {
                   { label: 'USD Billed Balance', value: fmtCurrencyMinor(s?.card_billed_usd ?? 0, 'USD'),       color: BLUE },
                   { label: 'USD Credit Limits',  value: fmtCurrencyMinor(s?.card_credit_limit_usd ?? 0, 'USD'), color: 'var(--txt2)' },
                 ].map(k => (
-                  <div key={k.label} style={{ background: 'var(--bg)', borderRadius: 8, padding: '12px 14px', border: '1px solid var(--bdr)' }}>
-                    <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 4 }}>{k.label}</div>
-                    <div style={{ ...NUM, fontSize: 15, fontWeight: 700, color: k.color }}>{k.value}</div>
+                  <div key={k.label} style={{ background: 'var(--bg)', borderRadius: RADIUS.md, padding: '12px 14px', border: '1px solid var(--bdr)' }}>
+                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: SP[1] }}>{k.label}</div>
+                    <div style={{ ...NUM, fontSize: 15, fontWeight: FW.bold, color: k.color }}>{k.value}</div>
                   </div>
                 ))}
               </div>
@@ -393,16 +393,16 @@ export default function FinanceIncome() {
           </SectionCard>
 
           {/* Income by Type — data labels, no Y axis (values differ in scale between cycles) */}
-          <SectionCard title="Income by Type" subtitle="NGN · Current cycle vs previous cycle" style={{ marginBottom: 16 }}>
+          <SectionCard title="Income by Type" subtitle="NGN · Current cycle vs previous cycle" style={{ marginBottom: SP[4] }}>
             {loading ? <Sk h={220} /> : !chart.length ? (
               <EmptyState icon="bar_chart" message="No chart data available" />
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={chart} margin={{ top: 32, right: 8, left: 8, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-                  <XAxis dataKey="type" tick={{ fontSize: 12, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
+                  <XAxis dataKey="type" tick={{ fontSize: TEXT.sm, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
                   <Tooltip content={<ChartTip />} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Legend wrapperStyle={{ fontSize: TEXT.xs }} />
                   <Bar dataKey="current" name="Current cycle" fill={NAVY} radius={[3,3,0,0]}>
                     <LabelList dataKey="current" position="top"
                       formatter={(v: number) => fmtKoboExact(v)}
@@ -420,13 +420,13 @@ export default function FinanceIncome() {
 
           {/* Cards — by product, NGN only */}
           {chartProducts.length > 0 && (
-            <SectionCard title="Cards" subtitle="NGN interest · fees · penalty by product" style={{ marginBottom: 16 }}>
+            <SectionCard title="Cards" subtitle="NGN interest · fees · penalty by product" style={{ marginBottom: SP[4] }}>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={chartProducts} margin={{ top: 28, right: 8, left: 8, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-                  <XAxis dataKey="product" tick={{ fontSize: 10, fill: 'var(--chart-lbl)' }} interval={0} textAnchor="middle" axisLine={false} tickLine={false} />
+                  <XAxis dataKey="product" tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)' }} interval={0} textAnchor="middle" axisLine={false} tickLine={false} />
                   <Tooltip content={<ChartTip />} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Legend wrapperStyle={{ fontSize: TEXT.xs }} />
                   <Bar dataKey="interest" name="Interest" fill={GREEN} radius={[3,3,0,0]}>
                     <LabelList dataKey="interest" position="top"
                       formatter={(v: number) => v > 0 ? fmtKoboExact(v) : ''}
@@ -449,36 +449,36 @@ export default function FinanceIncome() {
 
           {/* Aggregate KPI cards per currency */}
           {!loading && allProductRows.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: SP[4] }}>
               {[
                 { label: 'NGN Accounts',   value: ngnRows.reduce((s,r) => s + n(r.account_count), 0).toLocaleString(), icon: 'credit_card',   color: NAVY },
                 { label: 'NGN Interest',   value: fmtKoboExact(ngnRows.reduce((s,r) => s + n(r.total_interest_kobo), 0)), icon: 'trending_up', color: GREEN },
                 { label: 'NGN Fees',       value: fmtKoboExact(ngnRows.reduce((s,r) => s + n(r.total_fees_kobo), 0)),     icon: 'receipt_long', color: AMBER },
                 { label: 'NGN Penalty',    value: fmtKoboExact(ngnRows.reduce((s,r) => s + n(r.total_penalty_kobo), 0)),  icon: 'warning_amber', color: RED },
               ].map(k => (
-                <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10, padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 11 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 24, color: k.color, opacity: 0.8 }}>{k.icon}</span>
+                <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 11 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], color: k.color, opacity: 0.8 }}>{k.icon}</span>
                   <div>
-                    <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 2 }}>{k.label}</div>
-                    <div style={{ ...NUM, fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{k.value}</div>
+                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 2 }}>{k.label}</div>
+                    <div style={{ ...NUM, fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)' }}>{k.value}</div>
                   </div>
                 </div>
               ))}
             </div>
           )}
           {!loading && usdRows.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: SP[4] }}>
               {[
                 { label: 'USD Accounts',  value: usdRows.reduce((s,r) => s + n(r.account_count), 0).toLocaleString(),                                                          icon: 'credit_card',   color: BLUE },
                 { label: 'USD Interest',  value: fmtCurrencyMinor(usdRows.reduce((s,r) => s + n(r.total_interest_kobo), 0), 'USD'), icon: 'trending_up',  color: BLUE },
                 { label: 'USD Fees',      value: fmtCurrencyMinor(usdRows.reduce((s,r) => s + n(r.total_fees_kobo), 0),     'USD'), icon: 'receipt_long', color: BLUE },
                 { label: 'USD Outstanding', value: fmtCurrencyMinor(usdRows.reduce((s,r) => s + n(r.total_outstanding_kobo), 0), 'USD'), icon: 'account_balance', color: BLUE },
               ].map(k => (
-                <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10, padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 11 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 24, color: k.color, opacity: 0.8 }}>{k.icon}</span>
+                <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 11 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], color: k.color, opacity: 0.8 }}>{k.icon}</span>
                   <div>
-                    <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 2 }}>{k.label}</div>
-                    <div style={{ ...NUM, fontSize: 14, fontWeight: 700, color: k.color }}>{k.value}</div>
+                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 2 }}>{k.label}</div>
+                    <div style={{ ...NUM, fontSize: TEXT.md, fontWeight: FW.bold, color: k.color }}>{k.value}</div>
                   </div>
                 </div>
               ))}
@@ -493,8 +493,8 @@ export default function FinanceIncome() {
                 onClick={() => exportCardCsv(allProductRows, selectedDate)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 5,
-                  padding: '5px 12px', borderRadius: 6, border: '1px solid var(--bdr)',
-                  background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)',
+                  padding: '5px 12px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)',
+                  background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)',
                 }}
               >
                 <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
@@ -503,14 +503,14 @@ export default function FinanceIncome() {
             ) : undefined}
           >
             {loading ? <Sk h={260} /> : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
                 <thead>
                   <tr style={{ background: 'var(--th-bg)' }}>
                     {['Product', 'CCY', 'Category', 'Accounts', 'Outstanding', 'Interest', 'Fees', 'Penalty', 'Credit Limit'].map(h => (
                       <th key={h} style={{
                         padding: '11px 14px',
                         textAlign: ['Product', 'CCY', 'Category'].includes(h) ? 'left' : 'right',
-                        color: 'var(--txt2)', fontWeight: 600, fontSize: 12,
+                        color: 'var(--txt2)', fontWeight: FW.semibold, fontSize: TEXT.sm,
                         borderBottom: '1px solid var(--bdr)',
                         whiteSpace: 'nowrap',
                       }}>{h}</th>
@@ -519,18 +519,18 @@ export default function FinanceIncome() {
                 </thead>
                 <tbody>
                   {allProductRows.length === 0 ? (
-                    <tr><td colSpan={9} style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>No data for this cycle</td></tr>
+                    <tr><td colSpan={9} style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No data for this cycle</td></tr>
                   ) : allProductRows.map(r => (
                     <tr key={`${r.product_code}-${r.currency}`}
                       style={{ borderBottom: '1px solid var(--bdr)' }}
                       onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
                       onMouseLeave={e => (e.currentTarget.style.background = '')}
                     >
-                      <td style={{ padding: '11px 14px', fontWeight: 500, color: 'var(--txt)' }}>{r.product_name || r.product_code}</td>
+                      <td style={{ padding: '11px 14px', fontWeight: FW.medium, color: 'var(--txt)' }}>{r.product_name || r.product_code}</td>
                       <td style={{ padding: '11px 14px' }}><CurrencyBadge currency={r.currency} /></td>
                       <td style={{ padding: '11px 14px' }}>
                         {r.category ? (
-                          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12,
+                          <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.xl,
                             background: r.category === 'prepaid' ? 'rgba(14,40,65,.08)' : 'rgba(192,0,0,.08)',
                             color: r.category === 'prepaid' ? NAVY : RED, textTransform: 'capitalize' as const }}>
                             {r.category}
@@ -538,8 +538,8 @@ export default function FinanceIncome() {
                         ) : <span style={{ color: 'var(--txt2)' }}>—</span>}
                       </td>
                       <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, color: 'var(--txt2)' }}>{n(r.account_count).toLocaleString()}</td>
-                      <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, fontWeight: 600 }}>{fmtCurrencyMinor(r.total_outstanding_kobo, r.currency)}</td>
-                      <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, color: GREEN, fontWeight: 600 }}>{fmtCurrencyMinor(r.total_interest_kobo, r.currency)}</td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, fontWeight: FW.semibold }}>{fmtCurrencyMinor(r.total_outstanding_kobo, r.currency)}</td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtCurrencyMinor(r.total_interest_kobo, r.currency)}</td>
                       <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, color: AMBER }}>{fmtCurrencyMinor(r.total_fees_kobo, r.currency)}</td>
                       <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, color: RED }}>{fmtCurrencyMinor(r.total_penalty_kobo, r.currency)}</td>
                       <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, color: 'var(--txt2)' }}>{fmtCurrencyMinor(r.total_credit_limit_kobo, r.currency)}</td>
@@ -557,7 +557,7 @@ export default function FinanceIncome() {
         <>
           {/* Portfolio KPI strip */}
           {loans.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[4] }}>
               {[
                 {
                   label: 'Total Portfolio',
@@ -580,19 +580,19 @@ export default function FinanceIncome() {
                   icon: 'donut_large', color: BLUE,
                 },
               ].map(k => (
-                <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10, padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 11 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 24, color: k.color, opacity: 0.8 }}>{k.icon}</span>
+                <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 11 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], color: k.color, opacity: 0.8 }}>{k.icon}</span>
                   <div>
-                    <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 2 }}>{k.label}</div>
-                    <div style={{ ...NUM, fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{k.value}</div>
+                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 2 }}>{k.label}</div>
+                    <div style={{ ...NUM, fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)' }}>{k.value}</div>
                   </div>
                 </div>
               ))}
             </div>
           )}
           <SectionCard padding={false} actions={loans.length > 0 ? (
-            <button onClick={() => exportLoansCsv(loans)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
+            <button onClick={() => exportLoansCsv(loans)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
               Export CSV
             </button>
           ) : undefined}>
@@ -612,7 +612,7 @@ export default function FinanceIncome() {
       {/* ── FEE TYPES TAB ───────────────────────────────────────────────────── */}
       {tab === 'fees' && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: SP[3], marginBottom: SP[4] }}>
             {FEE_TYPES.map(ft => {
               const fs = feeData?.summary?.find(r => r.fee_type === ft)
               const color = FEE_COLORS[ft]
@@ -621,23 +621,23 @@ export default function FinanceIncome() {
                   onClick={() => setFeeTypeFilter(feeTypeFilter === ft ? '' : ft)}
                   style={{
                     background: 'var(--card)', border: `1px solid ${feeTypeFilter === ft ? color : 'var(--bdr)'}`,
-                    borderRadius: 10, padding: '14px 16px', cursor: 'pointer',
+                    borderRadius: RADIUS.lg, padding: '14px 16px', cursor: 'pointer',
                     boxShadow: feeTypeFilter === ft ? `0 0 0 2px ${color}33` : 'none',
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color }}>{FEE_LABELS[ft]}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP[1] }}>
+                    <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color }}>{FEE_LABELS[ft]}</span>
                     {fs ? (
-                      <span style={{ fontSize: 11, color: 'var(--txt2)' }}>{n(fs.count).toLocaleString()} txns</span>
+                      <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{n(fs.count).toLocaleString()} txns</span>
                     ) : (
-                      <span style={{ fontSize: 11, color: 'var(--txt2)' }}>—</span>
+                      <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>—</span>
                     )}
                   </div>
-                  <div style={{ ...NUM, fontSize: 18, fontWeight: 700, color: fs ? color : 'var(--txt2)' }}>
+                  <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.bold, color: fs ? color : 'var(--txt2)' }}>
                     {fs ? fmtKoboExact(fs.total_kobo) : '₦0.00'}
                   </div>
                   {!fs && (
-                    <div style={{ fontSize: 10, color: 'var(--txt2)', marginTop: 4 }}>Pending data source</div>
+                    <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', marginTop: SP[1] }}>Pending data source</div>
                   )}
                 </div>
               )
@@ -664,11 +664,11 @@ export default function FinanceIncome() {
             </SectionCard>
           ) : (
             <SectionCard padding={false}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
                 <thead>
                   <tr style={{ background: 'var(--th-bg)' }}>
                     {['Date', 'Fee Type', 'Product', 'Amount', 'Currency'].map(h => (
-                      <th key={h} style={{ padding: '11px 14px', textAlign: h === 'Amount' ? 'right' : 'left', color: 'var(--txt2)', fontWeight: 600, fontSize: 12, borderBottom: '1px solid var(--bdr)' }}>{h}</th>
+                      <th key={h} style={{ padding: '11px 14px', textAlign: h === 'Amount' ? 'right' : 'left', color: 'var(--txt2)', fontWeight: FW.semibold, fontSize: TEXT.sm, borderBottom: '1px solid var(--bdr)' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -678,12 +678,12 @@ export default function FinanceIncome() {
                       onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
                       onMouseLeave={e => (e.currentTarget.style.background = '')}
                     >
-                      <td style={{ padding: '11px 14px', ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.fee_date)}</td>
+                      <td style={{ padding: '11px 14px', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.fee_date)}</td>
                       <td style={{ padding: '11px 14px' }}>
                         <TypePill type={FEE_LABELS[r.fee_type] ?? r.fee_type} color={FEE_COLORS[r.fee_type] ?? 'var(--chart-lbl)'} />
                       </td>
                       <td style={{ padding: '11px 14px', color: 'var(--txt)' }}>{r.product_name || '—'}</td>
-                      <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, fontWeight: 600, color: NAVY }}>{fmtCurrencyMinor(r.amount_kobo, r.currency || 'NGN')}</td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, fontWeight: FW.semibold, color: NAVY }}>{fmtCurrencyMinor(r.amount_kobo, r.currency || 'NGN')}</td>
                       <td style={{ padding: '11px 14px' }}><CurrencyBadge currency={r.currency || 'NGN'} /></td>
                     </tr>
                   ))}

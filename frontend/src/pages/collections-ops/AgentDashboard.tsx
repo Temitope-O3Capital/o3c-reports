@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, ErrBanner, Spinner, Modal } from '../../c
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -60,10 +60,10 @@ function dpdColour(bucket: string | null): string {
 
 function Tile({ label, value, colour, sub }: { label: string; value: string | number; colour?: string; sub?: string }) {
   return (
-    <div style={{ flex: 1, minWidth: 110, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10, padding: '12px 16px' }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt3)', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 800, color: colour ?? 'var(--txt)', lineHeight: 1 }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--txt3)', marginTop: 3 }}>{sub}</div>}
+    <div style={{ flex: 1, minWidth: 110, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, padding: `${SP[3]} ${SP[4]}` }}>
+      <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color: colour ?? 'var(--txt)', lineHeight: 1 }}>{value}</div>
+      {sub && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 3 }}>{sub}</div>}
     </div>
   )
 }
@@ -124,7 +124,7 @@ export default function AgentDashboard() {
   const agentCols: TableCol<AgentRow>[] = [
     {
       key: 'full_name', label: 'Agent',
-      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.full_name}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.full_name}</span>,
     },
     {
       key: 'assigned', label: 'Queue', align: 'right',
@@ -151,7 +151,7 @@ export default function AgentDashboard() {
   const queueCols: TableCol<QueueRow>[] = [
     {
       key: 'account_cif', label: 'Account',
-      render: r => <span style={{ fontSize: 13, fontWeight: 700, color: NAVY, fontFamily: 'DM Mono, monospace' }}>{r.account_cif}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: NAVY, fontFamily: 'DM Mono, monospace' }}>{r.account_cif}</span>,
     },
     {
       key: 'dpd_bucket', label: 'DPD',
@@ -167,20 +167,20 @@ export default function AgentDashboard() {
     },
     {
       key: 'current_stage', label: 'Stage',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.current_stage ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.current_stage ?? '—'}</span>,
     },
     {
       key: 'last_contact_at', label: 'Last Contact',
       render: r => r.last_contact_at
-        ? <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.last_contact_at)}</span>
-        : <span style={{ fontSize: 12, color: 'var(--txt3)' }}>Never</span>,
+        ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.last_contact_at)}</span>
+        : <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>Never</span>,
     },
     {
       key: 'id', label: '',
       render: r => (
         <button
           onClick={() => { setLogRow(r); setContactType('call'); setOutcome('reached'); setNotes('') }}
-          style={{ padding: '4px 11px', borderRadius: 6, border: `1.5px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+          style={{ padding: '4px 11px', borderRadius: RADIUS.sm, border: `1.5px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
         >
           Log Contact
         </button>
@@ -244,22 +244,22 @@ export default function AgentDashboard() {
         footer={
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={handleLogContact} disabled={logging}
-              style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: logging ? 'wait' : 'pointer', opacity: logging ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: logging ? 'wait' : 'pointer', opacity: logging ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {logging && <Spinner size={13} color="#fff" />}
               Save
             </button>
-            <button onClick={() => setLogRow(null)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={() => setLogRow(null)} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
           </div>
         }
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 6 }}>Contact Method</label>
+            <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 6 }}>Contact Method</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
               {CONTACT_TYPES.map(ct => (
                 <button key={ct.value} onClick={() => setContactType(ct.value)}
                   style={{
-                    padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    padding: '5px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
                     border: `1.5px solid ${contactType === ct.value ? NAVY : 'var(--bdr)'}`,
                     background: contactType === ct.value ? NAVY : 'var(--card)',
                     color: contactType === ct.value ? '#fff' : 'var(--txt)',
@@ -270,12 +270,12 @@ export default function AgentDashboard() {
             </div>
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 6 }}>Outcome</label>
+            <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 6 }}>Outcome</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
               {OUTCOMES.map(o => (
                 <button key={o.value} onClick={() => setOutcome(o.value)}
                   style={{
-                    padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    padding: '5px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
                     border: `1.5px solid ${outcome === o.value ? NAVY : 'var(--bdr)'}`,
                     background: outcome === o.value ? NAVY : 'var(--card)',
                     color: outcome === o.value ? '#fff' : 'var(--txt)',
@@ -286,11 +286,11 @@ export default function AgentDashboard() {
             </div>
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>Notes</label>
+            <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Notes</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={notes} onChange={e => setNotes(e.target.value)}
               rows={3} placeholder="Optional notes…"
-              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', boxSizing: 'border-box' }}
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', boxSizing: 'border-box' }}
             />
           </div>
         </div>

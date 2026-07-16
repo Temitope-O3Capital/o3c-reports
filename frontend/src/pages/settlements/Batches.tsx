@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react'
 import { Page, KpiCard, SectionCard, ErrBanner, FilterBar, filterInputStyle, StatusBadge, DateFilter } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtDatetime, fmtNum, today, monthStart } from '../../lib/fmt'
-import { GREEN, RED, AMBER, NAVY, NUM } from '../../lib/design'
+import { GREEN, RED, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -41,7 +41,7 @@ function BatchStatusPill({ status }: { status: string }) {
   else if (s === 'failed') { bg = 'rgba(192,0,0,.1)'; txt = RED }
   else { bg = 'rgba(217,119,6,.12)'; txt = AMBER }
   return (
-    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: bg, color: txt, whiteSpace: 'nowrap' }}>
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: bg, color: txt, whiteSpace: 'nowrap' }}>
       {status}
     </span>
   )
@@ -51,7 +51,7 @@ function BatchStatusPill({ status }: { status: string }) {
 
 const tdBase: React.CSSProperties = {
   padding: '10px 14px',
-  fontSize: 13,
+  fontSize: TEXT.base,
   color: 'var(--txt)',
   borderBottom: '1px solid var(--bdr)',
   verticalAlign: 'middle',
@@ -59,8 +59,8 @@ const tdBase: React.CSSProperties = {
 
 const thBase: React.CSSProperties = {
   padding: '10px 14px',
-  fontSize: 11.5,
-  fontWeight: 600,
+  fontSize: TEXT.xs,
+  fontWeight: FW.semibold,
   color: 'var(--txt2)',
   textAlign: 'left',
   borderBottom: '1px solid var(--bdr)',
@@ -71,7 +71,7 @@ const thBase: React.CSSProperties = {
 
 function BatchTxnTable({ txns }: { txns: BatchTxn[] }) {
   if (!txns.length) {
-    return <div style={{ fontSize: 13, color: 'var(--txt2)', padding: '12px 0' }}>No transactions in this batch.</div>
+    return <div style={{ fontSize: TEXT.base, color: 'var(--txt2)', padding: '12px 0' }}>No transactions in this batch.</div>
   }
   return (
     <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
@@ -87,11 +87,11 @@ function BatchTxnTable({ txns }: { txns: BatchTxn[] }) {
       <tbody>
         {txns.map(t => (
           <tr key={t.id} style={{ background: 'var(--card)' }}>
-            <td style={tdBase}><span style={{ ...NUM, fontSize: 12, color: NAVY, fontWeight: 600 }}>{t.txn_ref}</span></td>
-            <td style={{ ...tdBase, textAlign: 'right' }}><span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(t.amount_kobo)}</span></td>
+            <td style={tdBase}><span style={{ ...NUM, fontSize: TEXT.sm, color: NAVY, fontWeight: FW.semibold }}>{t.txn_ref}</span></td>
+            <td style={{ ...tdBase, textAlign: 'right' }}><span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(t.amount_kobo)}</span></td>
             <td style={tdBase}><span style={{ color: 'var(--txt)' }}>{t.customer_name ?? '—'}</span></td>
             <td style={tdBase}><StatusBadge status={t.status} size="sm" /></td>
-            <td style={tdBase}><span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDatetime(t.created_at)}</span></td>
+            <td style={tdBase}><span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDatetime(t.created_at)}</span></td>
           </tr>
         ))}
       </tbody>
@@ -173,7 +173,7 @@ export default function SettlementBatches() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="Settled Today ₦" value={fmtKobo(kpis?.settled_today_kobo)} icon="check_circle" accent={GREEN} loading={kpiLoading} />
         <KpiCard label="Pending ₦" value={fmtKobo(kpis?.pending_kobo)} icon="hourglass_empty" accent={AMBER} loading={kpiLoading} />
         <KpiCard label="Failed Count" value={fmtNum(kpis?.failed_count)} icon="cancel" accent={RED} loading={kpiLoading} />
@@ -190,14 +190,14 @@ export default function SettlementBatches() {
               <option value="Failed">Failed</option>
             </select>
             <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
-            <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Apply</button>
+            <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
           </FilterBar>
         </div>
 
         {loading ? (
-          <div style={{ padding: 24, textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>Loading…</div>
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>Loading…</div>
         ) : rows.length === 0 ? (
-          <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>No batches found</div>
+          <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No batches found</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -224,16 +224,16 @@ export default function SettlementBatches() {
                       transition: 'background 120ms',
                     }}
                   >
-                    <td style={tdBase}><span style={{ ...NUM, fontSize: 12.5, fontWeight: 600, color: NAVY }}>{row.batch_ref}</span></td>
-                    <td style={tdBase}><span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(row.batch_date)}</span></td>
+                    <td style={tdBase}><span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>{row.batch_ref}</span></td>
+                    <td style={tdBase}><span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(row.batch_date)}</span></td>
                     <td style={{ ...tdBase, textAlign: 'right' }}><span style={{ ...NUM }}>{fmtNum(row.txn_count)}</span></td>
-                    <td style={{ ...tdBase, textAlign: 'right' }}><span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(row.total_amount_kobo)}</span></td>
+                    <td style={{ ...tdBase, textAlign: 'right' }}><span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(row.total_amount_kobo)}</span></td>
                     <td style={tdBase}><BatchStatusPill status={row.status} /></td>
-                    <td style={tdBase}><span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{row.generated_by ?? '—'}</span></td>
+                    <td style={tdBase}><span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{row.generated_by ?? '—'}</span></td>
                     <td style={{ ...tdBase, textAlign: 'right' }}>
                       <span
                         className="material-symbols-rounded"
-                        style={{ fontSize: 16, color: 'var(--txt2)', transition: 'transform .2s', transform: expandedId === row.id ? 'rotate(90deg)' : 'none', display: 'inline-block' }}
+                        style={{ fontSize: TEXT.lg, color: 'var(--txt2)', transition: 'transform .2s', transform: expandedId === row.id ? 'rotate(90deg)' : 'none', display: 'inline-block' }}
                       >
                         chevron_right
                       </span>
@@ -243,7 +243,7 @@ export default function SettlementBatches() {
                     <tr key={`${row.id}-exp`}>
                       <td colSpan={7} style={{ padding: '0 24px 16px', background: 'var(--th-bg)' }}>
                         {expandedData[row.id] === 'loading' ? (
-                          <div style={{ padding: '16px 0', fontSize: 13, color: 'var(--txt2)' }}>Loading transactions…</div>
+                          <div style={{ padding: '16px 0', fontSize: TEXT.base, color: 'var(--txt2)' }}>Loading transactions…</div>
                         ) : Array.isArray(expandedData[row.id]) ? (
                           <BatchTxnTable txns={expandedData[row.id] as BatchTxn[]} />
                         ) : null}

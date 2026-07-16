@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, Tabs, ErrBanner, DateFilter } from '../..
 import type { TableCol } from '../../components/UI'
 import { apiFetch, API } from '../../lib/api'
 import { fmtDate, fmtDatetime, monthStart, today } from '../../lib/fmt'
-import { GREEN, RED, AMBER, NAVY, BLUE, INTER, SORA, NUM } from '../../lib/design'
+import { GREEN, RED, AMBER, NAVY, BLUE, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -71,7 +71,7 @@ const STATUS_META: Record<string, { label: string; bg: string; txt: string }> = 
 function StatusPill({ status }: { status: string }) {
   const m = STATUS_META[status] ?? { label: status, bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
   return (
-    <span style={{ fontSize: 11.5, fontWeight: 600, borderRadius: 20, padding: '2px 10px', background: m.bg, color: m.txt, whiteSpace: 'nowrap' }}>
+    <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, borderRadius: RADIUS['2xl'], padding: '2px 10px', background: m.bg, color: m.txt, whiteSpace: 'nowrap' }}>
       {m.label}
     </span>
   )
@@ -85,7 +85,7 @@ function RunProgress({ run }: { run: BulkRun }) {
   const failedPct = Math.round((run.failed_count / total) * 100)
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--txt2)', marginBottom: 4, fontFamily: INTER }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 4, fontFamily: INTER }}>
         <span>{run.sent_count} sent · {run.failed_count} failed · {run.total_recipients} total</span>
         <span style={{ ...NUM }}>{sentPct}%</span>
       </div>
@@ -143,16 +143,16 @@ function CustomerSearch({ onSelect }: { onSelect: (c: CustomerResult) => void })
 
   if (selected) {
     return (
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: `${NAVY}08`, border: `1.5px solid ${NAVY}20`, borderRadius: 10 }}>
-        <span className="material-symbols-rounded" style={{ fontSize: 18, color: NAVY }}>person</span>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, padding: `${SP[2]} ${SP[3]}`, background: `${NAVY}08`, border: `1.5px solid ${NAVY}20`, borderRadius: RADIUS.lg }}>
+        <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: NAVY }}>person</span>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{selected.name}</div>
-          <div style={{ fontSize: 11.5, color: 'var(--txt2)', fontFamily: INTER }}>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{selected.name}</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>
             CIF: {selected.cif}{selected.email ? ` · ${selected.email}` : ''}
           </div>
         </div>
         <button onClick={clear} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt3)', display: 'flex', padding: 2 }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>close</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>close</span>
         </button>
       </div>
     )
@@ -161,24 +161,24 @@ function CustomerSearch({ onSelect }: { onSelect: (c: CustomerResult) => void })
   return (
     <div ref={wrapRef} style={{ position: 'relative', maxWidth: 420 }}>
       <div style={{ position: 'relative' }}>
-        <span className="material-symbols-rounded" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 18, color: 'var(--txt3)' }}>search</span>
+        <span className="material-symbols-rounded" style={{ position: 'absolute', left: SP[3], top: '50%', transform: 'translateY(-50%)', fontSize: TEXT.xl, color: 'var(--txt3)' }}>search</span>
         <input
           value={q} onChange={e => setQ(e.target.value)}
           onFocus={() => results.length > 0 && setShowDrop(true)}
           placeholder="Search customer name, CIF, or phone…"
-          style={{ width: '100%', padding: '9px 12px 9px 38px', borderRadius: 10, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 13, color: 'var(--txt)', fontFamily: SORA, outline: 'none', boxSizing: 'border-box' }}
+          style={{ width: '100%', padding: `${SP[2]} ${SP[3]} ${SP[2]} 38px`, borderRadius: RADIUS.lg, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, outline: 'none', boxSizing: 'border-box' }}
         />
       </div>
       {showDrop && results.length > 0 && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10, boxShadow: '0 6px 24px rgba(0,0,0,.12)', marginTop: 4, overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, boxShadow: '0 6px 24px rgba(0,0,0,.12)', marginTop: 4, overflow: 'hidden' }}>
           {results.map((c, i) => (
             <div key={i} onClick={() => pick(c)}
-              style={{ padding: '10px 14px', cursor: 'pointer' }}
+              style={{ padding: `${SP[2]} ${SP[4]}`, cursor: 'pointer' }}
               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
             >
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{c.name}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--txt2)', fontFamily: INTER, marginTop: 2 }}>
+              <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{c.name}</div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER, marginTop: 2 }}>
                 CIF: {c.cif}{c.email ? ` · ${c.email}` : ''}{c.phone ? ` · ${c.phone}` : ''}
               </div>
             </div>
@@ -194,17 +194,17 @@ function CustomerSearch({ onSelect }: { onSelect: (c: CustomerResult) => void })
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
     <div>
-      <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
       {children}
-      {hint && <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 5, fontFamily: INTER }}>{hint}</div>}
+      {hint && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 5, fontFamily: INTER }}>{hint}</div>}
     </div>
   )
 }
 
 const INPUT: React.CSSProperties = {
-  display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8,
+  display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md,
   border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)',
-  fontSize: 13, color: 'var(--txt)', fontFamily: SORA, outline: 'none', boxSizing: 'border-box',
+  fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, outline: 'none', boxSizing: 'border-box',
 }
 
 const TEXTAREA: React.CSSProperties = {
@@ -292,7 +292,7 @@ function SingleSendTab({ onSent }: { onSent: () => void }) {
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); setPreviewHtml(null) }} />
 
           <Field label="Statement Type">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[2] }}>
               {([
                 { key: 'account',     icon: 'receipt_long',  label: 'Account Statement'     },
                 { key: 'credit_card', icon: 'credit_card',   label: 'Credit Card Statement' },
@@ -300,15 +300,15 @@ function SingleSendTab({ onSent }: { onSent: () => void }) {
                 <button key={t.key} onClick={() => { setStmtType(t.key); setPreviewHtml(null) }}
                   style={{
                     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-                    padding: '12px 8px', borderRadius: 10, cursor: 'pointer', fontFamily: INTER,
+                    padding: `${SP[3]} ${SP[2]}`, borderRadius: RADIUS.lg, cursor: 'pointer', fontFamily: INTER,
                     border: `1.5px solid ${stmtType === t.key ? NAVY : 'var(--bdr)'}`,
                     background: stmtType === t.key ? `${NAVY}0d` : 'transparent',
                     color: stmtType === t.key ? NAVY : 'var(--txt2)',
                     transition: 'all .15s',
                   }}
                 >
-                  <span className="material-symbols-rounded" style={{ fontSize: 22, opacity: stmtType === t.key ? 1 : .5 }}>{t.icon}</span>
-                  <span style={{ fontSize: 11.5, fontWeight: 600 }}>{t.label}</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT['2xl'], opacity: stmtType === t.key ? 1 : .5 }}>{t.icon}</span>
+                  <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold }}>{t.label}</span>
                 </button>
               ))}
             </div>
@@ -316,13 +316,13 @@ function SingleSendTab({ onSent }: { onSent: () => void }) {
 
           {/* Optional fields */}
           <button onClick={() => setShowOpts(o => !o)}
-            style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: 12, fontWeight: 600, padding: 0, fontFamily: INTER, width: 'fit-content' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14, transition: 'transform .15s', transform: showOpts ? 'rotate(90deg)' : 'none' }}>chevron_right</span>
+            style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: TEXT.sm, fontWeight: FW.semibold, padding: 0, fontFamily: INTER, width: 'fit-content' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, transition: 'transform .15s', transform: showOpts ? 'rotate(90deg)' : 'none' }}>chevron_right</span>
             {showOpts ? 'Hide' : 'Show'} optional fields
           </button>
 
           {showOpts && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '14px', background: 'var(--input-bg)', borderRadius: 10, border: '1px solid var(--bdr)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3], padding: SP[4], background: 'var(--input-bg)', borderRadius: RADIUS.lg, border: '1px solid var(--bdr)' }}>
               <Field label="Recipient Email Override" hint="Leave blank to use the customer's email on file">
                 <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@email.com" style={INPUT} />
               </Field>
@@ -338,33 +338,33 @@ function SingleSendTab({ onSent }: { onSent: () => void }) {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: SP[2] }}>
             <button
               onClick={preview} disabled={!customer || previewing}
               style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
-                padding: '10px 0', borderRadius: 10,
+                padding: `${SP[2]} 0`, borderRadius: RADIUS.lg,
                 border: `1.5px solid ${customer ? NAVY : 'var(--bdr)'}`,
                 background: 'transparent',
                 color: customer ? NAVY : 'var(--txt3)',
-                fontSize: 13, fontWeight: 700, cursor: customer ? 'pointer' : 'not-allowed', fontFamily: INTER,
+                fontSize: TEXT.base, fontWeight: FW.bold, cursor: customer ? 'pointer' : 'not-allowed', fontFamily: INTER,
               }}
             >
-              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>preview</span>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>preview</span>
               {previewing ? 'Loading…' : 'Preview'}
             </button>
             <button
               onClick={send} disabled={!customer || sending}
               style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
-                padding: '10px 0', borderRadius: 10,
+                padding: `${SP[2]} 0`, borderRadius: RADIUS.lg,
                 border: 'none', background: customer ? NAVY : 'var(--bdr)',
                 color: customer ? '#fff' : 'var(--txt3)',
-                fontSize: 13, fontWeight: 700, cursor: customer ? 'pointer' : 'not-allowed', fontFamily: INTER,
+                fontSize: TEXT.base, fontWeight: FW.bold, cursor: customer ? 'pointer' : 'not-allowed', fontFamily: INTER,
                 transition: 'background .15s',
               }}
             >
-              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>send</span>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>send</span>
               {sending ? 'Sending…' : 'Send'}
             </button>
           </div>
@@ -376,28 +376,28 @@ function SingleSendTab({ onSent }: { onSent: () => void }) {
       <div style={{
         display: 'flex', flexDirection: 'column',
         height: 'calc(100vh - 220px)', minHeight: 520,
-        border: '1.5px solid var(--bdr)', borderRadius: 12, overflow: 'hidden',
+        border: '1.5px solid var(--bdr)', borderRadius: RADIUS.xl, overflow: 'hidden',
         background: 'var(--card)',
       }}>
         {previewHtml ? (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', background: NAVY, flexShrink: 0 }}>
-              <span style={{ color: '#fff', fontSize: 12.5, fontWeight: 600, fontFamily: INTER }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `9px ${SP[4]}`, background: NAVY, flexShrink: 0 }}>
+              <span style={{ color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, fontFamily: INTER }}>
                 {customer?.name} — {typeLabel}
               </span>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button
                   onClick={() => { const f = document.getElementById('stmt-frame') as HTMLIFrameElement; f?.contentWindow?.print() }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 6, border: '1.5px solid rgba(255,255,255,.3)', background: 'transparent', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: INTER }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: `5px ${SP[3]}`, borderRadius: RADIUS.sm, border: '1.5px solid rgba(255,255,255,.3)', background: 'transparent', color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER }}
                 >
-                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>print</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>print</span>
                   Print / PDF
                 </button>
                 <button
                   onClick={() => setPreviewHtml(null)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 6, border: '1.5px solid rgba(255,255,255,.25)', background: 'transparent', color: 'rgba(255,255,255,.7)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 4, padding: `5px ${SP[2]}`, borderRadius: RADIUS.sm, border: '1.5px solid rgba(255,255,255,.25)', background: 'transparent', color: 'rgba(255,255,255,.7)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
                 >
-                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>close</span>
                 </button>
               </div>
             </div>
@@ -409,11 +409,11 @@ function SingleSendTab({ onSent }: { onSent: () => void }) {
             />
           </>
         ) : (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: 'var(--txt3)', padding: 32 }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: 'var(--txt3)', padding: SP[8] }}>
             <span className="material-symbols-rounded" style={{ fontSize: 52, opacity: .2 }}>description</span>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt2)', marginBottom: 6 }}>Statement Preview</div>
-              <div style={{ fontSize: 12.5, color: 'var(--txt3)', fontFamily: INTER, maxWidth: 260 }}>
+              <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 6 }}>Statement Preview</div>
+              <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: INTER, maxWidth: 260 }}>
                 {customer
                   ? 'Click Preview to generate a statement for ' + customer.name
                   : 'Select a customer to get started'}
@@ -422,9 +422,9 @@ function SingleSendTab({ onSent }: { onSent: () => void }) {
             {customer && (
               <button
                 onClick={preview} disabled={previewing}
-                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 20px', borderRadius: 10, border: `1.5px solid ${NAVY}`, background: 'transparent', color: NAVY, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER }}
+                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.lg, border: `1.5px solid ${NAVY}`, background: 'transparent', color: NAVY, fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}
               >
-                <span className="material-symbols-rounded" style={{ fontSize: 16 }}>preview</span>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>preview</span>
                 {previewing ? 'Loading…' : 'Preview Statement'}
               </button>
             )}
@@ -516,23 +516,23 @@ function BulkSendTab({ onLaunched }: { onLaunched: () => void }) {
 
   const RUN_COLS: TableCol<BulkRun>[] = [
     { key: 'created_at', label: 'Started', sortable: true,
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)', ...NUM }}>{fmtDatetime(r.created_at)}</span> },
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', ...NUM }}>{fmtDatetime(r.created_at)}</span> },
     { key: 'status', label: 'Status', render: r => <StatusPill status={r.status} /> },
     { key: 'period', label: 'Period',
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>{fmtDate(r.date_from)} – {fmtDate(r.date_to)}</span> },
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtDate(r.date_from)} – {fmtDate(r.date_to)}</span> },
     { key: '_progress', label: 'Progress',
       render: r => <RunProgress run={r} /> },
     { key: '_actions', label: '',
       render: r => (
         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
           {(r.status === 'queued' || r.status === 'active') && (
-            <button onClick={() => runAction(r.id, 'pause')} style={{ padding: '3px 9px', borderRadius: 6, border: 'none', background: `${AMBER}15`, color: AMBER, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>Pause</button>
+            <button onClick={() => runAction(r.id, 'pause')} style={{ padding: `3px ${SP[2]}`, borderRadius: RADIUS.sm, border: 'none', background: `${AMBER}15`, color: AMBER, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>Pause</button>
           )}
           {r.status === 'paused' && (
-            <button onClick={() => runAction(r.id, 'resume')} style={{ padding: '3px 9px', borderRadius: 6, border: 'none', background: `${GREEN}12`, color: GREEN, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>Resume</button>
+            <button onClick={() => runAction(r.id, 'resume')} style={{ padding: `3px ${SP[2]}`, borderRadius: RADIUS.sm, border: 'none', background: `${GREEN}12`, color: GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>Resume</button>
           )}
           {(r.status === 'queued' || r.status === 'active' || r.status === 'paused') && (
-            <button onClick={() => runAction(r.id, 'cancel')} style={{ padding: '3px 9px', borderRadius: 6, border: 'none', background: 'rgba(192,0,0,.1)', color: RED, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={() => runAction(r.id, 'cancel')} style={{ padding: `3px ${SP[2]}`, borderRadius: RADIUS.sm, border: 'none', background: 'rgba(192,0,0,.1)', color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>Cancel</button>
           )}
         </div>
       ),
@@ -540,10 +540,10 @@ function BulkSendTab({ onLaunched }: { onLaunched: () => void }) {
   ]
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
 
       <SectionCard title="Configure Bulk Send" subtitle="Sends a statement PDF to every customer who has an email address on file">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
             <Field label="Limit" hint="Max customers to include. Leave blank for all.">
@@ -562,30 +562,30 @@ function BulkSendTab({ onLaunched }: { onLaunched: () => void }) {
 
           {/* Preview box */}
           {preview && (
-            <div style={{ background: `${NAVY}06`, border: `1.5px solid ${NAVY}20`, borderRadius: 10, padding: '14px 16px' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: NAVY, marginBottom: 8 }}>
+            <div style={{ background: `${NAVY}06`, border: `1.5px solid ${NAVY}20`, borderRadius: RADIUS.lg, padding: `${SP[4]} ${SP[4]}` }}>
+              <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: NAVY, marginBottom: SP[2] }}>
                 Dry Run Preview
               </div>
-              <div style={{ display: 'flex', gap: 24, marginBottom: 12 }}>
+              <div style={{ display: 'flex', gap: 24, marginBottom: SP[3] }}>
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Will send to</div>
-                  <div style={{ ...NUM, fontSize: 20, fontWeight: 700, color: NAVY }}>{preview.count}</div>
+                  <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Will send to</div>
+                  <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: NAVY }}>{preview.count}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Total eligible</div>
-                  <div style={{ ...NUM, fontSize: 20, fontWeight: 700, color: 'var(--txt)' }}>{preview.eligible}</div>
+                  <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Total eligible</div>
+                  <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)' }}>{preview.eligible}</div>
                 </div>
               </div>
               {preview.sample && preview.sample.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', marginBottom: 6 }}>Sample recipients (first {preview.sample.length}):</div>
+                  <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 6 }}>Sample recipients (first {preview.sample.length}):</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 160, overflow: 'auto' }}>
                     {preview.sample.map((r: any, i: number) => {
                       const name = [r['First Name'] ?? r.first_name ?? '', r['Last Name'] ?? r.last_name ?? ''].join(' ').trim() || r.name || 'Unknown'
                       const email = r['Email'] ?? r.email ?? ''
                       const cif   = r['CIF Number'] ?? r.cif_number ?? r.cif ?? ''
                       return (
-                        <div key={i} style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+                        <div key={i} style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
                           {name} · CIF {cif} · {email}
                         </div>
                       )
@@ -597,17 +597,17 @@ function BulkSendTab({ onLaunched }: { onLaunched: () => void }) {
           )}
 
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={dryRun} disabled={previewing} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 18px', borderRadius: 10, border: `1.5px solid ${NAVY}`, background: 'transparent', color: NAVY, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>preview</span>
+            <button onClick={dryRun} disabled={previewing} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: `${SP[2]} 18px`, borderRadius: RADIUS.lg, border: `1.5px solid ${NAVY}`, background: 'transparent', color: NAVY, fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>preview</span>
               {previewing ? 'Checking…' : 'Dry Run (Preview)'}
             </button>
-            <button onClick={launch} disabled={launching || !preview} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 20px', borderRadius: 10, border: 'none', background: preview ? NAVY : 'var(--bdr)', color: preview ? '#fff' : 'var(--txt3)', fontSize: 13, fontWeight: 700, cursor: preview ? 'pointer' : 'not-allowed', fontFamily: INTER }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>rocket_launch</span>
+            <button onClick={launch} disabled={launching || !preview} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.lg, border: 'none', background: preview ? NAVY : 'var(--bdr)', color: preview ? '#fff' : 'var(--txt3)', fontSize: TEXT.base, fontWeight: FW.bold, cursor: preview ? 'pointer' : 'not-allowed', fontFamily: INTER }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>rocket_launch</span>
               {launching ? 'Launching…' : 'Launch Bulk Send'}
             </button>
           </div>
           {!preview && (
-            <div style={{ fontSize: 12.5, color: 'var(--txt3)', fontFamily: INTER }}>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: INTER }}>
               Run a Dry Run first to preview recipients before launching.
             </div>
           )}
@@ -616,8 +616,8 @@ function BulkSendTab({ onLaunched }: { onLaunched: () => void }) {
 
       <SectionCard title="Bulk Send Runs" badge={runs.length} padding={false}
         actions={
-          <button onClick={loadRuns} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: 12.5, fontFamily: INTER }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>refresh</span>
+          <button onClick={loadRuns} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: TEXT.sm, fontFamily: INTER }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>refresh</span>
             Refresh
           </button>
         }
@@ -665,23 +665,23 @@ function HistoryTab() {
 
   const COLS: TableCol<SentEmail>[] = [
     { key: 'created_at', label: 'Sent', sortable: true,
-      render: r => <span style={{ ...NUM, fontSize: 11.5, color: 'var(--txt3)' }}>{fmtDatetime(r.created_at)}</span> },
+      render: r => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDatetime(r.created_at)}</span> },
     { key: 'customer_name', label: 'Customer',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{r.customer_name || '—'}</div>
-          <div style={{ fontSize: 11.5, color: 'var(--txt3)', fontFamily: INTER }}>CIF: {r.cif_number}</div>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.customer_name || '—'}</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>CIF: {r.cif_number}</div>
         </div>
       ),
     },
     { key: 'recipient_email', label: 'Sent To',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)', fontFamily: INTER }}>{r.recipient_email}</span> },
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{r.recipient_email}</span> },
     { key: 'period', label: 'Period',
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.date_from)} – {fmtDate(r.date_to)}</span> },
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.date_from)} – {fmtDate(r.date_to)}</span> },
     { key: 'status', label: 'Status', render: r => <StatusPill status={r.status} /> },
     { key: 'delivery', label: 'Delivery',
       render: r => (
-        <div style={{ fontSize: 11.5, color: 'var(--txt3)', fontFamily: INTER }}>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>
           {r.opened_at ? <span style={{ color: GREEN }}>Opened {fmtDate(r.opened_at)}</span>
             : r.delivered_at ? <span style={{ color: GREEN }}>Delivered {fmtDate(r.delivered_at)}</span>
             : r.bounced_at  ? <span style={{ color: RED   }}>Bounced {fmtDate(r.bounced_at)}</span>
@@ -691,31 +691,31 @@ function HistoryTab() {
       ),
     },
     { key: 'sent_by_name', label: 'Sent By',
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{r.sent_by_name || 'System'}</span> },
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.sent_by_name || 'System'}</span> },
   ]
 
   return (
     <SectionCard title="Statement Delivery History" badge={filtered.length} padding={false}
       actions={
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: SP[2], alignItems: 'center' }}>
           <select value={limit} onChange={e => setLimit(Number(e.target.value))}
-            style={{ padding: '5px 8px', borderRadius: 7, border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', outline: 'none' }}>
+            style={{ padding: `5px ${SP[2]}`, borderRadius: 7, border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', outline: 'none' }}>
             {[100, 250, 500, 1000].map(n => <option key={n} value={n}>Last {n}</option>)}
           </select>
-          <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: 12.5, fontFamily: INTER }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>refresh</span>
+          <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: TEXT.sm, fontFamily: INTER }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>refresh</span>
           </button>
         </div>
       }
     >
-      <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--input-bg)', border: '1.5px solid var(--input-bdr)', borderRadius: 8, padding: '7px 11px', maxWidth: 320 }}>
+      <div style={{ padding: `${SP[2]} ${SP[4]}`, borderBottom: '1px solid var(--bdr)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--input-bg)', border: '1.5px solid var(--input-bdr)', borderRadius: RADIUS.md, padding: `7px ${SP[3]}`, maxWidth: 320 }}>
           <span className="material-symbols-rounded" style={{ fontSize: 15, color: 'var(--txt3)' }}>search</span>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search CIF, name, email…"
-            style={{ border: 'none', background: 'transparent', fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA, outline: 'none', width: '100%' }} />
+            style={{ border: 'none', background: 'transparent', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA, outline: 'none', width: '100%' }} />
           {search && (
             <button onClick={() => setSearch('')} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt3)', padding: 0, display: 'flex' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 13 }}>close</span>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.base }}>close</span>
             </button>
           )}
         </div>
@@ -740,7 +740,7 @@ export default function Statements() {
   return (
     <Page title="Statement Delivery" subtitle="Send account statement PDFs to customers — individually or in bulk">
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
-      <div style={{ marginTop: 20 }}>
+      <div style={{ marginTop: SP[5] }}>
         {tab === 'single'  && <SingleSendTab onSent={() => setTab('history')} />}
         {tab === 'bulk'    && <BulkSendTab   onLaunched={() => {}} />}
         {tab === 'history' && <HistoryTab />}
@@ -748,4 +748,3 @@ export default function Statements() {
     </Page>
   )
 }
-

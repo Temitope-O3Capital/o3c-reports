@@ -4,7 +4,7 @@ import {
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { GREEN, AMBER, RED, NAVY, INTER, NUM } from '../../lib/design'
+import { GREEN, AMBER, RED, NAVY, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -55,10 +55,10 @@ function RagBar({ actual, target }: { actual: number; target: number }) {
   const color = ragColor(pct)
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <div style={{ flex: 1, height: 7, background: 'var(--th-bg)', borderRadius: 4, overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 4, transition: 'width .4s' }} />
+      <div style={{ flex: 1, height: 7, background: 'var(--th-bg)', borderRadius: RADIUS.xs, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: RADIUS.xs, transition: 'width .4s' }} />
       </div>
-      <span style={{ fontSize: 11.5, fontWeight: 700, color, minWidth: 32, ...NUM }}>{pct}%</span>
+      <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color, minWidth: 32, ...NUM }}>{pct}%</span>
     </div>
   )
 }
@@ -131,13 +131,13 @@ export default function SalesTargets() {
   const COLS: TableCol<Actual>[] = [
     {
       key: 'full_name', label: 'Officer',
-      render: r => <span style={{ fontWeight: 600 }}>{r.full_name}</span>,
+      render: r => <span style={{ fontWeight: FW.semibold }}>{r.full_name}</span>,
     },
     {
       key: 'actual_loans', label: 'Loans',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: ragColor(r.target_loans > 0 ? (r.actual_loans / r.target_loans) * 100 : 100) }}>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: ragColor(r.target_loans > 0 ? (r.actual_loans / r.target_loans) * 100 : 100) }}>
             {r.actual_loans} / {r.target_loans}
           </div>
           <RagBar actual={r.actual_loans} target={r.target_loans} />
@@ -148,7 +148,7 @@ export default function SalesTargets() {
       key: 'actual_kobo', label: 'Disbursement',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: ragColor(r.target_kobo > 0 ? (r.actual_kobo / r.target_kobo) * 100 : 100) }}>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: ragColor(r.target_kobo > 0 ? (r.actual_kobo / r.target_kobo) * 100 : 100) }}>
             {fmtNaira(r.actual_kobo)} / {fmtNaira(r.target_kobo)}
           </div>
           <RagBar actual={r.actual_kobo} target={r.target_kobo} />
@@ -158,7 +158,7 @@ export default function SalesTargets() {
     {
       key: 'user_id', label: 'Rank',
       render: (_, i) => (
-        <span style={{ fontSize: 12, fontWeight: 700, color: i === 0 ? '#F59E0B' : i === 1 ? 'var(--chart-lbl)' : i === 2 ? '#C2820E' : 'var(--txt3)' }}>
+        <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: i === 0 ? '#F59E0B' : i === 1 ? 'var(--chart-lbl)' : i === 2 ? '#C2820E' : 'var(--txt3)' }}>
           #{(i ?? 0) + 1}
         </span>
       ),
@@ -172,9 +172,9 @@ export default function SalesTargets() {
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <input type="month" value={period} onChange={e => setPeriod(e.target.value)}
-            style={{ padding: '7px 10px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 13, color: 'var(--txt)', fontFamily: INTER }} />
+            style={{ padding: '7px 10px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: INTER }} />
           <button onClick={() => setShowForm(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 9, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER }}>
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
             <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
             Set Target
           </button>
@@ -184,16 +184,16 @@ export default function SalesTargets() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* Summary strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[5] }}>
         {[
           { label: 'Target Loans',    value: totalTargetLoans,              fmt: (v: number) => v.toLocaleString() },
           { label: 'Actual Loans',    value: totalActualLoans,              fmt: (v: number) => v.toLocaleString(),      color: ragColor(totalTargetLoans > 0 ? (totalActualLoans / totalTargetLoans) * 100 : 100) },
           { label: 'Target Disb.',    value: totalTargetKobo,               fmt: fmtNaira },
           { label: 'Actual Disb.',    value: totalActualKobo,               fmt: fmtNaira,                               color: ragColor(totalTargetKobo > 0 ? (totalActualKobo / totalTargetKobo) * 100 : 100) },
         ].map(({ label, value, fmt, color }) => (
-          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '14px 16px' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: color ?? 'var(--txt)', ...NUM }}>{fmt(value)}</div>
+          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
+            <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: color ?? 'var(--txt)', ...NUM }}>{fmt(value)}</div>
           </div>
         ))}
       </div>
@@ -216,11 +216,11 @@ export default function SalesTargets() {
         footer={
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={handleSave} disabled={saving}
-              style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {saving && <Spinner size={13} color="#fff" />}Save
             </button>
             <button onClick={() => setShowForm(false)}
-              style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
+              style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
               Cancel
             </button>
           </div>
@@ -228,9 +228,9 @@ export default function SalesTargets() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>Officer</label>
+            <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Officer</label>
             <select value={fUserId} onChange={e => setFUserId(e.target.value)}
-              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }}>
+              style={{ width: '100%', padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }}>
               <option value="">— Select officer —</option>
               {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
             </select>
@@ -240,15 +240,15 @@ export default function SalesTargets() {
             { label: 'Disbursement Target (₦)', value: fDisb, set: setFDisb, type: 'number', placeholder: '0.00' },
           ].map(({ label, value, set, type, placeholder }) => (
             <div key={label}>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>
+              <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>
               <input type={type} value={value} onChange={e => set(e.target.value)} placeholder={placeholder}
-                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
+                style={{ width: '100%', padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
             </div>
           ))}
           <div>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }}>Notes</label>
+            <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Notes</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={fNotes} onChange={e => setFNotes(e.target.value)} rows={2} placeholder="Optional notes…"
-              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box', resize: 'vertical' }} />
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box', resize: 'vertical' }} />
           </div>
         </div>
       </Modal>

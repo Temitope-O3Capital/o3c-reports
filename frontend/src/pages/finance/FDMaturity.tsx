@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, ErrBanner, filterInputStyle, SearchInput 
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtPct, today } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, NUM, INTER, SORA } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 void today
@@ -70,17 +70,17 @@ function ActionButtons({ fd, onDone }: { fd: FDRecord; onDone: () => void }) {
   if (confirming) {
     return (
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-        <span style={{ fontSize: 11.5, color: 'var(--txt2)' }}>Confirm {confirming}?</span>
-        <button onClick={() => execute(confirming)} disabled={busy} style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: confirming === 'rollover' ? 'rgba(22,163,74,.12)' : 'rgba(192,0,0,.08)', color: confirming === 'rollover' ? GREEN : RED, fontSize: 11.5, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>{busy ? '…' : 'Yes'}</button>
-        <button onClick={() => setConfirming(null)} disabled={busy} style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt2)', fontSize: 11.5, cursor: 'pointer' }}>No</button>
+        <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>Confirm {confirming}?</span>
+        <button onClick={() => execute(confirming)} disabled={busy} style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: 'none', background: confirming === 'rollover' ? 'rgba(22,163,74,.12)' : 'rgba(192,0,0,.08)', color: confirming === 'rollover' ? GREEN : RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>{busy ? '…' : 'Yes'}</button>
+        <button onClick={() => setConfirming(null)} disabled={busy} style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt2)', fontSize: TEXT.xs, cursor: 'pointer' }}>No</button>
       </div>
     )
   }
 
   return (
     <div style={{ display: 'flex', gap: 6 }}>
-      <button onClick={e => { e.stopPropagation(); setConfirming('rollover') }} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: 'rgba(22,163,74,.1)', color: GREEN, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>Rollover</button>
-      <button onClick={e => { e.stopPropagation(); setConfirming('liquidate') }} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: 'rgba(192,0,0,.07)', color: RED, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>Liquidate</button>
+      <button onClick={e => { e.stopPropagation(); setConfirming('rollover') }} style={{ padding: '4px 10px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(22,163,74,.1)', color: GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>Rollover</button>
+      <button onClick={e => { e.stopPropagation(); setConfirming('liquidate') }} style={{ padding: '4px 10px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(192,0,0,.07)', color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>Liquidate</button>
       <EarlyWithdrawalButton fd={fd} onDone={onDone} />
     </div>
   )
@@ -110,7 +110,7 @@ function EarlyWithdrawalButton({ fd, onDone }: { fd: FDRecord; onDone: () => voi
     <button
       onClick={request}
       disabled={saving}
-      style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: 'rgba(14,40,65,.07)', color: 'var(--txt2)', fontSize: 11.5, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1 }}
+      style={{ padding: '4px 10px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(14,40,65,.07)', color: 'var(--txt2)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1 }}
     >
       {saving ? '…' : 'Early W/D'}
     </button>
@@ -121,29 +121,29 @@ function EarlyWithdrawalButton({ fd, onDone }: { fd: FDRecord; onDone: () => voi
 
 function makeCols(onDone: () => void): TableCol<FDRecord>[] { return [
   { key: 'id', label: 'FD#', width: 90,
-    render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>FD-{String(r.id).padStart(5, '0')}</span> },
+    render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>FD-{String(r.id).padStart(5, '0')}</span> },
   { key: 'customer_name', label: 'Investor', sortable: true,
-    render: r => <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{r.customer_name || '—'}</span> },
+    render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.customer_name || '—'}</span> },
   { key: 'principal', label: 'Amount', align: 'right', render: r => (
-    <span style={{ ...NUM, fontWeight: 600 }}>
+    <span style={{ ...NUM, fontWeight: FW.semibold }}>
       {r.currency === 'USD' ? `$${(r.usd_amount / 100).toLocaleString()}` : fmtKobo(r.ngn_amount || r.principal)}
     </span>
   )},
   { key: 'rate', label: 'Rate', align: 'right', render: r => <span style={NUM}>{fmtPct(r.rate)}</span> },
   { key: 'maturity_date', label: 'Maturity', sortable: true, width: 100,
-    render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.maturity_date)}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.maturity_date)}</span> },
   { key: '_days', label: 'Days to Mat.', align: 'right', render: r => {
     const d = daysToMaturity(r.maturity_date)
     return (
-      <span style={{ ...NUM, fontWeight: 700, color: daysColor(d) }}>
+      <span style={{ ...NUM, fontWeight: FW.bold, color: daysColor(d) }}>
         {d < 0 ? `${Math.abs(d)}d overdue` : d === 0 ? 'TODAY' : `${d}d`}
       </span>
     )
   }},
   { key: 'location', label: 'Location',
-    render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.location || '—'}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.location || '—'}</span> },
   { key: 'account_officer', label: 'Officer',
-    render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.account_officer || '—'}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.account_officer || '—'}</span> },
   { key: '_crosssell', label: '', width: 36, render: r => {
     const amountKobo = r.ngn_amount || r.principal
     if (amountKobo < 50_000_000) return null // below ₦500k
@@ -152,7 +152,7 @@ function makeCols(onDone: () => void): TableCol<FDRecord>[] { return [
         title="Cross-sell: FD ≥ ₦500k — offer credit card"
         style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', background: 'rgba(192,0,0,.1)', cursor: 'default' }}
       >
-        <span className="material-symbols-rounded" style={{ fontSize: 13, color: RED }}>credit_card</span>
+        <span className="material-symbols-rounded" style={{ fontSize: TEXT.base, color: RED }}>credit_card</span>
       </span>
     )
   }},
@@ -168,14 +168,14 @@ function PageBtn({ children, active, disabled, onClick, icon }: {
 }) {
   return (
     <button onClick={onClick} disabled={disabled} style={{
-      width: 28, height: 28, borderRadius: 6,
+      width: 28, height: 28, borderRadius: RADIUS.sm,
       border: active ? 'none' : '1.5px solid var(--input-bdr)',
       background: active ? RED : 'transparent',
       color: active ? '#fff' : disabled ? 'var(--txt3)' : 'var(--txt2)',
-      fontSize: 12, fontWeight: 600, cursor: disabled ? 'default' : 'pointer',
+      fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: disabled ? 'default' : 'pointer',
       display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: INTER,
     }}>
-      {icon ? <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{icon}</span> : children}
+      {icon ? <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>{icon}</span> : children}
     </button>
   )
 }
@@ -276,23 +276,23 @@ export default function FinanceFDMaturity() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* Summary strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 20 }}>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '16px 18px' }}>
-          <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 6 }}>Maturing This Week</div>
-          <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: maturingThisWeek > 0 ? RED : 'var(--txt)' }}>{maturingThisWeek}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: SP[4], marginBottom: SP[5] }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: '16px 18px' }}>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 6 }}>Maturing This Week</div>
+          <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: maturingThisWeek > 0 ? RED : 'var(--txt)' }}>{maturingThisWeek}</div>
         </div>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '16px 18px' }}>
-          <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 6 }}>Total Count</div>
-          <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: 'var(--txt)' }}>{rows.length}</div>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: '16px 18px' }}>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 6 }}>Total Count</div>
+          <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)' }}>{rows.length}</div>
         </div>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '16px 18px' }}>
-          <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 6 }}>Total Principal</div>
-          <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: 'var(--txt)', letterSpacing: '-0.6px' }}>{fmtKobo(totalPrincipal)}</div>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: '16px 18px' }}>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 6 }}>Total Principal</div>
+          <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)', letterSpacing: '-0.6px' }}>{fmtKobo(totalPrincipal)}</div>
         </div>
       </div>
 
       {/* Colour legend */}
-      <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 14 }}>
+      <div style={{ display: 'flex', gap: SP[4], alignItems: 'center', marginBottom: 14 }}>
         {[
           { color: RED, label: 'Overdue' },
           { color: '#C00000', label: '≤7 days' },
@@ -301,14 +301,14 @@ export default function FinanceFDMaturity() {
         ].map(({ color, label }) => (
           <div key={label} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <span style={{ width: 10, height: 10, borderRadius: 2, background: color, display: 'inline-block' }} />
-            <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{label}</span>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{label}</span>
           </div>
         ))}
       </div>
 
       <SectionCard title="Maturing FDs" badge={displayed.length} padding={false} actions={
-        <button onClick={() => exportFDCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
+        <button onClick={() => exportFDCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
           Export CSV
         </button>
       }>
@@ -316,10 +316,10 @@ export default function FinanceFDMaturity() {
         {/* Search bar */}
         <div style={{
           padding: '12px 18px', borderBottom: '1px solid var(--bdr)',
-          display: 'flex', alignItems: 'center', gap: 8,
+          display: 'flex', alignItems: 'center', gap: SP[2],
         }}>
           <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
-          <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+          <div style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
             {displayed.length} of {rows.length}
           </div>
         </div>
@@ -337,13 +337,13 @@ export default function FinanceFDMaturity() {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '12px 18px', borderTop: '1px solid var(--bdr)',
         }}>
-          <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
             {displayed.length === 0
               ? 'No FDs found'
               : `Showing ${showStart}–${showEnd} of ${displayed.length} FDs`}
           </span>
           {totalPages > 1 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: SP[1] }}>
               <PageBtn icon="chevron_left" disabled={safePage === 1} onClick={() => setPage(p => p - 1)} />
               {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
                 let pg: number

@@ -6,7 +6,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
-import { INTER, NAVY, NUM, GREEN, AMBER, RED } from '../../lib/design'
+import { INTER, NAVY, NUM, GREEN, AMBER, RED, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -29,8 +29,8 @@ interface DncKPIs {
 
 const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
-  border: '1px solid var(--input-bdr)', borderRadius: 7,
-  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
+  border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
   fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
 }
 
@@ -142,7 +142,7 @@ export default function TelemarketingDNC() {
       label: 'Phone',
       sortable: true,
       render: r => (
-        <span style={{ fontFamily: INTER, fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>
+        <span style={{ fontFamily: INTER, fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>
           {r.phone}
         </span>
       ),
@@ -152,7 +152,7 @@ export default function TelemarketingDNC() {
       label: 'Reason',
       sortable: true,
       render: r => (
-        <span style={{ fontSize: 13, color: 'var(--txt)' }}>{r.reason || '—'}</span>
+        <span style={{ fontSize: TEXT.base, color: 'var(--txt)' }}>{r.reason || '—'}</span>
       ),
     },
     {
@@ -160,7 +160,7 @@ export default function TelemarketingDNC() {
       label: 'Added By',
       sortable: true,
       render: r => (
-        <span style={{ fontSize: 13, color: 'var(--txt)' }}>{r.added_by || '—'}</span>
+        <span style={{ fontSize: TEXT.base, color: 'var(--txt)' }}>{r.added_by || '—'}</span>
       ),
     },
     {
@@ -168,24 +168,24 @@ export default function TelemarketingDNC() {
       label: 'Added Date',
       sortable: true,
       render: r => (
-        <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.added_at)}</span>
+        <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.added_at)}</span>
       ),
     },
   ]
 
   const bulkBar = selectedIds.size > 0 ? (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 8,
+      display: 'flex', alignItems: 'center', gap: SP[2],
       padding: '7px 14px', background: '#F0F4FF',
       borderBottom: '1px solid var(--bdr)',
     }}>
-      <span style={{ fontSize: 12, fontWeight: 600, color: NAVY }}>
+      <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>
         {selectedIds.size} selected
       </span>
       <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
         <button
           onClick={() => setRemoveConfirm(true)}
-          style={{ ...btnDanger, padding: '4px 12px', fontSize: 12 }}
+          style={{ ...btnDanger, padding: `${SP[1]} ${SP[3]}`, fontSize: TEXT.sm }}
         >
           Remove from DNC
         </button>
@@ -193,7 +193,7 @@ export default function TelemarketingDNC() {
           onClick={() => setSelectedIds(new Set())}
           style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)', borderRadius: '50%' }}
         >
-          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>close</span>
         </button>
       </div>
     </div>
@@ -205,7 +205,7 @@ export default function TelemarketingDNC() {
       subtitle="Manage numbers excluded from outbound telemarketing"
       actions={
         <button onClick={() => setAddOpen(true)} style={btnPrimary}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
           Add to DNC
         </button>
       }
@@ -213,18 +213,18 @@ export default function TelemarketingDNC() {
       <ErrBanner error={err} onRetry={load} />
 
       {/* Page-level filter */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], marginBottom: SP[5] }}>
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
       </div>
 
       {/* KPI cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: SP[5] }}>
         <KpiCard label="Total DNC" value={kpis ? fmtNum(kpis.total_dnc) : '—'} icon="do_not_disturb_on" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="Added This Month" value={kpis ? fmtNum(kpis.added_this_month) : '—'} icon="add_circle" accent={AMBER} loading={kpiLoading} />
         <KpiCard label="Bulk Removes" value={kpis ? fmtNum(kpis.bulk_removes) : '—'} icon="remove_circle" accent={RED} loading={kpiLoading} />
       </div>
 
-      <SectionCard title="DNC Entries" badge={rows.length} padding={false} actions={<button onClick={() => exportDncCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="DNC Entries" badge={rows.length} padding={false} actions={<button onClick={() => exportDncCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <DataTable
           cols={cols}
           rows={rows}
@@ -249,10 +249,10 @@ export default function TelemarketingDNC() {
         title="Add to DNC List"
         width={420}
         footer={
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
             <button
               onClick={() => { setAddOpen(false); setAddPhone(''); setAddReason(''); setAddErr(null) }}
-              style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+              style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.medium, cursor: 'pointer' }}
             >
               Cancel
             </button>
@@ -273,7 +273,7 @@ export default function TelemarketingDNC() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <ErrBanner error={addErr} />
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
               Phone Number <span style={{ color: '#C00000' }}>*</span>
             </label>
             <input
@@ -285,7 +285,7 @@ export default function TelemarketingDNC() {
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
               Reason <span style={{ color: '#C00000' }}>*</span>
             </label>
             <input

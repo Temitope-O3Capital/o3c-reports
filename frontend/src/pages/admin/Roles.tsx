@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { NAVY, RED, GREEN, INTER, SORA, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -107,13 +107,13 @@ function RoleModal({ role, users, onClose, onSaved }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, overflow: 'auto', padding: '20px' }}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: 640, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
+      <div style={{ background: 'var(--card)', borderRadius: RADIUS['2xl'], width: 640, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
 
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 24px', borderBottom: '1px solid var(--bdr)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: `${SP[5]} ${SP[6]}`, borderBottom: '1px solid var(--bdr)' }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{isNew ? 'Create Role' : `Role: ${role?.label || role?.name}`}</h3>
-            {role?.built_in && <div style={{ fontSize: 12, color: NAVY, fontWeight: 600, marginTop: 3 }}>Built-in role — name cannot be changed</div>}
+            <h3 style={{ margin: 0, fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>{isNew ? 'Create Role' : `Role: ${role?.label || role?.name}`}</h3>
+            {role?.built_in && <div style={{ fontSize: TEXT.sm, color: NAVY, fontWeight: FW.semibold, marginTop: 3 }}>Built-in role — name cannot be changed</div>}
           </div>
           <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)' }}>
             <span className="material-symbols-rounded">close</span>
@@ -121,54 +121,54 @@ function RoleModal({ role, users, onClose, onSaved }: {
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
+        <div style={{ flex: 1, overflow: 'auto', padding: `${SP[5]} ${SP[6]}` }}>
 
           {/* Name + label */}
           {(isNew || !role?.built_in) && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3], marginBottom: 20 }}>
               <div>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Role Key *</div>
+                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Role Key *</div>
                 <input
                   value={name} onChange={e => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))}
                   placeholder="e.g. risk_analyst"
                   disabled={!isNew}
-                  style={{ display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: isNew ? 'var(--input-bg)' : 'var(--bdr)', fontSize: 13, color: 'var(--txt)', fontFamily: 'monospace', boxSizing: 'border-box', outline: 'none' }}
+                  style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: isNew ? 'var(--input-bg)' : 'var(--bdr)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: 'monospace', boxSizing: 'border-box', outline: 'none' }}
                 />
               </div>
               <div>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Display Label</div>
+                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Display Label</div>
                 <input
                   value={label} onChange={e => setLabel(e.target.value)}
                   placeholder="e.g. Risk Analyst"
-                  style={{ display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 13, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+                  style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
                 />
               </div>
             </div>
           )}
 
           {/* Page permissions */}
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 12 }}>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 12 }}>
             Page Permissions ({pages.size} granted)
           </div>
 
           {role?.built_in ? (
-            <div style={{ background: 'var(--input-bg)', borderRadius: 8, padding: 12, fontSize: 12.5, color: 'var(--txt2)', marginBottom: 16 }}>
+            <div style={{ background: 'var(--input-bg)', borderRadius: RADIUS.md, padding: SP[3], fontSize: TEXT.sm, color: 'var(--txt2)', marginBottom: 16 }}>
               Built-in roles have fixed permissions defined in code. Only custom roles can have their permissions changed.
-              <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: SP[1] }}>
                 {[...pages].map(p => (
-                  <span key={p} style={{ fontSize: 11, fontWeight: 600, background: `${NAVY}12`, color: NAVY, borderRadius: 10, padding: '2px 8px' }}>{pageLabel(p)}</span>
+                  <span key={p} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, background: `${NAVY}12`, color: NAVY, borderRadius: RADIUS.lg, padding: '2px 8px' }}>{pageLabel(p)}</span>
                 ))}
               </div>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
               {PAGE_GROUPS.map(group => {
                 const allOn = group.pages.every(p => pages.has(p))
                 const someOn = group.pages.some(p => pages.has(p))
                 return (
-                  <div key={group.label} style={{ border: '1.5px solid var(--bdr)', borderRadius: 10, overflow: 'hidden' }}>
+                  <div key={group.label} style={{ border: '1.5px solid var(--bdr)', borderRadius: RADIUS.lg, overflow: 'hidden' }}>
                     <label style={{
-                      display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px',
+                      display: 'flex', alignItems: 'center', gap: SP[2], padding: '9px 14px',
                       background: someOn ? `${NAVY}08` : 'var(--input-bg)', cursor: 'pointer', userSelect: 'none',
                     }}>
                       <input
@@ -176,12 +176,12 @@ function RoleModal({ role, users, onClose, onSaved }: {
                         ref={el => { if (el) el.indeterminate = someOn && !allOn }}
                         style={{ cursor: 'pointer' }}
                       />
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{group.label}</span>
-                      <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{group.pages.filter(p => pages.has(p)).length}/{group.pages.length}</span>
+                      <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{group.label}</span>
+                      <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{group.pages.filter(p => pages.has(p)).length}/{group.pages.length}</span>
                     </label>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '10px 14px', borderTop: '1px solid var(--bdr)' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[2], padding: '10px 14px', borderTop: '1px solid var(--bdr)' }}>
                       {group.pages.map(p => (
-                        <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12.5 }}>
+                        <label key={p} style={{ display: 'flex', alignItems: 'center', gap: SP[1], cursor: 'pointer', fontSize: TEXT.sm }}>
                           <input type="checkbox" checked={pages.has(p)} onChange={() => togglePage(p)} style={{ cursor: 'pointer' }} />
                           {pageLabel(p)}
                         </label>
@@ -195,13 +195,13 @@ function RoleModal({ role, users, onClose, onSaved }: {
 
           {/* Affected users preview */}
           {affected.length > 0 && (
-            <div style={{ marginTop: 20, border: '1px solid var(--bdr)', borderRadius: 10, padding: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 8 }}>
+            <div style={{ marginTop: 20, border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, padding: 14 }}>
+              <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 8 }}>
                 {affected.length} user{affected.length !== 1 ? 's' : ''} with this role
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[1] }}>
                 {affected.map(u => (
-                  <span key={u.full_name} style={{ fontSize: 12, background: 'var(--chip-bg)', color: 'var(--chip-txt)', borderRadius: 10, padding: '2px 9px' }}>{u.full_name}</span>
+                  <span key={u.full_name} style={{ fontSize: TEXT.sm, background: 'var(--chip-bg)', color: 'var(--chip-txt)', borderRadius: RADIUS.lg, padding: '2px 9px' }}>{u.full_name}</span>
                 ))}
               </div>
             </div>
@@ -210,18 +210,18 @@ function RoleModal({ role, users, onClose, onSaved }: {
         </div>
 
         {/* Footer */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 24px', borderTop: '1px solid var(--bdr)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', padding: `${SP[4]} ${SP[6]}`, borderTop: '1px solid var(--bdr)' }}>
           <div>
             {role && !role.built_in && !isNew && (
-              <button onClick={deleteRole} style={{ padding: '9px 16px', borderRadius: 9, border: 'none', background: 'rgba(192,0,0,.08)', color: RED, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: INTER }}>
+              <button onClick={deleteRole} style={{ padding: '9px 16px', borderRadius: RADIUS.md, border: 'none', background: 'rgba(192,0,0,.08)', color: RED, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER }}>
                 Delete Role
               </button>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 9, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: INTER }}>Cancel</button>
+          <div style={{ display: 'flex', gap: SP[2] }}>
+            <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER }}>Cancel</button>
             {!role?.built_in && (
-              <button onClick={save} disabled={saving} style={{ padding: '9px 20px', borderRadius: 9, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER }}>
+              <button onClick={save} disabled={saving} style={{ padding: '9px 20px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
                 {saving ? 'Saving…' : isNew ? 'Create Role' : 'Save Changes'}
               </button>
             )}
@@ -291,18 +291,18 @@ export default function AdminRoles() {
     { key: 'name', label: 'Role Key',
       render: r => (
         <div>
-          <div style={{ fontFamily: 'monospace', fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</div>
-          {r.label && r.label !== r.name && <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{r.label}</div>}
+          <div style={{ fontFamily: 'monospace', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.name}</div>
+          {r.label && r.label !== r.name && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.label}</div>}
         </div>
       ),
     },
     { key: 'user_count', label: 'Users', align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: 700, color: (r.user_count ?? 0) > 0 ? NAVY : 'var(--txt3)' }}>{r.user_count ?? 0}</span> },
+      render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: (r.user_count ?? 0) > 0 ? NAVY : 'var(--txt3)' }}>{r.user_count ?? 0}</span> },
     { key: 'pages', label: 'Permissions', align: 'right',
       render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{r.pages.length} pages</span> },
     { key: 'built_in', label: 'Type',
       render: r => (
-        <span style={{ fontSize: 11.5, fontWeight: 600, color: r.built_in ? NAVY : GREEN, background: r.built_in ? `${NAVY}10` : `${GREEN}12`, borderRadius: 10, padding: '2px 9px' }}>
+        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: r.built_in ? NAVY : GREEN, background: r.built_in ? `${NAVY}10` : `${GREEN}12`, borderRadius: RADIUS.lg, padding: '2px 9px' }}>
           {r.built_in ? 'Built-in' : 'Custom'}
         </span>
       ),
@@ -316,17 +316,17 @@ export default function AdminRoles() {
       subtitle="Role-based access control — page permissions per role"
       actions={
         <button onClick={() => setEditing(null)} style={{
-          display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 9,
-          border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER,
+          display: 'flex', alignItems: 'center', gap: SP[1], padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,
+          border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
         }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
           Create Role
         </button>
       }
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="All Roles" badge={roles.length} padding={false} actions={<button onClick={() => exportRolesCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="All Roles" badge={roles.length} padding={false} actions={<button onClick={() => exportRolesCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <DataTable
           cols={COLS}
           rows={displayed}

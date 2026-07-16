@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -50,8 +50,8 @@ function TabBtn({ label, active, onClick }: { label: string; active: boolean; on
     <button
       onClick={onClick}
       style={{
-        padding: '10px 20px', border: 'none', borderBottom: `2px solid ${active ? RED : 'transparent'}`,
-        background: 'none', fontWeight: active ? 700 : 500, fontSize: 14,
+        padding: `${SP[2]} ${SP[5]}`, border: 'none', borderBottom: `2px solid ${active ? RED : 'transparent'}`,
+        background: 'none', fontWeight: active ? FW.bold : FW.medium, fontSize: TEXT.md,
         color: active ? RED : '#64748B', cursor: 'pointer', transition: 'all 0.15s',
       }}
     >{label}</button>
@@ -83,16 +83,16 @@ function DropZone({
       onClick={() => inputRef.current?.click()}
       style={{
         border: `2px dashed ${over ? RED : '#CBD5E1'}`,
-        borderRadius: 10, padding: '40px 24px', textAlign: 'center',
+        borderRadius: RADIUS.lg, padding: `${SP[10]} ${SP[6]}`, textAlign: 'center',
         cursor: 'pointer', background: over ? '#FFF5F5' : '#FAFBFC',
         transition: 'all 0.15s',
       }}
     >
-      <span className="material-symbols-rounded" style={{ fontSize: 40, color: over ? RED : '#94A3B8', display: 'block', marginBottom: 8 }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 40, color: over ? RED : '#94A3B8', display: 'block', marginBottom: SP[2] }}>
         upload_file
       </span>
-      <div style={{ fontSize: 14, fontWeight: 600, color: NAVY }}>{label}</div>
-      {sublabel && <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>{sublabel}</div>}
+      <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: NAVY }}>{label}</div>
+      {sublabel && <div style={{ fontSize: TEXT.sm, color: '#94A3B8', marginTop: 4 }}>{sublabel}</div>}
       <input ref={inputRef} type="file" accept={accept} multiple={multiple} style={{ display: 'none' }}
         onChange={e => { const f = Array.from(e.target.files ?? []); if (f.length) onFiles(f) }} />
     </div>
@@ -104,7 +104,7 @@ function DropZone({
 function PreviewSummary({ h }: { h: ParsedHeader }) {
   const overLimit = h.LineOfCredit > 0 && h.ClosingBalance > h.LineOfCredit
   return (
-    <div style={{ background: '#F8FAFC', borderRadius: 8, padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
+    <div style={{ background: '#F8FAFC', borderRadius: RADIUS.md, padding: SP[4], display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: SP[3], marginBottom: 16 }}>
       {[
         { label: 'Customer', value: h.CustomerName },
         { label: 'Account', value: h.AccountNumber, mono: true },
@@ -119,10 +119,10 @@ function PreviewSummary({ h }: { h: ParsedHeader }) {
         { label: 'Payment Due', value: h.PaymentDueDate?.slice(0, 10) },
       ].map(f => (
         <div key={f.label}>
-          <div style={{ fontSize: 11, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{f.label}</div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: f.color ?? NAVY, fontFamily: f.mono ? 'DM Mono, monospace' : undefined, marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ fontSize: TEXT.xs, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{f.label}</div>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: f.color ?? NAVY, fontFamily: f.mono ? 'DM Mono, monospace' : undefined, marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
             {f.value || '—'}
-            {f.warn && <span className="material-symbols-rounded" style={{ fontSize: 14, color: RED }}>warning</span>}
+            {f.warn && <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, color: RED }}>warning</span>}
           </div>
         </div>
       ))}
@@ -133,11 +133,11 @@ function PreviewSummary({ h }: { h: ParsedHeader }) {
 function PreviewTxns({ txns }: { txns: ParsedTxn[] }) {
   return (
     <div style={{ overflowX: 'auto', maxHeight: 320, overflowY: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.sm }}>
         <thead style={{ position: 'sticky', top: 0, background: 'var(--th-bg)' }}>
           <tr>
             {['#', 'Date', 'Posting', 'Trace', 'Card', 'Description', 'Debit', 'Credit'].map(h => (
-              <th key={h} style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
+              <th key={h} style={{ padding: `${SP[2]} 10px`, textAlign: 'left', fontWeight: FW.bold, fontSize: TEXT.xs, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -148,8 +148,8 @@ function PreviewTxns({ txns }: { txns: ParsedTxn[] }) {
               <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace' }}>{t.TxnDate ? t.TxnDate.slice(0, 10) : '—'}</td>
               <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace' }}>{t.PostingDate ? t.PostingDate.slice(0, 10) : '—'}</td>
               <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace', color: '#64748B' }}>{t.TraceNo || '—'}</td>
-              <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace', fontSize: 11 }}>{t.CardPAN || '—'}</td>
-              <td style={{ padding: '7px 10px', color: t.IsFinanceCharge ? AMBER : NAVY, fontWeight: t.IsFinanceCharge ? 600 : undefined }}>{t.Description}</td>
+              <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace', fontSize: TEXT.xs }}>{t.CardPAN || '—'}</td>
+              <td style={{ padding: '7px 10px', color: t.IsFinanceCharge ? AMBER : NAVY, fontWeight: t.IsFinanceCharge ? FW.semibold : undefined }}>{t.Description}</td>
               <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace', color: t.DebitKobo > 0 ? RED : '#CBD5E1' }}>{t.DebitKobo > 0 ? fmtKobo(t.DebitKobo) : '—'}</td>
               <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace', color: t.CreditKobo > 0 ? GREEN : '#CBD5E1' }}>{t.CreditKobo > 0 ? fmtKobo(t.CreditKobo) : '—'}</td>
             </tr>
@@ -195,7 +195,6 @@ function SingleUploadTab() {
       form.append('file', file)
       const d = await apiFetch<any>('/api/cc-statements/upload', { method: 'POST', body: form })
       const stmtId = d?.data?.id ?? d?.id
-      console.log('[cc-upload] response:', JSON.stringify(d), 'navigating to id:', stmtId)
       toast.success(`Statement saved — ${d?.data?.txn_count ?? d?.txn_count ?? 0} transactions`)
       navigate(`/statements/credit-cards/${stmtId ?? ''}`)
     } catch (e: any) {
@@ -216,24 +215,24 @@ function SingleUploadTab() {
           sublabel=".txt format (same layout as sample file)"
         />
       )}
-      {loading && <div style={{ textAlign: 'center', padding: 32, color: '#94A3B8', fontSize: 13 }}>Parsing file…</div>}
+      {loading && <div style={{ textAlign: 'center', padding: SP[8], color: '#94A3B8', fontSize: TEXT.base }}>Parsing file…</div>}
       {preview && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: NAVY }}>
+            <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: NAVY }}>
               Preview — {preview.transactions.length} transactions
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: SP[2] }}>
               <button
                 onClick={() => { setFile(null); setPreview(null) }}
-                style={{ padding: '7px 14px', border: '1px solid #E2E8F0', borderRadius: 6, background: '#fff', fontSize: 13, cursor: 'pointer', color: '#64748B' }}
+                style={{ padding: `7px ${SP[4]}`, border: '1px solid #E2E8F0', borderRadius: RADIUS.sm, background: '#fff', fontSize: TEXT.base, cursor: 'pointer', color: '#64748B' }}
               >
                 Change file
               </button>
               <button
                 onClick={save}
                 disabled={saving}
-                style={{ padding: '7px 16px', background: saving ? '#94A3B8' : RED, color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}
+                style={{ padding: `7px ${SP[4]}`, background: saving ? '#94A3B8' : RED, color: '#fff', border: 'none', borderRadius: RADIUS.sm, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'default' : 'pointer' }}
               >
                 {saving ? 'Saving…' : 'Confirm & Save'}
               </button>
@@ -293,30 +292,30 @@ function BulkUploadTab() {
             sublabel="All files will be parsed and saved in one batch"
           />
           {files.length > 0 && (
-            <div style={{ marginTop: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: NAVY, marginBottom: 8 }}>
+            <div style={{ marginTop: SP[4] }}>
+              <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: NAVY, marginBottom: SP[2] }}>
                 {files.length} file{files.length !== 1 ? 's' : ''} selected
               </div>
-              <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #E2E8F0', borderRadius: 6 }}>
+              <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #E2E8F0', borderRadius: RADIUS.sm }}>
                 {files.map((f, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid #F1F5F9' }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: 16, color: '#94A3B8' }}>description</span>
-                    <span style={{ fontSize: 13, flex: 1 }}>{f.name}</span>
-                    <span style={{ fontSize: 12, color: '#94A3B8' }}>{(f.size / 1024).toFixed(1)} KB</span>
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[2]} ${SP[3]}`, borderBottom: '1px solid #F1F5F9' }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: '#94A3B8' }}>description</span>
+                    <span style={{ fontSize: TEXT.base, flex: 1 }}>{f.name}</span>
+                    <span style={{ fontSize: TEXT.sm, color: '#94A3B8' }}>{(f.size / 1024).toFixed(1)} KB</span>
                   </div>
                 ))}
               </div>
-              <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <div style={{ marginTop: 14, display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
                 <button
                   onClick={() => setFiles([])}
-                  style={{ padding: '8px 14px', border: '1px solid #E2E8F0', borderRadius: 6, background: '#fff', fontSize: 13, cursor: 'pointer', color: '#64748B' }}
+                  style={{ padding: `${SP[2]} ${SP[4]}`, border: '1px solid #E2E8F0', borderRadius: RADIUS.sm, background: '#fff', fontSize: TEXT.base, cursor: 'pointer', color: '#64748B' }}
                 >
                   Clear
                 </button>
                 <button
                   onClick={upload}
                   disabled={uploading}
-                  style={{ padding: '8px 18px', background: uploading ? '#94A3B8' : RED, color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: uploading ? 'default' : 'pointer' }}
+                  style={{ padding: `${SP[2]} 18px`, background: uploading ? '#94A3B8' : RED, color: '#fff', border: 'none', borderRadius: RADIUS.sm, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: uploading ? 'default' : 'pointer' }}
                 >
                   {uploading ? `Uploading ${files.length} files…` : `Upload ${files.length} files`}
                 </button>
@@ -329,36 +328,36 @@ function BulkUploadTab() {
       {results && (
         <div>
           {/* Summary bar */}
-          <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-            <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 18, color: GREEN }}>check_circle</span>
-              <span style={{ fontSize: 14, fontWeight: 600, color: '#14532D' }}>{succeeded} succeeded</span>
+          <div style={{ display: 'flex', gap: SP[3], marginBottom: SP[4] }}>
+            <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[4]}`, display: 'flex', alignItems: 'center', gap: SP[2] }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: GREEN }}>check_circle</span>
+              <span style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: '#14532D' }}>{succeeded} succeeded</span>
             </div>
             {failed > 0 && (
-              <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 18, color: RED }}>error</span>
-                <span style={{ fontSize: 14, fontWeight: 600, color: '#991B1B' }}>{failed} failed</span>
+              <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[4]}`, display: 'flex', alignItems: 'center', gap: SP[2] }}>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: RED }}>error</span>
+                <span style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: '#991B1B' }}>{failed} failed</span>
               </div>
             )}
             <button
               onClick={() => { setFiles([]); setResults(null) }}
-              style={{ marginLeft: 'auto', padding: '8px 14px', border: '1px solid #E2E8F0', borderRadius: 6, background: '#fff', fontSize: 13, cursor: 'pointer', color: '#64748B' }}
+              style={{ marginLeft: 'auto', padding: `${SP[2]} ${SP[4]}`, border: '1px solid #E2E8F0', borderRadius: RADIUS.sm, background: '#fff', fontSize: TEXT.base, cursor: 'pointer', color: '#64748B' }}
             >
               Upload more
             </button>
           </div>
 
           {/* Result rows */}
-          <div style={{ border: '1px solid #E2E8F0', borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{ border: '1px solid #E2E8F0', borderRadius: RADIUS.md, overflow: 'hidden' }}>
             {results.map((r, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: i < results.length - 1 ? '1px solid #F1F5F9' : undefined, background: r.ok ? undefined : '#FFF5F5' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 18, color: r.ok ? GREEN : RED, flexShrink: 0 }}>
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: `${SP[2]} 14px`, borderBottom: i < results.length - 1 ? '1px solid #F1F5F9' : undefined, background: r.ok ? undefined : '#FFF5F5' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: r.ok ? GREEN : RED, flexShrink: 0 }}>
                   {r.ok ? 'check_circle' : 'error'}
                 </span>
-                <span style={{ fontSize: 13, flex: 1, fontWeight: 500 }}>{r.filename}</span>
+                <span style={{ fontSize: TEXT.base, flex: 1, fontWeight: FW.medium }}>{r.filename}</span>
                 {r.ok
-                  ? <span style={{ fontSize: 12, color: '#64748B' }}>{r.txn_count} transactions · ID {r.id}</span>
-                  : <span style={{ fontSize: 12, color: RED }}>{r.error}</span>
+                  ? <span style={{ fontSize: TEXT.sm, color: '#64748B' }}>{r.txn_count} transactions · ID {r.id}</span>
+                  : <span style={{ fontSize: TEXT.sm, color: RED }}>{r.error}</span>
                 }
               </div>
             ))}
@@ -420,23 +419,23 @@ function FromDBTab() {
 
   const field = (label: string, key: keyof typeof form, type = 'text', hint?: string) => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</label>
+      <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</label>
       <input
         type={type}
         value={form[key]}
         onChange={set(key)}
         placeholder={hint}
-        style={{ padding: '9px 12px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 13, outline: 'none', color: NAVY }}
+        style={{ padding: `${SP[2]} ${SP[3]}`, border: '1px solid #E2E8F0', borderRadius: RADIUS.sm, fontSize: TEXT.base, outline: 'none', color: NAVY }}
       />
     </div>
   )
 
   return (
     <div>
-      <div style={{ background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8, padding: '12px 16px', marginBottom: 20, fontSize: 13, color: '#0369A1' }}>
+      <div style={{ background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: RADIUS.md, padding: `${SP[3]} ${SP[4]}`, marginBottom: SP[5], fontSize: TEXT.base, color: '#0369A1' }}>
         Queries the live transaction database (MSSQL or PostgreSQL) for the CIF or account number and date range you specify, then builds a statement from the results.
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: SP[4] }}>
         {field('CIF Number', 'cif', 'text', 'e.g. 0012345')}
         {field('Account Number', 'account_number', 'text', 'e.g. 000108531566')}
         {field('Customer Name', 'customer_name', 'text', 'For statement header')}
@@ -446,11 +445,11 @@ function FromDBTab() {
         {field('Opening Balance (₦)', 'opening_balance_kobo', 'number', '1076439.33')}
         {field('Payment Due Date', 'payment_due_date', 'date')}
       </div>
-      <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
+      <div style={{ marginTop: SP[5], display: 'flex', justifyContent: 'flex-end' }}>
         <button
           onClick={submit}
           disabled={loading}
-          style={{ padding: '10px 24px', background: loading ? '#94A3B8' : RED, color: '#fff', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: loading ? 'default' : 'pointer' }}
+          style={{ padding: `${SP[2]} ${SP[6]}`, background: loading ? '#94A3B8' : RED, color: '#fff', border: 'none', borderRadius: RADIUS.sm, fontSize: TEXT.md, fontWeight: FW.semibold, cursor: loading ? 'default' : 'pointer' }}
         >
           {loading ? 'Building…' : 'Build Statement'}
         </button>
@@ -472,16 +471,16 @@ export default function CCStatementNew() {
       actions={
         <button
           onClick={() => navigate('/statements/credit-cards')}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid #E2E8F0', borderRadius: 6, background: '#fff', fontSize: 13, cursor: 'pointer', color: '#64748B' }}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: `${SP[2]} ${SP[4]}`, border: '1px solid #E2E8F0', borderRadius: RADIUS.sm, background: '#fff', fontSize: TEXT.base, cursor: 'pointer', color: '#64748B' }}
         >
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_back</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>arrow_back</span>
           Back
         </button>
       }
     >
       <SectionCard>
         {/* Tab bar */}
-        <div style={{ borderBottom: '1px solid #E2E8F0', marginBottom: 24, display: 'flex' }}>
+        <div style={{ borderBottom: '1px solid #E2E8F0', marginBottom: SP[6], display: 'flex' }}>
           <TabBtn label="Single Upload"  active={tab === 'single'} onClick={() => setTab('single')} />
           <TabBtn label="Bulk Upload"    active={tab === 'bulk'}   onClick={() => setTab('bulk')} />
           <TabBtn label="From Database"  active={tab === 'db'}     onClick={() => setTab('db')} />

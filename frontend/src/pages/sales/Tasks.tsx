@@ -6,7 +6,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -51,25 +51,25 @@ function PriorityDot({ priority }: { priority: string }) {
   const color = PRIORITY_DOT[priority.toLowerCase()] ?? '#6B7280'
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
-      <span style={{ fontSize: 12.5, color: 'var(--txt2)', textTransform: 'capitalize' }}>{priority}</span>
+      <div style={{ width: 8, height: 8, borderRadius: RADIUS.full, background: color, flexShrink: 0 }} />
+      <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', textTransform: 'capitalize' }}>{priority}</span>
     </div>
   )
 }
 
 function StatusPill({ status, overdue }: { status: string; overdue?: boolean }) {
   if (overdue && status === 'open') {
-    return <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${RED}12`, color: RED }}>Overdue</span>
+    return <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: `2px ${SP[2]}`, borderRadius: RADIUS['2xl'], background: `${RED}12`, color: RED }}>Overdue</span>
   }
   const s = STATUS_STYLE[status.toLowerCase()] ?? STATUS_STYLE.open
-  return <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color }}>{status.charAt(0).toUpperCase() + status.slice(1)}</span>
+  return <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: `2px ${SP[2]}`, borderRadius: RADIUS['2xl'], background: s.bg, color: s.color }}>{status.charAt(0).toUpperCase() + status.slice(1)}</span>
 }
 
 const BLANK = { title: '', contact_id: '', due_date: '', priority: 'medium', assigned_to: '', description: '' }
 
 const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
-  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
+  width: '100%', padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
@@ -197,9 +197,9 @@ export default function CRMTasks() {
 
   const bulkBar = selected.size > 0 ? (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{selected.size} selected</span>
+      <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{selected.size} selected</span>
       <button onClick={batchComplete} disabled={completing}
-        style={{ ...btnPrimary, background: GREEN, padding: '5px 14px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        style={{ ...btnPrimary, background: GREEN, padding: '5px 14px', fontSize: TEXT.sm, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
         {completing && <Spinner size={13} color="#fff" />}
         Mark Done
       </button>
@@ -211,36 +211,36 @@ export default function CRMTasks() {
       key: 'title', label: 'Task',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.title}</div>
-          {r.description && <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 1 }}>{r.description.slice(0, 60)}{r.description.length > 60 ? '…' : ''}</div>}
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.title}</div>
+          {r.description && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 1 }}>{r.description.slice(0, 60)}{r.description.length > 60 ? '…' : ''}</div>}
         </div>
       ),
     },
     {
       key: 'first_name', label: 'Related',
       render: r => (r.first_name || r.last_name)
-        ? <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.first_name} {r.last_name}</span>
+        ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.first_name} {r.last_name}</span>
         : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
     {
       key: 'due_date', label: 'Due',
       render: r => r.due_date
-        ? <span style={{ fontSize: 12.5, color: r.is_overdue && r.status !== 'done' ? RED : 'var(--txt)' }}>{fmtDate(r.due_date)}</span>
+        ? <span style={{ fontSize: TEXT.sm, color: r.is_overdue && r.status !== 'done' ? RED : 'var(--txt)' }}>{fmtDate(r.due_date)}</span>
         : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
     { key: 'priority', label: 'Priority', render: r => <PriorityDot priority={r.priority} /> },
     { key: 'status',   label: 'Status',   render: r => <StatusPill status={r.status} overdue={r.is_overdue} /> },
-    { key: 'assigned_name', label: 'Owner', render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.assigned_name ?? '—'}</span> },
+    { key: 'assigned_name', label: 'Owner', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.assigned_name ?? '—'}</span> },
     {
       key: 'id', label: '',
       render: r => r.status !== 'done' ? (
         <div style={{ display: 'flex', gap: 5 }} onClick={e => e.stopPropagation()}>
           <button onClick={() => markDone(r.id)}
-            style={{ padding: '3px 10px', borderRadius: 6, border: `1.5px solid ${GREEN}40`, background: 'transparent', color: GREEN, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+            style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${GREEN}40`, background: 'transparent', color: GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
             Done
           </button>
           <button onClick={() => { setEditing(r); setEditForm({ title: r.title, contact_id: String(r.contact_id ?? ''), due_date: r.due_date ?? '', priority: r.priority, assigned_to: String(r.assigned_to ?? ''), description: r.description ?? '' }) }}
-            style={{ padding: '3px 10px', borderRadius: 6, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+            style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
             Edit
           </button>
         </div>
@@ -265,7 +265,7 @@ export default function CRMTasks() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-          style={{ height: 32, borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, padding: '0 10px', cursor: 'pointer' }}>
+          style={{ height: 32, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, padding: '0 10px', cursor: 'pointer' }}>
           <option value="">All Statuses</option>
           <option value="open">Open</option>
           <option value="done">Done</option>
@@ -274,7 +274,7 @@ export default function CRMTasks() {
       </div>
 
       {/* KPI cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: SP[5] }}>
         <KpiCard label="Total Tasks" value={kpis ? fmtNum(kpis.total) : '—'} icon="task_alt" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="Open" value={kpis ? fmtNum(kpis.open) : '—'} icon="pending" accent={BLUE} loading={kpiLoading} />
         <KpiCard label="Overdue" value={kpis ? fmtNum(kpis.overdue) : '—'} icon="schedule" accent={RED} loading={kpiLoading} />
@@ -289,13 +289,13 @@ export default function CRMTasks() {
           <option value="medium">Medium</option>
           <option value="low">Low</option>
         </select>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--txt2)', cursor: 'pointer' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: TEXT.base, color: 'var(--txt2)', cursor: 'pointer' }}>
           <input type="checkbox" checked={overdueFilter} onChange={e => setOverdueFilter(e.target.checked)} />
           Overdue only
         </label>
       </FilterBar>
 
-      <SectionCard title="Tasks" badge={tasks.length} padding={false} actions={<button onClick={() => exportTasksCsv(tasks)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Tasks" badge={tasks.length} padding={false} actions={<button onClick={() => exportTasksCsv(tasks)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <DataTable<Task>
           cols={cols}
           rows={tasks}
@@ -316,7 +316,7 @@ export default function CRMTasks() {
       <Modal open={newOpen} onClose={() => setNewOpen(false)} title="New Task" width={460}
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={() => setNewOpen(false)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={() => setNewOpen(false)} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
             <button onClick={handleCreate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {saving && <Spinner size={14} color="#fff" />}
               Create
@@ -331,7 +331,7 @@ export default function CRMTasks() {
       <Modal open={!!editing} onClose={() => setEditing(null)} title="Edit Task" width={460}
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={() => setEditing(null)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={() => setEditing(null)} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
             <button onClick={handleEdit} disabled={editSaving} style={{ ...btnPrimary, opacity: editSaving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {editSaving && <Spinner size={14} color="#fff" />}
               Save
@@ -358,12 +358,12 @@ function TaskForm({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Title *</label>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Title *</label>
         <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} style={inputStyle} placeholder="Task title…" />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Priority</label>
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Priority</label>
           <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
             style={{ ...inputStyle, height: 36, padding: '0 10px' }}>
             <option value="urgent">Urgent</option>
@@ -373,13 +373,13 @@ function TaskForm({
           </select>
         </div>
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Due Date</label>
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Due Date</label>
           <input type="date" value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))}
             style={{ ...inputStyle, height: 36 }} />
         </div>
       </div>
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Assignee</label>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Assignee</label>
         <select value={form.assigned_to} onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value }))}
           style={{ ...inputStyle, height: 36, padding: '0 10px' }}>
           <option value="">— Unassigned —</option>
@@ -387,7 +387,7 @@ function TaskForm({
         </select>
       </div>
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Notes</label>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Notes</label>
         <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
           rows={3} placeholder="Task notes or details…" style={{ ...inputStyle, resize: 'vertical' }} />
       </div>

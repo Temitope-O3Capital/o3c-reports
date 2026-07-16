@@ -5,7 +5,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -60,8 +60,8 @@ function kycBadge(status: string) {
   const s = cfg[status.toLowerCase()] ?? { bg: `${NAVY}12`, txt: NAVY }
   return (
     <span style={{
-      ...NUM, fontSize: 11.5, fontWeight: 600, padding: '2px 9px',
-      borderRadius: 20, background: s.bg, color: s.txt, whiteSpace: 'nowrap',
+      ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 9px',
+      borderRadius: RADIUS['2xl'], background: s.bg, color: s.txt, whiteSpace: 'nowrap',
     }}>
       {status.replace(/\b\w/g, c => c.toUpperCase())}
     </span>
@@ -82,12 +82,12 @@ function ScoreTile({ label, value, sub, color }: {
     <div style={{
       flex: 1, minWidth: 130, padding: '14px 16px',
       background: 'var(--card)', border: '1px solid var(--bdr)',
-      borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 4,
+      borderRadius: RADIUS.lg, display: 'flex', flexDirection: 'column', gap: SP[1],
     }}>
-      <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+      <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
         {label}
       </div>
-      <div style={{ ...NUM, fontSize: 26, fontWeight: 700, color: color ?? 'var(--txt)', letterSpacing: '-0.5px' }}>
+      <div style={{ ...NUM, fontSize: TEXT['3xl'], fontWeight: FW.bold, color: color ?? 'var(--txt)', letterSpacing: '-0.5px' }}>
         {value}
       </div>
       {sub && <div style={{ marginTop: 2 }}>{sub}</div>}
@@ -108,7 +108,7 @@ const LOAN_COLS: TableCol<LoanRow>[] = [
   {
     key: 'dpd', label: 'DPD',
     render: r => (
-      <span style={{ ...NUM, fontWeight: 600, color: r.dpd > 0 ? (r.dpd > 30 ? RED : AMBER) : GREEN }}>
+      <span style={{ ...NUM, fontWeight: FW.semibold, color: r.dpd > 0 ? (r.dpd > 30 ? RED : AMBER) : GREEN }}>
         {r.dpd}
       </span>
     ),
@@ -122,8 +122,8 @@ const LOAN_COLS: TableCol<LoanRow>[] = [
         : { bg: `${NAVY}12`, txt: NAVY }
       return (
         <span style={{
-          ...NUM, fontSize: 11.5, fontWeight: 600, padding: '2px 8px',
-          borderRadius: 20, background: cfg.bg, color: cfg.txt,
+          ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px',
+          borderRadius: RADIUS.full, background: cfg.bg, color: cfg.txt,
         }}>
           {r.status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
         </span>
@@ -166,7 +166,7 @@ export default function CreditFile() {
     <Page title="Credit File" subtitle="Unified credit assessment for any customer">
       {/* Search bar */}
       <div style={{
-        display: 'flex', gap: 8, marginBottom: 24,
+        display: 'flex', gap: SP[2], marginBottom: SP[6],
         maxWidth: 520,
       }}>
         <input
@@ -176,8 +176,8 @@ export default function CreditFile() {
           placeholder="Enter CIF or customer name…"
           style={{
             flex: 1, padding: '9px 12px',
-            border: '1px solid var(--input-bdr)', borderRadius: 8,
-            fontSize: 13.5, background: 'var(--input-bg)', color: 'var(--txt)',
+            border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+            fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
             fontFamily: "'Sora', sans-serif", outline: 'none',
           }}
         />
@@ -185,8 +185,8 @@ export default function CreditFile() {
           onClick={lookup}
           disabled={loading || !query.trim()}
           style={{
-            padding: '9px 20px', borderRadius: 8, border: 'none',
-            background: NAVY, color: '#fff', fontSize: 13.5, fontWeight: 600,
+            padding: '9px 20px', borderRadius: RADIUS.md, border: 'none',
+            background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold,
             cursor: loading || !query.trim() ? 'not-allowed' : 'pointer',
             opacity: loading || !query.trim() ? 0.6 : 1,
             display: 'flex', alignItems: 'center', gap: 6,
@@ -199,7 +199,7 @@ export default function CreditFile() {
 
       {/* Loading */}
       {loading && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 10, color: 'var(--txt2)', fontSize: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 10, color: 'var(--txt2)', fontSize: TEXT.md }}>
           <Spinner size={18} color={NAVY} /> Fetching credit file…
         </div>
       )}
@@ -214,41 +214,41 @@ export default function CreditFile() {
       {file && !loading && (
         <>
           {/* Header card */}
-          <SectionCard style={{ marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <SectionCard style={{ marginBottom: SP[4] }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: SP[3] }}>
               <div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', marginBottom: 4 }}>
+                <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)', marginBottom: SP[1] }}>
                   {file.customer_name}
                 </div>
-                <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 13, color: 'var(--txt2)' }}>
+                <div style={{ display: 'flex', gap: SP[5], flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: TEXT.base, color: 'var(--txt2)' }}>
                     CIF: <strong style={{ color: 'var(--txt)' }}>{file.cif}</strong>
                   </span>
-                  <span style={{ fontSize: 13, color: 'var(--txt2)' }}>
+                  <span style={{ fontSize: TEXT.base, color: 'var(--txt2)' }}>
                     Phone: <strong style={{ color: 'var(--txt)' }}>{file.phone}</strong>
                   </span>
-                  <span style={{ fontSize: 13, color: 'var(--txt2)' }}>
+                  <span style={{ fontSize: TEXT.base, color: 'var(--txt2)' }}>
                     BVN: <strong style={{ ...NUM, color: 'var(--txt)' }}>{maskBvn(file.bvn)}</strong>
                   </span>
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: 'var(--txt2)' }}>KYC:</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+                <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>KYC:</span>
                 {kycBadge(file.kyc_status)}
               </div>
             </div>
           </SectionCard>
 
           {/* Score strip */}
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
+          <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', marginBottom: SP[5] }}>
             <ScoreTile
               label="Eye Score"
               value={file.eye_score ?? '—'}
               color={file.eye_band ? bandColor(file.eye_band) : undefined}
               sub={file.eye_band && (
                 <span style={{
-                  ...NUM, fontSize: 11.5, fontWeight: 600, padding: '2px 8px',
-                  borderRadius: 20, background: `${bandColor(file.eye_band)}18`,
+                  ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px',
+                  borderRadius: RADIUS['2xl'], background: `${bandColor(file.eye_band)}18`,
                   color: bandColor(file.eye_band),
                 }}>
                   {file.eye_band}
@@ -277,7 +277,7 @@ export default function CreditFile() {
             badge={file.loans.length}
           >
             {file.loans.length === 0 ? (
-              <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>
+              <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>
                 No loan history on file.
               </div>
             ) : (
@@ -295,10 +295,10 @@ export default function CreditFile() {
       {!loading && !file && !err && !notFound && (
         <div style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', padding: '80px 0', gap: 12, color: 'var(--txt2)',
+          justifyContent: 'center', padding: '80px 0', gap: SP[3], color: 'var(--txt2)',
         }}>
           <span className="material-symbols-rounded" style={{ fontSize: 52, color: 'var(--txt3)' }}>manage_search</span>
-          <span style={{ fontSize: 14 }}>Enter a CIF or customer name to look up a credit file</span>
+          <span style={{ fontSize: TEXT.md }}>Enter a CIF or customer name to look up a credit file</span>
         </div>
       )}
     </Page>

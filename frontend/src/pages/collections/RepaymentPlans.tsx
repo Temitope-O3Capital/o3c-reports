@@ -7,7 +7,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtNum, n, today, monthStart } from '../../lib/fmt'
-import { BLUE, GREEN, RED, NAVY, AMBER, NUM } from '../../lib/design'
+import { BLUE, GREEN, RED, NAVY, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -52,8 +52,8 @@ function PlanPill({ status }: { status: string }) {
   return (
     <span style={{
       ...NUM, display: 'inline-flex', alignItems: 'center',
-      fontSize: 11.5, fontWeight: 600, padding: '2px 8px',
-      borderRadius: 20, background: s.bg, color: s.txt, whiteSpace: 'nowrap',
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px',
+      borderRadius: RADIUS['2xl'], background: s.bg, color: s.txt, whiteSpace: 'nowrap',
     }}>
       {status}
     </span>
@@ -66,11 +66,11 @@ function InstalmentProgress({ paid, total }: { paid: number; total: number }) {
   const pct = total > 0 ? (paid / total) * 100 : 0
   return (
     <div>
-      <div style={{ ...NUM, fontSize: 12, fontWeight: 600, color: 'var(--txt)', marginBottom: 4 }}>
+      <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 4 }}>
         {paid}/{total}
       </div>
-      <div style={{ height: 4, background: 'var(--bdr)', borderRadius: 99, overflow: 'hidden', width: 80 }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: pct === 100 ? GREEN : NAVY, borderRadius: 99 }} />
+      <div style={{ height: 4, background: 'var(--bdr)', borderRadius: RADIUS.full, overflow: 'hidden', width: 80 }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: pct === 100 ? GREEN : NAVY, borderRadius: RADIUS.full }} />
       </div>
     </div>
   )
@@ -80,8 +80,8 @@ function InstalmentProgress({ paid, total }: { paid: number; total: number }) {
 
 const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
-  border: '1px solid var(--input-bdr)', borderRadius: 7,
-  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
+  border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
   fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
 }
 
@@ -140,7 +140,7 @@ function NewPlanModal({ open, onClose, onCreated }: {
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button
             onClick={() => { reset(); onClose() }}
-            style={{ padding: '7px 15px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+            style={{ padding: '7px 15px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.medium, cursor: 'pointer' }}
           >
             Cancel
           </button>

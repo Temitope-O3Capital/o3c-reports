@@ -6,7 +6,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -33,7 +33,7 @@ const TYPE_STYLE: Record<string, { color: string; bg: string }> = {
 function TypePill({ type }: { type: string }) {
   const s = TYPE_STYLE[type] ?? TYPE_STYLE.Internal
   return (
-    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color }}>
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.full, background: s.bg, color: s.color }}>
       {type}
     </span>
   )
@@ -41,7 +41,7 @@ function TypePill({ type }: { type: string }) {
 
 function StatusDot({ isActive }: { isActive: boolean }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 600, color: isActive ? GREEN : 'var(--chart-lbl)' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: TEXT.sm, fontWeight: FW.semibold, color: isActive ? GREEN : 'var(--chart-lbl)' }}>
       <span style={{ width: 7, height: 7, borderRadius: '50%', background: isActive ? GREEN : 'var(--chart-lbl)', display: 'inline-block' }} />
       {isActive ? 'Active' : 'Inactive'}
     </span>
@@ -121,7 +121,7 @@ export default function Watchlist() {
   const cols: TableCol<WatchEntry>[] = [
     {
       key: 'entity_name', label: 'Name',
-      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.entity_name}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.entity_name}</span>,
     },
     {
       key: 'entity_type', label: 'Type',
@@ -129,11 +129,11 @@ export default function Watchlist() {
     },
     {
       key: 'source', label: 'Source',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.source ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.source ?? '—'}</span>,
     },
     {
       key: 'created_at', label: 'Added',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span>,
     },
     {
       key: 'matched_transactions_count', label: 'Matched Txns', align: 'right',
@@ -153,7 +153,7 @@ export default function Watchlist() {
           {r.is_active && (
             <button
               onClick={() => setDeactivateEntry(r)}
-              style={{ padding: '3px 10px', borderRadius: 6, border: '1.5px solid rgba(220,38,38,.3)', background: 'transparent', color: RED, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+              style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: '1.5px solid rgba(220,38,38,.3)', background: 'transparent', color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
             >
               Deactivate
             </button>
@@ -191,7 +191,7 @@ export default function Watchlist() {
       </FilterBar>
 
       <SectionCard title="Watchlist Entries" badge={entries.length} padding={false} actions={
-        <button onClick={() => exportWatchlistCsv(entries)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+        <button onClick={() => exportWatchlistCsv(entries)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
           <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
           Export CSV
         </button>
@@ -217,7 +217,7 @@ export default function Watchlist() {
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button onClick={() => setAddOpen(false)}
-              style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
+              style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
               Cancel
             </button>
             <button onClick={handleAdd} disabled={saving}
@@ -234,29 +234,29 @@ export default function Watchlist() {
             { label: 'Source', key: 'source' as const, placeholder: 'e.g. OFAC, UN Sanctions, Internal' },
           ].map(({ label, key, placeholder }) => (
             <div key={key}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>{label}</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>{label}</label>
               <input
                 value={form[key]}
                 onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
                 placeholder={placeholder}
-                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box' as const }}
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box' as const }}
               />
             </div>
           ))}
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Type</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Type</label>
             <select value={form.entity_type} onChange={e => setForm(f => ({ ...f, entity_type: e.target.value }))}
-              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none' }}>
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none' }}>
               <option value="PEP">PEP</option>
               <option value="Sanction">Sanction</option>
               <option value="Internal">Internal</option>
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Reason</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Reason</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
               rows={3} placeholder="Reason for watchlisting…"
-              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' as const }} />
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' as const }} />
           </div>
         </div>
       </Modal>

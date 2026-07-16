@@ -4,7 +4,7 @@ import DOMPurify from 'dompurify'
 import { Page, SectionCard, ErrBanner, btnPrimary, btnSecondary } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
-import { NAVY, BLUE, GREEN, AMBER, RED, NUM, INTER } from '../../lib/design'
+import { NAVY, BLUE, GREEN, AMBER, RED, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -68,7 +68,7 @@ function StatusPill({ status }: { status: string }) {
   const c = STATUS_COLOR[status] ?? '#6B7280'
   const label = status.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
   return (
-    <span style={{ ...NUM, fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: `${c}14`, color: c }}>
+    <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '3px 10px', borderRadius: 20, background: `${c}14`, color: c }}>
       {label}
     </span>
   )
@@ -77,9 +77,9 @@ function StatusPill({ status }: { status: string }) {
 function MetaRow({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value) return null
   return (
-    <div style={{ display: 'flex', gap: 12, fontSize: 12.5 }}>
+    <div style={{ display: 'flex', gap: SP[3], fontSize: TEXT.sm }}>
       <span style={{ color: 'var(--txt3)', minWidth: 80, flexShrink: 0 }}>{label}</span>
-      <span style={{ color: 'var(--txt)', fontWeight: 500 }}>{value}</span>
+      <span style={{ color: 'var(--txt)', fontWeight: FW.medium }}>{value}</span>
     </div>
   )
 }
@@ -103,7 +103,7 @@ function Avatar({ name }: { name: string }) {
     <div style={{
       width: 32, height: 32, borderRadius: '50%', background: NAVY, flexShrink: 0,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: 13, fontWeight: 700, color: '#fff',
+      fontSize: TEXT.base, fontWeight: FW.bold, color: '#fff',
     }}>
       {name.charAt(0).toUpperCase()}
     </div>
@@ -191,8 +191,8 @@ export default function MailThreadDetail() {
         <button
           onClick={() => navigate('/mail')}
           style={{
-            padding: '7px 14px', borderRadius: 8, border: '1px solid var(--bdr)',
-            background: 'var(--card)', color: 'var(--txt)', fontSize: 13,
+            padding: '7px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
+            background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base,
             cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
             fontFamily: INTER,
           }}>
@@ -204,7 +204,7 @@ export default function MailThreadDetail() {
       <ErrBanner error={err} onRetry={load} />
 
       {loading && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'var(--txt3)', fontSize: 13 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'var(--txt3)', fontSize: TEXT.base }}>
           Loading message…
         </div>
       )}
@@ -219,30 +219,30 @@ export default function MailThreadDetail() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
                 <StatusPill status={m.status} />
                 {m.delivered_at && (
-                  <span style={{ fontSize: 12, color: GREEN, display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: 14 }}>check_circle</span>
+                  <span style={{ fontSize: TEXT.sm, color: GREEN, display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>check_circle</span>
                     Delivered {fmtDatetime(m.delivered_at)}
                   </span>
                 )}
                 {openEvents.length > 0 ? (
-                  <span style={{ fontSize: 12, color: GREEN, display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: 14 }}>mail_open</span>
+                  <span style={{ fontSize: TEXT.sm, color: GREEN, display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>mail_open</span>
                     Opened {openEvents.length > 1 ? `${openEvents.length}×` : ''} · {fmtDatetime(openEvents[0].occurred_at)}
                   </span>
                 ) : m.opened_at ? (
-                  <span style={{ fontSize: 12, color: GREEN, display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: 14 }}>mail_open</span>
+                  <span style={{ fontSize: TEXT.sm, color: GREEN, display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>mail_open</span>
                     Opened {fmtDatetime(m.opened_at)}
                   </span>
                 ) : (
-                  <span style={{ fontSize: 12, color: 'var(--txt3)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: 14 }}>mail</span>
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>mail</span>
                     Not opened yet
                   </span>
                 )}
                 {replies.length > 0 && (
-                  <span style={{ fontSize: 12, color: BLUE, display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: 14 }}>reply</span>
+                  <span style={{ fontSize: TEXT.sm, color: BLUE, display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>reply</span>
                     {replies.length} repl{replies.length === 1 ? 'y' : 'ies'}
                   </span>
                 )}
@@ -264,7 +264,7 @@ export default function MailThreadDetail() {
                   dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(m.html_body) }}
                 />
               ) : (
-                <pre style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--txt)', fontFamily: INTER, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}>
+                <pre style={{ fontSize: TEXT.base, lineHeight: 1.7, color: 'var(--txt)', fontFamily: INTER, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}>
                   {m.text_body}
                 </pre>
               )}
@@ -281,48 +281,48 @@ export default function MailThreadDetail() {
                 { label: 'Bounced',   time: m.bounced_at,   color: RED,        icon: 'error' },
               ].map(e => e.time && (
                 <div key={e.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 16, color: e.color, flexShrink: 0 }}>{e.icon}</span>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', minWidth: 90 }}>{e.label}</span>
-                  <span style={{ fontSize: 12, color: 'var(--txt3)', ...NUM }}>{fmtDatetime(e.time)}</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: e.color, flexShrink: 0 }}>{e.icon}</span>
+                  <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', minWidth: 90 }}>{e.label}</span>
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', ...NUM }}>{fmtDatetime(e.time)}</span>
                 </div>
               ))}
 
               {/* Each open event */}
               {openEvents.length > 0 ? openEvents.map((ev, i) => (
                 <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 16, color: GREEN, flexShrink: 0 }}>mail_open</span>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', minWidth: 90 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: GREEN, flexShrink: 0 }}>mail_open</span>
+                  <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', minWidth: 90 }}>
                     Opened{openEvents.length > 1 ? ` (${i + 1}/${openEvents.length})` : ''}
                   </span>
-                  <span style={{ fontSize: 12, color: 'var(--txt3)', ...NUM }}>{fmtDatetime(ev.occurred_at)}</span>
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', ...NUM }}>{fmtDatetime(ev.occurred_at)}</span>
                 </div>
               )) : m.opened_at ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 16, color: GREEN, flexShrink: 0 }}>mail_open</span>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', minWidth: 90 }}>Opened</span>
-                  <span style={{ fontSize: 12, color: 'var(--txt3)', ...NUM }}>{fmtDatetime(m.opened_at)}</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: GREEN, flexShrink: 0 }}>mail_open</span>
+                  <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', minWidth: 90 }}>Opened</span>
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', ...NUM }}>{fmtDatetime(m.opened_at)}</span>
                 </div>
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--bdr)', flexShrink: 0 }}>mail</span>
-                  <span style={{ fontSize: 12.5, color: 'var(--txt3)', minWidth: 90 }}>Opened</span>
-                  <span style={{ fontSize: 12, color: 'var(--txt3)' }}>—</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: 'var(--bdr)', flexShrink: 0 }}>mail</span>
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', minWidth: 90 }}>Opened</span>
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>—</span>
                 </div>
               )}
 
               {/* Each click event */}
               {clickEvents.map((ev, i) => (
                 <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 16, color: BLUE, flexShrink: 0 }}>touch_app</span>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', minWidth: 90 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: BLUE, flexShrink: 0 }}>touch_app</span>
+                  <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', minWidth: 90 }}>
                     Link clicked{clickEvents.length > 1 ? ` (${i + 1})` : ''}
                   </span>
-                  <span style={{ fontSize: 12, color: 'var(--txt3)', ...NUM }}>{fmtDatetime(ev.occurred_at)}</span>
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', ...NUM }}>{fmtDatetime(ev.occurred_at)}</span>
                 </div>
               ))}
 
               {openEvents.length === 0 && !m.opened_at && clickEvents.length === 0 && !m.delivered_at && !m.bounced_at && (
-                <div style={{ fontSize: 13, color: 'var(--txt3)' }}>Waiting for delivery confirmation from SendGrid…</div>
+                <div style={{ fontSize: TEXT.base, color: 'var(--txt3)' }}>Waiting for delivery confirmation from SendGrid…</div>
               )}
             </div>
           </SectionCard>
@@ -330,10 +330,10 @@ export default function MailThreadDetail() {
           {/* ── Replies from recipient ── */}
           {replies.length > 0 && (
             <SectionCard title={`Replies (${replies.length})`}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
                 {replies.map(reply => (
                   <div key={reply.id} style={{
-                    background: 'var(--th-bg)', borderRadius: 10,
+                    background: 'var(--th-bg)', borderRadius: RADIUS.lg,
                     border: '1px solid var(--bdr)', overflow: 'hidden',
                   }}>
                     {/* Reply header */}
@@ -341,13 +341,13 @@ export default function MailThreadDetail() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <Avatar name={reply.from_name ?? reply.from_email} />
                         <div>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
+                          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
                             {reply.from_name ?? reply.from_email}
                           </div>
-                          <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{reply.from_email}</div>
+                          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{reply.from_email}</div>
                         </div>
                       </div>
-                      <span style={{ fontSize: 12, color: 'var(--txt3)', ...NUM, flexShrink: 0 }}>
+                      <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', ...NUM, flexShrink: 0 }}>
                         {fmtDatetime(reply.received_at)}
                       </span>
                     </div>
@@ -359,7 +359,7 @@ export default function MailThreadDetail() {
                           dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(reply.body_html) }}
                         />
                       ) : (
-                        <pre style={{ fontSize: 13, lineHeight: 1.65, color: 'var(--txt)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, fontFamily: INTER }}>
+                        <pre style={{ fontSize: TEXT.base, lineHeight: 1.65, color: 'var(--txt)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, fontFamily: INTER }}>
                           {reply.body_text ?? '(no content)'}
                         </pre>
                       )}
@@ -373,20 +373,20 @@ export default function MailThreadDetail() {
           {/* ── Reply form ── */}
           <SectionCard title={lastReplySender ? `Reply to ${lastReplySender}` : 'Reply'}>
             {replySent ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: GREEN, fontSize: 13, fontWeight: 600 }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 18 }}>check_circle</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], color: GREEN, fontSize: TEXT.base, fontWeight: FW.semibold }}>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl }}>check_circle</span>
                 Reply sent successfully
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {showCc && (
                   <div>
-                    <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER, letterSpacing: '0.05em', textTransform: 'uppercase' }}>CC</label>
+                    <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1], fontFamily: INTER, letterSpacing: '0.05em', textTransform: 'uppercase' }}>CC</label>
                     <input
                       value={replyCc}
                       onChange={e => setReplyCc(e.target.value)}
                       placeholder="colleague@o3capital.com, another@o3capital.com"
-                      style={{ width: '100%', boxSizing: 'border-box', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: 13, outline: 'none', fontFamily: INTER }}
+                      style={{ width: '100%', boxSizing: 'border-box', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: TEXT.base, outline: 'none', fontFamily: INTER }}
                     />
                   </div>
                 )}
@@ -396,10 +396,10 @@ export default function MailThreadDetail() {
                   onChange={e => setReplyBody(e.target.value)}
                   placeholder="Write your reply…"
                   rows={5}
-                  style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: 13.5, lineHeight: 1.6, resize: 'vertical', outline: 'none', fontFamily: INTER }}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: 13.5, lineHeight: 1.6, resize: 'vertical', outline: 'none', fontFamily: INTER }}
                 />
-                {sendErr && <div style={{ fontSize: 12, color: RED }}>{sendErr}</div>}
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {sendErr && <div style={{ fontSize: TEXT.sm, color: RED }}>{sendErr}</div>}
+                <div style={{ display: 'flex', gap: SP[2], alignItems: 'center' }}>
                   <button
                     onClick={sendReply}
                     disabled={sending || !replyBody.trim()}

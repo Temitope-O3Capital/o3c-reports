@@ -6,7 +6,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 import type { AuthUser } from '../../hooks/useAuth'
 import {
@@ -49,7 +49,7 @@ function RatingPill({ score }: { score: number }) {
   const color = ratingColor(score)
   const label = score >= 4.5 ? 'Outstanding' : score >= 3.5 ? 'Good' : score >= 2.5 ? 'Satisfactory' : 'Needs Improvement'
   return (
-    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${color}14`, color }}>
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${color}14`, color }}>
       ★ {score.toFixed(1)} · {label}
     </span>
   )
@@ -132,22 +132,22 @@ export default function Performance() {
   }
 
   const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
-    fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
+    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+    fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
   }
 
   const cols: TableCol<Appraisal>[] = [
     {
       key: 'employee_name', label: 'Employee',
-      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.employee_name}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.employee_name}</span>,
     },
     {
       key: 'department', label: 'Department',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.department ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.department ?? '—'}</span>,
     },
     {
       key: 'period', label: 'Period',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{r.period}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.period}</span>,
     },
     {
       key: 'score', label: 'Rating',
@@ -155,7 +155,7 @@ export default function Performance() {
     },
     {
       key: 'reviewer_name', label: 'Reviewer',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.reviewer_name ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.reviewer_name ?? '—'}</span>,
     },
     {
       key: 'status', label: 'Status',
@@ -172,7 +172,7 @@ export default function Performance() {
       actions={
         canCreate ? (
           <button onClick={() => { setForm(BLANK); setNewOpen(true) }} style={btnPrimary}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
             New Review
           </button>
         ) : undefined
@@ -205,16 +205,16 @@ export default function Performance() {
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={deptScores} margin={{ top: 4, right: 8, bottom: 20, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-              <XAxis dataKey="dept" tick={{ fontSize: 11, fill: 'var(--txt2)' }} interval={0} textAnchor="middle" />
-              <YAxis domain={[0, 5]} tick={{ fontSize: 11, fill: 'var(--txt2)' }} />
-              <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
+              <XAxis dataKey="dept" tick={{ fontSize: TEXT.xs, fill: 'var(--txt2)' }} interval={0} textAnchor="middle" />
+              <YAxis domain={[0, 5]} tick={{ fontSize: TEXT.xs, fill: 'var(--txt2)' }} />
+              <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
               <Bar dataKey="avg" fill={NAVY} radius={[4, 4, 0, 0]} name="Avg Score" />
             </BarChart>
           </ResponsiveContainer>
         </SectionCard>
       )}
 
-      <SectionCard title="Appraisals" badge={appraisals.length} padding={false} actions={<button onClick={() => exportAppraisalsCsv(appraisals)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Appraisals" badge={appraisals.length} padding={false} actions={<button onClick={() => exportAppraisalsCsv(appraisals)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <DataTable<Appraisal>
           cols={cols}
           rows={appraisals}
@@ -230,8 +230,8 @@ export default function Performance() {
 
       <Modal open={newOpen} onClose={() => setNewOpen(false)} title="Record Appraisal" width={440}
         footer={
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={() => setNewOpen(false)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
+            <button onClick={() => setNewOpen(false)} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
             <button onClick={handleCreate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {saving && <Spinner size={14} color="#fff" />}
               Save
@@ -241,28 +241,28 @@ export default function Performance() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Employee ID *</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Employee ID *</label>
             <input value={form.employee_id} onChange={e => setForm(f => ({ ...f, employee_id: e.target.value }))}
               placeholder="Enter employee ID" style={inputStyle} />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Period *</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Period *</label>
             <input value={form.period} onChange={e => setForm(f => ({ ...f, period: e.target.value }))}
               placeholder="e.g. Q2 2025" style={inputStyle} />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
               Score: {form.score} / 5
             </label>
             <input type="range" min={1} max={5} step={0.5} value={form.score}
               onChange={e => setForm(f => ({ ...f, score: Number(e.target.value) }))}
               style={{ width: '100%' }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--txt3)', marginTop: 2 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>
               <span>1 – Poor</span><span>3 – Average</span><span>5 – Excellent</span>
             </div>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Notes</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Notes</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
               rows={3} placeholder="Review notes…" style={{ ...inputStyle, resize: 'vertical' }} />
           </div>

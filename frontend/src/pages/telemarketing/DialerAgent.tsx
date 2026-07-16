@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { NAVY, RED, GREEN, AMBER } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -43,9 +43,9 @@ const DISPOSITIONS = [
 
 function StatTile({ label, value, colour }: { label: string; value: string | number; colour?: string }) {
   return (
-    <div style={{ flex: 1, minWidth: 90, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10, padding: '12px 16px', textAlign: 'center' }}>
-      <div style={{ fontSize: 11, color: 'var(--txt3)', fontWeight: 600, marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 800, color: colour ?? NAVY, lineHeight: 1 }}>{value}</div>
+    <div style={{ flex: 1, minWidth: 90, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, padding: `${SP[3]} ${SP[4]}`, textAlign: 'center' }}>
+      <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, marginBottom: SP[1] }}>{label}</div>
+      <div style={{ fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color: colour ?? NAVY, lineHeight: 1 }}>{value}</div>
     </div>
   )
 }
@@ -68,25 +68,25 @@ function CallCard({
   const stateLabel  = state === 'connected' ? 'Connected' : 'Dialing…'
 
   return (
-    <div style={{ border: `2px solid ${stateColour}`, borderRadius: 14, padding: 24, background: `${stateColour}08`, maxWidth: 440, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-        <span className="material-symbols-rounded" style={{ fontSize: 28, color: stateColour, animation: state === 'dialing' ? 'pulse 1.2s infinite' : undefined }}>call</span>
+    <div style={{ border: `2px solid ${stateColour}`, borderRadius: RADIUS.xl, padding: SP[6], background: `${stateColour}08`, maxWidth: 440, margin: '0 auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: SP[4] }}>
+        <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], color: stateColour, animation: state === 'dialing' ? 'pulse 1.2s infinite' : undefined }}>call</span>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--txt)' }}>{phone}</div>
-          <div style={{ fontSize: 12.5, color: stateColour, fontWeight: 600 }}>{stateLabel} · {timer}</div>
+          <div style={{ fontSize: TEXT.xl, fontWeight: FW.bold, color: 'var(--txt)' }}>{phone}</div>
+          <div style={{ fontSize: TEXT.sm, color: stateColour, fontWeight: FW.semibold }}>{stateLabel} · {timer}</div>
         </div>
       </div>
 
       {state === 'connected' && (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 10 }}>
+        <div style={{ marginTop: SP[2] }}>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 10 }}>
             Call Disposition
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 12 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: SP[3] }}>
             {DISPOSITIONS.map(d => (
               <button key={d.value} onClick={() => setDisposition(d.value)}
                 style={{
-                  padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  padding: '5px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
                   border: `1.5px solid ${disposition === d.value ? NAVY : 'var(--bdr)'}`,
                   background: disposition === d.value ? NAVY : 'var(--card)',
                   color: disposition === d.value ? '#fff' : 'var(--txt)',
@@ -99,10 +99,10 @@ function CallCard({
             value={notes} onChange={e => setNotes(e.target.value)}
             placeholder="Optional notes about this call…"
             rows={2}
-            style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', boxSizing: 'border-box' }}
+            style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', boxSizing: 'border-box' }}
           />
           <button onClick={() => onDispose(disposition, notes)}
-            style={{ marginTop: 12, width: '100%', padding: '10px 0', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+            style={{ marginTop: SP[3], width: '100%', padding: '10px 0', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer' }}>
             End Call &amp; Submit Disposition
           </button>
         </div>
@@ -218,25 +218,25 @@ export default function DialerAgent() {
         // ── Join screen ──────────────────────────────────────────────────────
         <SectionCard title="Join a Dialer Session">
           <div style={{ maxWidth: 400, margin: '0 auto', textAlign: 'center', padding: '24px 0' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 48, color: NAVY, marginBottom: 12, display: 'block' }}>phone_forwarded</span>
-            <p style={{ fontSize: 13.5, color: 'var(--txt2)', marginBottom: 20 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 48, color: NAVY, marginBottom: SP[3], display: 'block' }}>phone_forwarded</span>
+            <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', marginBottom: SP[5] }}>
               Select an active campaign to join. The dialer engine will automatically route calls to you when you're ready.
             </p>
 
             {campaigns.length === 0 ? (
-              <div style={{ fontSize: 13, color: 'var(--txt3)', padding: '20px 0' }}>
+              <div style={{ fontSize: TEXT.base, color: 'var(--txt3)', padding: '20px 0' }}>
                 No active campaigns right now. Ask a supervisor to start one.
               </div>
             ) : (
               <>
                 <select value={selectedCampaign} onChange={e => setSelectedCampaign(Number(e.target.value))}
-                  style={{ width: '100%', height: 40, padding: '0 10px', border: '1px solid var(--input-bdr)', borderRadius: 8, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', marginBottom: 14 }}>
+                  style={{ width: '100%', height: 40, padding: '0 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', marginBottom: 14 }}>
                   <option value={0}>Any active campaign</option>
                   {campaigns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
                 <button onClick={handleJoin} disabled={joining}
-                  style={{ width: '100%', padding: '12px 0', borderRadius: 9, border: 'none', background: GREEN, color: '#fff', fontSize: 14, fontWeight: 700, cursor: joining ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                  {joining ? <Spinner size={16} color="#fff" /> : <span className="material-symbols-rounded" style={{ fontSize: 18 }}>call</span>}
+                  style={{ width: '100%', padding: '12px 0', borderRadius: RADIUS.md, border: 'none', background: GREEN, color: '#fff', fontSize: TEXT.md, fontWeight: FW.bold, cursor: joining ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: SP[2] }}>
+                  {joining ? <Spinner size={16} color="#fff" /> : <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl }}>call</span>}
                   {joining ? 'Joining…' : 'Go Ready'}
                 </button>
               </>
@@ -246,7 +246,7 @@ export default function DialerAgent() {
       ) : (
         <>
           {/* ── Session stats ───────────────────────────────────────────────── */}
-          <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 10, marginBottom: SP[4], flexWrap: 'wrap' }}>
             <StatTile label="Status" value={session.status.toUpperCase()} colour={session.status === 'ready' ? GREEN : session.status === 'on_call' ? AMBER : '#6B7280'} />
             <StatTile label="Calls Made" value={session.calls_made} />
             <StatTile label="Calls Answered" value={session.calls_answered} />
@@ -266,16 +266,16 @@ export default function DialerAgent() {
               <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt3)' }}>
                 {session.status === 'ready' ? (
                   <>
-                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: SP[3] }}>
                       <span className="material-symbols-rounded" style={{ fontSize: 40, color: GREEN }}>phone_in_talk</span>
                     </div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: GREEN }}>Ready — waiting for next call…</div>
-                    <div style={{ fontSize: 12.5, color: 'var(--txt3)', marginTop: 6 }}>The dialer will connect you automatically when a contact answers.</div>
+                    <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: GREEN }}>Ready — waiting for next call…</div>
+                    <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', marginTop: 6 }}>The dialer will connect you automatically when a contact answers.</div>
                   </>
                 ) : (
                   <>
                     <span className="material-symbols-rounded" style={{ fontSize: 40, color: AMBER }}>pause_circle</span>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: AMBER, marginTop: 8 }}>Paused — not receiving calls</div>
+                    <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: AMBER, marginTop: SP[2] }}>Paused — not receiving calls</div>
                   </>
                 )}
               </div>
@@ -287,18 +287,18 @@ export default function DialerAgent() {
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               {session.status === 'paused' ? (
                 <button onClick={() => handleSetStatus('ready')}
-                  style={{ padding: '9px 20px', borderRadius: 8, border: 'none', background: GREEN, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 16 }}>play_arrow</span> Resume
+                  style={{ padding: '9px 20px', borderRadius: RADIUS.md, border: 'none', background: GREEN, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>play_arrow</span> Resume
                 </button>
               ) : (
                 <button onClick={() => handleSetStatus('paused')} disabled={!!activeCall}
-                  style={{ padding: '9px 20px', borderRadius: 8, border: 'none', background: AMBER, color: '#fff', fontSize: 13, fontWeight: 600, cursor: activeCall ? 'not-allowed' : 'pointer', opacity: activeCall ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 16 }}>pause</span> Pause
+                  style={{ padding: '9px 20px', borderRadius: RADIUS.md, border: 'none', background: AMBER, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: activeCall ? 'not-allowed' : 'pointer', opacity: activeCall ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>pause</span> Pause
                 </button>
               )}
               <button onClick={handleLeave} disabled={!!activeCall}
-                style={{ padding: '9px 20px', borderRadius: 8, border: `1.5px solid ${RED}50`, background: `${RED}10`, color: RED, fontSize: 13, fontWeight: 600, cursor: activeCall ? 'not-allowed' : 'pointer', opacity: activeCall ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 16 }}>logout</span> Leave Session
+                style={{ padding: '9px 20px', borderRadius: RADIUS.md, border: `1.5px solid ${RED}50`, background: `${RED}10`, color: RED, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: activeCall ? 'not-allowed' : 'pointer', opacity: activeCall ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>logout</span> Leave Session
               </button>
             </div>
           </SectionCard>

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { GREEN, AMBER, RED, NAVY, INTER, SORA } from '../../lib/design'
+import { GREEN, AMBER, RED, NAVY, INTER, SORA, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -64,47 +64,47 @@ function SenderModal({ sender, onClose, onSaved }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: 480, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
+      <div style={{ background: 'var(--card)', borderRadius: RADIUS['2xl'], width: 480, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{isNew ? 'Add Email Sender' : 'Edit Sender'}</h3>
+          <h3 style={{ margin: 0, fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>{isNew ? 'Add Email Sender' : 'Edit Sender'}</h3>
           <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)' }}>
             <span className="material-symbols-rounded">close</span>
           </button>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
           {[
             { label: 'Email Address *', key: 'address' as const, placeholder: 'sender@yourdomain.com', type: 'email' },
             { label: 'Display Name *',  key: 'name'    as const, placeholder: 'O3 Capital', type: 'text' },
             { label: 'Label *',         key: 'label'   as const, placeholder: 'Main transactional sender', type: 'text' },
           ].map(({ label, key, placeholder, type }) => (
             <div key={key}>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
               <input
                 type={type} value={form[key] as string} onChange={e => field(key, e.target.value)}
                 placeholder={placeholder}
-                style={{ display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 13, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+                style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
               />
             </div>
           ))}
 
           <div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Purpose</div>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Purpose</div>
             <select value={form.purpose} onChange={e => field('purpose', e.target.value)}
-              style={{ display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 13, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}>
+              style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}>
               {PURPOSES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
             </select>
           </div>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer', fontSize: TEXT.base }}>
             <input type="checkbox" checked={form.is_default} onChange={e => field('is_default', e.target.checked)} />
             Set as default for this purpose
           </label>
         </div>
 
-        <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 9, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: INTER }}>Cancel</button>
-          <button onClick={save} disabled={saving} style={{ padding: '9px 20px', borderRadius: 9, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER }}>
+        <div style={{ display: 'flex', gap: SP[2], marginTop: 22, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER }}>Cancel</button>
+          <button onClick={save} disabled={saving} style={{ padding: '9px 20px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
             {saving ? 'Saving…' : isNew ? 'Add Sender' : 'Save Changes'}
           </button>
         </div>
@@ -161,36 +161,36 @@ export default function AdminEmailSenders() {
     { key: 'address', label: 'Address',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', fontFamily: 'monospace' }}>{r.address}</div>
-          <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{r.name}</div>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', fontFamily: 'monospace' }}>{r.address}</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.name}</div>
         </div>
       ),
     },
-    { key: 'label', label: 'Label', render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.label}</span> },
+    { key: 'label', label: 'Label', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.label}</span> },
     { key: 'purpose', label: 'Purpose',
-      render: r => <span style={{ fontSize: 12, background: 'var(--chip-bg)', color: 'var(--chip-txt)', borderRadius: 6, padding: '2px 9px', fontWeight: 600, textTransform: 'capitalize' }}>{r.purpose}</span> },
+      render: r => <span style={{ fontSize: TEXT.sm, background: 'var(--chip-bg)', color: 'var(--chip-txt)', borderRadius: RADIUS.sm, padding: '2px 9px', fontWeight: FW.semibold, textTransform: 'capitalize' }}>{r.purpose}</span> },
     { key: 'is_default', label: 'Default',
       render: r => r.is_default
-        ? <span style={{ fontSize: 11.5, fontWeight: 700, color: GREEN }}>✓ Default</span>
-        : <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>—</span> },
+        ? <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: GREEN }}>✓ Default</span>
+        : <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>—</span> },
     { key: 'is_active', label: 'Status',
       render: r => (
-        <span style={{ fontSize: 11.5, fontWeight: 600, color: r.is_active ? GREEN : 'var(--txt3)' }}>
+        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: r.is_active ? GREEN : 'var(--txt3)' }}>
           {r.is_active ? 'Active' : 'Inactive'}
         </span>
       ),
     },
     { key: '_actions', label: '',
       render: r => (
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: SP[1] }}>
           {!r.is_default && (
-            <button onClick={e => { e.stopPropagation(); setDefault(r.id) }} style={{ padding: '3px 8px', borderRadius: 6, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 11, cursor: 'pointer' }}>
+            <button onClick={e => { e.stopPropagation(); setDefault(r.id) }} style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.xs, cursor: 'pointer' }}>
               Set default
             </button>
           )}
-          <button onClick={e => { e.stopPropagation(); setEditing(r) }} style={{ padding: '3px 8px', borderRadius: 6, border: 'none', background: `${NAVY}12`, color: NAVY, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>Edit</button>
+          <button onClick={e => { e.stopPropagation(); setEditing(r) }} style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: 'none', background: `${NAVY}12`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>Edit</button>
           {!r.is_default && (
-            <button onClick={e => { e.stopPropagation(); deleteSender(r.id, r.label) }} style={{ padding: '3px 8px', borderRadius: 6, border: 'none', background: 'rgba(192,0,0,.08)', color: RED, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>Deactivate</button>
+            <button onClick={e => { e.stopPropagation(); deleteSender(r.id, r.label) }} style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(192,0,0,.08)', color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>Deactivate</button>
           )}
         </div>
       ),
@@ -204,10 +204,10 @@ export default function AdminEmailSenders() {
       subtitle="Verified sender identities for transactional and campaign emails"
       actions={
         <button onClick={() => setEditing({})} style={{
-          display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 9,
-          border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER,
+          display: 'flex', alignItems: 'center', gap: SP[1], padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,
+          border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
         }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
           Add Sender
         </button>
       }

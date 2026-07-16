@@ -6,7 +6,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { RED, GREEN, AMBER } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, RED, GREEN, AMBER } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -25,15 +25,15 @@ interface KYCExpiry {
 
 function DaysLeft({ days, status }: { days: number; status: string }) {
   if (status === 'expired' || days < 0) {
-    return <span style={{ fontSize: 12.5, fontWeight: 700, color: RED }}>Expired</span>
+    return <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: RED }}>Expired</span>
   }
   if (days <= 7) {
-    return <span style={{ fontSize: 12.5, fontWeight: 700, color: RED }}>{days}d left</span>
+    return <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: RED }}>{days}d left</span>
   }
   if (days <= 30) {
-    return <span style={{ fontSize: 12.5, fontWeight: 600, color: AMBER }}>{days}d left</span>
+    return <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: AMBER }}>{days}d left</span>
   }
-  return <span style={{ fontSize: 12.5, color: GREEN }}>{days}d left</span>
+  return <span style={{ fontSize: TEXT.sm, color: GREEN }}>{days}d left</span>
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -42,7 +42,7 @@ function StatusBadge({ status }: { status: string }) {
   const color = expired ? RED : AMBER
   const label = expired ? 'Expired' : 'Expiring Soon'
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: bg, color }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.full, background: bg, color }}>
       {label}
     </span>
   )
@@ -82,23 +82,23 @@ export default function KYCExpiry() {
   const cols: TableCol<KYCExpiry>[] = [
     {
       key: 'customer_name', label: 'Customer Name',
-      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.customer_name}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.customer_name}</span>,
     },
     {
       key: 'cif', label: 'CIF',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)', fontFamily: 'monospace' }}>{r.cif}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'monospace' }}>{r.cif}</span>,
     },
     {
       key: 'phone', label: 'Phone',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.phone}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.phone}</span>,
     },
     {
       key: 'kyc_type', label: 'KYC Type',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{r.kyc_type}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.kyc_type}</span>,
     },
     {
       key: 'expiry_date', label: 'Expiry Date',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{fmtDate(r.expiry_date)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{fmtDate(r.expiry_date)}</span>,
     },
     {
       key: 'days_to_expiry', label: 'Days Left',
@@ -117,7 +117,7 @@ export default function KYCExpiry() {
       actions={
         <button
           onClick={() => window.open('/api/compliance/kyc-expiry/export?horizon_days=' + (horizon === 'expired' ? '0' : horizon))}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1.5px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}
         >
           <span className="material-symbols-rounded" style={{ fontSize: 16 }}>download</span>
           Export CSV

@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, ErrBanner, SearchInput } from '../../comp
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtPct } from '../../lib/fmt'
-import { RED, GREEN, AMBER, BLUE, NAVY, INTER, SORA, NUM } from '../../lib/design'
+import { RED, GREEN, AMBER, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -43,7 +43,7 @@ function StatusPill({ status }: { status: string }) {
   const c = STATUS_COLORS[status] ?? { bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
   return (
     <span style={{
-      fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
       background: c.bg, color: c.txt, whiteSpace: 'nowrap',
     }}>{STATUS_LABELS[status] ?? status}</span>
   )
@@ -56,7 +56,7 @@ function EyeScoreBar({ score }: { score: number }) {
       <div style={{ width: 52, height: 5, borderRadius: 3, background: 'var(--bdr)', flexShrink: 0 }}>
         <div style={{ width: `${Math.min(100, (score / 850) * 100)}%`, height: '100%', borderRadius: 3, background: color }} />
       </div>
-      <span style={{ ...NUM, fontSize: 12, fontWeight: 700, color }}>{score}</span>
+      <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color }}>{score}</span>
     </div>
   )
 }
@@ -85,7 +85,7 @@ function ReviewActions({ review, onReload }: { review: CreditReview; onReload: (
   if (review.status === 'pending_review') {
     return (
       <button onClick={e => { e.stopPropagation(); decide('recommended') }} disabled={busy}
-        style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: 'rgba(37,99,235,.1)', color: BLUE, fontSize: 11.5, fontWeight: 600, cursor: busy ? 'default' : 'pointer' }}>
+        style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(37,99,235,.1)', color: BLUE, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: busy ? 'default' : 'pointer' }}>
         Recommend
       </button>
     )
@@ -94,11 +94,11 @@ function ReviewActions({ review, onReload }: { review: CreditReview; onReload: (
     return (
       <div style={{ display: 'flex', gap: 6 }}>
         <button onClick={e => { e.stopPropagation(); decide('approved') }} disabled={busy}
-          style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: 'rgba(22,163,74,.1)', color: GREEN, fontSize: 11.5, fontWeight: 600, cursor: busy ? 'default' : 'pointer' }}>
+          style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(22,163,74,.1)', color: GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: busy ? 'default' : 'pointer' }}>
           Approve
         </button>
         <button onClick={e => { e.stopPropagation(); decide('declined') }} disabled={busy}
-          style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: 'rgba(192,0,0,.07)', color: RED, fontSize: 11.5, fontWeight: 600, cursor: busy ? 'default' : 'pointer' }}>
+          style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(192,0,0,.07)', color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: busy ? 'default' : 'pointer' }}>
           Decline
         </button>
       </div>
@@ -143,65 +143,65 @@ function NewReviewModal({ onClose, onCreated }: { onClose: () => void; onCreated
 
   const inputStyle = {
     display: 'block' as const, width: '100%', marginTop: 6, padding: '8px 12px',
-    borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)',
-    fontSize: 13, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box' as const, outline: 'none',
+    borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)',
+    fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box' as const, outline: 'none',
   }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: 500, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,.25)', maxHeight: '90vh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>Submit Credit Limit Review</h3>
+      <div style={{ background: 'var(--card)', borderRadius: RADIUS['2xl'], width: 500, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,.25)', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP[5] }}>
+          <h3 style={{ margin: 0, fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>Submit Credit Limit Review</h3>
           <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)' }}>
             <span className="material-symbols-rounded">close</span>
           </button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Customer Name</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Customer Name</label>
             <input value={form.customer_name} onChange={e => setForm(f => ({ ...f, customer_name: e.target.value }))} style={inputStyle} placeholder="Full name" />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>CIF (optional)</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>CIF (optional)</label>
               <input value={form.cif_number} onChange={e => setForm(f => ({ ...f, cif_number: e.target.value }))} style={inputStyle} placeholder="CIF-00123" />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Card Type</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Card Type</label>
               <select value={form.card_type} onChange={e => setForm(f => ({ ...f, card_type: e.target.value }))} style={inputStyle}>
                 {['PREP', 'Amex Naira', 'Amex USD', 'Classic Accounts'].map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Current Limit (kobo)</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Current Limit (kobo)</label>
               <input type="number" value={form.current_limit_kobo} onChange={e => setForm(f => ({ ...f, current_limit_kobo: e.target.value }))} style={inputStyle} placeholder="e.g. 50000000" />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Proposed Limit (kobo)</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Proposed Limit (kobo)</label>
               <input type="number" value={form.proposed_limit_kobo} onChange={e => setForm(f => ({ ...f, proposed_limit_kobo: e.target.value }))} style={inputStyle} placeholder="e.g. 75000000" />
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Utilization %</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Utilization %</label>
               <input type="number" value={form.utilization_pct} onChange={e => setForm(f => ({ ...f, utilization_pct: e.target.value }))} style={inputStyle} placeholder="0–100" />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Eye Score</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Eye Score</label>
               <input type="number" value={form.eye_score} onChange={e => setForm(f => ({ ...f, eye_score: e.target.value }))} style={inputStyle} placeholder="300–850" />
             </div>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Notes</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Notes</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2}
               style={{ ...inputStyle, resize: 'vertical' }} placeholder="Justification for limit change…" />
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 9, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: INTER }}>Cancel</button>
-          <button onClick={submit} disabled={saving} style={{ padding: '9px 20px', borderRadius: 9, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'default' : 'pointer', fontFamily: INTER }}>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: RADIUS.lg, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER }}>Cancel</button>
+          <button onClick={submit} disabled={saving} style={{ padding: '9px 20px', borderRadius: RADIUS.lg, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: saving ? 'default' : 'pointer', fontFamily: INTER }}>
             {saving ? 'Submitting…' : 'Submit Review'}
           </button>
         </div>
@@ -262,9 +262,9 @@ export default function CardsCreditLimit() {
 
   const cols: TableCol<CreditReview>[] = useMemo(() => [
     { key: 'ref', label: 'Review #',
-      render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{r.ref}</span> },
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.ref}</span> },
     { key: 'customer_name', label: 'Customer',
-      render: r => <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{r.customer_name}</span> },
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.customer_name}</span> },
     { key: 'current_limit_kobo', label: 'Current Limit', align: 'right',
       render: r => <span style={{ ...NUM }}>{fmtKobo(Number(r.current_limit_kobo))}</span> },
     { key: 'proposed_limit_kobo', label: 'Proposed', align: 'right',
@@ -286,7 +286,7 @@ export default function CardsCreditLimit() {
             <div style={{ width: 40, height: 5, borderRadius: 3, background: 'var(--bdr)' }}>
               <div style={{ width: `${pct}%`, height: '100%', borderRadius: 3, background: pct > 80 ? RED : pct > 60 ? AMBER : GREEN }} />
             </div>
-            <span style={{ ...NUM, fontSize: 12 }}>{fmtPct(pct)}</span>
+            <span style={{ ...NUM, fontSize: TEXT.sm }}>{fmtPct(pct)}</span>
           </div>
         )
       },
@@ -312,40 +312,40 @@ export default function CardsCreditLimit() {
       subtitle="Cards recommend · Risk approve / decline"
       actions={
         <button onClick={() => setShowNew(true)} style={{
-          display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 9,
-          border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER,
+          display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: RADIUS.lg,
+          border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
         }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
           New Review
         </button>
       }
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginBottom: SP[5] }}>
         {[
           { label: 'Awaiting Risk Decision', value: pendingApproval, color: AMBER },
           { label: 'Total Proposed Credit',  value: fmtKobo(totalProposed), color: 'var(--txt)' },
           { label: 'Approved',               value: approvedCount, color: GREEN },
         ].map(({ label, value, color }) => (
-          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '14px 16px' }}>
-            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 6 }}>{label}</div>
-            <div style={{ ...NUM, fontSize: 20, fontWeight: 700, color }}>{value}</div>
+          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 6 }}>{label}</div>
+            <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color }}>{value}</div>
           </div>
         ))}
       </div>
 
-      <SectionCard title="Limit Reviews" badge={displayed.length} padding={false} actions={<button onClick={() => exportCreditLimitCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Limit Reviews" badge={displayed.length} padding={false} actions={<button onClick={() => exportCreditLimitCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 10, alignItems: 'center' }}>
           <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
           <select
             value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-            style={{ padding: '7px 12px', borderRadius: 9, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}
+            style={{ padding: '7px 12px', borderRadius: RADIUS.lg, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}
           >
             <option value="">All statuses</option>
             {Object.keys(STATUS_LABELS).map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
           </select>
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>{displayed.length} reviews</span>
+          <span style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{displayed.length} reviews</span>
         </div>
         <DataTable
           cols={cols}
@@ -359,9 +359,9 @@ export default function CardsCreditLimit() {
           onSelect={setSel}
           bulkBar={sel.size > 0 ? (
             <>
-              <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{sel.size} selected</span>
-              <button onClick={() => setSel(new Set())} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: GREEN, color: 'white', cursor: 'pointer', fontSize: 12 }}>Approve Limit Change</button>
-              <button onClick={() => setSel(new Set())} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', cursor: 'pointer', fontSize: 12 }}>Decline</button>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{sel.size} selected</span>
+              <button onClick={() => setSel(new Set())} style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: 'none', background: GREEN, color: 'white', cursor: 'pointer', fontSize: TEXT.sm }}>Approve Limit Change</button>
+              <button onClick={() => setSel(new Set())} style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', cursor: 'pointer', fontSize: TEXT.sm }}>Decline</button>
             </>
           ) : undefined}
         />

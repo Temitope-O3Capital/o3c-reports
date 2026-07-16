@@ -4,7 +4,7 @@ import { Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, Err
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiExport } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtPct, fmtNum, today, monthStart } from '../../lib/fmt'
-import { NAVY, GREEN, AMBER, RED, INTER, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, GREEN, AMBER, RED, INTER, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -39,12 +39,12 @@ const BAND_COLORS: Record<string, { bg: string; txt: string }> = {
 }
 
 function BandPill({ band }: { band: string | null }) {
-  if (!band) return <span style={{ fontSize: 12, color: 'var(--txt3)' }}>—</span>
+  if (!band) return <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>—</span>
   const s = BAND_COLORS[band] ?? { bg: 'rgba(75,85,99,.1)', txt: '#6B7280' }
   return (
     <span style={{
       ...NUM, display: 'inline-flex', alignItems: 'center',
-      fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full,
       background: s.bg, color: s.txt, whiteSpace: 'nowrap',
     }}>{band}</span>
   )
@@ -55,7 +55,7 @@ function ProductPill({ product }: { product: string }) {
   return (
     <span style={{
       ...NUM, display: 'inline-flex', alignItems: 'center',
-      fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full,
       background: 'var(--chip-bg)', color: 'var(--chip-txt)', whiteSpace: 'nowrap',
     }}>{label}</span>
   )
@@ -145,15 +145,15 @@ export default function RiskAppReview() {
       key: 'applicant_name', label: 'Applicant',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{r.applicant_name}</div>
-          {r.employer_name && <div style={{ fontSize: 10.5, color: 'var(--txt2)' }}>{r.employer_name}</div>}
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.applicant_name}</div>
+          {r.employer_name && <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{r.employer_name}</div>}
         </div>
       ),
     },
     {
       key: 'eye_score', label: 'Eye Score', align: 'right', sortable: true,
       render: r => (
-        <span style={{ ...NUM, fontSize: 13, fontWeight: 700, color: eyeScoreColor(r.eye_score) }}>
+        <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: eyeScoreColor(r.eye_score) }}>
           {r.eye_score ?? '—'}
         </span>
       ),
@@ -184,18 +184,18 @@ export default function RiskAppReview() {
     },
     {
       key: 'submitted_at', label: 'Submitted', sortable: true,
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.submitted_at)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.submitted_at)}</span>,
     },
   ]
 
   const bulkBar = selected.size > 0 ? (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <span style={{ fontSize: 12.5, color: 'var(--txt2)', fontFamily: INTER }}>
+      <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
         {selected.size} selected
       </span>
       <button
         onClick={() => apiExport(`/api/risk/applications/export?${buildQS(0)}`, 'risk-applications.csv')}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
       >
         <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV
       </button>
@@ -213,7 +213,7 @@ export default function RiskAppReview() {
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           <button
             onClick={() => apiExport(`/api/risk/applications/export?${buildQS(0)}`, 'risk-applications.csv')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt)', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.medium, cursor: 'pointer', whiteSpace: 'nowrap' }}
           >
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>Export CSV
           </button>
@@ -254,7 +254,7 @@ export default function RiskAppReview() {
             </select>
             <button
               onClick={() => load(0)}
-              style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
+              style={{ height: 32, padding: '0 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
             >Apply</button>
           </FilterBar>
         </div>
@@ -275,19 +275,19 @@ export default function RiskAppReview() {
 
         {pages > 1 && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderTop: '1px solid var(--bdr)' }}>
-            <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
               Page {currentPage} of {pages} · {total.toLocaleString()} records
             </span>
             <div style={{ display: 'flex', gap: 6 }}>
               <button
                 onClick={() => load(Math.max(0, offset - PAGE_SIZE))}
                 disabled={offset === 0}
-                style={{ padding: '4px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset === 0 ? 'not-allowed' : 'pointer', opacity: offset === 0 ? 0.5 : 1, fontSize: 12 }}
+                style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset === 0 ? 'not-allowed' : 'pointer', opacity: offset === 0 ? 0.5 : 1, fontSize: TEXT.sm }}
               >← Prev</button>
               <button
                 onClick={() => load(offset + PAGE_SIZE)}
                 disabled={currentPage >= pages}
-                style={{ padding: '4px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: currentPage >= pages ? 'not-allowed' : 'pointer', opacity: currentPage >= pages ? 0.5 : 1, fontSize: 12 }}
+                style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: currentPage >= pages ? 'not-allowed' : 'pointer', opacity: currentPage >= pages ? 0.5 : 1, fontSize: TEXT.sm }}
               >Next →</button>
             </div>
           </div>

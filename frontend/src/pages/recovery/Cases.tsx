@@ -6,7 +6,7 @@ import {
 } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
-import { RED, NAVY, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { RED, NAVY, GREEN, AMBER, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -54,8 +54,8 @@ function StatusPill({ status }: { status: string }) {
   return (
     <span style={{
       ...NUM, display: 'inline-flex', alignItems: 'center',
-      fontSize: 11.5, fontWeight: 600, padding: '2px 8px',
-      borderRadius: 20, background: s.bg, color: s.txt, whiteSpace: 'nowrap',
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px',
+      borderRadius: RADIUS['2xl'], background: s.bg, color: s.txt, whiteSpace: 'nowrap',
     }}>
       {status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
     </span>
@@ -66,13 +66,13 @@ function StatusPill({ status }: { status: string }) {
 
 const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
-  border: '1px solid var(--input-bdr)', borderRadius: 7,
-  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
+  border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
   fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
 }
 
 const labelStyle: React.CSSProperties = {
-  fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5,
+  fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5,
 }
 
 // ── Label/value row ───────────────────────────────────────────────────────────
@@ -80,8 +80,8 @@ const labelStyle: React.CSSProperties = {
 function LV({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-      <span style={{ fontSize: 12, color: 'var(--txt2)', width: 130, flexShrink: 0 }}>{label}</span>
-      <span style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 500 }}>{value ?? '—'}</span>
+      <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', width: 130, flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium }}>{value ?? '—'}</span>
     </div>
   )
 }
@@ -95,9 +95,9 @@ function Btn({ children, onClick, disabled, loading: busy, danger }: {
   return (
     <button onClick={onClick} disabled={disabled || busy} style={{
       display: 'inline-flex', alignItems: 'center', gap: 6,
-      padding: '7px 14px', borderRadius: 8, border: 'none',
+      padding: '7px 14px', borderRadius: RADIUS.md, border: 'none',
       background: danger ? RED : NAVY, color: '#fff',
-      fontSize: 13, fontWeight: 600,
+      fontSize: TEXT.base, fontWeight: FW.semibold,
       cursor: disabled || busy ? 'not-allowed' : 'pointer',
       opacity: disabled || busy ? 0.6 : 1,
     }}>
@@ -382,9 +382,9 @@ function WriteOffTab({ caseId, outstanding, onDone }: { caseId: number; outstand
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <ErrBanner error={err} />
       <div style={{
-        padding: '10px 12px', borderRadius: 8,
+        padding: '10px 12px', borderRadius: RADIUS.md,
         background: 'rgba(192,0,0,.06)', border: '1px solid rgba(192,0,0,.18)',
-        fontSize: 12.5, color: RED, lineHeight: 1.5,
+        fontSize: TEXT.sm, color: RED, lineHeight: 1.5,
       }}>
         Submit a write-off request for supervisor approval. Outstanding: {fmtKobo(outstanding)}.
       </div>
@@ -426,13 +426,13 @@ function CaseTimeline({ caseId }: { caseId: number }) {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--txt2)', fontSize: 13 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--txt2)', fontSize: TEXT.base }}>
         <Spinner size={14} color={NAVY} /> Loading…
       </div>
     )
   }
   if (!detail) {
-    return <div style={{ fontSize: 13, color: 'var(--txt2)' }}>No activity yet.</div>
+    return <div style={{ fontSize: TEXT.base, color: 'var(--txt2)' }}>No activity yet.</div>
   }
 
   type EvItem = { date: string; label: string; sub?: string; color: string }
@@ -458,7 +458,7 @@ function CaseTimeline({ caseId }: { caseId: number }) {
   ].sort((a, b) => (a.date > b.date ? -1 : 1))
 
   if (!events.length) {
-    return <div style={{ fontSize: 13, color: 'var(--txt2)' }}>No activity yet.</div>
+    return <div style={{ fontSize: TEXT.base, color: 'var(--txt2)' }}>No activity yet.</div>
   }
 
   return (
@@ -466,16 +466,16 @@ function CaseTimeline({ caseId }: { caseId: number }) {
       {events.map((ev, i) => (
         <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
           <span style={{
-            ...NUM, fontSize: 10.5, fontWeight: 600,
+            ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.semibold,
             background: `${ev.color}18`, color: ev.color,
-            padding: '2px 8px', borderRadius: 20,
+            padding: '2px 8px', borderRadius: RADIUS['2xl'],
             whiteSpace: 'nowrap', flexShrink: 0, marginTop: 1,
           }}>
             {fmtDate(ev.date)}
           </span>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', lineHeight: 1.3 }}>{ev.label}</div>
-            {ev.sub && <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 2 }}>{ev.sub}</div>}
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', lineHeight: 1.3 }}>{ev.label}</div>
+            {ev.sub && <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2 }}>{ev.sub}</div>}
           </div>
         </div>
       ))}
@@ -509,27 +509,27 @@ function DetailPanel({ rc, agents, onAction }: {
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginBottom: 2 }}>
               {rc.case_ref ?? rc.account_cif}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--txt2)' }}>CIF: {rc.account_cif}</div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>CIF: {rc.account_cif}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <StatusPill status={rc.status} />
             <button
               onClick={() => navigate(`/contacts/${rc.account_cif}`)}
-              style={{ padding: '3px 10px', borderRadius: 6, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+              style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
             >
               Full profile →
             </button>
           </div>
         </div>
-        <div style={{ ...NUM, fontSize: 22, fontWeight: 700, color: 'var(--txt)', marginTop: 10, letterSpacing: '-0.6px' }}>
+        <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)', marginTop: 10, letterSpacing: '-0.6px' }}>
           {fmtKobo(net)}
-          <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--txt2)', marginLeft: 8 }}>net outstanding</span>
+          <span style={{ fontSize: TEXT.sm, fontWeight: FW.normal, color: 'var(--txt2)', marginLeft: 8 }}>net outstanding</span>
         </div>
       </div>
 
       {/* Summary */}
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)' }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+        <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
           Case Summary
         </div>
         <LV label="Outstanding"    value={<span style={NUM}>{fmtKobo(rc.outstanding_kobo)}</span>} />
@@ -544,7 +544,7 @@ function DetailPanel({ rc, agents, onAction }: {
 
       {/* Activity timeline */}
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)' }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+        <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
           Activity
         </div>
         <CaseTimeline key={rc.id} caseId={rc.id} />
@@ -552,7 +552,7 @@ function DetailPanel({ rc, agents, onAction }: {
 
       {/* Actions */}
       <div style={{ padding: '16px 20px', flex: 1 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+        <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
           Actions
         </div>
         <Tabs tabs={ACTION_TABS} active={tab} onChange={setTab} />
@@ -618,8 +618,8 @@ function ReassignModal({ open, onClose, selectedIds, agents, onDone }: {
             Assign {selectedIds.size} Case{selectedIds.size !== 1 ? 's' : ''}
           </Btn>
           <button onClick={onClose} style={{
-            padding: '7px 14px', borderRadius: 8, border: '1px solid var(--bdr)',
-            background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer',
+            padding: '7px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
+            background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer',
           }}>Cancel</button>
         </div>
       </div>
@@ -697,8 +697,8 @@ export default function RecoveryCases() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)' }}>Cases</span>
               <span style={{
-                ...NUM, fontSize: 11, fontWeight: 700, padding: '1px 7px',
-                borderRadius: 20, background: 'rgba(14,40,65,.08)', color: NAVY,
+                ...NUM, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '1px 7px',
+                borderRadius: RADIUS['2xl'], background: 'rgba(14,40,65,.08)', color: NAVY,
               }}>{cases.length}</span>
             </div>
             <FilterBar onReset={() => { setStatusFilter(''); setSearchQ('') }}>
@@ -721,14 +721,14 @@ export default function RecoveryCases() {
               padding: '7px 14px', background: '#F0F4FF',
               borderBottom: '1px solid var(--bdr)', flexShrink: 0,
             }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: NAVY }}>{checkedIds.size} selected</span>
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>{checkedIds.size} selected</span>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
                 <button
                   onClick={() => setReassignOpen(true)}
                   style={{
-                    fontSize: 11.5, fontWeight: 500, color: NAVY,
+                    fontSize: TEXT.xs, fontWeight: FW.medium, color: NAVY,
                     background: 'none', border: `1px solid ${NAVY}30`,
-                    borderRadius: 6, padding: '3px 9px', cursor: 'pointer',
+                    borderRadius: RADIUS.sm, padding: '3px 9px', cursor: 'pointer',
                   }}
                 >
                   Reassign
@@ -737,7 +737,7 @@ export default function RecoveryCases() {
                   width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center',
                   border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)', borderRadius: '50%',
                 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>close</span>
                 </button>
               </div>
             </div>
@@ -753,11 +753,11 @@ export default function RecoveryCases() {
           {/* List */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {loading ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10, color: 'var(--txt2)', fontSize: 13 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10, color: 'var(--txt2)', fontSize: TEXT.base }}>
                 <Spinner size={16} color={NAVY} /> Loading…
               </div>
             ) : cases.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--txt2)', fontSize: 13 }}>
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--txt2)', fontSize: TEXT.base }}>
                 No cases match the current filters.
               </div>
             ) : (
@@ -785,20 +785,20 @@ export default function RecoveryCases() {
                     />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {rc.case_ref ?? rc.account_cif}
                         </span>
                         <StatusPill status={rc.status} />
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
-                        <span style={{ ...NUM, fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>
+                        <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
                           {fmtKobo(net)}
                         </span>
                         {rc.legal_stage && (
-                          <span style={{ ...NUM, fontSize: 10.5, color: AMBER }}>⚖ {rc.legal_stage}</span>
+                          <span style={{ ...NUM, fontSize: TEXT['2xs'], color: AMBER }}>⚖ {rc.legal_stage}</span>
                         )}
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--txt2)' }}>
+                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
                         {rc.agent_name ?? <span style={{ color: RED }}>Unassigned</span>} · {rc.account_cif}
                       </div>
                     </div>
@@ -820,7 +820,7 @@ export default function RecoveryCases() {
               height: '100%', gap: 12, color: 'var(--txt2)',
             }}>
               <span className="material-symbols-rounded" style={{ fontSize: 48, color: 'var(--txt3)' }}>gavel</span>
-              <span style={{ fontSize: 14 }}>Select a case from the list</span>
+              <span style={{ fontSize: TEXT.md }}>Select a case from the list</span>
             </div>
           )}
         </div>

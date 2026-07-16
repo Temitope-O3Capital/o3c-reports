@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Page, FilterBar, filterInputStyle, ErrBanner, Modal, ConfirmModal, Spinner } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { NAVY, GREEN, AMBER, NUM, INTER } from '../../lib/design'
+import { NAVY, GREEN, AMBER, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ function CatPill({ cat }: { cat: string }) {
     <span style={{
       ...NUM,
       display: 'inline-flex', alignItems: 'center',
-      fontSize: 10.5, fontWeight: 600, padding: '1px 7px', borderRadius: 20,
+      fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS['2xl'],
       background: 'var(--chip-bg)', color: 'var(--chip-txt)', whiteSpace: 'nowrap',
     }}>
       {cat}
@@ -55,7 +55,7 @@ function StatusPill({ status }: { status: string }) {
     <span style={{
       ...NUM,
       display: 'inline-flex', alignItems: 'center',
-      fontSize: 10.5, fontWeight: 600, padding: '1px 7px', borderRadius: 20,
+      fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS['2xl'],
       background: s.bg, color: s.txt, whiteSpace: 'nowrap',
     }}>
       {status}
@@ -66,12 +66,12 @@ function StatusPill({ status }: { status: string }) {
 // ── Helpful badge ──────────────────────────────────────────────────────────────
 
 function HelpfulBadge({ pct }: { pct: number | null }) {
-  if (pct === null) return <span style={{ fontSize: 12, color: 'var(--txt3)' }}>—</span>
+  if (pct === null) return <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>—</span>
   const color = pct >= 70 ? GREEN : AMBER
   return (
     <span style={{
       ...NUM,
-      fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'],
       background: pct >= 70 ? 'rgba(22,163,74,.12)' : 'rgba(217,119,6,.12)',
       color, whiteSpace: 'nowrap',
     }}>
@@ -95,13 +95,13 @@ function ArticleForm({ form, onChange }: {
 }) {
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)',
-    borderRadius: 7, fontSize: 13, background: 'var(--input-bg)',
+    borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)',
     color: 'var(--txt)', fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Title</label>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Title</label>
         <input
           value={form.title}
           onChange={e => onChange({ ...form, title: e.target.value })}
@@ -109,9 +109,9 @@ function ArticleForm({ form, onChange }: {
           style={inputStyle}
         />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Category</label>
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Category</label>
           <select
             value={form.category}
             onChange={e => onChange({ ...form, category: e.target.value })}
@@ -122,7 +122,7 @@ function ArticleForm({ form, onChange }: {
           </select>
         </div>
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Status</label>
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Status</label>
           <select
             value={form.status}
             onChange={e => onChange({ ...form, status: e.target.value })}
@@ -136,7 +136,7 @@ function ArticleForm({ form, onChange }: {
         </div>
       </div>
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Body</label>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Body</label>
         <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
           value={form.body}
           onChange={e => onChange({ ...form, body: e.target.value })}
@@ -157,14 +157,14 @@ function ActionBtn({ icon, label, onClick }: { icon: string; label: string; onCl
       onClick={e => { e.stopPropagation(); onClick(e) }}
       title={label}
       style={{
-        width: 28, height: 28, borderRadius: 7, border: '1.5px solid var(--input-bdr)',
+        width: 28, height: 28, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)',
         background: 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         cursor: 'pointer', color: 'var(--txt2)',
       }}
       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--txt2)'; (e.currentTarget as HTMLElement).style.color = 'var(--txt)' }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--input-bdr)'; (e.currentTarget as HTMLElement).style.color = 'var(--txt2)' }}
     >
-      <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{icon}</span>
+      <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>{icon}</span>
     </button>
   )
 }
@@ -344,17 +344,17 @@ export default function KnowledgeBase() {
   }
 
   const modalFooter = (onSave: () => void) => (
-    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+    <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
       <button
         onClick={() => { setNewOpen(false); setEditArticle(null) }}
-        style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}
+        style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}
       >
         Cancel
       </button>
       <button
         onClick={onSave}
         disabled={saving}
-        style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 8 }}
+        style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', opacity: saving ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: SP[2] }}
       >
         {saving && <Spinner size={14} color="#fff" />}
         Save
@@ -367,8 +367,8 @@ export default function KnowledgeBase() {
       title="Knowledge Base"
       subtitle="Help articles for agents and customers"
       actions={
-        <button onClick={openNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+        <button onClick={openNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
           New Article
         </button>
       }
@@ -389,7 +389,7 @@ export default function KnowledgeBase() {
 
       {/* Search bar */}
       <div style={{ position: 'relative', marginBottom: 14 }}>
-        <span className="material-symbols-rounded" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: 'var(--txt3)', pointerEvents: 'none' }}>search</span>
+        <span className="material-symbols-rounded" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: TEXT.lg, color: 'var(--txt3)', pointerEvents: 'none' }}>search</span>
         <input
           placeholder="Search articles…"
           value={searchQ}
@@ -404,11 +404,11 @@ export default function KnowledgeBase() {
           <Spinner size={28} />
         </div>
       ) : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--txt2)', fontSize: 13 }}>
+        <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>
           No articles found
         </div>
       ) : (
-        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, overflow: 'hidden' }}>
           {filtered.map(a => (
             <div key={a.id}>
               {/* Row */}
@@ -424,12 +424,12 @@ export default function KnowledgeBase() {
               >
                 {/* Left: title + pills */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{a.title}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{a.title}</span>
                     <CatPill cat={a.category} />
                     <StatusPill status={a.status} />
                   </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 3, fontFamily: INTER }}>by {a.created_by}</div>
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 3, fontFamily: INTER }}>by {a.created_by}</div>
                 </div>
 
                 {/* Middle: helpful % */}
@@ -439,7 +439,7 @@ export default function KnowledgeBase() {
 
                 {/* Right: last updated + actions */}
                 <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(a.last_updated)}</span>
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(a.last_updated)}</span>
                   <div style={{ display: 'flex', gap: 5 }} onClick={e => e.stopPropagation()}>
                     <ActionBtn icon="edit" label="Edit" onClick={() => openEdit(a)} />
                     <button
@@ -447,8 +447,8 @@ export default function KnowledgeBase() {
                       title={a.status === 'Live' ? 'Unpublish' : 'Publish'}
                       style={{
                         ...NUM,
-                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                        padding: '3px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 11.5, fontWeight: 600,
+                        display: 'inline-flex', alignItems: 'center', gap: SP[1],
+                        padding: '3px 10px', borderRadius: RADIUS.sm, cursor: 'pointer', fontSize: TEXT.xs, fontWeight: FW.semibold,
                         border: a.status === 'Live' ? '1.5px solid rgba(217,119,6,.3)' : '1.5px solid rgba(22,163,74,.3)',
                         background: 'transparent',
                         color: a.status === 'Live' ? '#D97706' : GREEN,
@@ -462,8 +462,8 @@ export default function KnowledgeBase() {
                         title="Approve article for publication"
                         style={{
                           ...NUM,
-                          display: 'inline-flex', alignItems: 'center', gap: 4,
-                          padding: '3px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 11.5, fontWeight: 600,
+                          display: 'inline-flex', alignItems: 'center', gap: SP[1],
+                          padding: '3px 10px', borderRadius: RADIUS.sm, cursor: 'pointer', fontSize: TEXT.xs, fontWeight: FW.semibold,
                           border: `1.5px solid ${GREEN}40`, background: `${GREEN}0d`, color: GREEN,
                         }}
                       >
@@ -484,39 +484,39 @@ export default function KnowledgeBase() {
                   background: 'var(--th-bg)',
                 }}>
                   <div style={{
-                    whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: 13,
+                    whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: TEXT.base,
                     color: 'var(--txt)', padding: '12px 0',
                   }}>
                     {a.body || <span style={{ color: 'var(--txt3)', fontStyle: 'italic' }}>No content.</span>}
                   </div>
 
                   {/* Helpful / Not helpful feedback */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderTop: '1px solid var(--bdr)', paddingTop: 12 }}>
-                    <span style={{ fontSize: 12, color: 'var(--txt2)', fontWeight: 500 }}>Was this helpful?</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderTop: '1px solid var(--bdr)', paddingTop: SP[3] }}>
+                    <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.medium }}>Was this helpful?</span>
                     {votedIds.has(a.id) ? (
-                      <span style={{ fontSize: 12, color: GREEN, fontWeight: 600 }}>Thanks for your feedback!</span>
+                      <span style={{ fontSize: TEXT.sm, color: GREEN, fontWeight: FW.semibold }}>Thanks for your feedback!</span>
                     ) : (
                       <>
                         <button
                           onClick={e => handleFeedback(a.id, true, e)}
                           style={{
                             display: 'inline-flex', alignItems: 'center', gap: 5,
-                            padding: '4px 12px', border: `1.5px solid ${GREEN}40`, borderRadius: 6,
-                            background: `${GREEN}0d`, color: GREEN, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                            padding: `${SP[1]} ${SP[3]}`, border: `1.5px solid ${GREEN}40`, borderRadius: RADIUS.sm,
+                            background: `${GREEN}0d`, color: GREEN, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
                           }}
                         >
-                          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>thumb_up</span>
+                          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>thumb_up</span>
                           Yes{(a.helpful_count ?? 0) > 0 && ` · ${a.helpful_count}`}
                         </button>
                         <button
                           onClick={e => handleFeedback(a.id, false, e)}
                           style={{
                             display: 'inline-flex', alignItems: 'center', gap: 5,
-                            padding: '4px 12px', border: '1.5px solid var(--bdr)', borderRadius: 6,
-                            background: 'transparent', color: 'var(--txt2)', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                            padding: `${SP[1]} ${SP[3]}`, border: '1.5px solid var(--bdr)', borderRadius: RADIUS.sm,
+                            background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
                           }}
                         >
-                          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>thumb_down</span>
+                          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>thumb_down</span>
                           No{(a.not_helpful_count ?? 0) > 0 && ` · ${a.not_helpful_count}`}
                         </button>
                       </>

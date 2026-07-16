@@ -6,7 +6,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 import type { AuthUser } from '../../hooks/useAuth'
 
@@ -37,7 +37,7 @@ const TYPE_COLORS: Record<string, { color: string; bg: string }> = {
 function TypePill({ type }: { type: string }) {
   const s = TYPE_COLORS[type] ?? TYPE_COLORS.Query
   return (
-    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color }}>
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.full, background: s.bg, color: s.color }}>
       {type}
     </span>
   )
@@ -54,7 +54,7 @@ function OutcomePill({ outcome }: { outcome?: string }) {
   if (!outcome) return <span style={{ color: 'var(--txt3)' }}>—</span>
   const s = OUTCOME_STYLE[outcome?.toLowerCase()] ?? { color: 'var(--txt2)', bg: 'var(--chip-bg)' }
   return (
-    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color }}>
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.full, background: s.bg, color: s.color }}>
       {outcome}
     </span>
   )
@@ -144,14 +144,14 @@ export default function Disciplinary() {
   }
 
   const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
-    fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
+    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+    fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
   }
 
   const cols: TableCol<DisciplinaryCase>[] = [
     {
       key: 'employee_name', label: 'Employee',
-      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.employee_name}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.employee_name}</span>,
     },
     {
       key: 'case_type', label: 'Type',
@@ -159,7 +159,7 @@ export default function Disciplinary() {
     },
     {
       key: 'incident_date', label: 'Date',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{fmtDate(r.incident_date)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{fmtDate(r.incident_date)}</span>,
     },
     {
       key: 'outcome', label: 'Outcome',
@@ -167,7 +167,7 @@ export default function Disciplinary() {
     },
     {
       key: 'issued_by_name', label: 'Issued By',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.issued_by_name ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.issued_by_name ?? '—'}</span>,
     },
     {
       key: 'status', label: 'Status',
@@ -205,7 +205,7 @@ export default function Disciplinary() {
         </select>
       </FilterBar>
 
-      <SectionCard title="Cases" badge={cases.length} padding={false} actions={<button onClick={() => exportDisciplinaryCsv(cases)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Cases" badge={cases.length} padding={false} actions={<button onClick={() => exportDisciplinaryCsv(cases)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <DataTable<DisciplinaryCase>
           cols={cols}
           rows={cases}
@@ -222,7 +222,7 @@ export default function Disciplinary() {
           onSelect={setSel}
           bulkBar={
             <button onClick={handleBatchClose}
-              style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#C00000', color: 'white', cursor: 'pointer', fontSize: 12 }}>
+              style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: 'none', background: '#C00000', color: 'white', cursor: 'pointer', fontSize: TEXT.sm }}>
               Close Selected
             </button>
           }
@@ -233,7 +233,7 @@ export default function Disciplinary() {
       <Modal open={newOpen} onClose={() => setNewOpen(false)} title="New Disciplinary Case" width={460}
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={() => setNewOpen(false)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={() => setNewOpen(false)} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
             <button onClick={handleCreate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {saving && <Spinner size={14} color="#fff" />}
               Create Case
@@ -243,24 +243,24 @@ export default function Disciplinary() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Employee ID *</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Employee ID *</label>
             <input value={form.employee_id} onChange={e => setForm(f => ({ ...f, employee_id: e.target.value }))} style={inputStyle} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Type *</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Type *</label>
               <select value={form.case_type} onChange={e => setForm(f => ({ ...f, case_type: e.target.value }))}
                 style={{ ...inputStyle, height: 36, padding: '0 10px' }}>
                 {CASE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Incident Date *</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Incident Date *</label>
               <input type="date" value={form.incident_date} onChange={e => setForm(f => ({ ...f, incident_date: e.target.value }))} style={{ ...inputStyle, height: 36 }} />
             </div>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Outcome</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Outcome</label>
             <select value={form.outcome} onChange={e => setForm(f => ({ ...f, outcome: e.target.value }))}
               style={{ ...inputStyle, height: 36, padding: '0 10px' }}>
               <option value="">— Pending —</option>
@@ -268,7 +268,7 @@ export default function Disciplinary() {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Description</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Description</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
               rows={4} placeholder="Describe the incident…" style={{ ...inputStyle, resize: 'vertical' }} />
           </div>
@@ -284,14 +284,14 @@ export default function Disciplinary() {
               <OutcomePill outcome={detail.outcome} />
               <StatusBadge status={detail.status} size="sm" />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[2], fontSize: TEXT.base }}>
               <div><span style={{ color: 'var(--txt2)' }}>Employee:</span> <strong>{detail.employee_name}</strong></div>
               <div><span style={{ color: 'var(--txt2)' }}>Date:</span> <strong>{fmtDate(detail.incident_date)}</strong></div>
               <div><span style={{ color: 'var(--txt2)' }}>Issued By:</span> <strong>{detail.issued_by_name ?? '—'}</strong></div>
               <div><span style={{ color: 'var(--txt2)' }}>Created:</span> <strong>{fmtDate(detail.created_at)}</strong></div>
             </div>
             {detail.description && (
-              <div style={{ padding: '12px 14px', background: 'var(--th-bg)', borderRadius: 8, fontSize: 13, color: 'var(--txt)', lineHeight: 1.6 }}>
+              <div style={{ padding: '12px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md, fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.6 }}>
                 {detail.description}
               </div>
             )}

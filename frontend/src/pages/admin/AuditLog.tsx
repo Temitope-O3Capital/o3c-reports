@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, ErrBanner, SearchInput } from '../../comp
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
-import { NAVY, INTER, SORA, NUM } from '../../lib/design'
+import { NAVY, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -24,23 +24,23 @@ interface LogEntry {
 
 const COLS: TableCol<LogEntry>[] = [
   { key: 'ts', label: 'Time', sortable: true, width: 155,
-    render: r => <span style={{ ...NUM, fontSize: 11.5, color: 'var(--txt2)' }}>{fmtDatetime(r.ts)}</span> },
+    render: r => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)' }}>{fmtDatetime(r.ts)}</span> },
   { key: 'full_name', label: 'User',
     render: r => (
       <div>
-        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{r.full_name ?? r.email ?? 'Unknown'}</div>
-        {r.role && <div style={{ fontSize: 11.5, color: 'var(--txt3)', textTransform: 'capitalize' }}>{r.role.replace(/_/g, ' ')}</div>}
+        <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.full_name ?? r.email ?? 'Unknown'}</div>
+        {r.role && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', textTransform: 'capitalize' }}>{r.role.replace(/_/g, ' ')}</div>}
       </div>
     ),
   },
   { key: 'page', label: 'Module',
-    render: r => <span style={{ fontSize: 12, background: 'var(--chip-bg)', color: 'var(--chip-txt)', borderRadius: 6, padding: '2px 9px', fontWeight: 600 }}>{r.page}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, background: 'var(--chip-bg)', color: 'var(--chip-txt)', borderRadius: RADIUS.sm, padding: '2px 9px', fontWeight: FW.semibold }}>{r.page}</span> },
   { key: 'action', label: 'Action',
-    render: r => <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.action}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.action}</span> },
   { key: 'detail', label: 'Detail',
-    render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.detail || '—'}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.detail || '—'}</span> },
   { key: 'ip', label: 'IP', width: 120,
-    render: r => <span style={{ ...NUM, fontSize: 11.5, color: 'var(--txt3)' }}>{r.ip || '—'}</span> },
+    render: r => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.ip || '—'}</span> },
 ]
 
 // ── Export ────────────────────────────────────────────────────────────────────
@@ -117,7 +117,7 @@ export default function AdminAuditLog() {
         <select
           value={limit}
           onChange={e => { setLimit(Number(e.target.value)); load(Number(e.target.value)) }}
-          style={{ padding: '7px 12px', borderRadius: 9, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}
+          style={{ padding: '7px 12px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}
         >
           <option value={100}>Last 100</option>
           <option value={200}>Last 200</option>
@@ -128,18 +128,18 @@ export default function AdminAuditLog() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="Activity Log" badge={displayed.length} padding={false} actions={<button onClick={() => exportAuditLogCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Activity Log" badge={displayed.length} padding={false} actions={<button onClick={() => exportAuditLogCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
 
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: SP[2], alignItems: 'center' }}>
           <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
           <select
             value={pageFilter} onChange={e => setPageFilter(e.target.value)}
-            style={{ padding: '7px 12px', borderRadius: 9, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}
+            style={{ padding: '7px 12px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}
           >
             <option value="">All modules</option>
             {pages.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+          <span style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
             {displayed.length} of {rows.length} entries
           </span>
         </div>

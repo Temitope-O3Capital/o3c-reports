@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtNum } from '../../lib/fmt'
-import { RED, GREEN, AMBER, NAVY, SORA, INTER, NUM } from '../../lib/design'
+import { RED, GREEN, AMBER, NAVY, SORA, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 import { filterInputStyle } from '../../components/UI'
 
@@ -43,8 +43,8 @@ function StatusBadge({ status }: { status: string }) {
   const [color, bg] = map[status] ?? ['#6B7280', '#F5F6F8']
   return (
     <span style={{
-      fontSize: 11, fontWeight: 700, fontFamily: SORA, letterSpacing: '.04em',
-      textTransform: 'uppercase', padding: '3px 9px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.bold, fontFamily: SORA, letterSpacing: '.04em',
+      textTransform: 'uppercase', padding: '3px 9px', borderRadius: RADIUS['2xl'],
       background: bg, color, border: `1px solid ${color}40`,
     }}>
       {status}
@@ -57,11 +57,11 @@ function StatusBadge({ status }: { status: string }) {
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
     <div>
-      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
+      <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
         {label}
       </label>
       {children}
-      {hint && <p style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 4 }}>{hint}</p>}
+      {hint && <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>{hint}</p>}
     </div>
   )
 }
@@ -168,7 +168,7 @@ export default function CampaignEditor() {
           <StatusBadge status={campaign.status} />
           <button
             onClick={() => navigate(`/campaigns`)}
-            style={{ ...fld, width: 'auto', padding: '0 14px', height: 34, cursor: 'pointer', fontSize: 13, fontWeight: 500 }}
+            style={{ ...fld, width: 'auto', padding: '0 14px', height: 34, cursor: 'pointer', fontSize: TEXT.base, fontWeight: FW.medium }}
           >
             ← Back
           </button>
@@ -177,8 +177,8 @@ export default function CampaignEditor() {
               onClick={save}
               disabled={saving}
               style={{
-                height: 34, padding: '0 18px', borderRadius: 8, border: 'none',
-                background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600,
+                height: 34, padding: '0 18px', borderRadius: RADIUS.md, border: 'none',
+                background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold,
                 cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? .7 : 1,
                 fontFamily: SORA,
               }}
@@ -193,11 +193,11 @@ export default function CampaignEditor() {
 
       {!canEdit && (
         <div style={{
-          background: '#FFF9ED', border: '1px solid #F59E0B40', borderRadius: 8,
-          padding: '10px 14px', marginBottom: 20, fontSize: 13, color: '#92400E',
-          display: 'flex', alignItems: 'center', gap: 8,
+          background: '#FFF9ED', border: '1px solid #F59E0B40', borderRadius: RADIUS.md,
+          padding: '10px 14px', marginBottom: SP[5], fontSize: TEXT.base, color: '#92400E',
+          display: 'flex', alignItems: 'center', gap: SP[2],
         }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16, flexShrink: 0 }}>lock</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, flexShrink: 0 }}>lock</span>
           This campaign is <strong>{campaign.status}</strong> — editing is disabled. Only draft and scheduled campaigns can be modified.
         </div>
       )}
@@ -250,10 +250,10 @@ export default function CampaignEditor() {
                     disabled={!canEdit}
                     rows={14}
                     placeholder="Write your email body here. Use {{firstName}} etc. for personalisation."
-                    style={{ ...ta, fontSize: 13 }}
+                    style={{ ...ta, fontSize: TEXT.base }}
                   />
                 </Field>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
                   <Field label="From Name">
                     <input
                       value={fromName}
@@ -291,7 +291,7 @@ export default function CampaignEditor() {
                   rows={5}
                   maxLength={480}
                   placeholder="Write your SMS message here. Under 160 characters for a single SMS."
-                  style={{ ...ta, fontSize: 13 }}
+                  style={{ ...ta, fontSize: TEXT.base }}
                 />
               </Field>
             </SectionCard>
@@ -325,7 +325,7 @@ export default function CampaignEditor() {
                 ['Created By',   campaign.created_by_name ?? '—'],
                 ['Created',      fmtDate(campaign.created_at)],
               ].map(([label, value]) => (
-                <div key={String(label)} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12.5 }}>
+                <div key={String(label)} style={{ display: 'flex', justifyContent: 'space-between', gap: SP[3], fontSize: TEXT.sm }}>
                   <span style={{ color: 'var(--txt2)', flexShrink: 0 }}>{label}</span>
                   <span style={{ color: 'var(--txt)', fontWeight: 500, textAlign: 'right' }}>{value}</span>
                 </div>
@@ -338,8 +338,8 @@ export default function CampaignEditor() {
               onClick={save}
               disabled={saving}
               style={{
-                width: '100%', height: 40, border: 'none', borderRadius: 8,
-                background: NAVY, color: '#fff', fontSize: 14, fontWeight: 600,
+                width: '100%', height: 40, border: 'none', borderRadius: RADIUS.md,
+                background: NAVY, color: '#fff', fontSize: TEXT.md, fontWeight: FW.semibold,
                 cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? .7 : 1,
                 fontFamily: SORA,
               }}

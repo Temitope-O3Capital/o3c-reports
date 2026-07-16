@@ -11,7 +11,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, today, monthStart } from '../../lib/fmt'
-import { NAVY, BLUE, PURPLE, GREEN, RED, AMBER, NUM, SORA } from '../../lib/design'
+import { NAVY, BLUE, PURPLE, GREEN, RED, AMBER, NUM, SORA, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 import { useATVoice } from '../../hooks/useATVoice'
 import type { ATCallState } from '../../lib/atVoice'
@@ -86,11 +86,11 @@ function DirectionBadge({ direction }: { direction: string }) {
   const icon  = isIn ? 'call_received' : 'call_made'
   return (
     <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+      display: 'inline-flex', alignItems: 'center', gap: SP[1],
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'],
       background: color + '15', color, whiteSpace: 'nowrap',
     }}>
-      <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{icon}</span>
+      <span className="material-symbols-rounded" style={{ fontSize: TEXT.base }}>{icon}</span>
       {direction}
     </span>
   )
@@ -102,7 +102,7 @@ function OutcomePill({ outcome }: { outcome: string }) {
   const cfg = OUTCOME_CFG[outcome.toLowerCase()] ?? { bg: 'var(--chip-bg)', txt: 'var(--txt2)', label: outcome }
   return (
     <span style={{
-      fontSize: 11.5, fontWeight: 700, padding: '2px 9px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 9px', borderRadius: RADIUS['2xl'],
       background: cfg.bg, color: cfg.txt, whiteSpace: 'nowrap',
     }}>
       {cfg.label}
@@ -116,7 +116,7 @@ function DurationCell({ seconds, max }: { seconds: number; max: number }) {
   const pct = max > 0 ? Math.min((seconds / max) * 100, 100) : 0
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 70 }}>
-      <span style={{ ...NUM, fontSize: 12.5, color: 'var(--txt)', fontWeight: 600 }}>{fmtDuration(seconds)}</span>
+      <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.semibold }}>{fmtDuration(seconds)}</span>
       {seconds > 0 && (
         <div style={{ height: 3, borderRadius: 2, background: 'var(--bdr)', overflow: 'hidden' }}>
           <div style={{ height: '100%', width: `${pct}%`, background: GREEN, borderRadius: 2 }} />
@@ -145,11 +145,11 @@ function CallsByDayChart({ rows }: { rows: CallLog[] }) {
   return (
     <ResponsiveContainer width="100%" height={160}>
       <BarChart data={data} barSize={14} margin={{ top: 4, right: 0, bottom: 0, left: -20 }}>
-        <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--txt3)' }} tickLine={false} axisLine={false} interval={1} />
-        <YAxis tick={{ fontSize: 10, fill: 'var(--txt3)' }} tickLine={false} axisLine={false} allowDecimals={false} />
+        <XAxis dataKey="date" tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt3)' }} tickLine={false} axisLine={false} interval={1} />
+        <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt3)' }} tickLine={false} axisLine={false} allowDecimals={false} />
         <Tooltip
-          contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 8 }}
-          labelStyle={{ color: 'var(--txt)', fontWeight: 600 }}
+          contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md }}
+          labelStyle={{ color: 'var(--txt)', fontWeight: FW.semibold }}
         />
         <Bar dataKey="Inbound"  fill={BLUE}   radius={[3,3,0,0]} stackId="a" />
         <Bar dataKey="Outbound" fill={PURPLE} radius={[3,3,0,0]} stackId="a" />
@@ -177,8 +177,8 @@ function OutcomeDonut({ rows }: { rows: CallLog[] }) {
         <Pie data={data} dataKey="value" innerRadius={42} outerRadius={62} paddingAngle={2} stroke="none">
           {data.map((_, i) => <Cell key={i} fill={OUTCOME_CHART_COLORS[i % OUTCOME_CHART_COLORS.length]} />)}
         </Pie>
-        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-        <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 8 }} />
+        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: TEXT.xs }} />
+        <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md }} />
       </PieChart>
     </ResponsiveContainer>
   )
@@ -235,33 +235,33 @@ function LiveDialer({ onCallLogged }: { onCallLogged: () => void }) {
   return (
     <div style={{
       background: 'var(--card)', border: `1px solid ${isActive ? GREEN + '40' : isIncoming ? GREEN + '60' : 'var(--bdr)'}`,
-      borderRadius: 10, padding: '14px 18px', marginBottom: 16,
-      display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+      borderRadius: RADIUS.lg, padding: '14px 18px', marginBottom: SP[4],
+      display: 'flex', alignItems: 'center', gap: SP[4], flexWrap: 'wrap',
       boxShadow: isIncoming ? `0 0 0 3px ${GREEN}25` : undefined,
       transition: 'border-color 0.2s, box-shadow 0.2s',
     }}>
       {/* Status */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 140 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], minWidth: 140 }}>
         <div style={{ width: 8, height: 8, borderRadius: '50%', background: dot.color, flexShrink: 0,
           boxShadow: isActive || isIncoming ? `0 0 0 3px ${dot.color}30` : undefined }} />
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: dot.color }}>{dot.label}</span>
+        <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: dot.color }}>{dot.label}</span>
       </div>
 
       {/* Incoming call banner */}
       {isIncoming && state.type === 'incoming' && (
         <>
-          <span style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 600 }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16, verticalAlign: 'middle', marginRight: 4 }}>call_received</span>
+          <span style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.semibold }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, verticalAlign: 'middle', marginRight: 4 }}>call_received</span>
             {state.phone}
           </span>
           <button onClick={acceptIncoming}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 14px', background: GREEN, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>call</span>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 14px', background: GREEN, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>call</span>
             Accept
           </button>
           <button onClick={hangup}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 14px', background: RED, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>call_end</span>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 14px', background: RED, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>call_end</span>
             Decline
           </button>
         </>
@@ -271,17 +271,17 @@ function LiveDialer({ onCallLogged }: { onCallLogged: () => void }) {
       {isActive && (
         <>
           {state.type === 'active' || state.type === 'calling' ? (
-            <span style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 600, ...NUM }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 16, verticalAlign: 'middle', marginRight: 4 }}>call</span>
+            <span style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.semibold, ...NUM }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, verticalAlign: 'middle', marginRight: 4 }}>call</span>
               {state.phone}
               {state.type === 'active' && (
-                <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--txt2)', fontWeight: 700 }}>{fmtTimer(state.elapsed)}</span>
+                <span style={{ marginLeft: 8, fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.bold }}>{fmtTimer(state.elapsed)}</span>
               )}
             </span>
           ) : null}
           <button onClick={handleHangup}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 14px', background: RED, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>call_end</span>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 14px', background: RED, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>call_end</span>
             Hang up
           </button>
         </>
@@ -298,19 +298,19 @@ function LiveDialer({ onCallLogged }: { onCallLogged: () => void }) {
               placeholder="Phone number, e.g. +2348012345678"
               style={{
                 flex: 1, height: 36, padding: '0 10px', border: '1px solid var(--input-bdr)',
-                borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
+                borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
                 fontFamily: SORA,
               }}
             />
             <button onClick={handleCall} disabled={calling}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '0 14px', height: 36,
-                background: NAVY, color: '#fff', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 600,
+                background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold,
                 cursor: calling ? 'wait' : 'pointer', opacity: calling ? 0.7 : 1 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>call</span>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>call</span>
               Call
             </button>
           </div>
-          <span style={{ fontSize: 11.5, color: 'var(--txt3)', marginLeft: 'auto' }}>
+          <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 'auto' }}>
             AT WebRTC · Calls log automatically
           </span>
         </>
@@ -443,7 +443,7 @@ export default function Calls() {
       width: 32,
       render: r => (
         <span className="material-symbols-rounded" style={{
-          fontSize: 18,
+          fontSize: TEXT.xl,
           color: r.direction === 'Inbound' ? BLUE : PURPLE,
         }}>
           {r.direction === 'Inbound' ? 'call_received' : 'call_made'}
@@ -455,8 +455,8 @@ export default function Calls() {
       label: 'Agent',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.agent_name}</div>
-          <div style={{ fontSize: 11, color: 'var(--txt3)', marginTop: 1 }}>{r.direction}</div>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.agent_name}</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 1 }}>{r.direction}</div>
         </div>
       ),
     },
@@ -465,10 +465,10 @@ export default function Calls() {
       label: 'Customer',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, color: 'var(--txt)', fontWeight: r.customer_name ? 500 : 400 }}>
+          <div style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: r.customer_name ? 500 : 400 }}>
             {r.customer_name ?? <span style={{ color: 'var(--txt3)' }}>Unknown</span>}
           </div>
-          <div style={{ fontSize: 11, color: 'var(--txt3)', marginTop: 1, fontFamily: 'monospace' }}>{r.phone}</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 1, fontFamily: 'monospace' }}>{r.phone}</div>
         </div>
       ),
     },
@@ -489,11 +489,11 @@ export default function Calls() {
       render: r => r.ticket_id && r.ticket_ref ? (
         <span
           onClick={e => { e.stopPropagation(); navigate(`/helpdesk/${r.ticket_id}`) }}
-          style={{ ...NUM, fontSize: 12, fontWeight: 700, color: NAVY, cursor: 'pointer', textDecoration: 'underline' }}
+          style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY, cursor: 'pointer', textDecoration: 'underline' }}
         >
           {r.ticket_ref}
         </span>
-      ) : <span style={{ color: 'var(--txt3)', fontSize: 12 }}>—</span>,
+      ) : <span style={{ color: 'var(--txt3)', fontSize: TEXT.sm }}>—</span>,
     },
     {
       key: 'called_at',
@@ -501,8 +501,8 @@ export default function Calls() {
       sortable: true,
       render: r => (
         <div>
-          <div style={{ fontSize: 12, color: 'var(--txt2)', fontWeight: 500 }}>{relativeTime(r.called_at)}</div>
-          <div style={{ fontSize: 10.5, color: 'var(--txt3)', marginTop: 1 }}>{fmtDatetime(r.called_at)}</div>
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.medium }}>{relativeTime(r.called_at)}</div>
+          <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 1 }}>{fmtDatetime(r.called_at)}</div>
         </div>
       ),
     },
@@ -510,21 +510,21 @@ export default function Calls() {
       key: 'notes' as any,
       label: 'Notes',
       render: r => r.notes ? (
-        <span title={r.notes} style={{ fontSize: 12, color: 'var(--txt2)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', maxWidth: 200 }}>
+        <span title={r.notes} style={{ fontSize: TEXT.sm, color: 'var(--txt2)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', maxWidth: 200 }}>
           {r.notes}
         </span>
-      ) : <span style={{ color: 'var(--txt3)', fontSize: 12 }}>—</span>,
+      ) : <span style={{ color: 'var(--txt3)', fontSize: TEXT.sm }}>—</span>,
     },
   ]
 
   const inputSt: React.CSSProperties = {
     width: '100%', height: 36, padding: '0 10px',
-    border: '1px solid var(--input-bdr)', borderRadius: 7,
-    fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
+    border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+    fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
     boxSizing: 'border-box', fontFamily: SORA,
   }
   const labelSt: React.CSSProperties = {
-    display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5,
+    display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5,
   }
 
   return (
@@ -532,15 +532,15 @@ export default function Calls() {
       title="Call Log"
       subtitle="All inbound and outbound calls across agents"
       actions={
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: SP[2] }}>
           <button onClick={exportCsv}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
             Export CSV
           </button>
           <button onClick={() => setLogOpen(true)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add_call</span>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add_call</span>
             Log Call
           </button>
         </div>
@@ -552,7 +552,7 @@ export default function Calls() {
       <LiveDialer onCallLogged={() => setLogOpen(true)} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="Total Calls"    value={kpis.total}     icon="call"          accent={NAVY}  loading={loading} />
         <KpiCard label="Completed"      value={kpis.completed} icon="check_circle"  accent={GREEN} loading={loading}
           sub={kpis.total ? `${((kpis.completed/kpis.total)*100).toFixed(0)}% answer rate` : undefined} />
@@ -564,7 +564,7 @@ export default function Calls() {
 
       {/* Charts row */}
       {!loading && rows.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 14, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 14, marginBottom: SP[4] }}>
           <SectionCard title="Calls by Day" subtitle="Last 14 days — Inbound vs Outbound">
             <CallsByDayChart rows={rows} />
           </SectionCard>
@@ -599,7 +599,7 @@ export default function Calls() {
             </select>
             <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
             <button onClick={load}
-              style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+              style={{ height: 32, padding: '0 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
               Apply
             </button>
           </FilterBar>
@@ -624,13 +624,13 @@ export default function Calls() {
         title="Log a Call"
         width={500}
         footer={
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
             <button onClick={() => { setLogOpen(false); setCallScript(null) }}
-              style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
+              style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
               Cancel
             </button>
             <button onClick={handleLogCall} disabled={logSaving}
-              style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: logSaving ? 'wait' : 'pointer', opacity: logSaving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: logSaving ? 'wait' : 'pointer', opacity: logSaving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: SP[2] }}>
               {logSaving && <Spinner size={13} color="#fff" />}
               Log Call
             </button>
@@ -640,7 +640,7 @@ export default function Calls() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: SORA }}>
 
           {/* Customer */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <div>
               <label style={labelSt}>Customer Name</label>
               <input value={logForm.customer_name} onChange={e => setLogForm(f => ({ ...f, customer_name: e.target.value }))}
@@ -654,7 +654,7 @@ export default function Calls() {
           </div>
 
           {/* Direction / Outcome / Duration */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: SP[3] }}>
             <div>
               <label style={labelSt}>Direction</label>
               <select value={logForm.direction} onChange={e => setLogForm(f => ({ ...f, direction: e.target.value }))} style={inputSt}>
@@ -698,28 +698,28 @@ export default function Calls() {
 
           {/* Call script panel */}
           {callScript && (
-            <div style={{ border: `1px solid ${NAVY}25`, borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ border: `1px solid ${NAVY}25`, borderRadius: RADIUS.md, overflow: 'hidden' }}>
               <button type="button" onClick={() => setScriptExpanded(x => !x)}
                 style={{ width: '100%', padding: '9px 14px', background: `${NAVY}08`, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: SORA }}>
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: NAVY, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 15 }}>assignment</span>
+                <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>assignment</span>
                   {callScript.name}
                 </span>
-                <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{scriptExpanded ? '▲' : '▼'}</span>
+                <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{scriptExpanded ? '▲' : '▼'}</span>
               </button>
               {scriptExpanded && (
-                <div style={{ padding: '10px 14px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ padding: '10px 14px 14px', display: 'flex', flexDirection: 'column', gap: SP[2] }}>
                   {[...callScript.steps].sort((a, b) => a.order - b.order).map(step => (
                     <div key={step.order} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                      <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: NAVY, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
+                      <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: NAVY, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT.xs, fontWeight: FW.bold }}>
                         {step.order}
                       </div>
-                      <div style={{ fontSize: 13, color: 'var(--txt)', lineHeight: 1.5 }}>
+                      <div style={{ fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.5 }}>
                         {step.prompt}
                         {step.options && step.options.length > 0 && (
-                          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 4 }}>
+                          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: SP[1] }}>
                             {step.options.map((opt, i) => (
-                              <span key={i} style={{ fontSize: 11, padding: '1px 7px', borderRadius: 10, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>{opt}</span>
+                              <span key={i} style={{ fontSize: TEXT.xs, padding: '1px 7px', borderRadius: RADIUS.lg, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>{opt}</span>
                             ))}
                           </div>
                         )}

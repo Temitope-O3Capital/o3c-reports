@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtPct } from '../../lib/fmt'
-import { GREEN, AMBER, RED, NAVY, BLUE, NUM } from '../../lib/design'
+import { GREEN, AMBER, RED, NAVY, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -46,17 +46,17 @@ function FunnelChart({ steps }: { steps: FunnelStep[] }) {
         return (
           <div key={step.label}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{step.label}</span>
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{step.label}</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 {i > 0 && (
-                  <span style={{ fontSize: 11, fontWeight: 600, color: pctOf >= .5 ? GREEN : pctOf >= .2 ? AMBER : RED }}>
+                  <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: pctOf >= .5 ? GREEN : pctOf >= .2 ? AMBER : RED }}>
                     {fmtPct(pctOf)} of prev
                   </span>
                 )}
-                <span style={{ fontSize: 14, fontWeight: 800, color: step.color, ...NUM }}>{fmtNum(step.value)}</span>
+                <span style={{ fontSize: TEXT.md, fontWeight: FW.extrabold, color: step.color, ...NUM }}>{fmtNum(step.value)}</span>
               </div>
             </div>
-            <div style={{ height: 28, background: 'var(--bdr)', borderRadius: 6, overflow: 'hidden', position: 'relative' }}>
+            <div style={{ height: 28, background: 'var(--bdr)', borderRadius: RADIUS.sm, overflow: 'hidden', position: 'relative' }}>
               <div style={{ width: `${barW}%`, height: '100%', background: step.color, borderRadius: 6, transition: 'width .4s', opacity: .85 }} />
             </div>
           </div>
@@ -130,7 +130,7 @@ export default function Funnel() {
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner size={32} /></div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: SP[4] }}>
           <SectionCard title="Customer Journey" subtitle="Contact → Active">
             <FunnelChart steps={customerSteps} />
           </SectionCard>
@@ -138,27 +138,27 @@ export default function Funnel() {
           <SectionCard title="LOS Pipeline" subtitle="Submitted → Active">
             {losSteps.length > 0
               ? <FunnelChart steps={losSteps} />
-              : <div style={{ textAlign: 'center', padding: 32, color: 'var(--txt3)', fontSize: 13 }}>No pipeline data</div>
+              : <div style={{ textAlign: 'center', padding: 32, color: 'var(--txt3)', fontSize: TEXT.base }}>No pipeline data</div>
             }
           </SectionCard>
 
           <SectionCard title="Campaign Email Funnel" subtitle="Sent → Clicked">
             {campaignSteps.length > 0
               ? <FunnelChart steps={campaignSteps} />
-              : <div style={{ textAlign: 'center', padding: 32, color: 'var(--txt3)', fontSize: 13 }}>No campaign data</div>
+              : <div style={{ textAlign: 'center', padding: 32, color: 'var(--txt3)', fontSize: TEXT.base }}>No campaign data</div>
             }
 
             {campaigns && (
-              <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ marginTop: SP[4], display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[2] }}>
                 {[
                   { label: 'Open Rate',    value: fmtPct(campaigns.total_opened  / Math.max(campaigns.total_delivered, 1)), color: AMBER },
                   { label: 'Click Rate',   value: fmtPct(campaigns.total_clicked / Math.max(campaigns.total_delivered, 1)), color: GREEN },
                   { label: 'Campaigns',    value: fmtNum(campaigns.total_campaigns), color: NAVY },
                   { label: 'Total Sent',   value: fmtNum(campaigns.total_sent),      color: BLUE },
                 ].map(({ label, value, color }) => (
-                  <div key={label} style={{ background: 'var(--row-hvr)', borderRadius: 8, padding: '10px 12px' }}>
-                    <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>{label}</div>
-                    <div style={{ fontSize: 17, fontWeight: 800, color, marginTop: 3, ...NUM }}>{value}</div>
+                  <div key={label} style={{ background: 'var(--row-hvr)', borderRadius: RADIUS.md, padding: '10px 12px' }}>
+                    <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>{label}</div>
+                    <div style={{ fontSize: 17, fontWeight: FW.extrabold, color, marginTop: 3, ...NUM }}>{value}</div>
                   </div>
                 ))}
               </div>

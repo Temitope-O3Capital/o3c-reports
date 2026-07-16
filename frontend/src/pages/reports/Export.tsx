@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Sk, btnPrimary } from '../../components/UI'
 import { apiFetch, apiExport } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
-import { INTER, NUM } from '../../lib/design'
+import { INTER, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -114,13 +114,13 @@ export default function DataExport() {
 
   const inputStyle: React.CSSProperties = {
     height: 32, padding: '0 10px', border: '1px solid var(--input-bdr)',
-    borderRadius: 7, fontSize: 12.5, background: 'var(--input-bg)',
+    borderRadius: RADIUS.md, fontSize: TEXT.sm, background: 'var(--input-bg)',
     color: 'var(--txt)', fontFamily: "'Sora', sans-serif", outline: 'none', width: '100%',
     boxSizing: 'border-box',
   }
 
   const labelStyle: React.CSSProperties = {
-    fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase',
+    fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase',
     letterSpacing: 0.5, fontFamily: INTER, display: 'block', marginBottom: 6,
   }
 
@@ -134,7 +134,7 @@ export default function DataExport() {
         {/* Left config panel */}
         <div style={{
           width: 300, flexShrink: 0, borderRight: '1px solid var(--bdr)',
-          background: 'var(--card)', padding: 20, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 20,
+          background: 'var(--card)', padding: SP[5], overflow: 'auto', display: 'flex', flexDirection: 'column', gap: SP[5],
         }}>
           {/* Dataset */}
           <div>
@@ -165,16 +165,16 @@ export default function DataExport() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
               <label style={{ ...labelStyle, marginBottom: 0 }}>Fields</label>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: SP[2] }}>
                 <button
                   onClick={() => setCheckedFields(new Set(availableFields))}
-                  style={{ fontSize: 11, color: 'var(--txt2)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: INTER }}
+                  style={{ fontSize: TEXT.xs, color: 'var(--txt2)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: INTER }}
                 >
                   All
                 </button>
                 <button
                   onClick={() => setCheckedFields(new Set())}
-                  style={{ fontSize: 11, color: 'var(--txt2)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: INTER }}
+                  style={{ fontSize: TEXT.xs, color: 'var(--txt2)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: INTER }}
                 >
                   None
                 </button>
@@ -187,23 +187,23 @@ export default function DataExport() {
                   <label
                     key={field}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
-                      padding: '5px 8px', borderRadius: 7,
+                      display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer',
+                      padding: '5px 8px', borderRadius: RADIUS.md,
                       background: checked ? 'rgba(14,40,65,.04)' : 'transparent',
                     }}
                   >
                     <div
                       onClick={() => toggleField(field)}
                       style={{
-                        width: 16, height: 16, borderRadius: 4, flexShrink: 0, cursor: 'pointer',
+                        width: 16, height: 16, borderRadius: RADIUS.xs, flexShrink: 0, cursor: 'pointer',
                         border: `1.5px solid ${checked ? '#0E2841' : 'var(--input-bdr)'}`,
                         background: checked ? '#0E2841' : 'transparent',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}
                     >
-                      {checked && <span className="material-symbols-rounded" style={{ fontSize: 12, color: '#fff', lineHeight: 1 }}>check</span>}
+                      {checked && <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, color: '#fff', lineHeight: 1 }}>check</span>}
                     </div>
-                    <span style={{ fontSize: 12.5, color: 'var(--txt)', fontWeight: checked ? 500 : 400 }}>{field}</span>
+                    <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: checked ? 500 : 400 }}>{field}</span>
                   </label>
                 )
               })}
@@ -216,21 +216,21 @@ export default function DataExport() {
             style={{ ...btnPrimary, width: '100%', justifyContent: 'center' }}
             disabled={exporting}
           >
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
             {exporting ? 'Exporting…' : 'Export'}
           </button>
         </div>
 
         {/* Right side */}
-        <div style={{ flex: 1, padding: 20, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ flex: 1, padding: SP[5], overflow: 'auto', display: 'flex', flexDirection: 'column', gap: SP[4] }}>
           {!exportDone && logs.length === 0 && !logsLoading && (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-              <div style={{ width: 56, height: 56, borderRadius: 16, background: 'rgba(14,40,65,.06)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 28, color: 'var(--txt3)' }}>download</span>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: SP[3] }}>
+              <div style={{ width: 56, height: 56, borderRadius: RADIUS['2xl'], background: 'rgba(14,40,65,.06)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], color: 'var(--txt3)' }}>download</span>
               </div>
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', marginBottom: 4 }}>No exports yet</div>
-                <div style={{ fontSize: 12.5, color: 'var(--txt2)' }}>Configure your export on the left</div>
+                <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: SP[1] }}>No exports yet</div>
+                <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Configure your export on the left</div>
               </div>
             </div>
           )}
@@ -242,25 +242,25 @@ export default function DataExport() {
                   {Array.from({ length: 4 }).map((_, i) => <Sk key={i} h={24} />)}
                 </div>
               ) : logs.length === 0 ? (
-                <div style={{ fontSize: 13, color: 'var(--txt2)', padding: '8px 0' }}>No exports found.</div>
+                <div style={{ fontSize: TEXT.base, color: 'var(--txt2)', padding: '8px 0' }}>No exports found.</div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {logs.map(log => (
                     <div
                       key={log.id}
                       style={{
-                        display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-                        borderRadius: 8, background: 'var(--bg)', border: '1px solid var(--bdr)',
+                        display: 'flex', alignItems: 'center', gap: 10, padding: `${SP[2]} ${SP[3]}`,
+                        borderRadius: RADIUS.md, background: 'var(--bg)', border: '1px solid var(--bdr)',
                       }}
                     >
-                      <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt3)', flexShrink: 0 }}>description</span>
-                      <span style={{ flex: 1, fontSize: 13, color: 'var(--txt)', fontWeight: 500 }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: 'var(--txt3)', flexShrink: 0 }}>description</span>
+                      <span style={{ flex: 1, fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium }}>
                         {log.dataset} · {log.format.toUpperCase()}
                       </span>
-                      <span style={{ ...NUM, fontSize: 11.5, color: 'var(--txt2)' }}>
+                      <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)' }}>
                         {log.row_count.toLocaleString()} rows
                       </span>
-                      <span style={{ fontSize: 11.5, color: 'var(--txt3)', fontFamily: INTER }}>
+                      <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>
                         {fmtDatetime(log.created_at)}
                       </span>
                     </div>

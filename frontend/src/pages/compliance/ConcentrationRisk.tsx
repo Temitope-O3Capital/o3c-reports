@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo } from '../../lib/fmt'
-import { GREEN, AMBER, RED, NAVY, NUM, INTER } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, NUM, INTER } from '../../lib/design'
 
 interface ConcentrationData {
   total_loan_book_kobo:         number
@@ -17,11 +17,11 @@ function PctBar({ pct, limit }: { pct: number; limit?: number }) {
   const warn     = limit !== undefined && pct > limit * 0.8
   const color    = breached ? RED : warn ? AMBER : NAVY
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <div style={{ flex: 1, height: 6, background: 'var(--bdr)', borderRadius: 3, overflow: 'hidden' }}>
-        <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', background: color, borderRadius: 3, transition: 'width .3s' }} />
+    <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+      <div style={{ flex: 1, height: 6, background: 'var(--bdr)', borderRadius: RADIUS.xs, overflow: 'hidden' }}>
+        <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', background: color, borderRadius: RADIUS.xs, transition: 'width .3s' }} />
       </div>
-      <span style={{ fontSize: 12, fontWeight: 700, color, ...NUM, minWidth: 44, textAlign: 'right' }}>
+      <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color, ...NUM, minWidth: 44, textAlign: 'right' }}>
         {pct.toFixed(1)}%
       </span>
     </div>
@@ -45,7 +45,7 @@ export default function ConcentrationRisk() {
   useEffect(() => { load() }, [load])
 
   const th: React.CSSProperties = {
-    textAlign: 'left', padding: '8px 14px', fontWeight: 700, fontSize: 11,
+    textAlign: 'left', padding: '8px 14px', fontWeight: FW.bold, fontSize: TEXT.xs,
     textTransform: 'uppercase' as const, letterSpacing: '.4px',
     color: 'var(--txt2)', background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)',
   }
@@ -63,15 +63,15 @@ export default function ConcentrationRisk() {
       ) : data ? (
         <>
           {/* Summary header */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 24 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: SP[6] }}>
             {[
               { label: 'Total Loan Book', value: fmtKobo(data.total_loan_book_kobo) },
               { label: 'Active Obligors', value: String(data.top_obligors.length) + '+' },
               { label: 'CBN Single-Obligor Cap', value: `${data.cbn_single_obligor_limit_pct}%` },
             ].map(({ label, value }) => (
-              <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '14px 18px' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>{label}</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: NAVY, marginTop: 4, ...NUM }}>{value}</div>
+              <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: '14px 18px' }}>
+                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>{label}</div>
+                <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: NAVY, marginTop: SP[1], ...NUM }}>{value}</div>
               </div>
             ))}
           </div>
@@ -79,7 +79,7 @@ export default function ConcentrationRisk() {
           {/* Top obligors */}
           <SectionCard title="Top 10 Obligors by Exposure" badge={data.top_obligors.length}>
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
                 <thead>
                   <tr>
                     {['#', 'Obligor', 'Name', 'Exposure', '% of Book', 'Loans', 'CBN Limit'].map(h => (
@@ -92,16 +92,16 @@ export default function ConcentrationRisk() {
                     const breached = row.exposure_pct > data.cbn_single_obligor_limit_pct
                     return (
                       <tr key={row.obligor} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--row-hvr)' }}>
-                        <td style={{ ...td, fontWeight: 700, color: 'var(--txt3)', width: 32 }}>{i + 1}</td>
-                        <td style={{ ...td, fontWeight: 600, color: NAVY, fontFamily: INTER }}>{row.obligor || '—'}</td>
-                        <td style={{ ...td, color: 'var(--txt2)', fontSize: 12 }}>{row.name}</td>
-                        <td style={{ ...td, ...NUM, fontWeight: 700 }}>{fmtKobo(row.exposure_kobo)}</td>
+                        <td style={{ ...td, fontWeight: FW.bold, color: 'var(--txt3)', width: 32 }}>{i + 1}</td>
+                        <td style={{ ...td, fontWeight: FW.semibold, color: NAVY, fontFamily: INTER }}>{row.obligor || '—'}</td>
+                        <td style={{ ...td, color: 'var(--txt2)', fontSize: TEXT.sm }}>{row.name}</td>
+                        <td style={{ ...td, ...NUM, fontWeight: FW.bold }}>{fmtKobo(row.exposure_kobo)}</td>
                         <td style={{ ...td, minWidth: 160 }}>
                           <PctBar pct={row.exposure_pct} limit={data.cbn_single_obligor_limit_pct} />
                         </td>
                         <td style={{ ...td, ...NUM }}>{row.loan_count}</td>
                         <td style={{ ...td }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 8,
+                          <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.md,
                             background: breached ? `${RED}15` : `${GREEN}18`,
                             color: breached ? RED : GREEN }}>
                             {breached ? 'Breached' : 'Within limit'}
@@ -115,10 +115,10 @@ export default function ConcentrationRisk() {
             </div>
           </SectionCard>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[5], marginTop: SP[5] }}>
             {/* By loan type */}
             <SectionCard title="By Loan Type">
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
                 <thead>
                   <tr>
                     {['Type', 'Count', 'Exposure', '% of Book'].map(h => <th key={h} style={th}>{h}</th>)}
@@ -127,9 +127,9 @@ export default function ConcentrationRisk() {
                 <tbody>
                   {data.by_loan_type.map((row, i) => (
                     <tr key={row.loan_type} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--row-hvr)' }}>
-                      <td style={{ ...td, fontWeight: 600 }}>{row.loan_type}</td>
+                      <td style={{ ...td, fontWeight: FW.semibold }}>{row.loan_type}</td>
                       <td style={{ ...td, ...NUM }}>{row.count}</td>
-                      <td style={{ ...td, ...NUM, fontWeight: 700 }}>{fmtKobo(row.exposure_kobo)}</td>
+                      <td style={{ ...td, ...NUM, fontWeight: FW.bold }}>{fmtKobo(row.exposure_kobo)}</td>
                       <td style={{ ...td, minWidth: 130 }}><PctBar pct={row.exposure_pct} /></td>
                     </tr>
                   ))}
@@ -139,7 +139,7 @@ export default function ConcentrationRisk() {
 
             {/* By employer */}
             <SectionCard title="Top 10 Employers">
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
                 <thead>
                   <tr>
                     {['Employer', 'Borrowers', 'Exposure', '% of Book'].map(h => <th key={h} style={th}>{h}</th>)}
@@ -148,9 +148,9 @@ export default function ConcentrationRisk() {
                 <tbody>
                   {data.by_employer.map((row, i) => (
                     <tr key={row.employer} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--row-hvr)' }}>
-                      <td style={{ ...td, fontWeight: 600, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.employer}</td>
+                      <td style={{ ...td, fontWeight: FW.semibold, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.employer}</td>
                       <td style={{ ...td, ...NUM }}>{row.borrower_count}</td>
-                      <td style={{ ...td, ...NUM, fontWeight: 700 }}>{fmtKobo(row.exposure_kobo)}</td>
+                      <td style={{ ...td, ...NUM, fontWeight: FW.bold }}>{fmtKobo(row.exposure_kobo)}</td>
                       <td style={{ ...td, minWidth: 130 }}><PctBar pct={row.exposure_pct} /></td>
                     </tr>
                   ))}

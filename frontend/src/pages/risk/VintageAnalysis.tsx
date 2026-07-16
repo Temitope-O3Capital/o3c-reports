@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Page, SectionCard, FilterBar, filterInputStyle, ErrBanner, Sk } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtPct, fmtNum } from '../../lib/fmt'
-import { GREEN, AMBER, RED, NAVY, INTER, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, INTER, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ function ParCell({ value }: { value: number | null }) {
       background: s.bg,
       borderBottom: '1px solid var(--bdr)',
     }}>
-      <span style={{ ...NUM, fontSize: 12.5, fontWeight: 700, color: s.color }}>
+      <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: s.color }}>
         {s.text}
       </span>
     </td>
@@ -56,23 +56,23 @@ function InlineKpi({ label, value, loading, accent, icon, sub }: {
   return (
     <div style={{
       background: 'var(--card)', border: '1px solid var(--card-bdr)', boxShadow: 'var(--card-shadow)',
-      borderRadius: 12, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 6,
+      borderRadius: RADIUS.xl, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 6,
       borderTop: `3px solid ${ac}`,
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', letterSpacing: '0.4px', textTransform: 'uppercase' }}>{label}</span>
+        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', letterSpacing: '0.4px', textTransform: 'uppercase' }}>{label}</span>
         {icon && (
-          <div style={{ width: 26, height: 26, borderRadius: 7, background: `${ac}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 26, height: 26, borderRadius: RADIUS.md, background: `${ac}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <span className="material-symbols-rounded" style={{ fontSize: 14, color: ac }}>{icon}</span>
           </div>
         )}
       </div>
       {loading
         ? <Sk h={28} w="55%" />
-        : <span style={{ ...NUM, fontSize: 24, fontWeight: 700, color: 'var(--txt)', letterSpacing: '-0.7px', lineHeight: 1.2 }}>{value}</span>
+        : <span style={{ ...NUM, fontSize: TEXT['3xl'], fontWeight: FW.bold, color: 'var(--txt)', letterSpacing: '-0.7px', lineHeight: 1.2 }}>{value}</span>
       }
       {sub && !loading && (
-        <span style={{ fontSize: 11, color: 'var(--txt3)' }}>{sub}</span>
+        <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{sub}</span>
       )}
     </div>
   )
@@ -169,7 +169,7 @@ export default function VintageAnalysis() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* 4-card KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
         <InlineKpi
           label="Total Cohorts Analyzed"
           value={loading ? '…' : fmtNum(rows.length)}
@@ -216,32 +216,32 @@ export default function VintageAnalysis() {
             </select>
             <button
               onClick={load}
-              style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
+              style={{ height: 32, padding: '0 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
             >Apply</button>
           </FilterBar>
         </div>
 
         {/* Custom table — cells need per-value backgrounds */}
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
             <thead>
               <tr style={{ background: 'var(--th-bg)' }}>
-                <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--bdr)' }}>
+                <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--bdr)' }}>
                   Booking Month
                 </th>
-                <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--bdr)' }}>
+                <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--bdr)' }}>
                   Count
                 </th>
-                <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--bdr)' }}>
+                <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--bdr)' }}>
                   PAR30 at 1m
                 </th>
-                <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--bdr)' }}>
+                <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--bdr)' }}>
                   PAR30 at 3m
                 </th>
-                <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--bdr)' }}>
+                <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--bdr)' }}>
                   PAR30 at 6m
                 </th>
-                <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--bdr)' }}>
+                <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--bdr)' }}>
                   PAR30 at 12m
                 </th>
               </tr>
@@ -264,10 +264,10 @@ export default function VintageAnalysis() {
                     onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}
                   >
                     <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)', whiteSpace: 'nowrap' }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: NAVY }}>{row.booking_month}</span>
+                      <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: NAVY }}>{row.booking_month}</span>
                     </td>
                     <td style={{ padding: '10px 16px', textAlign: 'right', borderBottom: '1px solid var(--bdr)' }}>
-                      <span style={{ ...NUM, fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>
+                      <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
                         {fmtNum(row.cohort_count)}
                       </span>
                     </td>
@@ -284,7 +284,7 @@ export default function VintageAnalysis() {
 
         {/* Legend */}
         <div style={{ padding: '12px 18px', borderTop: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', gap: 16 }}>
-          <span style={{ fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>PAR30 colour guide:</span>
+          <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>PAR30 colour guide:</span>
           {([
             { label: '< 5%',   bg: 'rgba(22,163,74,.10)',  color: GREEN },
             { label: '5–15%',  bg: 'rgba(217,119,6,.10)',  color: AMBER },
@@ -292,8 +292,8 @@ export default function VintageAnalysis() {
             { label: 'N/A',    bg: 'transparent',          color: 'var(--txt3)' },
           ] as const).map(item => (
             <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <div style={{ width: 24, height: 14, borderRadius: 3, background: item.bg, border: '1px solid var(--bdr)' }} />
-              <span style={{ ...NUM, fontSize: 11, fontWeight: 600, color: item.color }}>{item.label}</span>
+              <div style={{ width: 24, height: 14, borderRadius: RADIUS.xs, background: item.bg, border: '1px solid var(--bdr)' }} />
+              <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, color: item.color }}>{item.label}</span>
             </div>
           ))}
         </div>

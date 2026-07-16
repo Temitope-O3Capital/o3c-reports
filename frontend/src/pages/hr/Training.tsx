@@ -6,7 +6,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { NAVY, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 import type { AuthUser } from '../../hooks/useAuth'
 
@@ -41,7 +41,7 @@ function TypePill({ type }: { type?: string }) {
   if (!type) return null
   const color = TYPE_COLORS[type] ?? NAVY
   return (
-    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${color}14`, color }}>
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${color}14`, color }}>
       {type}
     </span>
   )
@@ -117,14 +117,14 @@ export default function Training() {
   }
 
   const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
-    fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
+    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+    fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
   }
 
   const cols: TableCol<Training>[] = [
     {
       key: 'name', label: 'Training',
-      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.name}</span>,
     },
     {
       key: 'training_type', label: 'Type',
@@ -133,12 +133,12 @@ export default function Training() {
     {
       key: 'training_date', label: 'Date',
       render: r => r.training_date ? (
-        <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{fmtDate(r.training_date)}</span>
+        <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{fmtDate(r.training_date)}</span>
       ) : <span style={{ color: 'var(--txt3)' }}>TBD</span>,
     },
     {
       key: 'trainer', label: 'Trainer',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.trainer ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.trainer ?? '—'}</span>,
     },
     {
       key: 'attendee_count', label: 'Attendees', align: 'right',
@@ -159,7 +159,7 @@ export default function Training() {
       actions={
         canManage ? (
           <button onClick={() => { setForm(BLANK); setNewOpen(true) }} style={btnPrimary}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
             New Training
           </button>
         ) : undefined
@@ -177,7 +177,7 @@ export default function Training() {
         </select>
       </FilterBar>
 
-      <SectionCard title="Training Records" badge={trainings.length} padding={false} actions={<button onClick={() => exportTrainingCsv(trainings)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Training Records" badge={trainings.length} padding={false} actions={<button onClick={() => exportTrainingCsv(trainings)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <DataTable<Training>
           cols={cols}
           rows={trainings}
@@ -195,8 +195,8 @@ export default function Training() {
       {/* New Training modal */}
       <Modal open={newOpen} onClose={() => setNewOpen(false)} title="New Training" width={460}
         footer={
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={() => setNewOpen(false)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
+            <button onClick={() => setNewOpen(false)} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
             <button onClick={handleCreate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {saving && <Spinner size={14} color="#fff" />}
               Create
@@ -206,28 +206,28 @@ export default function Training() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Training Name *</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Training Name *</label>
             <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Type</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Type</label>
               <select value={form.training_type} onChange={e => setForm(f => ({ ...f, training_type: e.target.value }))}
                 style={{ ...inputStyle, height: 36, padding: '0 10px' }}>
                 {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Date</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Date</label>
               <input type="date" value={form.training_date} onChange={e => setForm(f => ({ ...f, training_date: e.target.value }))} style={{ ...inputStyle, height: 36 }} />
             </div>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Trainer</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Trainer</label>
             <input value={form.trainer} onChange={e => setForm(f => ({ ...f, trainer: e.target.value }))} style={inputStyle} placeholder="Name of trainer or institution" />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Description</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Description</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
               rows={3} placeholder="Training objectives and content…" style={{ ...inputStyle, resize: 'vertical' }} />
           </div>
@@ -238,11 +238,11 @@ export default function Training() {
       <Modal open={!!detail} onClose={() => setDetail(null)} title={detail?.name ?? 'Training Detail'} width={520}>
         {detail && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
               <TypePill type={detail.training_type} />
               <StatusBadge status={detail.status} size="sm" />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[2], fontSize: TEXT.base }}>
               {[
                 ['Date', detail.training_date ? fmtDate(detail.training_date) : 'TBD'],
                 ['Trainer', detail.trainer ?? '—'],
@@ -255,20 +255,20 @@ export default function Training() {
               ))}
             </div>
             {detail.description && (
-              <div style={{ padding: '12px 14px', background: 'var(--th-bg)', borderRadius: 8, fontSize: 13, color: 'var(--txt)', lineHeight: 1.6 }}>
+              <div style={{ padding: '12px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md, fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.6 }}>
                 {detail.description}
               </div>
             )}
             {(detail.attendees ?? []).length > 0 && (
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)', marginBottom: 8 }}>ATTENDEES</div>
+                <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', marginBottom: SP[2] }}>ATTENDEES</div>
                 {(detail.attendees ?? []).map(a => (
                   <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--bdr)' }}>
-                    <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${a.attended ? GREEN : 'var(--input-bdr)'}`, background: a.attended ? GREEN : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      {a.attended && <span className="material-symbols-rounded" style={{ fontSize: 11, color: '#fff' }}>check</span>}
+                    <div style={{ width: 18, height: 18, borderRadius: RADIUS.xs, border: `2px solid ${a.attended ? GREEN : 'var(--input-bdr)'}`, background: a.attended ? GREEN : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {a.attended && <span className="material-symbols-rounded" style={{ fontSize: TEXT.xs, color: '#fff' }}>check</span>}
                     </div>
-                    <span style={{ fontSize: 13, color: 'var(--txt)', flex: 1 }}>{a.employee_name}</span>
-                    {a.completed_at && <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{fmtDate(a.completed_at)}</span>}
+                    <span style={{ fontSize: TEXT.base, color: 'var(--txt)', flex: 1 }}>{a.employee_name}</span>
+                    {a.completed_at && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDate(a.completed_at)}</span>}
                   </div>
                 ))}
               </div>

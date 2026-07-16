@@ -7,7 +7,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtDatetime } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -55,7 +55,7 @@ function stagePillStyle(color?: string, isWon?: boolean, isLost?: boolean) {
 function StagePill({ name, color, is_won, is_lost }: Pick<Stage, 'name' | 'color' | 'is_won' | 'is_lost'>) {
   const s = stagePillStyle(color, is_won, is_lost)
   return (
-    <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, ...s }}>
+    <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: `2px ${SP[2]}`, borderRadius: RADIUS['2xl'], ...s }}>
       {name}
     </span>
   )
@@ -145,17 +145,17 @@ function CreateDealModal({
     >
       <form id="create-deal-form" onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>
-          <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Title *</label>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Title *</label>
           <input
             value={title}
             onChange={e => setTitle(e.target.value)}
             placeholder="e.g. ACME Corp — Business Loan"
             required
-            style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const, height: 38, fontSize: 13 }}
+            style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const, height: 38, fontSize: TEXT.base }}
           />
         </div>
         <div>
-          <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Contact</label>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Contact</label>
           <select
             value={contactId}
             onChange={e => setContactId(e.target.value)}
@@ -169,7 +169,7 @@ function CreateDealModal({
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
-            <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Stage</label>
+            <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Stage</label>
             <select
               value={stageId}
               onChange={e => setStageId(e.target.value)}
@@ -182,7 +182,7 @@ function CreateDealModal({
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Product</label>
+            <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Product</label>
             <input
               value={product}
               onChange={e => setProduct(e.target.value)}
@@ -193,7 +193,7 @@ function CreateDealModal({
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
-            <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Est. Value (₦)</label>
+            <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Est. Value (₦)</label>
             <input
               type="number"
               min="0"
@@ -204,7 +204,7 @@ function CreateDealModal({
             />
           </div>
           <div>
-            <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Probability %</label>
+            <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Probability %</label>
             <input
               type="number"
               min="0"
@@ -217,7 +217,7 @@ function CreateDealModal({
           </div>
         </div>
         <div>
-          <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Expected Close Date</label>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Expected Close Date</label>
           <input
             type="date"
             value={closeDate}
@@ -275,9 +275,9 @@ export default function CRMPipeline() {
       key: 'title', label: 'Deal',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.title}</div>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.title}</div>
           {(r.first_name || r.last_name) && (
-            <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{r.first_name} {r.last_name}</div>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.first_name} {r.last_name}</div>
           )}
         </div>
       ),
@@ -292,16 +292,16 @@ export default function CRMPipeline() {
         ? <span style={NUM}>{fmtKobo(r.expected_value * 100)}</span>
         : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
-    { key: 'assigned_name', label: 'Owner', render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.assigned_name ?? '—'}</span> },
+    { key: 'assigned_name', label: 'Owner', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.assigned_name ?? '—'}</span> },
     {
       key: 'expected_close_date', label: 'Close Date',
       render: r => r.expected_close_date
-        ? <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{fmtDate(r.expected_close_date)}</span>
+        ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{fmtDate(r.expected_close_date)}</span>
         : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
     {
       key: 'updated_at', label: 'Last Activity',
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{fmtDatetime(r.updated_at)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDatetime(r.updated_at)}</span>,
     },
   ]
 
@@ -320,11 +320,11 @@ export default function CRMPipeline() {
             <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
             New Deal
           </button>
-          <div style={{ display: 'flex', gap: 4, background: 'var(--th-bg)', padding: 3, borderRadius: 8, border: '1px solid var(--bdr)' }}>
+          <div style={{ display: 'flex', gap: 4, background: 'var(--th-bg)', padding: 3, borderRadius: RADIUS.md, border: '1px solid var(--bdr)' }}>
             {(['table', 'kanban'] as const).map(v => (
               <button key={v} onClick={() => setView(v)}
                 style={{
-                  padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 600,
+                  padding: '5px 14px', borderRadius: RADIUS.sm, border: 'none', cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold,
                   background: view === v ? 'var(--card)' : 'transparent',
                   color: view === v ? 'var(--txt)' : 'var(--txt2)',
                   boxShadow: view === v ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
@@ -371,14 +371,14 @@ export default function CRMPipeline() {
                 >
                   {/* Stage header */}
                   <div style={{
-                    padding: '8px 12px', borderRadius: '10px 10px 0 0', marginBottom: 8,
+                    padding: `${SP[2]} ${SP[3]}`, borderRadius: `${RADIUS.lg} ${RADIUS.lg} 0 0`, marginBottom: 8,
                     background: isOver ? `${headerColor}28` : `${headerColor}14`,
                     borderBottom: `2px solid ${isOver ? headerColor : headerColor + '40'}`,
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     transition: 'background .15s, border-color .15s',
                   }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: headerColor }}>{stage.name}</span>
-                    <span style={{ fontSize: 11, fontWeight: 600, padding: '1px 7px', borderRadius: 12, background: `${headerColor}20`, color: headerColor }}>
+                    <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: headerColor }}>{stage.name}</span>
+                    <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS.xl, background: `${headerColor}20`, color: headerColor }}>
                       {deals.length}
                     </span>
                   </div>
@@ -395,29 +395,29 @@ export default function CRMPipeline() {
                         onDragEnd={() => setDragOverStage(null)}
                         onClick={() => setSelected(deal)}
                         style={{
-                          background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10,
-                          padding: '12px 14px', cursor: 'grab', transition: 'box-shadow .15s, opacity .15s',
+                          background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg,
+                          padding: `${SP[3]} 14px`, cursor: 'grab', transition: 'box-shadow .15s, opacity .15s',
                           userSelect: 'none',
                         }}
                         onMouseEnter={e => (e.currentTarget.style.boxShadow = 'var(--card-shadow)')}
                         onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}
                       >
-                        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', marginBottom: 5, lineHeight: 1.3 }}>
+                        <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 5, lineHeight: 1.3 }}>
                           {deal.title}
                         </div>
                         {(deal.first_name || deal.last_name) && (
-                          <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginBottom: 5 }}>
+                          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 5 }}>
                             {deal.first_name} {deal.last_name}
                           </div>
                         )}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: TEXT.xs }}>
                           {deal.expected_value
-                            ? <span style={{ ...NUM, color: NAVY, fontWeight: 700 }}>{fmtKobo(deal.expected_value * 100)}</span>
+                            ? <span style={{ ...NUM, color: NAVY, fontWeight: FW.bold }}>{fmtKobo(deal.expected_value * 100)}</span>
                             : <span style={{ color: 'var(--txt3)' }}>—</span>}
                           <span style={{ color: 'var(--txt3)' }}>{daysInStage(deal)}d</span>
                         </div>
                         {deal.assigned_name && (
-                          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--txt2)' }}>{deal.assigned_name}</div>
+                          <div style={{ marginTop: 6, fontSize: TEXT.xs, color: 'var(--txt2)' }}>{deal.assigned_name}</div>
                         )}
                       </div>
                     ))}
@@ -457,13 +457,13 @@ export default function CRMPipeline() {
             <div style={{ display: 'flex', gap: 8 }}>
               <StagePill name={selected.stage_name ?? '—'} color={selected.stage_color} is_won={selected.is_won} is_lost={selected.is_lost} />
               {selected.product && (
-                <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${BLUE}12`, color: BLUE }}>
+                <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: `2px ${SP[2]}`, borderRadius: RADIUS['2xl'], background: `${BLUE}12`, color: BLUE }}>
                   {selected.product}
                 </span>
               )}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 13 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: TEXT.base }}>
               {[
                 ['Contact',    `${selected.first_name ?? ''} ${selected.last_name ?? ''}`.trim() || '—'],
                 ['Est. Value', selected.expected_value ? fmtKobo(selected.expected_value * 100) : '—'],
@@ -473,14 +473,14 @@ export default function CRMPipeline() {
                 ['Last Update', fmtDatetime(selected.updated_at)],
               ].map(([label, value]) => (
                 <div key={label as string}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', marginBottom: 2 }}>{label}</div>
-                  <div style={{ color: 'var(--txt)', fontWeight: 500 }}>{value}</div>
+                  <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 2 }}>{label}</div>
+                  <div style={{ color: 'var(--txt)', fontWeight: FW.medium }}>{value}</div>
                 </div>
               ))}
             </div>
 
             {selected.notes && (
-              <div style={{ padding: '10px 12px', background: 'var(--th-bg)', borderRadius: 8, fontSize: 13, color: 'var(--txt)', lineHeight: 1.6 }}>
+              <div style={{ padding: '10px 12px', background: 'var(--th-bg)', borderRadius: RADIUS.md, fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.6 }}>
                 {selected.notes}
               </div>
             )}

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner, Modal, btnPrimary, btnSecondary } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtDatetime } from '../../lib/fmt'
-import { GREEN, AMBER, RED, NAVY, BLUE, INTER } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, BLUE, INTER } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -64,8 +64,8 @@ const EV_TYPE_LABELS: Record<string, string> = {
 }
 
 const inp: React.CSSProperties = {
-  padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
-  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: INTER,
+  padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: INTER,
   width: '100%', boxSizing: 'border-box',
 }
 
@@ -86,33 +86,33 @@ function EvidenceCard({ ev, onDelete }: { ev: Evidence; onDelete: (id: number) =
     finally { setDeleting(false) }
   }
   return (
-    <div style={{ padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 8,
-      background: 'var(--card-bg)', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+    <div style={{ padding: '12px 14px', border: '1px solid var(--border)', borderRadius: RADIUS.md,
+      background: 'var(--card-bg)', display: 'flex', gap: SP[3], alignItems: 'flex-start' }}>
       <div style={{ flex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-          <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--txt)' }}>{ev.title}</span>
-          <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 6, background: 'var(--th-bg)',
-            color: 'var(--txt-muted)', fontWeight: 600 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[1] }}>
+          <span style={{ fontWeight: FW.bold, fontSize: TEXT.base, color: 'var(--txt)' }}>{ev.title}</span>
+          <span style={{ fontSize: TEXT.xs, padding: '1px 7px', borderRadius: RADIUS.sm, background: 'var(--th-bg)',
+            color: 'var(--txt-muted)', fontWeight: FW.semibold }}>
             {EV_TYPE_LABELS[ev.evidence_type] ?? ev.evidence_type}
           </span>
         </div>
-        {ev.description && <p style={{ fontSize: 12, color: 'var(--txt-muted)', margin: '4px 0', lineHeight: 1.5 }}>{ev.description}</p>}
+        {ev.description && <p style={{ fontSize: TEXT.sm, color: 'var(--txt-muted)', margin: '4px 0', lineHeight: 1.5 }}>{ev.description}</p>}
         {ev.code_reference && (
-          <div style={{ fontSize: 11, fontFamily: 'monospace', color: BLUE, marginTop: 4 }}>📎 {ev.code_reference}</div>
+          <div style={{ fontSize: TEXT.xs, fontFamily: 'monospace', color: BLUE, marginTop: SP[1] }}>📎 {ev.code_reference}</div>
         )}
         {ev.file_url && (
           <a href={ev.file_url} target="_blank" rel="noreferrer"
-            style={{ fontSize: 11, color: BLUE, marginTop: 4, display: 'block' }}>
+            style={{ fontSize: TEXT.xs, color: BLUE, marginTop: SP[1], display: 'block' }}>
             🔗 Open file
           </a>
         )}
-        <div style={{ fontSize: 11, color: 'var(--txt-muted)', marginTop: 6 }}>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt-muted)', marginTop: 6 }}>
           Collected by {ev.collected_by_name ?? 'unknown'} · {fmtDatetime(ev.collected_at)}
           {ev.valid_from && <> · Valid {fmtDate(ev.valid_from)}{ev.valid_to ? ` – ${fmtDate(ev.valid_to)}` : '+'}</>}
         </div>
       </div>
       <button onClick={handleDelete} disabled={deleting}
-        style={{ color: RED, background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, padding: 0, flexShrink: 0 }}>
+        style={{ color: RED, background: 'none', border: 'none', cursor: 'pointer', fontSize: TEXT.lg, padding: 0, flexShrink: 0 }}>
         🗑
       </button>
     </div>
@@ -211,35 +211,35 @@ export default function SOC2ControlDetail() {
     <Page title={control.criteria_code}>
       {/* breadcrumb */}
       <button onClick={() => navigate('/compliance/soc2')}
-        style={{ fontSize: 12, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: 16, display: 'block' }}>
+        style={{ fontSize: TEXT.sm, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: SP[4], display: 'block' }}>
         ← SOC 2 Readiness
       </button>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: SP[5], alignItems: 'start' }}>
         {/* Left — control details + evidence */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
           <SectionCard>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
-              <span style={{ fontSize: 22, fontWeight: 900, color: NAVY, fontFamily: 'monospace', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: SP[3], marginBottom: SP[3] }}>
+              <span style={{ fontSize: TEXT['2xl'], fontWeight: 900, color: NAVY, fontFamily: 'monospace', flexShrink: 0 }}>
                 {control.criteria_code}
               </span>
               <div>
-                <h2 style={{ fontSize: 17, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{control.title}</h2>
-                <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 8, ...ss, marginTop: 6, display: 'inline-block' }}>
+                <h2 style={{ fontSize: TEXT.xl, fontWeight: FW.bold, color: 'var(--txt)', margin: 0 }}>{control.title}</h2>
+                <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.md, ...ss, marginTop: 6, display: 'inline-block' }}>
                   {STATUS_OPTS.find(s => s.value === control.status)?.label ?? control.status}
                 </span>
               </div>
             </div>
             {control.description && (
-              <p style={{ fontSize: 13, color: 'var(--txt-muted)', lineHeight: 1.6, margin: '0 0 12px' }}>{control.description}</p>
+              <p style={{ fontSize: TEXT.base, color: 'var(--txt-muted)', lineHeight: 1.6, margin: '0 0 12px' }}>{control.description}</p>
             )}
             {control.implementation_guidance && (
-              <div style={{ background: 'var(--th-bg)', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: 'var(--txt)', lineHeight: 1.6 }}>
-                <strong style={{ display: 'block', marginBottom: 6, fontSize: 12, color: 'var(--txt-muted)' }}>IMPLEMENTATION GUIDANCE</strong>
+              <div style={{ background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: '12px 14px', fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.6 }}>
+                <strong style={{ display: 'block', marginBottom: 6, fontSize: TEXT.sm, color: 'var(--txt-muted)' }}>IMPLEMENTATION GUIDANCE</strong>
                 {control.implementation_guidance}
               </div>
             )}
-            <div style={{ display: 'flex', gap: 16, marginTop: 14, flexWrap: 'wrap', fontSize: 12, color: 'var(--txt-muted)' }}>
+            <div style={{ display: 'flex', gap: SP[4], marginTop: 14, flexWrap: 'wrap', fontSize: TEXT.sm, color: 'var(--txt-muted)' }}>
               <span>Type: <strong>{control.control_type}</strong></span>
               <span>Frequency: <strong>{control.frequency}</strong></span>
               <span>Last updated: <strong>{fmtDatetime(control.updated_at)}</strong></span>
@@ -250,13 +250,13 @@ export default function SOC2ControlDetail() {
           {/* Evidence */}
           <SectionCard>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
-              <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--txt)', flex: 1 }}>
+              <span style={{ fontWeight: FW.bold, fontSize: 15, color: 'var(--txt)', flex: 1 }}>
                 Evidence ({evidence.length})
               </span>
               <button style={btnPrimary} onClick={() => setShowAddEv(true)}>+ Add Evidence</button>
             </div>
             {evidence.length === 0 ? (
-              <div style={{ padding: 24, textAlign: 'center', color: 'var(--txt-muted)', fontSize: 13 }}>
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--txt-muted)', fontSize: TEXT.base }}>
                 No evidence attached. Add evidence to move this control forward.
               </div>
             ) : (
@@ -271,30 +271,30 @@ export default function SOC2ControlDetail() {
         </div>
 
         {/* Right — status + notes editing */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
           <SectionCard>
-            <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt-muted)', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: .5 }}>Manage</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <h3 style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt-muted)', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: .5 }}>Manage</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Status</label>
-                <select style={{ ...sel, marginTop: 4 }} value={editStatus} onChange={e => setEditStatus(e.target.value)}>
+                <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Status</label>
+                <select style={{ ...sel, marginTop: SP[1] }} value={editStatus} onChange={e => setEditStatus(e.target.value)}>
                   {STATUS_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Target Date</label>
-                <input type="date" style={{ ...inp, marginTop: 4 }} value={editTarget} onChange={e => setEditTarget(e.target.value)} />
+                <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Target Date</label>
+                <input type="date" style={{ ...inp, marginTop: SP[1] }} value={editTarget} onChange={e => setEditTarget(e.target.value)} />
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Evidence Summary</label>
-                <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...inp, marginTop: 4, resize: 'vertical', minHeight: 80 }}
+                <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Evidence Summary</label>
+                <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...inp, marginTop: SP[1], resize: 'vertical', minHeight: 80 }}
                   value={editSummary} onChange={e => setEditSummary(e.target.value)}
                   placeholder="What evidence exists for this control?" />
               </div>
               {editStatus === 'waived' && (
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: AMBER }}>Waiver Reason</label>
-                  <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...inp, marginTop: 4, resize: 'vertical', minHeight: 60 }}
+                  <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: AMBER }}>Waiver Reason</label>
+                  <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...inp, marginTop: SP[1], resize: 'vertical', minHeight: 60 }}
                     value={editWaiver} onChange={e => setEditWaiver(e.target.value)}
                     placeholder="Why is this control waived?" />
                 </div>
@@ -306,52 +306,52 @@ export default function SOC2ControlDetail() {
           </SectionCard>
 
           <SectionCard>
-            <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt-muted)', margin: '0 0 10px', textTransform: 'uppercase', letterSpacing: .5 }}>Owner</h3>
-            <div style={{ fontSize: 13, color: 'var(--txt)' }}>{control.owner_name ?? 'Unassigned'}</div>
+            <h3 style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt-muted)', margin: '0 0 10px', textTransform: 'uppercase', letterSpacing: .5 }}>Owner</h3>
+            <div style={{ fontSize: TEXT.base, color: 'var(--txt)' }}>{control.owner_name ?? 'Unassigned'}</div>
           </SectionCard>
         </div>
       </div>
 
       {/* ── Add Evidence Modal ── */}
       <Modal open={showAddEv} onClose={() => setShowAddEv(false)} title="Add Evidence">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Title *</label>
-            <input style={{ ...inp, marginTop: 4 }} value={evTitle} onChange={e => setEvTitle(e.target.value)} placeholder="Evidence title" />
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Title *</label>
+            <input style={{ ...inp, marginTop: SP[1] }} value={evTitle} onChange={e => setEvTitle(e.target.value)} placeholder="Evidence title" />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Type</label>
-            <select style={{ ...sel, marginTop: 4 }} value={evType} onChange={e => setEvType(e.target.value)}>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Type</label>
+            <select style={{ ...sel, marginTop: SP[1] }} value={evType} onChange={e => setEvType(e.target.value)}>
               {Object.entries(EV_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Description</label>
-            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...inp, marginTop: 4, resize: 'vertical', minHeight: 80 }}
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Description</label>
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...inp, marginTop: SP[1], resize: 'vertical', minHeight: 80 }}
               value={evDesc} onChange={e => setEvDesc(e.target.value)}
               placeholder="What does this evidence demonstrate?" />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Code Reference</label>
-            <input style={{ ...inp, marginTop: 4 }} value={evCodeRef} onChange={e => setEvCodeRef(e.target.value)}
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Code Reference</label>
+            <input style={{ ...inp, marginTop: SP[1] }} value={evCodeRef} onChange={e => setEvCodeRef(e.target.value)}
               placeholder="e.g. backend-go/handlers/auth.go:42" />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>File / Document URL</label>
-            <input style={{ ...inp, marginTop: 4 }} value={evFileURL} onChange={e => setEvFileURL(e.target.value)}
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>File / Document URL</label>
+            <input style={{ ...inp, marginTop: SP[1] }} value={evFileURL} onChange={e => setEvFileURL(e.target.value)}
               placeholder="https://…" />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Valid From</label>
-              <input type="date" style={{ ...inp, marginTop: 4 }} value={evValidFr} onChange={e => setEvValidFr(e.target.value)} />
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Valid From</label>
+              <input type="date" style={{ ...inp, marginTop: SP[1] }} value={evValidFr} onChange={e => setEvValidFr(e.target.value)} />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-muted)' }}>Valid To</label>
-              <input type="date" style={{ ...inp, marginTop: 4 }} value={evValidTo} onChange={e => setEvValidTo(e.target.value)} />
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Valid To</label>
+              <input type="date" style={{ ...inp, marginTop: SP[1] }} value={evValidTo} onChange={e => setEvValidTo(e.target.value)} />
             </div>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: SP[2] }}>
             <button style={btnSecondary} onClick={() => setShowAddEv(false)} disabled={savingEv}>Cancel</button>
             <button style={btnPrimary}   onClick={handleAddEvidence}          disabled={savingEv}>{savingEv ? 'Saving…' : 'Add Evidence'}</button>
           </div>

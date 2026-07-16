@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Modal, ConfirmModal, Spinner, Tabs } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
-import { NAVY, GREEN, RED, AMBER, SORA } from '../../lib/design'
+import { NAVY, GREEN, RED, AMBER, SORA, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -58,13 +58,13 @@ interface SLAPolicy {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const labelStyle: React.CSSProperties = {
-  display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5,
+  display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5,
 }
 
 const inputStyle: React.CSSProperties = {
   width: '100%', height: 36, padding: '0 10px',
   border: '1px solid var(--input-bdr)', borderRadius: 7,
-  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
   boxSizing: 'border-box',
 }
 
@@ -110,7 +110,7 @@ function conditionsToForm(cond: Record<string, string>): Pick<RuleForm, 'cond_ti
 
 function RuleFormFields({ form, onChange }: { form: RuleForm; onChange: (f: RuleForm) => void }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
       <div>
         <label style={labelStyle}>Rule Name *</label>
         <input
@@ -120,7 +120,7 @@ function RuleFormFields({ form, onChange }: { form: RuleForm; onChange: (f: Rule
         />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
         <div>
           <label style={labelStyle}>Target Queue *</label>
           <select value={form.target_queue} onChange={e => onChange({ ...form, target_queue: e.target.value })} style={{ ...inputStyle }}>
@@ -137,11 +137,11 @@ function RuleFormFields({ form, onChange }: { form: RuleForm; onChange: (f: Rule
         </div>
       </div>
 
-      <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', paddingTop: 4 }}>
+      <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', paddingTop: 4 }}>
         Match Conditions (leave blank to match all)
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
         <div>
           <label style={labelStyle}>Ticket Type</label>
           <select value={form.cond_ticket_type} onChange={e => onChange({ ...form, cond_ticket_type: e.target.value })} style={{ ...inputStyle }}>
@@ -163,9 +163,9 @@ function RuleFormFields({ form, onChange }: { form: RuleForm; onChange: (f: Rule
             {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 22 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], paddingTop: 22 }}>
           <input type="checkbox" id="rule-active" checked={form.active} onChange={e => onChange({ ...form, active: e.target.checked })} style={{ width: 15, height: 15, cursor: 'pointer' }} />
-          <label htmlFor="rule-active" style={{ fontSize: 13, color: 'var(--txt)', cursor: 'pointer' }}>Rule is active</label>
+          <label htmlFor="rule-active" style={{ fontSize: TEXT.base, color: 'var(--txt)', cursor: 'pointer' }}>Rule is active</label>
         </div>
       </div>
     </div>
@@ -415,18 +415,18 @@ export default function HelpdeskSettings() {
   }
 
   const modalFooter = (onSave: () => void) => (
-    <div style={{ display: 'flex', gap: 8 }}>
-      <button onClick={onSave} disabled={saving} style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+    <div style={{ display: 'flex', gap: SP[2] }}>
+      <button onClick={onSave} disabled={saving} style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: SP[1] }}>
         {saving && <Spinner size={13} color="#fff" />}
         Save Rule
       </button>
-      <button onClick={() => { setNewOpen(false); setEditRule(null) }} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+      <button onClick={() => { setNewOpen(false); setEditRule(null) }} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
     </div>
   )
 
   const slaInputStyle: React.CSSProperties = {
-    width: 80, height: 30, padding: '0 8px', border: '1px solid var(--input-bdr)', borderRadius: 6,
-    fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', textAlign: 'right', boxSizing: 'border-box',
+    width: 80, height: 30, padding: '0 8px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.sm,
+    fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', textAlign: 'right', boxSizing: 'border-box',
   }
 
   const PRIORITY_ORDER = ['critical', 'high', 'normal', 'low']
@@ -437,13 +437,13 @@ export default function HelpdeskSettings() {
       subtitle="Routing rules, call scripts and SLA policies"
       actions={
         activeTab === 'routing' ? (
-          <button onClick={openNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+          <button onClick={openNew} style={{ display: 'inline-flex', alignItems: 'center', gap: SP[1], padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
             New Rule
           </button>
         ) : activeTab === 'scripts' ? (
-          <button onClick={openNewScript} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+          <button onClick={openNewScript} style={{ display: 'inline-flex', alignItems: 'center', gap: SP[1], padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
             New Script
           </button>
         ) : null
@@ -469,39 +469,39 @@ export default function HelpdeskSettings() {
                 <Spinner size={24} />
               </div>
             ) : rules.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)', fontSize: 13 }}>
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>
                 No routing rules configured. All tickets will use default queue assignment.
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 0, border: '1px solid var(--bdr)', borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 0, border: '1px solid var(--bdr)', borderRadius: RADIUS.md, overflow: 'hidden' }}>
                 {rules.map((rule, i) => (
                   <div key={rule.id} style={{
-                    display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
+                    display: 'flex', alignItems: 'center', gap: SP[3], padding: `${SP[3]} ${SP[4]}`,
                     borderBottom: i < rules.length - 1 ? '1px solid var(--bdr)' : 'none',
                     background: rule.active ? 'transparent' : 'var(--th-bg)',
                     opacity: rule.active ? 1 : 0.65,
                   }}>
-                    <div style={{ flexShrink: 0, width: 32, height: 32, borderRadius: 8, background: `${NAVY}12`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: NAVY }}>
+                    <div style={{ flexShrink: 0, width: 32, height: 32, borderRadius: RADIUS.md, background: `${NAVY}12`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT.base, fontWeight: FW.bold, color: NAVY }}>
                       {rule.priority}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{rule.name}</span>
-                        <span style={{ fontSize: 11.5, fontWeight: 600, padding: '1px 8px', borderRadius: 10, background: `${NAVY}12`, color: NAVY }}>→ {rule.target_queue}</span>
-                        {!rule.active && <span style={{ fontSize: 11, fontWeight: 600, padding: '1px 7px', borderRadius: 10, background: 'rgba(75,85,99,.12)', color: '#6B7280' }}>Inactive</span>}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{rule.name}</span>
+                        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '1px 8px', borderRadius: RADIUS.lg, background: `${NAVY}12`, color: NAVY }}>→ {rule.target_queue}</span>
+                        {!rule.active && <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS.lg, background: 'rgba(75,85,99,.12)', color: '#6B7280' }}>Inactive</span>}
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--txt3)', marginTop: 3 }}>{conditionsSummary(rule.conditions)}</div>
+                      <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', marginTop: 3 }}>{conditionsSummary(rule.conditions)}</div>
                     </div>
-                    <div style={{ flexShrink: 0, fontSize: 12, color: 'var(--txt3)' }}>{fmtDatetime(rule.updated_at)}</div>
-                    <div style={{ flexShrink: 0, display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <button onClick={() => handleToggleActive(rule)} style={{ padding: '4px 10px', borderRadius: 6, border: `1.5px solid ${rule.active ? AMBER : GREEN}40`, background: rule.active ? `${AMBER}0d` : `${GREEN}0d`, color: rule.active ? AMBER : GREEN, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+                    <div style={{ flexShrink: 0, fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDatetime(rule.updated_at)}</div>
+                    <div style={{ flexShrink: 0, display: 'flex', gap: SP[1], alignItems: 'center' }}>
+                      <button onClick={() => handleToggleActive(rule)} style={{ padding: '4px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${rule.active ? AMBER : GREEN}40`, background: rule.active ? `${AMBER}0d` : `${GREEN}0d`, color: rule.active ? AMBER : GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
                         {rule.active ? 'Disable' : 'Enable'}
                       </button>
-                      <button onClick={() => openEdit(rule)} style={{ width: 28, height: 28, borderRadius: 6, border: '1.5px solid var(--input-bdr)', background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt2)' }}>
-                        <span className="material-symbols-rounded" style={{ fontSize: 14 }}>edit</span>
+                      <button onClick={() => openEdit(rule)} style={{ width: 28, height: 28, borderRadius: RADIUS.sm, border: '1.5px solid var(--input-bdr)', background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt2)' }}>
+                        <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>edit</span>
                       </button>
-                      <button onClick={() => setDeleteRule(rule)} style={{ width: 28, height: 28, borderRadius: 6, border: `1.5px solid ${RED}30`, background: `${RED}08`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: RED }}>
-                        <span className="material-symbols-rounded" style={{ fontSize: 14 }}>delete</span>
+                      <button onClick={() => setDeleteRule(rule)} style={{ width: 28, height: 28, borderRadius: RADIUS.sm, border: `1.5px solid ${RED}30`, background: `${RED}08`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: RED }}>
+                        <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>delete</span>
                       </button>
                     </div>
                   </div>
@@ -520,35 +520,35 @@ export default function HelpdeskSettings() {
             {scriptsLoading ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size={24} /></div>
             ) : scripts.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)', fontSize: 13 }}>No call scripts configured.</div>
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>No call scripts configured.</div>
             ) : (
-              <div style={{ border: '1px solid var(--bdr)', borderRadius: 8, overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <div style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.md, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
                   <thead>
                     <tr style={{ background: 'var(--th-bg)' }}>
                       {['Ticket Type', 'Script Name', 'Steps', 'Active', 'Actions'].map(h => (
-                        <th key={h} style={{ padding: '9px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                        <th key={h} style={{ padding: '9px 14px', textAlign: 'left', fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {scripts.map((s, i) => (
                       <tr key={s.id} style={{ borderTop: '1px solid var(--bdr)', background: i % 2 === 0 ? 'transparent' : 'var(--th-bg)' }}>
-                        <td style={{ padding: '9px 14px', color: 'var(--txt)', fontWeight: 500 }}>{s.ticket_type}</td>
-                        <td style={{ padding: '9px 14px', color: 'var(--txt)', fontWeight: 600 }}>{s.name}</td>
+                        <td style={{ padding: '9px 14px', color: 'var(--txt)', fontWeight: FW.medium }}>{s.ticket_type}</td>
+                        <td style={{ padding: '9px 14px', color: 'var(--txt)', fontWeight: FW.semibold }}>{s.name}</td>
                         <td style={{ padding: '9px 14px', color: 'var(--txt2)' }}>{s.steps.length}</td>
                         <td style={{ padding: '9px 14px' }}>
-                          <span style={{ fontSize: 11.5, fontWeight: 600, padding: '1px 7px', borderRadius: 10, background: s.is_active ? `${GREEN}15` : 'rgba(75,85,99,.1)', color: s.is_active ? GREEN : '#6B7280' }}>
+                          <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS.lg, background: s.is_active ? `${GREEN}15` : 'rgba(75,85,99,.1)', color: s.is_active ? GREEN : '#6B7280' }}>
                             {s.is_active ? 'Active' : 'Inactive'}
                           </span>
                         </td>
                         <td style={{ padding: '9px 14px' }}>
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <button onClick={() => openEditScript(s)} style={{ width: 28, height: 28, borderRadius: 6, border: '1.5px solid var(--input-bdr)', background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt2)' }}>
-                              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>edit</span>
+                          <div style={{ display: 'flex', gap: SP[1] }}>
+                            <button onClick={() => openEditScript(s)} style={{ width: 28, height: 28, borderRadius: RADIUS.sm, border: '1.5px solid var(--input-bdr)', background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt2)' }}>
+                              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>edit</span>
                             </button>
-                            <button onClick={() => setDeleteScript(s)} style={{ width: 28, height: 28, borderRadius: 6, border: `1.5px solid ${RED}30`, background: `${RED}08`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: RED }}>
-                              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>delete</span>
+                            <button onClick={() => setDeleteScript(s)} style={{ width: 28, height: 28, borderRadius: RADIUS.sm, border: `1.5px solid ${RED}30`, background: `${RED}08`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: RED }}>
+                              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>delete</span>
                             </button>
                           </div>
                         </td>
@@ -570,14 +570,14 @@ export default function HelpdeskSettings() {
             {slaLoading ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size={24} /></div>
             ) : slaList.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)', fontSize: 13 }}>No SLA policies found.</div>
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>No SLA policies found.</div>
             ) : (
-              <div style={{ border: '1px solid var(--bdr)', borderRadius: 8, overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <div style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.md, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
                   <thead>
                     <tr style={{ background: 'var(--th-bg)' }}>
                       {['Priority', 'First Response (hrs)', 'Resolution (hrs)', 'Actions'].map(h => (
-                        <th key={h} style={{ padding: '9px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                        <th key={h} style={{ padding: '9px 14px', textAlign: 'left', fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -586,7 +586,7 @@ export default function HelpdeskSettings() {
                       const isEditing = slaEditing === p.id
                       return (
                         <tr key={p.id} style={{ borderTop: '1px solid var(--bdr)', background: i % 2 === 0 ? 'transparent' : 'var(--th-bg)' }}>
-                          <td style={{ padding: '9px 14px', fontWeight: 600, color: 'var(--txt)', textTransform: 'capitalize' }}>{p.priority}</td>
+                          <td style={{ padding: '9px 14px', fontWeight: FW.semibold, color: 'var(--txt)', textTransform: 'capitalize' }}>{p.priority}</td>
                           <td style={{ padding: '9px 14px' }}>
                             {isEditing ? (
                               <input type="number" min={0} value={slaForm.first_response_hours}
@@ -607,21 +607,21 @@ export default function HelpdeskSettings() {
                           </td>
                           <td style={{ padding: '9px 14px' }}>
                             {isEditing ? (
-                              <div style={{ display: 'flex', gap: 6 }}>
+                              <div style={{ display: 'flex', gap: SP[1] }}>
                                 <button onClick={() => handleSaveSLA(p.id)} disabled={slaSaving}
-                                  style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: NAVY, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                  style={{ padding: `${SP[1]} ${SP[3]}`, borderRadius: RADIUS.sm, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                                   {slaSaving && <Spinner size={11} color="#fff" />}
                                   Save
                                 </button>
                                 <button onClick={() => setSlaEditing(null)}
-                                  style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12, cursor: 'pointer' }}>
+                                  style={{ padding: '4px 10px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, cursor: 'pointer' }}>
                                   Cancel
                                 </button>
                               </div>
                             ) : (
                               <button onClick={() => startSLAEdit(p)}
-                                style={{ width: 28, height: 28, borderRadius: 6, border: '1.5px solid var(--input-bdr)', background: 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt2)' }}>
-                                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>edit</span>
+                                style={{ width: 28, height: 28, borderRadius: RADIUS.sm, border: '1.5px solid var(--input-bdr)', background: 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt2)' }}>
+                                <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>edit</span>
                               </button>
                             )}
                           </td>
@@ -664,20 +664,20 @@ export default function HelpdeskSettings() {
         title={editScript ? 'Edit Call Script' : 'New Call Script'}
         width={540}
         footer={
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: SP[2] }}>
             <button onClick={handleSaveScript} disabled={scriptSaving}
-              style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: scriptSaving ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, opacity: scriptSaving ? 0.7 : 1 }}>
+              style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: scriptSaving ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: SP[1], opacity: scriptSaving ? 0.7 : 1 }}>
               {scriptSaving && <Spinner size={13} color="#fff" />}
               Save Script
             </button>
             <button onClick={() => { setScriptModalOpen(false); setEditScript(null) }}
-              style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
+              style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
               Cancel
             </button>
           </div>
         }
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: SORA }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3], fontFamily: SORA }}>
           <div>
             <label style={labelStyle}>Ticket Type *</label>
             <select value={scriptForm.ticket_type} onChange={e => setScriptForm(f => ({ ...f, ticket_type: e.target.value }))} style={{ ...inputStyle }}>
@@ -690,22 +690,22 @@ export default function HelpdeskSettings() {
             <input value={scriptForm.name} onChange={e => setScriptForm(f => ({ ...f, name: e.target.value }))}
               placeholder="e.g. Card Dispute Standard Script" style={inputStyle} />
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
             <input type="checkbox" id="script-active" checked={scriptForm.is_active} onChange={e => setScriptForm(f => ({ ...f, is_active: e.target.checked }))} style={{ width: 15, height: 15, cursor: 'pointer' }} />
-            <label htmlFor="script-active" style={{ fontSize: 13, color: 'var(--txt)', cursor: 'pointer' }}>Script is active</label>
+            <label htmlFor="script-active" style={{ fontSize: TEXT.base, color: 'var(--txt)', cursor: 'pointer' }}>Script is active</label>
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
               <label style={labelStyle}>Steps *</label>
               <button type="button" onClick={() => setScriptForm(f => ({ ...f, steps: [...f.steps, { prompt: '' }] }))}
-                style={{ fontSize: 12, padding: '3px 10px', borderRadius: 6, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, cursor: 'pointer' }}>
+                style={{ fontSize: TEXT.sm, padding: '3px 10px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, cursor: 'pointer' }}>
                 + Add Step
               </button>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
               {scriptForm.steps.map((step, i) => (
-                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                  <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: `${NAVY}12`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: NAVY, marginTop: 7 }}>
+                <div key={i} style={{ display: 'flex', gap: SP[2], alignItems: 'flex-start' }}>
+                  <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: `${NAVY}12`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, color: NAVY, marginTop: 7 }}>
                     {i + 1}
                   </div>
                   <input
@@ -716,8 +716,8 @@ export default function HelpdeskSettings() {
                   />
                   {scriptForm.steps.length > 1 && (
                     <button type="button" onClick={() => setScriptForm(f => ({ ...f, steps: f.steps.filter((_, j) => j !== i) }))}
-                      style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${RED}30`, background: `${RED}08`, color: RED, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 4 }}>
-                      <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>
+                      style={{ width: 28, height: 28, borderRadius: RADIUS.sm, border: `1px solid ${RED}30`, background: `${RED}08`, color: RED, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 4 }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>close</span>
                     </button>
                   )}
                 </div>

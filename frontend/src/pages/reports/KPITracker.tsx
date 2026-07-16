@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, S
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtPct, n } from '../../lib/fmt'
-import { GREEN, AMBER, RED, INTER, NUM } from '../../lib/design'
+import { GREEN, AMBER, RED, INTER, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -81,8 +81,8 @@ function RagDot({ value, target, lowerIsBetter }: { value: number; target: numbe
 function MoMChange({ pct }: { pct: number }) {
   const positive = pct >= 0
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11, fontWeight: 600, fontFamily: INTER, color: positive ? GREEN : RED }}>
-      <span className="material-symbols-rounded" style={{ fontSize: 12 }}>{positive ? 'arrow_upward' : 'arrow_downward'}</span>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: TEXT.xs, fontWeight: FW.semibold, fontFamily: INTER, color: positive ? GREEN : RED }}>
+      <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm }}>{positive ? 'arrow_upward' : 'arrow_downward'}</span>
       {Math.abs(pct).toFixed(1)}%
     </span>
   )
@@ -99,24 +99,24 @@ function KPICard({ def, values, loading }: { def: KPIDef; values: KPIValues; loa
   return (
     <div style={{
       background: 'var(--card)', border: '1px solid var(--card-bdr)', boxShadow: 'var(--card-shadow)',
-      borderRadius: 12, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 6,
+      borderRadius: RADIUS.xl, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 6,
     }}>
-      <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', letterSpacing: '0.3px', textTransform: 'uppercase' }}>
+      <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', letterSpacing: '0.3px', textTransform: 'uppercase' }}>
         {def.label}
       </span>
       {loading ? (
         <Sk h={28} w="60%" />
       ) : (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ ...NUM, fontSize: 22, fontWeight: 700, color: 'var(--txt)', letterSpacing: '-0.6px', lineHeight: 1.2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+          <span style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)', letterSpacing: '-0.6px', lineHeight: 1.2 }}>
             {fmt(val, def.format)}
           </span>
           <RagDot value={val} target={target} lowerIsBetter={def.lower_is_better} />
         </div>
       )}
       {!loading && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 11.5, color: 'var(--txt2)' }}>Target: {fmt(target, def.format)}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+          <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>Target: {fmt(target, def.format)}</span>
           {values[momKey] !== undefined && <MoMChange pct={mom} />}
         </div>
       )}
@@ -161,7 +161,7 @@ export default function KPITracker() {
       key: 'period_label',
       label: 'Period',
       sortable: true,
-      render: r => <span style={{ fontSize: 12, fontFamily: INTER, color: 'var(--txt2)' }}>{r.period_label}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, fontFamily: INTER, color: 'var(--txt2)' }}>{r.period_label}</span>,
     },
     ...KPI_DEFS.map(def => ({
       key: def.key,
@@ -170,7 +170,7 @@ export default function KPITracker() {
       sortable: true,
       render: (r: KPIHistoryRow) => {
         const val = n(r[def.key])
-        return <span style={{ ...NUM, fontSize: 12.5, fontWeight: 600 }}>{fmt(val, def.format)}</span>
+        return <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmt(val, def.format)}</span>
       },
     })),
   ]
@@ -186,7 +186,7 @@ export default function KPITracker() {
       </FilterBar>
 
       {/* KPI grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: SP[4], marginBottom: SP[5] }}>
         {KPI_DEFS.map(def => (
           <KPICard key={def.key} def={def} values={values} loading={loading} />
         ))}

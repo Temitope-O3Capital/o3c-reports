@@ -5,7 +5,7 @@ import {
 } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtDatetime, today } from '../../lib/fmt'
-import { GREEN, AMBER, RED, DARKRED, BLUE, PURPLE, NAVY, NUM, INTER } from '../../lib/design'
+import { GREEN, AMBER, RED, DARKRED, BLUE, PURPLE, NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ function DpdBadge({ dpd }: { dpd: number }) {
   return (
     <span style={{
       ...NUM, display: 'inline-flex', alignItems: 'center',
-      fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 7px', borderRadius: RADIUS['2xl'],
       background: `${color}18`, color, whiteSpace: 'nowrap',
     }}>DPD {dpd}</span>
   )
@@ -78,9 +78,9 @@ function DispositionPill({ disp, size = 'md' }: { disp: string; size?: 'sm' | 'm
   return (
     <span style={{
       ...NUM, display: 'inline-flex', alignItems: 'center',
-      fontSize: size === 'sm' ? 10.5 : 11.5, fontWeight: 600,
+      fontSize: size === 'sm' ? 10.5 : 11.5, fontWeight: FW.semibold,
       padding: size === 'sm' ? '1px 6px' : '2px 8px',
-      borderRadius: 20, background: s.bg, color: s.txt, whiteSpace: 'nowrap',
+      borderRadius: RADIUS['2xl'], background: s.bg, color: s.txt, whiteSpace: 'nowrap',
     }}>{disp}</span>
   )
 }
@@ -89,11 +89,11 @@ function StatChip({ label, value, color }: { label: string; value: number; color
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center',
-      padding: '8px 10px', borderRadius: 8, flex: 1,
+      padding: '8px 10px', borderRadius: RADIUS.md, flex: 1,
       background: `${color}0f`, border: `1px solid ${color}28`,
     }}>
-      <span style={{ ...NUM, fontSize: 20, fontWeight: 800, color, lineHeight: 1 }}>{value}</span>
-      <span style={{ fontSize: 10, color: 'var(--txt2)', marginTop: 3, fontWeight: 500, textAlign: 'center' }}>{label}</span>
+      <span style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color, lineHeight: 1 }}>{value}</span>
+      <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', marginTop: 3, fontWeight: FW.medium, textAlign: 'center' }}>{label}</span>
     </div>
   )
 }
@@ -101,8 +101,8 @@ function StatChip({ label, value, color }: { label: string; value: number; color
 function InfoField({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
-      <div style={{ fontSize: 10.5, color: 'var(--txt2)', marginBottom: 3, fontWeight: 500 }}>{label}</div>
-      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{value ?? '—'}</div>
+      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', marginBottom: 3, fontWeight: FW.medium }}>{label}</div>
+      <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{value ?? '—'}</div>
     </div>
   )
 }
@@ -122,12 +122,12 @@ function CallHistoryTimeline({ contactId, refreshKey }: { contactId: number; ref
   }, [contactId, refreshKey])
 
   if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '24px 0', color: 'var(--txt2)', fontSize: 13 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: '24px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>
       <Spinner size={14} color={NAVY} /> Loading call history…
     </div>
   )
   if (!calls.length) return (
-    <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt3)', fontSize: 13 }}>
+    <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt3)', fontSize: TEXT.base }}>
       No calls logged yet
     </div>
   )
@@ -144,23 +144,23 @@ function CallHistoryTimeline({ contactId, refreshKey }: { contactId: number; ref
               border: `2px solid ${i === 0 ? NAVY : 'var(--bdr)'}`,
             }} />
             <div style={{
-              padding: '10px 12px', borderRadius: 8,
+              padding: '10px 12px', borderRadius: RADIUS.md,
               border: '1px solid var(--bdr)',
               background: i === 0 ? `${NAVY}06` : 'var(--th-bg)',
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
                 <DispositionPill disp={c.disposition} size="sm" />
-                <span style={{ fontSize: 10.5, color: 'var(--txt2)', fontFamily: INTER }}>
+                <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER }}>
                   {fmtDatetime(c.called_at)}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 12, color: 'var(--txt)', fontWeight: 600 }}>{c.agent_name}</span>
-                <span style={{ fontSize: 11, color: 'var(--txt2)', fontFamily: INTER }}>{fmtDuration(c.duration_seconds)}</span>
+                <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.semibold }}>{c.agent_name}</span>
+                <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>{fmtDuration(c.duration_seconds)}</span>
               </div>
               {c.notes && (
                 <div style={{
-                  fontSize: 11.5, color: 'var(--txt2)', marginTop: 6, lineHeight: 1.5,
+                  fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 6, lineHeight: 1.5,
                   paddingTop: 6, borderTop: '1px solid var(--bdr)',
                 }}>
                   {c.notes}
@@ -192,8 +192,8 @@ const DISP_BTN_COLORS: Record<string, string> = {
 
 const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
-  border: '1px solid var(--input-bdr)', borderRadius: 7,
-  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
+  border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
   fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
 }
 
@@ -230,12 +230,12 @@ function LogCallForm({ contactId, onDone }: { contactId: number; onDone: () => v
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
       <ErrBanner error={err} />
 
       {/* Outcome buttons */}
       <div>
-        <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.6px', display: 'block', marginBottom: 8 }}>
+        <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.6px', display: 'block', marginBottom: SP[2] }}>
           Call Outcome <span style={{ color: RED }}>*</span>
         </label>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
@@ -244,8 +244,8 @@ function LogCallForm({ contactId, onDone }: { contactId: number; onDone: () => v
             const color = DISP_BTN_COLORS[d] ?? NAVY
             return (
               <button key={d} onClick={() => setDisposition(d)} style={{
-                padding: '8px 10px', borderRadius: 7,
-                fontSize: 11.5, fontWeight: 600, textAlign: 'center',
+                padding: '8px 10px', borderRadius: RADIUS.md,
+                fontSize: TEXT.xs, fontWeight: FW.semibold, textAlign: 'center',
                 border: `1.5px solid ${on ? color : 'var(--bdr)'}`,
                 background: on ? `${color}15` : 'transparent',
                 color: on ? color : 'var(--txt2)',
@@ -258,13 +258,13 @@ function LogCallForm({ contactId, onDone }: { contactId: number; onDone: () => v
 
       {/* PTP fields */}
       {isPtp && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, padding: '12px', background: `${BLUE}08`, borderRadius: 8, border: `1px solid ${BLUE}20` }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, padding: '12px', background: `${BLUE}08`, borderRadius: RADIUS.md, border: `1px solid ${BLUE}20` }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>PTP Date</label>
+            <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>PTP Date</label>
             <input type="date" value={ptpDate} onChange={e => setPtpDate(e.target.value)} style={{ ...fieldStyle, height: 36 }} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>PTP Amount ₦</label>
+            <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>PTP Amount ₦</label>
             <input type="number" value={ptpAmountNaira} onChange={e => setPtpAmountNaira(e.target.value)} placeholder="50000" style={{ ...fieldStyle, height: 36 }} />
           </div>
         </div>
@@ -272,7 +272,7 @@ function LogCallForm({ contactId, onDone }: { contactId: number; onDone: () => v
 
       {/* Notes */}
       <div>
-        <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.6px', display: 'block', marginBottom: 6 }}>Notes</label>
+        <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.6px', display: 'block', marginBottom: 6 }}>Notes</label>
         <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
           value={notes}
           onChange={e => setNotes(e.target.value)}
@@ -287,15 +287,15 @@ function LogCallForm({ contactId, onDone }: { contactId: number; onDone: () => v
         onClick={submit}
         disabled={saving}
         style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: SP[2],
           padding: '11px 0', background: saving ? `${NAVY}80` : NAVY,
-          color: '#fff', border: 'none', borderRadius: 8,
-          fontSize: 14, fontWeight: 700,
+          color: '#fff', border: 'none', borderRadius: RADIUS.md,
+          fontSize: TEXT.md, fontWeight: FW.bold,
           cursor: saving ? 'not-allowed' : 'pointer', width: '100%',
         }}
       >
         {saving ? <Spinner size={14} color="#fff" /> : (
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>save</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>save</span>
         )}
         {saving ? 'Saving…' : 'Log Call'}
       </button>
@@ -342,18 +342,18 @@ function DetailPanel({ contact, onAction }: { contact: TelemarketingContact; onA
             width: 46, height: 46, borderRadius: '50%', flexShrink: 0,
             background: `${pColor}1a`, color: pColor,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 16, fontWeight: 800, letterSpacing: '-0.5px',
+            fontSize: TEXT.lg, fontWeight: FW.extrabold, letterSpacing: '-0.5px',
           }}>
             {contact.customer_name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
           </div>
 
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
-              <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap', marginBottom: 5 }}>
+              <span style={{ fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>
                 {contact.customer_name}
               </span>
               <span style={{
-                fontSize: 11, fontWeight: 700, padding: '1px 8px', borderRadius: 99,
+                fontSize: TEXT.xs, fontWeight: FW.bold, padding: '1px 8px', borderRadius: RADIUS.full,
                 background: `${pColor}18`, color: pColor,
               }}>{contact.priority}</span>
               <DpdBadge dpd={contact.dpd} />
@@ -361,14 +361,14 @@ function DetailPanel({ contact, onAction }: { contact: TelemarketingContact; onA
                 <DispositionPill disp={contact.last_disposition} size="sm" />
               )}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: 14, color: 'var(--txt)', fontFamily: INTER, fontWeight: 600, letterSpacing: '0.3px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
+              <span style={{ fontSize: TEXT.md, color: 'var(--txt)', fontFamily: INTER, fontWeight: FW.semibold, letterSpacing: '0.3px' }}>
                 {contact.phone}
               </span>
               {contact.cif && (
                 <button
                   onClick={() => navigate(`/contacts/${contact.cif}`)}
-                  style={{ fontSize: 11.5, color: NAVY, background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+                  style={{ fontSize: TEXT.xs, color: NAVY, background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
                 >
                   CIF: {contact.cif}
                 </button>
@@ -382,7 +382,7 @@ function DetailPanel({ contact, onAction }: { contact: TelemarketingContact; onA
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               padding: '9px 16px', background: GREEN, color: '#fff',
-              borderRadius: 8, fontSize: 13, fontWeight: 700,
+              borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.bold,
               textDecoration: 'none', flexShrink: 0,
             }}
           >
@@ -397,22 +397,22 @@ function DetailPanel({ contact, onAction }: { contact: TelemarketingContact; onA
             display: 'flex', gap: 0, marginTop: 14,
             paddingTop: 14, borderTop: '1px solid var(--bdr)',
           }}>
-            <div style={{ flex: 1, paddingRight: 16, borderRight: '1px solid var(--bdr)' }}>
-              <div style={{ fontSize: 10.5, color: 'var(--txt2)', marginBottom: 3 }}>Outstanding</div>
-              <div style={{ ...NUM, fontSize: 15, fontWeight: 800, color: 'var(--txt)' }}>
+            <div style={{ flex: 1, paddingRight: SP[4], borderRight: '1px solid var(--bdr)' }}>
+              <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', marginBottom: 3 }}>Outstanding</div>
+              <div style={{ ...NUM, fontSize: TEXT.md, fontWeight: FW.extrabold, color: 'var(--txt)' }}>
                 {fmtKobo(contact.outstanding_kobo)}
               </div>
             </div>
-            <div style={{ flex: 1, paddingLeft: 16, paddingRight: 16, borderRight: '1px solid var(--bdr)' }}>
-              <div style={{ fontSize: 10.5, color: 'var(--txt2)', marginBottom: 3 }}>Next Payment</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
+            <div style={{ flex: 1, paddingLeft: SP[4], paddingRight: SP[4], borderRight: '1px solid var(--bdr)' }}>
+              <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', marginBottom: 3 }}>Next Payment</div>
+              <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
                 {fmtDate(contact.next_payment_date) ?? '—'}
               </div>
             </div>
             {contact.loan_product && (
-              <div style={{ flex: 1, paddingLeft: 16 }}>
-                <div style={{ fontSize: 10.5, color: 'var(--txt2)', marginBottom: 3 }}>Product</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
+              <div style={{ flex: 1, paddingLeft: SP[4] }}>
+                <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', marginBottom: 3 }}>Product</div>
+                <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
                   {contact.loan_product}
                 </div>
               </div>
@@ -431,14 +431,14 @@ function DetailPanel({ contact, onAction }: { contact: TelemarketingContact; onA
           return (
             <button key={t.key} onClick={() => setTab(t.key)} style={{
               display: 'flex', alignItems: 'center', gap: 5,
-              padding: '10px 12px', fontSize: 12.5,
+              padding: '10px 12px', fontSize: TEXT.sm,
               fontWeight: on ? 700 : 500,
               color: on ? NAVY : 'var(--txt2)',
               background: 'none', border: 'none', cursor: 'pointer',
               borderBottom: on ? `2px solid ${NAVY}` : '2px solid transparent',
               marginBottom: -1,
             }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{t.icon}</span>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>{t.icon}</span>
               {t.label}
             </button>
           )
@@ -446,7 +446,7 @@ function DetailPanel({ contact, onAction }: { contact: TelemarketingContact; onA
       </div>
 
       {/* ── Tab content ─────────────────────────────────────────────────── */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: `${SP[5]} ${SP[6]}` }}>
         {tab === 'log' && (
           <LogCallForm contactId={contact.id} onDone={afterLog} />
         )}
@@ -457,10 +457,10 @@ function DetailPanel({ contact, onAction }: { contact: TelemarketingContact; onA
 
         {tab === 'info' && (
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.7px', marginBottom: 12 }}>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.7px', marginBottom: SP[3] }}>
               Contact Details
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px', marginBottom: 24 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px', marginBottom: SP[6] }}>
               <InfoField label="Full Name" value={contact.customer_name} />
               <InfoField label="Phone" value={<span style={{ fontFamily: INTER }}>{contact.phone}</span>} />
               <InfoField label="CIF" value={contact.cif} />
@@ -473,7 +473,7 @@ function DetailPanel({ contact, onAction }: { contact: TelemarketingContact; onA
             </div>
             {contact.is_existing_customer && (
               <>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.7px', marginBottom: 12 }}>
+                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.7px', marginBottom: SP[3] }}>
                   Loan Summary
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px' }}>
@@ -591,7 +591,7 @@ export default function TelemarketingQueue() {
         }}>
           {/* Header */}
           <div style={{ padding: '14px 14px 12px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 10 }}>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 10 }}>
               Outbound Queue
             </div>
 
@@ -608,17 +608,17 @@ export default function TelemarketingQueue() {
               onChange={v => setSearch(v)}
               placeholder="Search name or phone…"
               width={0}
-              style={{ marginBottom: 8 }}
+              style={{ marginBottom: SP[2] }}
             />
 
             {/* Priority chips */}
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+            <div style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap', marginBottom: 6 }}>
               {PRIORITY_OPTIONS.map(o => {
                 const on = priority === o
                 const color = o === 'High' ? RED : o === 'Medium' ? AMBER : 'var(--chart-lbl)'
                 return (
                   <button key={o} onClick={() => setPriority(on ? 'All' : o)} style={{
-                    fontSize: 10.5, fontWeight: 600, padding: '2px 9px', borderRadius: 99,
+                    fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 9px', borderRadius: RADIUS.full,
                     border: `1px solid ${on ? color : 'var(--bdr)'}`,
                     background: on ? `${color}18` : 'transparent',
                     color: on ? color : 'var(--txt3)', cursor: 'pointer',
@@ -628,12 +628,12 @@ export default function TelemarketingQueue() {
             </div>
 
             {/* Disposition chips */}
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+            <div style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap', marginBottom: 6 }}>
               {DISPOSITION_OPTIONS.map(o => {
                 const on = disposition === o
                 return (
                   <button key={o} onClick={() => setDisposition(on ? 'All' : o)} style={{
-                    fontSize: 10.5, fontWeight: 600, padding: '2px 9px', borderRadius: 99,
+                    fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 9px', borderRadius: RADIUS.full,
                     border: `1px solid ${on ? NAVY : 'var(--bdr)'}`,
                     background: on ? `${NAVY}12` : 'transparent',
                     color: on ? NAVY : 'var(--txt3)', cursor: 'pointer',
@@ -643,12 +643,12 @@ export default function TelemarketingQueue() {
             </div>
 
             {/* DPD chips */}
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap' }}>
               {DPD_OPTIONS.map(o => {
                 const on = dpd === o
                 return (
                   <button key={o} onClick={() => setDpd(on ? 'All' : o)} style={{
-                    fontSize: 10.5, fontWeight: 600, padding: '2px 9px', borderRadius: 99,
+                    fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 9px', borderRadius: RADIUS.full,
                     border: `1px solid ${on ? BLUE : 'var(--bdr)'}`,
                     background: on ? `${BLUE}12` : 'transparent',
                     color: on ? BLUE : 'var(--txt3)', cursor: 'pointer',
@@ -659,7 +659,7 @@ export default function TelemarketingQueue() {
                 <button
                   onClick={() => { setPriority('All'); setDisposition('All'); setDpd('All'); setSearch('') }}
                   style={{
-                    fontSize: 10.5, fontWeight: 500, padding: '2px 9px', borderRadius: 99,
+                    fontSize: TEXT['2xs'], fontWeight: FW.medium, padding: '2px 9px', borderRadius: RADIUS.full,
                     border: '1px solid var(--bdr)', background: 'none',
                     color: 'var(--txt3)', cursor: 'pointer',
                   }}
@@ -671,17 +671,17 @@ export default function TelemarketingQueue() {
           {/* Batch bar */}
           {checkedIds.size > 0 && (
             <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
+              display: 'flex', alignItems: 'center', gap: SP[2],
               padding: '7px 14px', background: '#F0F4FF',
               borderBottom: '1px solid var(--bdr)', flexShrink: 0,
             }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: NAVY }}>{checkedIds.size} selected</span>
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>{checkedIds.size} selected</span>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                <button onClick={() => toast.info('Reassign — coming soon')} style={{ fontSize: 11.5, fontWeight: 500, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: 6, padding: '3px 9px', cursor: 'pointer' }}>Reassign</button>
-                <button onClick={() => setSkipConfirm(true)} style={{ fontSize: 11.5, fontWeight: 500, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: 6, padding: '3px 9px', cursor: 'pointer' }}>Skip</button>
-                <button onClick={handleExport} style={{ fontSize: 11.5, fontWeight: 500, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: 6, padding: '3px 9px', cursor: 'pointer' }}>Export</button>
+                <button onClick={() => toast.info('Reassign — coming soon')} style={{ fontSize: TEXT.xs, fontWeight: FW.medium, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: RADIUS.sm, padding: '3px 9px', cursor: 'pointer' }}>Reassign</button>
+                <button onClick={() => setSkipConfirm(true)} style={{ fontSize: TEXT.xs, fontWeight: FW.medium, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: RADIUS.sm, padding: '3px 9px', cursor: 'pointer' }}>Skip</button>
+                <button onClick={handleExport} style={{ fontSize: TEXT.xs, fontWeight: FW.medium, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: RADIUS.sm, padding: '3px 9px', cursor: 'pointer' }}>Export</button>
                 <button onClick={clearChecked} style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)', borderRadius: '50%' }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>close</span>
                 </button>
               </div>
             </div>
@@ -693,11 +693,11 @@ export default function TelemarketingQueue() {
           {/* Contact list */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {loading ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10, color: 'var(--txt2)', fontSize: 13 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10, color: 'var(--txt2)', fontSize: TEXT.base }}>
                 <Spinner size={16} color={NAVY} /> Loading…
               </div>
             ) : items.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--txt2)', fontSize: 13 }}>
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--txt2)', fontSize: TEXT.base }}>
                 No contacts match the current filters.
               </div>
             ) : (
@@ -736,7 +736,7 @@ export default function TelemarketingQueue() {
                     <div style={{ flex: 1, minWidth: 0, padding: '10px 12px 10px 2px' }}>
                       {/* Row 1: name + last disposition */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                        <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                           {item.customer_name}
                         </span>
                         {item.last_disposition && (
@@ -744,17 +744,17 @@ export default function TelemarketingQueue() {
                         )}
                       </div>
                       {/* Row 2: phone + CIF */}
-                      <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginBottom: 4, fontFamily: INTER }}>
+                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: SP[1], fontFamily: INTER }}>
                         {item.phone}{item.cif ? ` · ${item.cif}` : ''}
                       </div>
                       {/* Row 3: outstanding + DPD + last called */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ ...NUM, fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>
+                        <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
                           {fmtKobo(item.outstanding_kobo)}
                         </span>
                         <DpdBadge dpd={item.dpd} />
                         {item.last_called_at && (
-                          <span style={{ fontSize: 10.5, color: 'var(--txt3)', fontFamily: INTER, marginLeft: 'auto' }}>
+                          <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontFamily: INTER, marginLeft: 'auto' }}>
                             {fmtDate(item.last_called_at)}
                           </span>
                         )}
@@ -774,7 +774,7 @@ export default function TelemarketingQueue() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10, color: 'var(--txt2)' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 52, color: 'var(--txt3)' }}>phone_in_talk</span>
-              <span style={{ fontSize: 14 }}>Select a contact to begin calling</span>
+              <span style={{ fontSize: TEXT.md }}>Select a contact to begin calling</span>
             </div>
           )}
         </div>

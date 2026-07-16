@@ -7,7 +7,7 @@ import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Tabs, Sk } from '../.
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { today, monthStart } from '../../lib/fmt'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -59,12 +59,12 @@ const PRODUCT_COLORS = [NAVY, RED, GREEN, AMBER, BLUE, PURPLE]
 function VolumeTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
-      <div style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 6 }}>{label}</div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.md, padding: '10px 14px', fontSize: TEXT.sm }}>
+      <div style={{ fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: SP[1] }}>{label}</div>
+      <div style={{ display: 'flex', gap: SP[2], alignItems: 'center' }}>
         <span style={{ width: 8, height: 8, borderRadius: 2, background: NAVY, display: 'inline-block' }} />
         <span style={{ color: 'var(--txt2)' }}>Volume:</span>
-        <span style={{ ...NUM, color: 'var(--txt)', fontWeight: 600 }}>{fmtKobo(payload[0]?.value)}</span>
+        <span style={{ ...NUM, color: 'var(--txt)', fontWeight: FW.semibold }}>{fmtKobo(payload[0]?.value)}</span>
       </div>
     </div>
   )
@@ -74,8 +74,8 @@ function DonutTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null
   const d = payload[0]
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
-      <div style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 4 }}>{d.name}</div>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.md, padding: '10px 14px', fontSize: TEXT.sm }}>
+      <div style={{ fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: SP[1] }}>{d.name}</div>
       <div style={{ ...NUM, color: 'var(--txt2)' }}>{fmtKobo(d.value)}</div>
     </div>
   )
@@ -86,8 +86,8 @@ function DonutTooltip({ active, payload }: any) {
 function TreasuryTab({ data }: { data: Treasury | null }) {
   if (!data) {
     return (
-      <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--txt2)', fontSize: 13 }}>
-        <span className="material-symbols-rounded" style={{ fontSize: 32, opacity: 0.35, display: 'block', marginBottom: 8 }}>account_balance</span>
+      <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--txt2)', fontSize: TEXT.base }}>
+        <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], opacity: 0.35, display: 'block', marginBottom: SP[2] }}>account_balance</span>
         Loading treasury position…
       </div>
     )
@@ -100,12 +100,12 @@ function TreasuryTab({ data }: { data: Treasury | null }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
       {rows.map(r => (
-        <div key={r.label} style={{ background: 'var(--bg)', borderRadius: 10, padding: '14px 16px', border: '1px solid var(--bdr)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16, color: (r as any).accent ?? 'var(--txt2)' }}>{r.icon}</span>
-            <span style={{ fontSize: 11.5, color: 'var(--txt2)', fontWeight: 600 }}>{r.label}</span>
+        <div key={r.label} style={{ background: 'var(--bg)', borderRadius: RADIUS.lg, padding: '14px 16px', border: '1px solid var(--bdr)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[1] }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: (r as any).accent ?? 'var(--txt2)' }}>{r.icon}</span>
+            <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontWeight: FW.semibold }}>{r.label}</span>
           </div>
-          <div style={{ ...NUM, fontSize: 17, fontWeight: 700, color: (r as any).accent ?? 'var(--txt)', letterSpacing: '-0.4px' }}>{r.value}</div>
+          <div style={{ ...NUM, fontSize: 17, fontWeight: FW.bold, color: (r as any).accent ?? 'var(--txt)', letterSpacing: '-0.4px' }}>{r.value}</div>
         </div>
       ))}
     </div>
@@ -117,20 +117,20 @@ function TreasuryTab({ data }: { data: Treasury | null }) {
 const TXN_COLS: TableCol<TxnRow>[] = [
   { key: 'txn_date', label: 'Date', render: r => fmtDate(r.txn_date) },
   { key: 'account_no', label: 'Ref', render: r => (
-    <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{r.account_no}</span>
+    <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.account_no}</span>
   )},
   { key: 'customer', label: 'Customer', sortable: true },
   { key: 'txn_category', label: 'Type', render: r => (
-    <span style={{ ...NUM, fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+    <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'],
       background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
       {r.txn_category || r.description || '—'}
     </span>
   )},
   { key: 'amount', label: 'Amount', align: 'right', sortable: true,
-    render: r => <span style={{ ...NUM, fontWeight: 600, color: r.sign === 'CR' ? GREEN : RED }}>{fmtKobo(r.amount)}</span> },
+    render: r => <span style={{ ...NUM, fontWeight: FW.semibold, color: r.sign === 'CR' ? GREEN : RED }}>{fmtKobo(r.amount)}</span> },
   { key: 'balance', label: 'Balance', align: 'right', render: r => <span style={NUM}>{fmtKobo(r.balance)}</span> },
   { key: 'sign', label: 'Channel', render: r => (
-    <span style={{ ...NUM, fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+    <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'],
       background: r.sign === 'CR' ? 'rgba(22,163,74,.1)' : 'rgba(192,0,0,.08)',
       color: r.sign === 'CR' ? GREEN : RED }}>
       {r.sign}
@@ -192,7 +192,7 @@ export default function FinanceOverview() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[5] }}>
         <KpiCard label="Interest Income MTD" value={fmtKobo(interestIncomeMTD)} icon="trending_up" accent={GREEN} loading={loading} />
         <KpiCard label="FD Outstanding" value={fmtKobo(fdOutstanding)} icon="savings" accent={BLUE} loading={loading} />
         <KpiCard label="Total Loan Book" value={fmtKobo(totalVolume)} icon="account_balance_wallet" accent={NAVY} loading={loading} />
@@ -208,7 +208,7 @@ export default function FinanceOverview() {
       />
 
       {tab === 'overview' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
           {/* Area chart — transaction volume trend */}
           <SectionCard title="Transaction Volume Trend" subtitle="12-month rolling">
             {loading ? <Sk h={200} /> : (
@@ -221,8 +221,8 @@ export default function FinanceOverview() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
-                  <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} width={72} />
+                  <XAxis dataKey="month" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} width={72} />
                   <Tooltip content={<VolumeTooltip />} />
                   <Area type="monotone" dataKey="volume" stroke={NAVY} strokeWidth={2} fill="url(#volGrad)" dot={false} />
                 </AreaChart>
@@ -233,9 +233,9 @@ export default function FinanceOverview() {
           {/* Donut — product mix */}
           <SectionCard title="Volume by Product" subtitle="Current period">
             {loading ? <Sk h={200} /> : products.length === 0 ? (
-              <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt2)', fontSize: 13 }}>No product data</div>
+              <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No product data</div>
             ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: SP[4] }}>
                 <ResponsiveContainer width={160} height={160}>
                   <PieChart>
                     <Pie data={products} dataKey="volume" nameKey="product_name" cx="50%" cy="50%"
@@ -245,17 +245,17 @@ export default function FinanceOverview() {
                     <Tooltip content={<DonutTooltip />} />
                   </PieChart>
                 </ResponsiveContainer>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
                   {products.map((p, i) => {
                     const total = products.reduce((s, x) => s + x.volume, 0)
                     const pct = total > 0 ? ((p.volume / total) * 100).toFixed(1) : '0'
                     return (
-                      <div key={p.product_code} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div key={p.product_code} style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
                         <span style={{ width: 8, height: 8, borderRadius: 2, background: PRODUCT_COLORS[i % PRODUCT_COLORS.length], flexShrink: 0 }} />
-                        <span style={{ fontSize: 12, color: 'var(--txt)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {p.product_name || p.product_code}
                         </span>
-                        <span style={{ ...NUM, fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>{pct}%</span>
+                        <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>{pct}%</span>
                       </div>
                     )
                   })}

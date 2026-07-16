@@ -7,7 +7,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 import type { AuthUser } from '../../hooks/useAuth'
 
@@ -34,16 +34,16 @@ function PayslipModal({ data, period, onClose }: { data: PayslipData; period: st
     >
       <div
         onClick={e => e.stopPropagation()}
-        style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: 380, maxWidth: '95vw', border: '1px solid var(--card-bdr)', boxShadow: '0 8px 40px rgba(0,0,0,.18)' }}
+        style={{ background: 'var(--card)', borderRadius: RADIUS.xl, padding: 28, width: 380, maxWidth: '95vw', border: '1px solid var(--card-bdr)', boxShadow: '0 8px 40px rgba(0,0,0,.18)' }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 2 }}>Payslip — {period}</div>
-            {data.employee_name && <div style={{ fontSize: 12, color: 'var(--txt2)' }}>{data.employee_name}</div>}
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 2 }}>Payslip — {period}</div>
+            {data.employee_name && <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{data.employee_name}</div>}
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--txt3)', lineHeight: 1 }}>×</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: TEXT.xl, color: 'var(--txt3)', lineHeight: 1 }}>×</button>
         </div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
           <tbody>
             {[
               { label: 'Gross Pay', value: fmtKobo(data.gross_kobo), bold: false },
@@ -60,7 +60,7 @@ function PayslipModal({ data, period, onClose }: { data: PayslipData; period: st
           </tbody>
         </table>
         {data.generated_at && (
-          <div style={{ fontSize: 11, color: 'var(--txt3)', marginTop: 12, textAlign: 'center' }}>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: SP[3], textAlign: 'center' }}>
             Generated {fmtDate(data.generated_at)}
           </div>
         )}
@@ -129,7 +129,7 @@ const STATUS_STYLE: Record<string, { color: string; bg: string; label: string }>
 function StatusPill({ status }: { status: string }) {
   const s = STATUS_STYLE[status] ?? STATUS_STYLE.draft
   return (
-    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color }}>
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: s.bg, color: s.color }}>
       {s.label}
     </span>
   )
@@ -219,14 +219,14 @@ export default function RunDetail() {
       key: 'employee_name', label: 'Employee',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.employee_name}</div>
-          {r.staff_id && <div style={{ fontSize: 11.5, color: 'var(--txt3)', fontFamily: 'Inter, monospace' }}>{r.staff_id}</div>}
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.employee_name}</div>
+          {r.staff_id && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: 'Inter, monospace' }}>{r.staff_id}</div>}
         </div>
       ),
     },
     {
       key: 'department', label: 'Dept',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.department ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.department ?? '—'}</span>,
     },
     {
       key: 'gross_kobo', label: 'Gross', align: 'right',
@@ -258,7 +258,7 @@ export default function RunDetail() {
     },
     {
       key: 'net_kobo', label: 'Net Pay', align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: 700, color: GREEN }}>{fmtKobo(r.net_kobo)}</span>,
+      render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: GREEN }}>{fmtKobo(r.net_kobo)}</span>,
     },
     // C6: Payslip download button — only shown for paid runs
     ...(run?.status === 'paid' ? [{
@@ -267,7 +267,7 @@ export default function RunDetail() {
       render: (r: PayrollItem) => (
         <button
           onClick={e => viewPayslip(r, e)}
-          style={{ ...btnSecondary, fontSize: 11.5, padding: '3px 10px' }}
+          style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px' }}
         >
           Payslip
         </button>
@@ -293,7 +293,7 @@ export default function RunDetail() {
       subtitle={run ? `${run.headcount} employees${run.created_at ? ` · Created ${fmtDate(run.created_at)}` : ''}` : ''}
       back={{ label: 'Payroll', to: '/payroll' }}
       actions={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
           {run && <StatusPill status={run.status} />}
           {canSubmit && (
             <button onClick={() => setSubmitOpen(true)} style={btnPrimary}>
@@ -317,16 +317,16 @@ export default function RunDetail() {
 
       {/* Run summary strip */}
       {run && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: SP[5] }}>
           {[
             { label: 'Headcount',   value: run.headcount },
             { label: 'Gross Total', value: fmtKobo(run.total_gross_kobo) },
             { label: 'Net Total',   value: fmtKobo(run.total_net_kobo) },
             { label: 'PAYE Total',  value: fmtKobo(run.total_paye_kobo) },
           ].map(({ label, value }) => (
-            <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '14px 18px' }}>
-              <div style={{ fontSize: 12, color: 'var(--txt2)', fontWeight: 500, marginBottom: 4 }}>{label}</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>{value}</div>
+            <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: '14px 18px' }}>
+              <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.medium, marginBottom: SP[1] }}>{label}</div>
+              <div style={{ fontSize: TEXT.xl, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>{value}</div>
             </div>
           ))}
         </div>
@@ -360,7 +360,7 @@ export default function RunDetail() {
           <div style={{
             display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr',
             padding: '10px 16px', borderTop: '2px solid var(--bdr)',
-            background: 'var(--th-bg)', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)',
+            background: 'var(--th-bg)', fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)',
             fontFamily: 'Inter, sans-serif',
           }}>
             <span>Total ({filtered.length})</span>

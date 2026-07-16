@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, ErrBanner, SearchInput } from '../../comp
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtDatetime } from '../../lib/fmt'
-import { RED, GREEN, AMBER, NAVY, BLUE, INTER, SORA, NUM } from '../../lib/design'
+import { RED, GREEN, AMBER, NAVY, BLUE, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
 import { roleLabel, ROLE_LABELS } from '../../lib/roles'
 
@@ -67,7 +67,7 @@ function StatusPill({ active, lastLogin }: { active: boolean; lastLogin?: string
   const c = active ? STATUS_COLORS.active : isPending ? STATUS_COLORS.pending : STATUS_COLORS.inactive
   const label = active ? 'Active' : isPending ? 'Pending' : 'Inactive'
   return (
-    <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20, background: c.bg, color: c.txt }}>
+    <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'], background: c.bg, color: c.txt }}>
       {label}
     </span>
   )
@@ -85,7 +85,7 @@ function RolePill({ role }: { role: string }) {
   }
   const c = colorFor(role)
   return (
-    <span style={{ fontSize: 11.5, fontWeight: 600, background: `${c}15`, color: c, borderRadius: 10, padding: '2px 9px', whiteSpace: 'nowrap' }}>
+    <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, background: `${c}15`, color: c, borderRadius: RADIUS.lg, padding: '2px 9px', whiteSpace: 'nowrap' }}>
       {roleLabel(role)}
     </span>
   )
@@ -134,61 +134,61 @@ function InviteModal({ onClose, onSaved }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: 500, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
+      <div style={{ background: 'var(--card)', borderRadius: RADIUS['2xl'], width: 500, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>Invite User</h3>
+          <h3 style={{ margin: 0, fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>Invite User</h3>
           <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)' }}>
             <span className="material-symbols-rounded">close</span>
           </button>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             {[
               { label: 'First Name *', key: 'first_name' as const },
               { label: 'Last Name',    key: 'last_name'  as const },
             ].map(({ label, key }) => (
               <div key={key}>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
+                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
                 <input value={form[key]} onChange={e => field(key, e.target.value)}
-                  style={{ display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 13, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+                  style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
                 />
               </div>
             ))}
           </div>
 
           <div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Email Address *</div>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Email Address *</div>
             <input type="email" value={form.email} onChange={e => field('email', e.target.value)}
               placeholder="staff@o3cards.com"
-              style={{ display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 13, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+              style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <div>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Role</div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Role</div>
               <RoleSelect value={form.role} onChange={v => field('role', v)}
-                style={{ display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+                style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
               />
             </div>
             <div>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Department</div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Department</div>
               <select value={form.department} onChange={e => field('department', e.target.value)}
-                style={{ display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}>
+                style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}>
                 {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
               </select>
             </div>
           </div>
 
-          <div style={{ background: 'rgba(14,40,65,.07)', borderRadius: 8, padding: '10px 12px', fontSize: 12.5, color: 'var(--txt2)' }}>
+          <div style={{ background: 'rgba(14,40,65,.07)', borderRadius: RADIUS.md, padding: '10px 12px', fontSize: TEXT.sm, color: 'var(--txt2)' }}>
             A temporary password will be generated and sent to the user's email. They must change it on first login.
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 9, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: INTER }}>Cancel</button>
-          <button onClick={save} disabled={saving} style={{ padding: '9px 20px', borderRadius: 9, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER }}>
+        <div style={{ display: 'flex', gap: SP[2], marginTop: 22, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER }}>Cancel</button>
+          <button onClick={save} disabled={saving} style={{ padding: '9px 20px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
             {saving ? 'Inviting…' : 'Send Invite'}
           </button>
         </div>
@@ -258,93 +258,93 @@ function EditUserModal({ user, onClose, onSaved }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: 520, boxShadow: '0 20px 60px rgba(0,0,0,.25)', overflow: 'hidden' }}>
+      <div style={{ background: 'var(--card)', borderRadius: RADIUS['2xl'], width: 520, boxShadow: '0 20px 60px rgba(0,0,0,.25)', overflow: 'hidden' }}>
 
         {/* Header */}
-        <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 14, alignItems: 'center' }}>
-          <div style={{ width: 46, height: 46, borderRadius: '50%', background: ac, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+        <div style={{ padding: `${SP[5]} ${SP[6]}`, borderBottom: '1px solid var(--bdr)', display: 'flex', gap: SP[3], alignItems: 'center' }}>
+          <div style={{ width: 46, height: 46, borderRadius: '50%', background: ac, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT.lg, fontWeight: FW.bold, color: '#fff', flexShrink: 0 }}>
             {initials(user.full_name)}
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{user.full_name}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--txt2)', marginTop: 2 }}>{user.email}</div>
+            <div style={{ fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>{user.full_name}</div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2 }}>{user.email}</div>
           </div>
           <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)' }}>
             <span className="material-symbols-rounded">close</span>
           </button>
         </div>
 
-        <div style={{ padding: '20px 24px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
+        <div style={{ padding: `${SP[5]} ${SP[6]}` }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3], marginBottom: 16 }}>
             <div>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Role</div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Role</div>
               <RoleSelect value={form.role} onChange={v => field('role', v)}
-                style={{ display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+                style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
               />
             </div>
             <div>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Department</div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Department</div>
               <select value={form.department} onChange={e => field('department', e.target.value)}
-                style={{ display: 'block', width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}>
+                style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}>
                 {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
               </select>
             </div>
           </div>
 
           {/* Meta info */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20, background: 'var(--input-bg)', borderRadius: 8, padding: '12px 14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: SP[3], marginBottom: 20, background: 'var(--input-bg)', borderRadius: RADIUS.md, padding: '12px 14px' }}>
             {[
               { label: 'Status', value: form.is_active ? 'Active' : (!user.last_login ? 'Pending Approval' : 'Inactive'), color: form.is_active ? GREEN : (!user.last_login ? '#B45309' : RED) },
               { label: 'Last Login', value: user.last_login ? fmtDate(user.last_login) : 'Never' },
               { label: 'Created', value: fmtDate(user.created_at) },
             ].map(({ label, value, color }) => (
               <div key={label}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 3 }}>{label}</div>
-                <div style={{ fontSize: 12.5, fontWeight: 500, color: color ?? 'var(--txt)' }}>{value}</div>
+                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 3 }}>{label}</div>
+                <div style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: color ?? 'var(--txt)' }}>{value}</div>
               </div>
             ))}
           </div>
 
           {/* Temp PW display */}
           {newTempPw && (
-            <div style={{ background: 'rgba(22,163,74,.08)', border: '1px solid rgba(22,163,74,.25)', borderRadius: 8, padding: '12px 14px', marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: GREEN, marginBottom: 6 }}>New temporary password (copy now):</div>
-              <code style={{ fontSize: 14, fontWeight: 700, color: GREEN, letterSpacing: 1 }}>{newTempPw}</code>
+            <div style={{ background: 'rgba(22,163,74,.08)', border: '1px solid rgba(22,163,74,.25)', borderRadius: RADIUS.md, padding: '12px 14px', marginBottom: 16 }}>
+              <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: GREEN, marginBottom: 6 }}>New temporary password (copy now):</div>
+              <code style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: GREEN, letterSpacing: 1 }}>{newTempPw}</code>
             </div>
           )}
 
           {/* Actions */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+            <div style={{ display: 'flex', gap: SP[2] }}>
               <button onClick={resetPassword} disabled={resettingPw} style={{
-                flex: 1, padding: '9px 0', borderRadius: 9, border: '1.5px solid var(--bdr)', background: 'transparent',
-                color: 'var(--txt2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: INTER,
+                flex: 1, padding: '9px 0', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)', background: 'transparent',
+                color: 'var(--txt2)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER,
               }}>
                 {resettingPw ? 'Resetting…' : 'Reset Password'}
               </button>
 
               {confirmDeact ? (
-                <div style={{ flex: 1, display: 'flex', gap: 8 }}>
-                  <button onClick={toggleActive} style={{ flex: 1, padding: '9px 0', borderRadius: 9, border: 'none', background: form.is_active ? 'rgba(192,0,0,.1)' : 'rgba(22,163,74,.1)', color: form.is_active ? RED : GREEN, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                <div style={{ flex: 1, display: 'flex', gap: SP[2] }}>
+                  <button onClick={toggleActive} style={{ flex: 1, padding: '9px 0', borderRadius: RADIUS.md, border: 'none', background: form.is_active ? 'rgba(192,0,0,.1)' : 'rgba(22,163,74,.1)', color: form.is_active ? RED : GREEN, fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer' }}>
                     Confirm {form.is_active ? 'Deactivate' : (!user.last_login ? 'Approve & Send Credentials' : 'Reactivate')}
                   </button>
-                  <button onClick={() => setConfirmDeact(false)} style={{ padding: '9px 14px', borderRadius: 9, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 13, cursor: 'pointer' }}>No</button>
+                  <button onClick={() => setConfirmDeact(false)} style={{ padding: '9px 14px', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.base, cursor: 'pointer' }}>No</button>
                 </div>
               ) : (
                 <button onClick={() => setConfirmDeact(true)} style={{
-                  flex: 1, padding: '9px 0', borderRadius: 9, border: 'none',
+                  flex: 1, padding: '9px 0', borderRadius: RADIUS.md, border: 'none',
                   background: form.is_active ? 'rgba(192,0,0,.08)' : 'rgba(22,163,74,.1)',
                   color: form.is_active ? RED : GREEN,
-                  fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: INTER,
+                  fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER,
                 }}>
                   {form.is_active ? 'Deactivate' : (!user.last_login ? 'Approve & Activate' : 'Reactivate')}
                 </button>
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: 10, borderTop: '1px solid var(--bdr)', paddingTop: 16, marginTop: 4 }}>
-              <button onClick={onClose} style={{ flex: 1, padding: '9px 0', borderRadius: 9, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: INTER }}>Cancel</button>
-              <button onClick={save} disabled={saving} style={{ flex: 2, padding: '9px 0', borderRadius: 9, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER }}>
+            <div style={{ display: 'flex', gap: SP[2], borderTop: '1px solid var(--bdr)', paddingTop: 16, marginTop: 4 }}>
+              <button onClick={onClose} style={{ flex: 1, padding: '9px 0', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER }}>Cancel</button>
+              <button onClick={save} disabled={saving} style={{ flex: 2, padding: '9px 0', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
                 {saving ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
@@ -363,12 +363,12 @@ function PageBtn({ children, active, disabled, onClick, icon }: {
 }) {
   return (
     <button onClick={onClick} disabled={disabled} style={{
-      width: 28, height: 28, borderRadius: 6, border: active ? 'none' : '1.5px solid var(--input-bdr)',
+      width: 28, height: 28, borderRadius: RADIUS.sm, border: active ? 'none' : '1.5px solid var(--input-bdr)',
       background: active ? NAVY : 'transparent', color: active ? '#fff' : disabled ? 'var(--txt3)' : 'var(--txt2)',
-      fontSize: 12, fontWeight: 600, cursor: disabled ? 'default' : 'pointer',
+      fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: disabled ? 'default' : 'pointer',
       display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: INTER,
     }}>
-      {icon ? <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{icon}</span> : children}
+      {icon ? <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>{icon}</span> : children}
     </button>
   )
 }
@@ -446,24 +446,24 @@ export default function AdminUsers() {
   const COLS: TableCol<User>[] = [
     { key: 'full_name', label: 'Name',
       render: u => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 32, height: 32, borderRadius: '50%', background: avatar(u.full_name), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11.5, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+          <div style={{ width: 32, height: 32, borderRadius: '50%', background: avatar(u.full_name), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, color: '#fff', flexShrink: 0 }}>
             {initials(u.full_name)}
           </div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{u.full_name}</div>
-            <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{u.email}</div>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{u.full_name}</div>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{u.email}</div>
           </div>
         </div>
       ),
     },
     { key: 'role', label: 'Role', render: u => <RolePill role={u.role} /> },
-    { key: 'department', label: 'Dept', render: u => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{u.department || '—'}</span> },
+    { key: 'department', label: 'Dept', render: u => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{u.department || '—'}</span> },
     { key: 'is_active', label: 'Status', render: u => <StatusPill active={u.is_active} lastLogin={u.last_login} /> },
     { key: 'last_login', label: 'Last Login', sortable: true,
-      render: u => <span style={{ ...NUM, fontSize: 11.5, color: 'var(--txt3)' }}>{u.last_login ? fmtDatetime(u.last_login) : 'Never'}</span> },
+      render: u => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{u.last_login ? fmtDatetime(u.last_login) : 'Never'}</span> },
     { key: 'created_at', label: 'Created', sortable: true,
-      render: u => <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{fmtDate(u.created_at)}</span> },
+      render: u => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDate(u.created_at)}</span> },
   ]
 
   const depts = [...new Set(rows.map(u => u.department).filter(Boolean))].sort()
@@ -475,10 +475,10 @@ export default function AdminUsers() {
       subtitle={`${rows.filter(u => u.is_active).length} active · ${rows.filter(u => !u.is_active).length} inactive`}
       actions={
         <button onClick={() => setInviting(true)} style={{
-          display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 9,
-          border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER,
+          display: 'flex', alignItems: 'center', gap: SP[1], padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,
+          border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
         }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>person_add</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>person_add</span>
           Invite User
         </button>
       }
@@ -488,52 +488,52 @@ export default function AdminUsers() {
       <SectionCard title="All Users" badge={filtered.length} padding={false}>
 
         {/* Toolbar */}
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: SP[2], alignItems: 'center' }}>
           <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
           <button
             onClick={() => setFilterOpen(o => !o)}
             style={{
-              display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 9,
+              display: 'flex', alignItems: 'center', gap: SP[1], padding: '7px 14px', borderRadius: RADIUS.md,
               border: `1.5px solid ${filterOpen || activeFilterCount > 0 ? NAVY : 'var(--input-bdr)'}`,
               background: filterOpen ? `${NAVY}10` : 'transparent',
               color: filterOpen || activeFilterCount > 0 ? NAVY : 'var(--txt2)',
-              fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: INTER,
+              fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER,
             }}
           >
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>tune</span>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>tune</span>
             Filters
             {activeFilterCount > 0 && (
-              <span style={{ background: NAVY, color: '#fff', borderRadius: 10, fontSize: 10.5, fontWeight: 700, padding: '1px 6px' }}>{activeFilterCount}</span>
+              <span style={{ background: NAVY, color: '#fff', borderRadius: RADIUS.lg, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '1px 6px' }}>{activeFilterCount}</span>
             )}
           </button>
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>{rows.length} total</span>
+          <span style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{rows.length} total</span>
         </div>
 
         {/* Filter panel */}
         {filterOpen && (
           <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--bdr)', background: '#F0F4FF' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: SP[4] }}>
               <div>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Role</div>
+                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Role</div>
                 <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)}
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--card)', fontSize: 12.5, color: 'var(--txt)', outline: 'none' }}>
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--card)', fontSize: TEXT.sm, color: 'var(--txt)', outline: 'none' }}>
                   <option value="">All roles</option>
                   {[...new Set(rows.map(u => u.role))].sort().map(r => <option key={r} value={r}>{roleLabel(r)}</option>)}
                 </select>
               </div>
               <div>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Status</div>
+                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Status</div>
                 <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--card)', fontSize: 12.5, color: 'var(--txt)', outline: 'none' }}>
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--card)', fontSize: TEXT.sm, color: 'var(--txt)', outline: 'none' }}>
                   <option value="">All statuses</option>
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
                 </select>
               </div>
               <div>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Department</div>
+                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Department</div>
                 <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)}
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--card)', fontSize: 12.5, color: 'var(--txt)', outline: 'none' }}>
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--card)', fontSize: TEXT.sm, color: 'var(--txt)', outline: 'none' }}>
                   <option value="">All departments</option>
                   {depts.map(d => <option key={d}>{d}</option>)}
                 </select>
@@ -544,12 +544,12 @@ export default function AdminUsers() {
 
         {/* Batch bar */}
         {selected.size > 0 && (
-          <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--bdr)', background: '#F0F4FF', display: 'flex', gap: 10, alignItems: 'center' }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: NAVY }}>{selected.size} selected</span>
-            <button onClick={batchDeactivate} style={{ padding: '5px 14px', borderRadius: 7, border: 'none', background: 'rgba(192,0,0,.1)', color: RED, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+          <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--bdr)', background: '#F0F4FF', display: 'flex', gap: SP[2], alignItems: 'center' }}>
+            <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: NAVY }}>{selected.size} selected</span>
+            <button onClick={batchDeactivate} style={{ padding: '5px 14px', borderRadius: 7, border: 'none', background: 'rgba(192,0,0,.1)', color: RED, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
               Deactivate
             </button>
-            <button onClick={() => setSelected(new Set())} style={{ padding: '5px 10px', borderRadius: 7, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 12.5, cursor: 'pointer' }}>
+            <button onClick={() => setSelected(new Set())} style={{ padding: '5px 10px', borderRadius: 7, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.sm, cursor: 'pointer' }}>
               Clear
             </button>
           </div>
@@ -557,28 +557,28 @@ export default function AdminUsers() {
 
         {/* Active chips */}
         {activeFilterCount > 0 && (
-          <div style={{ padding: '8px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div style={{ padding: '8px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: SP[1], flexWrap: 'wrap' }}>
             {roleFilter && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, background: `${NAVY}12`, color: NAVY, borderRadius: 16, padding: '3px 10px', fontSize: 11.5, fontWeight: 600 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, background: `${NAVY}12`, color: NAVY, borderRadius: RADIUS['2xl'], padding: '3px 10px', fontSize: TEXT.xs, fontWeight: FW.semibold }}>
                 Role: {roleLabel(roleFilter)}
                 <button onClick={() => setRoleFilter('')} style={{ border: 'none', background: 'none', cursor: 'pointer', color: NAVY, display: 'flex', padding: 0 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 13 }}>close</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.base }}>close</span>
                 </button>
               </span>
             )}
             {statusFilter && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, background: `${NAVY}12`, color: NAVY, borderRadius: 16, padding: '3px 10px', fontSize: 11.5, fontWeight: 600 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, background: `${NAVY}12`, color: NAVY, borderRadius: RADIUS['2xl'], padding: '3px 10px', fontSize: TEXT.xs, fontWeight: FW.semibold }}>
                 Status: {statusFilter}
                 <button onClick={() => setStatusFilter('')} style={{ border: 'none', background: 'none', cursor: 'pointer', color: NAVY, display: 'flex', padding: 0 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 13 }}>close</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.base }}>close</span>
                 </button>
               </span>
             )}
             {deptFilter && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, background: `${NAVY}12`, color: NAVY, borderRadius: 16, padding: '3px 10px', fontSize: 11.5, fontWeight: 600 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, background: `${NAVY}12`, color: NAVY, borderRadius: RADIUS['2xl'], padding: '3px 10px', fontSize: TEXT.xs, fontWeight: FW.semibold }}>
                 Dept: {deptFilter}
                 <button onClick={() => setDeptFilter('')} style={{ border: 'none', background: 'none', cursor: 'pointer', color: NAVY, display: 'flex', padding: 0 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 13 }}>close</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.base }}>close</span>
                 </button>
               </span>
             )}
@@ -594,11 +594,11 @@ export default function AdminUsers() {
 
         {/* Pagination */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderTop: '1px solid var(--bdr)' }}>
-          <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
             {filtered.length === 0 ? 'No users' : `Showing ${showStart}–${showEnd} of ${filtered.length}`}
           </span>
           {totalPages > 1 && (
-            <div style={{ display: 'flex', gap: 4 }}>
+            <div style={{ display: 'flex', gap: SP[1] }}>
               <PageBtn icon="chevron_left" disabled={safePage === 1} onClick={() => setPage(p => p - 1)} />
               {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
                 let pg: number

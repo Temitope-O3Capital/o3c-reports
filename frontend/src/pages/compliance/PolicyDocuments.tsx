@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner, btnPrimary, btnSecondary } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { GREEN, AMBER, RED, NAVY, BLUE, INTER } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, BLUE, INTER } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -47,8 +47,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 }
 
 const inp: React.CSSProperties = {
-  padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
-  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: INTER,
+  padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: INTER,
   width: '100%', boxSizing: 'border-box',
 }
 
@@ -59,7 +59,7 @@ const sel: React.CSSProperties = { ...inp, cursor: 'pointer' }
 function StatusPill({ status }: { status: string }) {
   const s = STATUS_OPTS.find(o => o.value === status) ?? STATUS_OPTS[0]
   return (
-    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 8,
+    <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.md,
       background: s.bg, color: s.color }}>
       {s.label}
     </span>
@@ -74,7 +74,7 @@ function ReviewDueBadge({ date }: { date: string | null }) {
   if (days > 60) return null
   const color = days < 0 ? RED : days <= 14 ? AMBER : GREEN
   return (
-    <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 6, background: `${color}18`, color, fontWeight: 700, marginLeft: 6 }}>
+    <span style={{ fontSize: TEXT.xs, padding: '1px 6px', borderRadius: RADIUS.sm, background: `${color}18`, color, fontWeight: FW.bold, marginLeft: 6 }}>
       {days < 0 ? `Review overdue ${Math.abs(days)}d` : `Review in ${days}d`}
     </span>
   )
@@ -123,27 +123,27 @@ function PolicyRow({ doc, onSaved }: { doc: PolicyDoc; onSaved: (updated: Policy
         background: isOverdue && doc.status === 'approved' ? `${RED}06` : '' }}
         onMouseEnter={e => { if (!editing) e.currentTarget.style.background = 'var(--row-hvr)' }}
         onMouseLeave={e => { if (!editing) e.currentTarget.style.background = isOverdue && doc.status === 'approved' ? `${RED}06` : '' }}>
-        <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--txt)', maxWidth: 240 }}>
+        <td style={{ padding: '10px 12px', fontWeight: FW.semibold, color: 'var(--txt)', maxWidth: 240 }}>
           {doc.name}
           {isOverdue && doc.status === 'approved' && (
-            <span style={{ display: 'block', fontSize: 11, color: RED, marginTop: 2 }}>⚠ Review overdue</span>
+            <span style={{ display: 'block', fontSize: TEXT.xs, color: RED, marginTop: 2 }}>⚠ Review overdue</span>
           )}
         </td>
-        <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--txt-muted)', whiteSpace: 'nowrap' }}>
+        <td style={{ padding: '10px 12px', fontSize: TEXT.sm, color: 'var(--txt-muted)', whiteSpace: 'nowrap' }}>
           {CATEGORY_LABELS[doc.category] ?? doc.category}
         </td>
         <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
           <StatusPill status={doc.status} />
         </td>
-        <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--txt-muted)', whiteSpace: 'nowrap' }}>
+        <td style={{ padding: '10px 12px', fontSize: TEXT.sm, color: 'var(--txt-muted)', whiteSpace: 'nowrap' }}>
           {doc.owner_name ?? '—'}
         </td>
-        <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--txt-muted)', whiteSpace: 'nowrap' }}>
+        <td style={{ padding: '10px 12px', fontSize: TEXT.sm, color: 'var(--txt-muted)', whiteSpace: 'nowrap' }}>
           {doc.approved_at ? (
             <span>{fmtDate(doc.approved_at)}</span>
           ) : '—'}
         </td>
-        <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--txt-muted)', whiteSpace: 'nowrap' }}>
+        <td style={{ padding: '10px 12px', fontSize: TEXT.sm, color: 'var(--txt-muted)', whiteSpace: 'nowrap' }}>
           {doc.next_review_date ? (
             <>
               {fmtDate(doc.next_review_date)}
@@ -151,17 +151,17 @@ function PolicyRow({ doc, onSaved }: { doc: PolicyDoc; onSaved: (updated: Policy
             </>
           ) : '—'}
         </td>
-        <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--txt-muted)', whiteSpace: 'nowrap' }}>v{doc.version}</td>
+        <td style={{ padding: '10px 12px', fontSize: TEXT.sm, color: 'var(--txt-muted)', whiteSpace: 'nowrap' }}>v{doc.version}</td>
         <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
           {doc.document_url ? (
-            <a href={doc.document_url} target="_blank" rel="noreferrer" style={{ color: BLUE, fontSize: 12 }}>📄 Open</a>
+            <a href={doc.document_url} target="_blank" rel="noreferrer" style={{ color: BLUE, fontSize: TEXT.sm }}>📄 Open</a>
           ) : (
-            <span style={{ color: 'var(--txt-muted)', fontSize: 12 }}>—</span>
+            <span style={{ color: 'var(--txt-muted)', fontSize: TEXT.sm }}>—</span>
           )}
         </td>
         <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
           <button onClick={() => setEditing(e => !e)}
-            style={{ fontSize: 12, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+            style={{ fontSize: TEXT.sm, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
             {editing ? 'Cancel' : 'Edit'}
           </button>
         </td>
@@ -169,27 +169,27 @@ function PolicyRow({ doc, onSaved }: { doc: PolicyDoc; onSaved: (updated: Policy
       {editing && (
         <tr style={{ background: 'var(--th-bg)' }}>
           <td colSpan={9} style={{ padding: '12px 14px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, marginBottom: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: SP[3], marginBottom: SP[3] }}>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-muted)' }}>Status</label>
+                <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Status</label>
                 <select style={{ ...sel, marginTop: 3 }} value={status} onChange={e => setStatus(e.target.value)}>
                   {STATUS_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-muted)' }}>Version</label>
+                <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Version</label>
                 <input style={{ ...inp, marginTop: 3 }} value={version} onChange={e => setVersion(e.target.value)} placeholder="1.0" />
               </div>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-muted)' }}>Next Review Date</label>
+                <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Next Review Date</label>
                 <input type="date" style={{ ...inp, marginTop: 3 }} value={reviewDate} onChange={e => setReviewDate(e.target.value)} />
               </div>
               <div style={{ gridColumn: 'span 2' }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-muted)' }}>Document URL</label>
+                <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Document URL</label>
                 <input style={{ ...inp, marginTop: 3 }} value={docURL} onChange={e => setDocURL(e.target.value)} placeholder="https://…" />
               </div>
               <div style={{ gridColumn: 'span 2' }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-muted)' }}>Notes</label>
+                <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt-muted)' }}>Notes</label>
                 <input style={{ ...inp, marginTop: 3 }} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional notes" />
               </div>
             </div>
@@ -216,17 +216,17 @@ function StatsBar({ docs }: { docs: PolicyDoc[] }) {
   ).length
 
   return (
-    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
+    <div style={{ display: 'flex', gap: SP[4], flexWrap: 'wrap', marginBottom: SP[5] }}>
       {STATUS_OPTS.map(o => (
-        <div key={o.value} style={{ padding: '10px 18px', borderRadius: 10, background: o.bg, border: `1px solid ${o.color}30`, textAlign: 'center', minWidth: 100 }}>
-          <div style={{ fontSize: 26, fontWeight: 800, color: o.color, fontVariantNumeric: 'tabular-nums' }}>{counts[o.value]}</div>
-          <div style={{ fontSize: 11, color: o.color, marginTop: 2 }}>{o.label}</div>
+        <div key={o.value} style={{ padding: '10px 18px', borderRadius: RADIUS.lg, background: o.bg, border: `1px solid ${o.color}30`, textAlign: 'center', minWidth: 100 }}>
+          <div style={{ fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color: o.color, fontVariantNumeric: 'tabular-nums' }}>{counts[o.value]}</div>
+          <div style={{ fontSize: TEXT.xs, color: o.color, marginTop: 2 }}>{o.label}</div>
         </div>
       ))}
       {overdueCount > 0 && (
-        <div style={{ padding: '10px 18px', borderRadius: 10, background: `${RED}12`, border: `1px solid ${RED}30`, textAlign: 'center', minWidth: 100 }}>
-          <div style={{ fontSize: 26, fontWeight: 800, color: RED, fontVariantNumeric: 'tabular-nums' }}>{overdueCount}</div>
-          <div style={{ fontSize: 11, color: RED, marginTop: 2 }}>Review Overdue</div>
+        <div style={{ padding: '10px 18px', borderRadius: RADIUS.lg, background: `${RED}12`, border: `1px solid ${RED}30`, textAlign: 'center', minWidth: 100 }}>
+          <div style={{ fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color: RED, fontVariantNumeric: 'tabular-nums' }}>{overdueCount}</div>
+          <div style={{ fontSize: TEXT.xs, color: RED, marginTop: 2 }}>Review Overdue</div>
         </div>
       )}
     </div>
@@ -269,8 +269,8 @@ export default function PolicyDocuments() {
 
   return (
     <Page title="Policy Documents">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--txt)', margin: 0, flex: 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: SP[5] }}>
+        <h1 style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: 'var(--txt)', margin: 0, flex: 1 }}>
           Policy Documents
         </h1>
       </div>
@@ -289,12 +289,12 @@ export default function PolicyDocuments() {
           </select>
         </div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
             <thead>
               <tr style={{ background: 'var(--th-bg)' }}>
                 {['Policy', 'Category', 'Status', 'Owner', 'Approved', 'Next Review', 'Version', 'Document', ''].map(h => (
-                  <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600,
-                    fontSize: 11, color: 'var(--txt-muted)', whiteSpace: 'nowrap',
+                  <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: FW.semibold,
+                    fontSize: TEXT.xs, color: 'var(--txt-muted)', whiteSpace: 'nowrap',
                     borderBottom: '1px solid var(--border)' }}>
                     {h}
                   </th>
@@ -315,8 +315,8 @@ export default function PolicyDocuments() {
 
       {/* SOC 2 Guidance */}
       <SectionCard>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', margin: '0 0 10px' }}>SOC 2 Policy Guidance</h3>
-        <p style={{ fontSize: 13, color: 'var(--txt-muted)', lineHeight: 1.6, margin: 0 }}>
+        <h3 style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)', margin: '0 0 10px' }}>SOC 2 Policy Guidance</h3>
+        <p style={{ fontSize: TEXT.base, color: 'var(--txt-muted)', lineHeight: 1.6, margin: 0 }}>
           SOC 2 Type II requires all listed policies to be formally approved before the observation period begins.
           Policies should be reviewed at least annually. Once approved, set a review date 12 months out.
           Upload the signed policy document URL so auditors can verify the artefact during evidence collection.
@@ -327,13 +327,13 @@ export default function PolicyDocuments() {
             { label: 'Priority 2 — Before Audit', items: ['Data Classification Policy', 'Change Management Policy', 'Risk Management Policy'] },
             { label: 'Priority 3 — Year 1', items: ['Business Continuity and DR Plan', 'Vendor Management Policy', 'Data Retention and Disposal Policy'] },
           ].map(group => (
-            <div key={group.label} style={{ background: 'var(--th-bg)', borderRadius: 8, padding: '12px 14px' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: NAVY, marginBottom: 8 }}>{group.label}</div>
+            <div key={group.label} style={{ background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: '12px 14px' }}>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: NAVY, marginBottom: SP[2] }}>{group.label}</div>
               {group.items.map(item => {
                 const d = docs.find(d => d.name === item)
                 return (
-                  <div key={item} style={{ fontSize: 12, color: 'var(--txt)', marginBottom: 5, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ color: d?.status === 'approved' ? GREEN : AMBER, fontSize: 14 }}>
+                  <div key={item} style={{ fontSize: TEXT.sm, color: 'var(--txt)', marginBottom: 5, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ color: d?.status === 'approved' ? GREEN : AMBER, fontSize: TEXT.md }}>
                       {d?.status === 'approved' ? '✓' : '○'}
                     </span>
                     {item}

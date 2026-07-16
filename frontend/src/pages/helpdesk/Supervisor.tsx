@@ -8,7 +8,7 @@ import { Page, KpiCard, SectionCard, DataTable, Spinner, ErrBanner } from '../..
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtNum } from '../../lib/fmt'
-import { RED, AMBER, GREEN, NAVY, BLUE, NUM } from '../../lib/design'
+import { RED, AMBER, GREEN, NAVY, BLUE, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -77,39 +77,39 @@ function AgentCard({ agent, onStatusChange }: { agent: AgentRow; onStatusChange:
 
   return (
     <div style={{
-      background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '14px 16px',
+      background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: '14px 16px',
       display: 'flex', flexDirection: 'column', gap: 10,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <div style={{
           width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
           background: `${NAVY}12`, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 13, fontWeight: 700, color: NAVY,
+          fontSize: TEXT.base, fontWeight: FW.bold, color: NAVY,
         }}>
           {initials}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {agent.full_name}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: cfg.color, display: 'inline-block' }} />
-            <span style={{ fontSize: 11.5, color: cfg.color, fontWeight: 600 }}>{cfg.label}</span>
+            <span style={{ fontSize: TEXT.xs, color: cfg.color, fontWeight: FW.semibold }}>{cfg.label}</span>
           </div>
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 12 }}>
+      <div style={{ display: 'flex', gap: SP[3] }}>
         <div style={{ flex: 1, textAlign: 'center' }}>
-          <div style={{ fontSize: 18, fontWeight: 700, color: agent.open_tickets > 0 ? AMBER : 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
+          <div style={{ fontSize: TEXT.xl, fontWeight: FW.bold, color: agent.open_tickets > 0 ? AMBER : 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
             {agent.open_tickets}
           </div>
-          <div style={{ fontSize: 10.5, color: 'var(--txt2)', fontWeight: 500 }}>Open</div>
+          <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontWeight: FW.medium }}>Open</div>
         </div>
         {agent.sla_breached > 0 && (
           <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: RED, fontFamily: 'Inter, sans-serif' }}>{agent.sla_breached}</div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt2)', fontWeight: 500 }}>Breached</div>
+            <div style={{ fontSize: TEXT.xl, fontWeight: FW.bold, color: RED, fontFamily: 'Inter, sans-serif' }}>{agent.sla_breached}</div>
+            <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontWeight: FW.medium }}>Breached</div>
           </div>
         )}
       </div>
@@ -120,7 +120,7 @@ function AgentCard({ agent, onStatusChange }: { agent: AgentRow; onStatusChange:
         onChange={e => onStatusChange(agent.id, e.target.value)}
         style={{
           width: '100%', height: 30, padding: '0 8px', border: '1px solid var(--input-bdr)',
-          borderRadius: 6, fontSize: 11.5, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none',
+          borderRadius: RADIUS.sm, fontSize: TEXT.xs, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none',
         }}
       >
         <option value="">— Set status —</option>
@@ -131,9 +131,9 @@ function AgentCard({ agent, onStatusChange }: { agent: AgentRow; onStatusChange:
       </select>
 
       {(agent.current_ticket_ref || agent.last_reply) && (
-        <div style={{ fontSize: 11, color: 'var(--txt3)', borderTop: '1px solid var(--bdr)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', borderTop: '1px solid var(--bdr)', paddingTop: SP[2], display: 'flex', flexDirection: 'column', gap: 3 }}>
           {agent.current_ticket_ref && (
-            <span>Active: <span style={{ fontWeight: 600, color: BLUE }}>#{agent.current_ticket_ref}</span></span>
+            <span>Active: <span style={{ fontWeight: FW.semibold, color: BLUE }}>#{agent.current_ticket_ref}</span></span>
           )}
           {agent.last_reply && <span>Last reply: {fmtDatetime(agent.last_reply)}</span>}
         </div>
@@ -203,7 +203,7 @@ export default function Supervisor() {
     { key: 'agent_name', label: 'Agent' },
     {
       key: 'open_tickets', label: 'Open', align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: 600, color: r.open_tickets > 0 ? AMBER : 'var(--txt)' }}>{r.open_tickets}</span>,
+      render: r => <span style={{ ...NUM, fontWeight: FW.semibold, color: r.open_tickets > 0 ? AMBER : 'var(--txt)' }}>{r.open_tickets}</span>,
     },
     {
       key: 'resolved_today', label: 'Resolved Today', align: 'right',
@@ -224,7 +224,7 @@ export default function Supervisor() {
     {
       key: 'avg_csat', label: 'Avg CSAT', align: 'right',
       render: r => r.avg_csat !== null && r.avg_csat !== undefined ? (
-        <span style={{ ...NUM, color: Number(r.avg_csat) >= 4 ? GREEN : Number(r.avg_csat) >= 3 ? AMBER : RED, fontWeight: 600 }}>
+        <span style={{ ...NUM, color: Number(r.avg_csat) >= 4 ? GREEN : Number(r.avg_csat) >= 3 ? AMBER : RED, fontWeight: FW.semibold }}>
           {Number(r.avg_csat).toFixed(1)} / 5
         </span>
       ) : <span style={{ color: 'var(--txt3)' }}>—</span>,
@@ -236,7 +236,7 @@ export default function Supervisor() {
     {
       key: 'ticket_ref', label: 'Ticket',
       render: r => (
-        <Link to={`/helpdesk/${r.id}`} style={{ fontSize: 12.5, fontWeight: 700, color: BLUE, textDecoration: 'none', fontFamily: 'Inter, monospace' }}>
+        <Link to={`/helpdesk/${r.id}`} style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: BLUE, textDecoration: 'none', fontFamily: 'Inter, monospace' }}>
           #{r.ticket_ref}
         </Link>
       ),
@@ -244,7 +244,7 @@ export default function Supervisor() {
     {
       key: 'subject', label: 'Subject',
       render: r => (
-        <span style={{ fontSize: 13, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240, display: 'block' }}>
+        <span style={{ fontSize: TEXT.base, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240, display: 'block' }}>
           {r.subject}
         </span>
       ),
@@ -253,7 +253,7 @@ export default function Supervisor() {
       key: 'priority', label: 'Priority',
       render: r => {
         const color = r.priority === 'urgent' ? RED : r.priority === 'high' ? AMBER : 'var(--txt2)'
-        return <span style={{ fontSize: 12, fontWeight: 600, color }}>{r.priority}</span>
+        return <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color }}>{r.priority}</span>
       },
     },
     {
@@ -261,12 +261,12 @@ export default function Supervisor() {
       render: r => {
         const mins = Math.round((Date.now() - new Date(r.sla_due_at).getTime()) / 60_000)
         const hrs = Math.floor(mins / 60)
-        return <span style={{ fontSize: 12.5, fontWeight: 700, color: RED }}>{hrs > 0 ? `${hrs}h ${mins % 60}m` : `${mins}m`}</span>
+        return <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: RED }}>{hrs > 0 ? `${hrs}h ${mins % 60}m` : `${mins}m`}</span>
       },
     },
     {
       key: 'assigned_to_name', label: 'Agent',
-      render: r => <span style={{ fontSize: 13, color: 'var(--txt2)' }}>{r.assigned_to_name ?? 'Unassigned'}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, color: 'var(--txt2)' }}>{r.assigned_to_name ?? 'Unassigned'}</span>,
     },
   ]
 
@@ -291,13 +291,13 @@ export default function Supervisor() {
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {lastRefresh && (
-            <span style={{ fontSize: 12, color: 'var(--txt3)' }}>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>
               Updated {lastRefresh.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </span>
           )}
           <button onClick={() => load()}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', border: '1px solid var(--bdr)', borderRadius: 8, background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>refresh</span>
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>refresh</span>
             Refresh
           </button>
         </div>
@@ -306,20 +306,20 @@ export default function Supervisor() {
       <ErrBanner error={err} onRetry={() => load()} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: SP[5] }}>
         <KpiCard label="Queue Depth"          value={supervisor?.totals.open ?? stats?.open ?? 0}                                     icon="inbox"    accent={NAVY} />
         <KpiCard label="SLA Breached Today"   value={supervisor?.totals.sla_breached ?? stats?.sla_breached ?? 0}                     icon="alarm"    accent={RED} />
         <KpiCard label="Avg First Response"   value={stats ? `${(stats.avg_first_response_hours * 60).toFixed(0)} min` : '—'}         icon="schedule" accent={AMBER} />
         <KpiCard label="CSAT Today"           value={stats?.avg_csat ? `${stats.avg_csat.toFixed(1)} / 5` : '—'}                     icon="star"     accent={GREEN} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[5] }}>
         {/* Agent status grid */}
         <SectionCard title="Agent Status" badge={supervisorAgents.length} subtitle="Live workload · supervisor can override status">
           {supervisorAgents.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)', fontSize: 13 }}>No active agents found.</div>
+            <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>No active agents found.</div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: SP[3] }}>
               {supervisorAgents.map(a => (
                 <AgentCard key={a.id} agent={a} onStatusChange={handleStatusChange} />
               ))}
@@ -330,21 +330,21 @@ export default function Supervisor() {
         {/* SLA breach feed */}
         <SectionCard title="SLA Breach Feed" badge={recentBreaches.length} subtitle="Open tickets past their SLA deadline" padding={false}>
           {recentBreaches.length === 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 0', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 0', gap: SP[2] }}>
               <span className="material-symbols-rounded" style={{ fontSize: 36, color: GREEN }}>check_circle</span>
-              <span style={{ fontSize: 13, color: 'var(--txt2)' }}>No SLA breaches — great work!</span>
+              <span style={{ fontSize: TEXT.base, color: 'var(--txt2)' }}>No SLA breaches — great work!</span>
             </div>
           ) : (
             <div style={{ padding: '4px 0' }}>
               {recentBreaches.map(b => (
-                <div key={b.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 18px', borderBottom: '1px solid var(--bdr)' }}>
-                  <div style={{ width: 4, height: 36, borderRadius: 4, background: RED, flexShrink: 0, marginTop: 3 }} />
+                <div key={b.id} style={{ display: 'flex', alignItems: 'flex-start', gap: SP[3], padding: '10px 18px', borderBottom: '1px solid var(--bdr)' }}>
+                  <div style={{ width: 4, height: 36, borderRadius: RADIUS.xs, background: RED, flexShrink: 0, marginTop: 3 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Link to={`/helpdesk/${b.id}`} style={{ fontSize: 12.5, fontWeight: 700, color: BLUE, textDecoration: 'none', fontFamily: 'Inter, monospace' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+                      <Link to={`/helpdesk/${b.id}`} style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: BLUE, textDecoration: 'none', fontFamily: 'Inter, monospace' }}>
                         #{b.ticket_ref}
                       </Link>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: RED }}>
+                      <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: RED }}>
                         {(() => {
                           const mins = Math.round((Date.now() - new Date(b.sla_due_at).getTime()) / 60_000)
                           const hrs = Math.floor(mins / 60)
@@ -352,10 +352,10 @@ export default function Supervisor() {
                         })()}
                       </span>
                     </div>
-                    <div style={{ fontSize: 13, color: 'var(--txt)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: TEXT.base, color: 'var(--txt)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {b.subject}
                     </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginTop: 2 }}>{b.assigned_to_name ?? 'Unassigned'}</div>
+                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>{b.assigned_to_name ?? 'Unassigned'}</div>
                   </div>
                 </div>
               ))}
@@ -376,17 +376,17 @@ export default function Supervisor() {
       </SectionCard>
 
       {/* Charts row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginTop: SP[4] }}>
         <SectionCard title="Tickets by Type" subtitle="Today's volume by category">
           {(supervisor?.by_type ?? []).length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)', fontSize: 13 }}>No data yet.</div>
+            <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>No data yet.</div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={supervisor!.by_type} margin={{ top: 4, right: 8, bottom: 20, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-                <XAxis dataKey="ticket_type" tick={{ fontSize: 11, fill: 'var(--txt2)' }} interval={0} textAnchor="middle" />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--txt2)' }} allowDecimals={false} />
-                <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
+                <XAxis dataKey="ticket_type" tick={{ fontSize: TEXT.xs, fill: 'var(--txt2)' }} interval={0} textAnchor="middle" />
+                <YAxis tick={{ fontSize: TEXT.xs, fill: 'var(--txt2)' }} allowDecimals={false} />
+                <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
                 <Bar dataKey="count" fill={NAVY} radius={[4, 4, 0, 0]} name="Tickets" />
               </BarChart>
             </ResponsiveContainer>
@@ -395,14 +395,14 @@ export default function Supervisor() {
 
         <SectionCard title="Queue Depth (Last 8h)" subtitle="Open tickets per hour">
           {(supervisor?.hourly_queue ?? []).length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)', fontSize: 13 }}>No data yet.</div>
+            <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>No data yet.</div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
               <LineChart data={supervisor!.hourly_queue} margin={{ top: 4, right: 8, bottom: 20, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-                <XAxis dataKey="hour" tick={{ fontSize: 11, fill: 'var(--txt2)' }} interval={0} textAnchor="middle" />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--txt2)' }} allowDecimals={false} />
-                <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
+                <XAxis dataKey="hour" tick={{ fontSize: TEXT.xs, fill: 'var(--txt2)' }} interval={0} textAnchor="middle" />
+                <YAxis tick={{ fontSize: TEXT.xs, fill: 'var(--txt2)' }} allowDecimals={false} />
+                <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
                 <Line type="monotone" dataKey="count" stroke={RED} strokeWidth={2} dot={{ r: 3 }} name="Open" />
               </LineChart>
             </ResponsiveContainer>
@@ -412,17 +412,17 @@ export default function Supervisor() {
 
       {/* Queue breakdown */}
       {(supervisor?.queues ?? []).length > 0 && (
-        <SectionCard title="Queue Breakdown" padding={false} style={{ marginTop: 16 }}>
+        <SectionCard title="Queue Breakdown" padding={false} style={{ marginTop: SP[4] }}>
           <DataTable<QueueRow>
             cols={[
               { key: 'queue', label: 'Queue' },
               {
                 key: 'open', label: 'Open', align: 'right',
-                render: r => <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>{r.open}</span>,
+                render: r => <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: FW.semibold }}>{r.open}</span>,
               },
               {
                 key: 'sla_breached', label: 'Breached', align: 'right',
-                render: r => <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 600, color: r.sla_breached > 0 ? RED : 'var(--txt)' }}>{r.sla_breached}</span>,
+                render: r => <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: FW.semibold, color: r.sla_breached > 0 ? RED : 'var(--txt)' }}>{r.sla_breached}</span>,
               },
               {
                 key: 'unassigned', label: 'Unassigned', align: 'right',

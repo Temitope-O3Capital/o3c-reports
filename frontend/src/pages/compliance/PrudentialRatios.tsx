@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo } from '../../lib/fmt'
-import { GREEN, AMBER, RED, NAVY, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, NUM } from '../../lib/design'
 
 interface Ratios {
   npl_kobo:              number
@@ -34,14 +34,14 @@ function RatioCard({ label, value, threshold, thresholdLabel, isMin = false }: {
     color = breached ? RED : value > threshold * 0.8 && !isMin ? AMBER : GREEN
   }
   return (
-    <div style={{ background: 'var(--card)', border: `1px solid ${color}30`, borderRadius: 12, padding: '16px 20px' }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>
+    <div style={{ background: 'var(--card)', border: `1px solid ${color}30`, borderRadius: RADIUS.xl, padding: '16px 20px' }}>
+      <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: SP[2] }}>
         {label}
       </div>
-      <div style={{ fontSize: 28, fontWeight: 800, color, ...NUM }}>{value.toFixed(2)}%</div>
+      <div style={{ fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color, ...NUM }}>{value.toFixed(2)}%</div>
       {threshold !== undefined && (
-        <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 6 }}>
-          CBN {isMin ? 'min' : 'max'}: <span style={{ fontWeight: 700, color: 'var(--txt2)' }}>{threshold}%</span>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 6 }}>
+          CBN {isMin ? 'min' : 'max'}: <span style={{ fontWeight: FW.bold, color: 'var(--txt2)' }}>{threshold}%</span>
           {thresholdLabel && ` · ${thresholdLabel}`}
         </div>
       )}
@@ -74,7 +74,7 @@ export default function PrudentialRatios() {
       ) : data ? (
         <>
           {/* Key ratios */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: SP[6] }}>
             <RatioCard label="NPL Ratio" value={data.npl_ratio_pct} threshold={data.cbn_thresholds.npl_max_pct} thresholdLabel="CAR at risk" />
             <RatioCard label="PAR 30" value={data.par30_pct} threshold={15} />
             <RatioCard label="PAR 60" value={data.par60_pct} threshold={10} />
@@ -91,9 +91,9 @@ export default function PrudentialRatios() {
                 { label: 'Total Disbursed',      value: fmtKobo(data.total_disbursed_kobo) },
                 { label: 'FD Liabilities',       value: fmtKobo(data.total_fd_liabilities_kobo) },
               ].map(({ label, value }) => (
-                <div key={label} style={{ background: 'var(--row-hvr)', borderRadius: 10, padding: '14px 16px' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>{label}</div>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: NAVY, marginTop: 4, ...NUM }}>{value}</div>
+                <div key={label} style={{ background: 'var(--row-hvr)', borderRadius: RADIUS.lg, padding: '14px 16px' }}>
+                  <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>{label}</div>
+                  <div style={{ fontSize: TEXT.xl, fontWeight: FW.extrabold, color: NAVY, marginTop: SP[1], ...NUM }}>{value}</div>
                 </div>
               ))}
             </div>
@@ -101,11 +101,11 @@ export default function PrudentialRatios() {
 
           {/* CBN thresholds reference */}
           <SectionCard title="CBN Regulatory Thresholds">
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
               <thead>
                 <tr style={{ background: 'var(--th-bg)' }}>
                   {['Metric', 'Threshold', 'Current', 'Status'].map(h => (
-                    <th key={h} style={{ textAlign: 'left', padding: '8px 14px', fontWeight: 700, fontSize: 11,
+                    <th key={h} style={{ textAlign: 'left', padding: '8px 14px', fontWeight: FW.bold, fontSize: TEXT.xs,
                       textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--txt2)', borderBottom: '1px solid var(--bdr)' }}>{h}</th>
                   ))}
                 </tr>
@@ -117,20 +117,20 @@ export default function PrudentialRatios() {
                   { metric: 'CAR (Capital Adequacy)', threshold: `≥ ${data.cbn_thresholds.car_min_pct}%`, current: null, breached: false },
                 ].map(row => (
                   <tr key={row.metric} style={{ borderBottom: '1px solid var(--bdr)' }}>
-                    <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.metric}</td>
+                    <td style={{ padding: '10px 14px', fontWeight: FW.semibold }}>{row.metric}</td>
                     <td style={{ padding: '10px 14px', color: 'var(--txt2)' }}>{row.threshold}</td>
-                    <td style={{ padding: '10px 14px', ...NUM, fontWeight: 700, color: row.breached ? RED : NAVY }}>
+                    <td style={{ padding: '10px 14px', ...NUM, fontWeight: FW.bold, color: row.breached ? RED : NAVY }}>
                       {row.current !== null ? `${row.current.toFixed(2)}%` : 'N/A (manual input)'}
                     </td>
                     <td style={{ padding: '10px 14px' }}>
                       {row.current !== null ? (
-                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 8,
+                        <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.md,
                           background: row.breached ? `${RED}15` : `${GREEN}18`,
                           color: row.breached ? RED : GREEN }}>
                           {row.breached ? 'Breached' : 'Compliant'}
                         </span>
                       ) : (
-                        <span style={{ fontSize: 11, color: 'var(--txt3)' }}>Requires manual calculation</span>
+                        <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Requires manual calculation</span>
                       )}
                     </td>
                   </tr>

@@ -9,7 +9,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKobo, fmtPct, fmtNum } from '../../lib/fmt'
-import { BLUE, NAVY, RED, NUM, INTER } from '../../lib/design'
+import { BLUE, NAVY, RED, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -45,13 +45,13 @@ interface TPAPerformance {
 
 const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
-  border: '1px solid var(--input-bdr)', borderRadius: 7,
-  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
+  border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
   fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
 }
 
 const labelStyle: React.CSSProperties = {
-  fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5,
+  fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5,
 }
 
 // ── Custom dark tooltip ───────────────────────────────────────────────────────
@@ -60,21 +60,21 @@ function Tip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
     <div style={{
-      background: '#0E2841', borderRadius: 10, padding: '10px 14px',
+      background: '#0E2841', borderRadius: RADIUS.lg, padding: '10px 14px',
       boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)',
     }}>
       {label && (
         <div style={{
-          fontSize: 9.5, fontWeight: 600, color: 'rgba(255,255,255,.4)', fontFamily: INTER,
+          fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'rgba(255,255,255,.4)', fontFamily: INTER,
           marginBottom: 7, letterSpacing: .5, textTransform: 'uppercase',
         }}>
           {label}
         </div>
       )}
       {payload.map((p: any, i: number) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: i > 0 ? 5 : 0 }}>
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginTop: i > 0 ? 5 : 0 }}>
           <div style={{ width: 7, height: 7, borderRadius: '50%', background: p.color ?? '#fff', flexShrink: 0 }} />
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: INTER, ...NUM }}>
+          <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: '#fff', fontFamily: INTER, ...NUM }}>
             {fmtKobo(p.value)}
           </span>
         </div>
@@ -116,9 +116,9 @@ function AgencyForm({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {err && <div style={{ fontSize: 12.5, color: RED, padding: '6px 10px', background: 'rgba(192,0,0,.06)', borderRadius: 6 }}>{err}</div>}
+      {err && <div style={{ fontSize: TEXT.sm, color: RED, padding: '6px 10px', background: 'rgba(192,0,0,.06)', borderRadius: RADIUS.sm }}>{err}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
         <div>
           <label style={labelStyle}>Agency Name *</label>
           <input value={form.name} onChange={set('name')} placeholder="Agency name" style={{ ...fieldStyle, height: 36 }} />
@@ -136,7 +136,7 @@ function AgencyForm({
         <label style={labelStyle}>Commission % *</label>
         <input type="number" min="0" max="100" step="0.1" value={form.commission_pct} onChange={set('commission_pct')} placeholder="e.g. 15" style={{ ...fieldStyle, height: 36 }} />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
         <div>
           <label style={labelStyle}>Contact Name</label>
           <input value={form.contact_name} onChange={set('contact_name')} placeholder="Contact person" style={{ ...fieldStyle, height: 36 }} />
@@ -169,21 +169,21 @@ const ACCOUNT_COLS: TableCol<TPAAccount>[] = [
   {
     key: 'account_cif',
     label: 'CIF',
-    render: r => <span style={{ ...NUM, fontSize: 12.5, fontWeight: 600, color: NAVY }}>{r.account_cif}</span>,
+    render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>{r.account_cif}</span>,
   },
   {
     key: 'outstanding_kobo',
     label: 'Outstanding ₦',
     align: 'right',
-    render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.outstanding_kobo)}</span>,
+    render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.outstanding_kobo)}</span>,
   },
   {
     key: 'stage',
     label: 'Stage',
     render: r => (
       <span style={{
-        ...NUM, fontSize: 11.5, fontWeight: 600, padding: '2px 8px',
-        borderRadius: 20, background: 'rgba(14,40,65,.08)', color: NAVY,
+        ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px',
+        borderRadius: RADIUS['2xl'], background: 'rgba(14,40,65,.08)', color: NAVY,
         whiteSpace: 'nowrap',
       }}>
         {r.stage}
@@ -194,7 +194,7 @@ const ACCOUNT_COLS: TableCol<TPAAccount>[] = [
     key: 'days_assigned',
     label: 'Days Assigned',
     align: 'right',
-    render: r => <span style={{ ...NUM, fontSize: 13 }}>{fmtNum(r.days_assigned)}</span>,
+    render: r => <span style={{ ...NUM, fontSize: TEXT.base }}>{fmtNum(r.days_assigned)}</span>,
   },
 ]
 
@@ -222,19 +222,19 @@ function TPADetailContent({ agency }: { agency: TPAAgency }) {
   return (
     <div>
       {/* Agency header */}
-      <div style={{ marginBottom: 16, padding: '12px 0', borderBottom: '1px solid var(--bdr)' }}>
-        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+      <div style={{ marginBottom: SP[4], padding: `${SP[3]} 0`, borderBottom: '1px solid var(--bdr)' }}>
+        <div style={{ display: 'flex', gap: SP[5], flexWrap: 'wrap' }}>
           <div>
-            <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 2 }}>Licence #</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{agency.licence_number ?? '—'}</div>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 2 }}>Licence #</div>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{agency.licence_number ?? '—'}</div>
           </div>
           <div>
-            <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 2 }}>Commission</div>
-            <div style={{ ...NUM, fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{fmtPct(agency.commission_pct)}</div>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 2 }}>Commission</div>
+            <div style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtPct(agency.commission_pct)}</div>
           </div>
           <div>
-            <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 2 }}>Contact</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 2 }}>Contact</div>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
               {agency.contact_name ?? '—'}{agency.contact_phone ? ` · ${agency.contact_phone}` : ''}
             </div>
           </div>
@@ -264,20 +264,20 @@ function TPADetailContent({ agency }: { agency: TPAAgency }) {
       {tab === 'performance' && (
         <div>
           {loading ? (
-            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>Loading…</div>
+            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>Loading…</div>
           ) : performance ? (
             <>
               {/* Summary stats */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
-                <div style={{ padding: '14px 16px', background: 'var(--th-bg)', borderRadius: 10, border: '1px solid var(--bdr)' }}>
-                  <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 4 }}>Total Recovered</div>
-                  <div style={{ ...NUM, fontSize: 18, fontWeight: 700, color: 'var(--txt)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3], marginBottom: SP[5] }}>
+                <div style={{ padding: '14px 16px', background: 'var(--th-bg)', borderRadius: RADIUS.lg, border: '1px solid var(--bdr)' }}>
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 4 }}>Total Recovered</div>
+                  <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.bold, color: 'var(--txt)' }}>
                     {fmtKobo(performance.total_recovered_kobo)}
                   </div>
                 </div>
-                <div style={{ padding: '14px 16px', background: 'var(--th-bg)', borderRadius: 10, border: '1px solid var(--bdr)' }}>
-                  <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 4 }}>Success Rate</div>
-                  <div style={{ ...NUM, fontSize: 18, fontWeight: 700, color: '#16A34A' }}>
+                <div style={{ padding: '14px 16px', background: 'var(--th-bg)', borderRadius: RADIUS.lg, border: '1px solid var(--bdr)' }}>
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 4 }}>Success Rate</div>
+                  <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.bold, color: '#16A34A' }}>
                     {fmtPct(performance.success_rate_pct)}
                   </div>
                 </div>
@@ -285,7 +285,7 @@ function TPADetailContent({ agency }: { agency: TPAAgency }) {
               {/* Bar chart */}
               {performance.monthly.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 8 }}>Recovered by Month</div>
+                  <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: SP[2] }}>Recovered by Month</div>
                   <ResponsiveContainer width="100%" height={160}>
                     <BarChart
                       data={performance.monthly.slice(-6)}
@@ -311,7 +311,7 @@ function TPADetailContent({ agency }: { agency: TPAAgency }) {
               )}
             </>
           ) : (
-            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>
+            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>
               No performance data available.
             </div>
           )}
@@ -444,15 +444,15 @@ export default function RecoveryTPA() {
       label: 'Agency Name',
       sortable: true,
       render: r => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
           <div style={{
             width: 28, height: 28, borderRadius: '50%', background: NAVY,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 10, fontWeight: 700, color: '#fff', fontFamily: INTER, flexShrink: 0,
+            fontSize: TEXT['2xs'], fontWeight: FW.bold, color: '#fff', fontFamily: INTER, flexShrink: 0,
           }}>
             {r.name.slice(0, 2).toUpperCase()}
           </div>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</span>
+          <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.name}</span>
         </div>
       ),
     },
@@ -460,7 +460,7 @@ export default function RecoveryTPA() {
       key: 'licence_number',
       label: 'Licence #',
       sortable: false,
-      render: r => <span style={{ fontSize: 13, color: 'var(--txt)' }}>{r.licence_number ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, color: 'var(--txt)' }}>{r.licence_number ?? '—'}</span>,
     },
     {
       key: 'contact_phone',
@@ -468,8 +468,8 @@ export default function RecoveryTPA() {
       sortable: false,
       render: r => (
         <div>
-          <div style={{ fontSize: 12.5, color: 'var(--txt)' }}>{r.contact_name ?? '—'}</div>
-          {r.contact_phone && <div style={{ fontSize: 11, color: 'var(--txt2)' }}>{r.contact_phone}</div>}
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.contact_name ?? '—'}</div>
+          {r.contact_phone && <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{r.contact_phone}</div>}
         </div>
       ),
     },
@@ -478,28 +478,28 @@ export default function RecoveryTPA() {
       label: 'Commission %',
       sortable: true,
       align: 'right',
-      render: r => <span style={{ ...NUM, fontSize: 13, fontWeight: 600 }}>{fmtPct(r.commission_pct)}</span>,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold }}>{fmtPct(r.commission_pct)}</span>,
     },
     {
       key: 'accounts_assigned',
       label: 'Accounts Assigned',
       sortable: true,
       align: 'right',
-      render: r => <span style={{ ...NUM, fontSize: 13 }}>{fmtNum(r.accounts_assigned)}</span>,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.base }}>{fmtNum(r.accounts_assigned)}</span>,
     },
     {
       key: 'recovered_kobo',
       label: 'Recovered ₦',
       sortable: true,
       align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.recovered_kobo)}</span>,
+      render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.recovered_kobo)}</span>,
     },
     {
       key: 'commission_accrued_kobo',
       label: 'Commission Accrued ₦',
       sortable: true,
       align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.commission_accrued_kobo)}</span>,
+      render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.commission_accrued_kobo)}</span>,
     },
     {
       key: 'id',
@@ -511,24 +511,24 @@ export default function RecoveryTPA() {
           <button
             onClick={() => setEditAgency(r)}
             style={{
-              width: 28, height: 28, borderRadius: 7, border: '1.5px solid var(--input-bdr)',
+              width: 28, height: 28, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)',
               background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', color: 'var(--txt2)',
             }}
             title="Edit"
           >
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>edit</span>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>edit</span>
           </button>
           <button
             onClick={() => setDeactivateTarget(r)}
             style={{
-              width: 28, height: 28, borderRadius: 7, border: '1.5px solid var(--input-bdr)',
+              width: 28, height: 28, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)',
               background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', color: RED,
             }}
             title="Deactivate"
           >
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>block</span>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>block</span>
           </button>
         </div>
       ),
@@ -541,14 +541,14 @@ export default function RecoveryTPA() {
       subtitle="Manage third-party collection agencies"
       actions={
         <button onClick={() => { setShowRegister(true); setRegisterErr(null) }} style={btnPrimary}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
           Register TPA
         </button>
       }
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <SectionCard title="Registered Agencies" badge={agencies.length} padding={false} actions={<button onClick={() => exportTPACsv(agencies)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Registered Agencies" badge={agencies.length} padding={false} actions={<button onClick={() => exportTPACsv(agencies)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <DataTable
           cols={cols}
           rows={agencies}

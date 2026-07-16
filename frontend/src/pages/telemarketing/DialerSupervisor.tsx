@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { NAVY, RED, GREEN, AMBER } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -40,14 +40,14 @@ function AbanGauge({ pct, limit }: { pct: number; limit: number }) {
 
   return (
     <div style={{ flex: 1, minWidth: 200 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 5 }}>
-        <span style={{ color: 'var(--txt2)', fontWeight: 600 }}>Abandonment Rate</span>
-        <span style={{ fontWeight: 700, color: colour }}>{pct}%</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: TEXT.sm, marginBottom: 5 }}>
+        <span style={{ color: 'var(--txt2)', fontWeight: FW.semibold }}>Abandonment Rate</span>
+        <span style={{ fontWeight: FW.bold, color: colour }}>{pct}%</span>
       </div>
-      <div style={{ height: 10, borderRadius: 5, background: 'var(--th-bg)', overflow: 'hidden', border: '1px solid var(--bdr)' }}>
-        <div style={{ width: `${barW}%`, height: '100%', background: colour, borderRadius: 5, transition: 'width .4s' }} />
+      <div style={{ height: 10, borderRadius: RADIUS.sm, background: 'var(--th-bg)', overflow: 'hidden', border: '1px solid var(--bdr)' }}>
+        <div style={{ width: `${barW}%`, height: '100%', background: colour, borderRadius: RADIUS.sm, transition: 'width .4s' }} />
       </div>
-      <div style={{ fontSize: 11, color: 'var(--txt3)', marginTop: 4 }}>CBN cap: {limit}%</div>
+      <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: SP[1] }}>CBN cap: {limit}%</div>
     </div>
   )
 }
@@ -56,12 +56,12 @@ function AbanGauge({ pct, limit }: { pct: number; limit: number }) {
 
 function Tile({ label, value, colour, icon }: { label: string; value: string | number; colour?: string; icon?: string }) {
   return (
-    <div style={{ flex: 1, minWidth: 100, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10, padding: '12px 14px' }}>
+    <div style={{ flex: 1, minWidth: 100, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, padding: '12px 14px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-        {icon && <span className="material-symbols-rounded" style={{ fontSize: 16, color: colour ?? NAVY }}>{icon}</span>}
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt3)' }}>{label}</span>
+        {icon && <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: colour ?? NAVY }}>{icon}</span>}
+        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)' }}>{label}</span>
       </div>
-      <div style={{ fontSize: 24, fontWeight: 800, color: colour ?? 'var(--txt)', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color: colour ?? 'var(--txt)', lineHeight: 1 }}>{value}</div>
     </div>
   )
 }
@@ -85,28 +85,28 @@ function CampaignCard({
   const secs = avgDur % 60
 
   return (
-    <div style={{ border: '1px solid var(--bdr)', borderRadius: 12, padding: 20, background: 'var(--card)' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+    <div style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: SP[5], background: 'var(--card)' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: SP[4], flexWrap: 'wrap', gap: 10 }}>
         <div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{camp.name}</div>
-          <div style={{ fontSize: 12, color: 'var(--txt3)', marginTop: 2 }}>Dial ratio: {camp.dial_ratio}×</div>
+          <div style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)' }}>{camp.name}</div>
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', marginTop: 2 }}>Dial ratio: {camp.dial_ratio}×</div>
         </div>
         <div style={{ display: 'flex', gap: 7 }}>
           {camp.status === 'active' && (
             <>
               <button onClick={() => onAction(camp.id, 'pause')}
-                style={{ padding: '5px 12px', borderRadius: 6, border: `1.5px solid ${AMBER}40`, background: `${AMBER}10`, color: AMBER, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: `1.5px solid ${AMBER}40`, background: `${AMBER}10`, color: AMBER, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
                 Pause
               </button>
               <button onClick={() => onAction(camp.id, 'stop')}
-                style={{ padding: '5px 12px', borderRadius: 6, border: `1.5px solid ${RED}40`, background: `${RED}10`, color: RED, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: `1.5px solid ${RED}40`, background: `${RED}10`, color: RED, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
                 Stop
               </button>
             </>
           )}
           {(camp.status === 'paused' || camp.status === 'draft') && (
             <button onClick={() => onAction(camp.id, 'start')}
-              style={{ padding: '5px 12px', borderRadius: 6, border: `1.5px solid ${GREEN}40`, background: `${GREEN}10`, color: GREEN, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+              style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: `1.5px solid ${GREEN}40`, background: `${GREEN}10`, color: GREEN, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
               Resume
             </button>
           )}
@@ -114,7 +114,7 @@ function CampaignCard({
       </div>
 
       {/* Agent + queue row */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 10, marginBottom: SP[4], flexWrap: 'wrap' }}>
         <Tile label="Ready Agents"  value={camp.agents_ready}    colour={GREEN}  icon="person" />
         <Tile label="On Call"       value={camp.agents_on_call}  colour={AMBER}  icon="call" />
         <Tile label="In Flight"     value={camp.calls_in_flight} colour={NAVY}   icon="phone_forwarded" />
@@ -123,7 +123,7 @@ function CampaignCard({
 
       {/* Stats row */}
       {stats && (
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: SP[4] }}>
           <Tile label="Calls Total"   value={total} />
           <Tile label="Answered"      value={answered} colour={GREEN} />
           <Tile label="Connect Rate"  value={`${connRate}%`} colour={connRate >= 50 ? GREEN : AMBER} />
@@ -132,9 +132,9 @@ function CampaignCard({
       )}
 
       {/* Abandonment gauge */}
-      <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: SP[4], alignItems: 'center' }}>
         <AbanGauge pct={abanPct} limit={3} />
-        <div style={{ fontSize: 12, color: abanColour, fontWeight: 700, flexShrink: 0 }}>
+        <div style={{ fontSize: TEXT.sm, color: abanColour, fontWeight: FW.bold, flexShrink: 0 }}>
           {abanPct >= 2.7 ? '⚠ Near CBN limit' : abanPct >= 1.5 ? 'Monitor closely' : 'Within limit'}
         </div>
       </div>
@@ -162,14 +162,14 @@ function RecentCallRow({ call }: { call: RecentCall }) {
   const time   = new Date(call.started_at).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--bdr)' }}>
-      <span className="material-symbols-rounded" style={{ fontSize: 18, color: colour, flexShrink: 0 }}>{icon}</span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], padding: '8px 0', borderBottom: '1px solid var(--bdr)' }}>
+      <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: colour, flexShrink: 0 }}>{icon}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>{call.phone}</div>
-        <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{call.agent_name ?? 'unassigned'} · {time}</div>
+        <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold }}>{call.phone}</div>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{call.agent_name ?? 'unassigned'} · {time}</div>
       </div>
-      <div style={{ fontSize: 12, color: 'var(--txt2)', flexShrink: 0 }}>{dur}</div>
-      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 8, background: `${colour}18`, color: colour, flexShrink: 0 }}>
+      <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', flexShrink: 0 }}>{dur}</div>
+      <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.md, background: `${colour}18`, color: colour, flexShrink: 0 }}>
         {call.is_abandoned ? 'Abandoned' : call.call_state}
       </span>
     </div>
@@ -245,8 +245,8 @@ export default function DialerSupervisor() {
       title="Dialer Supervisor"
       subtitle="Live overview of all active predictive dialer campaigns"
       actions={
-        <button onClick={loadAll} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--card)', color: 'var(--txt)', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>refresh</span>
+        <button onClick={loadAll} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--card)', color: 'var(--txt)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, cursor: 'pointer' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>refresh</span>
           Refresh
         </button>
       }
@@ -258,7 +258,7 @@ export default function DialerSupervisor() {
       ) : (
         <>
           {/* Global summary strip */}
-          <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 10, marginBottom: SP[5], flexWrap: 'wrap' }}>
             <Tile label="Active Campaigns" value={live.length} colour={live.length > 0 ? GREEN : 'var(--txt3)'} icon="campaign" />
             <Tile label="Agents Ready"     value={totalReady}  colour={GREEN}  icon="person" />
             <Tile label="Agents On Call"   value={totalOnCall} colour={AMBER}  icon="call" />
@@ -272,7 +272,7 @@ export default function DialerSupervisor() {
           {/* Active campaigns */}
           {live.length === 0 ? (
             <SectionCard title="Active Campaigns">
-              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt3)', fontSize: 13 }}>
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt3)', fontSize: TEXT.base }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 40, display: 'block', marginBottom: 10, opacity: 0.4 }}>campaign</span>
                 No active campaigns right now.
               </div>
@@ -289,15 +289,15 @@ export default function DialerSupervisor() {
 
           {/* Paused campaigns */}
           {paused.length > 0 && (
-            <SectionCard title={`Paused (${paused.length})`} style={{ marginTop: 16 }}>
+            <SectionCard title={`Paused (${paused.length})`} style={{ marginTop: SP[4] }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {paused.map(c => (
-                  <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 14px', border: '1px solid var(--bdr)', borderRadius: 9, background: 'var(--card)' }}>
-                    <div style={{ flex: 1, fontSize: 13.5, fontWeight: 600 }}>{c.name}</div>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: `${AMBER}18`, color: AMBER }}>paused</span>
-                    <div style={{ fontSize: 12.5, color: 'var(--txt3)' }}>Queue: {n(c.queue_pending)} pending</div>
+                  <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 14px', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, background: 'var(--card)' }}>
+                    <div style={{ flex: 1, fontSize: TEXT.base, fontWeight: FW.semibold }}>{c.name}</div>
+                    <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.md, background: `${AMBER}18`, color: AMBER }}>paused</span>
+                    <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>Queue: {n(c.queue_pending)} pending</div>
                     <button onClick={() => handleAction(c.id, 'start')}
-                      style={{ padding: '5px 12px', borderRadius: 6, border: `1.5px solid ${GREEN}40`, background: `${GREEN}10`, color: GREEN, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                      style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: `1.5px solid ${GREEN}40`, background: `${GREEN}10`, color: GREEN, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
                       Resume
                     </button>
                   </div>
@@ -308,7 +308,7 @@ export default function DialerSupervisor() {
 
           {/* Recent calls */}
           {recent.length > 0 && (
-            <SectionCard title="Recent Calls" style={{ marginTop: 16 }}>
+            <SectionCard title="Recent Calls" style={{ marginTop: SP[4] }}>
               {recent.map(c => <RecentCallRow key={c.id} call={c} />)}
             </SectionCard>
           )}

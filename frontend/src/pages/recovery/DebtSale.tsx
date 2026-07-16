@@ -5,7 +5,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiDelete } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -33,8 +33,8 @@ function RateBadge({ pct }: { pct: number }) {
   const color = pct >= 80 ? GREEN : pct >= 50 ? AMBER : RED
   return (
     <span style={{
-      ...NUM, fontSize: 11.5, fontWeight: 600, padding: '2px 9px',
-      borderRadius: 20, background: `${color}18`, color, whiteSpace: 'nowrap',
+      ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 9px',
+      borderRadius: RADIUS['2xl'], background: `${color}18`, color, whiteSpace: 'nowrap',
     }}>
       {pct.toFixed(1)}%
     </span>
@@ -45,13 +45,13 @@ function RateBadge({ pct }: { pct: number }) {
 
 const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
-  border: '1px solid var(--input-bdr)', borderRadius: 7,
-  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
+  border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
   fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
 }
 
 const labelStyle: React.CSSProperties = {
-  fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5,
+  fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5,
 }
 
 // ── Create modal ──────────────────────────────────────────────────────────────
@@ -145,8 +145,8 @@ function CreateModal({ open, onClose, onDone }: {
             disabled={saving || !canSubmit}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '8px 18px', borderRadius: 8, border: 'none',
-              background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600,
+              padding: '8px 18px', borderRadius: RADIUS.md, border: 'none',
+              background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold,
               cursor: saving || !canSubmit ? 'not-allowed' : 'pointer',
               opacity: saving || !canSubmit ? 0.6 : 1,
             }}
@@ -155,8 +155,8 @@ function CreateModal({ open, onClose, onDone }: {
             Record Sale
           </button>
           <button onClick={handleClose} style={{
-            padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)',
-            background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer',
+            padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
+            background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer',
           }}>Cancel</button>
         </div>
       </div>
@@ -189,7 +189,7 @@ function makeCols(onDelete: (id: number) => void): TableCol<DebtSale>[] {
     },
     {
       key: 'notes', label: 'Notes',
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)', maxWidth: 180, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.notes || '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', maxWidth: 180, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.notes || '—'}</span>,
     },
     {
       key: 'actions', label: '',
@@ -197,12 +197,12 @@ function makeCols(onDelete: (id: number) => void): TableCol<DebtSale>[] {
         <button
           onClick={() => onDelete(r.id)}
           style={{
-            padding: '4px 10px', borderRadius: 6, border: `1px solid ${RED}30`,
-            background: `${RED}0A`, color: RED, fontSize: 12, fontWeight: 600,
+            padding: '4px 10px', borderRadius: RADIUS.sm, border: `1px solid ${RED}30`,
+            background: `${RED}0A`, color: RED, fontSize: TEXT.sm, fontWeight: FW.semibold,
             cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
           }}
         >
-          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>delete</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>delete</span>
           Delete
         </button>
       ),
@@ -259,17 +259,17 @@ export default function DebtSales() {
           onClick={() => setCreateOpen(true)}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '8px 16px', borderRadius: 8, border: 'none',
-            background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: 'none',
+            background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer',
           }}
         >
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
           Record Sale
         </button>
       }
     >
       {/* Summary strip */}
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
+      <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', marginBottom: SP[5] }}>
         {[
           { label: 'Total Sales',       value: sales.length.toLocaleString(),  mono: false },
           { label: 'Total Face Value',  value: fmtKobo(totalFaceValue),        mono: true },
@@ -277,12 +277,12 @@ export default function DebtSales() {
         ].map(tile => (
           <div key={tile.label} style={{
             flex: 1, minWidth: 160, padding: '14px 16px',
-            background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10,
+            background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg,
           }}>
-            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 6 }}>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 6 }}>
               {tile.label}
             </div>
-            <div style={{ ...(tile.mono ? NUM : {}), fontSize: 22, fontWeight: 700, color: 'var(--txt)', letterSpacing: '-0.4px' }}>
+            <div style={{ ...(tile.mono ? NUM : {}), fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)', letterSpacing: '-0.4px' }}>
               {tile.value}
             </div>
           </div>
@@ -294,7 +294,7 @@ export default function DebtSales() {
 
       {/* Table */}
       {loading ? (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 10, color: 'var(--txt2)', fontSize: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 10, color: 'var(--txt2)', fontSize: TEXT.md }}>
           <Spinner size={18} color={NAVY} /> Loading…
         </div>
       ) : (

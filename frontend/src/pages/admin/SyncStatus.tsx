@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, ErrBanner } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtNum } from '../../lib/fmt'
-import { RED, GREEN, AMBER, NAVY, NUM, INTER } from '../../lib/design'
+import { RED, GREEN, AMBER, NAVY, NUM, INTER, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ function StatusPill({ status }: { status: string }) {
   const c = STATUS_COLORS[status] ?? { bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
   return (
     <span style={{
-      fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
       background: c.bg, color: c.txt, whiteSpace: 'nowrap', textTransform: 'capitalize',
     }}>{status}</span>
   )
@@ -50,15 +50,15 @@ function durationStr(start: string, end: string): string {
 
 const COLS: TableCol<SyncRun>[] = [
   { key: 'created_at', label: 'Run Time', sortable: true,
-    render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{fmtDatetime(r.created_at)}</span> },
+    render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDatetime(r.created_at)}</span> },
   { key: 'status', label: 'Status', render: r => <StatusPill status={r.status} /> },
   { key: 'rows_synced', label: 'Rows Synced', align: 'right',
-    render: r => <span style={{ ...NUM, fontWeight: 700 }}>{fmtNum(r.rows_synced)}</span> },
+    render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.rows_synced)}</span> },
   { key: '_duration', label: 'Duration', align: 'right',
-    render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{durationStr(r.started_at, r.finished_at)}</span> },
+    render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{durationStr(r.started_at, r.finished_at)}</span> },
   { key: 'error_msg', label: 'Error',
     render: r => r.error_msg ? (
-      <span style={{ fontSize: 12, color: RED, fontFamily: 'monospace' }}>{r.error_msg.slice(0, 80)}</span>
+      <span style={{ fontSize: TEXT.sm, color: RED, fontFamily: 'monospace' }}>{r.error_msg.slice(0, 80)}</span>
     ) : <span style={{ color: 'var(--txt3)' }}>—</span> },
 ]
 
@@ -109,10 +109,10 @@ export default function AdminSyncStatus() {
       subtitle="MSSQL → PostgreSQL sync run history"
       actions={
         <button onClick={triggerSync} style={{
-          display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 9,
-          border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER,
+          display: 'flex', alignItems: 'center', gap: SP[1], padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,
+          border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
         }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>sync</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>sync</span>
           Log Sync Run
         </button>
       }
@@ -120,16 +120,16 @@ export default function AdminSyncStatus() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* Stats strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 20 }}>
         {[
           { label: 'Total Runs', value: rows.length },
           { label: 'Last Status', value: lastRun?.status ?? '—', color: lastRun ? STATUS_COLORS[lastRun.status]?.txt : 'var(--txt)' },
           { label: 'Success Rate', value: `${successRate}%`, color: successRate >= 80 ? GREEN : successRate >= 50 ? AMBER : RED },
           { label: 'Last Rows', value: lastRun ? fmtNum(lastRun.rows_synced) : '—' },
         ].map(({ label, value, color }) => (
-          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '14px 16px' }}>
-            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 6 }}>{label}</div>
-            <div style={{ ...NUM, fontSize: 20, fontWeight: 700, color: color ?? 'var(--txt)' }}>{value}</div>
+          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 6 }}>{label}</div>
+            <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: color ?? 'var(--txt)' }}>{value}</div>
           </div>
         ))}
       </div>

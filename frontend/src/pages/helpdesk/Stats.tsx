@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner, DateFilter } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { today, monthStart } from '../../lib/fmt'
-import { NAVY, GREEN, AMBER, RED, BLUE, PURPLE, INTER, NUM } from '../../lib/design'
+import { NAVY, GREEN, AMBER, RED, BLUE, PURPLE, INTER, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar,
   PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -46,18 +46,18 @@ function Tip({ active, payload, label, fmt }: {
   if (!active || !payload?.length) return null
   const f = fmt ?? (v => String(v))
   return (
-    <div style={{ background: '#0E2841', borderRadius: 10, padding: '10px 14px', boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)' }}>
+    <div style={{ background: '#0E2841', borderRadius: RADIUS.lg, padding: '10px 14px', boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)' }}>
       {label && (
-        <div style={{ fontSize: 9.5, fontWeight: 600, color: 'rgba(255,255,255,.4)', fontFamily: INTER, marginBottom: 7, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+        <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'rgba(255,255,255,.4)', fontFamily: INTER, marginBottom: 7, letterSpacing: 0.5, textTransform: 'uppercase' }}>
           {label}
         </div>
       )}
       {payload.map((p, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: i > 0 ? 5 : 0 }}>
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginTop: i > 0 ? 5 : 0 }}>
           <div style={{ width: 7, height: 7, borderRadius: '50%', background: p.color ?? '#fff', flexShrink: 0 }} />
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: INTER, ...NUM }}>{f(p.value)}</span>
+          <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: '#fff', fontFamily: INTER, ...NUM }}>{f(p.value)}</span>
           {p.name && payload.length > 1 && (
-            <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,.4)', fontFamily: INTER }}>{p.name}</span>
+            <span style={{ fontSize: TEXT['2xs'], color: 'rgba(255,255,255,.4)', fontFamily: INTER }}>{p.name}</span>
           )}
         </div>
       ))}
@@ -68,8 +68,8 @@ function Tip({ active, payload, label, fmt }: {
 function DonutCenter({ total }: { total: number }) {
   return (
     <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
-      <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--txt)', ...NUM, lineHeight: 1 }}>{total}</div>
-      <div style={{ fontSize: 9, color: 'var(--txt2)', fontFamily: INTER, marginTop: 2 }}>tickets</div>
+      <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, lineHeight: 1 }}>{total}</div>
+      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER, marginTop: 2 }}>tickets</div>
     </div>
   )
 }
@@ -150,18 +150,18 @@ export default function HelpdeskStats() {
   const EmptyState = ({ msg }: { msg: string }) => (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '30px 0', gap: 6 }}>
       <span className="material-symbols-rounded" style={{ fontSize: 32, color: 'var(--txt3)' }}>bar_chart</span>
-      <span style={{ fontSize: 13, color: 'var(--txt2)' }}>{msg}</span>
+      <span style={{ fontSize: TEXT.base, color: 'var(--txt2)' }}>{msg}</span>
     </div>
   )
 
   return (
     <Page title="Customer Support Stats" subtitle="CSAT, handle time and resolution metrics">
       {/* Page-level filters */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], marginBottom: SP[5], flexWrap: 'wrap' }}>
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
         <select value={agentFilter} onChange={e => setAgentFilter(e.target.value)}
           title="Per-agent filtering is coming soon — data shown is for all agents"
-          style={{ height: 32, borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, padding: '0 10px', cursor: 'not-allowed', opacity: 0.6 }}
+          style={{ height: 32, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, padding: '0 10px', cursor: 'not-allowed', opacity: 0.6 }}
           disabled>
           <option value="">All agents (filter coming soon)</option>
           {agents.map(a => <option key={a.id} value={String(a.id)}>{a.full_name}</option>)}
@@ -177,14 +177,14 @@ export default function HelpdeskStats() {
       ) : (
         <>
           {/* ── Row 1: CSAT trend + Handle time ──────────────────────────── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
             <SectionCard title="CSAT Trend" subtitle="Daily satisfaction score (0–5)">
               {csatTrend.length === 0 ? <EmptyState msg="No CSAT data yet" /> : (
                 <ResponsiveContainer width="100%" height={200}>
                   <LineChart data={csatTrend} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
                     <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[0, 5]} tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <XAxis dataKey="date" tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[0, 5]} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
                     <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => v.toFixed(1)} />} />
                     <Line type="monotone" dataKey="csat_score" stroke={GREEN} strokeWidth={2.2} name="CSAT" dot={{ r: 3, fill: GREEN, strokeWidth: 0 }} activeDot={{ r: 5, fill: GREEN, stroke: '#fff', strokeWidth: 2 }} />
                   </LineChart>
@@ -197,8 +197,8 @@ export default function HelpdeskStats() {
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={handleTime} margin={{ top: 4, right: 8, bottom: 0, left: -18 }} barCategoryGap="30%">
                     <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                    <XAxis dataKey="ticket_type" tick={{ fontSize: 9, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <XAxis dataKey="ticket_type" tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
                     <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => `${v.toFixed(0)} min`} />} />
                     <Bar dataKey="avg_minutes" fill={NAVY} radius={[5, 5, 0, 0]} name="Avg minutes" />
                   </BarChart>
@@ -208,14 +208,14 @@ export default function HelpdeskStats() {
           </div>
 
           {/* ── Row 2: Resolution rate + Type distribution ─────────────── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
             <SectionCard title="Resolution Rate by Agent" subtitle="% of tickets resolved">
               {resolution.length === 0 ? <EmptyState msg="No resolution data yet" /> : (
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={resolution} margin={{ top: 4, right: 8, bottom: 0, left: -18 }} barCategoryGap="30%">
                     <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                    <XAxis dataKey="agent_name" tick={{ fontSize: 9, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <XAxis dataKey="agent_name" tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
                     <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => `${v.toFixed(0)}%`} />} />
                     <Bar dataKey="resolution_pct" radius={[5, 5, 0, 0]} name="Resolution %">
                       {resolution.map((e, i) => (
@@ -229,7 +229,7 @@ export default function HelpdeskStats() {
 
             <SectionCard title="Ticket Type Distribution" subtitle="Count by category">
               {typeDist.length === 0 ? <EmptyState msg="No tickets yet" /> : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: SP[5] }}>
                   <div style={{ position: 'relative', flexShrink: 0 }}>
                     <PieChart width={148} height={148}>
                       <Pie data={typeDist} cx={70} cy={70} innerRadius={42} outerRadius={66} dataKey="count" stroke="none" paddingAngle={3} startAngle={90} endAngle={-270}>
@@ -239,12 +239,12 @@ export default function HelpdeskStats() {
                     </PieChart>
                     <DonutCenter total={donutTotal} />
                   </div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
                     {typeDist.map((d, i) => (
-                      <div key={d.ticket_type} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div key={d.ticket_type} style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
                         <div style={{ width: 10, height: 10, borderRadius: 3, background: DONUT_COLORS[i % DONUT_COLORS.length], flexShrink: 0 }} />
-                        <span style={{ flex: 1, fontSize: 12, color: 'var(--txt)', fontWeight: 500 }}>{d.ticket_type}</span>
-                        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt)', ...NUM }}>{d.count}</span>
+                        <span style={{ flex: 1, fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.medium }}>{d.ticket_type}</span>
+                        <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', ...NUM }}>{d.count}</span>
                       </div>
                     ))}
                   </div>
@@ -254,14 +254,14 @@ export default function HelpdeskStats() {
           </div>
 
           {/* ── Row 3: Channel breakdown + SLA by agent ─────────────────── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
             <SectionCard title="Channel Breakdown" subtitle="Tickets by source channel">
               {channels.length === 0 ? <EmptyState msg="No channel data yet" /> : (
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={channels} margin={{ top: 4, right: 8, bottom: 0, left: -18 }} barCategoryGap="30%">
                     <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                    <XAxis dataKey="channel" tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <XAxis dataKey="channel" tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} allowDecimals={false} />
                     <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => `${v} tickets`} />} />
                     <Bar dataKey="count" fill={BLUE} radius={[5, 5, 0, 0]} name="Tickets" />
                   </BarChart>
@@ -274,8 +274,8 @@ export default function HelpdeskStats() {
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={slaByAgent} margin={{ top: 4, right: 8, bottom: 0, left: -18 }} barCategoryGap="30%">
                     <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                    <XAxis dataKey="agent_name" tick={{ fontSize: 9, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <XAxis dataKey="agent_name" tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
                     <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => `${v}%`} />} />
                     <Bar dataKey="breach_pct" radius={[5, 5, 0, 0]} name="Breach %">
                       {slaByAgent.map((e, i) => (
@@ -289,17 +289,17 @@ export default function HelpdeskStats() {
           </div>
 
           {/* ── Row 4: Busiest hours heatmap ─────────────────────────────── */}
-          <SectionCard title="Busiest Hours" subtitle="Ticket volume by hour of day (WAT)" style={{ marginBottom: 16 }}>
+          <SectionCard title="Busiest Hours" subtitle="Ticket volume by hour of day (WAT)" style={{ marginBottom: SP[4] }}>
             {heatmapData.every(d => d.ticket_count === 0) ? <EmptyState msg="No hourly data yet" /> : (
-              <div style={{ display: 'flex', gap: 4, alignItems: 'flex-end', padding: '8px 0' }}>
+              <div style={{ display: 'flex', gap: SP[1], alignItems: 'flex-end', padding: '8px 0' }}>
                 {heatmapData.map(d => {
                   const pct = d.ticket_count / maxCount
                   const color = pct > 0.7 ? RED : pct > 0.4 ? AMBER : pct > 0 ? BLUE : 'var(--bdr)'
                   return (
-                    <div key={d.hour} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }} title={`${d.hour}: ${d.ticket_count} tickets`}>
-                      <div style={{ fontSize: 10, color: 'var(--txt2)', fontFamily: INTER }}>{d.ticket_count || ''}</div>
-                      <div style={{ width: '100%', borderRadius: 4, background: color, height: Math.max(4, pct * 80), transition: 'height 300ms' }} />
-                      <div style={{ fontSize: 9, color: 'var(--txt3)', fontFamily: INTER, writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
+                    <div key={d.hour} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[1] }} title={`${d.hour}: ${d.ticket_count} tickets`}>
+                      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER }}>{d.ticket_count || ''}</div>
+                      <div style={{ width: '100%', borderRadius: RADIUS.xs, background: color, height: Math.max(4, pct * 80), transition: 'height 300ms' }} />
+                      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontFamily: INTER, writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
                         {d.hour.slice(0, 5)}
                       </div>
                     </div>
@@ -314,32 +314,32 @@ export default function HelpdeskStats() {
             {leaderboard.length === 0 ? <EmptyState msg="No leaderboard data yet" /> : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                 {/* Header */}
-                <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr 80px 80px 80px 80px 80px', gap: 8, padding: '6px 12px', background: 'var(--th-bg)', borderRadius: 8, marginBottom: 4 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr 80px 80px 80px 80px 80px', gap: SP[2], padding: '6px 12px', background: 'var(--th-bg)', borderRadius: RADIUS.md, marginBottom: SP[1] }}>
                   {['#', 'Agent', 'Handled', 'Resolved', 'Handle Time', 'CSAT', 'SLA Breaches'].map(h => (
-                    <span key={h} style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', textAlign: h === '#' ? 'center' : 'right' }}>
+                    <span key={h} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textAlign: h === '#' ? 'center' : 'right' }}>
                       {h === '#' ? '' : h}
                     </span>
                   ))}
                 </div>
                 {leaderboard.map((row, i) => (
                   <div key={row.agent_name} style={{
-                    display: 'grid', gridTemplateColumns: '32px 1fr 80px 80px 80px 80px 80px', gap: 8,
+                    display: 'grid', gridTemplateColumns: '32px 1fr 80px 80px 80px 80px 80px', gap: SP[2],
                     padding: '10px 12px', borderBottom: i < leaderboard.length - 1 ? '1px solid var(--bdr)' : 'none',
                     background: i === 0 ? `${GREEN}06` : 'transparent',
                   }}>
-                    <div style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: i === 0 ? '#F59E0B' : i === 1 ? 'var(--chart-lbl)' : i === 2 ? '#92400E' : 'var(--txt3)' }}>
+                    <div style={{ textAlign: 'center', fontSize: TEXT.base, fontWeight: FW.bold, color: i === 0 ? '#F59E0B' : i === 1 ? 'var(--chart-lbl)' : i === 2 ? '#92400E' : 'var(--txt3)' }}>
                       {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{row.agent_name}</div>
-                    <div style={{ ...NUM, textAlign: 'right', fontSize: 13 }}>{row.tickets_handled}</div>
-                    <div style={{ ...NUM, textAlign: 'right', fontSize: 13, fontWeight: 700, color: GREEN }}>{row.tickets_resolved}</div>
-                    <div style={{ ...NUM, textAlign: 'right', fontSize: 13, color: 'var(--txt2)' }}>
+                    <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{row.agent_name}</div>
+                    <div style={{ ...NUM, textAlign: 'right', fontSize: TEXT.base }}>{row.tickets_handled}</div>
+                    <div style={{ ...NUM, textAlign: 'right', fontSize: TEXT.base, fontWeight: FW.bold, color: GREEN }}>{row.tickets_resolved}</div>
+                    <div style={{ ...NUM, textAlign: 'right', fontSize: TEXT.base, color: 'var(--txt2)' }}>
                       {row.avg_handle_min != null ? `${row.avg_handle_min}m` : '—'}
                     </div>
-                    <div style={{ ...NUM, textAlign: 'right', fontSize: 13, fontWeight: 600, color: row.avg_csat != null ? (row.avg_csat >= 4 ? GREEN : row.avg_csat >= 3 ? AMBER : RED) : 'var(--txt3)' }}>
+                    <div style={{ ...NUM, textAlign: 'right', fontSize: TEXT.base, fontWeight: FW.semibold, color: row.avg_csat != null ? (row.avg_csat >= 4 ? GREEN : row.avg_csat >= 3 ? AMBER : RED) : 'var(--txt3)' }}>
                       {row.avg_csat != null ? `${Number(row.avg_csat).toFixed(1)}★` : '—'}
                     </div>
-                    <div style={{ ...NUM, textAlign: 'right', fontSize: 13, color: row.sla_breaches > 0 ? RED : GREEN }}>
+                    <div style={{ ...NUM, textAlign: 'right', fontSize: TEXT.base, color: row.sla_breaches > 0 ? RED : GREEN }}>
                       {row.sla_breaches}
                     </div>
                   </div>

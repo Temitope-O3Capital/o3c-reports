@@ -6,7 +6,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -30,10 +30,10 @@ function daysRemaining(due: string): number {
 
 function DaysRemaining({ due }: { due: string }) {
   const days = daysRemaining(due)
-  if (days < 0) return <span style={{ fontSize: 12.5, fontWeight: 700, color: RED }}>{Math.abs(days)}d overdue</span>
-  if (days <= 7)  return <span style={{ fontSize: 12.5, fontWeight: 700, color: AMBER }}>{days}d remaining</span>
-  if (days <= 30) return <span style={{ fontSize: 12.5, fontWeight: 600, color: AMBER }}>{days}d remaining</span>
-  return <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{days}d remaining</span>
+  if (days < 0) return <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: RED }}>{Math.abs(days)}d overdue</span>
+  if (days <= 7)  return <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: AMBER }}>{days}d remaining</span>
+  if (days <= 30) return <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: AMBER }}>{days}d remaining</span>
+  return <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{days}d remaining</span>
 }
 
 const STATUS_STYLE: Record<string, { color: string; bg: string; label: string }> = {
@@ -47,7 +47,7 @@ function StatusPill({ status, due }: { status: string; due: string }) {
   const autoStatus = daysRemaining(due) < 0 && status === 'pending' ? 'overdue' : status
   const s = STATUS_STYLE[autoStatus] ?? STATUS_STYLE.pending
   return (
-    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color }}>
+    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.full, background: s.bg, color: s.color }}>
       {s.label}
     </span>
   )
@@ -138,19 +138,19 @@ export default function RegulatoryCalendar() {
   const cols: TableCol<CBNReport>[] = [
     {
       key: 'report_name', label: 'Requirement',
-      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.report_name}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.report_name}</span>,
     },
     {
       key: 'regulatory_body', label: 'Regulatory Body',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.regulatory_body}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.regulatory_body}</span>,
     },
     {
       key: 'due_date', label: 'Due Date',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{fmtDate(r.due_date)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{fmtDate(r.due_date)}</span>,
     },
     {
       key: 'owner_name', label: 'Owner',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.owner_name ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.owner_name ?? '—'}</span>,
     },
     {
       key: 'status', label: 'Days Remaining',
@@ -165,7 +165,7 @@ export default function RegulatoryCalendar() {
       render: r => r.status === 'pending' ? (
         <button
           onClick={e => { e.stopPropagation(); setDoneEntry(r) }}
-          style={{ padding: '3px 10px', borderRadius: 6, border: `1.5px solid ${GREEN}40`, background: 'transparent', color: GREEN, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+          style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${GREEN}40`, background: 'transparent', color: GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
         >
           Mark Done
         </button>
@@ -202,7 +202,7 @@ export default function RegulatoryCalendar() {
       </FilterBar>
 
       <SectionCard title="Regulatory Requirements" badge={items.length} padding={false} actions={
-        <button onClick={() => exportCalendarCsv(items)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+        <button onClick={() => exportCalendarCsv(items)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
           <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
           Export CSV
         </button>
@@ -227,7 +227,7 @@ export default function RegulatoryCalendar() {
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button onClick={() => setAddOpen(false)}
-              style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
+              style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
               Cancel
             </button>
             <button onClick={handleAdd} disabled={saving}
@@ -244,22 +244,22 @@ export default function RegulatoryCalendar() {
             { label: 'Regulatory Body', key: 'regulatory_body' as const, placeholder: 'e.g. CBN, NDIC, NFIU' },
           ].map(({ label, key, placeholder }) => (
             <div key={key}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>{label}</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>{label}</label>
               <input value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
                 placeholder={placeholder}
-                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box' as const }} />
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box' as const }} />
             </div>
           ))}
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Due Date *</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Due Date *</label>
             <input type="date" value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))}
-              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box' as const }} />
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box' as const }} />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Notes</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Notes</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
               rows={3} placeholder="Additional context…"
-              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' as const }} />
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' as const }} />
           </div>
         </div>
       </Modal>

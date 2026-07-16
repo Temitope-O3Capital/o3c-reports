@@ -5,7 +5,7 @@ import { Page, KpiCard, SectionCard, DataTable } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtPct, fmtDate } from '../../lib/fmt'
-import { RED, AMBER, GREEN, BLUE, NAVY, NUM } from '../../lib/design'
+import { RED, AMBER, GREEN, BLUE, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 interface PipelineStage { stage: string; count: number; total_value_kobo: number }
 interface EmployerStats { active: number; mou_signed: number; mou_expiring: number }
@@ -26,7 +26,7 @@ function StagePill({ stage }: { stage: string }) {
   const c = STAGE_COLORS[stage] ?? '#6B7280'
   return (
     <span style={{
-      fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
       background: `${c}18`, color: c, whiteSpace: 'nowrap', textTransform: 'capitalize',
     }}>{stage}</span>
   )
@@ -66,8 +66,8 @@ export default function BDOverview() {
       key: 'company_name', label: 'Company', sortable: true,
       render: row => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{row.company_name ?? row.title}</div>
-          <div style={{ fontSize: 11.5, color: 'var(--txt2)' }}>{row.contact_name ?? '—'}</div>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{row.company_name ?? row.title}</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{row.contact_name ?? '—'}</div>
         </div>
       ),
     },
@@ -78,8 +78,8 @@ export default function BDOverview() {
     {
       key: 'lead_score', label: 'Score', sortable: true, align: 'right',
       render: row => row.lead_score != null
-        ? <span style={{ ...NUM, fontSize: 12.5, fontWeight: 700, color: row.lead_score >= 70 ? GREEN : row.lead_score >= 40 ? AMBER : RED }}>{row.lead_score}</span>
-        : <span style={{ color: 'var(--txt3)', fontSize: 12 }}>—</span>,
+        ? <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: row.lead_score >= 70 ? GREEN : row.lead_score >= 40 ? AMBER : RED }}>{row.lead_score}</span>
+        : <span style={{ color: 'var(--txt3)', fontSize: TEXT.sm }}>—</span>,
     },
     {
       key: 'potential_value_kobo', label: 'Est. Value', sortable: true, align: 'right',
@@ -91,7 +91,7 @@ export default function BDOverview() {
     },
     {
       key: 'updated_at', label: 'Last Updated', sortable: true,
-      render: row => <span style={{ color: 'var(--txt2)', fontSize: 12 }}>{fmtDate(row.updated_at)}</span>,
+      render: row => <span style={{ color: 'var(--txt2)', fontSize: TEXT.sm }}>{fmtDate(row.updated_at)}</span>,
     },
   ]
 
@@ -104,7 +104,7 @@ export default function BDOverview() {
           onClick={() => navigate('/bd/employers')}
           style={{
             display: 'flex', alignItems: 'center', gap: 6,
-            padding: '7px 14px', borderRadius: 8, fontSize: 13, fontWeight: 500,
+            padding: '7px 14px', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.medium,
             border: '1px solid var(--bdr)', background: 'var(--card)',
             color: 'var(--txt)', cursor: 'pointer',
           }}
@@ -115,7 +115,7 @@ export default function BDOverview() {
       }
     >
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[4] }}>
         <KpiCard label="Total Leads"     value={fmtNum(totalLeads)}        icon="contacts"      accent={NAVY}  loading={loading} />
         <KpiCard label="Hot Leads"       value={fmtNum(hotLeads)}          icon="local_fire_department" accent={RED}   loading={loading} />
         <KpiCard label="Won Deals"       value={fmtNum(wonCount)}          icon="handshake"     accent={GREEN} loading={loading} />
@@ -128,8 +128,8 @@ export default function BDOverview() {
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={pipeline} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-              <XAxis dataKey="stage" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
+              <XAxis dataKey="stage" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
+              <YAxis tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
               <Tooltip
                 content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null
@@ -137,10 +137,10 @@ export default function BDOverview() {
                   return (
                     <div style={{
                       background: 'var(--card)', border: '1px solid var(--bdr)',
-                      borderRadius: 8, padding: '8px 12px', fontSize: 12,
+                      borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, fontSize: TEXT.sm,
                       boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                     }}>
-                      <p style={{ fontWeight: 600, color: 'var(--txt)', textTransform: 'capitalize', marginBottom: 4 }}>{label}</p>
+                      <p style={{ fontWeight: FW.semibold, color: 'var(--txt)', textTransform: 'capitalize', marginBottom: 4 }}>{label}</p>
                       <p style={{ color: 'var(--txt2)', marginBottom: 2 }}>Leads: {d.count}</p>
                       <p style={{ color: 'var(--txt2)' }}>Value: {fmtKobo(d.total_value_kobo)}</p>
                     </div>
@@ -150,7 +150,7 @@ export default function BDOverview() {
               <Bar dataKey="count" name="Leads" fill={AMBER} radius={[4, 4, 0, 0]}
                 label={({ x, y, width, value }) => (
                   <text x={Number(x) + Number(width) / 2} y={Number(y) - 4} textAnchor="middle"
-                    style={{ fontSize: 11, fill: '#6B7280' }}>{value > 0 ? value : ''}</text>
+                    style={{ fontSize: TEXT.xs, fill: '#6B7280' }}>{value > 0 ? value : ''}</text>
                 )}
               />
             </BarChart>
@@ -167,20 +167,20 @@ export default function BDOverview() {
             ].map(item => (
               <div key={item.label} style={{
                 display: 'flex', alignItems: 'center', gap: 14,
-                padding: '12px 14px', borderRadius: 10,
+                padding: `${SP[3]} 14px`, borderRadius: RADIUS.lg,
                 background: `${item.color}08`,
                 border: `1px solid ${item.color}18`,
               }}>
                 <div style={{
-                  width: 36, height: 36, borderRadius: 9,
+                  width: 36, height: 36, borderRadius: RADIUS.md,
                   background: `${item.color}14`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 18, color: item.color }}>{item.icon}</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: item.color }}>{item.icon}</span>
                 </div>
                 <div>
-                  <div style={{ ...NUM, fontSize: 20, fontWeight: 700, color: 'var(--txt)', lineHeight: 1 }}>{item.value}</div>
-                  <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 2 }}>{item.label}</div>
+                  <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)', lineHeight: 1 }}>{item.value}</div>
+                  <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2 }}>{item.label}</div>
                 </div>
               </div>
             ))}
@@ -196,12 +196,12 @@ export default function BDOverview() {
           <button
             onClick={() => navigate('/bd/pipeline')}
             style={{
-              fontSize: 12, fontWeight: 500, color: RED,
+              fontSize: TEXT.sm, fontWeight: FW.medium, color: RED,
               background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px',
               display: 'flex', alignItems: 'center', gap: 4,
             }}
           >
-            View all <span className="material-symbols-rounded" style={{ fontSize: 14 }}>arrow_forward</span>
+            View all <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>arrow_forward</span>
           </button>
         }
       >

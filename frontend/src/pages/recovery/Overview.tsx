@@ -7,7 +7,7 @@ import { Page, KpiCard, SectionCard, DataTable, ErrBanner } from '../../componen
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtPct, fmtNum, fmtDate } from '../../lib/fmt'
-import { GREEN, NUM, INTER } from '../../lib/design'
+import { GREEN, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -42,21 +42,21 @@ function Tip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
     <div style={{
-      background: '#0E2841', borderRadius: 10, padding: '10px 14px',
+      background: '#0E2841', borderRadius: RADIUS.lg, padding: '10px 14px',
       boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)',
     }}>
       {label && (
         <div style={{
-          fontSize: 9.5, fontWeight: 600, color: 'rgba(255,255,255,.4)', fontFamily: INTER,
+          fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'rgba(255,255,255,.4)', fontFamily: INTER,
           marginBottom: 7, letterSpacing: .5, textTransform: 'uppercase',
         }}>
           {label}
         </div>
       )}
       {payload.map((p: any, i: number) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: i > 0 ? 5 : 0 }}>
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginTop: i > 0 ? 5 : 0 }}>
           <div style={{ width: 7, height: 7, borderRadius: '50%', background: p.color ?? '#fff', flexShrink: 0 }} />
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: INTER, ...NUM }}>
+          <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: '#fff', fontFamily: INTER, ...NUM }}>
             {fmtKobo(p.value)}
           </span>
         </div>
@@ -77,34 +77,34 @@ const CHANNEL_COLORS: Record<string, string> = {
 function ChannelBars({ data }: { data: ChannelRow[] }) {
   if (!data.length) {
     return (
-      <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>
+      <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>
         No channel data available
       </div>
     )
   }
   const maxKobo = Math.max(...data.map(d => d.amount_kobo), 1)
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '4px 0' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: `${SP[1]} 0` }}>
       {data.map(d => {
         const barPct = (d.amount_kobo / maxKobo) * 100
         const color = CHANNEL_COLORS[d.channel] ?? '#6B7280'
         return (
           <div key={d.channel}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', width: 90, flexShrink: 0 }}>
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', width: 90, flexShrink: 0 }}>
                 {d.channel}
               </span>
-              <div style={{ flex: 1, height: 6, background: 'var(--bdr)', borderRadius: 99, overflow: 'hidden' }}>
+              <div style={{ flex: 1, height: 6, background: 'var(--bdr)', borderRadius: RADIUS.full, overflow: 'hidden' }}>
                 <div style={{
                   width: `${barPct}%`, height: '100%',
-                  background: color, borderRadius: 99, transition: 'width 0.4s',
+                  background: color, borderRadius: RADIUS.full, transition: 'width 0.4s',
                 }} />
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: 130, flexShrink: 0, justifyContent: 'flex-end' }}>
-                <span style={{ ...NUM, fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>
+              <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', width: 130, flexShrink: 0, justifyContent: 'flex-end' }}>
+                <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
                   {fmtKobo(d.amount_kobo)}
                 </span>
-                <span style={{ fontSize: 11, color: 'var(--txt2)', fontFamily: INTER }}>
+                <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>
                   {fmtPct(d.pct)}
                 </span>
               </div>
@@ -123,21 +123,21 @@ const AGENT_COLS: TableCol<AgentRow>[] = [
     key: 'agent_name',
     label: 'Agent',
     sortable: true,
-    render: r => <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{r.agent_name || '—'}</span>,
+    render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.agent_name || '—'}</span>,
   },
   {
     key: 'case_count',
     label: 'Cases Assigned',
     sortable: true,
     align: 'right',
-    render: r => <span style={{ ...NUM, fontSize: 13 }}>{fmtNum(r.case_count)}</span>,
+    render: r => <span style={{ ...NUM, fontSize: TEXT.base }}>{fmtNum(r.case_count)}</span>,
   },
   {
     key: 'recovered_kobo',
     label: 'Recovered ₦',
     sortable: true,
     align: 'right',
-    render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.recovered_kobo)}</span>,
+    render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.recovered_kobo)}</span>,
   },
   {
     key: 'success_rate_pct',
@@ -147,11 +147,11 @@ const AGENT_COLS: TableCol<AgentRow>[] = [
     render: r => {
       const col = r.success_rate_pct >= 60 ? '#16A34A' : r.success_rate_pct >= 30 ? '#D97706' : '#C00000'
       return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
-          <div style={{ width: 52, height: 4, background: 'var(--bdr)', borderRadius: 99, overflow: 'hidden' }}>
-            <div style={{ width: `${Math.min(r.success_rate_pct, 100)}%`, height: '100%', background: col, borderRadius: 99 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], justifyContent: 'flex-end' }}>
+          <div style={{ width: 52, height: 4, background: 'var(--bdr)', borderRadius: RADIUS.full, overflow: 'hidden' }}>
+            <div style={{ width: `${Math.min(r.success_rate_pct, 100)}%`, height: '100%', background: col, borderRadius: RADIUS.full }} />
           </div>
-          <span style={{ ...NUM, fontSize: 12, fontWeight: 600, color: col, width: 36, textAlign: 'right' }}>
+          <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: col, width: 36, textAlign: 'right' }}>
             {fmtPct(r.success_rate_pct)}
           </span>
         </div>
@@ -203,7 +203,7 @@ export default function RecoveryOverview() {
       <ErrBanner error={err} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
         <KpiCard
           label="Total in Recovery"
           value={fmtKobo(kpis?.total_in_recovery_kobo)}
@@ -237,7 +237,7 @@ export default function RecoveryOverview() {
       </div>
 
       {/* Chart row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: SP[5] }}>
         {/* Left: Area chart — monthly recovery trend */}
         <SectionCard title="Monthly Recovery Trend" subtitle="12-month recovery amounts" padding={false}>
           <div style={{ padding: '16px 18px' }}>

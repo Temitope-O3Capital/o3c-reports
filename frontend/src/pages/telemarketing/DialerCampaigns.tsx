@@ -6,7 +6,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, API, getCsrfToken } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -49,8 +49,8 @@ const STATUS_COLOUR: Record<string, { bg: string; txt: string }> = {
   completed: { bg: `${NAVY}12`,             txt: NAVY },
 }
 
-const labelSt: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5 }
-const inputSt: React.CSSProperties = { width: '100%', height: 36, padding: '0 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }
+const labelSt: React.CSSProperties = { display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }
+const inputSt: React.CSSProperties = { width: '100%', height: 36, padding: '0 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -100,7 +100,7 @@ function CampaignFormFields({ form, onChange }: { form: CampaignForm; onChange: 
         <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.description} onChange={e => onChange({ ...form, description: e.target.value })} rows={2}
           style={{ ...inputSt, height: 'auto', padding: '8px 10px', resize: 'vertical' }} />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
         <div>
           <label style={labelSt}>Dial Ratio (calls per available agent)</label>
           <input type="number" min={1} max={5} step={0.1} value={form.dial_ratio}
@@ -127,10 +127,10 @@ function CampaignFormFields({ form, onChange }: { form: CampaignForm; onChange: 
         </div>
       </div>
       <div>
-        <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 8 }}>
+        <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[2] }}>
           Daily Schedule (optional)
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
           <div>
             <label style={labelSt}>Start Time</label>
             <input type="time" value={form.schedule_start} onChange={e => onChange({ ...form, schedule_start: e.target.value })} style={inputSt} />
@@ -149,10 +149,10 @@ function CampaignFormFields({ form, onChange }: { form: CampaignForm; onChange: 
 
 function StatsTile({ label, value, sub, colour }: { label: string; value: string | number; sub?: string; colour?: string }) {
   return (
-    <div style={{ flex: 1, minWidth: 100, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 10, padding: '12px 16px' }}>
-      <div style={{ fontSize: 11.5, color: 'var(--txt3)', fontWeight: 600, marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: colour ?? 'var(--txt)', lineHeight: 1 }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--txt3)', marginTop: 3 }}>{sub}</div>}
+    <div style={{ flex: 1, minWidth: 100, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, padding: `${SP[3]} ${SP[4]}` }}>
+      <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, marginBottom: SP[1] }}>{label}</div>
+      <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.bold, color: colour ?? 'var(--txt)', lineHeight: 1 }}>{value}</div>
+      {sub && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 3 }}>{sub}</div>}
     </div>
   )
 }
@@ -269,8 +269,8 @@ export default function DialerCampaigns() {
       key: 'name', label: 'Campaign',
       render: c => (
         <div>
-          <div style={{ fontWeight: 600, fontSize: 13 }}>{c.name}</div>
-          {c.description && <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{c.description}</div>}
+          <div style={{ fontWeight: FW.semibold, fontSize: TEXT.base }}>{c.name}</div>
+          {c.description && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{c.description}</div>}
         </div>
       ),
     },
@@ -278,7 +278,7 @@ export default function DialerCampaigns() {
       key: 'status', label: 'Status',
       render: c => {
         const st = STATUS_COLOUR[c.status] ?? STATUS_COLOUR.draft
-        return <span style={{ fontSize: 11.5, fontWeight: 700, padding: '2px 9px', borderRadius: 10, background: st.bg, color: st.txt }}>{c.status}</span>
+        return <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 9px', borderRadius: RADIUS.lg, background: st.bg, color: st.txt }}>{c.status}</span>
       },
     },
     { key: 'dial_ratio', label: 'Dial Ratio', render: c => `${c.dial_ratio}×` },
@@ -290,29 +290,29 @@ export default function DialerCampaigns() {
       render: c => (
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
           {c.status === 'draft' || c.status === 'paused' ? (
-            <button onClick={() => handleLifecycle(c.id, 'start')} style={{ padding: '3px 10px', borderRadius: 6, border: `1.5px solid ${GREEN}40`, background: `${GREEN}10`, color: GREEN, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>Start</button>
+            <button onClick={() => handleLifecycle(c.id, 'start')} style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${GREEN}40`, background: `${GREEN}10`, color: GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>Start</button>
           ) : null}
           {c.status === 'active' ? (
             <>
-              <button onClick={() => handleLifecycle(c.id, 'pause')} style={{ padding: '3px 10px', borderRadius: 6, border: `1.5px solid ${AMBER}40`, background: `${AMBER}10`, color: AMBER, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>Pause</button>
-              <button onClick={() => handleLifecycle(c.id, 'stop')} style={{ padding: '3px 10px', borderRadius: 6, border: `1.5px solid ${RED}40`, background: `${RED}10`, color: RED, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>Stop</button>
+              <button onClick={() => handleLifecycle(c.id, 'pause')} style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${AMBER}40`, background: `${AMBER}10`, color: AMBER, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>Pause</button>
+              <button onClick={() => handleLifecycle(c.id, 'stop')} style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${RED}40`, background: `${RED}10`, color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>Stop</button>
             </>
           ) : null}
           <button onClick={() => { setUploadCamp(c); setUploadFile(null); setUploadResult(null) }}
-            style={{ padding: '3px 10px', borderRadius: 6, border: `1.5px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+            style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
             Upload
           </button>
           <button onClick={() => loadStats(c.id)}
-            style={{ padding: '3px 10px', borderRadius: 6, border: '1.5px solid var(--input-bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+            style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: '1.5px solid var(--input-bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
             Stats
           </button>
           <button onClick={() => { setForm({ name: c.name, description: c.description, dial_ratio: c.dial_ratio, max_abandonment_pct: c.max_abandonment_pct, caller_id: c.caller_id, max_attempts: c.max_attempts, retry_delay_minutes: c.retry_delay_minutes, schedule_start: c.schedule_start ?? '', schedule_end: c.schedule_end ?? '' }); setEditCamp(c) }}
-            style={{ width: 28, height: 28, borderRadius: 6, border: '1.5px solid var(--input-bdr)', background: 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt2)' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>edit</span>
+            style={{ width: 28, height: 28, borderRadius: RADIUS.sm, border: '1.5px solid var(--input-bdr)', background: 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt2)' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>edit</span>
           </button>
           <button onClick={() => setDeleteCamp(c)}
-            style={{ width: 28, height: 28, borderRadius: 6, border: `1.5px solid ${RED}30`, background: `${RED}08`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: RED }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>delete</span>
+            style={{ width: 28, height: 28, borderRadius: RADIUS.sm, border: `1.5px solid ${RED}30`, background: `${RED}08`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: RED }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>delete</span>
           </button>
         </div>
       ),
@@ -320,13 +320,13 @@ export default function DialerCampaigns() {
   ]
 
   const modalFooter = (onSave: () => void, label = 'Save') => (
-    <div style={{ display: 'flex', gap: 8 }}>
+    <div style={{ display: 'flex', gap: SP[2] }}>
       <button onClick={onSave} disabled={saving}
-        style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
         {saving && <Spinner size={13} color="#fff" />}{label}
       </button>
       <button onClick={() => { setNewOpen(false); setEditCamp(null) }}
-        style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
+        style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
         Cancel
       </button>
     </div>
@@ -338,8 +338,8 @@ export default function DialerCampaigns() {
       subtitle="Create and manage predictive dialer campaigns"
       actions={
         <button onClick={() => { setForm(EMPTY_FORM); setNewOpen(true) }}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
           New Campaign
         </button>
       }
@@ -358,11 +358,11 @@ export default function DialerCampaigns() {
             if (!camp) return null
             const abanColour = stats.abandon_pct >= 2.5 ? RED : stats.abandon_pct >= 1.5 ? AMBER : GREEN
             return (
-              <div key={idStr} style={{ marginTop: 12, padding: 16, background: 'var(--th-bg)', borderRadius: 10, border: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: NAVY, marginBottom: 12 }}>
+              <div key={idStr} style={{ marginTop: SP[3], padding: SP[4], background: 'var(--th-bg)', borderRadius: RADIUS.lg, border: '1px solid var(--bdr)' }}>
+                <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY, marginBottom: SP[3] }}>
                   Stats — {camp.name}
                   <button onClick={() => setStatsMap(prev => { const n = { ...prev }; delete n[Number(idStr)]; return n })}
-                    style={{ marginLeft: 10, fontSize: 11, color: 'var(--txt3)', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+                    style={{ marginLeft: 10, fontSize: TEXT.xs, color: 'var(--txt3)', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
                 </div>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   <StatsTile label="Queue (pending)" value={queuePending(stats)} />
@@ -394,16 +394,16 @@ export default function DialerCampaigns() {
         footer={
           uploadResult ? (
             <button onClick={() => { setUploadCamp(null); setUploadResult(null) }}
-              style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
+              style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
               Close
             </button>
           ) : (
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: SP[2] }}>
               <button onClick={handleUpload} disabled={uploading || !uploadFile}
-                style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: !uploadFile || uploading ? 'not-allowed' : 'pointer', opacity: !uploadFile || uploading ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: !uploadFile || uploading ? 'not-allowed' : 'pointer', opacity: !uploadFile || uploading ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 {uploading && <Spinner size={13} color="#fff" />}Upload
               </button>
-              <button onClick={() => setUploadCamp(null)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => setUploadCamp(null)} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
             </div>
           )
         }
@@ -411,20 +411,20 @@ export default function DialerCampaigns() {
         {uploadResult ? (
           <div style={{ textAlign: 'center', padding: '20px 0' }}>
             <span className="material-symbols-rounded" style={{ fontSize: 40, color: GREEN }}>check_circle</span>
-            <div style={{ marginTop: 10, fontSize: 15, fontWeight: 600 }}>Upload complete</div>
-            <div style={{ fontSize: 13, color: 'var(--txt2)', marginTop: 6 }}>
+            <div style={{ marginTop: 10, fontSize: TEXT.md, fontWeight: FW.semibold }}>Upload complete</div>
+            <div style={{ fontSize: TEXT.base, color: 'var(--txt2)', marginTop: 6 }}>
               {uploadResult.inserted} of {uploadResult.total} contacts added to queue
             </div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <p style={{ fontSize: 13, color: 'var(--txt2)', margin: 0 }}>
+            <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', margin: 0 }}>
               Upload a CSV file with columns: <strong>phone</strong> (required), customer_name, cif, priority
             </p>
             <input type="file" accept=".csv,text/csv"
               onChange={e => setUploadFile(e.target.files?.[0] ?? null)}
-              style={{ fontSize: 13 }} />
-            {uploadFile && <div style={{ fontSize: 12, color: 'var(--txt3)' }}>Selected: {uploadFile.name} ({Math.round(uploadFile.size / 1024)} KB)</div>}
+              style={{ fontSize: TEXT.base }} />
+            {uploadFile && <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>Selected: {uploadFile.name} ({Math.round(uploadFile.size / 1024)} KB)</div>}
           </div>
         )}
       </Modal>

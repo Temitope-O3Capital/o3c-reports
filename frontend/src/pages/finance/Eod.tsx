@@ -3,7 +3,7 @@ import { Page, KpiCard, SectionCard, DataTable, ErrBanner, FilterBar, filterInpu
 import type { TableCol } from '../../components/UI'
 import { apiFetch, getCsrfToken } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, fmtDatetime, today, monthStart } from '../../lib/fmt'
-import { NAVY, GREEN, RED, AMBER, NUM } from '../../lib/design'
+import { NAVY, GREEN, RED, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -53,24 +53,24 @@ interface ByBranchRow {
 
 const UPLOAD_COLS: TableCol<EODUpload>[] = [
   { key: 'upload_date', label: 'Date', sortable: true, width: 110,
-    render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.upload_date)}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.upload_date)}</span> },
   { key: 'filename', label: 'File',
-    render: r => <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260, fontSize: 12.5, fontWeight: 500 }}>{r.filename}</span> },
+    render: r => <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260, fontSize: TEXT.sm, fontWeight: FW.medium }}>{r.filename}</span> },
   { key: 'row_count', label: 'Rows', align: 'right', sortable: true,
     render: r => <span style={NUM}>{r.row_count?.toLocaleString()}</span> },
   { key: 'loaded_by_name', label: 'Uploaded by',
-    render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.loaded_by_name || '—'}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.loaded_by_name || '—'}</span> },
   { key: 'loaded_at', label: 'Loaded at',
-    render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDatetime(r.loaded_at)}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDatetime(r.loaded_at)}</span> },
 ]
 
 const PRODUCT_COLS: TableCol<ByProductRow>[] = [
   { key: 'product_code', label: 'Code', render: r => <span style={NUM}>{r.product_code}</span> },
   { key: 'product_name', label: 'Product', sortable: true },
   { key: 'count', label: 'Txns', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtNum(r.count)}</span> },
-  { key: 'cr', label: 'Credits ₦', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: GREEN, fontWeight: 600 }}>{fmtKobo(r.cr)}</span> },
-  { key: 'dr', label: 'Debits ₦', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: RED, fontWeight: 600 }}>{fmtKobo(r.dr)}</span> },
-  { key: 'volume', label: 'Volume ₦', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.volume)}</span> },
+  { key: 'cr', label: 'Credits ₦', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtKobo(r.cr)}</span> },
+  { key: 'dr', label: 'Debits ₦', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: RED, fontWeight: FW.semibold }}>{fmtKobo(r.dr)}</span> },
+  { key: 'volume', label: 'Volume ₦', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.volume)}</span> },
 ]
 
 const BRANCH_COLS: TableCol<ByBranchRow>[] = [
@@ -78,7 +78,7 @@ const BRANCH_COLS: TableCol<ByBranchRow>[] = [
   { key: 'branch_name', label: 'Branch', sortable: true },
   { key: 'active_accounts', label: 'Accounts', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtNum(r.active_accounts)}</span> },
   { key: 'count', label: 'Txns', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtNum(r.count)}</span> },
-  { key: 'volume', label: 'Volume ₦', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.volume)}</span> },
+  { key: 'volume', label: 'Volume ₦', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.volume)}</span> },
 ]
 
 // ── Upload button ─────────────────────────────────────────────────────────────
@@ -114,8 +114,8 @@ function UploadButton({ onUploaded }: { onUploaded: () => void }) {
       <input ref={inputRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleFile} style={{ display: 'none' }} />
       <button onClick={() => inputRef.current?.click()} disabled={uploading} style={{
         display: 'flex', alignItems: 'center', gap: 6,
-        padding: '6px 14px', borderRadius: 8, border: 'none',
-        background: NAVY, color: '#fff', fontSize: 12.5, fontWeight: 600,
+        padding: '6px 14px', borderRadius: RADIUS.md, border: 'none',
+        background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold,
         cursor: uploading ? 'not-allowed' : 'pointer', opacity: uploading ? 0.7 : 1,
       }}>
         <span className="material-symbols-rounded" style={{ fontSize: 15 }}>upload</span>
@@ -221,7 +221,7 @@ export default function FinanceEOD() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[5] }}>
         <KpiCard label="Total Volume" value={fmtKobo(summary?.total_volume ?? 0)} icon="swap_horiz" accent={NAVY} loading={loading} />
         <KpiCard label="Total Credits" value={fmtKobo(summary?.total_cr ?? 0)} icon="south_east" accent={GREEN} loading={loading} />
         <KpiCard label="Total Debits" value={fmtKobo(summary?.total_dr ?? 0)} icon="north_west" accent={RED} loading={loading} />
@@ -232,17 +232,17 @@ export default function FinanceEOD() {
       {/* Date filter */}
       <FilterBar onReset={() => { setDateFrom(monthStart()); setDateTo(today()) }}>
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
-        <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Apply</button>
+        <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
       </FilterBar>
 
       {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--bdr)', marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--bdr)', marginBottom: SP[4] }}>
         {(['uploads', 'product', 'branch'] as const).map(t => {
           const labels: Record<string, string> = { uploads: 'Upload History', product: 'By Product', branch: 'By Branch' }
           const active = tab === t
           return (
             <button key={t} onClick={() => setTab(t)} style={{
-              padding: '8px 14px', fontSize: 13, fontWeight: active ? 600 : 500,
+              padding: '8px 14px', fontSize: TEXT.base, fontWeight: active ? FW.semibold : FW.medium,
               color: active ? 'var(--txt)' : 'var(--txt2)',
               background: 'none', border: 'none', cursor: 'pointer',
               borderBottom: active ? `2px solid ${RED}` : '2px solid transparent',
@@ -254,8 +254,8 @@ export default function FinanceEOD() {
 
       {tab === 'uploads' && (
         <SectionCard padding={false} actions={
-          <button onClick={() => exportUploadsCsv(uploads)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
+          <button onClick={() => exportUploadsCsv(uploads)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
             Export CSV
           </button>
         }>
@@ -274,8 +274,8 @@ export default function FinanceEOD() {
 
       {tab === 'product' && (
         <SectionCard padding={false} actions={
-          <button onClick={() => exportProductCsv(byProduct)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
+          <button onClick={() => exportProductCsv(byProduct)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
             Export CSV
           </button>
         }>
@@ -294,8 +294,8 @@ export default function FinanceEOD() {
 
       {tab === 'branch' && (
         <SectionCard padding={false} actions={
-          <button onClick={() => exportBranchCsv(byBranch)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
+          <button onClick={() => exportBranchCsv(byBranch)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
             Export CSV
           </button>
         }>

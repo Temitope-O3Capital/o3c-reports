@@ -6,7 +6,7 @@ import {
 } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
-import { GREEN, AMBER, RED, DARKRED, NAVY, NUM } from '../../lib/design'
+import { GREEN, AMBER, RED, DARKRED, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -51,8 +51,8 @@ function DpdBadge({ bucket }: { bucket: string }) {
     <span style={{
       ...NUM,
       display: 'inline-flex', alignItems: 'center',
-      fontSize: 11, fontWeight: 700,
-      padding: '2px 7px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.bold,
+      padding: '2px 7px', borderRadius: RADIUS['2xl'],
       background: `${color}18`, color,
       whiteSpace: 'nowrap',
     }}>
@@ -65,9 +65,9 @@ function DpdBadge({ bucket }: { bucket: string }) {
 
 function LV({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-      <span style={{ fontSize: 12, color: 'var(--txt2)', width: 110, flexShrink: 0 }}>{label}</span>
-      <span style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 500 }}>{value ?? '—'}</span>
+    <div style={{ display: 'flex', gap: SP[2], marginBottom: SP[2] }}>
+      <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', width: 110, flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium }}>{value ?? '—'}</span>
     </div>
   )
 }
@@ -89,9 +89,9 @@ function Btn({
       disabled={disabled || btnLoading}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 6,
-        padding: '7px 14px', borderRadius: 8, border: 'none',
+        padding: '7px 14px', borderRadius: RADIUS.md, border: 'none',
         background: danger ? RED : NAVY, color: '#fff',
-        fontSize: 13, fontWeight: 600,
+        fontSize: TEXT.base, fontWeight: FW.semibold,
         cursor: disabled || btnLoading ? 'not-allowed' : 'pointer',
         opacity: disabled || btnLoading ? 0.6 : 1,
       }}
@@ -106,8 +106,8 @@ function Btn({
 
 const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
-  border: '1px solid var(--input-bdr)', borderRadius: 7,
-  fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)',
+  border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
   fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
 }
 
@@ -151,7 +151,7 @@ function LogCallTab({ assignmentId, onDone }: { assignmentId: number; onDone: ()
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <ErrBanner error={err} />
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
           Disposition
         </label>
         <select
@@ -163,7 +163,7 @@ function LogCallTab({ assignmentId, onDone }: { assignmentId: number; onDone: ()
         </select>
       </div>
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
           Notes
         </label>
         <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
@@ -213,7 +213,7 @@ function RecordPTPTab({ assignmentId, onDone }: { assignmentId: number; onDone: 
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <ErrBanner error={err} />
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
           Promise Amount (₦)
         </label>
         <input
@@ -225,7 +225,7 @@ function RecordPTPTab({ assignmentId, onDone }: { assignmentId: number; onDone: 
         />
       </div>
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
           Promise Date
         </label>
         <input
@@ -279,7 +279,7 @@ function EscalateTab({ assignmentId, onDone }: { assignmentId: number; onDone: (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <ErrBanner error={err} />
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
           Escalation Reason
         </label>
         <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
@@ -337,7 +337,7 @@ function AssignAgentTab({ assignmentId, agents, onDone }: {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <ErrBanner error={err} />
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
           Agent
         </label>
         <select value={agentId} onChange={e => setAgentId(e.target.value)}
@@ -347,7 +347,7 @@ function AssignAgentTab({ assignmentId, agents, onDone }: {
         </select>
       </div>
       <div>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
           Notes
         </label>
         <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} rows={3}
@@ -363,13 +363,13 @@ function AssignAgentTab({ assignmentId, agents, onDone }: {
 function ContactHistory({ contacts, loading }: { contacts: ContactEntry[]; loading: boolean }) {
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0', color: 'var(--txt2)', fontSize: 13 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: '12px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>
         <Spinner size={14} color={NAVY} /> Loading history…
       </div>
     )
   }
   if (!contacts.length) {
-    return <div style={{ fontSize: 13, color: 'var(--txt2)', padding: '8px 0' }}>No contact history found.</div>
+    return <div style={{ fontSize: TEXT.base, color: 'var(--txt2)', padding: '8px 0' }}>No contact history found.</div>
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -379,14 +379,14 @@ function ContactHistory({ contacts, loading }: { contacts: ContactEntry[]; loadi
           border: '1px solid var(--bdr)', background: 'var(--th-bg)',
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>{c.outcome}</span>
-            <span style={{ fontSize: 11.5, color: 'var(--txt2)' }}>{fmtDate(c.created_at)}</span>
+            <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{c.outcome}</span>
+            <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{fmtDate(c.created_at)}</span>
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--txt2)', textTransform: 'capitalize' }}>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', textTransform: 'capitalize' }}>
             {c.contact_type}
           </div>
           {c.notes && (
-            <div style={{ fontSize: 12, color: 'var(--txt)', marginTop: 4, lineHeight: 1.5 }}>{c.notes}</div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', marginTop: 4, lineHeight: 1.5 }}>{c.notes}</div>
           )}
         </div>
       ))}
@@ -427,11 +427,11 @@ function SendToRecoveryButton({ assignment, onDone }: { assignment: Assignment; 
   if (confirming) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
-        <span style={{ fontSize: 12, color: 'var(--txt2)' }}>Send to recovery?</span>
-        <button onClick={send} disabled={saving} style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: RED, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+        <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Send to recovery?</span>
+        <button onClick={send} disabled={saving} style={{ padding: '4px 12px', borderRadius: RADIUS.sm, border: 'none', background: RED, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
           {saving ? 'Sending…' : 'Confirm'}
         </button>
-        <button onClick={() => setConfirming(false)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt2)', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
+        <button onClick={() => setConfirming(false)} style={{ padding: '4px 10px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt2)', fontSize: TEXT.sm, cursor: 'pointer' }}>Cancel</button>
       </div>
     )
   }
@@ -439,9 +439,9 @@ function SendToRecoveryButton({ assignment, onDone }: { assignment: Assignment; 
   return (
     <button
       onClick={() => setConfirming(true)}
-      style={{ marginTop: 12, padding: '6px 14px', borderRadius: 7, border: `1.5px solid ${RED}`, background: 'rgba(192,0,0,.06)', color: RED, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+      style={{ marginTop: 12, padding: '6px 14px', borderRadius: RADIUS.md, border: `1.5px solid ${RED}`, background: 'rgba(192,0,0,.06)', color: RED, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
     >
-      <span className="material-symbols-rounded" style={{ fontSize: 14 }}>assignment_late</span>
+      <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>assignment_late</span>
       Send to Recovery
     </button>
   )
@@ -488,10 +488,10 @@ function DetailPanel({
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginBottom: 2 }}>
+            <div style={{ fontSize: 15, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 2 }}>
               CIF: {assignment.account_cif}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--txt2)' }}>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
               Assigned to: {assignment.agent_name ?? 'Unassigned'}
             </div>
           </div>
@@ -499,7 +499,7 @@ function DetailPanel({
             <DpdBadge bucket={assignment.dpd_bucket} />
             <button
               onClick={() => navigate(`/contacts/${assignment.account_cif}`)}
-              style={{ padding: '3px 10px', borderRadius: 6, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+              style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
             >
               Full profile →
             </button>
@@ -509,7 +509,7 @@ function DetailPanel({
 
       {/* Loan summary */}
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)' }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 }}>
+        <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 }}>
           Loan Summary
         </div>
         <LV label="Outstanding" value={<span style={NUM}>{fmtKobo(assignment.outstanding_kobo)}</span>} />
@@ -519,9 +519,9 @@ function DetailPanel({
         <LV label="Last Contact" value={fmtDate(assignment.last_contact_at)} />
         {assignment.notes && (
           <div style={{
-            marginTop: 8, padding: '8px 10px', borderRadius: 6,
+            marginTop: 8, padding: '8px 10px', borderRadius: RADIUS.sm,
             background: 'rgba(14,40,65,0.04)', border: '1px solid var(--bdr)',
-            fontSize: 12, color: 'var(--txt)', lineHeight: 1.5,
+            fontSize: TEXT.sm, color: 'var(--txt)', lineHeight: 1.5,
           }}>
             {assignment.notes}
           </div>
@@ -530,7 +530,7 @@ function DetailPanel({
 
       {/* Contact history */}
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)' }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+        <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
           Contact History
         </div>
         <ContactHistory contacts={contacts} loading={contactsLoading} />
@@ -538,7 +538,7 @@ function DetailPanel({
 
       {/* Action tabs */}
       <div style={{ padding: '16px 20px', flex: 1 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+        <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
           Actions
         </div>
         <Tabs tabs={ACTION_TABS} active={tab} onChange={setTab} />
@@ -587,7 +587,7 @@ function ReassignModal({ open, onClose, selectedIds, agents, onDone }: {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <ErrBanner error={err} />
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
             Agent
           </label>
           <select value={agentId} onChange={e => setAgentId(e.target.value)}
@@ -597,7 +597,7 @@ function ReassignModal({ open, onClose, selectedIds, agents, onDone }: {
           </select>
         </div>
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
             Notes
           </label>
           <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} rows={3}
@@ -608,8 +608,8 @@ function ReassignModal({ open, onClose, selectedIds, agents, onDone }: {
             onClick={submit} disabled={!agentId || saving}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '7px 14px', borderRadius: 8, border: 'none',
-              background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600,
+              padding: '7px 14px', borderRadius: RADIUS.md, border: 'none',
+              background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold,
               cursor: !agentId || saving ? 'not-allowed' : 'pointer',
               opacity: !agentId || saving ? 0.6 : 1,
             }}
@@ -618,8 +618,8 @@ function ReassignModal({ open, onClose, selectedIds, agents, onDone }: {
             Assign {selectedIds.size} Account{selectedIds.size !== 1 ? 's' : ''}
           </button>
           <button onClick={onClose} style={{
-            padding: '7px 14px', borderRadius: 8, border: '1px solid var(--bdr)',
-            background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer',
+            padding: '7px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
+            background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer',
           }}>Cancel</button>
         </div>
       </div>
@@ -749,16 +749,16 @@ export default function CollectionsQueue() {
               padding: '7px 14px', background: '#F0F4FF',
               borderBottom: '1px solid var(--bdr)', flexShrink: 0,
             }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: NAVY }}>
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>
                 {checkedIds.size} selected
               </span>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
                 <button
                   onClick={() => setReassignOpen(true)}
                   style={{
-                    fontSize: 11.5, fontWeight: 500, color: NAVY,
+                    fontSize: TEXT.xs, fontWeight: FW.medium, color: NAVY,
                     background: 'none', border: `1px solid ${NAVY}30`,
-                    borderRadius: 6, padding: '3px 9px', cursor: 'pointer',
+                    borderRadius: RADIUS.sm, padding: '3px 9px', cursor: 'pointer',
                   }}
                 >
                   Reassign
@@ -767,7 +767,7 @@ export default function CollectionsQueue() {
                   width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center',
                   border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)', borderRadius: '50%',
                 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>close</span>
                 </button>
               </div>
             </div>
@@ -783,11 +783,11 @@ export default function CollectionsQueue() {
           {/* List */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {loading ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10, color: 'var(--txt2)', fontSize: 13 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10, color: 'var(--txt2)', fontSize: TEXT.base }}>
                 <Spinner size={16} color={NAVY} /> Loading…
               </div>
             ) : items.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--txt2)', fontSize: 13 }}>
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--txt2)', fontSize: TEXT.base }}>
                 No accounts match the current filters.
               </div>
             ) : (
@@ -818,16 +818,16 @@ export default function CollectionsQueue() {
                     />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           CIF: {item.account_cif}
                         </span>
                         <DpdBadge bucket={item.dpd_bucket} />
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ ...NUM, fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>
+                        <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
                           {fmtKobo(item.outstanding_kobo)}
                         </span>
-                        <span style={{ fontSize: 11, color: 'var(--txt2)' }}>
+                        <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
                           {item.last_contact_at ? `Contact: ${fmtDate(item.last_contact_at)}` : 'No contact yet'}
                         </span>
                       </div>
@@ -862,7 +862,7 @@ export default function CollectionsQueue() {
               <span className="material-symbols-rounded" style={{ fontSize: 48, color: 'var(--txt3)' }}>
                 account_balance
               </span>
-              <span style={{ fontSize: 14 }}>Select an account from the list</span>
+              <span style={{ fontSize: TEXT.md }}>Select an account from the list</span>
             </div>
           )}
         </div>

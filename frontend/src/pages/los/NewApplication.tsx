@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Page, Spinner } from '../../components/UI'
 import { apiPost } from '../../lib/api'
-import { NAVY, RED, GREEN, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -74,12 +74,12 @@ function StepIndicator({ current }: { current: number }) {
                 transition: 'all 200ms',
               }}>
                 {done
-                  ? <span className="material-symbols-rounded" style={{ fontSize: 14, color: '#fff' }}>check</span>
-                  : <span style={{ ...NUM, fontSize: 11, fontWeight: 700, color: active ? '#fff' : 'var(--txt3)' }}>{i + 1}</span>
+                  ? <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, color: '#fff' }}>check</span>
+                  : <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.bold, color: active ? '#fff' : 'var(--txt3)' }}>{i + 1}</span>
                 }
               </div>
               <span style={{
-                fontSize: 11, fontWeight: active ? 600 : 400,
+                fontSize: TEXT.xs, fontWeight: active ? FW.semibold : FW.normal,
                 color: active ? 'var(--txt)' : 'var(--txt2)',
                 whiteSpace: 'nowrap',
               }}>
@@ -105,8 +105,8 @@ function StepIndicator({ current }: { current: number }) {
 
 const inputStyle: React.CSSProperties = {
   width: '100%', height: 38, padding: '0 12px',
-  border: '1px solid var(--input-bdr)', borderRadius: 8,
-  fontSize: 13.5, background: 'var(--input-bg)', color: 'var(--txt)',
+  border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
   fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
 }
 
@@ -120,7 +120,7 @@ const textareaStyle: React.CSSProperties = {
 
 function FieldLabel({ label, required }: { label: string; required?: boolean }) {
   return (
-    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+    <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
       {label}{required && <span style={{ color: RED }}> *</span>}
     </div>
   )
@@ -274,32 +274,32 @@ const DOC_SLOTS = [
 function Step4() {
   return (
     <div>
-      <p style={{ fontSize: 13, color: 'var(--txt2)', marginBottom: 20, lineHeight: 1.6 }}>
+      <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', marginBottom: SP[5], lineHeight: 1.6 }}>
         Upload the required documents below. Document upload will be fully enabled in the next release — slots are shown for tracking purposes.
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {DOC_SLOTS.map(slot => (
           <div key={slot.key} style={{
             display: 'flex', alignItems: 'center', gap: 14,
-            padding: '14px 16px', borderRadius: 10,
+            padding: '14px 16px', borderRadius: RADIUS.lg,
             border: '1px solid var(--bdr)', background: 'var(--card)',
           }}>
             <div style={{
-              width: 36, height: 36, borderRadius: 9,
+              width: 36, height: 36, borderRadius: RADIUS.lg,
               background: 'var(--chip-bg)',
               display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
             }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--txt2)' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: 'var(--txt2)' }}>
                 {slot.icon}
               </span>
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{slot.label}</div>
-              <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 2 }}>No file selected</div>
+              <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{slot.label}</div>
+              <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2 }}>No file selected</div>
             </div>
             <span style={{
-              fontSize: 11.5, fontWeight: 600,
-              padding: '2px 8px', borderRadius: 20,
+              fontSize: TEXT.xs, fontWeight: FW.semibold,
+              padding: '2px 8px', borderRadius: RADIUS['2xl'],
               background: 'rgba(217,119,6,.12)', color: '#D97706',
             }}>
               Pending
@@ -307,9 +307,9 @@ function Step4() {
             <button
               disabled
               style={{
-                padding: '6px 14px', borderRadius: 8,
+                padding: '6px 14px', borderRadius: RADIUS.md,
                 border: '1px solid var(--bdr)', background: 'var(--input-bg)',
-                fontSize: 12.5, fontWeight: 500, color: 'var(--txt2)',
+                fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt2)',
                 cursor: 'not-allowed', opacity: 0.6,
               }}
             >
@@ -341,11 +341,11 @@ function ReviewSection({
         padding: '10px 16px', background: 'var(--th-bg)',
         borderBottom: '1px solid var(--bdr)',
       }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{title}</span>
+        <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{title}</span>
         <button
           onClick={onEdit}
           style={{
-            fontSize: 12, fontWeight: 500, color: '#2563EB',
+            fontSize: TEXT.sm, fontWeight: FW.medium, color: '#2563EB',
             background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px',
           }}
         >
@@ -358,10 +358,10 @@ function ReviewSection({
             padding: '9px 16px',
             borderBottom: i < Object.entries(data).length - 2 ? '1px solid var(--bdr)' : undefined,
           }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>
               {label}
             </div>
-            <div style={{ fontSize: 13.5, color: 'var(--txt)', fontWeight: 500 }}>{value || '—'}</div>
+            <div style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium }}>{value || '—'}</div>
           </div>
         ))}
       </div>
@@ -523,7 +523,7 @@ export default function NewApplication() {
 
   const btnBase: React.CSSProperties = {
     display: 'inline-flex', alignItems: 'center', gap: 7,
-    padding: '8px 18px', borderRadius: 8, fontSize: 13.5, fontWeight: 600,
+    padding: '8px 18px', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold,
     cursor: 'pointer', border: 'none',
   }
 
@@ -534,7 +534,7 @@ export default function NewApplication() {
     >
       <div style={{ maxWidth: 760, margin: '0 auto' }}>
         {/* Breadcrumb */}
-        <div style={{ fontSize: 13, color: 'var(--txt2)', marginBottom: 20 }}>
+        <div style={{ fontSize: TEXT.base, color: 'var(--txt2)', marginBottom: SP[5] }}>
           <Link to="/sales/applications" style={{ color: '#2563EB', textDecoration: 'none' }}>Applications</Link>
           <span style={{ margin: '0 6px' }}>{'/'}</span>
           <span>New Application</span>
@@ -559,9 +559,9 @@ export default function NewApplication() {
           {/* Validation error */}
           {stepError && (
             <div style={{
-              marginTop: 16, padding: '10px 14px', borderRadius: 8,
+              marginTop: 16, padding: '10px 14px', borderRadius: RADIUS.md,
               background: 'rgba(192,0,0,0.08)', border: '1px solid rgba(192,0,0,0.2)',
-              fontSize: 13, color: RED,
+              fontSize: TEXT.base, color: RED,
             }}>
               {stepError}
             </div>
@@ -572,7 +572,7 @@ export default function NewApplication() {
             <div>
               {step > 0 && (
                 <button onClick={handleBack} style={{ ...btnBase, background: 'var(--card)', color: 'var(--txt)', border: '1px solid var(--bdr)' }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_back</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>arrow_back</span>
                   Back
                 </button>
               )}
@@ -584,7 +584,7 @@ export default function NewApplication() {
               {step < STEPS.length - 1 ? (
                 <button onClick={handleNext} style={{ ...btnBase, background: NAVY, color: '#fff' }}>
                   Next
-                  <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_forward</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>arrow_forward</span>
                 </button>
               ) : (
                 <button
@@ -593,7 +593,7 @@ export default function NewApplication() {
                   style={{ ...btnBase, background: GREEN, color: '#fff', opacity: submitting ? 0.7 : 1, cursor: submitting ? 'wait' : 'pointer' }}
                 >
                   {submitting && <Spinner size={14} color="#fff" />}
-                  <span className="material-symbols-rounded" style={{ fontSize: 16 }}>send</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>send</span>
                   Submit Application
                 </button>
               )}

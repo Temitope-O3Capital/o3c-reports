@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, ErrBanner, SearchInput } from '../../comp
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
-import { RED, GREEN, AMBER, BLUE, NAVY, INTER, SORA, NUM } from '../../lib/design'
+import { RED, GREEN, AMBER, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -33,7 +33,7 @@ function StatusPill({ status }: { status: string }) {
   const c = STATUS_COLORS[status] ?? { bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
   return (
     <span style={{
-      fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
       background: c.bg, color: c.txt, whiteSpace: 'nowrap', textTransform: 'capitalize',
     }}>{status}</span>
   )
@@ -76,8 +76,8 @@ function IssuanceActions({ row, onReload }: { row: IssuanceRequest; onReload: ()
           onClick={e => { e.stopPropagation(); advance(a.status) }}
           disabled={busy}
           style={{
-            padding: '3px 10px', borderRadius: 6, border: 'none', cursor: busy ? 'default' : 'pointer',
-            background: `${a.color}18`, color: a.color, fontSize: 11.5, fontWeight: 600,
+            padding: '3px 10px', borderRadius: RADIUS.sm, border: 'none', cursor: busy ? 'default' : 'pointer',
+            background: `${a.color}18`, color: a.color, fontSize: TEXT.xs, fontWeight: FW.semibold,
           }}
         >{a.label}</button>
       ))}
@@ -111,35 +111,35 @@ function NewIssuanceModal({ onClose, onCreated }: { onClose: () => void; onCreat
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: 460, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>New Issuance Request</h3>
+      <div style={{ background: 'var(--card)', borderRadius: RADIUS['2xl'], width: 460, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP[5] }}>
+          <h3 style={{ margin: 0, fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>New Issuance Request</h3>
           <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)' }}>
             <span className="material-symbols-rounded">close</span>
           </button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Customer Name</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Customer Name</label>
             <input
               value={form.customer_name} onChange={e => setForm(f => ({ ...f, customer_name: e.target.value }))}
-              style={{ display: 'block', width: '100%', marginTop: 6, padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 13, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+              style={{ display: 'block', width: '100%', marginTop: 6, padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
               placeholder="Full name"
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>CIF Number (optional)</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>CIF Number (optional)</label>
             <input
               value={form.cif_number} onChange={e => setForm(f => ({ ...f, cif_number: e.target.value }))}
-              style={{ display: 'block', width: '100%', marginTop: 6, padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 13, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+              style={{ display: 'block', width: '100%', marginTop: 6, padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
               placeholder="e.g. CIF-00123"
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Card Type</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Card Type</label>
             <select
               value={form.card_type} onChange={e => setForm(f => ({ ...f, card_type: e.target.value }))}
-              style={{ display: 'block', width: '100%', marginTop: 6, padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 13, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+              style={{ display: 'block', width: '100%', marginTop: 6, padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
             >
               <option value="PREP">Prepaid (PREP)</option>
               <option value="Amex Naira">Amex Naira</option>
@@ -148,18 +148,18 @@ function NewIssuanceModal({ onClose, onCreated }: { onClose: () => void; onCreat
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Notes</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Notes</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
               rows={3}
-              style={{ display: 'block', width: '100%', marginTop: 6, padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 13, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none', resize: 'vertical' }}
+              style={{ display: 'block', width: '100%', marginTop: 6, padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none', resize: 'vertical' }}
               placeholder="Optional notes…"
             />
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 9, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: INTER }}>Cancel</button>
-          <button onClick={submit} disabled={saving} style={{ padding: '9px 20px', borderRadius: 9, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'default' : 'pointer', fontFamily: INTER }}>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: RADIUS.lg, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER }}>Cancel</button>
+          <button onClick={submit} disabled={saving} style={{ padding: '9px 20px', borderRadius: RADIUS.lg, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: saving ? 'default' : 'pointer', fontFamily: INTER }}>
             {saving ? 'Submitting…' : 'Submit Request'}
           </button>
         </div>
@@ -216,17 +216,17 @@ export default function CardsIssuance() {
 
   const cols: TableCol<IssuanceRequest>[] = useMemo(() => [
     { key: 'ref', label: 'Request #',
-      render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{r.ref}</span> },
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.ref}</span> },
     { key: 'customer_name', label: 'Customer',
-      render: r => <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{r.customer_name}</span> },
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.customer_name}</span> },
     { key: 'card_type', label: 'Card Type',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.card_type}</span> },
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.card_type}</span> },
     { key: 'status', label: 'Status', render: r => <StatusPill status={r.status} /> },
     { key: 'submitted_date', label: 'Submitted', sortable: true,
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.submitted_date)}</span> },
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.submitted_date)}</span> },
     { key: 'days_pending', label: 'Days', align: 'right',
       render: r => (
-        <span style={{ ...NUM, fontWeight: 700, color: r.days_pending > 10 ? RED : r.days_pending > 5 ? AMBER : GREEN }}>
+        <span style={{ ...NUM, fontWeight: FW.bold, color: r.days_pending > 10 ? RED : r.days_pending > 5 ? AMBER : GREEN }}>
           {r.days_pending}d
         </span>
       ),
@@ -249,27 +249,27 @@ export default function CardsIssuance() {
       subtitle="Card issuance requests and status tracking"
       actions={
         <button onClick={() => setShowNew(true)} style={{
-          display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 9,
-          border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: INTER,
+          display: 'flex', alignItems: 'center', gap: 6, padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.lg,
+          border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
         }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
           New Issuance
         </button>
       }
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="Issuance Requests" badge={displayed.length} padding={false} actions={<button onClick={() => exportIssuanceCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Issuance Requests" badge={displayed.length} padding={false} actions={<button onClick={() => exportIssuanceCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 10, alignItems: 'center' }}>
           <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
           <select
             value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-            style={{ padding: '7px 12px', borderRadius: 9, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}
+            style={{ padding: '7px 12px', borderRadius: RADIUS.lg, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}
           >
             <option value="">All statuses</option>
             {Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
           </select>
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>{displayed.length} requests</span>
+          <span style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{displayed.length} requests</span>
         </div>
         <DataTable
           cols={cols}
@@ -283,9 +283,9 @@ export default function CardsIssuance() {
           onSelect={setSel}
           bulkBar={sel.size > 0 ? (
             <>
-              <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{sel.size} selected</span>
-              <button onClick={async () => { setSel(new Set()) }} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: GREEN, color: 'white', cursor: 'pointer', fontSize: 12 }}>Approve</button>
-              <button onClick={async () => { setSel(new Set()) }} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', cursor: 'pointer', fontSize: 12 }}>Reject</button>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{sel.size} selected</span>
+              <button onClick={async () => { setSel(new Set()) }} style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: 'none', background: GREEN, color: 'white', cursor: 'pointer', fontSize: TEXT.sm }}>Approve</button>
+              <button onClick={async () => { setSel(new Set()) }} style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', cursor: 'pointer', fontSize: TEXT.sm }}>Reject</button>
             </>
           ) : undefined}
         />

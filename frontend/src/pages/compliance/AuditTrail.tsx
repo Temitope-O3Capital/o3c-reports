@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, D
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiExport } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
-import { NAVY, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -76,18 +76,18 @@ export default function AuditTrail() {
   const cols: TableCol<AuditLog>[] = [
     {
       key: 'created_at', label: 'Timestamp',
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: 'Inter, monospace', whiteSpace: 'nowrap' }}>{fmtDatetime(r.created_at)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'Inter, monospace', whiteSpace: 'nowrap' }}>{fmtDatetime(r.created_at)}</span>,
     },
     {
       key: 'actor_name', label: 'User',
-      render: r => <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.actor_name ?? 'System'}</span>,
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.actor_name ?? 'System'}</span>,
     },
     {
       key: 'action', label: 'Action',
       render: r => (
         <span style={{
           ...NUM, display: 'inline-flex', alignItems: 'center',
-          fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+          fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'],
           background: r.action?.includes('delete') || r.action?.includes('remove') ? 'rgba(192,0,0,.1)' : 'rgba(14,40,65,.08)',
           color: r.action?.includes('delete') || r.action?.includes('remove') ? '#C00000' : NAVY,
         }}>
@@ -97,19 +97,19 @@ export default function AuditTrail() {
     },
     {
       key: 'entity_type', label: 'Entity Type',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.entity_type ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.entity_type ?? '—'}</span>,
     },
     {
       key: 'entity_id', label: 'Entity ID',
       render: r => (
-        <span style={{ fontSize: 12.5, color: 'var(--txt2)', fontFamily: 'Inter, monospace' }}>
+        <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'Inter, monospace' }}>
           {r.entity_id ? `#${r.entity_id}` : '—'}
         </span>
       ),
     },
     {
       key: 'ip_address', label: 'IP',
-      render: r => <span style={{ fontSize: 11.5, color: 'var(--txt3)', fontFamily: 'Inter, monospace' }}>{r.ip_address ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: 'Inter, monospace' }}>{r.ip_address ?? '—'}</span>,
     },
   ]
 
@@ -123,9 +123,9 @@ export default function AuditTrail() {
         <button
           onClick={handleExport}
           disabled={exporting}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: '1px solid var(--bdr)', borderRadius: 8, background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer', opacity: exporting ? 0.7 : 1 }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer', opacity: exporting ? 0.7 : 1 }}
         >
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>download</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>download</span>
           Export CSV
         </button>
       }
@@ -155,19 +155,19 @@ export default function AuditTrail() {
         />
         {/* Pagination */}
         {totalPages > 1 && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 0', borderTop: '1px solid var(--bdr)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: SP[2], padding: '12px 0', borderTop: '1px solid var(--bdr)' }}>
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={page === 1}
-              style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: page === 1 ? 'not-allowed' : 'pointer', opacity: page === 1 ? 0.4 : 1 }}
+              style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: page === 1 ? 'not-allowed' : 'pointer', opacity: page === 1 ? 0.4 : 1 }}
             >
               ←
             </button>
-            <span style={{ fontSize: 13, color: 'var(--txt2)' }}>Page {page} of {totalPages}</span>
+            <span style={{ fontSize: TEXT.base, color: 'var(--txt2)' }}>Page {page} of {totalPages}</span>
             <button
               onClick={() => setPage(p => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
-              style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: page === totalPages ? 'not-allowed' : 'pointer', opacity: page === totalPages ? 0.4 : 1 }}
+              style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: page === totalPages ? 'not-allowed' : 'pointer', opacity: page === totalPages ? 0.4 : 1 }}
             >
               →
             </button>

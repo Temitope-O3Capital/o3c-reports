@@ -4,7 +4,7 @@ import { Page, SectionCard, ErrBanner, Spinner, DataTable, Modal, ConfirmModal, 
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, fmtDate } from '../../lib/fmt'
-import { GREEN, AMBER, RED, NAVY, BLUE, NUM, INTER, MONO } from '../../lib/design'
+import { GREEN, AMBER, RED, NAVY, BLUE, NUM, INTER, MONO, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -105,46 +105,46 @@ export default function ScheduledReports() {
   const COLS: TableCol<Schedule>[] = [
     { key: 'report_name', label: 'Report', render: r => (
       <div>
-        <div style={{ fontWeight: 700, fontSize: 13 }}>{r.report_name}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt3)' }}>{r.module}</div>
+        <div style={{ fontWeight: FW.bold, fontSize: TEXT.base }}>{r.report_name}</div>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.module}</div>
       </div>
     )},
     { key: 'cron_expr', label: 'Schedule', render: r => (
       <div>
-        <div style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: NAVY }}>{r.cron_expr}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt3)' }}>{cronLabel(r.cron_expr)}</div>
+        <div style={{ fontFamily: MONO, fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>{r.cron_expr}</div>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{cronLabel(r.cron_expr)}</div>
       </div>
     )},
-    { key: 'format',    label: 'Format',    render: r => <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>{r.format}</span> },
+    { key: 'format',    label: 'Format',    render: r => <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, textTransform: 'uppercase' }}>{r.format}</span> },
     { key: 'is_active', label: 'Status',    render: r => (
-      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 8,
+      <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.md,
         background: r.is_active ? `${GREEN}18` : 'var(--bdr)', color: r.is_active ? GREEN : 'var(--txt3)' }}>
         {r.is_active ? 'Active' : 'Paused'}
       </span>
     )},
     { key: 'last_run_at', label: 'Last Run', render: r => r.last_run_at
-      ? <span style={{ fontSize: 12, ...NUM }}>{fmtDate(r.last_run_at)}</span>
+      ? <span style={{ fontSize: TEXT.sm, ...NUM }}>{fmtDate(r.last_run_at)}</span>
       : <span style={{ color: 'var(--txt3)' }}>Never</span>
     },
     { key: 'next_run_at', label: 'Next Run', render: r => r.next_run_at
-      ? <span style={{ fontSize: 12, ...NUM }}>{fmtDate(r.next_run_at)}</span>
+      ? <span style={{ fontSize: TEXT.sm, ...NUM }}>{fmtDate(r.next_run_at)}</span>
       : <span style={{ color: 'var(--txt3)' }}>—</span>
     },
     { key: 'recipients', label: 'Recipients', render: r => {
       const recs = r.recipients ?? []
-      return <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{recs.length > 0 ? recs.join(', ') : '—'}</span>
+      return <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{recs.length > 0 ? recs.join(', ') : '—'}</span>
     }},
     { key: 'id', label: '', render: r => (
-      <button onClick={() => setDeleting(r)} style={{ padding: '4px 10px', fontSize: 12, fontWeight: 600,
-        borderRadius: 6, border: 'none', background: `${RED}12`, color: RED, cursor: 'pointer', fontFamily: INTER }}>
+      <button onClick={() => setDeleting(r)} style={{ padding: '4px 10px', fontSize: TEXT.sm, fontWeight: FW.semibold,
+        borderRadius: RADIUS.sm, border: 'none', background: `${RED}12`, color: RED, cursor: 'pointer', fontFamily: INTER }}>
         Delete
       </button>
     )},
   ]
 
   const inpStyle: React.CSSProperties = {
-    padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
-    fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: INTER, width: '100%', boxSizing: 'border-box',
+    padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+    fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: INTER, width: '100%', boxSizing: 'border-box',
   }
 
   return (
@@ -170,12 +170,12 @@ export default function ScheduledReports() {
         <Modal open={showNew} title="New Scheduled Report" onClose={() => setShowNew(false)} width={580}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
                 Report *
               </label>
               {reports.length === 0 ? (
-                <div style={{ fontSize: 13, color: 'var(--txt3)', padding: '8px 0' }}>
-                  No saved reports. <button onClick={() => navigate('/bi/builder')} style={{ color: NAVY, fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', fontFamily: INTER }}>Create one first</button>.
+                <div style={{ fontSize: TEXT.base, color: 'var(--txt3)', padding: '8px 0' }}>
+                  No saved reports. <button onClick={() => navigate('/bi/builder')} style={{ color: NAVY, fontWeight: FW.bold, background: 'none', border: 'none', cursor: 'pointer', fontFamily: INTER }}>Create one first</button>.
                 </div>
               ) : (
                 <select value={formReport} onChange={e => setFormReport(e.target.value)} style={inpStyle}>
@@ -185,7 +185,7 @@ export default function ScheduledReports() {
             </div>
 
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
                 Schedule (cron expression) *
               </label>
               <input value={formCron} onChange={e => setFormCron(e.target.value)}
@@ -193,9 +193,9 @@ export default function ScheduledReports() {
               <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
                 {CRON_PRESETS.map(p => (
                   <button key={p.value} onClick={() => setFormCron(p.value)}
-                    style={{ padding: '3px 8px', borderRadius: 5, border: `1px solid var(--bdr)`,
+                    style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: `1px solid var(--bdr)`,
                       background: formCron === p.value ? `${NAVY}12` : 'none', color: NAVY,
-                      fontSize: 11, cursor: 'pointer', fontFamily: INTER, fontWeight: 600 }}>
+                      fontSize: TEXT.xs, cursor: 'pointer', fontFamily: INTER, fontWeight: FW.semibold }}>
                     {p.label}
                   </button>
                 ))}
@@ -203,7 +203,7 @@ export default function ScheduledReports() {
             </div>
 
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
                 Recipients (comma-separated emails)
               </label>
               <input value={formRecip} onChange={e => setFormRecip(e.target.value)}
@@ -211,7 +211,7 @@ export default function ScheduledReports() {
             </div>
 
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
                 Export Format
               </label>
               <select value={formFormat} onChange={e => setFormFormat(e.target.value)} style={inpStyle}>
@@ -219,7 +219,7 @@ export default function ScheduledReports() {
               </select>
             </div>
 
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
+            <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end', marginTop: SP[2] }}>
               <button onClick={() => setShowNew(false)} style={btnSecondary}>Cancel</button>
               <button onClick={createSchedule} disabled={saving || !formReport} style={btnPrimary}>
                 {saving ? 'Creating…' : 'Create Schedule'}

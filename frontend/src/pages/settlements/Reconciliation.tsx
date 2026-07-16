@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Page, ErrBanner, StatusBadge } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKoboExact, fmtKobo, fmtNum, fmtDate, today, monthStart } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, NUM } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -97,13 +97,13 @@ function fmtTs(s: string | null | undefined): string {
 // ── Shared table styles ───────────────────────────────────────────────────────
 
 const TH_STYLE: React.CSSProperties = {
-  padding: '10px 14px', fontSize: 11, fontWeight: 600,
+  padding: '10px 14px', fontSize: TEXT.xs, fontWeight: FW.semibold,
   textTransform: 'uppercase', letterSpacing: '0.06em',
   color: 'rgba(255,255,255,0.75)', textAlign: 'left', whiteSpace: 'nowrap',
   background: NAVY,
 }
 const TD_STYLE: React.CSSProperties = {
-  padding: '11px 14px', fontSize: 13, color: 'var(--txt)',
+  padding: '11px 14px', fontSize: TEXT.base, color: 'var(--txt)',
   borderBottom: '1px solid var(--bdr)', verticalAlign: 'middle',
 }
 
@@ -119,11 +119,11 @@ function DeltaBadge({ apiVal, eodVal, isCount = false }: { apiVal: number; eodVa
   const sign  = diff >= 0 ? '+' : ''
   const label = isCount ? sign + fmtNum(diff) : sign + fmtKoboExact(Math.abs(diff))
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: bg, color, border: `1px solid ${color}22` }}>
-      <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{ok ? 'check_circle' : 'warning'}</span>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.bold, background: bg, color, border: `1px solid ${color}22` }}>
+      <span className="material-symbols-rounded" style={{ fontSize: TEXT.base }}>{ok ? 'check_circle' : 'warning'}</span>
       {label}
-      {pct !== null && <span style={{ fontWeight: 400, opacity: 0.75 }}>({pct.toFixed(1)}%)</span>}
-      <span style={{ fontWeight: 400 }}>{ok ? '· Balanced' : warn ? '· Minor gap' : '· Mismatch'}</span>
+      {pct !== null && <span style={{ fontWeight: FW.normal, opacity: 0.75 }}>({pct.toFixed(1)}%)</span>}
+      <span style={{ fontWeight: FW.normal }}>{ok ? '· Balanced' : warn ? '· Minor gap' : '· Mismatch'}</span>
     </span>
   )
 }
@@ -132,15 +132,15 @@ function DeltaBadge({ apiVal, eodVal, isCount = false }: { apiVal: number; eodVa
 
 function MiniKpi({ label, value, icon, accent, sub }: { label: string; value: string; icon: string; accent: string; sub?: string }) {
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '14px 16px', borderTop: `3px solid ${accent}` }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt2)' }}>{label}</span>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: '14px 16px', borderTop: `3px solid ${accent}` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: SP[2] }}>
+        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt2)' }}>{label}</span>
         <div style={{ width: 26, height: 26, borderRadius: 7, background: `${accent}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 14, color: accent }}>{icon}</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, color: accent }}>{icon}</span>
         </div>
       </div>
-      <div style={{ ...NUM, fontSize: 20, fontWeight: 700, color: 'var(--txt)', lineHeight: 1.2 }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--txt2)', marginTop: 4 }}>{sub}</div>}
+      <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)', lineHeight: 1.2 }}>{value}</div>
+      {sub && <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: SP[1] }}>{sub}</div>}
     </div>
   )
 }
@@ -152,12 +152,12 @@ function Pager({ page, total, perPage, onChange }: { page: number; total: number
   if (pages <= 1 && page === 1) return null
   return (
     <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--bdr)' }}>
-      <span style={{ fontSize: 12, color: 'var(--txt2)' }}>Page {page} of {pages} · {fmtNum(total)} total</span>
+      <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Page {page} of {pages} · {fmtNum(total)} total</span>
       <div style={{ display: 'flex', gap: 6 }}>
         {[['chevron_left', Math.max(1, page - 1), page === 1], ['chevron_right', Math.min(pages, page + 1), page >= pages]].map(([icon, p, disabled], i) => (
           <button key={i} onClick={() => !disabled && onChange(p as number)} disabled={!!disabled}
             style={{ width: 30, height: 30, borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{icon as string}</span>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>{icon as string}</span>
           </button>
         ))}
       </div>
@@ -169,10 +169,10 @@ function Pager({ page, total, perPage, onChange }: { page: number; total: number
 
 function FilterPills<T extends string>({ value, options, onChange }: { value: T; options: { label: string; value: T }[]; onChange: (v: T) => void }) {
   return (
-    <div style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: 9, background: 'var(--th-bg)' }}>
+    <div style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: RADIUS.md, background: 'var(--th-bg)' }}>
       {options.map(o => (
         <button key={o.value} onClick={() => onChange(o.value)}
-          style={{ padding: '4px 12px', borderRadius: 7, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 120ms',
+          style={{ padding: '4px 12px', borderRadius: 7, border: 'none', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', transition: 'all 120ms',
             background: value === o.value ? 'var(--card)' : 'transparent',
             color: value === o.value ? NAVY : 'var(--txt2)',
             boxShadow: value === o.value ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
@@ -278,10 +278,10 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   if (sumErr) return <ErrBanner error={sumErr} />
   if (summary && !summary.configured) {
     return (
-      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, padding: 48, textAlign: 'center' }}>
-        <span className="material-symbols-rounded" style={{ fontSize: 48, color: 'var(--txt3)', display: 'block', marginBottom: 10 }}>payments</span>
-        <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)', margin: '0 0 6px' }}>Paystack not configured</p>
-        <p style={{ fontSize: 13, color: 'var(--txt2)', margin: 0 }}>{summary.message || 'Set PAYSTACK_SECRET_KEY in backend environment'}</p>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: 48, textAlign: 'center' }}>
+        <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], color: 'var(--txt3)', display: 'block', marginBottom: 10 }}>payments</span>
+        <p style={{ fontSize: 15, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 6px' }}>Paystack not configured</p>
+        <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', margin: 0 }}>{summary.message || 'Set PAYSTACK_SECRET_KEY in backend environment'}</p>
       </div>
     )
   }
@@ -289,15 +289,15 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   // ── Sub-tab bar ────────────────────────────────────────────────────────────
 
   const tabBar = (
-    <div style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: 11, background: 'var(--th-bg)', marginBottom: 20, flexWrap: 'wrap' }}>
+    <div style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: RADIUS.lg, background: 'var(--th-bg)', marginBottom: SP[5], flexWrap: 'wrap' }}>
       {PS_SUBTABS.map(t => (
         <button key={t.key} onClick={() => setSub(t.key)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 120ms',
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: RADIUS.md, border: 'none', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', transition: 'all 120ms',
             background: sub === t.key ? 'var(--card)' : 'transparent',
             color: sub === t.key ? NAVY : 'var(--txt2)',
             boxShadow: sub === t.key ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
           }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{t.icon}</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>{t.icon}</span>
           {t.label}
         </button>
       ))}
@@ -312,17 +312,17 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
       {loadingSum ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt2)' }}>Loading…</div> : (
         <>
           {/* Live balance banner */}
-          <div style={{ background: NAVY, borderRadius: 14, padding: '18px 22px', display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
-            <div style={{ width: 44, height: 44, borderRadius: 11, background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 22, color: '#fff' }}>account_balance_wallet</span>
+          <div style={{ background: NAVY, borderRadius: RADIUS.xl, padding: '18px 22px', display: 'flex', alignItems: 'center', gap: 16, marginBottom: SP[5] }}>
+            <div style={{ width: 44, height: 44, borderRadius: RADIUS.lg, background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT['2xl'], color: '#fff' }}>account_balance_wallet</span>
             </div>
             <div>
-              <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(255,255,255,0.5)', margin: '0 0 4px' }}>Live Paystack Wallet Balance</p>
-              <p style={{ ...NUM, fontSize: 28, fontWeight: 700, color: '#fff', margin: 0, lineHeight: 1 }}>{liveBalKobo > 0 ? fmtKoboExact(liveBalKobo) : '—'}</p>
+              <p style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(255,255,255,0.5)', margin: '0 0 4px' }}>Live Paystack Wallet Balance</p>
+              <p style={{ ...NUM, fontSize: TEXT['3xl'], fontWeight: FW.bold, color: '#fff', margin: 0, lineHeight: 1 }}>{liveBalKobo > 0 ? fmtKoboExact(liveBalKobo) : '—'}</p>
             </div>
             <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
-              <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 3px' }}>Period</p>
-              <p style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.8)', margin: 0 }}>{fmtDate(from)} – {fmtDate(to)}</p>
+              <p style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 3px' }}>Period</p>
+              <p style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'rgba(255,255,255,0.8)', margin: 0 }}>{fmtDate(from)} – {fmtDate(to)}</p>
             </div>
           </div>
 
@@ -335,7 +335,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
             const countDiff = psCount - eodCount
             const volDiff   = psVol - eodVol
             return (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: SP[5] }}>
                 <MiniKpi label="Total In (Paystack)" icon="arrow_downward" accent={GREEN}
                   value={fmtKobo(psVol)} sub={`${fmtNum(psCount)} transactions`} />
                 <MiniKpi label="Total In (Ledger)" icon="account_balance" accent={NAVY}
@@ -355,10 +355,10 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
           })()}
 
           {/* Compare panel */}
-          <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden', marginBottom: 16 }}>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, overflow: 'hidden', marginBottom: 16 }}>
             <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)' }}>
-              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Processor vs Ledger — Reconciliation</p>
-              <p style={{ fontSize: 12, color: 'var(--txt2)', margin: 0 }}>Paystack API totals vs internal EOD ledger · matched = <span style={{ color: GREEN, fontWeight: 600 }}>green</span> · gap ≥ 5% = <span style={{ color: RED, fontWeight: 600 }}>red</span></p>
+              <p style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 2px' }}>Processor vs Ledger — Reconciliation</p>
+              <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0 }}>Paystack API totals vs internal EOD ledger · matched = <span style={{ color: GREEN, fontWeight: FW.semibold }}>green</span> · gap ≥ 5% = <span style={{ color: RED, fontWeight: FW.semibold }}>red</span></p>
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -371,17 +371,17 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                 </thead>
                 <tbody>
                   <tr style={{ borderBottom: '1px solid var(--bdr)' }}>
-                    <td style={{ ...TD_STYLE, fontWeight: 600 }}>Transaction Count</td>
-                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: 700 }}>{fmtNum(n(ps?.total_count))}</td>
-                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: 700 }}>{fmtNum(n(eod?.txn_count))}</td>
+                    <td style={{ ...TD_STYLE, fontWeight: FW.semibold }}>Transaction Count</td>
+                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: FW.bold }}>{fmtNum(n(ps?.total_count))}</td>
+                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: FW.bold }}>{fmtNum(n(eod?.txn_count))}</td>
                     <td style={{ ...TD_STYLE, textAlign: 'right' }}>
                       <DeltaBadge apiVal={n(ps?.total_count)} eodVal={n(eod?.txn_count)} isCount />
                     </td>
                   </tr>
                   <tr>
-                    <td style={{ ...TD_STYLE, fontWeight: 600 }}>Total Volume ₦</td>
-                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: 700 }}>{fmtKoboExact(n(ps?.total_volume_kobo))}</td>
-                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: 700 }}>{fmtKoboExact(n(eod?.total_vol_kobo))}</td>
+                    <td style={{ ...TD_STYLE, fontWeight: FW.semibold }}>Total Volume ₦</td>
+                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: FW.bold }}>{fmtKoboExact(n(ps?.total_volume_kobo))}</td>
+                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: FW.bold }}>{fmtKoboExact(n(eod?.total_vol_kobo))}</td>
                     <td style={{ ...TD_STYLE, textAlign: 'right' }}>
                       <DeltaBadge apiVal={n(ps?.total_volume_kobo)} eodVal={n(eod?.total_vol_kobo)} />
                     </td>
@@ -392,9 +392,9 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
           </div>
 
           {ps?.error && (
-            <div style={{ display: 'flex', gap: 8, padding: 14, borderRadius: 10, background: '#FEF2F2', border: '1px solid #FECACA' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 16, color: RED, flexShrink: 0, marginTop: 1 }}>error</span>
-              <p style={{ fontSize: 12, color: '#991B1B', margin: 0 }}>Paystack API error: {ps.error}</p>
+            <div style={{ display: 'flex', gap: 8, padding: 14, borderRadius: RADIUS.lg, background: '#FEF2F2', border: '1px solid #FECACA' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: RED, flexShrink: 0, marginTop: 1 }}>error</span>
+              <p style={{ fontSize: TEXT.sm, color: '#991B1B', margin: 0 }}>Paystack API error: {ps.error}</p>
             </div>
           )}
         </>
@@ -407,18 +407,18 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   if (sub === 'transactions') return (
     <div>
       {tabBar}
-      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
           <div>
-            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Incoming Transactions</p>
-            <p style={{ fontSize: 12, color: 'var(--txt2)', margin: 0 }}>Money received from customers via Paystack · {fmtDate(from)} – {fmtDate(to)}</p>
+            <p style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 2px' }}>Incoming Transactions</p>
+            <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0 }}>Money received from customers via Paystack · {fmtDate(from)} – {fmtDate(to)}</p>
           </div>
           <FilterPills value={txnStatus as any} options={[{ label: 'All', value: '' }, { label: 'Successful', value: 'success' }, { label: 'Failed', value: 'failed' }, { label: 'Abandoned', value: 'abandoned' }]} onChange={v => { setTxnStatus(v); setTxnPage(1) }} />
         </div>
-        <div style={{ padding: '8px 16px', background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 16, fontSize: 11, color: 'var(--txt2)' }}>
+        <div style={{ padding: '8px 16px', background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 16, fontSize: TEXT.xs, color: 'var(--txt2)' }}>
           <span>Gross = customer paid</span>
-          <span style={{ color: RED, fontWeight: 600 }}>Red = Paystack cut</span>
-          <span style={{ color: GREEN, fontWeight: 600 }}>Green = O3C net received</span>
+          <span style={{ color: RED, fontWeight: FW.semibold }}>Red = Paystack cut</span>
+          <span style={{ color: GREEN, fontWeight: FW.semibold }}>Green = O3C net received</span>
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -444,18 +444,18 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                     onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'var(--row-hvr)' }}
                     onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = '' }}>
                     <td style={TD_STYLE}>
-                      <p style={{ ...NUM, fontSize: 11.5, color: 'var(--txt2)', margin: '0 0 2px' }}>{t.reference}</p>
-                      <p style={{ fontSize: 11, color: 'var(--txt3)', margin: 0 }}>{fmtTs(t.paid_at || t.created_at)}</p>
+                      <p style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)', margin: '0 0 2px' }}>{t.reference}</p>
+                      <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', margin: 0 }}>{fmtTs(t.paid_at || t.created_at)}</p>
                     </td>
                     <td style={TD_STYLE}>
-                      {custName && <p style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>{custName}</p>}
-                      <p style={{ fontSize: 11.5, color: 'var(--txt2)', margin: '0 0 2px' }}>{cust.email || '—'}</p>
-                      {auth.last4 && <p style={{ fontSize: 11, color: 'var(--txt3)', margin: 0 }}>{auth.card_type} ····{auth.last4}{auth.bank ? ` · ${auth.bank}` : ''}</p>}
+                      {custName && <p style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 2px' }}>{custName}</p>}
+                      <p style={{ fontSize: TEXT.xs, color: 'var(--txt2)', margin: '0 0 2px' }}>{cust.email || '—'}</p>
+                      {auth.last4 && <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', margin: 0 }}>{auth.card_type} ····{auth.last4}{auth.bank ? ` · ${auth.bank}` : ''}</p>}
                     </td>
-                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: 700, fontSize: 14 }}>{fmtKoboExact(gross)}</td>
-                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: 600, fontSize: 13, color: fees > 0 ? RED : 'var(--txt3)' }}>{fees > 0 ? fmtKoboExact(fees) : '—'}</td>
-                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: 700, fontSize: 14, color: t.status === 'success' ? GREEN : 'var(--txt3)' }}>{t.status === 'success' ? fmtKoboExact(net) : '—'}</td>
-                    <td style={TD_STYLE}><span style={{ fontSize: 12, color: 'var(--txt2)' }}>{t.channel}</span></td>
+                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: FW.bold, fontSize: TEXT.md }}>{fmtKoboExact(gross)}</td>
+                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: FW.semibold, fontSize: TEXT.base, color: fees > 0 ? RED : 'var(--txt3)' }}>{fees > 0 ? fmtKoboExact(fees) : '—'}</td>
+                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: FW.bold, fontSize: TEXT.md, color: t.status === 'success' ? GREEN : 'var(--txt3)' }}>{t.status === 'success' ? fmtKoboExact(net) : '—'}</td>
+                    <td style={TD_STYLE}><span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{t.channel}</span></td>
                     <td style={TD_STYLE}><StatusBadge status={t.status || 'pending'} /></td>
                   </tr>
                 )
@@ -473,10 +473,10 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   if (sub === 'settlements') return (
     <div>
       {tabBar}
-      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)' }}>
-          <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Paystack Settlements</p>
-          <p style={{ fontSize: 12, color: 'var(--txt2)', margin: 0 }}>Net amounts disbursed to your bank account · {fmtDate(from)} – {fmtDate(to)}</p>
+          <p style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 2px' }}>Paystack Settlements</p>
+          <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0 }}>Net amounts disbursed to your bank account · {fmtDate(from)} – {fmtDate(to)}</p>
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -490,10 +490,10 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                   <tr key={i} style={{ borderBottom: '1px solid var(--bdr)' }}
                     onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'var(--row-hvr)' }}
                     onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = '' }}>
-                    <td style={{ ...TD_STYLE, fontWeight: 500, whiteSpace: 'nowrap' }}>{fmtTs(s.settlement_date || s.createdAt)}</td>
-                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: 600 }}>{fmtKoboExact(n(s.total_processed))}</td>
+                    <td style={{ ...TD_STYLE, fontWeight: FW.medium, whiteSpace: 'nowrap' }}>{fmtTs(s.settlement_date || s.createdAt)}</td>
+                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: FW.semibold }}>{fmtKoboExact(n(s.total_processed))}</td>
                     <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, color: RED }}>{fmtKoboExact(n(s.total_fees))}</td>
-                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: 700, fontSize: 14, color: GREEN }}>{fmtKoboExact(n(s.effective_amount ?? s.total_amount))}</td>
+                    <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: FW.bold, fontSize: TEXT.md, color: GREEN }}>{fmtKoboExact(n(s.effective_amount ?? s.total_amount))}</td>
                     <td style={TD_STYLE}><StatusBadge status={s.status || 'pending'} /></td>
                   </tr>
                 ))}
@@ -510,11 +510,11 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   if (sub === 'transfers') return (
     <div>
       {tabBar}
-      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
           <div>
-            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Outbound Transfers</p>
-            <p style={{ fontSize: 12, color: 'var(--txt2)', margin: 0 }}>Money sent from your Paystack wallet · {fmtDate(from)} – {fmtDate(to)}</p>
+            <p style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 2px' }}>Outbound Transfers</p>
+            <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0 }}>Money sent from your Paystack wallet · {fmtDate(from)} – {fmtDate(to)}</p>
           </div>
           <FilterPills value={xfrStatus as any} options={[{ label: 'All', value: '' }, { label: 'Successful', value: 'success' }, { label: 'Failed', value: 'failed' }, { label: 'Pending', value: 'pending' }, { label: 'Reversed', value: 'reversed' }]} onChange={v => { setXfrStatus(v); setXfrPage(1) }} />
         </div>
@@ -546,33 +546,33 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                       onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'var(--row-hvr)' }}
                       onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = '' }}>
                       <td style={TD_STYLE}>
-                        <p style={{ ...NUM, fontSize: 11.5, color: 'var(--txt2)', margin: '0 0 2px' }}>{String(t.reference || '—')}</p>
-                        <p style={{ fontSize: 11, color: 'var(--txt3)', margin: '0 0 2px' }}>{fmtTs(String(t.transferred_at || t.createdAt || ''))}</p>
+                        <p style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)', margin: '0 0 2px' }}>{String(t.reference || '—')}</p>
+                        <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', margin: '0 0 2px' }}>{fmtTs(String(t.transferred_at || t.createdAt || ''))}</p>
                         <p style={{ fontSize: 10.5, color: 'var(--txt3)', margin: 0, fontStyle: 'italic', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{narration}</p>
                       </td>
                       <td style={TD_STYLE}>
                         {initName
                           ? <>
-                              <p style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>{initName}</p>
-                              {initCif  && <p style={{ ...NUM, fontSize: 11, color: 'var(--txt2)', margin: '0 0 2px' }}>{initCif}</p>}
+                              <p style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 2px' }}>{initName}</p>
+                              {initCif  && <p style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)', margin: '0 0 2px' }}>{initCif}</p>}
                               {initRef  && <p style={{ ...NUM, fontSize: 10.5, color: 'var(--txt3)', margin: 0 }}>{initRef}</p>}
                             </>
-                          : <p style={{ fontSize: 11.5, color: 'var(--txt3)', fontStyle: 'italic', margin: 0 }}>{narration}</p>
+                          : <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontStyle: 'italic', margin: 0 }}>{narration}</p>
                         }
                       </td>
                       <td style={TD_STYLE}>
-                        <p style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>{String(details.account_name || (recip.name as string) || '—')}</p>
-                        <p style={{ fontSize: 11, color: 'var(--txt3)', margin: 0 }}>{String(recip.type || '')}</p>
+                        <p style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 2px' }}>{String(details.account_name || (recip.name as string) || '—')}</p>
+                        <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', margin: 0 }}>{String(recip.type || '')}</p>
                       </td>
                       <td style={TD_STYLE}>
-                        <p style={{ fontSize: 12.5, color: 'var(--txt)', margin: '0 0 2px' }}>{String(details.bank_name || '—')}</p>
-                        <p style={{ ...NUM, fontSize: 11, color: 'var(--txt3)', margin: 0 }}>{String(details.account_number || '—')}</p>
+                        <p style={{ fontSize: TEXT.sm, color: 'var(--txt)', margin: '0 0 2px' }}>{String(details.bank_name || '—')}</p>
+                        <p style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)', margin: 0 }}>{String(details.account_number || '—')}</p>
                       </td>
-                      <td style={{ ...TD_STYLE, ...NUM, fontWeight: 700, fontSize: 14 }}>{fmtKoboExact(amt)}</td>
-                      <td style={{ ...TD_STYLE, ...NUM, fontWeight: 600, fontSize: 13, color: fee > 0 ? RED : 'var(--txt3)' }}>
-                        {fee > 0 ? <>{fmtKoboExact(fee)}{isEst && <span style={{ fontSize: 11, color: 'var(--txt3)', marginLeft: 4 }}>est.</span>}</> : '—'}
+                      <td style={{ ...TD_STYLE, ...NUM, fontWeight: FW.bold, fontSize: TEXT.md }}>{fmtKoboExact(amt)}</td>
+                      <td style={{ ...TD_STYLE, ...NUM, fontWeight: FW.semibold, fontSize: TEXT.base, color: fee > 0 ? RED : 'var(--txt3)' }}>
+                        {fee > 0 ? <>{fmtKoboExact(fee)}{isEst && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 4 }}>est.</span>}</> : '—'}
                       </td>
-                      <td style={{ ...TD_STYLE, ...NUM, fontWeight: 700, fontSize: 14, color: t.status === 'success' ? RED : 'var(--txt3)' }}>{t.status === 'success' ? fmtKoboExact(net) : '—'}</td>
+                      <td style={{ ...TD_STYLE, ...NUM, fontWeight: FW.bold, fontSize: TEXT.md, color: t.status === 'success' ? RED : 'var(--txt3)' }}>{t.status === 'success' ? fmtKoboExact(net) : '—'}</td>
                       <td style={TD_STYLE}><StatusBadge status={String(t.status || 'pending')} /></td>
                     </tr>
                   )
@@ -581,7 +581,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
           </table>
         </div>
         <Pager page={xfrPage} total={n(xfrData?.meta?.total)} perPage={PER_PAGE} onChange={setXfrPage} />
-        <p style={{ fontSize: 11, color: 'var(--txt2)', padding: '0 14px 10px' }}>
+        <p style={{ fontSize: TEXT.xs, color: 'var(--txt2)', padding: '0 14px 10px' }}>
           * Fees marked <em>est.</em> are estimated from the standard schedule (₦10 / ₦25 / ₦50) — Paystack does not return per-transfer fee breakdowns via the transfers API. "Initiated By" shows the borrower name, CIF, and loan reference for loan disbursements; non-loan transfers (salary, vendor, etc.) show the transfer narration instead.
         </p>
       </div>
@@ -593,7 +593,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   if (sub === 'fees') return (
     <div>
       {tabBar}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: SP[4] }}>
         {[
           { key: 'Transfer_Charge', label: 'Transfer Fees', icon: 'price_change', accent: RED },
           { key: 'Transfer_Stamp_Duty_Charge', label: 'Stamp Duty', icon: 'receipt', accent: AMBER },
@@ -605,11 +605,11 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
           return <MiniKpi key={key} label={label} icon={icon} accent={accent} value={total > 0 ? fmtKoboExact(total) : '—'} sub={`${rows.length} entries this page`} />
         })}
       </div>
-      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
           <div>
-            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Balance Ledger</p>
-            <p style={{ fontSize: 12, color: 'var(--txt2)', margin: 0 }}>Every debit and credit to your Paystack wallet with running balance</p>
+            <p style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 2px' }}>Balance Ledger</p>
+            <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0 }}>Every debit and credit to your Paystack wallet with running balance</p>
           </div>
           <FilterPills value={ledgerDir} options={[{ label: 'All', value: 'all' }, { label: 'Credits (+)', value: 'credit' }, { label: 'Debits (−)', value: 'debit' }]} onChange={v => setLedgerDir(v)} />
         </div>
@@ -633,14 +633,14 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                       onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'var(--row-hvr)' }}
                       onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = '' }}>
                       <td style={TD_STYLE}>
-                        <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 7px', borderRadius: 6, background: `${tagColor}10`, color: tagColor }}>{typeLabel}</span>
+                        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 7px', borderRadius: RADIUS.sm, background: `${tagColor}10`, color: tagColor }}>{typeLabel}</span>
                       </td>
-                      <td style={{ ...TD_STYLE, fontSize: 11.5, color: 'var(--txt2)', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.reason || '—'}</td>
-                      <td style={{ ...TD_STYLE, ...NUM, fontWeight: 600, fontSize: 12, color: diff > 0 ? GREEN : diff < 0 ? RED : 'var(--txt3)' }}>
+                      <td style={{ ...TD_STYLE, fontSize: TEXT.xs, color: 'var(--txt2)', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.reason || '—'}</td>
+                      <td style={{ ...TD_STYLE, ...NUM, fontWeight: FW.semibold, fontSize: TEXT.sm, color: diff > 0 ? GREEN : diff < 0 ? RED : 'var(--txt3)' }}>
                         {diff !== 0 ? `${diff > 0 ? '+' : ''}${fmtKoboExact(diff)}` : '—'}
                       </td>
-                      <td style={{ ...TD_STYLE, ...NUM, fontSize: 12.5, fontWeight: 600 }}>{fmtKoboExact(n(row.balance ?? row.closing_balance))}</td>
-                      <td style={{ ...TD_STYLE, fontSize: 11.5, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>{fmtTs(row.createdAt || row.created_at)}</td>
+                      <td style={{ ...TD_STYLE, ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtKoboExact(n(row.balance ?? row.closing_balance))}</td>
+                      <td style={{ ...TD_STYLE, fontSize: TEXT.xs, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>{fmtTs(row.createdAt || row.created_at)}</td>
                     </tr>
                   )
                 })}
@@ -657,10 +657,10 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   if (sub === 'refunds') return (
     <div>
       {tabBar}
-      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)' }}>
-          <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Refunds</p>
-          <p style={{ fontSize: 12, color: 'var(--txt2)', margin: 0 }}>Transactions reversed back to customers · {fmtNum(n(refundData?.meta?.total))} total</p>
+          <p style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 2px' }}>Refunds</p>
+          <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0 }}>Transactions reversed back to customers · {fmtNum(n(refundData?.meta?.total))} total</p>
         </div>
         {loadingRef ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt2)' }}>Loading…</div>
           : !refundData?.data?.length ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt2)' }}>No refunds found</div>
@@ -671,23 +671,23 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
               <div key={i} style={{ padding: '14px 18px', borderBottom: '1px solid var(--bdr)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
                   <div>
-                    <p style={{ ...NUM, fontSize: 20, fontWeight: 700, color: RED, margin: '0 0 2px' }}>{fmtKoboExact(n(rf.amount))}</p>
-                    <p style={{ fontSize: 11.5, color: 'var(--txt2)', margin: 0 }}>Refunded to customer</p>
+                    <p style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: RED, margin: '0 0 2px' }}>{fmtKoboExact(n(rf.amount))}</p>
+                    <p style={{ fontSize: TEXT.xs, color: 'var(--txt2)', margin: 0 }}>Refunded to customer</p>
                   </div>
                   <StatusBadge status={String(rf.status || 'pending')} />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 24px' }}>
                   <div>
-                    <p style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--txt2)', margin: '0 0 2px' }}>Customer</p>
-                    <p style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', margin: 0 }}>{custName}</p>
+                    <p style={{ fontSize: TEXT.xs, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--txt2)', margin: '0 0 2px' }}>Customer</p>
+                    <p style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', margin: 0 }}>{custName}</p>
                   </div>
                   <div>
-                    <p style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--txt2)', margin: '0 0 2px' }}>Transaction Reference</p>
-                    <p style={{ ...NUM, fontSize: 11.5, color: 'var(--txt)', margin: 0 }}>{String(rf.transaction_reference || rf.bank_reference || '—')}</p>
+                    <p style={{ fontSize: TEXT.xs, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--txt2)', margin: '0 0 2px' }}>Transaction Reference</p>
+                    <p style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt)', margin: 0 }}>{String(rf.transaction_reference || rf.bank_reference || '—')}</p>
                   </div>
                   <div>
-                    <p style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--txt2)', margin: '0 0 2px' }}>Date</p>
-                    <p style={{ fontSize: 12.5, color: 'var(--txt)', margin: 0 }}>{fmtTs(String(rf.refunded_at || rf.createdAt || ''))}</p>
+                    <p style={{ fontSize: TEXT.xs, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--txt2)', margin: '0 0 2px' }}>Date</p>
+                    <p style={{ fontSize: TEXT.sm, color: 'var(--txt)', margin: 0 }}>{fmtTs(String(rf.refunded_at || rf.createdAt || ''))}</p>
                   </div>
                 </div>
               </div>
@@ -704,10 +704,10 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
   return (
     <div>
       {tabBar}
-      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)' }}>
-          <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Disputes &amp; Chargebacks</p>
-          <p style={{ fontSize: 12, color: 'var(--txt2)', margin: 0 }}>Transactions disputed by customers or issuing banks</p>
+          <p style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 2px' }}>Disputes &amp; Chargebacks</p>
+          <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0 }}>Transactions disputed by customers or issuing banks</p>
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -723,14 +723,14 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                     <tr key={i} style={{ borderBottom: '1px solid var(--bdr)' }}
                       onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'var(--row-hvr)' }}
                       onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = '' }}>
-                      <td style={{ ...TD_STYLE, ...NUM, fontSize: 11.5, color: 'var(--txt2)' }}>{String(d.transaction_reference || '—')}</td>
-                      <td style={{ ...TD_STYLE, fontSize: 12.5, fontWeight: 600 }}>{String(cust.email || '—')}</td>
-                      <td style={{ ...TD_STYLE, ...NUM, fontWeight: 600, color: RED }}>{fmtKoboExact(n(d.refund_amount))}</td>
-                      <td style={{ ...TD_STYLE, fontSize: 12, textTransform: 'capitalize', color: 'var(--txt2)' }}>{String(d.category || '—').replace(/_/g, ' ')}</td>
+                      <td style={{ ...TD_STYLE, ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)' }}>{String(d.transaction_reference || '—')}</td>
+                      <td style={{ ...TD_STYLE, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{String(cust.email || '—')}</td>
+                      <td style={{ ...TD_STYLE, ...NUM, fontWeight: FW.semibold, color: RED }}>{fmtKoboExact(n(d.refund_amount))}</td>
+                      <td style={{ ...TD_STYLE, fontSize: TEXT.sm, textTransform: 'capitalize', color: 'var(--txt2)' }}>{String(d.category || '—').replace(/_/g, ' ')}</td>
                       <td style={TD_STYLE}><StatusBadge status={String(d.status || 'pending')} /></td>
-                      <td style={{ ...TD_STYLE, fontSize: 12, textTransform: 'capitalize', color: 'var(--txt2)' }}>{String(d.resolution || '—').replace(/-/g, ' ')}</td>
-                      <td style={{ ...TD_STYLE, fontSize: 11.5, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>{fmtTs(String(d.dueAt || ''))}</td>
-                      <td style={{ ...TD_STYLE, fontSize: 11.5, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>{fmtTs(String(d.resolvedAt || ''))}</td>
+                      <td style={{ ...TD_STYLE, fontSize: TEXT.sm, textTransform: 'capitalize', color: 'var(--txt2)' }}>{String(d.resolution || '—').replace(/-/g, ' ')}</td>
+                      <td style={{ ...TD_STYLE, fontSize: TEXT.xs, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>{fmtTs(String(d.dueAt || ''))}</td>
+                      <td style={{ ...TD_STYLE, fontSize: TEXT.xs, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>{fmtTs(String(d.resolvedAt || ''))}</td>
                     </tr>
                   )
                 })}
@@ -758,19 +758,19 @@ function InterspwitchTab() {
   const capabilities = ['Web card transactions', 'POS terminal settlements', 'ATM withdrawals', 'Transaction line items', 'Processor vs ledger reconciliation', 'Interchange fees breakdown']
 
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden' }}>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, overflow: 'hidden' }}>
       {/* Header */}
       <div style={{ background: NAVY, padding: '22px 28px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 13, background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 24, color: '#fff' }}>account_balance</span>
+          <div style={{ width: 48, height: 48, borderRadius: RADIUS.xl, background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], color: '#fff' }}>account_balance</span>
           </div>
           <div>
-            <p style={{ fontSize: 17, fontWeight: 700, color: '#fff', margin: '0 0 3px' }}>Interswitch Integration Pending</p>
-            <p style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.6)', margin: 0 }}>Merchant credentials needed to activate Web, POS &amp; ATM reconciliation</p>
+            <p style={{ fontSize: 17, fontWeight: FW.bold, color: '#fff', margin: '0 0 3px' }}>Interswitch Integration Pending</p>
+            <p style={{ fontSize: TEXT.sm, color: 'rgba(255,255,255,0.6)', margin: 0 }}>Merchant credentials needed to activate Web, POS &amp; ATM reconciliation</p>
           </div>
           <div style={{ marginLeft: 'auto' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: 'rgba(217,119,6,0.25)', color: '#FCD34D' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: RADIUS['2xl'], fontSize: TEXT.sm, fontWeight: FW.semibold, background: 'rgba(217,119,6,0.25)', color: '#FCD34D' }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FCD34D', display: 'inline-block' }} />
               Awaiting Credentials
             </span>
@@ -780,11 +780,11 @@ function InterspwitchTab() {
 
       {/* Capabilities */}
       <div style={{ padding: '16px 28px', borderBottom: '1px solid var(--bdr)', background: 'var(--th-bg)' }}>
-        <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--txt2)', margin: '0 0 10px' }}>Once connected, this tab will show</p>
+        <p style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--txt2)', margin: '0 0 10px' }}>Once connected, this tab will show</p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
           {capabilities.map(c => (
-            <span key={c} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 8, fontSize: 12, fontWeight: 500, color: 'var(--txt)', background: 'var(--card)', border: '1px solid var(--bdr)' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 13, color: NAVY }}>check</span>
+            <span key={c} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt)', background: 'var(--card)', border: '1px solid var(--bdr)' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.base, color: NAVY }}>check</span>
               {c}
             </span>
           ))}
@@ -793,7 +793,7 @@ function InterspwitchTab() {
 
       {/* Steps */}
       <div style={{ padding: '20px 28px' }}>
-        <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', margin: '0 0 16px' }}>How to activate</p>
+        <p style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 16px' }}>How to activate</p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
           {steps.map((s, i) => (
             <div key={i} style={{ display: 'flex', gap: 14 }}>
@@ -804,18 +804,18 @@ function InterspwitchTab() {
                 {i < steps.length - 1 && <div style={{ width: 1, flex: 1, minHeight: 20, marginTop: 4, marginBottom: 4, background: 'var(--bdr)' }} />}
               </div>
               <div style={{ paddingBottom: i < steps.length - 1 ? 20 : 0 }}>
-                <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', margin: '6px 0 3px' }}>{s.title}</p>
-                <p style={{ fontSize: 12.5, color: 'var(--txt2)', margin: 0, lineHeight: 1.55 }}>{s.detail}</p>
+                <p style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', margin: '6px 0 3px' }}>{s.title}</p>
+                <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0, lineHeight: 1.55 }}>{s.detail}</p>
               </div>
             </div>
           ))}
         </div>
 
-        <div style={{ marginTop: 16, padding: '12px 14px', borderRadius: 10, background: `${NAVY}06`, border: `1px solid ${NAVY}14`, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 20, color: NAVY }}>support_agent</span>
+        <div style={{ marginTop: 16, padding: '12px 14px', borderRadius: RADIUS.lg, background: `${NAVY}06`, border: `1px solid ${NAVY}14`, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT['2xl'], color: NAVY }}>support_agent</span>
           <div>
-            <p style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', margin: '0 0 2px' }}>Interswitch Merchant Support</p>
-            <p style={{ fontSize: 12, color: 'var(--txt2)', margin: 0 }}>01-2715555 &nbsp;·&nbsp; merchantsupport@interswitchgroup.com</p>
+            <p style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 2px' }}>Interswitch Merchant Support</p>
+            <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0 }}>01-2715555 &nbsp;·&nbsp; merchantsupport@interswitchgroup.com</p>
           </div>
         </div>
       </div>
@@ -847,25 +847,25 @@ export default function ProcessorReconciliation() {
       subtitle="Paystack and Interswitch settlement data vs internal EOD ledger"
       actions={
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <span style={{ fontSize: 12, color: 'var(--txt2)', fontWeight: 500 }}>From</span>
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.medium }}>From</span>
           <input type="date" value={from} onChange={e => handleFrom(e.target.value)}
-            style={{ height: 32, padding: '0 10px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: 13 }} />
-          <span style={{ fontSize: 12, color: 'var(--txt2)', fontWeight: 500 }}>To</span>
+            style={{ height: 32, padding: '0 10px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: TEXT.base }} />
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.medium }}>To</span>
           <input type="date" value={to} onChange={e => handleTo(e.target.value)}
-            style={{ height: 32, padding: '0 10px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: 13 }} />
+            style={{ height: 32, padding: '0 10px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: TEXT.base }} />
         </div>
       }
     >
       {/* Tab strip */}
-      <div style={{ display: 'flex', borderBottom: '2px solid var(--bdr)', marginBottom: 20, gap: 0 }}>
+      <div style={{ display: 'flex', borderBottom: '2px solid var(--bdr)', marginBottom: SP[5], gap: 0 }}>
         {TABS.map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', fontSize: 13.5, fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer', transition: 'color 150ms',
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', fontSize: 13.5, fontWeight: FW.semibold, border: 'none', background: 'none', cursor: 'pointer', transition: 'color 150ms',
               color: tab === t.key ? NAVY : 'var(--txt2)',
               borderBottom: tab === t.key ? `2px solid ${NAVY}` : '2px solid transparent',
               marginBottom: -2,
             }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{t.icon}</span>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>{t.icon}</span>
             {t.label}
           </button>
         ))}

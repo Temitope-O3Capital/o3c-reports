@@ -4,7 +4,7 @@ import { Page, SectionCard, DataTable, ErrBanner, KpiCard } from '../components/
 import type { TableCol } from '../components/UI'
 import { apiFetch, apiPost } from '../lib/api'
 import { fmtKobo, fmtNum } from '../lib/fmt'
-import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM } from '../lib/design'
+import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM, TEXT, FW, RADIUS, SP } from '../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -47,7 +47,7 @@ const PRIORITY_COLOR: Record<string, string> = {
 function ModulePill({ module }: { module: string }) {
   const c = MODULE_COLOR[module] ?? NAVY
   return (
-    <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${c}14`, color: c }}>
+    <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${c}14`, color: c }}>
       {module}
     </span>
   )
@@ -56,7 +56,7 @@ function ModulePill({ module }: { module: string }) {
 function PriorityDot({ priority }: { priority: string }) {
   const c = PRIORITY_COLOR[priority] ?? '#6B7280'
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: c, fontWeight: 600 }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: SP[1], fontSize: TEXT.xs, color: c, fontWeight: FW.semibold }}>
       <span style={{ width: 7, height: 7, borderRadius: '50%', background: c, flexShrink: 0 }} />
       {priority.charAt(0).toUpperCase() + priority.slice(1)}
     </span>
@@ -154,31 +154,31 @@ export default function Approvals() {
     },
     {
       key: 'reference', label: 'Reference',
-      render: r => <span style={{ ...NUM, fontSize: 12, fontWeight: 700, color: NAVY }}>{r.reference}</span>,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY }}>{r.reference}</span>,
     },
     {
       key: 'title', label: 'Item',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.title}</div>
-          <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{r.description}</div>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.title}</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.description}</div>
         </div>
       ),
     },
     {
       key: 'requested_by', label: 'Requested By',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.requested_by}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.requested_by}</span>,
     },
     {
       key: 'amount_kobo', label: 'Amount', align: 'right',
       render: r => r.amount_kobo != null
-        ? <span style={{ ...NUM, fontSize: 12.5, fontWeight: 700, color: NAVY }}>{fmtKobo(r.amount_kobo)}</span>
+        ? <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY }}>{fmtKobo(r.amount_kobo)}</span>
         : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
     {
       key: 'waiting_days', label: 'Waiting', align: 'right',
       render: r => (
-        <span style={{ ...NUM, fontSize: 12.5, color: r.waiting_days > 2 ? RED : 'var(--txt2)' }}>
+        <span style={{ ...NUM, fontSize: TEXT.sm, color: r.waiting_days > 2 ? RED : 'var(--txt2)' }}>
           {fmtNum(r.waiting_days)}d
         </span>
       ),
@@ -197,7 +197,7 @@ export default function Approvals() {
       <ErrBanner error={err} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 20 }}>
         <KpiCard label="Credit Applications" value={fmtNum(summary?.los        ?? 0)} accent={BLUE}   loading={loading} />
         <KpiCard label="Write-off Requests" value={fmtNum(summary?.write_offs ?? 0)} accent={RED}    loading={loading} />
         <KpiCard label="Leave Requests"     value={fmtNum(summary?.leave      ?? 0)} accent={PURPLE} loading={loading} />
@@ -206,12 +206,12 @@ export default function Approvals() {
 
       {/* Module filter tabs */}
       {modules.length > 1 && (
-        <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+        <div style={{ display: 'flex', gap: SP[1], marginBottom: 14 }}>
           <button
             onClick={() => setModuleFilter('')}
             style={{
-              padding: '5px 14px', borderRadius: 20, border: '1px solid',
-              fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              padding: '5px 14px', borderRadius: RADIUS['2xl'], border: '1px solid',
+              fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
               borderColor: !moduleFilter ? NAVY : 'var(--bdr)',
               background: !moduleFilter ? `${NAVY}12` : 'transparent',
               color: !moduleFilter ? NAVY : 'var(--txt2)',
@@ -225,8 +225,8 @@ export default function Approvals() {
               <button key={m}
                 onClick={() => setModuleFilter(moduleFilter === m ? '' : m)}
                 style={{
-                  padding: '5px 14px', borderRadius: 20, border: '1px solid',
-                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  padding: '5px 14px', borderRadius: RADIUS['2xl'], border: '1px solid',
+                  fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
                   borderColor: moduleFilter === m ? c : 'var(--bdr)',
                   background: moduleFilter === m ? `${c}12` : 'transparent',
                   color: moduleFilter === m ? c : 'var(--txt2)',
@@ -240,18 +240,18 @@ export default function Approvals() {
 
       {/* Bulk action bar */}
       {selected.size > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#F0F4FF', borderRadius: 10, border: `1px solid ${NAVY}20`, marginBottom: 10 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: NAVY }}>{selected.size} selected</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: '10px 14px', background: '#F0F4FF', borderRadius: RADIUS.lg, border: `1px solid ${NAVY}20`, marginBottom: 10 }}>
+          <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: NAVY }}>{selected.size} selected</span>
           <button onClick={() => runBatch('approve')} disabled={batchBusy}
-            style={{ padding: '6px 16px', borderRadius: 7, border: 'none', background: GREEN, color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: batchBusy ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>check_circle</span>Approve ({selected.size})
+            style={{ padding: '6px 16px', borderRadius: 7, border: 'none', background: GREEN, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.bold, cursor: batchBusy ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>check_circle</span>Approve ({selected.size})
           </button>
           <button onClick={() => runBatch('reject')} disabled={batchBusy}
-            style={{ padding: '6px 16px', borderRadius: 7, border: 'none', background: RED, color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: batchBusy ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>cancel</span>Reject ({selected.size})
+            style={{ padding: '6px 16px', borderRadius: 7, border: 'none', background: RED, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.bold, cursor: batchBusy ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>cancel</span>Reject ({selected.size})
           </button>
           <button onClick={() => setSelected(new Set())}
-            style={{ marginLeft: 'auto', padding: '4px 10px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'none', fontSize: 12, color: 'var(--txt2)', cursor: 'pointer' }}>
+            style={{ marginLeft: 'auto', padding: '4px 10px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'none', fontSize: TEXT.sm, color: 'var(--txt2)', cursor: 'pointer' }}>
             Clear
           </button>
         </div>

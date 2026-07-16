@@ -4,7 +4,7 @@ import DOMPurify from 'dompurify'
 import { toast } from 'sonner'
 import { SectionCard, Spinner } from '../components/UI'
 import { apiFetch, apiPost, apiPut } from '../lib/api'
-import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, INTER } from '../lib/design'
+import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, INTER, TEXT, FW, RADIUS, SP } from '../lib/design'
 import { roleLabel } from '../lib/roles'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -63,16 +63,16 @@ function roleColor(role: string): string {
 // ── Shared styles ─────────────────────────────────────────────────────────────
 
 const INPUT: React.CSSProperties = {
-  height: 40, padding: '0 12px', borderRadius: 8,
+  height: 40, padding: '0 12px', borderRadius: RADIUS.md,
   border: '1px solid var(--input-bdr)', background: 'var(--input-bg)',
-  color: 'var(--txt)', fontSize: 13.5, fontFamily: "'Sora', sans-serif", outline: 'none',
+  color: 'var(--txt)', fontSize: TEXT.base, fontFamily: "'Sora', sans-serif", outline: 'none',
   width: '100%', boxSizing: 'border-box',
 }
 
 const BTN_PRIMARY: React.CSSProperties = {
-  padding: '9px 22px', borderRadius: 9, border: 'none',
-  background: NAVY, color: '#fff', fontSize: 13.5, fontWeight: 600,
-  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8,
+  padding: '9px 22px', borderRadius: RADIUS.md, border: 'none',
+  background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold,
+  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: SP[2],
   fontFamily: "'Sora', sans-serif",
 }
 
@@ -85,7 +85,7 @@ function Avatar({ name, role, size = 40 }: { name: string; role: string; size?: 
       width: size, height: size, borderRadius: '50%',
       background: color + '20', border: `2px solid ${color}40`,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: size * 0.36, fontWeight: 700, color, flexShrink: 0,
+      fontSize: size * 0.36, fontWeight: FW.bold, color, flexShrink: 0,
       fontFamily: "'Sora', sans-serif",
     }}>
       {initials(name) || '?'}
@@ -100,12 +100,12 @@ function NavItem({ label, icon, active, onClick }: { label: string; icon: string
     <button
       onClick={onClick}
       style={{
-        display: 'flex', alignItems: 'center', gap: 10,
+        display: 'flex', alignItems: 'center', gap: SP[2],
         width: '100%', padding: '9px 16px',
         border: 'none', borderLeft: `3px solid ${active ? NAVY : 'transparent'}`,
         background: active ? `${NAVY}10` : 'transparent',
         color: active ? NAVY : 'var(--txt2)',
-        fontSize: 13, fontWeight: active ? 700 : 500,
+        fontSize: TEXT.base, fontWeight: active ? 700 : 500,
         cursor: 'pointer', textAlign: 'left', borderRadius: 0,
         fontFamily: "'Sora', sans-serif",
         transition: 'background .12s, color .12s',
@@ -113,7 +113,7 @@ function NavItem({ label, icon, active, onClick }: { label: string; icon: string
       onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
       onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
     >
-      <span className="material-symbols-rounded" style={{ fontSize: 18, flexShrink: 0 }}>{icon}</span>
+      <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, flexShrink: 0 }}>{icon}</span>
       {label}
     </button>
   )
@@ -134,30 +134,30 @@ function ProfileTab({ local, me, onGoSecurity }: {
   const color      = roleColor(role)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[5] }}>
 
       {local?.must_change_password && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: `${AMBER}12`, border: `1px solid ${AMBER}30`, borderRadius: 10 }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 18, color: AMBER }}>warning</span>
-          <span style={{ fontSize: 13, color: AMBER, fontWeight: 600 }}>Your temporary password must be changed before you continue.</span>
-          <button onClick={onGoSecurity} style={{ marginLeft: 'auto', padding: '5px 14px', borderRadius: 7, border: 'none', background: AMBER, color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[3]} ${SP[4]}`, background: `${AMBER}12`, border: `1px solid ${AMBER}30`, borderRadius: RADIUS.lg }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: AMBER }}>warning</span>
+          <span style={{ fontSize: TEXT.base, color: AMBER, fontWeight: FW.semibold }}>Your temporary password must be changed before you continue.</span>
+          <button onClick={onGoSecurity} style={{ marginLeft: 'auto', padding: '5px 14px', borderRadius: 7, border: 'none', background: AMBER, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.bold, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
             Change now →
           </button>
         </div>
       )}
 
       <SectionCard title="Profile Information">
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: SP[5] }}>
           <Avatar name={name} role={role} size={64} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', lineHeight: 1.2 }}>{name}</div>
-            <div style={{ fontSize: 13, color: 'var(--txt2)', marginTop: 4 }}>{email}</div>
-            <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              <span style={{ fontSize: 11.5, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: color + '15', color }}>
+            <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)', lineHeight: 1.2 }}>{name}</div>
+            <div style={{ fontSize: TEXT.base, color: 'var(--txt2)', marginTop: 4 }}>{email}</div>
+            <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: SP[1] }}>
+              <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '3px 10px', borderRadius: RADIUS['2xl'], background: color + '15', color }}>
                 {roleLabel(role)}
               </span>
               {department && (
-                <span style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: 'var(--chip-bg, #F0F4FF)', color: 'var(--txt2)' }}>
+                <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '3px 10px', borderRadius: RADIUS['2xl'], background: 'var(--chip-bg, #F0F4FF)', color: 'var(--txt2)' }}>
                   {department}
                 </span>
               )}
@@ -165,7 +165,7 @@ function ProfileTab({ local, me, onGoSecurity }: {
           </div>
         </div>
 
-        <div style={{ marginTop: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        <div style={{ marginTop: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[2] }}>
           {[
             { label: 'Full name',   value: name },
             { label: 'Email',       value: email },
@@ -173,21 +173,21 @@ function ProfileTab({ local, me, onGoSecurity }: {
             { label: 'Department',  value: department || '—' },
             { label: 'User ID',     value: userId ? `#${userId}` : '—' },
           ].map(({ label, value }) => (
-            <div key={label} style={{ background: 'var(--th-bg)', borderRadius: 8, padding: '10px 14px' }}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>{label}</div>
-              <div style={{ fontSize: 13.5, color: 'var(--txt)', fontWeight: 500, wordBreak: 'break-all' }}>{value}</div>
+            <div key={label} style={{ background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: '10px 14px' }}>
+              <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium, wordBreak: 'break-all' }}>{value}</div>
             </div>
           ))}
         </div>
       </SectionCard>
 
       <SectionCard title="Account Management">
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 20, color: 'var(--txt3)', marginTop: 1 }}>info</span>
-          <div style={{ fontSize: 13, color: 'var(--txt2)', lineHeight: 1.65 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: SP[3] }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT['2xl'], color: 'var(--txt3)', marginTop: 1 }}>info</span>
+          <div style={{ fontSize: TEXT.base, color: 'var(--txt2)', lineHeight: 1.65 }}>
             Profile details (name, email, role) are managed by the IT Admin.
             To change your password or set up two-factor authentication, go to the{' '}
-            <button onClick={onGoSecurity} style={{ background: 'none', border: 'none', color: NAVY, fontWeight: 700, cursor: 'pointer', padding: 0, fontSize: 13, textDecoration: 'underline', fontFamily: 'inherit' }}>
+            <button onClick={onGoSecurity} style={{ background: 'none', border: 'none', color: NAVY, fontWeight: FW.bold, cursor: 'pointer', padding: 0, fontSize: TEXT.base, textDecoration: 'underline', fontFamily: 'inherit' }}>
               Security
             </button>{' '}tab.
           </div>
@@ -252,32 +252,32 @@ function ChangePasswordSection() {
           onClick={onToggle}
           style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt3)', padding: 0 }}
         >
-          <span className="material-symbols-rounded" style={{ fontSize: 18 }}>{show ? 'visibility_off' : 'visibility'}</span>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl }}>{show ? 'visibility_off' : 'visibility'}</span>
         </button>
       </div>
     )
   }
 
   return (
-    <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 380 }}>
+    <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: SP[3], maxWidth: 380 }}>
       <PwField value={current} onChange={setCurrent} placeholder="Current password" show={showCurr} onToggle={() => setShowCurr(v => !v)} />
       <div>
         <PwField value={next} onChange={setNext} placeholder="New password (min 12 chars)" show={showNew} onToggle={() => setShowNew(v => !v)} />
         {next && (
           <div style={{ marginTop: 8 }}>
-            <div style={{ display: 'flex', gap: 4 }}>
+            <div style={{ display: 'flex', gap: SP[1] }}>
               {[1, 2, 3].map(i => (
                 <div key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= str.score ? str.color : 'var(--bdr)', transition: 'background .2s' }} />
               ))}
             </div>
-            {str.label && <div style={{ fontSize: 11, color: str.color, fontWeight: 600, marginTop: 4 }}>{str.label}</div>}
+            {str.label && <div style={{ fontSize: TEXT.xs, color: str.color, fontWeight: FW.semibold, marginTop: 4 }}>{str.label}</div>}
           </div>
         )}
       </div>
       <PwField value={confirm} onChange={setConfirm} placeholder="Confirm new password" show={showNew} onToggle={() => setShowNew(v => !v)} />
       {next && confirm && next !== confirm && (
-        <div style={{ fontSize: 12, color: RED, display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>error</span> Passwords do not match
+        <div style={{ fontSize: TEXT.sm, color: RED, display: 'flex', alignItems: 'center', gap: SP[1] }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>error</span> Passwords do not match
         </div>
       )}
       <button type="submit" disabled={loading} style={{ ...BTN_PRIMARY, opacity: loading ? 0.7 : 1, marginTop: 4 }}>
@@ -345,24 +345,24 @@ function TOTPSection() {
 
   if (enabled === null) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--txt2)', fontSize: 13 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], color: 'var(--txt2)', fontSize: TEXT.base }}>
         <Spinner size={16} /> Loading…
       </div>
     )
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[5] }}>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP[4] }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>Authenticator App (TOTP)</div>
-          <div style={{ fontSize: 12.5, color: 'var(--txt2)', marginTop: 3 }}>
+          <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)' }}>Authenticator App (TOTP)</div>
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 3 }}>
             Use Google Authenticator, Authy, or any TOTP-compatible app.
           </div>
         </div>
         <span style={{
-          flexShrink: 0, fontSize: 11.5, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
+          flexShrink: 0, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '3px 10px', borderRadius: RADIUS['2xl'],
           background: enabled ? `${GREEN}18` : 'var(--chip-bg, #F0F4FF)',
           color: enabled ? GREEN : 'var(--txt2)',
         }}>
@@ -379,47 +379,47 @@ function TOTPSection() {
       )}
 
       {!enabled && step === 'qr' && setup && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--txt2)', lineHeight: 1.6 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+          <p style={{ margin: 0, fontSize: TEXT.base, color: 'var(--txt2)', lineHeight: 1.6 }}>
             1. Open your authenticator app and scan the QR code below.<br />
             2. Enter the 6-digit code to confirm and activate.
           </p>
-          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-            <div style={{ padding: 12, background: '#fff', borderRadius: 12, border: '1px solid var(--bdr)', flexShrink: 0 }}>
+          <div style={{ display: 'flex', gap: SP[6], flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div style={{ padding: SP[3], background: '#fff', borderRadius: RADIUS.xl, border: '1px solid var(--bdr)', flexShrink: 0 }}>
               <QRCodeSVG value={setup.uri} size={160} />
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minWidth: 220 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2], flex: 1, minWidth: 220 }}>
               <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', marginBottom: 4 }}>CAN'T SCAN? ENTER MANUALLY:</div>
+                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', marginBottom: 4 }}>CAN'T SCAN? ENTER MANUALLY:</div>
                 <code style={{
-                  fontSize: 12, fontFamily: 'monospace', letterSpacing: '0.1em',
-                  background: 'var(--th-bg)', padding: '6px 10px', borderRadius: 6,
+                  fontSize: TEXT.sm, fontFamily: 'monospace', letterSpacing: '0.1em',
+                  background: 'var(--th-bg)', padding: '6px 10px', borderRadius: RADIUS.sm,
                   border: '1px solid var(--bdr)', display: 'block', wordBreak: 'break-all', color: 'var(--txt)',
                 }}>
                   {setup.secret}
                 </code>
               </div>
               <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', marginBottom: 4 }}>ENTER CODE FROM APP:</div>
+                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', marginBottom: 4 }}>ENTER CODE FROM APP:</div>
                 <input
                   type="text" inputMode="numeric" maxLength={6} placeholder="000000"
                   value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
                   onKeyDown={e => e.key === 'Enter' && verifyCode()}
-                  style={{ ...INPUT, fontFamily: 'monospace', letterSpacing: '0.25em', fontSize: 20, textAlign: 'center' }}
+                  style={{ ...INPUT, fontFamily: 'monospace', letterSpacing: '0.25em', fontSize: TEXT['2xl'], textAlign: 'center' }}
                 />
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: SP[2] }}>
                 <button
                   onClick={verifyCode}
                   disabled={loading || code.length !== 6}
-                  style={{ flex: 1, padding: '9px 0', borderRadius: 9, border: 'none', background: GREEN, color: '#fff', fontSize: 13.5, fontWeight: 600, cursor: code.length === 6 ? 'pointer' : 'not-allowed', opacity: (loading || code.length !== 6) ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontFamily: 'inherit' }}
+                  style={{ flex: 1, padding: '9px 0', borderRadius: RADIUS.md, border: 'none', background: GREEN, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: code.length === 6 ? 'pointer' : 'not-allowed', opacity: (loading || code.length !== 6) ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: SP[1], fontFamily: 'inherit' }}
                 >
                   {loading && <Spinner size={14} color="#fff" />}
                   Verify &amp; Enable
                 </button>
                 <button
                   onClick={() => { setStep('idle'); setSetup(null); setCode('') }}
-                  style={{ padding: '9px 14px', borderRadius: 9, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}
+                  style={{ padding: '9px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer', fontFamily: 'inherit' }}
                 >
                   Cancel
                 </button>
@@ -430,29 +430,29 @@ function TOTPSection() {
       )}
 
       {(enabled || step === 'done') && step !== 'qr' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
           {step !== 'done' && (
             <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: `${GREEN}10`, borderRadius: 10, border: `1px solid ${GREEN}25` }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 18, color: GREEN }}>verified_user</span>
-                <span style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 500 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: '10px 14px', background: `${GREEN}10`, borderRadius: RADIUS.lg, border: `1px solid ${GREEN}25` }}>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: GREEN }}>verified_user</span>
+                <span style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium }}>
                   Your account is protected with two-factor authentication.
                 </span>
               </div>
 
               <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: 16 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: RED, marginBottom: 10 }}>Disable Two-Factor Authentication</div>
-                <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--txt2)', lineHeight: 1.5 }}>
+                <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: RED, marginBottom: 10 }}>Disable Two-Factor Authentication</div>
+                <p style={{ margin: '0 0 12px', fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>
                   Enter your current password or a valid authenticator code to disable 2FA.
                 </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 320 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2], maxWidth: 320 }}>
                   <input type="password" placeholder="Current password" value={password} onChange={e => setPassword(e.target.value)} style={INPUT} />
-                  <div style={{ textAlign: 'center', fontSize: 11.5, color: 'var(--txt2)' }}>— or —</div>
+                  <div style={{ textAlign: 'center', fontSize: TEXT.xs, color: 'var(--txt2)' }}>— or —</div>
                   <input type="text" inputMode="numeric" maxLength={6} placeholder="6-digit code from app" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))} style={{ ...INPUT, fontFamily: 'monospace', letterSpacing: '0.1em', textAlign: 'center' }} />
                   <button
                     onClick={disableTOTP}
                     disabled={loading || (!password.trim() && code.length !== 6)}
-                    style={{ padding: '9px 0', borderRadius: 9, border: 'none', background: RED, color: '#fff', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', opacity: loading ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontFamily: 'inherit' }}
+                    style={{ padding: '9px 0', borderRadius: RADIUS.md, border: 'none', background: RED, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', opacity: loading ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: SP[1], fontFamily: 'inherit' }}
                   >
                     {loading && <Spinner size={14} color="#fff" />}
                     Disable 2FA
@@ -462,9 +462,9 @@ function TOTPSection() {
             </>
           )}
           {step === 'done' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: `${GREEN}10`, borderRadius: 10, border: `1px solid ${GREEN}25` }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 18, color: GREEN }}>verified_user</span>
-              <span style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 500 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: '10px 14px', background: `${GREEN}10`, borderRadius: RADIUS.lg, border: `1px solid ${GREEN}25` }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: GREEN }}>verified_user</span>
+              <span style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium }}>
                 Two-factor authentication is now active on your account.
               </span>
             </div>
@@ -479,7 +479,7 @@ function TOTPSection() {
 
 function SecurityTab() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[5] }}>
       <SectionCard title="Change Password" subtitle="Minimum 12 characters — use a mix of letters, numbers, and symbols">
         <ChangePasswordSection />
       </SectionCard>
@@ -538,7 +538,7 @@ function NotificationsTab() {
   if (prefs.length === 0) {
     return (
       <SectionCard title="Notification Preferences">
-        <div style={{ color: 'var(--txt3)', fontSize: 13 }}>No notification events configured for your account yet.</div>
+        <div style={{ color: 'var(--txt3)', fontSize: TEXT.base }}>No notification events configured for your account yet.</div>
       </SectionCard>
     )
   }
@@ -549,14 +549,14 @@ function NotificationsTab() {
   return (
     <SectionCard title="Notification Preferences" subtitle="Choose how you receive each type of notification" padding={false}>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
           <thead>
             <tr style={{ background: 'var(--th-bg)' }}>
-              <th style={{ padding: '10px 18px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', width: '55%' }}>Event</th>
+              <th style={{ padding: '10px 18px', textAlign: 'left', fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', width: '55%' }}>Event</th>
               {PREF_CHANNELS.map(ch => (
-                <th key={ch} style={{ padding: '10px 18px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>
+                <th key={ch} style={{ padding: '10px 18px', textAlign: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{CHANNEL_ICON[ch]}</span>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>{CHANNEL_ICON[ch]}</span>
                     {CHANNEL_LABEL[ch] ?? ch}
                   </div>
                 </th>
@@ -572,8 +572,8 @@ function NotificationsTab() {
                   onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
                 >
                   <td style={{ padding: '11px 18px' }}>
-                    <div style={{ fontWeight: 600, color: 'var(--txt)' }}>{first.label || eventType.replace(/_/g, ' ')}</div>
-                    {first.description && <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 2 }}>{first.description}</div>}
+                    <div style={{ fontWeight: FW.semibold, color: 'var(--txt)' }}>{first.label || eventType.replace(/_/g, ' ')}</div>
+                    {first.description && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>{first.description}</div>}
                   </td>
                   {PREF_CHANNELS.map(ch => {
                     const pref = eventPrefs.find(p => p.channel === ch)
@@ -583,7 +583,7 @@ function NotificationsTab() {
                         <button
                           onClick={() => toggle(eventType, ch)}
                           aria-label={`Toggle ${ch} for ${eventType}`}
-                          style={{ width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer', background: pref.user_enabled ? NAVY : '#D1D5DB', position: 'relative', transition: 'background .2s', padding: 0 }}
+                          style={{ width: 38, height: 22, borderRadius: RADIUS.lg, border: 'none', cursor: 'pointer', background: pref.user_enabled ? NAVY : '#D1D5DB', position: 'relative', transition: 'background .2s', padding: 0 }}
                         >
                           <span style={{ position: 'absolute', top: 3, left: pref.user_enabled ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .2s', display: 'block', boxShadow: '0 1px 2px rgba(0,0,0,.15)' }} />
                         </button>
@@ -597,11 +597,11 @@ function NotificationsTab() {
         </table>
       </div>
       {Object.keys(dirty).length > 0 && (
-        <div style={{ padding: '14px 18px', borderTop: '1px solid var(--bdr)', display: 'flex', gap: 10, alignItems: 'center' }}>
-          <button onClick={save} disabled={saving} style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: INTER }}>
+        <div style={{ padding: '14px 18px', borderTop: '1px solid var(--bdr)', display: 'flex', gap: SP[2], alignItems: 'center' }}>
+          <button onClick={save} disabled={saving} style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: SP[1], fontFamily: INTER }}>
             {saving && <Spinner size={13} color="#fff" />} Save Preferences
           </button>
-          <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{Object.keys(dirty).length} unsaved change{Object.keys(dirty).length !== 1 ? 's' : ''}</span>
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{Object.keys(dirty).length} unsaved change{Object.keys(dirty).length !== 1 ? 's' : ''}</span>
         </div>
       )}
     </SectionCard>
@@ -636,37 +636,37 @@ function SignatureTab() {
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size={22} /></div>
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[5] }}>
       <SectionCard title="Email Signature" subtitle="Appended to outbound messages you send from the Mail module">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
 
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.4px' }}>HTML Signature</div>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.4px' }}>HTML Signature</div>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={html}
               onChange={e => setHtml(e.target.value)}
               placeholder={'<p>Best regards,<br/><strong>Your Name</strong><br/>O3 Capital</p>'}
               rows={6}
-              style={{ ...INPUT, height: 'auto', padding: '10px 12px', resize: 'vertical', fontFamily: 'monospace', fontSize: 12, lineHeight: 1.5 }}
+              style={{ ...INPUT, height: 'auto', padding: '10px 12px', resize: 'vertical', fontFamily: 'monospace', fontSize: TEXT.sm, lineHeight: 1.5 }}
             />
           </div>
 
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.4px' }}>Plain Text Signature</div>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.4px' }}>Plain Text Signature</div>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={text}
               onChange={e => setText(e.target.value)}
               placeholder={'Best regards,\nYour Name\nO3 Capital'}
               rows={4}
-              style={{ ...INPUT, height: 'auto', padding: '10px 12px', resize: 'vertical', fontFamily: 'monospace', fontSize: 12, lineHeight: 1.5 }}
+              style={{ ...INPUT, height: 'auto', padding: '10px 12px', resize: 'vertical', fontFamily: 'monospace', fontSize: TEXT.sm, lineHeight: 1.5 }}
             />
           </div>
 
           {html.trim() && (
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.4px' }}>Preview</div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.4px' }}>Preview</div>
               <div
-                style={{ padding: '14px 16px', border: '1px solid var(--bdr)', borderRadius: 10, background: 'var(--th-bg)', fontSize: 13, color: 'var(--txt)', lineHeight: 1.65 }}
+                style={{ padding: '14px 16px', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, background: 'var(--th-bg)', fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.65 }}
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
               />
             </div>
@@ -697,15 +697,15 @@ function VoiceTab() {
 
   return (
     <SectionCard title="Voice & Calling" subtitle="Make and receive calls directly from the workspace">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ width: 42, height: 42, borderRadius: 10, background: configured ? `${GREEN}15` : 'var(--th-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 22, color: configured ? GREEN : 'var(--txt3)' }}>phone_in_talk</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP[4] }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
+            <div style={{ width: 42, height: 42, borderRadius: RADIUS.lg, background: configured ? `${GREEN}15` : 'var(--th-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT['2xl'], color: configured ? GREEN : 'var(--txt3)' }}>phone_in_talk</span>
             </div>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>Telnyx WebRTC</div>
-              <div style={{ fontSize: 12.5, color: 'var(--txt2)', marginTop: 2 }}>
+              <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)' }}>Telnyx WebRTC</div>
+              <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2 }}>
                 {configured === null
                   ? 'Checking configuration…'
                   : configured
@@ -715,7 +715,7 @@ function VoiceTab() {
             </div>
           </div>
           <span style={{
-            flexShrink: 0, fontSize: 11.5, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
+            flexShrink: 0, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '3px 10px', borderRadius: RADIUS['2xl'],
             background: configured ? `${GREEN}18` : 'var(--chip-bg, #F0F4FF)',
             color: configured ? GREEN : 'var(--txt2)',
           }}>
@@ -723,8 +723,8 @@ function VoiceTab() {
           </span>
         </div>
 
-        <div style={{ background: 'var(--th-bg)', borderRadius: 10, padding: '12px 16px', fontSize: 12.5, color: 'var(--txt2)', lineHeight: 1.65 }}>
-          <div style={{ fontWeight: 700, color: 'var(--txt)', marginBottom: 4 }}>How calling works</div>
+        <div style={{ background: 'var(--th-bg)', borderRadius: RADIUS.lg, padding: `${SP[3]} ${SP[4]}`, fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.65 }}>
+          <div style={{ fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 4 }}>How calling works</div>
           SIP credentials are provisioned by the IT Admin via <strong>Admin → Users</strong>. Once configured, the call widget appears in the bottom-right corner of the workspace. Contact IT if calling is not working for your account.
         </div>
       </div>
@@ -760,8 +760,8 @@ export default function Settings() {
 
       {/* Page header */}
       <div style={{ padding: '20px 28px 16px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
-        <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)' }}>Settings</div>
-        <div style={{ fontSize: 12.5, color: 'var(--txt2)', marginTop: 2 }}>Manage your profile, security, and preferences</div>
+        <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)' }}>Settings</div>
+        <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2 }}>Manage your profile, security, and preferences</div>
       </div>
 
       {/* Split layout */}
@@ -773,14 +773,14 @@ export default function Settings() {
           {/* User identity block */}
           <div style={{ padding: '16px 16px 14px', borderBottom: '1px solid var(--bdr)' }}>
             <Avatar name={displayName} role={displayRole} size={40} />
-            <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: 'var(--txt)', lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ marginTop: 10, fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)', lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {displayName}
             </div>
-            <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {displayEmail}
             </div>
             {displayRole && (
-              <div style={{ marginTop: 7, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: roleColor(displayRole) + '15', color: roleColor(displayRole), display: 'inline-block' }}>
+              <div style={{ marginTop: 7, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: roleColor(displayRole) + '15', color: roleColor(displayRole), display: 'inline-block' }}>
                 {roleLabel(displayRole)}
               </div>
             )}
@@ -795,7 +795,7 @@ export default function Settings() {
         </div>
 
         {/* Right content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px', minWidth: 0 }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: `${SP[6]} ${SP[8]}`, minWidth: 0 }}>
           {tab === 'profile'       && <ProfileTab local={local} me={me} onGoSecurity={() => setTab('security')} />}
           {tab === 'security'      && <SecurityTab />}
           {tab === 'notifications' && <NotificationsTab />}

@@ -3,7 +3,7 @@ import { Page, SectionCard, DataTable, StatusBadge, filterInputStyle, SearchInpu
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDatetime } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, NUM, INTER, SORA } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 function exportPostingsCsv(rows: Posting[]) {
@@ -45,25 +45,25 @@ interface Posting {
 function PostingCols(onApprove: (id: number) => void, onReject: (id: number) => void): TableCol<Posting>[] {
   return [
     { key: 'initiated_at', label: 'Date', sortable: true, width: 150,
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDatetime(r.initiated_at)}</span> },
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDatetime(r.initiated_at)}</span> },
     { key: 'initiated_by_name', label: 'Initiated by',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.initiated_by_name || '—'}</span> },
-    { key: 'dr_account', label: 'DR Account', render: r => <span style={{ ...NUM, fontSize: 12 }}>{r.dr_account}</span> },
-    { key: 'cr_account', label: 'CR Account', render: r => <span style={{ ...NUM, fontSize: 12 }}>{r.cr_account}</span> },
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.initiated_by_name || '—'}</span> },
+    { key: 'dr_account', label: 'DR Account', render: r => <span style={{ ...NUM, fontSize: TEXT.sm }}>{r.dr_account}</span> },
+    { key: 'cr_account', label: 'CR Account', render: r => <span style={{ ...NUM, fontSize: TEXT.sm }}>{r.cr_account}</span> },
     { key: 'amount_kobo', label: 'Amount ₦', align: 'right', sortable: true,
-      render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.amount_kobo)}</span> },
+      render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.amount_kobo)}</span> },
     { key: 'narrative', label: 'Narrative',
-      render: r => <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240, fontSize: 12.5 }}>{r.narrative || '—'}</span> },
+      render: r => <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240, fontSize: TEXT.sm }}>{r.narrative || '—'}</span> },
     { key: 'status', label: 'Status', render: r => <StatusBadge status={r.status} /> },
     { key: '_actions', label: '', render: r => r.status === 'pending' ? (
       <div style={{ display: 'flex', gap: 6 }}>
         <button onClick={e => { e.stopPropagation(); onApprove(r.id) }} style={{
-          padding: '4px 10px', borderRadius: 6, border: 'none', background: 'rgba(22,163,74,.12)',
-          color: GREEN, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+          padding: '4px 10px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(22,163,74,.12)',
+          color: GREEN, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
         }}>Approve</button>
         <button onClick={e => { e.stopPropagation(); onReject(r.id) }} style={{
-          padding: '4px 10px', borderRadius: 6, border: 'none', background: 'rgba(192,0,0,.08)',
-          color: RED, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+          padding: '4px 10px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(192,0,0,.08)',
+          color: RED, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
         }}>Reject</button>
       </div>
     ) : null},
@@ -84,8 +84,8 @@ function ProposeModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const [saving, setSaving] = useState(false)
 
   const field = (label: string, key: keyof ProposeForm, type = 'text') => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>{label} *</label>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
+      <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>{label} *</label>
       <input type={type} value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
         style={{ ...filterInputStyle, height: 36 }} />
     </div>
@@ -118,18 +118,18 @@ function ProposeModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)' }} onClick={onClose} />
-      <div style={{ position: 'relative', background: 'var(--card)', borderRadius: 14, padding: 24, width: 460, zIndex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>Propose Manual Posting</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: 18 }}>×</button>
+      <div style={{ position: 'relative', background: 'var(--card)', borderRadius: RADIUS.xl, padding: SP[6], width: 460, zIndex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[5] }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: FW.bold, color: 'var(--txt)' }}>Propose Manual Posting</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: TEXT.xl }}>×</button>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
           {field('DR Account (debit)', 'dr_account')}
           {field('CR Account (credit)', 'cr_account')}
           {field('Amount (₦)', 'amount', 'number')}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Narrative *</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
+            <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Narrative *</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={form.narrative}
               onChange={e => setForm(f => ({ ...f, narrative: e.target.value }))}
@@ -141,16 +141,16 @@ function ProposeModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
         </div>
 
         <div style={{
-          marginTop: 14, padding: '10px 14px', borderRadius: 8,
+          marginTop: 14, padding: '10px 14px', borderRadius: RADIUS.md,
           background: 'rgba(14,40,65,0.06)', border: '1px solid rgba(14,40,65,0.12)',
-          fontSize: 12, color: 'var(--txt2)',
+          fontSize: TEXT.sm, color: 'var(--txt2)',
         }}>
           This posting will require Finance Head approval before the GL entry is posted.
         </div>
 
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
-          <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={submit} disabled={saving} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end', marginTop: SP[5] }}>
+          <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={submit} disabled={saving} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
             {saving ? 'Submitting…' : 'Submit for Approval'}
           </button>
         </div>
@@ -247,18 +247,18 @@ export default function FinanceManualPosting() {
       title="Manual Postings"
       subtitle="Approval queue for GL manual entries"
       actions={
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: SP[2] }}>
           <button onClick={() => exportPostingsCsv(filtered)} style={{
             display: 'flex', alignItems: 'center', gap: 6,
-            padding: '6px 14px', borderRadius: 8, border: '1px solid var(--bdr)',
-            background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+            padding: '6px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
+            background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
           }}>
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>Export CSV
           </button>
           <button onClick={() => setShowPropose(true)} style={{
             display: 'flex', alignItems: 'center', gap: 6,
-            padding: '6px 14px', borderRadius: 8, border: 'none',
-            background: NAVY, color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+            padding: '6px 14px', borderRadius: RADIUS.md, border: 'none',
+            background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
           }}>
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>Propose Posting
           </button>
@@ -273,9 +273,9 @@ export default function FinanceManualPosting() {
 
           {/* Filter bar */}
           <div style={{
-            padding: '12px 18px',
+            padding: `${SP[3]} 18px`,
             borderBottom: filterOpen ? 'none' : '1px solid var(--bdr)',
-            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+            display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap' as const,
           }}>
             <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
 
@@ -283,11 +283,11 @@ export default function FinanceManualPosting() {
               onClick={() => setFilterOpen(o => !o)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
-                padding: '6px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 600,
+                padding: '6px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
                 border: `1.5px solid ${activeFilterCount > 0 ? RED : 'var(--input-bdr)'}`,
                 background: 'transparent',
                 color: activeFilterCount > 0 ? RED : 'var(--txt2)',
-                cursor: 'pointer', fontFamily: SORA, position: 'relative',
+                cursor: 'pointer', fontFamily: SORA, position: 'relative' as const,
               }}
             >
               <span className="material-symbols-rounded" style={{ fontSize: 15 }}>tune</span>
@@ -297,13 +297,13 @@ export default function FinanceManualPosting() {
                   position: 'absolute', top: -6, right: -6,
                   width: 16, height: 16, borderRadius: '50%',
                   background: RED, color: '#fff',
-                  fontSize: 9, fontWeight: 700, fontFamily: INTER,
+                  fontSize: 9, fontWeight: FW.bold, fontFamily: INTER,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>{activeFilterCount}</span>
               )}
             </button>
 
-            <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+            <div style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
               {filtered.length} of {rows.length}
             </div>
           </div>
@@ -315,7 +315,7 @@ export default function FinanceManualPosting() {
 
                 {/* Status */}
                 <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>STATUS</div>
+                  <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase' as const, letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>STATUS</div>
                   {[
                     { value: '',         label: 'All statuses', color: NAVY },
                     { value: 'pending',  label: 'Pending',      color: AMBER },
@@ -328,10 +328,10 @@ export default function FinanceManualPosting() {
                       <label key={opt.value || 'all'} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
                         <input type="radio" name="posting_status" value={opt.value} checked={statusFilter === opt.value} onChange={() => setStatusFilter(opt.value)}
                           style={{ accentColor: opt.color, width: 14, height: 14, cursor: 'pointer' }} />
-                        <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: sc?.bg ?? 'var(--chip-bg)', color: sc?.txt ?? 'var(--chip-txt)', textTransform: 'capitalize' }}>
+                        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: sc?.bg ?? 'var(--chip-bg)', color: sc?.txt ?? 'var(--chip-txt)', textTransform: 'capitalize' as const }}>
                           {opt.label}
                         </span>
-                        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
                       </label>
                     )
                   })}
@@ -344,21 +344,21 @@ export default function FinanceManualPosting() {
 
               <div style={{
                 padding: '14px 20px', borderTop: '1px solid var(--bdr)', marginTop: 16,
-                display: 'flex', alignItems: 'center', gap: 12,
+                display: 'flex', alignItems: 'center', gap: SP[3],
               }}>
-                <span style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>
+                <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: SORA }}>
                   {activeFilterCount === 0
                     ? `No filters — showing all ${rows.length} postings`
                     : `1 filter active`}
                 </span>
                 <button onClick={resetFilters} style={{
-                  padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+                  padding: '5px 12px', borderRadius: 7, fontSize: TEXT.sm, fontWeight: FW.semibold,
                   border: '1.5px solid var(--input-bdr)', background: 'transparent',
                   color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA,
                 }}>Reset</button>
                 <button onClick={() => setFilterOpen(false)} style={{
                   marginLeft: 'auto', padding: '5px 16px', borderRadius: 7,
-                  fontSize: 12, fontWeight: 600, border: 'none', background: RED, color: '#fff',
+                  fontSize: TEXT.sm, fontWeight: FW.semibold, border: 'none', background: RED, color: '#fff',
                   cursor: 'pointer', fontFamily: SORA,
                 }}>Apply · {filtered.length} results</button>
               </div>
@@ -374,9 +374,9 @@ export default function FinanceManualPosting() {
               {(() => {
                 const sc = STATUS_COLORS[statusFilter]
                 return (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: sc.bg, color: sc.txt, textTransform: 'capitalize' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: sc.bg, color: sc.txt, textTransform: 'capitalize' as const }}>
                     {statusFilter}
-                    <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setStatusFilter('')}>close</span>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setStatusFilter('')}>close</span>
                   </span>
                 )
               })()}
@@ -395,7 +395,7 @@ export default function FinanceManualPosting() {
             selectedIds={sel}
             onSelect={setSel}
             bulkBar={
-              <button onClick={handleBulkApprove} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#16A34A', color: 'white', cursor: 'pointer', fontSize: 12 }}>
+              <button onClick={handleBulkApprove} style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: 'none', background: '#16A34A', color: 'white', cursor: 'pointer', fontSize: TEXT.sm }}>
                 Bulk Approve
               </button>
             }

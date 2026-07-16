@@ -6,7 +6,7 @@ import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, filterIn
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtPct, today, monthStart } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, NUM, INTER, SORA } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, BLUE, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -67,22 +67,22 @@ function daysColor(days: number): string {
 // ── Table columns ─────────────────────────────────────────────────────────────
 
 const COLS: TableCol<FDRecord>[] = [
-  { key: 'id', label: 'FD#', width: 90, render: r => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>FD-{String(r.id).padStart(5, '0')}</span> },
+  { key: 'id', label: 'FD#', width: 90, render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>FD-{String(r.id).padStart(5, '0')}</span> },
   { key: 'customer_name', label: 'Investor', sortable: true,
-    render: r => <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{r.customer_name || '—'}</span> },
+    render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.customer_name || '—'}</span> },
   { key: 'principal', label: 'Amount ₦', align: 'right', sortable: true,
-    render: r => <span style={{ ...NUM, fontWeight: 600 }}>{r.currency === 'USD' ? `$${(r.usd_amount / 100).toLocaleString()}` : fmtKobo(r.ngn_amount || r.principal)}</span> },
+    render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{r.currency === 'USD' ? `$${(r.usd_amount / 100).toLocaleString()}` : fmtKobo(r.ngn_amount || r.principal)}</span> },
   { key: 'rate', label: 'Rate %', align: 'right', render: r => <span style={NUM}>{fmtPct(r.rate)}</span> },
   { key: 'transaction_date', label: 'Start', sortable: true, width: 100,
-    render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.transaction_date)}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.transaction_date)}</span> },
   { key: 'maturity_date', label: 'Maturity', sortable: true, width: 100,
-    render: r => <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{fmtDate(r.maturity_date)}</span> },
+    render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.maturity_date)}</span> },
   { key: 'transaction_type', label: 'Status', render: r => (
     <StatusBadge status={r.transaction_type === 'inflow' ? 'Active' : 'Liquidated'} />
   )},
   { key: '_days', label: 'Days to Mat.', align: 'right', render: r => {
     const d = daysToMaturity(r.maturity_date)
-    return <span style={{ ...NUM, fontWeight: 600, color: daysColor(d) }}>{d < 0 ? 'Matured' : `${d}d`}</span>
+    return <span style={{ ...NUM, fontWeight: FW.semibold, color: daysColor(d) }}>{d < 0 ? 'Matured' : `${d}d`}</span>
   }},
 ]
 
@@ -148,8 +148,8 @@ function NewFDDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
   }
 
   const field = (label: string, key: keyof NewFDModal, type = 'text', required = false) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>{label}{required && ' *'}</label>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
+      <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>{label}{required && ' *'}</label>
       <input type={type} value={form[key]} onChange={e => updateField(key, e.target.value)}
         style={{ ...filterInputStyle, height: 36 }} />
     </div>
@@ -158,19 +158,19 @@ function NewFDDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)' }} onClick={onClose} />
-      <div style={{ position: 'relative', background: 'var(--card)', borderRadius: 14, padding: 24, width: 520, maxHeight: '90vh', overflow: 'auto', zIndex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>New Fixed Deposit</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: 18 }}>×</button>
+      <div style={{ position: 'relative', background: 'var(--card)', borderRadius: RADIUS.xl, padding: SP[6], width: 520, maxHeight: '90vh', overflow: 'auto', zIndex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[5] }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: FW.bold, color: 'var(--txt)' }}>New Fixed Deposit</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: TEXT.xl }}>×</button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
           <div style={{ gridColumn: '1/-1' }}>{field('Investor Name', 'customer_name', 'text', true)}</div>
           {field('Principal (₦)', 'principal', 'number', true)}
           {field('Rate (%)', 'rate', 'number', true)}
           {field('Tenor (days)', 'tenor_days', 'number', true)}
           <div>
-            <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Currency</label>
+            <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Currency</label>
             <select value={form.currency} onChange={e => updateField('currency', e.target.value)} style={{ ...filterInputStyle, height: 36, marginTop: 4 }}>
               <option value="NGN">NGN</option>
               <option value="USD">USD</option>
@@ -181,15 +181,15 @@ function NewFDDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
           {field('Location', 'location')}
           <div style={{ gridColumn: '1/-1' }}>{field('Account Officer', 'account_officer')}</div>
           <div style={{ gridColumn: '1/-1' }}>
-            <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)' }}>Notes</label>
+            <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Notes</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.notes} onChange={e => updateField('notes', e.target.value)}
               rows={2} style={{ ...filterInputStyle, height: 'auto', width: '100%', marginTop: 4, resize: 'vertical', padding: '8px 10px' }} />
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
-          <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={submit} disabled={saving} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end', marginTop: SP[5] }}>
+          <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={submit} disabled={saving} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
             {saving ? 'Saving…' : 'Create FD'}
           </button>
         </div>
@@ -203,13 +203,13 @@ function NewFDDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
 function FDTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
-      <div style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 6 }}>{label}</div>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.md, padding: '10px 14px', fontSize: TEXT.sm }}>
+      <div style={{ fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 6 }}>{label}</div>
       {payload.map((p: any) => (
-        <div key={p.name} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 2 }}>
+        <div key={p.name} style={{ display: 'flex', gap: SP[2], alignItems: 'center', marginBottom: 2 }}>
           <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: 'inline-block' }} />
           <span style={{ color: 'var(--txt2)' }}>{p.name}:</span>
-          <span style={{ ...NUM, color: 'var(--txt)', fontWeight: 600 }}>{fmtKobo(p.value)}</span>
+          <span style={{ ...NUM, color: 'var(--txt)', fontWeight: FW.semibold }}>{fmtKobo(p.value)}</span>
         </div>
       ))}
     </div>
@@ -225,14 +225,14 @@ function PageBtn({ children, active, disabled, onClick, icon }: {
 }) {
   return (
     <button onClick={onClick} disabled={disabled} style={{
-      width: 28, height: 28, borderRadius: 6,
+      width: 28, height: 28, borderRadius: RADIUS.sm,
       border: active ? 'none' : '1.5px solid var(--input-bdr)',
       background: active ? RED : 'transparent',
       color: active ? '#fff' : disabled ? 'var(--txt3)' : 'var(--txt2)',
-      fontSize: 12, fontWeight: 600, cursor: disabled ? 'default' : 'pointer',
+      fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: disabled ? 'default' : 'pointer',
       display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: INTER,
     }}>
-      {icon ? <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{icon}</span> : children}
+      {icon ? <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>{icon}</span> : children}
     </button>
   )
 }
@@ -334,19 +334,19 @@ export default function FinanceFixedDeposit() {
       title="Fixed Deposits"
       subtitle={summary ? `${summary.inflow_count} active · ${summary.liquidation_count} liquidated` : undefined}
       actions={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[4] }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>Txn Date:</span>
+            <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>Txn Date:</span>
             <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>Maturity:</span>
+            <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>Maturity:</span>
             <DateFilter from={matFrom} to={matTo} onChange={(f, t) => { setMatFrom(f); setMatTo(t) }} align="right" />
           </div>
           <button onClick={() => setShowNew(true)} style={{
             display: 'flex', alignItems: 'center', gap: 6,
-            padding: '6px 14px', borderRadius: 8, border: 'none',
-            background: NAVY, color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+            padding: '6px 14px', borderRadius: RADIUS.md, border: 'none',
+            background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
           }}>
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>New FD
           </button>
@@ -356,7 +356,7 @@ export default function FinanceFixedDeposit() {
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[5] }}>
         <KpiCard label="Total FDs" value={fdKpis ? String(fdKpis.total_fds) : '—'} icon="savings" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="Total Principal ₦" value={fdKpis ? fmtKobo(fdKpis.total_principal_kobo) : '—'} icon="account_balance" accent={GREEN} loading={kpiLoading} />
         <KpiCard label="Avg Rate %" value={fdKpis ? `${fdKpis.avg_rate_pct.toFixed(1)}%` : '—'} icon="percent" accent={BLUE} loading={kpiLoading} />
@@ -364,9 +364,9 @@ export default function FinanceFixedDeposit() {
       </div>
 
       {/* Trend chart */}
-      <SectionCard title="FD Activity Trend" subtitle="Monthly inflow vs liquidation" style={{ marginBottom: 16 }}>
+      <SectionCard title="FD Activity Trend" subtitle="Monthly inflow vs liquidation" style={{ marginBottom: SP[4] }}>
         {loading ? <div style={{ height: 160 }} /> : trend.length === 0 ? (
-          <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt2)', fontSize: 13 }}>No trend data</div>
+          <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No trend data</div>
         ) : (
           <ResponsiveContainer width="100%" height={160}>
             <AreaChart data={trend} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
@@ -381,8 +381,8 @@ export default function FinanceFixedDeposit() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} width={72} />
+              <XAxis dataKey="month" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} width={72} />
               <Tooltip content={<FDTooltip />} />
               <Area type="monotone" dataKey="inflow" name="Inflow" stroke={GREEN} strokeWidth={2} fill="url(#inflowGrad)" dot={false} />
               <Area type="monotone" dataKey="liquidation" name="Liquidation" stroke={AMBER} strokeWidth={2} fill="url(#liqGrad)" dot={false} />
@@ -392,8 +392,8 @@ export default function FinanceFixedDeposit() {
       </SectionCard>
 
       <SectionCard title="FD Records" badge={filtered.length} padding={false} actions={
-        <button onClick={() => exportFDRecordsCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
+        <button onClick={() => exportFDRecordsCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
           Export CSV
         </button>
       }>
@@ -402,7 +402,7 @@ export default function FinanceFixedDeposit() {
         <div style={{
           padding: '12px 18px',
           borderBottom: filterOpen ? 'none' : '1px solid var(--bdr)',
-          display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+          display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap',
         }}>
           <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
 
@@ -410,7 +410,7 @@ export default function FinanceFixedDeposit() {
             onClick={() => setFilterOpen(o => !o)}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 600,
+              padding: '6px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
               border: `1.5px solid ${activeFilterCount > 0 ? RED : 'var(--input-bdr)'}`,
               background: 'transparent',
               color: activeFilterCount > 0 ? RED : 'var(--txt2)',
@@ -424,13 +424,13 @@ export default function FinanceFixedDeposit() {
                 position: 'absolute', top: -6, right: -6,
                 width: 16, height: 16, borderRadius: '50%',
                 background: RED, color: '#fff',
-                fontSize: 9, fontWeight: 700, fontFamily: INTER,
+                fontSize: 9, fontWeight: FW.bold, fontFamily: INTER,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>{activeFilterCount}</span>
             )}
           </button>
 
-          <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+          <div style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
             {filtered.length} of {rows.length}
           </div>
         </div>
@@ -441,8 +441,8 @@ export default function FinanceFixedDeposit() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: '20px 20px 0' }}>
 
               {/* Status */}
-              <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>STATUS</div>
+              <div style={{ paddingRight: SP[5], borderRight: '1px solid var(--bdr)' }}>
+                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>STATUS</div>
                 {([
                   { value: 'all',         label: 'All records',     color: NAVY },
                   { value: 'inflow',      label: 'Active (Inflow)', color: '#16A34A' },
@@ -451,8 +451,8 @@ export default function FinanceFixedDeposit() {
                   <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
                     <input type="radio" name="fd_status" value={opt.value} checked={statusFilter === opt.value} onChange={() => setStatusFilter(opt.value)}
                       style={{ accentColor: opt.color, width: 14, height: 14, cursor: 'pointer' }} />
-                    <span style={{ fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA }}>{opt.label}</span>
-                    <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--txt3)', fontFamily: INTER }}>
+                    <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA }}>{opt.label}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>
                       {opt.value === 'all' ? rows.length : rows.filter(r => r.transaction_type === opt.value).length}
                     </span>
                   </label>
@@ -460,15 +460,15 @@ export default function FinanceFixedDeposit() {
               </div>
 
               {/* Quick stats */}
-              <div style={{ paddingLeft: 20 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>QUICK STATS</div>
+              <div style={{ paddingLeft: SP[5] }}>
+                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>QUICK STATS</div>
                 {[
                   { label: 'Active FDs',   value: rows.filter(r => r.transaction_type === 'inflow').length,      color: '#16A34A' },
                   { label: 'Liquidated',   value: rows.filter(r => r.transaction_type === 'liquidation').length, color: AMBER },
                 ].map(s => (
-                  <div key={s.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: SORA }}>{s.label}</span>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: s.color, fontFamily: INTER }}>{s.value}</span>
+                  <div key={s.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP[2] }}>
+                    <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: SORA }}>{s.label}</span>
+                    <span style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: s.color, fontFamily: INTER }}>{s.value}</span>
                   </div>
                 ))}
               </div>
@@ -477,21 +477,21 @@ export default function FinanceFixedDeposit() {
 
             <div style={{
               padding: '14px 20px', borderTop: '1px solid var(--bdr)', marginTop: 16,
-              display: 'flex', alignItems: 'center', gap: 12,
+              display: 'flex', alignItems: 'center', gap: SP[3],
             }}>
-              <span style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: SORA }}>
                 {activeFilterCount === 0
                   ? `No filters — showing all ${rows.length} records`
                   : `${activeFilterCount} filter${activeFilterCount !== 1 ? 's' : ''} active`}
               </span>
               <button onClick={resetFilters} style={{
-                padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+                padding: '5px 12px', borderRadius: 7, fontSize: TEXT.sm, fontWeight: FW.semibold,
                 border: '1.5px solid var(--input-bdr)', background: 'transparent',
                 color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA,
               }}>Reset</button>
               <button onClick={() => { load(); setFilterOpen(false) }} style={{
                 marginLeft: 'auto', padding: '5px 16px', borderRadius: 7,
-                fontSize: 12, fontWeight: 600, border: 'none', background: RED, color: '#fff',
+                fontSize: TEXT.sm, fontWeight: FW.semibold, border: 'none', background: RED, color: '#fff',
                 cursor: 'pointer', fontFamily: SORA,
               }}>Apply · {filtered.length} results</button>
             </div>
@@ -505,12 +505,12 @@ export default function FinanceFixedDeposit() {
             display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
           }}>
             {statusFilter !== 'all' && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: statusFilter === 'inflow' ? 'rgba(22,163,74,.12)' : `${AMBER}18`, color: statusFilter === 'inflow' ? '#16A34A' : AMBER }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: SP[1], padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: statusFilter === 'inflow' ? 'rgba(22,163,74,.12)' : `${AMBER}18`, color: statusFilter === 'inflow' ? '#16A34A' : AMBER }}>
                 {statusFilter === 'inflow' ? 'Active' : 'Liquidated'}
-                <span className="material-symbols-rounded" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setStatusFilter('all')}>close</span>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setStatusFilter('all')}>close</span>
               </span>
             )}
-            <button onClick={resetFilters} style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--txt3)', padding: 0, fontFamily: SORA }}>Clear all</button>
+            <button onClick={resetFilters} style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', padding: 0, fontFamily: SORA }}>Clear all</button>
           </div>
         )}
 
@@ -527,11 +527,11 @@ export default function FinanceFixedDeposit() {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '12px 18px', borderTop: '1px solid var(--bdr)',
         }}>
-          <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
             {filtered.length === 0 ? 'No records' : `Showing ${showStart}–${showEnd} of ${filtered.length} FDs`}
           </span>
           {totalPages > 1 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: SP[1] }}>
               <PageBtn icon="chevron_left" disabled={safePage === 1} onClick={() => setPage(p => p - 1)} />
               {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
                 let pg: number

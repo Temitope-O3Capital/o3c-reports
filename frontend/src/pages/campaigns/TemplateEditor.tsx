@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { NAVY, BLUE, INTER } from '../../lib/design'
+import { NAVY, BLUE, INTER, TEXT, FW, RADIUS } from '../../lib/design'
 import EmailBlockEditor, { blocksToHtml, type Block } from '../../components/EmailBlockEditor'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -159,7 +159,7 @@ function SmsAppPreview({ text }: { text: string }) {
 
 const inp: React.CSSProperties = {
   padding: '6px 11px', borderRadius: 7, border: '1px solid var(--bdr)',
-  outline: 'none', fontSize: 13, fontFamily: 'inherit',
+  outline: 'none', fontSize: TEXT.base, fontFamily: 'inherit',
   boxSizing: 'border-box', background: 'var(--input-bg)', color: 'var(--txt)',
 }
 
@@ -234,7 +234,7 @@ export default function CampaignTemplateEditor() {
 
   if (loading) {
     return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: 14 }}>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.md }}>
         Loading…
       </div>
     )
@@ -248,7 +248,7 @@ export default function CampaignTemplateEditor() {
 
         {/* Back */}
         <button onClick={() => navigate('/campaigns/templates')}
-          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'var(--txt2)', fontFamily: INTER, flexShrink: 0 }}>
+          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'none', cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, flexShrink: 0 }}>
           <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_back</span>
           Templates
         </button>
@@ -261,14 +261,14 @@ export default function CampaignTemplateEditor() {
           onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
           placeholder="Template name…"
           autoFocus={!id}
-          style={{ ...inp, flex: 1, minWidth: 200, fontSize: 14, fontWeight: 600 }}
+          style={{ ...inp, flex: 1, minWidth: 200, fontSize: TEXT.md, fontWeight: FW.semibold }}
         />
 
         {/* Channel toggle */}
-        <div style={{ display: 'flex', gap: 4, flexShrink: 0, background: 'var(--th-bg)', borderRadius: 8, padding: 3 }}>
+        <div style={{ display: 'flex', gap: 4, flexShrink: 0, background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: 3 }}>
           {(['sms', 'email'] as const).map(ch => (
             <button key={ch} onClick={() => setForm(f => ({ ...f, channel: ch }))}
-              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 6, border: 'none', background: form.channel === ch ? 'var(--card)' : 'transparent', color: form.channel === ch ? BLUE : 'var(--txt3)', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: INTER, boxShadow: form.channel === ch ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: RADIUS.sm, border: 'none', background: form.channel === ch ? 'var(--card)' : 'transparent', color: form.channel === ch ? BLUE : 'var(--txt3)', cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold, fontFamily: INTER, boxShadow: form.channel === ch ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 15 }}>
                 {ch === 'sms' ? 'smartphone' : 'mail'}
               </span>
@@ -279,7 +279,7 @@ export default function CampaignTemplateEditor() {
 
         {/* Category */}
         <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-          style={{ ...inp, fontSize: 12.5, flexShrink: 0 }}>
+          style={{ ...inp, fontSize: TEXT.sm, flexShrink: 0 }}>
           <option value="marketing">Marketing</option>
           <option value="collections">Collections</option>
           <option value="onboarding">Onboarding</option>
@@ -288,9 +288,9 @@ export default function CampaignTemplateEditor() {
         </select>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          {saveErr && <span style={{ fontSize: 12, color: '#EF4444' }}>{saveErr}</span>}
+          {saveErr && <span style={{ fontSize: TEXT.sm, color: '#EF4444' }}>{saveErr}</span>}
           <button onClick={save} disabled={saving || !form.name.trim()}
-            style={{ padding: '7px 20px', borderRadius: 7, border: 'none', background: NAVY, color: '#fff', cursor: saving || !form.name.trim() ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700, fontFamily: INTER, opacity: saving || !form.name.trim() ? 0.55 : 1 }}>
+            style={{ padding: '7px 20px', borderRadius: 7, border: 'none', background: NAVY, color: '#fff', cursor: saving || !form.name.trim() ? 'not-allowed' : 'pointer', fontSize: TEXT.base, fontWeight: FW.bold, fontFamily: INTER, opacity: saving || !form.name.trim() ? 0.55 : 1 }}>
             {saving ? 'Saving…' : form.id ? 'Save Changes' : 'Create Template'}
           </button>
         </div>
@@ -299,12 +299,12 @@ export default function CampaignTemplateEditor() {
       {/* ── Email subject strip ── */}
       {form.channel === 'email' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 18px', borderBottom: '1px solid var(--bdr)', background: 'var(--card)', flexShrink: 0 }}>
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, flexShrink: 0 }}>SUBJECT</span>
+          <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, flexShrink: 0 }}>SUBJECT</span>
           <input
             value={form.email_subject}
             onChange={e => setForm(f => ({ ...f, email_subject: e.target.value }))}
             placeholder="e.g. Your O3 Capital repayment is due soon"
-            style={{ ...inp, flex: 1, fontSize: 13 }}
+            style={{ ...inp, flex: 1, fontSize: TEXT.base }}
           />
         </div>
       )}
@@ -316,7 +316,7 @@ export default function CampaignTemplateEditor() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 14px', borderBottom: '1px solid var(--bdr)', background: 'var(--card)', flexShrink: 0, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, flexShrink: 0 }}>MERGE TAGS</span>
             {MERGE_TAGS.map(t => (
-              <span key={t} style={{ fontSize: 11, padding: '2px 8px', border: '1px solid var(--bdr)', borderRadius: 12, background: 'var(--chip-bg)', color: 'var(--txt2)', fontFamily: 'monospace', cursor: 'default', userSelect: 'all' }}>{t}</span>
+              <span key={t} style={{ fontSize: TEXT.xs, padding: '2px 8px', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, background: 'var(--chip-bg)', color: 'var(--txt2)', fontFamily: 'monospace', cursor: 'default', userSelect: 'all' }}>{t}</span>
             ))}
           </div>
           <EmailBlockEditor
@@ -333,11 +333,11 @@ export default function CampaignTemplateEditor() {
 
             {/* Merge tags */}
             <div>
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 9 }}>INSERT MERGE TAG</div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 9 }}>INSERT MERGE TAG</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                 {MERGE_TAGS.map(t => (
                   <button key={t} onClick={() => insertTag(t)}
-                    style={{ fontSize: 11.5, padding: '4px 10px', border: '1px solid var(--bdr)', borderRadius: 14, background: 'var(--chip-bg)', color: 'var(--txt2)', cursor: 'pointer', fontFamily: 'monospace' }}>
+                    style={{ fontSize: TEXT.xs, padding: '4px 10px', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, background: 'var(--chip-bg)', color: 'var(--txt2)', cursor: 'pointer', fontFamily: 'monospace' }}>
                     {t}
                   </button>
                 ))}
@@ -346,13 +346,13 @@ export default function CampaignTemplateEditor() {
 
             {/* Textarea */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5 }}>MESSAGE BODY</div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5 }}>MESSAGE BODY</div>
               <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
                 ref={textareaRef}
                 value={form.sms_body}
                 onChange={e => setForm(f => ({ ...f, sms_body: e.target.value }))}
                 placeholder="Hi {{first_name}}, your O3 Capital repayment of ₦{{amount}} is due on {{due_date}}. Pay now to avoid late fees."
-                style={{ fontSize: 14, padding: '14px 16px', border: '1px solid var(--bdr)', borderRadius: 8, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: 'monospace', resize: 'none', lineHeight: 1.75, boxSizing: 'border-box', width: '100%', flex: 1, minHeight: 260, outline: 'none' }}
+                style={{ fontSize: TEXT.md, padding: '14px 16px', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: 'monospace', resize: 'none', lineHeight: 1.75, boxSizing: 'border-box', width: '100%', flex: 1, minHeight: 260, outline: 'none' }}
               />
 
               {/* Character counter */}
@@ -360,12 +360,12 @@ export default function CampaignTemplateEditor() {
                 <div style={{ flex: 1, height: 4, background: 'var(--bdr)', borderRadius: 2, overflow: 'hidden' }}>
                   <div style={{ width: `${pct}%`, height: '100%', background: barC, borderRadius: 2, transition: 'width 0.1s, background 0.2s' }} />
                 </div>
-                <span style={{ fontSize: 12, color: barC, fontFamily: 'monospace', fontWeight: 600, flexShrink: 0, minWidth: 130, textAlign: 'right' }}>
+                <span style={{ fontSize: TEXT.sm, color: barC, fontFamily: 'monospace', fontWeight: FW.semibold, flexShrink: 0, minWidth: 130, textAlign: 'right' }}>
                   {len} / 160 · {segs} SMS{segs > 1 ? ' credits' : ''}
                 </span>
               </div>
               {len > 130 && (
-                <div style={{ fontSize: 12, color: len > 160 ? '#EF4444' : '#D97706', display: 'flex', gap: 6, alignItems: 'center' }}>
+                <div style={{ fontSize: TEXT.sm, color: len > 160 ? '#EF4444' : '#D97706', display: 'flex', gap: 6, alignItems: 'center' }}>
                   <span className="material-symbols-rounded" style={{ fontSize: 15 }}>warning</span>
                   {len > 160 ? `${segs} SMS credits will be charged per recipient` : 'Merge tags may push this over 160 chars'}
                 </div>
@@ -376,11 +376,11 @@ export default function CampaignTemplateEditor() {
           {/* Live phone preview */}
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--th-bg)', padding: 40, overflow: 'auto' }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5 }}>LIVE SMS PREVIEW</div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5 }}>LIVE SMS PREVIEW</div>
               <IPhoneMockup>
                 <SmsAppPreview text={form.sms_body} />
               </IPhoneMockup>
-              <p style={{ fontSize: 11.5, color: 'var(--txt3)', textAlign: 'center', margin: 0, maxWidth: 260, lineHeight: 1.6 }}>
+              <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', textAlign: 'center', margin: 0, maxWidth: 260, lineHeight: 1.6 }}>
                 Merge tags render as the actual value when sent to each recipient.
               </p>
             </div>

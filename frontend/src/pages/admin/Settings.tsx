@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, ErrBanner, SearchInput } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
-import { RED, GREEN, NAVY, AMBER, INTER, SORA, NUM } from '../../lib/design'
+import { RED, GREEN, NAVY, AMBER, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -71,14 +71,14 @@ function SettingRow({ s, onSaved }: { s: Setting; onSaved: () => void }) {
   return (
     <tr style={{ borderBottom: '1px solid var(--bdr)' }}>
       <td style={{ padding: '12px 18px', verticalAlign: 'middle' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {sensitive && <span className="material-symbols-rounded" style={{ fontSize: 14, color: AMBER }}>lock</span>}
-          <span style={{ fontFamily: 'monospace', fontSize: 12.5, color: 'var(--txt)', fontWeight: 500 }}>{s.key}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[1] }}>
+          {sensitive && <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, color: AMBER }}>lock</span>}
+          <span style={{ fontFamily: 'monospace', fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.medium }}>{s.key}</span>
         </div>
       </td>
       <td style={{ padding: '12px 18px', verticalAlign: 'middle' }}>
         {editing ? (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: SP[2], alignItems: 'center' }}>
             <input
               autoFocus
               type={sensitive ? 'password' : 'text'}
@@ -86,20 +86,20 @@ function SettingRow({ s, onSaved }: { s: Setting; onSaved: () => void }) {
               onChange={e => setValue(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
               placeholder={sensitive ? 'Enter new value…' : 'Enter value…'}
-              style={{ flex: 1, padding: '6px 10px', borderRadius: 7, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA, outline: 'none' }}
+              style={{ flex: 1, padding: '6px 10px', borderRadius: 7, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA, outline: 'none' }}
             />
-            <button onClick={save} disabled={saving} style={{ padding: '5px 12px', borderRadius: 7, border: 'none', background: NAVY, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            <button onClick={save} disabled={saving} style={{ padding: '5px 12px', borderRadius: 7, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.bold, cursor: 'pointer' }}>
               {saving ? '…' : 'Save'}
             </button>
-            <button onClick={() => setEditing(false)} style={{ padding: '5px 10px', borderRadius: 7, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: 12, cursor: 'pointer' }}>
+            <button onClick={() => setEditing(false)} style={{ padding: '5px 10px', borderRadius: 7, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.sm, cursor: 'pointer' }}>
               Cancel
             </button>
           </div>
         ) : (
-          <span style={{ fontFamily: sensitive ? 'monospace' : 'inherit', fontSize: 12.5, color: 'var(--txt2)' }}>{displayValue}</span>
+          <span style={{ fontFamily: sensitive ? 'monospace' : 'inherit', fontSize: TEXT.sm, color: 'var(--txt2)' }}>{displayValue}</span>
         )}
       </td>
-      <td style={{ padding: '12px 18px', fontSize: 11.5, color: 'var(--txt3)', ...NUM, verticalAlign: 'middle' }}>
+      <td style={{ padding: '12px 18px', fontSize: TEXT.xs, color: 'var(--txt3)', ...NUM, verticalAlign: 'middle' }}>
         {s.updated_at ? fmtDatetime(s.updated_at) : '—'}
       </td>
       <td style={{ padding: '12px 18px', verticalAlign: 'middle' }}>
@@ -107,9 +107,9 @@ function SettingRow({ s, onSaved }: { s: Setting; onSaved: () => void }) {
           <button onClick={startEdit} style={{
             display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 7,
             border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)',
-            fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
+            fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer',
           }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 13 }}>edit</span>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.base }}>edit</span>
             Edit
           </button>
         )}
@@ -160,53 +160,53 @@ export default function AdminSettings() {
       <ErrBanner error={error} onRetry={load} />
 
       {missingCount > 0 && (
-        <div style={{ background: 'rgba(192,0,0,.07)', border: '1px solid rgba(192,0,0,.2)', borderRadius: 10, padding: '12px 16px', marginBottom: 20, display: 'flex', gap: 10, alignItems: 'center' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 18, color: RED }}>warning</span>
-          <span style={{ fontSize: 13, color: RED, fontWeight: 600 }}>
+        <div style={{ background: 'rgba(192,0,0,.07)', border: '1px solid rgba(192,0,0,.2)', borderRadius: RADIUS.lg, padding: `${SP[3]} ${SP[4]}`, marginBottom: 20, display: 'flex', gap: SP[2], alignItems: 'center' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: RED }}>warning</span>
+          <span style={{ fontSize: TEXT.base, color: RED, fontWeight: FW.semibold }}>
             {missingCount} sensitive setting{missingCount !== 1 ? 's are' : ' is'} missing a value. Check API keys and secrets.
           </span>
         </div>
       )}
 
       {/* Summary */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: SP[3], marginBottom: 20 }}>
         {[
           { label: 'Total Settings', value: rows.length, color: 'var(--txt)' },
           { label: 'Sensitive Keys',  value: sensitiveCount, color: AMBER },
           { label: 'Missing Values',  value: missingCount, color: missingCount > 0 ? RED : GREEN },
         ].map(({ label, value, color }) => (
-          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, padding: '14px 16px' }}>
-            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 6 }}>{label}</div>
-            <div style={{ ...NUM, fontSize: 20, fontWeight: 700, color }}>{value}</div>
+          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 6 }}>{label}</div>
+            <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color }}>{value}</div>
           </div>
         ))}
       </div>
 
       <SectionCard title="Configuration" badge={displayed.length} padding={false}>
 
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: SP[2], alignItems: 'center' }}>
           <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
           <select value={catFilter} onChange={e => setCatFilter(e.target.value)}
-            style={{ padding: '7px 12px', borderRadius: 9, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: 12.5, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}>
+            style={{ padding: '7px 12px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}>
             <option value="">All categories</option>
             {categories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>{displayed.length} settings</span>
+          <span style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{displayed.length} settings</span>
         </div>
 
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: 'var(--th-bg)' }}>
               {['Key', 'Value', 'Last Updated', ''].map(h => (
-                <th key={h} style={{ padding: '10px 18px', textAlign: 'left', fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', borderBottom: '1px solid var(--bdr)' }}>{h}</th>
+                <th key={h} style={{ padding: '10px 18px', textAlign: 'left', fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', borderBottom: '1px solid var(--bdr)' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={4} style={{ padding: 32, textAlign: 'center', color: 'var(--txt3)' }}>Loading…</td></tr>
+              <tr><td colSpan={4} style={{ padding: SP[8], textAlign: 'center', color: 'var(--txt3)' }}>Loading…</td></tr>
             ) : displayed.length === 0 ? (
-              <tr><td colSpan={4} style={{ padding: 32, textAlign: 'center', color: 'var(--txt3)', fontSize: 13 }}>No settings match</td></tr>
+              <tr><td colSpan={4} style={{ padding: SP[8], textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>No settings match</td></tr>
             ) : displayed.map(s => <SettingRow key={s.key} s={s} onSaved={load} />)}
           </tbody>
         </table>

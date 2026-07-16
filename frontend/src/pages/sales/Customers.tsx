@@ -7,7 +7,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtNum } from '../../lib/fmt'
-import { NAVY, GREEN, AMBER, BLUE, PURPLE, RED, NUM } from '../../lib/design'
+import { NAVY, GREEN, AMBER, BLUE, PURPLE, RED, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 const C360 = lazy(() => import('../../components/C360Drawer'))
 
@@ -55,7 +55,7 @@ function SourcePill({ source }: { source?: string }) {
   const color = SOURCE_COLORS[source.toLowerCase()] ?? RED
   const label = source.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
   return (
-    <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${color}14`, color }}>
+    <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: `2px ${SP[2]}`, borderRadius: RADIUS['2xl'], background: `${color}14`, color }}>
       {label}
     </span>
   )
@@ -65,7 +65,7 @@ function StatusPill({ status }: { status?: string }) {
   if (!status) return <span style={{ color: 'var(--txt3)' }}>—</span>
   const s = STATUS_COLORS[status.toLowerCase()] ?? { color: '#6B7280', bg: 'rgba(75,85,99,.1)' }
   return (
-    <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color }}>
+    <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: s.bg, color: s.color }}>
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
   )
@@ -142,30 +142,30 @@ export default function CRMContacts() {
     {
       key: 'cif_number', label: 'CIF',
       render: r => r.cif_number
-        ? <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>{r.cif_number}</span>
+        ? <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.cif_number}</span>
         : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
     {
       key: 'first_name', label: 'Name',
       render: r => (
         <div onClick={() => navigate(`/sales/customers/${r.id}`)} style={{ cursor: 'pointer' }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: NAVY }}>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: NAVY }}>
             {r.first_name} {r.last_name}
           </div>
-          {r.email && <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{r.email}</div>}
+          {r.email && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.email}</div>}
         </div>
       ),
     },
     {
       key: 'phone', label: 'Phone',
-      render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)', fontFamily: 'monospace' }}>{r.phone ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'monospace' }}>{r.phone ?? '—'}</span>,
     },
     { key: 'source',        label: 'Source',  render: r => <SourcePill source={r.source} /> },
-    { key: 'assigned_name', label: 'Officer', render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.assigned_name ?? '—'}</span> },
+    { key: 'assigned_name', label: 'Officer', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.assigned_name ?? '—'}</span> },
     { key: 'status',        label: 'Status',  render: r => <StatusPill status={r.status} /> },
     {
       key: 'updated_at', label: 'Last Activity',
-      render: r => <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{fmtDatetime(r.updated_at)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDatetime(r.updated_at)}</span>,
     },
   ]
 
@@ -174,7 +174,7 @@ export default function CRMContacts() {
       <ErrBanner error={err} onRetry={load} />
 
       {/* KPI cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: SP[5] }}>
         <KpiCard label="Total Contacts" value={kpis ? fmtNum(kpis.total) : '—'} icon="contacts" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="Active This Month" value={kpis ? fmtNum(kpis.active_this_month) : '—'} icon="how_to_reg" accent={GREEN} loading={kpiLoading} />
         <KpiCard label="New This Month" value={kpis ? fmtNum(kpis.new_this_month) : '—'} icon="person_add" accent={BLUE} loading={kpiLoading} />
@@ -203,7 +203,7 @@ export default function CRMContacts() {
         </select>
       </FilterBar>
 
-      <SectionCard title="Contacts" badge={contacts.length} padding={false} actions={<button onClick={() => exportContactsCsv(contacts)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Contacts" badge={contacts.length} padding={false} actions={<button onClick={() => exportContactsCsv(contacts)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <DataTable<Contact>
           cols={cols}
           rows={contacts}

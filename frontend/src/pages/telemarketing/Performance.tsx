@@ -9,7 +9,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtDate, today, monthStart } from '../../lib/fmt'
-import { GREEN, AMBER, RED, BLUE, PURPLE, NAVY, NUM, INTER } from '../../lib/design'
+import { GREEN, AMBER, RED, BLUE, PURPLE, NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -52,25 +52,25 @@ function Tip({ active, payload, label }: { active?: boolean; payload?: { name: s
   if (!active || !payload?.length) return null
   return (
     <div style={{
-      background: '#0E2841', borderRadius: 10, padding: '10px 14px',
+      background: '#0E2841', borderRadius: RADIUS.lg, padding: '10px 14px',
       boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)',
     }}>
       {label && (
         <div style={{
-          fontSize: 9.5, fontWeight: 600, color: 'rgba(255,255,255,.4)', fontFamily: INTER,
+          fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'rgba(255,255,255,.4)', fontFamily: INTER,
           marginBottom: 7, letterSpacing: 0.5, textTransform: 'uppercase',
         }}>
           {label}
         </div>
       )}
       {payload.map((p, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: i > 0 ? 5 : 0 }}>
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginTop: i > 0 ? 5 : 0 }}>
           <div style={{ width: 7, height: 7, borderRadius: '50%', background: p.color ?? '#fff', flexShrink: 0 }} />
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: INTER, ...NUM }}>
+          <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: '#fff', fontFamily: INTER, ...NUM }}>
             {p.value}
           </span>
           {p.name && payload.length > 1 && (
-            <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,.4)', fontFamily: INTER }}>{p.name}</span>
+            <span style={{ fontSize: TEXT['2xs'], color: 'rgba(255,255,255,.4)', fontFamily: INTER }}>{p.name}</span>
           )}
         </div>
       ))}
@@ -84,11 +84,11 @@ function ChartCard({ title, sub, children }: { title: string; sub: string; child
   return (
     <div style={{
       background: 'var(--card)', border: '1px solid var(--card-bdr)',
-      borderRadius: 14, boxShadow: 'var(--card-shadow)', padding: '18px 20px',
+      borderRadius: RADIUS.xl, boxShadow: 'var(--card-shadow)', padding: '18px 20px',
     }}>
       <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{title}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt2)', marginTop: 2, fontFamily: INTER }}>{sub}</div>
+        <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>{title}</div>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2, fontFamily: INTER }}>{sub}</div>
       </div>
       {children}
     </div>
@@ -117,14 +117,14 @@ const AGENT_COLS: TableCol<AgentPerf>[] = [
     key: 'agent_name',
     label: 'Agent',
     sortable: true,
-    render: r => <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>{r.agent_name || '—'}</span>,
+    render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.agent_name || '—'}</span>,
   },
   {
     key: 'calls',
     label: 'Calls',
     sortable: true,
     align: 'right',
-    render: r => <span style={{ ...NUM, fontSize: 13 }}>{fmtNum(r.calls)}</span>,
+    render: r => <span style={{ ...NUM, fontSize: TEXT.base }}>{fmtNum(r.calls)}</span>,
   },
   {
     key: 'connected',
@@ -134,7 +134,7 @@ const AGENT_COLS: TableCol<AgentPerf>[] = [
     render: r => {
       const pct = r.calls > 0 ? (r.connected / r.calls) * 100 : 0
       return (
-        <span style={{ ...NUM, fontSize: 13 }}>{pct.toFixed(1)}%</span>
+        <span style={{ ...NUM, fontSize: TEXT.base }}>{pct.toFixed(1)}%</span>
       )
     },
   },
@@ -143,7 +143,7 @@ const AGENT_COLS: TableCol<AgentPerf>[] = [
     label: 'PTPs',
     sortable: true,
     align: 'right',
-    render: r => <span style={{ ...NUM, fontSize: 13 }}>{r.ptp_count}</span>,
+    render: r => <span style={{ ...NUM, fontSize: TEXT.base }}>{r.ptp_count}</span>,
   },
   {
     key: 'conversion_pct',
@@ -152,7 +152,7 @@ const AGENT_COLS: TableCol<AgentPerf>[] = [
     align: 'right',
     render: r => {
       const col = r.conversion_pct >= 10 ? GREEN : r.conversion_pct >= 5 ? AMBER : RED
-      return <span style={{ ...NUM, fontSize: 13, fontWeight: 600, color: col }}>{r.conversion_pct.toFixed(1)}%</span>
+      return <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold, color: col }}>{r.conversion_pct.toFixed(1)}%</span>
     },
   },
   {
@@ -161,7 +161,7 @@ const AGENT_COLS: TableCol<AgentPerf>[] = [
     sortable: true,
     align: 'right',
     render: r => (
-      <span style={{ ...NUM, fontSize: 12.5, color: 'var(--txt2)' }}>{fmtDuration(r.avg_handle_seconds)}</span>
+      <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDuration(r.avg_handle_seconds)}</span>
     ),
   },
 ]
@@ -251,14 +251,14 @@ export default function TelemarketingPerformance() {
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
         <button
           onClick={() => load()}
-          style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
+          style={{ height: 32, padding: '0 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
         >
           Apply
         </button>
       </FilterBar>
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
         <KpiCard
           label="Total Calls"
           value={kpis ? fmtNum(kpis.total_calls) : '—'}
@@ -292,7 +292,7 @@ export default function TelemarketingPerformance() {
       </div>
 
       {/* Chart row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: SP[5] }}>
         {/* Calls by disposition */}
         <ChartCard title="Calls by Disposition" sub="All agents, selected date range">
           <ResponsiveContainer width="100%" height={200}>
@@ -304,14 +304,14 @@ export default function TelemarketingPerformance() {
               <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
               <XAxis
                 dataKey="disposition"
-                tick={{ fontSize: 8.5, fill: 'var(--chart-lbl)', fontFamily: INTER }}
+                tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }}
                 axisLine={false}
                 tickLine={false}
                 interval={0}
                 textAnchor="middle"
               />
               <YAxis
-                tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }}
+                tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }}
                 axisLine={false}
                 tickLine={false}
               />
@@ -324,9 +324,9 @@ export default function TelemarketingPerformance() {
             </BarChart>
           </ResponsiveContainer>
           {/* Legend */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[2], marginTop: 10 }}>
             {byDisposition.map(d => (
-              <div key={d.disposition} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10.5, color: 'var(--txt2)', fontFamily: INTER }}>
+              <div key={d.disposition} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER }}>
                 <div style={{ width: 8, height: 8, borderRadius: 2, background: dispositionFill(d.disposition), flexShrink: 0 }} />
                 {d.disposition}
               </div>
@@ -345,12 +345,12 @@ export default function TelemarketingPerformance() {
               <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
               <XAxis
                 dataKey="hour"
-                tick={{ fontSize: 9.5, fill: 'var(--chart-lbl)', fontFamily: INTER }}
+                tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }}
                 axisLine={false}
                 tickLine={false}
               />
               <YAxis
-                tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }}
+                tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }}
                 axisLine={false}
                 tickLine={false}
               />
@@ -367,7 +367,7 @@ export default function TelemarketingPerformance() {
         badge={agents.length}
         subtitle="Sorted by calls — conversion % colour: ≥10% green · 5–9% amber · <5% red"
         padding={false}
-        actions={<button onClick={() => exportAgentPerfCsv(agents)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}
+        actions={<button onClick={() => exportAgentPerfCsv(agents)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}
       >
         <DataTable
           cols={AGENT_COLS}

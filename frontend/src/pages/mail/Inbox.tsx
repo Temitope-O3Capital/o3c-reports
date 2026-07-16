@@ -4,7 +4,7 @@ import DOMPurify from 'dompurify'
 import { ErrBanner } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
-import { NAVY, BLUE, RED, NUM, SORA, MONO } from '../../lib/design'
+import { NAVY, BLUE, RED, NUM, SORA, MONO, TEXT, FW, SP } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -91,7 +91,7 @@ function Avatar({ name }: { name: string }) {
       width: 26, height: 26, minWidth: 26, borderRadius: '50%',
       background: BLUE, color: '#fff', fontFamily: SORA,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: 10, fontWeight: 600,
+      fontSize: TEXT['2xs'], fontWeight: FW.semibold,
     }}>
       {initials(name)}
     </div>
@@ -160,7 +160,7 @@ function ComposeModal({ initialTo, initialSubj, initialBody = '', onClose, onSen
 
   const fieldStyle: React.CSSProperties = {
     width: '100%', border: 'none', outline: 'none', background: 'none',
-    color: 'var(--txt)', fontFamily: SORA, fontSize: 13,
+    color: 'var(--txt)', fontFamily: SORA, fontSize: TEXT.base,
     padding: '11px 16px', borderBottom: '1px solid var(--bdr)',
     boxSizing: 'border-box',
   }
@@ -171,9 +171,9 @@ function ComposeModal({ initialTo, initialSubj, initialBody = '', onClose, onSen
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }}
     >
       <div style={{ width: 560, maxWidth: '94vw', background: 'var(--card)', borderRadius: 6, overflow: 'hidden', boxShadow: '0 24px 70px rgba(0,0,0,.35)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', background: NAVY, color: '#fff', padding: '11px 16px', fontSize: 12.5, fontWeight: 600, fontFamily: SORA }}>
+        <div style={{ display: 'flex', alignItems: 'center', background: NAVY, color: '#fff', padding: '11px 16px', fontSize: TEXT.sm, fontWeight: FW.semibold, fontFamily: SORA }}>
           New message
-          <button onClick={handleClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'rgba(255,255,255,.6)', fontSize: 16, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+          <button onClick={handleClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'rgba(255,255,255,.6)', fontSize: TEXT.lg, cursor: 'pointer', lineHeight: 1 }}>✕</button>
         </div>
         <input placeholder="To" value={to} onChange={e => setTo(e.target.value)} style={fieldStyle} />
         <input placeholder="Subject" value={subj} onChange={e => setSubj(e.target.value)} style={fieldStyle} />
@@ -183,20 +183,20 @@ function ComposeModal({ initialTo, initialSubj, initialBody = '', onClose, onSen
           onChange={e => setBody(e.target.value)}
           style={{ ...fieldStyle, height: 200, resize: 'vertical', borderBottom: 'none', lineHeight: 1.6 }}
         />
-        <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderTop: '1px solid var(--bdr)', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: SP[2], padding: `${SP[3]} ${SP[4]}`, borderTop: '1px solid var(--bdr)', alignItems: 'center' }}>
           <button
             onClick={send}
             disabled={sending || !to.trim() || !subj.trim() || !body.trim()}
-            style={{ padding: '7px 16px', borderRadius: 7, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: SORA, opacity: sending ? 0.6 : 1 }}>
+            style={{ padding: '7px 16px', borderRadius: 7, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, opacity: sending ? 0.6 : 1 }}>
             {sending ? 'Sending…' : 'Send'}
           </button>
           <button
             onClick={saveDraft}
             disabled={saving}
-            style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: SORA, opacity: saving ? 0.6 : 1 }}>
+            style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, opacity: saving ? 0.6 : 1 }}>
             {saving ? 'Saving…' : saved ? 'Saved!' : 'Save draft'}
           </button>
-          {err && <span style={{ fontSize: 12, color: RED }}>{err}</span>}
+          {err && <span style={{ fontSize: TEXT.sm, color: RED }}>{err}</span>}
         </div>
       </div>
     </div>
@@ -358,19 +358,19 @@ export default function MailInbox() {
   // Reader body
   function renderBody() {
     if (folder === 'inbox' && selInbound) {
-      if (selInbound.body_html) return <div style={{ fontSize: 13, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', fontFamily: SORA }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selInbound.body_html) }} />
-      return <pre style={{ fontSize: 13, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', whiteSpace: 'pre-line', margin: 0, fontFamily: SORA }}>{selInbound.body_text ?? '(no content)'}</pre>
+      if (selInbound.body_html) return <div style={{ fontSize: TEXT.base, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', fontFamily: SORA }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selInbound.body_html) }} />
+      return <pre style={{ fontSize: TEXT.base, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', whiteSpace: 'pre-line', margin: 0, fontFamily: SORA }}>{selInbound.body_text ?? '(no content)'}</pre>
     }
     if (folder === 'sent') {
-      if (bodyLoading) return <div style={{ fontSize: 13, color: 'var(--txt3)', fontFamily: SORA }}>Loading…</div>
-      if (sentDetail?.html_body) return <div style={{ fontSize: 13, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', fontFamily: SORA }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sentDetail.html_body) }} />
-      if (sentDetail?.text_body) return <pre style={{ fontSize: 13, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', whiteSpace: 'pre-line', margin: 0, fontFamily: SORA }}>{sentDetail.text_body}</pre>
+      if (bodyLoading) return <div style={{ fontSize: TEXT.base, color: 'var(--txt3)', fontFamily: SORA }}>Loading…</div>
+      if (sentDetail?.html_body) return <div style={{ fontSize: TEXT.base, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', fontFamily: SORA }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sentDetail.html_body) }} />
+      if (sentDetail?.text_body) return <pre style={{ fontSize: TEXT.base, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', whiteSpace: 'pre-line', margin: 0, fontFamily: SORA }}>{sentDetail.text_body}</pre>
       return null
     }
     if (folder === 'drafts' && selDraft) {
       const body = selDraft.text_body ?? selDraft.html_body
       if (!body) return null
-      return <pre style={{ fontSize: 13, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', whiteSpace: 'pre-line', margin: 0, fontFamily: SORA }}>{body}</pre>
+      return <pre style={{ fontSize: TEXT.base, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', whiteSpace: 'pre-line', margin: 0, fontFamily: SORA }}>{body}</pre>
     }
     return null
   }
@@ -405,8 +405,8 @@ export default function MailInbox() {
       {/* Page title */}
       <div style={{ padding: '20px 24px 0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
         <div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: SORA, lineHeight: 1.2 }}>Mail</div>
-          <div style={{ fontSize: 12.5, color: 'var(--txt2)', marginTop: 2, fontFamily: SORA }}>Inbox, sent messages and drafts</div>
+          <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)', fontFamily: SORA, lineHeight: 1.2 }}>Mail</div>
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2, fontFamily: SORA }}>Inbox, sent messages and drafts</div>
         </div>
       </div>
 
@@ -419,18 +419,18 @@ export default function MailInbox() {
         <div style={{ width: 390, minWidth: 300, flexShrink: 0, borderRight: '1px solid var(--bdr)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
           {/* List head */}
-          <div style={{ padding: '14px 18px 10px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', fontFamily: SORA }}>{folderLabel}</span>
-            <span style={{ ...NUM, fontSize: 11, color: 'var(--txt3)' }}>{folderCount}</span>
+          <div style={{ padding: '14px 18px 10px', display: 'flex', alignItems: 'center', gap: SP[2], flexShrink: 0 }}>
+            <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', fontFamily: SORA }}>{folderLabel}</span>
+            <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{folderCount}</span>
             <button
               onClick={() => openCompose()}
               style={{
                 marginLeft: 'auto', padding: '5px 11px', borderRadius: 7,
                 border: 'none', background: NAVY, color: '#fff',
-                fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: SORA,
+                fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA,
                 display: 'flex', alignItems: 'center', gap: 4,
               }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>edit</span>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>edit</span>
               Compose
             </button>
           </div>
@@ -445,7 +445,7 @@ export default function MailInbox() {
                 </div>
               ))
             ) : items.length === 0 ? (
-              <div style={{ padding: '40px 18px', textAlign: 'center', color: 'var(--txt3)', fontSize: 13, fontFamily: SORA }}>
+              <div style={{ padding: '40px 18px', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base, fontFamily: SORA }}>
                 {folder === 'inbox' ? 'Your inbox is empty' : folder === 'sent' ? 'No sent messages' : 'No drafts'}
               </div>
             ) : items.map(item => {
@@ -464,19 +464,19 @@ export default function MailInbox() {
                   onMouseLeave={e => { if (!isSel) (e.currentTarget as HTMLDivElement).style.background = 'transparent' }}
                 >
                   <div style={{ display: 'flex', alignItems: 'baseline' }}>
-                    <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--txt)', fontFamily: SORA, display: 'flex', alignItems: 'center', gap: item.isUnread ? 7 : 0 }}>
+                    <span style={{ fontWeight: FW.semibold, fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA, display: 'flex', alignItems: 'center', gap: item.isUnread ? 7 : 0 }}>
                       {item.isUnread && <span style={{ width: 7, height: 7, borderRadius: '50%', background: BLUE, display: 'inline-block', flexShrink: 0 }} />}
                       {item.displayFrom}
                     </span>
-                    <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 10.5, color: 'var(--txt3)', flexShrink: 0, paddingLeft: 8 }}>
+                    <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 10.5, color: 'var(--txt3)', flexShrink: 0, paddingLeft: SP[2] }}>
                       {item.time}
                     </span>
                   </div>
-                  <div style={{ fontSize: 12, marginTop: 2, color: 'var(--txt)', fontFamily: SORA, fontWeight: item.isUnread ? 600 : 400 }}>
+                  <div style={{ fontSize: TEXT.sm, marginTop: 2, color: 'var(--txt)', fontFamily: SORA, fontWeight: item.isUnread ? FW.semibold : FW.normal }}>
                     {item.subject}
                   </div>
                   {item.preview && (
-                    <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: SORA }}>
+                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: SORA }}>
                       {item.preview}
                     </div>
                   )}
@@ -489,7 +489,7 @@ export default function MailInbox() {
           {folder === 'inbox' && hasMore && !loading && (
             <button
               onClick={loadMoreInbox}
-              style={{ width: '100%', padding: '10px', background: 'none', border: 'none', borderTop: '1px solid var(--bdr)', color: 'var(--txt2)', fontSize: 12.5, cursor: 'pointer', fontFamily: SORA }}>
+              style={{ width: '100%', padding: '10px', background: 'none', border: 'none', borderTop: '1px solid var(--bdr)', color: 'var(--txt2)', fontSize: TEXT.sm, cursor: 'pointer', fontFamily: SORA }}>
               Load more
             </button>
           )}
@@ -497,13 +497,13 @@ export default function MailInbox() {
 
         {/* ── Right: reader pane ── */}
         {selItem ? (
-          <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px', minWidth: 0 }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: `${SP[6]} ${SP[8]}`, minWidth: 0 }}>
             {/* Subject */}
-            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: 'var(--txt)', fontFamily: SORA }}>
+            <div style={{ fontSize: TEXT.lg, fontWeight: FW.semibold, marginBottom: SP[3], color: 'var(--txt)', fontFamily: SORA }}>
               {selItem.subject}
             </div>
             {/* Meta row */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 14, borderBottom: '1px solid var(--bdr)', marginBottom: 18, fontSize: 12, color: 'var(--txt2)', fontFamily: SORA }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 14, borderBottom: '1px solid var(--bdr)', marginBottom: 18, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: SORA }}>
               <Avatar name={selItem.avatarName} />
               <strong style={{ fontFamily: SORA, color: 'var(--txt)' }}>{meta.name}</strong>
               <span style={{ fontFamily: MONO, color: 'var(--txt3)', marginLeft: 'auto' }}>·&nbsp;{meta.time}</span>
@@ -511,11 +511,11 @@ export default function MailInbox() {
             {/* Body */}
             {renderBody()}
             {/* Actions */}
-            <div style={{ marginTop: 22, display: 'flex', gap: 8 }}>
+            <div style={{ marginTop: 22, display: 'flex', gap: SP[2] }}>
               <button
                 onClick={() => navigate(`/mail/${selId}?reply=1`)}
-                style={{ padding: '7px 14px', borderRadius: 7, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: SORA, display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>reply</span>
+                style={{ padding: '7px 14px', borderRadius: 7, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>reply</span>
                 Reply
               </button>
               <button
@@ -526,22 +526,22 @@ export default function MailInbox() {
                   const fwdBody = `\n\n---------- Forwarded message ----------\nFrom: ${sender}\nDate: ${date}\n\n${origBody}`
                   openCompose('', `Fwd: ${selItem.subject}`, fwdBody)
                 }}
-                style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: SORA, display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>forward</span>
+                style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>forward</span>
                 Forward
               </button>
               {folder === 'sent' && selId !== null && (
                 <button
                   onClick={() => navigate(`/mail/${selId}`)}
-                  style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: SORA, display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>open_in_new</span>
+                  style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>open_in_new</span>
                   Full thread
                 </button>
               )}
             </div>
           </div>
         ) : (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: 12.5, fontFamily: SORA }}>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.sm, fontFamily: SORA }}>
             Select a message to read
           </div>
         )}

@@ -7,7 +7,7 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiDelete } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
-import { NAVY, BLUE, PURPLE, GREEN, NUM, INTER } from '../../lib/design'
+import { NAVY, BLUE, PURPLE, GREEN, NUM, INTER, TEXT, FW, RADIUS } from '../../lib/design'
 import { blocksToHtml, type Block } from '../../components/EmailBlockEditor'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -35,13 +35,13 @@ const CATEGORY_COLOR: Record<string, string> = {
 
 function ChannelPill({ channel }: { channel: string }) {
   const c = CHANNEL_COLOR[channel] ?? '#6B7280'
-  return <span style={{ ...NUM, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `${c}14`, color: c }}>{channel.toUpperCase()}</span>
+  return <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${c}14`, color: c }}>{channel.toUpperCase()}</span>
 }
 
 function CategoryPill({ category }: { category: string }) {
   const c = CATEGORY_COLOR[category] ?? '#6B7280'
   const label = category.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
-  return <span style={{ ...NUM, fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: `${c}10`, color: c }}>{label}</span>
+  return <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${c}10`, color: c }}>{label}</span>
 }
 
 // ── Access guard ──────────────────────────────────────────────────────────────
@@ -100,10 +100,10 @@ export default function CampaignTemplates() {
       key: 'name', label: 'Template',
       render: r => (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</div>
-          {r.email_subject && <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>Subject: {r.email_subject}</div>}
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.name}</div>
+          {r.email_subject && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Subject: {r.email_subject}</div>}
           {r.sms_body && !r.email_subject && (
-            <div style={{ fontSize: 11.5, color: 'var(--txt3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300 }}>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300 }}>
               {r.sms_body}
             </div>
           )}
@@ -112,19 +112,19 @@ export default function CampaignTemplates() {
     },
     { key: 'channel',  label: 'Channel',  render: r => <ChannelPill  channel={r.channel} /> },
     { key: 'category', label: 'Category', render: r => <CategoryPill category={r.category} /> },
-    { key: 'created_by_name', label: 'Created By', render: r => <span style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{r.created_by_name ?? '—'}</span> },
-    { key: 'created_at', label: 'Created', render: r => <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{fmtDatetime(r.created_at)}</span> },
+    { key: 'created_by_name', label: 'Created By', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.created_by_name ?? '—'}</span> },
+    { key: 'created_at', label: 'Created', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDatetime(r.created_at)}</span> },
     {
       key: 'id', label: '', align: 'right',
       render: r => (
         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
           <button onClick={e => { e.stopPropagation(); setPreview(r) }}
-            style={{ ...btnSecondary, fontSize: 11, padding: '3px 10px' }}>Preview</button>
+            style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px' }}>Preview</button>
           {canWrite && <>
             <button onClick={e => { e.stopPropagation(); navigate(`/campaigns/templates/${r.id}/edit`) }}
-              style={{ ...btnSecondary, fontSize: 11, padding: '3px 10px' }}>Edit</button>
+              style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px' }}>Edit</button>
             <button onClick={e => { e.stopPropagation(); setDeleteTarget(r) }}
-              style={{ ...btnSecondary, fontSize: 11, padding: '3px 10px', color: '#EF4444', borderColor: '#EF444440' }}>Delete</button>
+              style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px', color: '#EF4444', borderColor: '#EF444440' }}>Delete</button>
           </>}
         </div>
       ),
@@ -160,7 +160,7 @@ export default function CampaignTemplates() {
         </select>
       </FilterBar>
 
-      <SectionCard title="Templates" badge={templates.length} padding={false} actions={<button onClick={() => exportCsv(templates)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 12, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Templates" badge={templates.length} padding={false} actions={<button onClick={() => exportCsv(templates)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <DataTable<Template>
           cols={cols}
           rows={templates}
@@ -188,16 +188,16 @@ export default function CampaignTemplates() {
             </div>
             {preview.email_subject && (
               <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', marginBottom: 4 }}>Subject</div>
-                <div style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 600 }}>{preview.email_subject}</div>
+                <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 4 }}>Subject</div>
+                <div style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.semibold }}>{preview.email_subject}</div>
               </div>
             )}
             <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', marginBottom: 6 }}>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 6 }}>
                 {preview.channel === 'sms' ? 'SMS Body' : 'Email Body'}
               </div>
               {preview.channel === 'sms' ? (
-                <div style={{ fontSize: 13, color: 'var(--txt)', lineHeight: 1.6, background: 'var(--th-bg)', padding: '12px 14px', borderRadius: 8, fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                <div style={{ fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.6, background: 'var(--th-bg)', padding: '12px 14px', borderRadius: RADIUS.md, fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                   {preview.sms_body || '(no body)'}
                 </div>
               ) : (
@@ -207,7 +207,7 @@ export default function CampaignTemplates() {
                       ? blocksToHtml(Array.isArray(preview.email_blocks) ? preview.email_blocks : [])
                       : preview.email_body_html ?? ''
                   }
-                  style={{ width: '100%', height: 340, border: 'none', borderRadius: 8, background: '#F4F6FA' }}
+                  style={{ width: '100%', height: 340, border: 'none', borderRadius: RADIUS.md, background: '#F4F6FA' }}
                   title="Email preview"
                   sandbox="allow-same-origin"
                 />

@@ -8,7 +8,7 @@ import { Page, KpiCard, SectionCard, DataTable } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtPct, fmtNum, fmtDatetime } from '../../lib/fmt'
-import { RED, GREEN, BLUE, AMBER, NAVY, NUM } from '../../lib/design'
+import { RED, GREEN, BLUE, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -55,7 +55,7 @@ function StagePill({ stage }: { stage: string }) {
   const c = STAGE_COLORS[stage] ?? { bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
   return (
     <span style={{
-      fontSize: 11.5, fontWeight: 600, padding: '2px 10px', borderRadius: 20,
+      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
       background: c.bg, color: c.txt, whiteSpace: 'nowrap', textTransform: 'capitalize',
     }}>
       {stage.replace(/_/g, ' ')}
@@ -72,10 +72,10 @@ function ChartTooltip({ active, payload, label, kobo }: {
   return (
     <div style={{
       background: 'var(--card)', border: '1px solid var(--bdr)',
-      borderRadius: 8, padding: '8px 12px', fontSize: 12,
+      borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, fontSize: TEXT.sm,
       boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
     }}>
-      <p style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 4 }}>{label}</p>
+      <p style={{ fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 4 }}>{label}</p>
       {payload.map((p: any, i: number) => (
         <p key={i} style={{ color: p.color, marginBottom: 2 }}>
           {p.name}: {kobo ? fmtKobo(p.value) : p.value}
@@ -123,11 +123,11 @@ export default function SalesOverview() {
   const appCols: TableCol<RecentApp>[] = [
     {
       key: 'id', label: 'App#', sortable: false, width: 80,
-      render: row => <span style={{ ...NUM, fontSize: 12, color: 'var(--txt2)' }}>APP-{row.id}</span>,
+      render: row => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>APP-{row.id}</span>,
     },
     {
       key: 'applicant_name', label: 'Applicant', sortable: true,
-      render: row => <span style={{ fontSize: 13, color: 'var(--txt)' }}>{row.applicant_name ?? '—'}</span>,
+      render: row => <span style={{ fontSize: TEXT.base, color: 'var(--txt)' }}>{row.applicant_name ?? '—'}</span>,
     },
     {
       key: 'stage', label: 'Stage', sortable: true,
@@ -136,8 +136,8 @@ export default function SalesOverview() {
     {
       key: 'product_type', label: 'Product', sortable: true,
       render: row => row.product_type
-        ? <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'var(--chip-bg)', color: 'var(--chip-txt)', whiteSpace: 'nowrap' }}>{row.product_type}</span>
-        : <span style={{ color: 'var(--txt3)', fontSize: 12 }}>—</span>,
+        ? <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: `2px ${SP[2]}`, borderRadius: RADIUS['2xl'], background: 'var(--chip-bg)', color: 'var(--chip-txt)', whiteSpace: 'nowrap' }}>{row.product_type}</span>
+        : <span style={{ color: 'var(--txt3)', fontSize: TEXT.sm }}>—</span>,
     },
     {
       key: 'amount_requested_kobo', label: 'Amount', sortable: true, align: 'right',
@@ -149,7 +149,7 @@ export default function SalesOverview() {
     },
     {
       key: 'updated_at', label: 'Last Updated', sortable: true,
-      render: row => <span style={{ color: 'var(--txt2)', fontSize: 12 }}>{fmtDatetime(row.updated_at)}</span>,
+      render: row => <span style={{ color: 'var(--txt2)', fontSize: TEXT.sm }}>{fmtDatetime(row.updated_at)}</span>,
     },
   ]
 
@@ -159,14 +159,14 @@ export default function SalesOverview() {
       render: row => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
           <div style={{
-            width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+            width: 28, height: 28, borderRadius: RADIUS.full, flexShrink: 0,
             background: `${NAVY}14`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 10, fontWeight: 700, color: NAVY,
+            fontSize: TEXT['2xs'], fontWeight: FW.bold, color: NAVY,
           }}>
             {(row.name ?? '?').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
           </div>
-          <span style={{ fontSize: 13 }}>{row.name}</span>
+          <span style={{ fontSize: TEXT.base }}>{row.name}</span>
         </div>
       ),
     },
@@ -189,7 +189,7 @@ export default function SalesOverview() {
           onClick={() => navigate('/sales/applications/new')}
           style={{
             display: 'flex', alignItems: 'center', gap: 6,
-            padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+            padding: '7px 16px', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold,
             border: 'none', background: RED, color: '#fff', cursor: 'pointer',
           }}
         >
@@ -199,7 +199,7 @@ export default function SalesOverview() {
       }
     >
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[4] }}>
         <KpiCard label="Submitted MTD"   value={kpis ? fmtNum(kpis.submitted_mtd) : '—'}         icon="description"       accent={BLUE}  loading={loading} />
         <KpiCard label="Disbursed MTD"   value={kpis ? fmtKobo(kpis.disbursed_mtd_kobo) : '—'}   icon="payments"          accent={RED}   loading={loading} />
         <KpiCard label="Pipeline Value"  value={kpis ? fmtKobo(kpis.pipeline_kobo) : '—'}        icon="account_balance"   accent={NAVY}  loading={loading} />
@@ -218,8 +218,8 @@ export default function SalesOverview() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
-              <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} width={72} />
+              <XAxis dataKey="month" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
+              <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} width={72} />
               <Tooltip content={<ChartTooltip kobo />} />
               <Area type="monotone" dataKey="disbursements_kobo" name="Disbursements"
                 stroke={RED} strokeWidth={2} fill="url(#salesGrad)" />
@@ -229,13 +229,13 @@ export default function SalesOverview() {
 
         <SectionCard title="Top Performers" subtitle="Disbursements MTD">
           {perfs.length === 0 ? (
-            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: 13 }}>No data</div>
+            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>No data</div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={perfs} layout="vertical" margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
-                <XAxis type="number" tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} width={80} />
+                <XAxis type="number" tickFormatter={v => fmtKobo(v)} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} width={80} />
                 <Tooltip content={<ChartTooltip kobo />} />
                 <Bar dataKey="amount_kobo" name="Disbursed" fill={AMBER} radius={[0, 4, 4, 0]} />
               </BarChart>
@@ -247,14 +247,14 @@ export default function SalesOverview() {
       {/* Lead source breakdown */}
       {leadSrc.length > 0 && (
         <SectionCard title="Origination by Lead Source" subtitle="Applications by acquisition channel" padding={false}
-          actions={<span style={{ fontSize: 11, color: 'var(--txt3)' }}>All time</span>}
+          actions={<span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>All time</span>}
         >
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={leadSrc} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
-                <YAxis type="category" dataKey="lead_source" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} width={90} />
+                <XAxis type="number" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
+                <YAxis type="category" dataKey="lead_source" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} width={90} />
                 <Tooltip formatter={(v: any) => [fmtNum(v as number), 'Applications']} />
                 <Bar dataKey="total_applications" name="Applications" radius={[0, 4, 4, 0]}>
                   {leadSrc.map((_, i) => <Cell key={i} fill={LEAD_SOURCE_COLORS[i % LEAD_SOURCE_COLORS.length]} />)}
@@ -262,12 +262,12 @@ export default function SalesOverview() {
               </BarChart>
             </ResponsiveContainer>
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.sm }}>
                 <thead>
                   <tr>
                     {['Source', 'Applications', 'Approved', 'Disbursed'].map(h => (
-                      <th key={h} style={{ textAlign: h === 'Source' ? 'left' : 'right', padding: '8px 12px',
-                        fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px',
+                      <th key={h} style={{ textAlign: h === 'Source' ? 'left' : 'right', padding: `${SP[2]} ${SP[3]}`,
+                        fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '.4px',
                         color: 'var(--txt2)', background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>{h}</th>
                     ))}
                   </tr>
@@ -279,15 +279,15 @@ export default function SalesOverview() {
                       onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                     >
-                      <td style={{ padding: '8px 12px', borderBottom: '1px solid var(--bdr)' }}>
+                      <td style={{ padding: `${SP[2]} ${SP[3]}`, borderBottom: '1px solid var(--bdr)' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                           <span style={{ width: 10, height: 10, borderRadius: '50%', background: LEAD_SOURCE_COLORS[i % LEAD_SOURCE_COLORS.length], flexShrink: 0 }} />
                           <span style={{ textTransform: 'capitalize' }}>{row.lead_source}</span>
                         </span>
                       </td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid var(--bdr)', ...NUM }}>{fmtNum(row.total_applications)}</td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid var(--bdr)', ...NUM, color: GREEN }}>{fmtNum(row.approved)}</td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid var(--bdr)', ...NUM }}>{fmtKobo(row.disbursement_kobo)}</td>
+                      <td style={{ padding: `${SP[2]} ${SP[3]}`, textAlign: 'right', borderBottom: '1px solid var(--bdr)', ...NUM }}>{fmtNum(row.total_applications)}</td>
+                      <td style={{ padding: `${SP[2]} ${SP[3]}`, textAlign: 'right', borderBottom: '1px solid var(--bdr)', ...NUM, color: GREEN }}>{fmtNum(row.approved)}</td>
+                      <td style={{ padding: `${SP[2]} ${SP[3]}`, textAlign: 'right', borderBottom: '1px solid var(--bdr)', ...NUM }}>{fmtKobo(row.disbursement_kobo)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -305,7 +305,7 @@ export default function SalesOverview() {
           <button
             onClick={() => navigate('/sales/applications')}
             style={{
-              fontSize: 12, fontWeight: 500, color: RED,
+              fontSize: TEXT.sm, fontWeight: FW.medium, color: RED,
               background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px',
               display: 'flex', alignItems: 'center', gap: 4,
             }}

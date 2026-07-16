@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner, btnPrimary, btnSecondary } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { GREEN, AMBER, RED, NAVY, BLUE, NUM, INTER, MONO } from '../../lib/design'
+import { GREEN, AMBER, RED, NAVY, BLUE, NUM, INTER, MONO, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { fmtKobo, fmtNum } from '../../lib/fmt'
 import { toast } from 'sonner'
 
@@ -49,17 +49,17 @@ type Row = Record<string, string | number>
 
 function PreviewTable({ rows }: { rows: Row[] }) {
   if (rows.length === 0) return (
-    <div style={{ textAlign: 'center', padding: 32, color: 'var(--txt3)', fontSize: 13 }}>No results for selected range</div>
+    <div style={{ textAlign: 'center', padding: SP[8], color: 'var(--txt3)', fontSize: TEXT.base }}>No results for selected range</div>
   )
   const cols = Object.keys(rows[0])
   return (
     <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.sm }}>
         <thead>
           <tr>
             {cols.map(c => (
-              <th key={c} style={{ textAlign: 'left', padding: '8px 12px', background: 'var(--th-bg)',
-                fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--txt2)',
+              <th key={c} style={{ textAlign: 'left', padding: `${SP[2]} ${SP[3]}`, background: 'var(--th-bg)',
+                fontWeight: FW.bold, fontSize: TEXT.xs, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--txt2)',
                 borderBottom: '1px solid var(--bdr)' }}>
                 {c.replace(/_/g, ' ')}
               </th>
@@ -74,7 +74,7 @@ function PreviewTable({ rows }: { rows: Row[] }) {
                 const isKobo = KOBO_METRICS.has(c)
                 const isNum = typeof v === 'number'
                 return (
-                  <td key={c} style={{ padding: '8px 12px', textAlign: isNum ? 'right' : 'left',
+                  <td key={c} style={{ padding: `${SP[2]} ${SP[3]}`, textAlign: isNum ? 'right' : 'left',
                     fontFamily: isNum ? MONO : undefined }}>
                     {isKobo ? fmtKobo(Number(v)) : isNum ? fmtNum(Number(v)) : String(v ?? '—')}
                   </td>
@@ -85,7 +85,7 @@ function PreviewTable({ rows }: { rows: Row[] }) {
         </tbody>
       </table>
       {rows.length > 100 && (
-        <div style={{ textAlign: 'center', padding: 12, fontSize: 12, color: 'var(--txt3)' }}>
+        <div style={{ textAlign: 'center', padding: SP[3], fontSize: TEXT.sm, color: 'var(--txt3)' }}>
           Showing 100 of {rows.length} rows — export CSV for full data
         </div>
       )}
@@ -160,8 +160,8 @@ export default function ReportBuilder() {
   }
 
   const inpStyle: React.CSSProperties = {
-    padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7,
-    fontSize: 13, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: INTER,
+    padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+    fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: INTER,
   }
 
   if (loading) return (
@@ -179,12 +179,12 @@ export default function ReportBuilder() {
     >
       <ErrBanner error={error} onRetry={() => setError(null)} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 20, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: SP[5], alignItems: 'start' }}>
         {/* ── Config panel ── */}
         <SectionCard title="Report Configuration">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
                 Report Name *
               </label>
               <input value={name} onChange={e => setName(e.target.value)}
@@ -192,7 +192,7 @@ export default function ReportBuilder() {
             </div>
 
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
                 Description
               </label>
               <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={description} onChange={e => setDesc(e.target.value)} rows={2}
@@ -200,7 +200,7 @@ export default function ReportBuilder() {
             </div>
 
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
                 Module *
               </label>
               <select value={module} onChange={e => setModule(e.target.value)}
@@ -210,7 +210,7 @@ export default function ReportBuilder() {
             </div>
 
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
                 Default Date Range
               </label>
               <select value={dateRange} onChange={e => setDateRange(e.target.value)}
@@ -221,16 +221,16 @@ export default function ReportBuilder() {
 
             {/* Metrics preview */}
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 8 }}>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[2] }}>
                 Metrics (auto for module)
               </label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+                <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '3px 8px', borderRadius: RADIUS.sm,
                   background: `${NAVY}12`, color: NAVY }}>date</span>
-                <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+                <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '3px 8px', borderRadius: RADIUS.sm,
                   background: `${BLUE}12`, color: BLUE }}>{dimLabel}</span>
                 {metrics.map(m => (
-                  <span key={m} style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+                  <span key={m} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '3px 8px', borderRadius: RADIUS.sm,
                     background: `${GREEN}12`, color: GREEN }}>
                     {m.replace(/_/g, ' ')}
                   </span>
@@ -239,14 +239,14 @@ export default function ReportBuilder() {
             </div>
 
             <div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer' }}>
                 <input type="checkbox" checked={isPublic} onChange={e => setIsPublic(e.target.checked)}
                   style={{ width: 16, height: 16, accentColor: NAVY }} />
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>Make public to all users</span>
+                <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>Make public to all users</span>
               </label>
             </div>
 
-            <div style={{ display: 'flex', gap: 8, paddingTop: 8 }}>
+            <div style={{ display: 'flex', gap: SP[2], paddingTop: SP[2] }}>
               <button onClick={() => navigate('/bi')} style={{ ...btnSecondary, flex: 1, justifyContent: 'center' }}>
                 Cancel
               </button>
@@ -260,38 +260,38 @@ export default function ReportBuilder() {
         {/* ── Preview panel ── */}
         <div>
           <SectionCard title="Preview" actions={
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: SP[2], alignItems: 'center' }}>
               <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
-                style={{ ...inpStyle, padding: '5px 8px', fontSize: 12 }} />
-              <span style={{ fontSize: 12, color: 'var(--txt3)' }}>→</span>
+                style={{ ...inpStyle, padding: '5px 8px', fontSize: TEXT.sm }} />
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>→</span>
               <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
-                style={{ ...inpStyle, padding: '5px 8px', fontSize: 12 }} />
-              <button onClick={runPreview} disabled={running || !id} style={{ ...btnPrimary, padding: '6px 14px', fontSize: 12 }}>
+                style={{ ...inpStyle, padding: '5px 8px', fontSize: TEXT.sm }} />
+              <button onClick={runPreview} disabled={running || !id} style={{ ...btnPrimary, padding: '6px 14px', fontSize: TEXT.sm }}>
                 {running ? 'Running…' : 'Run Preview'}
               </button>
               {id && (
                 <button onClick={() => window.open(`/api/bi/reports/${id}/export`, '_blank')}
-                  style={{ ...btnSecondary, padding: '6px 14px', fontSize: 12 }}>
+                  style={{ ...btnSecondary, padding: '6px 14px', fontSize: TEXT.sm }}>
                   Export CSV
                 </button>
               )}
             </div>
           }>
             {!id ? (
-              <div style={{ textAlign: 'center', padding: 48, color: 'var(--txt3)', fontSize: 13 }}>
+              <div style={{ textAlign: 'center', padding: SP[12], color: 'var(--txt3)', fontSize: TEXT.base }}>
                 Save the report first to run a preview.
               </div>
             ) : running ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: 64 }}><Spinner size={28} /></div>
             ) : preview ? (
               <>
-                <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--txt3)', ...NUM }}>
+                <div style={{ marginBottom: 10, fontSize: TEXT.sm, color: 'var(--txt3)', ...NUM }}>
                   {preview.length} row{preview.length !== 1 ? 's' : ''}
                 </div>
                 <PreviewTable rows={preview} />
               </>
             ) : (
-              <div style={{ textAlign: 'center', padding: 48, color: 'var(--txt3)', fontSize: 13 }}>
+              <div style={{ textAlign: 'center', padding: SP[12], color: 'var(--txt3)', fontSize: TEXT.base }}>
                 Click "Run Preview" to see data for this report.
               </div>
             )}

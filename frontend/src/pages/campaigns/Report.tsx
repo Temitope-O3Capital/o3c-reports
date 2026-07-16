@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { Page, SectionCard, KpiCard, ErrBanner, Modal, btnPrimary, btnSecondary, filterInputStyle } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtNum, fmtPct, fmtDatetime } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, INTER } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -107,16 +107,16 @@ function PipelineBar({ stats, total }: { stats: ContactStats; total: number }) {
       {rows.map((row, i) => (
         <div key={row.label}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 3 }}>
-            <div style={{ width: 68, fontSize: 11.5, color: 'var(--txt2)', textAlign: 'right', flexShrink: 0 }}>{row.label}</div>
-            <div style={{ flex: 1, height: 10, background: 'var(--th-bg)', borderRadius: 4, overflow: 'hidden' }}>
+            <div style={{ width: 68, fontSize: TEXT.xs, color: 'var(--txt2)', textAlign: 'right', flexShrink: 0 }}>{row.label}</div>
+            <div style={{ flex: 1, height: 10, background: 'var(--th-bg)', borderRadius: RADIUS.xs, overflow: 'hidden' }}>
               <div style={{ height: '100%', width: `${row.barW}%`, background: row.color, borderRadius: 4, transition: 'width .4s' }} />
             </div>
-            <div style={{ width: 90, fontSize: 11, ...NUM, textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ width: 90, fontSize: TEXT.xs, ...NUM, textAlign: 'right', flexShrink: 0 }}>
               {fmtNum(row.value)} <span style={{ color: 'var(--txt3)' }}>({fmtPct(i === 0 ? row.stagePct : row.stagePct)})</span>
             </div>
           </div>
           {i > 0 && row.dropLabel && (
-            <div style={{ paddingLeft: 78, fontSize: 10.5, color: 'var(--txt3)' }}>
+            <div style={{ paddingLeft: 78, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
               of prev stage · <span style={{ color: row.stagePct < 50 ? RED : 'var(--txt3)' }}>{row.dropLabel}</span>
             </div>
           )}
@@ -198,22 +198,22 @@ function PushToTelemarketingModal({ campaignId, open, onClose }: PushModalProps)
         </div>
       }
     >
-      {pushErr && <div style={{ color: '#EF4444', fontSize: 12.5, marginBottom: 12 }}>{pushErr}</div>}
+      {pushErr && <div style={{ color: '#EF4444', fontSize: TEXT.sm, marginBottom: SP[3] }}>{pushErr}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
             Contact Segment
           </label>
           <select value={segment} onChange={e => setSegment(e.target.value)} style={{ ...filterInputStyle, width: '100%' }}>
             {SEGMENTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
-          <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 4 }}>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>
             Choose which contacts from this campaign to hand off. Only contacts with a phone number are included; DNC numbers are automatically excluded.
           </div>
         </div>
 
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
             Telemarketing Campaign
           </label>
           <select value={selectedTmId} onChange={e => setSelectedTmId(e.target.value)} style={{ ...filterInputStyle, width: '100%' }}>
@@ -225,7 +225,7 @@ function PushToTelemarketingModal({ campaignId, open, onClose }: PushModalProps)
 
         {selectedTmId === 'new' && (
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
               New Campaign Name
             </label>
             <input
@@ -238,7 +238,7 @@ function PushToTelemarketingModal({ campaignId, open, onClose }: PushModalProps)
         )}
 
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
             Assign to Agent (optional)
           </label>
           <select value={assignedTo} onChange={e => setAssignedTo(e.target.value)} style={{ ...filterInputStyle, width: '100%' }}>
@@ -297,13 +297,13 @@ export default function CampaignReport() {
       actions={
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => navigate('/campaigns')}
-            style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>arrow_back</span>
             All Campaigns
           </button>
           {c && (
             <button onClick={() => setPushOpen(true)}
-              style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: '#7C3AED', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: INTER }}>
+              style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: 'none', background: '#7C3AED', color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: INTER }}>
               <span className="material-symbols-rounded" style={{ fontSize: 15 }}>call</span>
               Push to Telemarketers
             </button>
@@ -314,7 +314,7 @@ export default function CampaignReport() {
       <ErrBanner error={err} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: SP[3], marginBottom: SP[5] }}>
         <KpiCard label="Audience"     value={fmtNum(toN(m?.total_contacts))} loading={loading} />
         <KpiCard label="Sent"         value={fmtNum(toN(m?.sent))}           loading={loading} />
         <KpiCard label="Delivery Rate" value={fmtPct(toN(m?.delivery_rate))} accent={GREEN}  loading={loading} />
@@ -329,7 +329,7 @@ export default function CampaignReport() {
           {cs && c ? (
             <PipelineBar stats={cs} total={toN(c.contact_count)} />
           ) : (
-            <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: 13 }}>
+            <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>
               {loading ? 'Loading…' : 'No data'}
             </div>
           )}
@@ -343,9 +343,9 @@ export default function CampaignReport() {
                 ['Unsubscribed',fmtNum(toN(m.unsubscribed)),AMBER],
                 ['Failed',      fmtNum(toN(m.failed)),      '#6B7280'],
               ].map(([label, val, color]) => (
-                <div key={label as string} style={{ textAlign: 'center', padding: '10px 8px', background: 'var(--th-bg)', borderRadius: 8 }}>
-                  <div style={{ fontSize: 17, fontWeight: 700, color: color as string, ...NUM }}>{val}</div>
-                  <div style={{ fontSize: 11, color: 'var(--txt3)', marginTop: 2 }}>{label}</div>
+                <div key={label as string} style={{ textAlign: 'center', padding: '10px 8px', background: 'var(--th-bg)', borderRadius: RADIUS.md }}>
+                  <div style={{ fontSize: 17, fontWeight: FW.bold, color: color as string, ...NUM }}>{val}</div>
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>{label}</div>
                 </div>
               ))}
             </div>
@@ -372,16 +372,16 @@ export default function CampaignReport() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
                 <XAxis dataKey="hour" tick={{ fontSize: 9.5, fill: 'var(--txt2)' }} />
-                <YAxis tick={{ fontSize: 10, fill: 'var(--txt2)' }} allowDecimals={false} />
-                <Tooltip contentStyle={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-                <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} allowDecimals={false} />
+                <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
+                <Legend iconSize={10} wrapperStyle={{ fontSize: TEXT.xs }} />
                 <Area type="monotone" dataKey="delivered" stroke={GREEN} strokeWidth={2} fill="url(#rptDelivGrad)" name="Delivered" />
                 <Area type="monotone" dataKey="opened"    stroke={BLUE}  strokeWidth={2} fill="url(#rptOpenGrad)"  name="Opened" />
                 <Area type="monotone" dataKey="clicked"   stroke={NAVY}  strokeWidth={2} fill="url(#rptClickGrad)" name="Clicked" />
               </AreaChart>
             </ResponsiveContainer>
           ) : (
-            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: 13 }}>
+            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>
               {loading ? 'Loading…' : 'No timeline data — events are tracked for email campaigns only.'}
             </div>
           )}
@@ -396,18 +396,18 @@ export default function CampaignReport() {
               const pct = sent > 0 ? (toN(link.clicks) / sent) * 100 : 0
               return (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 22, height: 22, borderRadius: '50%', background: `${BLUE}14`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: BLUE, flexShrink: 0 }}>
+                  <div style={{ width: 22, height: 22, borderRadius: '50%', background: `${BLUE}14`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, color: BLUE, flexShrink: 0 }}>
                     {i + 1}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, color: BLUE, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: TEXT.sm, color: BLUE, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {link.url}
                     </div>
                     <div style={{ height: 5, background: 'var(--th-bg)', borderRadius: 3, marginTop: 3, overflow: 'hidden' }}>
                       <div style={{ height: '100%', width: `${pct}%`, background: BLUE, borderRadius: 3 }} />
                     </div>
                   </div>
-                  <span style={{ ...NUM, fontSize: 12, fontWeight: 700, color: NAVY, flexShrink: 0 }}>
+                  <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY, flexShrink: 0 }}>
                     {fmtNum(toN(link.clicks))}
                   </span>
                 </div>
