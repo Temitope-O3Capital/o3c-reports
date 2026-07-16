@@ -178,9 +178,7 @@ function SingleUploadTab() {
       const form = new FormData()
       form.append('file', f)
       form.append('preview', 'true')
-      const res = await apiFetch('/api/cc-statements/upload', { method: 'POST', body: form })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d?.error ?? 'Parse failed')
+      const d = await apiFetch<any>('/api/cc-statements/upload', { method: 'POST', body: form })
       setPreview(d.data ?? d)
     } catch (e: any) {
       toast.error(e.message)
@@ -195,9 +193,7 @@ function SingleUploadTab() {
     try {
       const form = new FormData()
       form.append('file', file)
-      const res = await apiFetch('/api/cc-statements/upload', { method: 'POST', body: form })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d?.error ?? 'Save failed')
+      const d = await apiFetch<any>('/api/cc-statements/upload', { method: 'POST', body: form })
       toast.success(`Statement saved — ${d.data?.txn_count ?? 0} transactions`)
       navigate(`/statements/credit-cards/${d.data?.id ?? ''}`)
     } catch (e: any) {
@@ -267,9 +263,7 @@ function BulkUploadTab() {
     try {
       const form = new FormData()
       files.forEach(f => form.append('files', f))
-      const res = await apiFetch('/api/cc-statements/bulk', { method: 'POST', body: form })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d?.error ?? 'Bulk upload failed')
+      const d = await apiFetch<any>('/api/cc-statements/bulk', { method: 'POST', body: form })
       const payload = d.data ?? d
       setResults(payload.results ?? [])
       const { succeeded, failed } = payload
@@ -403,7 +397,7 @@ function FromDBTab() {
     }
     setLoading(true)
     try {
-      const res = await apiFetch('/api/cc-statements/from-db', {
+      const d = await apiFetch<any>('/api/cc-statements/from-db', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -412,8 +406,6 @@ function FromDBTab() {
           opening_balance_kobo: form.opening_balance_kobo ? Math.round(parseFloat(form.opening_balance_kobo) * 100) : 0,
         }),
       })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d?.error ?? 'Failed')
       const payload = d.data ?? d
       toast.success(`Statement built — ${payload.txn_count} transactions`)
       navigate(`/statements/credit-cards/${payload.id}`)
