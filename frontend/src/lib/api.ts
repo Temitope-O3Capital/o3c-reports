@@ -76,8 +76,11 @@ export async function apiFetch<T = any>(
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30_000)
 
+  const isFormData = fetchInit.body instanceof FormData
   const makeHeaders = (): HeadersInit => ({
-    'Content-Type': 'application/json',
+    // Let the browser set Content-Type automatically for FormData (it must
+    // include the multipart boundary which only the browser knows).
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(isMutation ? { 'X-CSRF-Token': getCsrfToken() } : {}),
     ...(fetchInit.headers ?? {}),
   })
