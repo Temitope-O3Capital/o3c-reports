@@ -198,7 +198,10 @@ const HRRecruitment  = lazy(() => import('./pages/hr/Recruitment'))
 const HROrgChart     = lazy(() => import('./pages/hr/OrgChart'))
 const HROnboarding   = lazy(() => import('./pages/hr/Onboarding'))
 const HROffboarding  = lazy(() => import('./pages/hr/Offboarding'))
-const CoreBanking    = lazy(() => import('./pages/core-banking/CoreBanking'))
+const CoreBanking       = lazy(() => import('./pages/core-banking/CoreBanking'))
+const CCStatements      = lazy(() => import('./pages/statements/CCStatements'))
+const CCStatementNew    = lazy(() => import('./pages/statements/CCStatementNew'))
+const CCStatementDetail = lazy(() => import('./pages/statements/CCStatementDetail'))
 
 // ── Role → home ───────────────────────────────────────────────────────────────
 
@@ -306,7 +309,8 @@ const MODULE_TITLES: [string, string, string][] = [
   ['/reports',         'Analytics',         'Reports & BI'],
   ['/bi',              'Analytics',         'Reports & BI'],
   ['/statements',      'Analytics',         'Statements'],
-  ['/core-banking',    'Analytics',         'Core Banking'],
+  ['/core-banking',              'Analytics',  'Core Banking'],
+  ['/statements/credit-cards',  'Analytics',  'CC Statements'],
   ['/admin',           'Admin',             'System Admin'],
   ['/settings',        'Workspace',         'Settings'],
   ['/',                '',                  'Overview'],
@@ -1017,7 +1021,10 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/bi/builder"     element={<RequireAccess page="reports" user={user}><PageErrorBoundary><BIBuilder /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/bi/builder/:id" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><BIBuilder /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/bi/scheduled"   element={<RequireAccess page="reports" user={user}><PageErrorBoundary><BIScheduled /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/core-banking"   element={<RequireAccess page="core-banking" user={user}><PageErrorBoundary><CoreBanking /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/core-banking"               element={<RequireAccess page="core-banking" user={user}><PageErrorBoundary><CoreBanking /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/statements/credit-cards"    element={<RequireAccess page="statements" user={user}><PageErrorBoundary><CCStatements /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/statements/credit-cards/new" element={<RequireAccess page="statements" user={user}><PageErrorBoundary><CCStatementNew /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/statements/credit-cards/:id" element={<RequireAccess page="statements" user={user}><PageErrorBoundary><CCStatementDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/statements"     element={<RequireAccess page="statements" user={user}><PageErrorBoundary><Statements /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Admin */}

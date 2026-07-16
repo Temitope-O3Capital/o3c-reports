@@ -288,6 +288,10 @@ const SECTIONS: Section[] = [
       {
         icon: 'receipt_long', label: 'Statements', to: '/statements',
         vis: ['internal_control_head','finance_officer','finance_head','head_of_reconciliation'],
+        subs: [
+          { label: 'Account Statements',     to: '/statements' },
+          { label: 'Credit Card Statements', to: '/statements/credit-cards' },
+        ],
       },
       {
         icon: 'account_balance', label: 'Core Banking', to: '/core-banking',

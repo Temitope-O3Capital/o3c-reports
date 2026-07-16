@@ -412,6 +412,9 @@ func main() {
 		r.Route("/api/cbs", func(r chi.Router) {
 			handlers.RegisterCoreBanking(r, cbsClient)
 		})
+		r.Route("/api/cc-statements", func(r chi.Router) {
+			handlers.RegisterCCStatements(r, db)
+		})
 
 	})
 
