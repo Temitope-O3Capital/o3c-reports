@@ -166,7 +166,7 @@ export default function CCStatementDetail() {
         setStatement(payload.statement ?? null)
         setTransactions(payload.transactions ?? [])
       })
-      .catch(() => {})
+      .catch((e: any) => toast.error(e.message || 'Failed to load statement'))
       .finally(() => setLoading(false))
   }, [id])
 

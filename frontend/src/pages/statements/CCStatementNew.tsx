@@ -194,8 +194,10 @@ function SingleUploadTab() {
       const form = new FormData()
       form.append('file', file)
       const d = await apiFetch<any>('/api/cc-statements/upload', { method: 'POST', body: form })
-      toast.success(`Statement saved — ${d.data?.txn_count ?? 0} transactions`)
-      navigate(`/statements/credit-cards/${d.data?.id ?? ''}`)
+      const stmtId = d?.data?.id ?? d?.id
+      console.log('[cc-upload] response:', JSON.stringify(d), 'navigating to id:', stmtId)
+      toast.success(`Statement saved — ${d?.data?.txn_count ?? d?.txn_count ?? 0} transactions`)
+      navigate(`/statements/credit-cards/${stmtId ?? ''}`)
     } catch (e: any) {
       toast.error(e.message)
     } finally {
