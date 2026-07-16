@@ -119,7 +119,7 @@ func ccSendEmail(db *core.DB) http.HandlerFunc {
 
 func ccLoad(ctx context.Context, db *core.DB, id string) (core.Row, []core.Row, error) {
 	stmts, err := db.PGQuery(ctx, `
-		SELECT s.*, u.name AS created_by_name
+		SELECT s.*, u.full_name AS created_by_name
 		FROM cc_statements s
 		LEFT JOIN o3c_users u ON u.id = s.created_by
 		WHERE s.id = $1`, id)

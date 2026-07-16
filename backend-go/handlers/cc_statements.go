@@ -368,7 +368,7 @@ func ccList(db *core.DB) http.HandlerFunc {
 			         s.opening_balance_kobo, s.total_debit_kobo, s.total_credit_kobo,
 			         s.closing_balance_kobo, s.min_payment_kobo, s.finance_charge_kobo,
 			         s.source, s.source_filename, s.created_at,
-			         u.name AS created_by_name,
+			         u.full_name AS created_by_name,
 			         COUNT(t.id) AS txn_count
 			  FROM cc_statements s
 			  LEFT JOIN o3c_users u ON u.id = s.created_by
@@ -401,7 +401,7 @@ func ccList(db *core.DB) http.HandlerFunc {
 		if len(wheres) > 0 {
 			q += " WHERE " + strings.Join(wheres, " AND ")
 		}
-		q += " GROUP BY s.id, u.name ORDER BY s.created_at DESC LIMIT 500"
+		q += " GROUP BY s.id, u.full_name ORDER BY s.created_at DESC LIMIT 500"
 
 		rows, err := db.PGQuery(ctx, q, args...)
 		if err != nil {
@@ -419,7 +419,7 @@ func ccDetail(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 
 		stmts, err := db.PGQuery(ctx, `
-			SELECT s.*, u.name AS created_by_name
+			SELECT s.*, u.full_name AS created_by_name
 			FROM cc_statements s
 			LEFT JOIN o3c_users u ON u.id = s.created_by
 			WHERE s.id = $1`, id)
