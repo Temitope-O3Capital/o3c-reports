@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
-import type { ReactNode, CSSProperties } from 'react'
-import { NAVY, RED, GREEN, INTER, SORA, NUM } from '../lib/design'
+import type { ReactNode, CSSProperties, ButtonHTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
+import { NAVY, RED, GREEN, INTER, SORA, NUM, TEXT, FW, SP, RADIUS, SHADOW, TRANSITION } from '../lib/design'
 import { today, monthStart, yearStart, fmtDate } from '../lib/fmt'
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -1276,21 +1276,296 @@ export function DateFilter({ from, to, onChange, align = 'left' }: {
 
 // ── Shared button styles ──────────────────────────────────────────────────────
 
+// ── Button style objects (kept for backwards compat with inline usage) ────────
 export const btnPrimary: CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: 7,
-  padding: '7px 15px', background: NAVY, color: '#fff',
-  border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
+  display: 'inline-flex', alignItems: 'center', gap: SP[2],
+  padding: `${SP[2]} ${SP[4]}`, background: NAVY, color: '#fff',
+  border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold,
   cursor: 'pointer', whiteSpace: 'nowrap',
 }
 export const btnSecondary: CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: 7,
-  padding: '7px 13px', background: 'var(--card)', color: 'var(--txt)',
-  border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, fontWeight: 500,
+  display: 'inline-flex', alignItems: 'center', gap: SP[2],
+  padding: `${SP[2]} ${SP[3]}`, background: 'var(--card)', color: 'var(--txt)',
+  border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.medium,
   cursor: 'pointer', whiteSpace: 'nowrap',
 }
 export const btnDanger: CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: 7,
-  padding: '7px 15px', background: RED, color: '#fff',
-  border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
+  display: 'inline-flex', alignItems: 'center', gap: SP[2],
+  padding: `${SP[2]} ${SP[4]}`, background: RED, color: '#fff',
+  border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold,
   cursor: 'pointer', whiteSpace: 'nowrap',
+}
+
+// ── Button component ──────────────────────────────────────────────────────────
+
+type BtnVariant = 'primary' | 'secondary' | 'danger' | 'ghost'
+type BtnSize    = 'xs' | 'sm' | 'md' | 'lg'
+
+interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: BtnVariant
+  size?: BtnSize
+  icon?: string
+  iconRight?: string
+  loading?: boolean
+  children?: ReactNode
+}
+
+const BTN_BASE: CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  gap: SP[1], border: 'none', borderRadius: RADIUS.md,
+  fontFamily: 'var(--font-sans)', fontWeight: FW.semibold,
+  cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+  position: 'relative', userSelect: 'none',
+}
+const BTN_VARIANTS: Record<BtnVariant, CSSProperties> = {
+  primary:   { background: NAVY,            color: '#fff',           border: `1px solid ${NAVY}` },
+  secondary: { background: 'var(--card)',   color: 'var(--txt)',     border: '1px solid var(--bdr)' },
+  danger:    { background: RED,             color: '#fff',           border: `1px solid ${RED}` },
+  ghost:     { background: 'transparent',   color: 'var(--txt2)',    border: '1px solid transparent' },
+}
+const BTN_SIZES: Record<BtnSize, CSSProperties> = {
+  xs: { fontSize: TEXT.xs,   padding: `${SP[1]} ${SP[2]}`,  gap: SP[1] },
+  sm: { fontSize: TEXT.sm,   padding: `5px ${SP[3]}`,       gap: SP[1] },
+  md: { fontSize: TEXT.base, padding: `${SP[2]} ${SP[4]}`,  gap: SP[2] },
+  lg: { fontSize: TEXT.md,   padding: `${SP[3]} ${SP[5]}`,  gap: SP[2] },
+}
+
+export function Button({ variant = 'primary', size = 'md', icon, iconRight, loading, children, style, disabled, ...rest }: ButtonProps) {
+  const iconSz = size === 'xs' || size === 'sm' ? 14 : 16
+  return (
+    <button
+      disabled={disabled || loading}
+      style={{ ...BTN_BASE, ...BTN_VARIANTS[variant], ...BTN_SIZES[size], ...style }}
+      {...rest}
+    >
+      {loading
+        ? <Spinner size={iconSz} color={variant === 'secondary' || variant === 'ghost' ? NAVY : '#fff'} />
+        : icon && <span className="material-symbols-rounded" style={{ fontSize: iconSz }}>{icon}</span>}
+      {children}
+      {!loading && iconRight && <span className="material-symbols-rounded" style={{ fontSize: iconSz }}>{iconRight}</span>}
+    </button>
+  )
+}
+
+// ── Form field wrapper ────────────────────────────────────────────────────────
+
+interface FieldProps {
+  label?: string
+  hint?: string
+  error?: string
+  required?: boolean
+  children: ReactNode
+  style?: CSSProperties
+}
+
+export function Field({ label, hint, error, required, children, style }: FieldProps) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1], ...style }}>
+      {label && (
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt2)', lineHeight: 'var(--lh-snug)' }}>
+          {label}
+          {required && <span style={{ color: RED, marginLeft: SP[1] }}>*</span>}
+        </label>
+      )}
+      {children}
+      {error
+        ? <span style={{ fontSize: TEXT.xs, color: RED, display: 'flex', alignItems: 'center', gap: SP[1] }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 12 }}>error</span>{error}
+          </span>
+        : hint && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 'var(--lh-base)' }}>{hint}</span>
+      }
+    </div>
+  )
+}
+
+// ── Input ─────────────────────────────────────────────────────────────────────
+
+interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
+  label?: string
+  hint?: string
+  error?: string
+  prefix?: string   // material icon name
+  suffix?: string   // material icon name
+  wrapStyle?: CSSProperties
+}
+
+const INPUT_BASE: CSSProperties = {
+  display: 'block', width: '100%',
+  padding: `${SP[2]} ${SP[3]}`,
+  background: 'var(--input-bg)', color: 'var(--txt)',
+  border: '1.5px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  fontSize: TEXT.base, fontFamily: 'var(--font-sans)',
+  outline: 'none', appearance: 'none',
+}
+const INPUT_ERROR: CSSProperties = { borderColor: RED }
+
+export function Input({ label, hint, error, prefix, suffix, wrapStyle, style, ...rest }: InputProps) {
+  const hasIcon = prefix || suffix
+  return (
+    <Field label={label} hint={hint} error={error} required={rest.required} style={wrapStyle}>
+      <div style={{ position: 'relative' }}>
+        {prefix && (
+          <span className="material-symbols-rounded" style={{
+            position: 'absolute', left: SP[3], top: '50%', transform: 'translateY(-50%)',
+            fontSize: 16, color: 'var(--txt3)', pointerEvents: 'none',
+          }}>{prefix}</span>
+        )}
+        <input
+          style={{
+            ...INPUT_BASE,
+            ...(error ? INPUT_ERROR : {}),
+            ...(hasIcon ? { paddingLeft: prefix ? SP[8] : SP[3], paddingRight: suffix ? SP[8] : SP[3] } : {}),
+            ...style,
+          }}
+          {...rest}
+        />
+        {suffix && (
+          <span className="material-symbols-rounded" style={{
+            position: 'absolute', right: SP[3], top: '50%', transform: 'translateY(-50%)',
+            fontSize: 16, color: 'var(--txt3)', pointerEvents: 'none',
+          }}>{suffix}</span>
+        )}
+      </div>
+    </Field>
+  )
+}
+
+// ── Select ────────────────────────────────────────────────────────────────────
+
+interface SelectFieldProps extends SelectHTMLAttributes<HTMLSelectElement> {
+  label?: string
+  hint?: string
+  error?: string
+  wrapStyle?: CSSProperties
+  children: ReactNode
+}
+
+export function Select({ label, hint, error, wrapStyle, style, children, ...rest }: SelectFieldProps) {
+  return (
+    <Field label={label} hint={hint} error={error} required={rest.required} style={wrapStyle}>
+      <div style={{ position: 'relative' }}>
+        <select
+          style={{
+            ...INPUT_BASE,
+            paddingRight: SP[8],
+            cursor: 'pointer',
+            ...(error ? INPUT_ERROR : {}),
+            ...style,
+          }}
+          {...rest}
+        >
+          {children}
+        </select>
+        <span className="material-symbols-rounded" style={{
+          position: 'absolute', right: SP[3], top: '50%', transform: 'translateY(-50%)',
+          fontSize: 16, color: 'var(--txt3)', pointerEvents: 'none',
+        }}>expand_more</span>
+      </div>
+    </Field>
+  )
+}
+
+// ── Textarea ──────────────────────────────────────────────────────────────────
+
+interface TextareaFieldProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
+  label?: string
+  hint?: string
+  error?: string
+  wrapStyle?: CSSProperties
+}
+
+export function Textarea({ label, hint, error, wrapStyle, style, ...rest }: TextareaFieldProps) {
+  return (
+    <Field label={label} hint={hint} error={error} required={rest.required} style={wrapStyle}>
+      <textarea
+        style={{
+          ...INPUT_BASE,
+          resize: 'vertical',
+          minHeight: 80,
+          lineHeight: 'var(--lh-relaxed)',
+          ...(error ? INPUT_ERROR : {}),
+          ...style,
+        }}
+        {...rest}
+      />
+    </Field>
+  )
+}
+
+// ── Empty state ───────────────────────────────────────────────────────────────
+
+interface EmptyStateProps {
+  icon?: string
+  title: string
+  description?: string
+  action?: { label: string; onClick: () => void; icon?: string }
+  style?: CSSProperties
+}
+
+export function EmptyState({ icon = 'inbox', title, description, action, style }: EmptyStateProps) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      padding: `${SP[12]} ${SP[8]}`, gap: SP[3], textAlign: 'center', ...style,
+    }}>
+      <div style={{
+        width: 48, height: 48, borderRadius: RADIUS.xl,
+        background: 'var(--th-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        marginBottom: SP[1],
+      }}>
+        <span className="material-symbols-rounded" style={{ fontSize: 22, color: 'var(--txt3)' }}>{icon}</span>
+      </div>
+      <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', lineHeight: 'var(--lh-snug)' }}>{title}</div>
+      {description && (
+        <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 'var(--lh-relaxed)', maxWidth: 320 }}>{description}</div>
+      )}
+      {action && (
+        <Button variant="secondary" size="sm" icon={action.icon} onClick={action.onClick} style={{ marginTop: SP[2] }}>
+          {action.label}
+        </Button>
+      )}
+    </div>
+  )
+}
+
+// ── Divider ───────────────────────────────────────────────────────────────────
+
+export function Divider({ label, style }: { label?: string; style?: CSSProperties }) {
+  if (!label) return <hr style={{ border: 'none', borderTop: '1px solid var(--bdr)', margin: `${SP[4]} 0`, ...style }} />
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], margin: `${SP[4]} 0`, ...style }}>
+      <hr style={{ flex: 1, border: 'none', borderTop: '1px solid var(--bdr)' }} />
+      <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.medium, whiteSpace: 'nowrap', letterSpacing: '0.04em', textTransform: 'uppercase' }}>{label}</span>
+      <hr style={{ flex: 1, border: 'none', borderTop: '1px solid var(--bdr)' }} />
+    </div>
+  )
+}
+
+// ── Badge ─────────────────────────────────────────────────────────────────────
+
+type BadgeVariant = 'default' | 'success' | 'warning' | 'danger' | 'info' | 'neutral'
+const BADGE_COLORS: Record<BadgeVariant, { bg: string; txt: string }> = {
+  default: { bg: 'var(--chip-bg)',          txt: 'var(--chip-txt)' },
+  success: { bg: 'rgba(22,163,74,.1)',       txt: '#15803d' },
+  warning: { bg: 'rgba(217,119,6,.1)',       txt: '#b45309' },
+  danger:  { bg: 'rgba(192,0,0,.1)',         txt: '#c00000' },
+  info:    { bg: 'rgba(37,99,235,.1)',       txt: '#1d4ed8' },
+  neutral: { bg: 'var(--th-bg)',             txt: 'var(--txt2)' },
+}
+
+export function Badge({ children, variant = 'default', dot, style }: {
+  children: ReactNode; variant?: BadgeVariant; dot?: boolean; style?: CSSProperties
+}) {
+  const { bg, txt } = BADGE_COLORS[variant]
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: SP[1],
+      padding: `2px ${SP[2]}`, borderRadius: RADIUS.full,
+      fontSize: TEXT.xs, fontWeight: FW.semibold,
+      background: bg, color: txt, whiteSpace: 'nowrap', ...style,
+    }}>
+      {dot && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }} />}
+      {children}
+    </span>
+  )
 }

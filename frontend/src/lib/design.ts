@@ -1,14 +1,81 @@
-// Shared design system — Editorial B
-// Source of truth for all token values, typography, and chart components.
-// Import this everywhere instead of duplicating.
+// O3 Capital Workspace — Design System
+// Single source of truth for all design tokens used in inline styles.
+// CSS vars (index.css) are the ground truth; these mirror them for JS/TSX use.
 
 import type React from 'react'
 
 // ── Typography ────────────────────────────────────────────────────────────────
-export const SORA  = "'Sora', ui-sans-serif, sans-serif"
-export const INTER = "'Sora', ui-sans-serif, sans-serif"   // alias → Sora
-export const PLEX  = "'Sora', ui-sans-serif, sans-serif"   // alias → Sora
-export const MONO  = "'Roboto Mono', 'Courier New', ui-monospace, monospace"
+export const INTER = "var(--font-sans)"
+export const SORA  = "var(--font-sans)"   // unified → Inter
+export const PLEX  = "var(--font-sans)"   // unified → Inter
+export const MONO  = "var(--font-mono)"
+
+// Type scale
+export const TEXT = {
+  '2xs': 'var(--text-2xs)' as const,
+  xs:    'var(--text-xs)'  as const,
+  sm:    'var(--text-sm)'  as const,
+  base:  'var(--text-base)'as const,
+  md:    'var(--text-md)'  as const,
+  lg:    'var(--text-lg)'  as const,
+  xl:    'var(--text-xl)'  as const,
+  '2xl': 'var(--text-2xl)' as const,
+  '3xl': 'var(--text-3xl)' as const,
+}
+
+// Font weights
+export const FW = {
+  normal:    'var(--fw-normal)'    as const,
+  medium:    'var(--fw-medium)'    as const,
+  semibold:  'var(--fw-semibold)'  as const,
+  bold:      'var(--fw-bold)'      as const,
+  extrabold: 'var(--fw-extrabold)' as const,
+}
+
+// Spacing scale (4px base)
+export const SP = {
+  0:  'var(--sp-0)'  as const,
+  1:  'var(--sp-1)'  as const,
+  2:  'var(--sp-2)'  as const,
+  3:  'var(--sp-3)'  as const,
+  4:  'var(--sp-4)'  as const,
+  5:  'var(--sp-5)'  as const,
+  6:  'var(--sp-6)'  as const,
+  8:  'var(--sp-8)'  as const,
+  10: 'var(--sp-10)' as const,
+  12: 'var(--sp-12)' as const,
+  16: 'var(--sp-16)' as const,
+}
+
+// Border radius
+export const RADIUS = {
+  xs:   'var(--radius-xs)'   as const,
+  sm:   'var(--radius-sm)'   as const,
+  md:   'var(--radius-md)'   as const,
+  lg:   'var(--radius-lg)'   as const,
+  xl:   'var(--radius-xl)'   as const,
+  '2xl':'var(--radius-2xl)'  as const,
+  full: 'var(--radius-full)' as const,
+}
+
+// Shadows
+export const SHADOW = {
+  xs: 'var(--shadow-xs)' as const,
+  sm: 'var(--shadow-sm)' as const,
+  md: 'var(--shadow-md)' as const,
+  lg: 'var(--shadow-lg)' as const,
+  xl: 'var(--shadow-xl)' as const,
+}
+
+// Transitions
+export const TRANSITION = {
+  fast:   'var(--transition-fast)'   as const,
+  base:   'var(--transition)'        as const,
+  slow:   'var(--transition-slow)'   as const,
+  spring: 'var(--transition-spring)' as const,
+}
+
+// Tabular numbers — for any column showing digits, amounts, counts
 export const NUM: React.CSSProperties = {
   fontFamily: MONO,
   fontVariantNumeric: 'tabular-nums',

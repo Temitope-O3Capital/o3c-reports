@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "vite --port 3100",
+    "dev": "vite --mode staging --port 3100",
     "dev:mock": "VITE_MOCK=true vite --port 3101",
     "build": "tsc && vite build",
     "test": "vitest run",
