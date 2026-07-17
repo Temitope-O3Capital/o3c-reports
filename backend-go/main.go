@@ -167,6 +167,9 @@ func main() {
 		return rightmostIP(r), nil
 	}))).Post("/api/auth/totp/challenge", MFAChallengePublic(db))
 
+	// Public FX rates — customer-facing mobile app (no JWT)
+	r.Get("/api/public/fx-rates", handlers.FXRatesLatest(db))
+
 	// Public campaign webhooks (Termii / SendGrid — no JWT)
 	r.Route("/api/campaign-webhooks", func(r chi.Router) {
 		handlers.RegisterCampaignWebhooks(r, db)
