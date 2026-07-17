@@ -97,6 +97,9 @@ func main() {
 	// NDPR erasure worker — processes approved erasure DSARs daily at midnight.
 	go handlers.StartNDPRErasureWorker(db)
 
+	// FX parallel-market rates — scrape NgnRates.com immediately then every hour.
+	go handlers.StartFXRatesScraper(db)
+
 	// Activity log worker pool — 3 goroutines drain a 1000-entry buffered channel.
 	activityCh := make(chan activityLogEntry, 1000)
 	startActivityWorkers(db, activityCh, 3)

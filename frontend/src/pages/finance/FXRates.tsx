@@ -52,6 +52,7 @@ export default function FXRates() {
   const [loadingLatest, setLoadingLatest] = useState(true)
   const [loadingHist,   setLoadingHist]   = useState(false)
   const [refreshing,    setRefreshing]    = useState(false)
+  const [, setTick] = useState(0)
 
   const loadLatest = useCallback(() => {
     setLoadingLatest(true)
@@ -62,6 +63,12 @@ export default function FXRates() {
   }, [])
 
   useEffect(() => { loadLatest() }, [loadLatest])
+
+  // Re-render the "X ago" label every minute without re-fetching
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -94,24 +101,43 @@ export default function FXRates() {
 
   const accentColor = CCY_COLOR[currency] ?? NAVY
 
+  const lastUpdatedLabel = (() => {
+    const ts = latest[0]?.as_of
+    if (!ts) return null
+    const diffMs  = Date.now() - new Date(ts).getTime()
+    const diffMin = Math.floor(diffMs / 60_000)
+    if (diffMin < 1)  return 'Updated just now'
+    if (diffMin < 60) return `Updated ${diffMin} min ago`
+    const diffHr = Math.floor(diffMin / 60)
+    if (diffHr < 24)  return `Updated ${diffHr} hr ago`
+    return `Updated ${Math.floor(diffHr / 24)} days ago`
+  })()
+
   return (
     <Page
       title="FX Parallel Rates"
       subtitle="Indicative Naira parallel-market rates — aggregated BDC quotes, not a licensed FX feed."
       actions={
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            height: 36, padding: '0 16px', borderRadius: RADIUS.md, border: 'none',
-            background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold,
-            cursor: refreshing ? 'not-allowed' : 'pointer', opacity: refreshing ? 0.65 : 1,
-          }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 17 }}>sync</span>
-          {refreshing ? 'Refreshing…' : 'Refresh Rates'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
+          {lastUpdatedLabel && (
+            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', whiteSpace: 'nowrap' }}>
+              {lastUpdatedLabel} · auto-refreshes hourly
+            </span>
+          )}
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              height: 36, padding: '0 16px', borderRadius: RADIUS.md, border: 'none',
+              background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold,
+              cursor: refreshing ? 'not-allowed' : 'pointer', opacity: refreshing ? 0.65 : 1,
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 17 }}>sync</span>
+            {refreshing ? 'Refreshing…' : 'Refresh Now'}
+          </button>
+        </div>
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[6] }}>

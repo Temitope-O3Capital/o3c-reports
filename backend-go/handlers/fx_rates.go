@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -282,6 +283,42 @@ func parseNgnRateCell(raw string) (sell, buy float64, err error) {
 		return 0, 0, fmt.Errorf("buy: %w", err)
 	}
 	return sell, buy, nil
+}
+
+// StartFXRatesScraper runs an hourly background goroutine that scrapes NgnRates.com
+// and inserts fresh parallel-market rates into fx_parallel_rates.
+// Call as: go handlers.StartFXRatesScraper(db)
+func StartFXRatesScraper(db *core.DB) {
+	runFXScrape(db) // run once immediately on startup
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		runFXScrape(db)
+	}
+}
+
+func runFXScrape(db *core.DB) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	rates, err := scrapeNgnRates(ctx)
+	if err != nil {
+		slog.Error("FX rate scrape failed", "err", err)
+		return
+	}
+
+	inserted := 0
+	for _, rate := range rates {
+		_, err := db.PGExec(ctx,
+			`INSERT INTO fx_parallel_rates (source, currency, buy, sell, scraped_at) VALUES ($1, $2, $3, $4, NOW())`,
+			"ngnrates", rate.Currency, rate.Buy, rate.Sell)
+		if err != nil {
+			slog.Error("FX rate insert failed", "currency", rate.Currency, "err", err)
+		} else {
+			inserted++
+		}
+	}
+	slog.Info("FX rates scraped", "inserted", inserted)
 }
 
 // fxFloat converts pgx numeric types to float64 for FX rate rows.
