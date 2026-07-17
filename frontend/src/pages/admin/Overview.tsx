@@ -105,6 +105,13 @@ const MODULES: Module[] = [
     to: '/admin/sync',
     accent: '#0891B2',
   },
+  {
+    icon: 'toggle_on',
+    label: 'Module Management',
+    description: 'Enable or disable product modules to control what staff see in the sidebar.',
+    to: '/admin/modules',
+    accent: '#7C3AED',
+  },
 ]
 
 // ── Module tile ───────────────────────────────────────────────────────────────

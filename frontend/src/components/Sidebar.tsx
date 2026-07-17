@@ -306,15 +306,6 @@ const SECTIONS: Section[] = [
       {
         icon: 'admin_panel_settings', label: 'System Admin', to: '/admin',
         vis: ['it_admin'],
-        subs: [
-          { label: 'User Management',   to: '/admin' },
-          { label: 'Module Management', to: '/admin/modules' },
-          { label: 'Roles',             to: '/admin/roles' },
-          { label: 'API Keys',          to: '/admin/api-keys' },
-          { label: 'Audit Log',         to: '/admin/audit-log' },
-          { label: 'Sync Status',       to: '/admin/sync-status' },
-          { label: 'Settings',          to: '/admin/settings' },
-        ],
       },
     ],
   },
