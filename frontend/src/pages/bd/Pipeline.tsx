@@ -445,7 +445,7 @@ export default function BDPipeline() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="Total Leads" value={kpis ? fmtNum(kpis.total_leads) : '—'} icon="groups" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="This Month" value={kpis ? fmtNum(kpis.this_month) : '—'} icon="today" accent={BLUE} loading={kpiLoading} />
-        <KpiCard label="Conversion Rate" value={kpis ? `${kpis.conversion_rate_pct.toFixed(1)}%` : '—'} icon="trending_up" accent={GREEN} loading={kpiLoading} />
+        <KpiCard label="Conversion Rate" value={kpis ? `${Number(kpis.conversion_rate_pct).toFixed(1)}%` : '—'} icon="trending_up" accent={GREEN} loading={kpiLoading} />
         <KpiCard label="Avg Deal Value ₦" value={kpis ? fmtKobo(kpis.avg_deal_kobo) : '—'} icon="monetization_on" accent={AMBER} loading={kpiLoading} />
       </div>
 

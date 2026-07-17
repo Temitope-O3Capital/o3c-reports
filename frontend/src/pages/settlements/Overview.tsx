@@ -131,7 +131,7 @@ export default function SettlementsOverview() {
   const nip = data?.nip
   const ps = data?.paystack
   const sw = data?.interswitch
-  const nipReconRate = nip ? nip.reconciliation_rate_pct : 0
+  const nipReconRate = nip ? Number(nip.reconciliation_rate_pct) : 0
   const nipColor = nipReconRate >= 99 ? GREEN : nipReconRate >= 95 ? AMBER : RED
   const psConfigured = ps?.configured ?? false
 

@@ -65,6 +65,12 @@ function parseAddresses(raw: string) {
   return raw.split(',').map(s => s.trim()).filter(Boolean).map(s => ({ Email: s, Name: '' }))
 }
 
+function parseToAddrs(raw: any): { Email: string; Name: string }[] {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw
+  try { return JSON.parse(String(raw)) } catch { return [] }
+}
+
 function recipientDisplay(recipients: any): string {
   if (!recipients) return ''
   try {
@@ -300,7 +306,7 @@ export default function MailInbox() {
     }
     // drafts
     return drafts.map(m => {
-      const toNames = (m.to_addrs ?? []).map(a => a.Name || a.Email).join('; ')
+      const toNames = parseToAddrs(m.to_addrs).map(a => a.Name || a.Email).join('; ')
       return {
         id:          m.id,
         displayFrom: 'Draft',
@@ -309,7 +315,7 @@ export default function MailInbox() {
         subject:     m.subject ?? '(no subject)',
         preview:     m.text_body?.slice(0, 100) ?? '',
         isUnread:    false,
-        replyTo:     (m.to_addrs ?? []).map(a => a.Email).join(', '),
+        replyTo:     parseToAddrs(m.to_addrs).map(a => a.Email).join(', '),
         rawDraft:    m,
       }
     })

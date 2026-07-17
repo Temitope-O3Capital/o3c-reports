@@ -120,7 +120,7 @@ export default function PrudentialRatios() {
                     <td style={{ padding: '10px 14px', fontWeight: FW.semibold }}>{row.metric}</td>
                     <td style={{ padding: '10px 14px', color: 'var(--txt2)' }}>{row.threshold}</td>
                     <td style={{ padding: '10px 14px', ...NUM, fontWeight: FW.bold, color: row.breached ? RED : NAVY }}>
-                      {row.current !== null ? `${row.current.toFixed(2)}%` : 'N/A (manual input)'}
+                      {row.current != null ? `${Number(row.current).toFixed(2)}%` : 'N/A (manual input)'}
                     </td>
                     <td style={{ padding: '10px 14px' }}>
                       {row.current !== null ? (
