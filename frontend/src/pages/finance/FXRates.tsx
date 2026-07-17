@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, apiPost } from '../../lib/api'
 import { NAVY, GREEN, AMBER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { SectionCard, Spinner } from '../../components/UI'
 import { toast } from 'sonner'
@@ -46,15 +46,31 @@ export default function FXRates() {
   const [to, setTo]             = useState(() => new Date().toISOString().slice(0, 10))
   const [loadingLatest, setLoadingLatest] = useState(true)
   const [loadingHist, setLoadingHist]     = useState(false)
+  const [refreshing, setRefreshing]       = useState(false)
 
-  // Latest rates
-  useEffect(() => {
+  const loadLatest = useCallback(() => {
     setLoadingLatest(true)
     apiFetch('/api/finance/fx-rates/latest')
       .then(d => setLatest(d.rates ?? []))
       .catch(() => toast.error('Failed to load FX rates'))
       .finally(() => setLoadingLatest(false))
   }, [])
+
+  // Latest rates
+  useEffect(() => { loadLatest() }, [loadLatest])
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      const res = await apiPost<{ inserted: number }>('/api/finance/fx-rates/refresh', {})
+      toast.success(`Scraped ${res.inserted} rate${res.inserted !== 1 ? 's' : ''} from NgnRates.com`)
+      loadLatest()
+    } catch (e: any) {
+      toast.error('Refresh failed: ' + (e.message ?? 'unknown error'))
+    } finally {
+      setRefreshing(false)
+    }
+  }, [loadLatest])
 
   // History
   const loadHistory = useCallback(() => {
@@ -77,11 +93,21 @@ export default function FXRates() {
     <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: SP[6], maxWidth: 1100 }}>
 
       {/* Header */}
-      <div>
-        <h1 style={{ fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)', margin: 0 }}>FX Parallel Rates</h1>
-        <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', marginTop: 4 }}>
-          Indicative Naira parallel-market rates — aggregated BDC quotes, not a licensed FX feed.
-        </p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: SP[3] }}>
+        <div>
+          <h1 style={{ fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)', margin: 0 }}>FX Parallel Rates</h1>
+          <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', marginTop: 4 }}>
+            Indicative Naira parallel-market rates — aggregated BDC quotes, not a licensed FX feed.
+          </p>
+        </div>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          style={{ ...BTN, display: 'flex', alignItems: 'center', gap: 6, opacity: refreshing ? 0.65 : 1, cursor: refreshing ? 'not-allowed' : 'pointer' }}
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 18 }}>sync</span>
+          {refreshing ? 'Refreshing…' : 'Refresh Rates'}
+        </button>
       </div>
 
       {/* Latest rate cards */}

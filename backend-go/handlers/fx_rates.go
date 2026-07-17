@@ -1,10 +1,15 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
+
+	"golang.org/x/net/html"
 
 	"github.com/o3c/reports/core"
 )
@@ -134,6 +139,149 @@ func FXRatesHistory(db *core.DB) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"rows": result}) //nolint:errcheck
 	}
+}
+
+// FXRatesRefresh scrapes NgnRates.com and inserts fresh rates into fx_parallel_rates.
+// POST /api/finance/fx-rates/refresh  (admin / finance_head only)
+func FXRatesRefresh(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		rates, err := scrapeNgnRates(ctx)
+		if err != nil {
+			respondErr(w, 502, "scrape failed: "+err.Error())
+			return
+		}
+
+		inserted := 0
+		for _, rate := range rates {
+			_, err := db.PGExec(ctx,
+				`INSERT INTO fx_parallel_rates (source, currency, buy, sell, scraped_at)
+				 VALUES ($1, $2, $3, $4, NOW())`,
+				"ngnrates", rate.Currency, rate.Buy, rate.Sell)
+			if err == nil {
+				inserted++
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"inserted": inserted,
+			"rates":    rates,
+		})
+	}
+}
+
+type fxRate struct {
+	Currency string  `json:"currency"`
+	Buy      float64 `json:"buy"`
+	Sell     float64 `json:"sell"`
+}
+
+// scrapeNgnRates fetches and parses NgnRates.com black market table.
+// Table rows: <tr><td>USD</td><td>₦1,412.5/1,400</td>...</tr>
+// Cell format: sell/buy (first number is sell, second is buy).
+func scrapeNgnRates(ctx context.Context) ([]fxRate, error) {
+	want := map[string]bool{"USD": true, "EUR": true, "GBP": true}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://www.ngnrates.com/black-market", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; O3CapitalFXBot/1.0)")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected HTTP %d", resp.StatusCode)
+	}
+
+	doc, err := html.Parse(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("parse html: %w", err)
+	}
+
+	var results []fxRate
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "tr" {
+			cells := htmlCells(n)
+			if len(cells) >= 2 {
+				currency := strings.TrimSpace(htmlText(cells[0]))
+				if want[currency] {
+					rateText := strings.TrimSpace(htmlText(cells[1]))
+					sell, buy, err := parseNgnRateCell(rateText)
+					if err == nil && (buy > 0 || sell > 0) {
+						results = append(results, fxRate{
+							Currency: currency,
+							Buy:      buy,
+							Sell:     sell,
+						})
+					}
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+
+	if len(results) == 0 {
+		return nil, fmt.Errorf("no rates found — page structure may have changed")
+	}
+	return results, nil
+}
+
+// htmlCells returns all <td> children of a <tr> node.
+func htmlCells(tr *html.Node) []*html.Node {
+	var cells []*html.Node
+	for c := tr.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode && c.Data == "td" {
+			cells = append(cells, c)
+		}
+	}
+	return cells
+}
+
+// htmlText extracts concatenated text content from a node tree.
+func htmlText(n *html.Node) string {
+	if n == nil {
+		return ""
+	}
+	if n.Type == html.TextNode {
+		return n.Data
+	}
+	var sb strings.Builder
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		sb.WriteString(htmlText(c))
+	}
+	return sb.String()
+}
+
+// parseNgnRateCell parses "₦1,412.5/1,400" → sell=1412.5, buy=1400.
+func parseNgnRateCell(raw string) (sell, buy float64, err error) {
+	raw = strings.ReplaceAll(raw, "₦", "")
+	raw = strings.ReplaceAll(raw, ",", "")
+	raw = strings.TrimSpace(raw)
+	parts := strings.SplitN(raw, "/", 2)
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("expected X/Y format, got %q", raw)
+	}
+	sell, err = strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("sell: %w", err)
+	}
+	buy, err = strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("buy: %w", err)
+	}
+	return sell, buy, nil
 }
 
 // fxFloat converts pgx numeric types to float64 for FX rate rows.

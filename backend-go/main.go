@@ -149,6 +149,9 @@ func main() {
 			r.With(httprate.Limit(3, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
 				return rightmostIP(r), nil
 			}))).Post("/change-password", changePasswordPublic(db))
+			r.With(httprate.Limit(3, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
+				return rightmostIP(r), nil
+			}))).Post("/force-change-password", forceChangePasswordPublic(db))
 			r.Post("/logout", logoutHandler())
 			r.Route("/totp", func(r chi.Router) {
 				handlers.RegisterMFA(r, db)
@@ -334,6 +337,7 @@ func main() {
 			handlers.RegisterFinance(r, db)
 			r.Get("/fx-rates/latest", handlers.FXRatesLatest(db))
 			r.Get("/fx-rates/history", handlers.FXRatesHistory(db))
+			r.Post("/fx-rates/refresh", handlers.FXRatesRefresh(db))
 		})
 		r.Route("/api/settlement", func(r chi.Router) {
 			handlers.RegisterSettlement(r, db)
@@ -684,6 +688,16 @@ func changePasswordPublic(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r2 := r.Clone(r.Context())
 		r2.URL.Path = "/change-password"
+		sub.ServeHTTP(w, r2)
+	}
+}
+
+func forceChangePasswordPublic(db *core.DB) http.HandlerFunc {
+	sub := chi.NewRouter()
+	handlers.RegisterAuth(sub, db)
+	return func(w http.ResponseWriter, r *http.Request) {
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/force-change-password"
 		sub.ServeHTTP(w, r2)
 	}
 }
