@@ -49,6 +49,7 @@ func RegisterFinance(r chi.Router, db *core.DB) {
 	r.With(access).Get("/income/loans",      finIncomeLoans(db))
 	r.With(access).Get("/income/fee-types",  finIncomeFeeTypes(db))
 	r.With(access).Get("/income/summary",    finIncomeSummary(db))
+	r.With(access).Get("/transaction-kpis", finTransactionKPIs(db))
 }
 
 /* ── GL Accounts ─────────────────────────────────────────────────────────── */
@@ -1087,5 +1088,26 @@ func finIncomeFeeTypes(db *core.DB) http.HandlerFunc {
 			"summary": summaryRows,
 			"detail":  detailRows,
 		})
+	}
+}
+
+func finTransactionKPIs(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+			  COUNT(*)                                                            AS total_count,
+			  COALESCE(SUM(amount) FILTER (WHERE sign = 'CR'), 0)                AS total_credits_kobo,
+			  COALESCE(SUM(amount) FILTER (WHERE sign = 'DR'), 0)                AS total_debits_kobo,
+			  COALESCE(SUM(amount) FILTER (WHERE sign = 'CR'), 0)
+			    - COALESCE(SUM(amount) FILTER (WHERE sign = 'DR'), 0)            AS net_position_kobo
+			FROM eod_transactions
+			WHERE txn_date >= date_trunc('month', CURRENT_DATE)::date`)
+		if err != nil || len(rows) == 0 {
+			respond(w, map[string]any{
+				"total_count": 0, "total_credits_kobo": 0, "total_debits_kobo": 0, "net_position_kobo": 0,
+			}, "pg")
+			return
+		}
+		respond(w, rows[0], "pg")
 	}
 }

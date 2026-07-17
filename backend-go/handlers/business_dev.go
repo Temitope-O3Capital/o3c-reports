@@ -23,6 +23,7 @@ func RegisterBusinessDev(r chi.Router, db *core.DB) {
 	r.Post("/leads/{id}/activity", bdLogActivity(db))
 
 	r.Get("/stats", bdStats(db))
+	r.Get("/pipeline-kpis", bdPipelineKPIs(db))
 }
 
 func bdListEmployers(db *core.DB) http.HandlerFunc {
@@ -443,5 +444,27 @@ func bdStats(db *core.DB) http.HandlerFunc {
 			"pipeline":  pipeline,
 			"employers": totalsRow,
 		})
+	}
+}
+
+func bdPipelineKPIs(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+			  COUNT(*)                                                                         AS total_leads,
+			  COUNT(*) FILTER (WHERE created_at >= date_trunc('month', CURRENT_DATE))         AS this_month,
+			  CASE WHEN COUNT(*) > 0 THEN
+			    ROUND(100.0 * COUNT(*) FILTER (WHERE stage = 'won') / COUNT(*), 1)
+			  ELSE 0 END                                                                       AS conversion_rate_pct,
+			  COALESCE(AVG(potential_value_kobo) FILTER (WHERE potential_value_kobo > 0), 0)  AS avg_deal_kobo
+			FROM bd_leads`)
+		if err != nil || len(rows) == 0 {
+			respond(w, map[string]any{
+				"total_leads": 0, "this_month": 0,
+				"conversion_rate_pct": 0.0, "avg_deal_kobo": 0,
+			}, "pg")
+			return
+		}
+		respond(w, rows[0], "pg")
 	}
 }

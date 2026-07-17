@@ -27,6 +27,10 @@ func RegisterSettlementOps(r chi.Router, db *core.DB) {
 	// NIP reconciliation
 	r.With(access).Get("/nip", soaNIPList(db))
 	r.With(access).Put("/nip/{id}/resolve", soaNIPResolveHandler(db))
+	r.With(access).Get("/nip-recon", soaNIPRecon(db))
+
+	// Overview dashboard
+	r.With(access).Get("/overview", soaOverview(db))
 
 	// Failed transactions
 	r.With(access).Get("/failed", soaFailedList(db))
@@ -602,6 +606,150 @@ func soaManualPostingsReject(db *core.DB) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "rejected"}) //nolint:errcheck
+	}
+}
+
+func soaOverview(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		out := map[string]any{
+			"settled_today_kobo": 0, "pending_kobo": 0, "failed_count": 0, "success_rate_pct": 0,
+			"nip": map[string]any{
+				"total": 0, "matched": 0, "unmatched": 0,
+				"exception_count": 0, "exception_value_kobo": 0, "reconciliation_rate_pct": 0,
+			},
+			"paystack":    map[string]any{"configured": false, "wallet_balance_kobo": 0, "last_sync_at": nil, "open_disputes": 0},
+			"interswitch": map[string]any{"configured": false},
+		}
+
+		if batchRows, _ := db.PGQuery(ctx, `
+			SELECT
+			  COALESCE(SUM(CASE WHEN status='settled' AND batch_date=CURRENT_DATE THEN total_credits ELSE 0 END),0) AS settled_today_kobo,
+			  COALESCE(SUM(CASE WHEN status='pending' THEN total_credits ELSE 0 END),0)                            AS pending_kobo,
+			  COUNT(*) FILTER (WHERE status='failed')                                                              AS failed_count,
+			  CASE WHEN COUNT(*) > 0 THEN
+			    ROUND(100.0 * COUNT(*) FILTER (WHERE status='settled') / COUNT(*), 2)
+			  ELSE 0 END                                                                                            AS success_rate_pct
+			FROM settlement_batches`); len(batchRows) > 0 {
+			out["settled_today_kobo"] = batchRows[0]["settled_today_kobo"]
+			out["pending_kobo"]       = batchRows[0]["pending_kobo"]
+			out["failed_count"]       = batchRows[0]["failed_count"]
+			out["success_rate_pct"]   = batchRows[0]["success_rate_pct"]
+		}
+
+		if nipRows, _ := db.PGQuery(ctx, `
+			SELECT
+			  COUNT(*)                                                        AS total,
+			  COUNT(*) FILTER (WHERE status = 'resolved')                    AS matched,
+			  COUNT(*) FILTER (WHERE status = 'open')                        AS unmatched,
+			  COUNT(*) FILTER (WHERE status = 'escalated')                   AS exception_count,
+			  COALESCE(SUM(amount_kobo) FILTER (WHERE status='escalated'),0) AS exception_value_kobo,
+			  CASE WHEN COUNT(*) > 0 THEN
+			    ROUND(100.0 * COUNT(*) FILTER (WHERE status='resolved') / COUNT(*), 2)
+			  ELSE 0 END                                                      AS reconciliation_rate_pct
+			FROM settlement_exceptions`); len(nipRows) > 0 {
+			out["nip"] = nipRows[0]
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out) //nolint:errcheck
+	}
+}
+
+func soaNIPRecon(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx     := r.Context()
+		date    := qstr(r, "date")
+		statusP := qstr(r, "status")
+
+		// Batches
+		bwhere := "1=1"
+		var bargs []any
+		bn := 1
+		if date != "" {
+			bwhere += fmt.Sprintf(" AND b.batch_date = $%d::date", bn)
+			bargs = append(bargs, date)
+			bn++
+		}
+		if statusP != "" {
+			bwhere += fmt.Sprintf(" AND LOWER(b.status) = LOWER($%d)", bn)
+			bargs = append(bargs, statusP)
+			bn++
+		}
+		_ = bn
+
+		batchRows, _ := db.PGQuery(ctx, fmt.Sprintf(`
+			SELECT
+			  b.id,
+			  b.batch_date,
+			  b.batch_ref,
+			  COALESCE(b.batch_type, 'NIP')  AS batch_type,
+			  b.total_credits,
+			  COALESCE(b.total_debits, 0)    AS total_debits,
+			  b.txn_count,
+			  COUNT(e.id)                    AS exception_count,
+			  b.status
+			FROM settlement_batches b
+			LEFT JOIN settlement_exceptions e ON e.batch_id = b.id
+			WHERE %s
+			GROUP BY b.id, b.batch_date, b.batch_ref, b.batch_type,
+			         b.total_credits, b.total_debits, b.txn_count, b.status
+			ORDER BY b.batch_date DESC, b.id DESC
+			LIMIT 200`, bwhere), bargs...)
+
+		// Exceptions
+		ewhere := "1=1"
+		var eargs []any
+		en := 1
+		if date != "" {
+			ewhere += fmt.Sprintf(" AND e.txn_date = $%d::date", en)
+			eargs = append(eargs, date)
+			en++
+		}
+		if statusP != "" {
+			switch strings.ToLower(statusP) {
+			case "matched":
+				ewhere += fmt.Sprintf(" AND e.status = $%d", en); eargs = append(eargs, "resolved"); en++
+			case "exception":
+				ewhere += fmt.Sprintf(" AND e.status = $%d", en); eargs = append(eargs, "escalated"); en++
+			case "unmatched":
+				ewhere += fmt.Sprintf(" AND e.status = $%d", en); eargs = append(eargs, "open"); en++
+			default:
+				ewhere += fmt.Sprintf(" AND LOWER(e.status) = LOWER($%d)", en); eargs = append(eargs, statusP); en++
+			}
+		}
+		_ = en
+
+		excRows, _ := db.PGQuery(ctx, fmt.Sprintf(`
+			SELECT
+			  e.id,
+			  COALESCE(e.batch_id, 0)                    AS batch_id,
+			  e.txn_date,
+			  COALESCE(e.txn_ref, 'NIP-' || e.id)       AS txn_ref,
+			  e.amount_kobo,
+			  COALESCE(e.exception_type, 'unknown')      AS exception_type,
+			  COALESCE(e.description, '')                AS description,
+			  e.status,
+			  COALESCE(b.batch_ref, '')                  AS batch_ref,
+			  COALESCE(u.full_name, '')                  AS resolved_by_name,
+			  e.resolved_at,
+			  COALESCE(e.resolution_note, '')            AS resolution_note
+			FROM settlement_exceptions e
+			LEFT JOIN settlement_batches b ON b.id = e.batch_id
+			LEFT JOIN o3c_users u ON u.id = e.resolved_by
+			WHERE %s
+			ORDER BY e.txn_date DESC, e.id DESC
+			LIMIT 500`, ewhere), eargs...)
+
+		if batchRows == nil { batchRows = []map[string]any{} }
+		if excRows == nil   { excRows   = []map[string]any{} }
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"batches":    batchRows,
+			"exceptions": excRows,
+		})
 	}
 }
 

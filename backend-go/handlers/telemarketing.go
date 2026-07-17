@@ -37,6 +37,12 @@ func RegisterTelemarketing(r chi.Router, db *core.DB) {
 	r.Get("/contacts/{id}/calls", tmContactCalls(db))
 	r.Post("/contacts/{id}/log-call", tmLogCall(db))
 
+	// Performance analytics
+	r.Get("/performance-kpis",    tmPerformanceKPIs(db))
+	r.Get("/by-disposition",      tmByDisposition(db))
+	r.Get("/hourly-volume",       tmHourlyVolume(db))
+	r.Get("/agent-performance",   tmAgentPerformance(db))
+
 	// DNC
 	r.Get("/dnc", tmListDNC(db))
 	r.Post("/dnc", tmAddDNC(db))
@@ -844,5 +850,156 @@ func tmBulkRemoveDNC(db *core.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"removed": removed}) //nolint:errcheck
+	}
+}
+
+func tmPerformanceKPIs(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dateFrom, _ := validDate(r, "date_from")
+		dateTo, _   := validDate(r, "date_to")
+		agent       := qstr(r, "agent")
+
+		from  := "telemarketing_dispositions d"
+		where := "1=1"
+		var args []any
+		n := 1
+
+		if agent != "" {
+			from += " LEFT JOIN o3c_users u ON u.id = d.agent_id"
+			where += fmt.Sprintf(" AND u.full_name ILIKE $%d", n)
+			args = append(args, "%"+agent+"%")
+			n++
+		}
+		if dateFrom != "" {
+			where += fmt.Sprintf(" AND d.created_at::date >= $%d::date", n)
+			args = append(args, dateFrom)
+			n++
+		}
+		if dateTo != "" {
+			where += fmt.Sprintf(" AND d.created_at::date <= $%d::date", n)
+			args = append(args, dateTo)
+			n++
+		}
+		_ = n
+
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT
+			  COUNT(*)                                                              AS total_calls,
+			  COUNT(*) FILTER (WHERE d.outcome NOT IN ('no_answer', 'voicemail'))  AS connected,
+			  COUNT(*) FILTER (WHERE d.outcome = 'ptp')                            AS ptp_count,
+			  CASE WHEN COUNT(*) > 0 THEN
+			    ROUND(100.0 * COUNT(*) FILTER (WHERE d.outcome = 'converted') / COUNT(*), 1)
+			  ELSE 0 END                                                            AS conversion_rate_pct
+			FROM %s WHERE %s`, from, where), args...)
+		if err != nil || len(rows) == 0 {
+			respond(w, map[string]any{
+				"total_calls": 0, "connected": 0, "ptp_count": 0, "conversion_rate_pct": 0.0,
+			}, "pg")
+			return
+		}
+		respond(w, rows[0], "pg")
+	}
+}
+
+func tmByDisposition(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dateFrom, _ := validDate(r, "date_from")
+		dateTo, _   := validDate(r, "date_to")
+
+		where := "1=1"
+		var args []any
+		n := 1
+		if dateFrom != "" {
+			where += fmt.Sprintf(" AND created_at::date >= $%d::date", n)
+			args = append(args, dateFrom)
+			n++
+		}
+		if dateTo != "" {
+			where += fmt.Sprintf(" AND created_at::date <= $%d::date", n)
+			args = append(args, dateTo)
+			n++
+		}
+		_ = n
+
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT outcome AS disposition, COUNT(*) AS count
+			FROM telemarketing_dispositions
+			WHERE %s
+			GROUP BY outcome
+			ORDER BY count DESC`, where), args...)
+		if err != nil || rows == nil {
+			rows = []map[string]any{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+func tmHourlyVolume(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		date := qstr(r, "date")
+		var rows []map[string]any
+		var err error
+		if date != "" {
+			rows, err = db.PGQuery(r.Context(), `
+				SELECT TO_CHAR(created_at, 'HH24:00') AS hour, COUNT(*) AS count
+				FROM telemarketing_dispositions
+				WHERE created_at::date = $1::date
+				GROUP BY TO_CHAR(created_at, 'HH24:00')
+				ORDER BY hour`, date)
+		} else {
+			rows, err = db.PGQuery(r.Context(), `
+				SELECT TO_CHAR(created_at, 'HH24:00') AS hour, COUNT(*) AS count
+				FROM telemarketing_dispositions
+				WHERE created_at::date = CURRENT_DATE
+				GROUP BY TO_CHAR(created_at, 'HH24:00')
+				ORDER BY hour`)
+		}
+		if err != nil || rows == nil {
+			rows = []map[string]any{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+func tmAgentPerformance(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dateFrom, _ := validDate(r, "date_from")
+		dateTo, _   := validDate(r, "date_to")
+
+		where := "1=1"
+		var args []any
+		n := 1
+		if dateFrom != "" {
+			where += fmt.Sprintf(" AND d.created_at::date >= $%d::date", n)
+			args = append(args, dateFrom)
+			n++
+		}
+		if dateTo != "" {
+			where += fmt.Sprintf(" AND d.created_at::date <= $%d::date", n)
+			args = append(args, dateTo)
+			n++
+		}
+		_ = n
+
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT
+			  u.full_name                                                              AS agent_name,
+			  COUNT(d.id)                                                              AS calls,
+			  COUNT(d.id) FILTER (WHERE d.outcome NOT IN ('no_answer', 'voicemail'))  AS connected,
+			  COUNT(d.id) FILTER (WHERE d.outcome = 'ptp')                            AS ptp_count,
+			  CASE WHEN COUNT(d.id) > 0 THEN
+			    ROUND(100.0 * COUNT(d.id) FILTER (WHERE d.outcome = 'converted') / COUNT(d.id), 1)
+			  ELSE 0 END                                                               AS conversion_pct,
+			  COALESCE(AVG(d.duration_sec), 0)                                        AS avg_handle_seconds
+			FROM o3c_users u
+			JOIN telemarketing_dispositions d ON d.agent_id = u.id
+			WHERE u.deleted_at IS NULL AND %s
+			GROUP BY u.id, u.full_name
+			ORDER BY calls DESC
+			LIMIT 50`, where), args...)
+		if err != nil || rows == nil {
+			rows = []map[string]any{}
+		}
+		respond(w, rows, "pg")
 	}
 }

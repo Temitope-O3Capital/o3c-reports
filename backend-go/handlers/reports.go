@@ -41,6 +41,8 @@ func RegisterReports(r chi.Router, db *core.DB) {
 	r.With(read).Get("/customer-statement/emails", listStatementEmails(db))
 	r.With(read).Get("/npl-return", reportNPLReturn(db))
 	r.With(audit).Get("/audit-trail-export", reportAuditTrailExport(db))
+	r.With(read).Get("/kpis",        reportKPIsHandler(db))
+	r.With(read).Get("/kpi-history", reportKPIHistoryHandler(db))
 }
 
 // reportsList returns metadata for all available report types.
@@ -679,5 +681,202 @@ func reportNPLReturn(db *core.DB) http.HandlerFunc {
 			return
 		}
 		respond(w, result, "pg")
+	}
+}
+
+// reportPeriodRange converts a period name to (dateFrom, dateTo) strings in YYYY-MM-DD format.
+func reportPeriodRange(period string) (dateFrom, dateTo string) {
+	now := time.Now()
+	switch period {
+	case "last_month":
+		first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+		end := first.AddDate(0, 0, -1)
+		start := time.Date(end.Year(), end.Month(), 1, 0, 0, 0, 0, now.Location())
+		return start.Format("2006-01-02"), end.Format("2006-01-02")
+	case "this_quarter":
+		q := (int(now.Month()) - 1) / 3
+		start := time.Date(now.Year(), time.Month(q*3+1), 1, 0, 0, 0, 0, now.Location())
+		return start.Format("2006-01-02"), now.Format("2006-01-02")
+	case "last_quarter":
+		q := (int(now.Month()) - 1) / 3
+		qStart := time.Date(now.Year(), time.Month(q*3+1), 1, 0, 0, 0, 0, now.Location())
+		end := qStart.AddDate(0, 0, -1)
+		pq := (int(end.Month()) - 1) / 3
+		start := time.Date(end.Year(), time.Month(pq*3+1), 1, 0, 0, 0, 0, now.Location())
+		return start.Format("2006-01-02"), end.Format("2006-01-02")
+	case "this_year":
+		start := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+		return start.Format("2006-01-02"), now.Format("2006-01-02")
+	default: // "this_month"
+		start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+		return start.Format("2006-01-02"), now.Format("2006-01-02")
+	}
+}
+
+func reportKPIsHandler(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx    := r.Context()
+		period := qstr(r, "period")
+		if period == "" { period = "this_month" }
+		dateFrom, dateTo := reportPeriodRange(period)
+
+		out := map[string]any{}
+
+		// Active loans
+		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS val FROM loan_accounts WHERE status='active'`); len(rows) > 0 {
+			out["active_loans"] = rows[0]["val"]
+		} else { out["active_loans"] = 0 }
+
+		// Total disbursed in period
+		if rows, _ := db.PGQuery(ctx,
+			`SELECT COALESCE(SUM(disbursed_amount_kobo),0) AS val
+			 FROM loan_applications
+			 WHERE status IN ('disbursed','active') AND disbursed_at IS NOT NULL
+			   AND disbursed_at::date BETWEEN $1::date AND $2::date`,
+			dateFrom, dateTo); len(rows) > 0 {
+			out["total_disbursed_kobo"] = rows[0]["val"]
+		} else { out["total_disbursed_kobo"] = 0 }
+
+		// NPL ratio and PAR30 from latest portfolio snapshot
+		out["npl_ratio_pct"] = 0.0
+		out["par30_pct"] = 0.0
+		if rows, _ := db.PGQuery(ctx,
+			`SELECT npl_ratio_bps, par30_kobo, total_outstanding_kobo
+			 FROM portfolio_daily_snapshot ORDER BY snapshot_date DESC LIMIT 1`); len(rows) > 0 {
+			out["npl_ratio_pct"] = round1(toFloat(rows[0]["npl_ratio_bps"]) / 100.0)
+			total := toFloat(rows[0]["total_outstanding_kobo"])
+			if total > 0 {
+				out["par30_pct"] = round1(toFloat(rows[0]["par30_kobo"]) / total * 100)
+			}
+		}
+
+		// Collection rate
+		out["collection_rate_pct"] = 0.0
+		if rows, _ := db.PGQuery(ctx,
+			`SELECT COALESCE(SUM(amount_collected_kobo),0) AS collected,
+			        COALESCE(SUM(target_amount_kobo),0)    AS target
+			 FROM collections_daily_kpi
+			 WHERE kpi_date BETWEEN $1::date AND $2::date`,
+			dateFrom, dateTo); len(rows) > 0 {
+			target := toFloat(rows[0]["target"])
+			if target > 0 {
+				out["collection_rate_pct"] = round1(toFloat(rows[0]["collected"]) / target * 100)
+			}
+		}
+
+		// Recovery rate
+		out["recovery_rate_pct"] = 0.0
+		if rows, _ := db.PGQuery(ctx,
+			`SELECT COUNT(*) FILTER (WHERE status='recovered') AS recovered, COUNT(*) AS total
+			 FROM recovery_cases
+			 WHERE created_at::date BETWEEN $1::date AND $2::date`,
+			dateFrom, dateTo); len(rows) > 0 {
+			total := toFloat(rows[0]["total"])
+			if total > 0 {
+				out["recovery_rate_pct"] = round1(toFloat(rows[0]["recovered"]) / total * 100)
+			}
+		}
+
+		// CSAT score
+		out["csat_score"] = 0.0
+		if rows, _ := db.PGQuery(ctx,
+			`SELECT COALESCE(AVG(csat_score), 0) AS val FROM helpdesk_tickets
+			 WHERE csat_score IS NOT NULL AND resolved_at::date BETWEEN $1::date AND $2::date`,
+			dateFrom, dateTo); len(rows) > 0 {
+			out["csat_score"] = toFloat(rows[0]["val"])
+		}
+
+		// New customers (loan applications as proxy)
+		out["new_customers"] = 0
+		if rows, _ := db.PGQuery(ctx,
+			`SELECT COUNT(*) AS val FROM loan_applications
+			 WHERE created_at::date BETWEEN $1::date AND $2::date`,
+			dateFrom, dateTo); len(rows) > 0 {
+			out["new_customers"] = rows[0]["val"]
+		}
+
+		// Active cards (dual DB: MSSQL live / PG mirror)
+		activeCards, _, _ := db.DualScalar(ctx, "val",
+			`SELECT COUNT(*) AS val FROM dbo.Account WHERE Status IN ('Open','Active')`,
+			`SELECT COUNT(*) AS val FROM "Products" WHERE "Account Status" IN ('Open','Active')`)
+		out["active_cards"] = activeCards
+
+		// Revenue (fee income for period)
+		out["revenue_kobo"] = 0
+		if rows, _ := db.PGQuery(ctx,
+			`SELECT COALESCE(SUM(amount),0) AS val FROM fee_income
+			 WHERE fee_date BETWEEN $1::date AND $2::date`,
+			dateFrom, dateTo); len(rows) > 0 {
+			out["revenue_kobo"] = rows[0]["val"]
+		}
+
+		// KPI targets from kpi_targets table
+		targetRows, _ := db.PGQuery(ctx,
+			`SELECT metric_name, target_value FROM kpi_targets
+			 WHERE period = $1 OR period IS NULL OR period = 'all'
+			 ORDER BY period NULLS LAST`, period)
+		seen := map[string]bool{}
+		for _, tr := range targetRows {
+			if name, _ := tr["metric_name"].(string); name != "" && !seen[name] {
+				out["target_"+name] = tr["target_value"]
+				seen[name] = true
+			}
+		}
+		for _, k := range []string{
+			"disbursed_kobo", "active_loans", "npl_pct", "par30_pct",
+			"collection_pct", "recovery_pct", "csat", "new_customers", "active_cards", "revenue_kobo",
+		} {
+			if _, ok := out["target_"+k]; !ok { out["target_"+k] = 0 }
+		}
+
+		respond(w, out, "pg")
+	}
+}
+
+func reportKPIHistoryHandler(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			WITH months AS (
+			  SELECT DATE_TRUNC('month', CURRENT_DATE - (i || ' months')::interval)::date AS month_start
+			  FROM generate_series(5, 0, -1) AS gs(i)
+			),
+			disbursements AS (
+			  SELECT DATE_TRUNC('month', disbursed_at)::date AS m, COALESCE(SUM(disbursed_amount_kobo),0) AS total
+			  FROM loan_applications
+			  WHERE status IN ('disbursed','active') AND disbursed_at IS NOT NULL
+			  GROUP BY 1
+			),
+			collections AS (
+			  SELECT DATE_TRUNC('month', kpi_date)::date AS m,
+			    CASE WHEN SUM(target_amount_kobo) > 0 THEN
+			      ROUND(100.0 * SUM(amount_collected_kobo)/SUM(target_amount_kobo), 1)
+			    ELSE 0 END AS rate
+			  FROM collections_daily_kpi GROUP BY 1
+			),
+			npl AS (
+			  SELECT DATE_TRUNC('month', snapshot_date)::date AS m,
+			    ROUND(AVG(npl_ratio_bps)/100.0, 2) AS ratio
+			  FROM portfolio_daily_snapshot GROUP BY 1
+			),
+			revenue AS (
+			  SELECT DATE_TRUNC('month', fee_date)::date AS m, COALESCE(SUM(amount),0) AS total
+			  FROM fee_income GROUP BY 1
+			)
+			SELECT
+			  TO_CHAR(mo.month_start, 'Mon YYYY') AS period_label,
+			  COALESCE(d.total, 0)                AS total_disbursed_kobo,
+			  COALESCE(c.rate, 0)                 AS collection_rate_pct,
+			  COALESCE(n.ratio, 0)                AS npl_ratio_pct,
+			  COALESCE(rv.total, 0)               AS revenue_kobo
+			FROM months mo
+			LEFT JOIN disbursements d  ON d.m  = mo.month_start
+			LEFT JOIN collections   c  ON c.m  = mo.month_start
+			LEFT JOIN npl           n  ON n.m  = mo.month_start
+			LEFT JOIN revenue       rv ON rv.m = mo.month_start
+			ORDER BY mo.month_start`)
+		if err != nil || rows == nil {
+			rows = []map[string]any{}
+		}
+		respond(w, rows, "pg")
 	}
 }
