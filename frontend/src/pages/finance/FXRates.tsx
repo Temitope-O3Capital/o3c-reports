@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { apiFetch, apiPost } from '../../lib/api'
 import { NAVY, GREEN, AMBER, TEXT, FW, SP, RADIUS } from '../../lib/design'
-import { SectionCard, Spinner } from '../../components/UI'
+import { Page, SectionCard, Spinner } from '../../components/UI'
 import { toast } from 'sonner'
 
 const CURRENCIES = ['USD', 'EUR', 'GBP']
@@ -89,26 +89,24 @@ export default function FXRates() {
     sell: +r.sell.toFixed(2),
   }))
 
-  return (
-    <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: SP[6], maxWidth: 1100 }}>
+  const refreshBtn = (
+    <button
+      onClick={handleRefresh}
+      disabled={refreshing}
+      style={{ ...BTN, display: 'flex', alignItems: 'center', gap: 6, opacity: refreshing ? 0.65 : 1, cursor: refreshing ? 'not-allowed' : 'pointer' }}
+    >
+      <span className="material-symbols-rounded" style={{ fontSize: 18 }}>sync</span>
+      {refreshing ? 'Refreshing…' : 'Refresh Rates'}
+    </button>
+  )
 
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: SP[3] }}>
-        <div>
-          <h1 style={{ fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)', margin: 0 }}>FX Parallel Rates</h1>
-          <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', marginTop: 4 }}>
-            Indicative Naira parallel-market rates — aggregated BDC quotes, not a licensed FX feed.
-          </p>
-        </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          style={{ ...BTN, display: 'flex', alignItems: 'center', gap: 6, opacity: refreshing ? 0.65 : 1, cursor: refreshing ? 'not-allowed' : 'pointer' }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 18 }}>sync</span>
-          {refreshing ? 'Refreshing…' : 'Refresh Rates'}
-        </button>
-      </div>
+  return (
+    <Page
+      title="FX Parallel Rates"
+      subtitle="Indicative Naira parallel-market rates — aggregated BDC quotes, not a licensed FX feed."
+      actions={refreshBtn}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[6] }}>
 
       {/* Latest rate cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: SP[4] }}>
@@ -204,7 +202,9 @@ export default function FXRates() {
       <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.6, borderTop: '1px solid var(--bdr)', paddingTop: SP[4] }}>
         <strong>Disclaimer:</strong> Rates are sourced from community-aggregated BDC quotes (NgnRates.com, AbokiForex). They are indicative of the Naira parallel market only and are not a licensed or regulated FX feed. Not suitable for settlement or customer-facing rate quotes without compliance review.
       </p>
-    </div>
+
+      </div>
+    </Page>
   )
 }
 
