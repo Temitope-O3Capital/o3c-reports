@@ -218,7 +218,7 @@ func cardsCardholders(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		respond(w, map[string]any{"data": data, "total": total}, src)
+		respondPaginated(w, data, total, src)
 	}
 }
 

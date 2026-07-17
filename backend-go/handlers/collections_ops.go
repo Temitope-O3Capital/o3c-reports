@@ -637,7 +637,7 @@ func collectionsOpsListPlans(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		respond(w, map[string]any{"data": rows}, "pg")
+		respond(w, rows, "pg")
 	}
 }
 
@@ -755,7 +755,7 @@ func collectionsOpsListInstalments(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		respond(w, map[string]any{"data": rows}, "pg")
+		respond(w, rows, "pg")
 	}
 }
 
@@ -864,7 +864,7 @@ func collectionsOpsListPromises(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		respond(w, map[string]any{"data": rows}, "pg")
+		respond(w, rows, "pg")
 	}
 }
 
@@ -927,7 +927,7 @@ func collectionsOpsListWriteoffs(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		respond(w, map[string]any{"data": rows}, "pg")
+		respond(w, rows, "pg")
 	}
 }
 

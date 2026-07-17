@@ -38,7 +38,7 @@ function RatioCard({ label, value, threshold, thresholdLabel, isMin = false }: {
       <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: SP[2] }}>
         {label}
       </div>
-      <div style={{ fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color, ...NUM }}>{value.toFixed(2)}%</div>
+      <div style={{ fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color, ...NUM }}>{Number(value ?? 0).toFixed(2)}%</div>
       {threshold !== undefined && (
         <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 6 }}>
           CBN {isMin ? 'min' : 'max'}: <span style={{ fontWeight: FW.bold, color: 'var(--txt2)' }}>{threshold}%</span>

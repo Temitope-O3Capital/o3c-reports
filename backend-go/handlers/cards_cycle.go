@@ -106,7 +106,7 @@ func cardCycleData(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Query failed"); return
 		}
 
-		respond(w, map[string]any{"data": rows, "total": total}, "json")
+		respondPaginated(w, rows, total, "json")
 	}
 }
 

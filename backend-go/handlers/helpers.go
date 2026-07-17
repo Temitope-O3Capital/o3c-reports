@@ -55,6 +55,22 @@ func respond(w http.ResponseWriter, data any, source string) {
 	})
 }
 
+// respondPaginated writes { data, total, data_source, data_as_of } — the standard
+// paginated list response. Use instead of respond(w, map[string]any{"data":…,"total":…})
+// which would double-wrap the payload inside respond's own "data" key.
+func respondPaginated(w http.ResponseWriter, data any, total any, source string) {
+	w.Header().Set("Content-Type", "application/json")
+	if data == nil {
+		data = []core.Row{}
+	}
+	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+		"data":        data,
+		"total":       total,
+		"data_source": source,
+		"data_as_of":  time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
 // respondErr writes a {detail} JSON error.
 func respondErr(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")

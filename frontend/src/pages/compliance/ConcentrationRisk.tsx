@@ -66,7 +66,7 @@ export default function ConcentrationRisk() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: SP[6] }}>
             {[
               { label: 'Total Loan Book', value: fmtKobo(data.total_loan_book_kobo) },
-              { label: 'Active Obligors', value: String(data.top_obligors.length) + '+' },
+              { label: 'Active Obligors', value: String((data.top_obligors ?? []).length) + '+' },
               { label: 'CBN Single-Obligor Cap', value: `${data.cbn_single_obligor_limit_pct}%` },
             ].map(({ label, value }) => (
               <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: '14px 18px' }}>
@@ -77,7 +77,7 @@ export default function ConcentrationRisk() {
           </div>
 
           {/* Top obligors */}
-          <SectionCard title="Top 10 Obligors by Exposure" badge={data.top_obligors.length}>
+          <SectionCard title="Top 10 Obligors by Exposure" badge={(data.top_obligors ?? []).length}>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
                 <thead>
@@ -88,7 +88,7 @@ export default function ConcentrationRisk() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.top_obligors.map((row, i) => {
+                  {(data.top_obligors ?? []).map((row, i) => {
                     const breached = row.exposure_pct > data.cbn_single_obligor_limit_pct
                     return (
                       <tr key={row.obligor} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--row-hvr)' }}>
@@ -125,7 +125,7 @@ export default function ConcentrationRisk() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.by_loan_type.map((row, i) => (
+                  {(data.by_loan_type ?? []).map((row, i) => (
                     <tr key={row.loan_type} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--row-hvr)' }}>
                       <td style={{ ...td, fontWeight: FW.semibold }}>{row.loan_type}</td>
                       <td style={{ ...td, ...NUM }}>{row.count}</td>
@@ -146,7 +146,7 @@ export default function ConcentrationRisk() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.by_employer.map((row, i) => (
+                  {(data.by_employer ?? []).map((row, i) => (
                     <tr key={row.employer} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--row-hvr)' }}>
                       <td style={{ ...td, fontWeight: FW.semibold, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.employer}</td>
                       <td style={{ ...td, ...NUM }}>{row.borrower_count}</td>

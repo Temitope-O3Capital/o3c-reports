@@ -85,13 +85,13 @@ export default function SalesTargets() {
     setLoading(true); setError(null)
     try {
       const [act, tgt, usr] = await Promise.all([
-        apiFetch<Actual[]>(`/api/sales/targets/actuals?period=${period}`),
-        apiFetch<SalesTarget[]>(`/api/sales/targets?period=${period}`),
-        apiFetch<User[]>('/api/admin/users'),
+        apiFetch<{ data: Actual[] }>(`/api/sales/targets/actuals?period=${period}`),
+        apiFetch<{ data: SalesTarget[] }>(`/api/sales/targets?period=${period}`),
+        apiFetch<{ data: User[] }>('/api/admin/users'),
       ])
-      setActuals(act)
-      setTargets(tgt)
-      setUsers((usr as User[]).filter(u =>
+      setActuals(act?.data ?? [])
+      setTargets(tgt?.data ?? [])
+      setUsers((usr?.data ?? []).filter((u: User) =>
         ['sales_officer','sales_head','bd_officer','bd_head'].includes(u.role)
       ))
     } catch (e: any) { setError(e.message) }

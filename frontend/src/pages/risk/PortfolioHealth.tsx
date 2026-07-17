@@ -150,11 +150,11 @@ export default function PortfolioHealth() {
     setError(null)
     try {
       const [kpisRes, trendRes, bandRes, sectorRes, empRes] = await Promise.all([
-        apiFetch<{ data: PortfolioKPIs }>('/api/risk/portfolio-kpis'),
-        apiFetch<{ data: PARTrendPoint[] }>('/api/risk/par-trend'),
-        apiFetch<{ data: BandDist[] }>('/api/risk/band-distribution'),
-        apiFetch<{ data: SectorConc[] }>('/api/risk/sector-concentration'),
-        apiFetch<{ data: EmployerRow[] }>('/api/risk/top-employers'),
+        apiFetch<{ data: PortfolioKPIs }>('/api/risk/portfolio-kpis').catch(() => ({ data: null as unknown as PortfolioKPIs })),
+        apiFetch<{ data: PARTrendPoint[] }>('/api/risk/par-trend').catch(() => ({ data: [] as PARTrendPoint[] })),
+        apiFetch<{ data: BandDist[] }>('/api/risk/band-distribution').catch(() => ({ data: [] as BandDist[] })),
+        apiFetch<{ data: SectorConc[] }>('/api/risk/sector-concentration').catch(() => ({ data: [] as SectorConc[] })),
+        apiFetch<{ data: EmployerRow[] }>('/api/risk/top-employers').catch(() => ({ data: [] as EmployerRow[] })),
       ])
       setKpis(kpisRes.data)
       setParTrend(trendRes.data ?? [])

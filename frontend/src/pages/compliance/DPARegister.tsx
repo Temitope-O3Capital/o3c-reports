@@ -23,6 +23,17 @@ interface DPAEntry {
   updated_at:              string
 }
 
+function parseDataCategories(raw: string[] | string | null | undefined): string[] {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw
+  const s = String(raw).trim()
+  if (s.startsWith('[')) { try { return JSON.parse(s) } catch { return [] } }
+  if (s.startsWith('{')) {
+    return s.slice(1, -1).split(',').map(e => e.replace(/^"|"$/g, '').trim()).filter(Boolean)
+  }
+  return []
+}
+
 const BASIS_LABELS: Record<string, string> = {
   consent: 'Consent', contract: 'Contract', legal_obligation: 'Legal Obligation',
   vital_interests: 'Vital Interests', public_task: 'Public Task',
@@ -158,7 +169,7 @@ export default function DPARegister() {
                       </span>
                     </td>
                     <td style={{ ...td, fontSize: TEXT.xs, color: 'var(--txt2)' }}>
-                      {(row.data_categories ?? []).join(', ') || '—'}
+                      {parseDataCategories(row.data_categories).join(', ') || '—'}
                     </td>
                     <td style={{ ...td, fontSize: TEXT.sm, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>
                       {row.retention_period || '—'}
