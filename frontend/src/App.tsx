@@ -500,7 +500,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
           el.style.borderColor = 'var(--bdr)'; el.style.color = 'var(--txt2)'
         }}
       >
-        <IcoApprove width={16} height={16} />
+        <IcoApprove size={16} />
         {pendingCount > 0 && (
           <span style={{
             position: 'absolute', top: -5, right: -5,
@@ -630,7 +630,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
 function ThemeToggle({ dark, onToggle }: { dark: boolean; onToggle: () => void }) {
   return (
     <TbBtn onClick={onToggle} title={dark ? 'Switch to light mode' : 'Switch to dark mode'}>
-      {dark ? <IcoSun width={16} height={16} /> : <IcoMoon width={16} height={16} />}
+      {dark ? <IcoSun size={16} /> : <IcoMoon size={16} />}
     </TbBtn>
   )
 }
@@ -690,7 +690,7 @@ function C360Bar({ onPick }: { onPick: (r: C360Hit) => void }) {
         transition: 'border-color .12s',
       }}
     >
-      <IcoSearch width={14} height={14} style={{ flexShrink: 0 }} />
+      <IcoSearch size={14} style={{ flexShrink: 0 }} />
       <input
         className="srch-input"
         value={q}
@@ -1103,9 +1103,9 @@ function ForceChangePassword({ onDone }: { onDone: () => void }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (pw !== pw2) { setErr('Passwords do not match'); return }
-    if (pw.length < 8) { setErr('Password must be at least 8 characters'); return }
+    if (pw.length < 12) { setErr('Password must be at least 12 characters'); return }
     try {
-      await apiFetch('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ new_password: pw }) } as RequestInit)
+      await apiFetch('/api/auth/force-change-password', { method: 'POST', body: JSON.stringify({ new_password: pw }) } as RequestInit)
       setOk(true)
       setTimeout(onDone, 1200)
     } catch (e: unknown) {
@@ -1122,7 +1122,7 @@ function ForceChangePassword({ onDone }: { onDone: () => void }) {
           <p style={{ color: 'var(--nav-dot)', fontWeight: 600 }}>Password updated — logging you in…</p>
         ) : (
           <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <input type="password" placeholder="New password" value={pw} onChange={e => setPw(e.target.value)}
+            <input type="password" placeholder="New password (min. 12 characters)" value={pw} onChange={e => setPw(e.target.value)}
               style={{ height: 48, borderRadius: 10, border: '1.5px solid var(--input-bdr)', padding: '0 14px', fontSize: 14, fontFamily: 'inherit', background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none' }} />
             <input type="password" placeholder="Confirm password" value={pw2} onChange={e => setPw2(e.target.value)}
               style={{ height: 48, borderRadius: 10, border: '1.5px solid var(--input-bdr)', padding: '0 14px', fontSize: 14, fontFamily: 'inherit', background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none' }} />

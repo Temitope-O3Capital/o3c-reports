@@ -107,7 +107,7 @@ export default function NotificationBell() {
           el.style.borderColor = 'var(--bdr)'; el.style.color = 'var(--txt2)'
         }}
       >
-        <IcoBell width={16} height={16} />
+        <IcoBell size={16} />
         {unread > 0 && (
           <span style={{
             position: 'absolute', top: -5, right: -5,

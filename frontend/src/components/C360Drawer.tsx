@@ -149,7 +149,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
               display: 'flex', alignItems: 'center',
             }}
           >
-            <IcoClose width={18} height={18} />
+            <IcoClose size={18} />
           </button>
 
           {loading && (

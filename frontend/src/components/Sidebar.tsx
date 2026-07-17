@@ -294,7 +294,7 @@ const SECTIONS: Section[] = [
         ],
       },
       {
-        icon: 'account_balance', label: 'Core Banking', to: '/core-banking',
+        icon: 'core_banking', label: 'Core Banking', to: '/core-banking',
         vis: ['it_admin','finance_officer','finance_head'],
       },
     ],
@@ -405,7 +405,7 @@ function NavRow({
   const content = (
     <>
       {Ico
-        ? <Ico width={16} height={16} style={{ flexShrink: 0, opacity: 0.85 }} />
+        ? <Ico size={16} style={{ flexShrink: 0, opacity: 0.85 }} />
         : <span className="material-symbols-rounded" style={{ fontSize: 16, flexShrink: 0, opacity: 0.85 }}>{item.icon}</span>
       }
       {!collapsed && (
@@ -646,7 +646,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
             ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.45)'
           }}
         >
-          <IcoSearch width={14} height={14} style={{ opacity: 0.6, flexShrink: 0 }} />
+          <IcoSearch size={14} style={{ opacity: 0.6, flexShrink: 0 }} />
           <span style={{ flex: 1, textAlign: 'left' }}>Jump to…</span>
           <kbd style={{
             fontFamily: MONO, fontSize: 10,
