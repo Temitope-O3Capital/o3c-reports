@@ -306,6 +306,15 @@ const SECTIONS: Section[] = [
       {
         icon: 'admin_panel_settings', label: 'System Admin', to: '/admin',
         vis: ['it_admin'],
+        subs: [
+          { label: 'User Management',   to: '/admin' },
+          { label: 'Module Management', to: '/admin/modules' },
+          { label: 'Roles',             to: '/admin/roles' },
+          { label: 'API Keys',          to: '/admin/api-keys' },
+          { label: 'Audit Log',         to: '/admin/audit-log' },
+          { label: 'Sync Status',       to: '/admin/sync-status' },
+          { label: 'Settings',          to: '/admin/settings' },
+        ],
       },
     ],
   },
@@ -499,8 +508,9 @@ function SectionHeader({ label, collapsed }: { label?: string; collapsed: boolea
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
-export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
+export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModules }: {
   user: AuthUser; onLogout: () => void; utilities?: ReactNode; onCmdK?: () => void
+  enabledModules: Set<string>
 }) {
   const { pathname } = useLocation()
   const navigate = useNavigate()
@@ -521,7 +531,10 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK }: {
     localStorage.setItem('o3c_sb', collapsed ? '1' : '0')
   }, [collapsed])
 
-  const sections = visibleSections(user.role as string)
+  // root and admin sections always show; all others require the module to be enabled
+  const sections = visibleSections(user.role as string).filter(s =>
+    s.key === 'root' || s.key === 'admin' || enabledModules.has(s.key)
+  )
 
   function toggleItem(to: string) {
     setOpenKey(prev => prev === to ? null : to)

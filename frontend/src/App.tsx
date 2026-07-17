@@ -13,6 +13,7 @@ import GlobalSearch     from './components/GlobalSearch'
 import CallWidget       from './components/CallWidget'
 import C360Drawer       from './components/C360Drawer'
 import { type AuthUser, ROLE_PAGES } from './hooks/useAuth'
+import { useModules } from './hooks/useModules'
 import { roleLabel, MGMT } from './lib/roles'
 import { API, apiFetch, apiPost, apiLogout, refreshSession } from './lib/api'
 import { LIGHT, DARK, GREEN, BLUE, NAVY, PLEX, MONO, RED, CANVAS }  from './lib/design'
@@ -129,6 +130,7 @@ const AdminAuditLog              = lazy(() => import('./pages/admin/AuditLog'))
 const AdminSyncStatus            = lazy(() => import('./pages/admin/SyncStatus'))
 const AdminHelpdeskSettings      = lazy(() => import('./pages/admin/HelpdeskSettings'))
 const AdminWorkflowTemplates     = lazy(() => import('./pages/admin/WorkflowTemplates'))
+const AdminModules               = lazy(() => import('./pages/admin/Modules'))
 
 // Finance
 const FinanceOverview     = lazy(() => import('./pages/finance/Overview'))
@@ -784,6 +786,7 @@ const IDLE_LOGOUT_MS = 30 * 60 * 1000
 // ── App shell ─────────────────────────────────────────────────────────────────
 
 const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
+  const enabledModules = useModules()
   const [c360Open,    setC360Open]    = useState(false)
   const [c360Customer, setC360Customer] = useState<{ cif: string; name: string; phone: string; email: string } | null>(null)
   const [searchOpen,  setSearchOpen]  = useState(false)
@@ -845,7 +848,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
         <Toaster richColors position="top-right" />
 
         {/* Sidebar */}
-        <Sidebar user={user} onLogout={onLogout} onCmdK={() => setSearchOpen(true)} />
+        <Sidebar user={user} onLogout={onLogout} onCmdK={() => setSearchOpen(true)} enabledModules={enabledModules} />
 
         {/* Main column */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
@@ -1029,6 +1032,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/statements"     element={<RequireAccess page="statements" user={user}><PageErrorBoundary><Statements /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Admin */}
+                  <Route path="/admin/modules"               element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminModules /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/admin"                       element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/admin/overview"              element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/admin/users"                 element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminUsers /></PageErrorBoundary></RequireAccess>} />

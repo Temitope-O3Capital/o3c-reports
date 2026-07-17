@@ -284,7 +284,12 @@ func main() {
 			handlers.RegisterAdmin(r, db)
 			handlers.RegisterNotificationSettings(r, db)
 			handlers.RegisterEmailSenders(r, db)
+			r.Route("/modules", func(r chi.Router) {
+				handlers.RegisterModules(r, db)
+			})
 		})
+		// Module enabled-keys — any authenticated user (sidebar needs this)
+		r.Get("/api/modules", handlers.GetEnabledModules(db))
 		r.Route("/api", func(r chi.Router) {
 			handlers.RegisterRecipientSuggest(r, db)
 		})
