@@ -604,6 +604,13 @@ function ContactsSection({ campaignId }: { campaignId: string }) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
+interface Progress {
+  status: string; total: number; done: number; pending: number
+  sent: number; delivered: number; bounced: number; progress_pct: number
+}
+
+type TabKey = 'setup' | 'content' | 'review' | 'results'
+
 export default function CampaignDetail() {
   const { id }   = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -613,6 +620,9 @@ export default function CampaignDetail() {
   const [loading,  setLoading]  = useState(true)
   const [err,      setErr]      = useState<string | null>(null)
 
+  // editable fields
+  const [name,         setName]         = useState('')
+  const [description,  setDescription]  = useState('')
   const [emailBlocks,  setEmailBlocks]  = useState<EditorValue>({ blocks: [] })
   const [emailSubject, setEmailSubject] = useState('')
   const [fromName,     setFromName]     = useState('')
@@ -622,7 +632,10 @@ export default function CampaignDetail() {
   const [listId,       setListId]       = useState<number | ''>('')
   const [contactLists, setContactLists] = useState<ContactListItem[]>([])
 
+  // ui
+  const [tab,          setTab]          = useState<TabKey>('setup')
   const [saving,       setSaving]       = useState(false)
+  const [lastSaved,    setLastSaved]    = useState<Date | null>(null)
   const [starting,     setStarting]     = useState(false)
   const [pausing,      setPausing]      = useState(false)
   const [cancelling,   setCancelling]   = useState(false)
@@ -630,6 +643,18 @@ export default function CampaignDetail() {
   const [preflightOpen,setPreflightOpen]= useState(false)
   const [tplOpen,      setTplOpen]      = useState(false)
   const [tplFor,       setTplFor]       = useState<'email' | 'sms'>('sms')
+
+  // test send
+  const [testEmail,   setTestEmail]   = useState('')
+  const [testPhone,   setTestPhone]   = useState('')
+  const [testSending, setTestSending] = useState(false)
+
+  // live progress
+  const [progress, setProgress] = useState<Progress | null>(null)
+
+  const autoSaveRef         = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const initialLoadRef      = useRef(true)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -640,23 +665,22 @@ export default function CampaignDetail() {
         apiFetch<ReportResp>(`/api/campaigns/${id}/analytics`).catch(() => null),
       ])
       setCampaign(camp); setReport(rpt)
+      setName(camp.name ?? '')
+      setDescription((camp as any).description ?? '')
       setSmsBody(camp.sms_body ?? '')
       setEmailSubject(camp.email_subject ?? '')
       setFromName(camp.from_name ?? '')
       setFromEmail(camp.from_email ?? '')
       setScheduledAt(toDatetimeLocal(camp.scheduled_at ?? ''))
       setListId(camp.list_id ?? '')
-
-      // email_blocks_json is the canonical store; email_body_text may have legacy JSON
       let blocks: EmailBlock[] = [], settings: EmailSettings = {}
       const src = camp.email_blocks_json || camp.email_body_text || ''
       if (src) {
-        try {
-          const parsed = JSON.parse(src)
-          if (Array.isArray(parsed.blocks)) { blocks = parsed.blocks; settings = parsed.settings ?? {} }
-        } catch {}
+        try { const p = JSON.parse(src); if (Array.isArray(p.blocks)) { blocks = p.blocks; settings = p.settings ?? {} } } catch {}
       }
       setEmailBlocks({ blocks, settings })
+      if (['active', 'paused', 'completed', 'cancelled'].includes(camp.status)) setTab('results')
+      initialLoadRef.current = false
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
   }, [id])
@@ -674,8 +698,49 @@ export default function CampaignDetail() {
       .catch(() => {})
   }, [canEdit])
 
+  // progress polling for active campaigns
+  useEffect(() => {
+    if (campaign?.status !== 'active') {
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current)
+      return
+    }
+    const poll = () => apiFetch<Progress>(`/api/campaigns/${id}/progress`).then(r => setProgress(r)).catch(() => {})
+    poll()
+    progressIntervalRef.current = setInterval(poll, 5000)
+    return () => { if (progressIntervalRef.current) clearInterval(progressIntervalRef.current) }
+  }, [campaign?.status, id])
+
+  // auto-save (quiet, debounce 2.5s)
+  useEffect(() => {
+    if (initialLoadRef.current || !canEdit || !id) return
+    if (autoSaveRef.current) clearTimeout(autoSaveRef.current)
+    autoSaveRef.current = setTimeout(async () => {
+      const p: Record<string, any> = { name }
+      if (description) p.description = description
+      if (scheduledAt) p.scheduled_at = new Date(scheduledAt).toISOString()
+      if (listId !== '') p.list_id = Number(listId)
+      if (isSMS)   p.sms_body = smsBody
+      if (isEmail) {
+        p.email_subject     = emailSubject
+        p.email_blocks_json = JSON.stringify(emailBlocks)
+        const html          = exportToHtml(emailBlocks.blocks, emailBlocks.settings)
+        p.email_body_html   = html
+        p.email_body_text   = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+        if (fromName)  p.from_name  = fromName
+        if (fromEmail) p.from_email = fromEmail
+      }
+      try {
+        await apiFetch(`/api/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(p) })
+        setLastSaved(new Date())
+      } catch { /* silent auto-save failure */ }
+    }, 2500)
+    return () => { if (autoSaveRef.current) clearTimeout(autoSaveRef.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, description, emailBlocks, emailSubject, fromName, fromEmail, smsBody, scheduledAt, listId])
+
   function buildPayload() {
-    const p: Record<string, any> = {}
+    const p: Record<string, any> = { name }
+    if (description) p.description = description
     if (scheduledAt) p.scheduled_at = new Date(scheduledAt).toISOString()
     if (listId !== '') p.list_id = Number(listId)
     if (isSMS)   p.sms_body = smsBody
@@ -696,10 +761,25 @@ export default function CampaignDetail() {
     setSaving(true)
     try {
       await apiFetch(`/api/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(buildPayload()) })
-      toast.success('Campaign saved')
+      setLastSaved(new Date())
+      toast.success('Saved')
       load()
     } catch (ex: any) { toast.error(ex.message ?? 'Save failed') }
     finally { setSaving(false) }
+  }
+
+  async function sendTest() {
+    if (!id) return
+    setTestSending(true)
+    try {
+      const res = await apiPost<{ sent: number; warnings: string[] }>(`/api/campaigns/${id}/test-send`, {
+        to_email: testEmail || undefined,
+        to_phone: testPhone || undefined,
+      })
+      toast.success(`Test ${res.sent > 0 ? 'sent' : 'queued'}${res.warnings?.length ? ' — check warnings' : ''}`)
+      if (res.warnings?.length) res.warnings.forEach(w => toast.warning(w))
+    } catch (ex: any) { toast.error(ex.message ?? 'Test send failed') }
+    finally { setTestSending(false) }
   }
 
   async function startCampaign() {
@@ -731,6 +811,25 @@ export default function CampaignDetail() {
     finally { setCancelling(false) }
   }
 
+  async function duplicateCampaign() {
+    if (!id) return
+    try {
+      const res = await apiPost<{ id: number; name: string }>(`/api/campaigns/${id}/duplicate`, {})
+      toast.success(`Duplicated as "${res.name}"`)
+      navigate(`/campaigns/${res.id}/report`)
+    } catch (ex: any) { toast.error(ex.message ?? 'Failed to duplicate') }
+  }
+
+  async function restartCampaign() {
+    if (!id) return
+    try {
+      await apiPost(`/api/campaigns/${id}/restart`, {})
+      toast.success('Campaign reset to draft — edit and start when ready')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      load()
+    } catch (ex: any) { toast.error(ex.message ?? 'Failed to restart') }
+  }
+
   function applyTemplate(t: Template) {
     if (tplFor === 'sms') {
       if (t.sms_body) setSmsBody(t.sms_body)
@@ -743,8 +842,8 @@ export default function CampaignDetail() {
     toast.success(`Template "${t.name}" applied`)
   }
 
-  const m   = report?.metrics
-  const cs  = report?.contact_stats
+  const m           = report?.metrics
+  const cs          = report?.contact_stats
   const hasSendData = toN(m?.sent) > 0
   const statusMeta  = STATUS_META[campaign?.status ?? ''] ?? { color: '#6B7280', label: campaign?.status ?? '' }
   const typeColor   = TYPE_COLOR[campaign?.type ?? ''] ?? NAVY
@@ -758,28 +857,48 @@ export default function CampaignDetail() {
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner /></div>
   if (!campaign) return <ErrBanner error={err ?? 'Campaign not found'} />
 
+  const checks = [
+    { label: 'Campaign name',      ok: name.trim().length > 0,           hint: 'Enter a name in Setup' },
+    { label: 'Contact list',       ok: listId !== '',                     hint: 'Choose a list in Setup' },
+    ...(isSMS   ? [{ label: 'SMS body',      ok: smsBody.trim().length > 0,        hint: 'Write your SMS in Content' }]  : []),
+    ...(isEmail ? [
+      { label: 'Email subject',    ok: emailSubject.trim().length > 0,   hint: 'Enter a subject in Content' },
+      { label: 'Email body',       ok: emailBlocks.blocks.length > 0,    hint: 'Build your email in Content' },
+    ] : []),
+  ]
+  const allChecksPass = checks.every(c => c.ok)
+
+  const TABS: { key: TabKey; label: string; icon: string }[] = [
+    { key: 'setup',   label: 'Setup',          icon: 'settings' },
+    { key: 'content', label: 'Content',         icon: 'edit_note' },
+    { key: 'review',  label: 'Review & Launch', icon: 'rocket_launch' },
+    { key: 'results', label: 'Results',         icon: 'analytics' },
+  ]
+
   return (
     <Page
-      title={campaign.name}
-      subtitle={`${typeLabel} campaign · ${statusMeta.label}${campaign.started_at ? ' · Started ' + fmtDatetime(campaign.started_at) : ''}`}
+      title={name || campaign.name}
+      back={{ label: 'All Campaigns', to: '/campaigns' }}
       actions={
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '3px 10px', borderRadius: RADIUS['2xl'], background: `${statusMeta.color}18`, color: statusMeta.color, border: `1px solid ${statusMeta.color}40`, fontFamily: SORA, letterSpacing: '.04em', textTransform: 'uppercase' }}>{statusMeta.label}</span>
           <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '3px 10px', borderRadius: RADIUS['2xl'], background: `${typeColor}14`, color: typeColor, fontFamily: SORA }}>{typeLabel}</span>
-          <button onClick={() => navigate('/campaigns')} style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>arrow_back</span>
-            All Campaigns
-          </button>
+          {lastSaved && canEdit && (
+            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 13 }}>cloud_done</span>
+              {lastSaved.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
           {canEdit && (
             <button onClick={save} disabled={saving} style={{ ...btnSecondary, gap: 6, opacity: saving ? .7 : 1 }}>
-              {saving ? 'Saving…' : 'Save Draft'}
+              {saving ? 'Saving…' : 'Save'}
             </button>
           )}
           {(campaign.status === 'draft' || campaign.status === 'scheduled') && (
             <button onClick={() => setPreflightOpen(true)} disabled={starting}
               style={{ ...btnPrimary, background: GREEN, borderColor: GREEN, gap: 6, opacity: starting ? .7 : 1 }}>
               <span className="material-symbols-rounded" style={{ fontSize: 15 }}>play_arrow</span>
-              Save & Start
+              {starting ? 'Starting…' : 'Start'}
             </button>
           )}
           {campaign.status === 'active' && (
@@ -801,37 +920,183 @@ export default function CampaignDetail() {
               Push to TM
             </button>
           )}
+          {campaign.status !== 'completed' && campaign.status !== 'cancelled' && (
+            <button onClick={cancelCampaign} disabled={cancelling}
+              style={{ ...btnSecondary, gap: 6, color: RED, borderColor: `${RED}40`, opacity: cancelling ? .7 : 1 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>stop_circle</span>
+              {cancelling ? 'Stopping…' : 'Stop'}
+            </button>
+          )}
+          {(campaign.status === 'completed' || campaign.status === 'cancelled') && (
+            <>
+              <button onClick={restartCampaign} style={{ ...btnPrimary, background: GREEN, borderColor: GREEN, gap: 6 }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>restart_alt</span>
+                Restart
+              </button>
+              <button onClick={duplicateCampaign} style={{ ...btnSecondary, gap: 6 }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>content_copy</span>
+                Duplicate
+              </button>
+            </>
+          )}
         </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, alignItems: 'start' }}>
+      {/* Live progress banner (active only) */}
+      {campaign.status === 'active' && (
+        <div style={{ marginBottom: 16, background: 'var(--card)', border: `1px solid ${GREEN}40`, borderRadius: RADIUS.lg, padding: '14px 18px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: GREEN, display: 'inline-block' }} />
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>Sending live</span>
+            </div>
+            {progress && (
+              <span style={{ fontSize: TEXT.sm, ...NUM, color: 'var(--txt2)' }}>
+                {fmtNum(progress.done)} / {fmtNum(progress.total)} · {fmtPct(progress.progress_pct)}
+              </span>
+            )}
+          </div>
+          <div style={{ height: 6, background: 'var(--th-bg)', borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${progress?.progress_pct ?? 0}%`, background: GREEN, borderRadius: 3, transition: 'width 1s ease' }} />
+          </div>
+          {progress && (
+            <div style={{ display: 'flex', gap: 20, marginTop: 8 }}>
+              {([['Sent', progress.sent, BLUE], ['Delivered', progress.delivered, GREEN], ['Bounced', progress.bounced, RED]] as [string, number, string][]).map(([label, val, color]) => (
+                <span key={label} style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+                  {label}: <span style={{ ...NUM, color, fontWeight: FW.semibold }}>{fmtNum(val)}</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
-        {/* ── LEFT column ── */}
+      {/* Tab bar */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--bdr)', marginBottom: 24 }}>
+        {TABS.map(t => {
+          const isActive = tab === t.key
+          const locked   = !canEdit && (t.key === 'setup' || t.key === 'content' || t.key === 'review')
+          return (
+            <button key={t.key}
+              onClick={() => !locked && setTab(t.key)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '10px 18px', border: 'none',
+                borderBottom: isActive ? `2px solid ${NAVY}` : '2px solid transparent',
+                marginBottom: -1, background: 'none',
+                cursor: locked ? 'default' : 'pointer',
+                color: isActive ? NAVY : locked ? 'var(--txt3)' : 'var(--txt2)',
+                fontWeight: isActive ? FW.semibold : FW.normal,
+                fontFamily: INTER, fontSize: TEXT.sm,
+                opacity: locked ? .45 : 1,
+                transition: 'color .12s',
+              }}
+            >
+              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{t.icon}</span>
+              {t.label}
+              {t.key === 'review' && canEdit && !allChecksPass && (
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: AMBER, display: 'inline-block', marginLeft: 2 }} title="Checklist incomplete" />
+              )}
+              {t.key === 'results' && hasSendData && (
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: GREEN, display: 'inline-block', marginLeft: 2 }} />
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* ── SETUP TAB ── */}
+      {tab === 'setup' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, alignItems: 'start' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <SectionCard title="Campaign Details" padding>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <label style={lbl}>Campaign Name *</label>
+                  <input value={name} onChange={e => setName(e.target.value)} disabled={!canEdit}
+                    placeholder="e.g. Q3 Customer Re-engagement" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
+                </div>
+                <div>
+                  <label style={lbl}>Description <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(internal notes)</span></label>
+                  <textarea value={description} onChange={e => setDescription(e.target.value)} disabled={!canEdit}
+                    placeholder="What is this campaign for?" rows={3}
+                    style={{ ...fld, resize: 'vertical', lineHeight: 1.6, opacity: canEdit ? 1 : .85 }} />
+                </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Audience & Timing" padding>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <label style={lbl}>Contact List *</label>
+                  {canEdit ? (
+                    <select value={String(listId)} onChange={e => setListId(e.target.value ? Number(e.target.value) : '')} style={fld}>
+                      <option value="">No list selected</option>
+                      {contactLists.map(cl => (
+                        <option key={cl.id} value={String(cl.id)}>{cl.name}{cl.total ? ` (${fmtNum(cl.total)})` : ''}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div style={{ padding: '8px 12px', background: 'var(--th-bg)', borderRadius: RADIUS.md, fontSize: TEXT.base, color: campaign.list_name ? 'var(--txt)' : 'var(--txt3)' }}>
+                      {campaign.list_name ?? 'None'}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label style={lbl}>Schedule Date <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional — leave blank to send immediately)</span></label>
+                  <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)}
+                    disabled={!canEdit} style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
+                </div>
+              </div>
+            </SectionCard>
+          </div>
+
+          <SectionCard title="Campaign Info" padding>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {([
+                ['Channel',    <span style={{ ...NUM, color: typeColor, fontWeight: FW.bold }}>{typeLabel}</span>],
+                ['Status',     <span style={{ color: statusMeta.color, fontWeight: FW.semibold }}>{statusMeta.label}</span>],
+                ['Audience',   <span style={NUM}>{fmtNum(toN(campaign.total_contacts))}</span>],
+                ...(campaign.started_at   ? [['Started',   fmtDatetime(campaign.started_at)]]   : []),
+                ...(campaign.completed_at ? [['Completed', fmtDatetime(campaign.completed_at)]] : []),
+                ['Created by', campaign.created_by_name ?? '—'],
+                ['Created',    fmtDate(campaign.created_at)],
+              ] as [string, React.ReactNode][]).map(([label, value]) => (
+                <div key={String(label)} style={{ display: 'flex', justifyContent: 'space-between', gap: SP[3], fontSize: TEXT.sm }}>
+                  <span style={{ color: 'var(--txt2)', flexShrink: 0 }}>{label}</span>
+                  <span style={{ color: 'var(--txt)', fontWeight: 500, textAlign: 'right' }}>{value}</span>
+                </div>
+              ))}
+              {campaign.pause_reason === 'daily_limit' && campaign.status === 'paused' && (
+                <div style={{ marginTop: 4, padding: '8px 10px', background: '#FFF9ED', borderRadius: RADIUS.md, border: `1px solid ${AMBER}40`, fontSize: TEXT.xs, color: '#92400E' }}>
+                  Paused — daily limit reached. Auto-resumes at midnight.
+                </div>
+              )}
+            </div>
+          </SectionCard>
+        </div>
+      )}
+
+      {/* ── CONTENT TAB ── */}
+      {tab === 'content' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
           {!canEdit && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', fontSize: TEXT.sm, color: 'var(--txt2)' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt3)' }}>lock</span>
-              Content is locked — campaign is {campaign.status}
+              Content locked — campaign is {campaign.status}
             </div>
           )}
 
-          {/* SMS */}
           {isSMS && (
             <SectionCard padding title={undefined}
               actions={canEdit ? (
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => { setTplFor('sms'); setTplOpen(true) }}
-                    style={{ ...btnSecondary, fontSize: TEXT.sm, padding: '4px 12px', gap: 5 }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: 14 }}>folder_open</span>
-                    Load Template
-                  </button>
-                  <button onClick={save} disabled={saving} style={{ ...btnSecondary, fontSize: TEXT.sm, padding: '4px 12px', opacity: saving ? .7 : 1 }}>
-                    {saving ? 'Saving…' : 'Save'}
-                  </button>
-                </div>
+                <button onClick={() => { setTplFor('sms'); setTplOpen(true) }}
+                  style={{ ...btnSecondary, fontSize: TEXT.sm, padding: '4px 12px', gap: 5 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>folder_open</span>
+                  Load Template
+                </button>
               ) : undefined}
             >
               <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: PURPLE, letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -842,20 +1107,14 @@ export default function CampaignDetail() {
             </SectionCard>
           )}
 
-          {/* Email */}
           {isEmail && (
             <SectionCard padding title={undefined}
               actions={canEdit ? (
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => { setTplFor('email'); setTplOpen(true) }}
-                    style={{ ...btnSecondary, fontSize: TEXT.sm, padding: '4px 12px', gap: 5 }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: 14 }}>folder_open</span>
-                    Load Template
-                  </button>
-                  <button onClick={save} disabled={saving} style={{ ...btnSecondary, fontSize: TEXT.sm, padding: '4px 12px', opacity: saving ? .7 : 1 }}>
-                    {saving ? 'Saving…' : 'Save'}
-                  </button>
-                </div>
+                <button onClick={() => { setTplFor('email'); setTplOpen(true) }}
+                  style={{ ...btnSecondary, fontSize: TEXT.sm, padding: '4px 12px', gap: 5 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>folder_open</span>
+                  Load Template
+                </button>
               ) : undefined}
             >
               <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: BLUE, letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -865,15 +1124,18 @@ export default function CampaignDetail() {
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
                 <div>
                   <label style={lbl}>Subject Line *</label>
-                  <input value={emailSubject} onChange={e => setEmailSubject(e.target.value)} disabled={!canEdit} placeholder="e.g. Your O3 Capital statement is ready" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
+                  <input value={emailSubject} onChange={e => setEmailSubject(e.target.value)} disabled={!canEdit}
+                    placeholder="e.g. Your O3 Capital statement is ready" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
                 </div>
                 <div>
                   <label style={lbl}>From Name</label>
-                  <input value={fromName} onChange={e => setFromName(e.target.value)} disabled={!canEdit} placeholder="O3 Capital" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
+                  <input value={fromName} onChange={e => setFromName(e.target.value)} disabled={!canEdit}
+                    placeholder="O3 Capital" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
                 </div>
                 <div>
                   <label style={lbl}>From Email</label>
-                  <input value={fromEmail} onChange={e => setFromEmail(e.target.value)} disabled={!canEdit} placeholder="care@o3cards.com" type="email" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
+                  <input value={fromEmail} onChange={e => setFromEmail(e.target.value)} disabled={!canEdit}
+                    placeholder="care@o3cards.com" type="email" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
                 </div>
               </div>
               {canEdit ? (
@@ -886,7 +1148,148 @@ export default function CampaignDetail() {
             </SectionCard>
           )}
 
-          {/* Analytics */}
+          {/* Test send */}
+          {canEdit && (
+            <SectionCard title="Send a Test" padding>
+              <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 0, marginBottom: 14 }}>
+                Sends to yourself with sample data. Subject/SMS will be prefixed [TEST].
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: isEmail && isSMS ? '1fr 1fr auto' : '1fr auto', gap: 10, alignItems: 'flex-end' }}>
+                {isEmail && (
+                  <div>
+                    <label style={lbl}>Test email</label>
+                    <input type="email" value={testEmail} onChange={e => setTestEmail(e.target.value)} placeholder="you@example.com" style={fld} />
+                  </div>
+                )}
+                {isSMS && (
+                  <div>
+                    <label style={lbl}>Test phone</label>
+                    <input type="tel" value={testPhone} onChange={e => setTestPhone(e.target.value)} placeholder="+2348012345678" style={fld} />
+                  </div>
+                )}
+                <button onClick={sendTest} disabled={testSending || (!testEmail && !testPhone)}
+                  style={{ ...btnSecondary, gap: 6, height: 38, alignSelf: 'flex-end', whiteSpace: 'nowrap', opacity: testSending || (!testEmail && !testPhone) ? .55 : 1 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 15 }}>send</span>
+                  {testSending ? 'Sending…' : 'Send Test'}
+                </button>
+              </div>
+            </SectionCard>
+          )}
+        </div>
+      )}
+
+      {/* ── REVIEW & LAUNCH TAB ── */}
+      {tab === 'review' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <SectionCard title="Pre-flight Checklist" padding>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {checks.map(c => (
+                  <div key={c.label} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: 18, color: c.ok ? GREEN : AMBER, flexShrink: 0, marginTop: 1 }}>
+                      {c.ok ? 'check_circle' : 'radio_button_unchecked'}
+                    </span>
+                    <div>
+                      <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: c.ok ? 'var(--txt)' : 'var(--txt2)' }}>{c.label}</div>
+                      {!c.ok && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>{c.hint}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+
+            {scheduledAt && (
+              <div style={{ padding: '12px 16px', background: `${BLUE}08`, border: `1px solid ${BLUE}30`, borderRadius: RADIUS.md, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 18, color: BLUE, flexShrink: 0 }}>schedule</span>
+                <div>
+                  <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>Scheduled send</div>
+                  <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2 }}>{fmtDatetime(new Date(scheduledAt).toISOString())}</div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <SectionCard title="Audience Preview" padding
+              actions={
+                <button onClick={() => setPreflightOpen(true)}
+                  style={{ ...btnSecondary, fontSize: TEXT.sm, padding: '3px 10px', gap: 5 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 13 }}>group</span>
+                  Check Audience
+                </button>
+              }
+            >
+              {listId ? (
+                <div style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>
+                  {contactLists.find(cl => cl.id === listId)?.name ?? `List #${listId}`}
+                  {(contactLists.find(cl => cl.id === listId)?.total ?? 0) > 0 && (
+                    <span style={{ color: 'var(--txt3)' }}> · {fmtNum(contactLists.find(cl => cl.id === listId)!.total!)} contacts</span>
+                  )}
+                </div>
+              ) : (
+                <div style={{ fontSize: TEXT.sm, color: RED }}>No contact list selected.</div>
+              )}
+              <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 0, marginTop: 8 }}>
+                Click "Check Audience" to see suppressed, invalid, and usable contact counts before sending.
+              </p>
+            </SectionCard>
+
+            {isSMS && smsBody && (
+              <SectionCard title="SMS Credit Estimate" padding>
+                {(() => {
+                  const len      = smsBody.length
+                  const segs     = len === 0 ? 1 : len <= 160 ? 1 : Math.ceil(len / 153)
+                  const listSize = contactLists.find(cl => cl.id === listId)?.total ?? 0
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7, fontSize: TEXT.sm }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--txt2)' }}>Characters</span>
+                        <span style={{ ...NUM, color: len > 160 ? RED : 'var(--txt)', fontWeight: FW.semibold }}>{len} / 160</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--txt2)' }}>SMS parts</span>
+                        <span style={{ ...NUM, fontWeight: FW.semibold }}>{segs}</span>
+                      </div>
+                      {listSize > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, borderTop: '1px solid var(--bdr)', marginTop: 2 }}>
+                          <span style={{ color: 'var(--txt2)' }}>Est. total credits</span>
+                          <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY }}>{fmtNum(segs * listSize)}</span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+              </SectionCard>
+            )}
+
+            <div>
+              <button onClick={() => setPreflightOpen(true)} disabled={starting || !allChecksPass}
+                style={{ ...btnPrimary, background: allChecksPass ? GREEN : '#9CA3AF', borderColor: allChecksPass ? GREEN : '#9CA3AF', width: '100%', justifyContent: 'center', gap: 8, fontSize: TEXT.base, padding: '12px 20px', opacity: starting ? .7 : 1 }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 18 }}>rocket_launch</span>
+                {starting ? 'Starting…' : scheduledAt ? 'Schedule Campaign' : 'Launch Campaign'}
+              </button>
+              {!allChecksPass && (
+                <div style={{ textAlign: 'center', fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 6 }}>
+                  Complete the checklist to enable launch.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── RESULTS TAB ── */}
+      {tab === 'results' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {!hasSendData && (
+            <div style={{ padding: 48, textAlign: 'center', background: 'var(--card)', borderRadius: RADIUS.lg, border: '1px solid var(--bdr)', color: 'var(--txt3)' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 48, display: 'block', marginBottom: 12 }}>bar_chart</span>
+              <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, marginBottom: 4, color: 'var(--txt2)' }}>No send data yet</div>
+              <div style={{ fontSize: TEXT.sm }}>
+                {canEdit ? 'Launch the campaign to see results here.' : 'No messages were recorded for this campaign.'}
+              </div>
+            </div>
+          )}
           {hasSendData && m && (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
@@ -963,137 +1366,9 @@ export default function CampaignDetail() {
               )}
             </>
           )}
-
-          {!hasSendData && (campaign.status === 'completed' || campaign.status === 'cancelled') && (
-            <div style={{ padding: 32, textAlign: 'center', background: 'var(--card)', borderRadius: RADIUS.lg, border: '1px solid var(--bdr)', color: 'var(--txt3)', fontSize: TEXT.base }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 40, display: 'block', marginBottom: 8 }}>analytics</span>
-              No send data recorded for this campaign.
-            </div>
-          )}
-
           <ContactsSection campaignId={id!} />
         </div>
-
-        {/* ── RIGHT column ── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-          <SectionCard title="Campaign Info" padding>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {([
-                ['Channel',  <span style={{ ...NUM, color: typeColor, fontWeight: FW.bold }}>{typeLabel}</span>],
-                ['Status',   <span style={{ color: statusMeta.color, fontWeight: FW.semibold }}>{statusMeta.label}</span>],
-                ['Audience', <span style={NUM}>{fmtNum(toN(campaign.total_contacts))}</span>],
-                ...(campaign.started_at   ? [['Started',   fmtDatetime(campaign.started_at)]]   : []),
-                ...(campaign.completed_at ? [['Completed', fmtDatetime(campaign.completed_at)]] : []),
-                ['Created by', campaign.created_by_name ?? '—'],
-                ['Created',    fmtDate(campaign.created_at)],
-              ] as [string, React.ReactNode][]).map(([label, value]) => (
-                <div key={String(label)} style={{ display: 'flex', justifyContent: 'space-between', gap: SP[3], fontSize: TEXT.sm }}>
-                  <span style={{ color: 'var(--txt2)', flexShrink: 0 }}>{label}</span>
-                  <span style={{ color: 'var(--txt)', fontWeight: 500, textAlign: 'right' }}>{value}</span>
-                </div>
-              ))}
-
-              {/* Read-only list + schedule */}
-              {!canEdit && (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: SP[3], fontSize: TEXT.sm }}>
-                    <span style={{ color: 'var(--txt2)', flexShrink: 0 }}>Contact list</span>
-                    <span style={{ color: campaign.list_name ? 'var(--txt)' : 'var(--txt3)', fontWeight: 500 }}>{campaign.list_name ?? 'None'}</span>
-                  </div>
-                  {campaign.scheduled_at && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: SP[3], fontSize: TEXT.sm }}>
-                      <span style={{ color: 'var(--txt2)', flexShrink: 0 }}>Scheduled</span>
-                      <span style={{ color: 'var(--txt)', fontWeight: 500 }}>{fmtDatetime(campaign.scheduled_at)}</span>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {campaign.pause_reason === 'daily_limit' && campaign.status === 'paused' && (
-                <div style={{ marginTop: 4, padding: '8px 10px', background: '#FFF9ED', borderRadius: RADIUS.md, border: `1px solid ${AMBER}40`, fontSize: TEXT.xs, color: '#92400E' }}>
-                  Paused — daily limit reached. Auto-resumes at midnight.
-                </div>
-              )}
-
-              {/* Editable sidebar fields */}
-              {canEdit && (
-                <div style={{ marginTop: 8, paddingTop: 10, borderTop: '1px solid var(--bdr)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div>
-                    <label style={lbl}>Contact List</label>
-                    <select value={String(listId)} onChange={e => setListId(e.target.value ? Number(e.target.value) : '')} style={fld}>
-                      <option value="">No list selected</option>
-                      {contactLists.map(cl => (
-                        <option key={cl.id} value={String(cl.id)}>{cl.name}{cl.total ? ` (${fmtNum(cl.total)})` : ''}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={lbl}>Schedule Date <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
-                    <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} style={fld} />
-                    <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4, marginBottom: 0 }}>Leave blank to send immediately on Start.</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </SectionCard>
-
-          {/* Actions */}
-          {campaign.status !== 'completed' && campaign.status !== 'cancelled' && (
-            <SectionCard title="Actions" padding>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {canEdit && (
-                  <button onClick={save} disabled={saving} style={{ ...btnSecondary, width: '100%', justifyContent: 'center', gap: 6, opacity: saving ? .7 : 1 }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: 16 }}>save</span>
-                    {saving ? 'Saving…' : 'Save Draft'}
-                  </button>
-                )}
-                {(campaign.status === 'draft' || campaign.status === 'scheduled') && (
-                  <button onClick={() => setPreflightOpen(true)} disabled={starting} style={{ ...btnPrimary, background: GREEN, borderColor: GREEN, width: '100%', justifyContent: 'center', gap: 6, opacity: starting ? .7 : 1 }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: 16 }}>play_arrow</span>
-                    Save & Start Campaign
-                  </button>
-                )}
-                {campaign.status === 'active' && (
-                  <button onClick={pauseCampaign} disabled={pausing} style={{ ...btnSecondary, width: '100%', justifyContent: 'center', gap: 6, opacity: pausing ? .7 : 1 }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: 16 }}>pause</span>
-                    {pausing ? 'Pausing…' : 'Pause Campaign'}
-                  </button>
-                )}
-                {campaign.status === 'paused' && (
-                  <button onClick={() => setPreflightOpen(true)} disabled={starting} style={{ ...btnPrimary, background: GREEN, borderColor: GREEN, width: '100%', justifyContent: 'center', gap: 6, opacity: starting ? .7 : 1 }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: 16 }}>play_arrow</span>
-                    Resume Campaign
-                  </button>
-                )}
-                <button onClick={() => setPushOpen(true)} style={{ ...btnSecondary, width: '100%', justifyContent: 'center', gap: 6, color: '#7C3AED', borderColor: '#7C3AED40' }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 16 }}>call</span>
-                  Push to Telemarketers
-                </button>
-                <button onClick={cancelCampaign} disabled={cancelling} style={{ ...btnSecondary, width: '100%', justifyContent: 'center', gap: 6, color: RED, borderColor: `${RED}40`, opacity: cancelling ? .7 : 1 }}>
-                  {cancelling ? 'Cancelling…' : 'Cancel Campaign'}
-                </button>
-              </div>
-            </SectionCard>
-          )}
-
-          {hasSendData && m && (
-            <SectionCard title="Send Summary" padding>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: TEXT.sm }}>
-                {([
-                  ['Sent', fmtNum(toN(m.sent))], ['Delivered', fmtNum(toN(m.delivered))],
-                  ...(isEmail ? [['Opened', fmtNum(toN(m.opened))], ['Clicked', fmtNum(toN(m.clicked))], ['Bounced', fmtNum(toN(m.bounced))], ['Unsubscribed', fmtNum(toN(m.unsubscribed))]] : [['Failed', fmtNum(toN(m.failed))]]),
-                ] as [string, string][]).map(([label, value]) => (
-                  <div key={label} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt2)' }}>{label}</span>
-                    <span style={{ ...NUM, fontWeight: FW.semibold }}>{value}</span>
-                  </div>
-                ))}
-              </div>
-            </SectionCard>
-          )}
-        </div>
-      </div>
+      )}
 
       <PreflightModal
         open={preflightOpen}

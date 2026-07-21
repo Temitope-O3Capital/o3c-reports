@@ -107,6 +107,10 @@ func sendSMS(ctx context.Context, db *core.DB, phone, body string) (ok bool, pro
 		return false, "TERMII_API_KEY not configured"
 	}
 	senderID := coalesce(resolveCredKey(ctx, db, "TERMII_SENDER_ID"), termiiSenderID)
+	phone = normalizeTermiiPhone(phone)
+	if phone == "" {
+		return false, "invalid phone number"
+	}
 	payload, _ := json.Marshal(map[string]any{
 		"api_key": apiKey,
 		"to":      phone,
@@ -538,7 +542,11 @@ func RegisterCampaigns(r chi.Router, db *core.DB) {
 	r.With(access).Post("/{id}/pause", pauseCampaign(db))
 	r.With(access).Post("/{id}/cancel", cancelCampaign(db))
 	r.With(access).Get("/{id}/contacts", listCampaignContacts(db))
+	r.With(access).Post("/{id}/duplicate", duplicateCampaign(db))
+	r.With(access).Post("/{id}/restart", restartCampaign(db))
 	r.With(access).Post("/{id}/push-to-telemarketing", campaignPushToTelemarketing(db))
+	r.With(access).Post("/{id}/test-send", testSendCampaign(db))
+	r.With(access).Get("/{id}/progress", campaignProgress(db))
 }
 
 // RegisterCampaignWebhooks wires public webhook endpoints (no auth required).
@@ -977,7 +985,7 @@ func startCampaign(db *core.DB) http.HandlerFunc {
 		prepareCampaignRecipients(r.Context(), db, campID)
 
 		db.PGExec(r.Context(), //nolint:errcheck
-			"UPDATE campaigns SET status='active', pause_reason=NULL, paused_until=NULL, started_at=NOW(), updated_at=NOW() WHERE id=$1", campID)
+			"UPDATE campaigns SET status='active', pause_reason=NULL, paused_until=NULL, started_at=COALESCE(started_at, NOW()), updated_at=NOW() WHERE id=$1", campID)
 
 		startDispatch(db, campID)
 		w.Header().Set("Content-Type", "application/json")
@@ -1115,6 +1123,71 @@ func listCampaignContacts(db *core.DB) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"total": total, "contacts": rows}) //nolint:errcheck
+	}
+}
+
+func restartCampaign(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		rows, _ := db.PGQuery(r.Context(), "SELECT status FROM campaigns WHERE id=$1", id)
+		if len(rows) == 0 {
+			respondErr(w, 404, "Campaign not found")
+			return
+		}
+		// Reset campaign back to draft and clear all contact send statuses
+		_, err := db.PGExec(r.Context(), `
+			UPDATE campaigns
+			SET status='draft', pause_reason=NULL, paused_until=NULL,
+			    dispatch_lock_until=NULL, started_at=NULL, completed_at=NULL,
+			    sms_sent=0, sms_failed=0, sms_delivered=0,
+			    emails_sent=0, emails_bounced=0, emails_delivered=0,
+			    emails_opened=0, emails_clicked=0,
+			    unsubscribe_count=0, bounce_count=0,
+			    updated_at=NOW()
+			WHERE id=$1`, id)
+		if err != nil {
+			respondErr(w, 500, "Restart failed")
+			return
+		}
+		// Reset all contacts back to pending so they get re-sent
+		db.PGExec(r.Context(), //nolint:errcheck
+			`UPDATE campaign_contacts
+			 SET sms_status='pending', email_status='pending',
+			     sms_sent_at=NULL, email_sent_at=NULL,
+			     sms_provider_id=NULL, email_provider_id=NULL,
+			     email_opened_at=NULL, updated_at=NOW()
+			 WHERE campaign_id=$1`, id)
+		respond(w, map[string]string{"status": "draft"}, "pg")
+	}
+}
+
+func duplicateCampaign(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		rows, err := db.PGQuery(r.Context(), "SELECT * FROM campaigns WHERE id=$1", id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Campaign not found")
+			return
+		}
+		src := rows[0]
+		user := core.UserFromCtx(r.Context())
+		newName := "Copy of " + str(src["name"])
+		inserted, err := db.PGQuery(r.Context(), `
+			INSERT INTO campaigns
+			    (name, description, type, list_id, email_subject, email_body_html,
+			     email_body_text, email_blocks_json, from_name, from_email, sms_body, created_by)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+			newName, src["description"], src["type"], src["list_id"],
+			src["email_subject"], src["email_body_html"], src["email_body_text"],
+			src["email_blocks_json"], src["from_name"], src["from_email"],
+			src["sms_body"], user.ID)
+		if err != nil || len(inserted) == 0 {
+			respondErr(w, 500, "Duplicate failed")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(map[string]any{"id": inserted[0]["id"], "name": newName}) //nolint:errcheck
 	}
 }
 
@@ -1442,5 +1515,124 @@ func emailWebhook(db *core.DB) http.HandlerFunc {
 			}
 		}
 		w.WriteHeader(204)
+	}
+}
+
+// testSendCampaign sends a single test email/SMS with [TEST] prefix using sample merge data.
+func testSendCampaign(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var body struct {
+			ToEmail string `json:"to_email"`
+			ToPhone string `json:"to_phone"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		body.ToEmail = strings.TrimSpace(body.ToEmail)
+		body.ToPhone = strings.TrimSpace(body.ToPhone)
+		if body.ToEmail == "" && body.ToPhone == "" {
+			respondErr(w, 422, "Provide at least one of to_email or to_phone")
+			return
+		}
+
+		rows, err := db.PGQuery(r.Context(), "SELECT * FROM campaigns WHERE id=$1", id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Campaign not found")
+			return
+		}
+		camp := rows[0]
+		isSMS := str(camp["type"]) == "sms" || str(camp["type"]) == "multi"
+		isEmail := str(camp["type"]) == "email" || str(camp["type"]) == "multi"
+
+		testData := map[string]any{
+			"first_name": "Test", "last_name": "User",
+			"name": "Test User", "full_name": "Test User",
+			"phone": body.ToPhone, "email": body.ToEmail,
+			"cif_number": "CIF-TEST", "amount": "₦5,000",
+			"due_date": "31 Dec 2025", "company": "O3 Capital",
+		}
+
+		sent := 0
+		var warns []string
+
+		if isSMS && body.ToPhone != "" {
+			smsBody := "[TEST] " + renderTemplate(str(camp["sms_body"]), testData)
+			ok, msg := sendSMS(r.Context(), db, body.ToPhone, smsBody)
+			if ok {
+				sent++
+			} else {
+				warns = append(warns, "SMS: "+msg)
+			}
+		}
+
+		if isEmail && body.ToEmail != "" {
+			subject := "[TEST] " + renderTemplate(str(camp["email_subject"]), testData)
+			htmlBody := renderTemplate(str(camp["email_body_html"]), testData)
+			textBody := renderTemplate(str(camp["email_body_text"]), testData)
+			fromEmail := coalesce(str(camp["from_email"]), resolveCredKey(r.Context(), db, "SENDGRID_FROM_EMAIL"))
+			fn := coalesce(str(camp["from_name"]), resolveCredKey(r.Context(), db, "SENDGRID_FROM_NAME"))
+			fromName := coalesce(fn, "O3 Capital")
+			ok, msg := sendEmail(r.Context(), db, body.ToEmail, "Test User", fromEmail, fromName, subject, htmlBody, textBody, "test")
+			if ok {
+				sent++
+			} else {
+				warns = append(warns, "Email: "+msg)
+			}
+		}
+
+		if sent == 0 && len(warns) > 0 {
+			respondErr(w, 502, strings.Join(warns, "; "))
+			return
+		}
+		respond(w, map[string]any{"sent": sent, "warnings": warns}, "db")
+	}
+}
+
+// campaignProgress returns a lightweight send-progress snapshot for a campaign.
+func campaignProgress(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+			    c.status, c.type, c.total_contacts,
+			    c.emails_sent, c.sms_sent,
+			    c.emails_delivered, c.sms_delivered,
+			    (SELECT COUNT(*) FROM campaign_contacts
+			     WHERE campaign_id=c.id
+			       AND (email_status='pending' OR sms_status='pending')) AS pending,
+			    (SELECT COUNT(*) FROM campaign_contacts
+			     WHERE campaign_id=c.id
+			       AND (email_status IN ('bounced','spam','failed') OR sms_status='failed')) AS bounced
+			FROM campaigns c WHERE c.id=$1`, id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Campaign not found")
+			return
+		}
+		row := rows[0]
+		total := toInt64(row["total_contacts"])
+		pending := toInt64(row["pending"])
+		sent := toInt64(row["emails_sent"]) + toInt64(row["sms_sent"])
+		delivered := toInt64(row["emails_delivered"]) + toInt64(row["sms_delivered"])
+		bounced := toInt64(row["bounced"])
+		done := total - pending
+		pct := 0.0
+		if total > 0 {
+			pct = float64(done) / float64(total) * 100
+			if pct > 100 {
+				pct = 100
+			}
+		}
+		respond(w, map[string]any{
+			"status":       str(row["status"]),
+			"total":        total,
+			"done":         done,
+			"pending":      pending,
+			"sent":         sent,
+			"delivered":    delivered,
+			"bounced":      bounced,
+			"progress_pct": pct,
+		}, "db")
 	}
 }
