@@ -1090,7 +1090,7 @@ export default function TicketDetail() {
         onConfirm={() => {
           setNewAppOpen(false)
           const qs = ticket.customer_cif ? `?cif=${ticket.customer_cif}` : ''
-          navigate(`/los/new${qs}`)
+          navigate(`/sales/applications/new${qs}`)
         }}
         onClose={() => setNewAppOpen(false)}
       />

@@ -25,6 +25,10 @@ func RegisterContactLists(r chi.Router, db *core.DB) {
 	r.With(access).Delete("/{id}/members/{mid}", removeListMember(db))
 	r.With(access).Post("/{id}/preflight", preflightListCSV(db))
 	r.With(access).Post("/{id}/upload", uploadListCSV(db))
+
+	// Contact Segments — build a contact list from CCS filter criteria
+	r.With(access).Post("/segment/preview", segmentPreview(db))
+	r.With(access).Post("/segment/create", segmentCreate(db))
 }
 
 func syncListCount(db *core.DB, r *http.Request, listID string) {
@@ -523,4 +527,196 @@ func cleanStringPtr(v *string) *string {
 		return nil
 	}
 	return &s
+}
+
+// ── Contact Segments ──────────────────────────────────────────────────────────
+// Builds a dynamic contact list from CCS / loan_applications filter criteria.
+
+type segmentCriteria struct {
+	Name               string   `json:"name"`
+	DPDBuckets         []string `json:"dpd_buckets"`           // e.g. ["0","1-30","31-60","61-90","91+"]
+	Products           []string `json:"products"`              // e.g. ["Salary Loan","Business Loan"]
+	Stages             []string `json:"stages"`                // loan_applications.stage
+	Statuses           []string `json:"statuses"`              // loan_applications.status
+	Employers          []string `json:"employers"`             // employer name substring
+	MinDPD             int      `json:"min_dpd"`
+	MaxDPD             int      `json:"max_dpd"`
+	MinOutstandingKobo int64    `json:"min_outstanding_kobo"`
+	MaxOutstandingKobo int64    `json:"max_outstanding_kobo"`
+}
+
+func buildSegmentWhere(c segmentCriteria) (string, []any) {
+	var sb strings.Builder
+	var args []any
+	n := 1
+
+	if len(c.Products) > 0 {
+		placeholders := make([]string, len(c.Products))
+		for i, p := range c.Products {
+			placeholders[i] = fmt.Sprintf("$%d", n)
+			args = append(args, p)
+			n++
+		}
+		sb.WriteString(" AND COALESCE(product_type, loan_type) IN (" + strings.Join(placeholders, ",") + ")")
+	}
+	if len(c.Stages) > 0 {
+		placeholders := make([]string, len(c.Stages))
+		for i, s := range c.Stages {
+			placeholders[i] = fmt.Sprintf("$%d", n)
+			args = append(args, s)
+			n++
+		}
+		sb.WriteString(" AND stage IN (" + strings.Join(placeholders, ",") + ")")
+	}
+	if len(c.Statuses) > 0 {
+		placeholders := make([]string, len(c.Statuses))
+		for i, s := range c.Statuses {
+			placeholders[i] = fmt.Sprintf("$%d", n)
+			args = append(args, s)
+			n++
+		}
+		sb.WriteString(" AND status IN (" + strings.Join(placeholders, ",") + ")")
+	}
+	if len(c.Employers) > 0 {
+		parts := make([]string, len(c.Employers))
+		for i, e := range c.Employers {
+			parts[i] = fmt.Sprintf("employer ILIKE $%d", n)
+			args = append(args, "%"+e+"%")
+			n++
+		}
+		sb.WriteString(" AND (" + strings.Join(parts, " OR ") + ")")
+	}
+	if c.MaxDPD > 0 {
+		sb.WriteString(fmt.Sprintf(" AND COALESCE(dpd,0) <= $%d", n))
+		args = append(args, c.MaxDPD)
+		n++
+	}
+	if c.MinDPD > 0 {
+		sb.WriteString(fmt.Sprintf(" AND COALESCE(dpd,0) >= $%d", n))
+		args = append(args, c.MinDPD)
+		n++
+	}
+	if c.MinOutstandingKobo > 0 {
+		sb.WriteString(fmt.Sprintf(" AND COALESCE(outstanding_kobo,0) >= $%d", n))
+		args = append(args, c.MinOutstandingKobo)
+		n++
+	}
+	if c.MaxOutstandingKobo > 0 {
+		sb.WriteString(fmt.Sprintf(" AND COALESCE(outstanding_kobo,0) <= $%d", n))
+		args = append(args, c.MaxOutstandingKobo)
+		n++
+	}
+	if len(c.DPDBuckets) > 0 {
+		var parts []string
+		for _, b := range c.DPDBuckets {
+			switch b {
+			case "0":
+				parts = append(parts, "COALESCE(dpd,0) = 0")
+			case "1-30":
+				parts = append(parts, "COALESCE(dpd,0) BETWEEN 1 AND 30")
+			case "31-60":
+				parts = append(parts, "COALESCE(dpd,0) BETWEEN 31 AND 60")
+			case "61-90":
+				parts = append(parts, "COALESCE(dpd,0) BETWEEN 61 AND 90")
+			case "91+":
+				parts = append(parts, "COALESCE(dpd,0) > 90")
+			}
+		}
+		if len(parts) > 0 {
+			sb.WriteString(" AND (" + strings.Join(parts, " OR ") + ")")
+		}
+	}
+	_ = n
+	return sb.String(), args
+}
+
+func segmentPreview(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var c segmentCriteria
+		if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		where, args := buildSegmentWhere(c)
+		rows, err := db.PGQuery(r.Context(),
+			"SELECT COUNT(*) AS count FROM loan_applications WHERE 1=1"+where, args...)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		count := int64(0)
+		if len(rows) > 0 {
+			count = toInt64(rows[0]["count"])
+		}
+		respond(w, map[string]any{"count": count}, "pg")
+	}
+}
+
+func segmentCreate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var c segmentCriteria
+		if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if strings.TrimSpace(c.Name) == "" {
+			respondErr(w, 400, "name is required")
+			return
+		}
+
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+
+		// Create the contact list
+		listRows, err := db.PGQuery(ctx,
+			`INSERT INTO contact_lists (name, description, created_by, created_at, updated_at)
+			 VALUES ($1, $2, $3, NOW(), NOW()) RETURNING id`,
+			c.Name, "Segment: auto-generated from CCS filters", user.ID)
+		if err != nil || len(listRows) == 0 {
+			respondErr(w, 500, "Failed to create list")
+			return
+		}
+		listID := toInt64(listRows[0]["id"])
+
+		// Fetch matching contacts
+		where, args := buildSegmentWhere(c)
+		members, err := db.PGQuery(ctx,
+			`SELECT DISTINCT ON (applicant_cif) applicant_cif, applicant_name, phone
+			 FROM loan_applications WHERE applicant_cif IS NOT NULL AND applicant_cif != ''`+where+
+				` ORDER BY applicant_cif, created_at DESC LIMIT 5000`, args...)
+		if err != nil {
+			respondErr(w, 500, "Failed to query members")
+			return
+		}
+
+		imported := 0
+		for _, m := range members {
+			cif := str(m["applicant_cif"])
+			name := str(m["applicant_name"])
+			phone := str(m["phone"])
+			firstName, lastName := "", name
+			if parts := strings.SplitN(name, " ", 2); len(parts) == 2 {
+				firstName, lastName = parts[0], parts[1]
+			}
+			_, e := db.PGExec(ctx,
+				`INSERT INTO contact_list_members
+				 (list_id, cif_number, first_name, last_name, phone, status, created_at, updated_at)
+				 VALUES ($1,$2,$3,$4,$5,'active',NOW(),NOW())
+				 ON CONFLICT DO NOTHING`,
+				listID, cif, firstName, lastName, phone)
+			if e == nil {
+				imported++
+			}
+		}
+
+		// Update member count
+		db.PGExec(ctx, //nolint:errcheck
+			"UPDATE contact_lists SET member_count=$1, updated_at=NOW() WHERE id=$2", imported, listID)
+
+		respond(w, map[string]any{
+			"list_id":  listID,
+			"name":     c.Name,
+			"imported": imported,
+		}, "pg")
+	}
 }

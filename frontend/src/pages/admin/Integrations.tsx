@@ -138,13 +138,10 @@ export default function AdminIntegrations() {
     if (!editing) return
     setSaving(true)
     try {
-      const token = localStorage.getItem('token') ?? ''
-      const res = await fetch(`/api/admin/integrations/${editing.id}`, {
+      await apiFetch(`/api/admin/integrations/${editing.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(body),
       })
-      if (!res.ok) throw new Error(await res.text())
       toast.success('Integration updated')
       setEditing(null); load()
     } catch (e: any) { toast.error(e.message) }
@@ -154,11 +151,7 @@ export default function AdminIntegrations() {
   async function handleDelete(integ: Integration) {
     if (!confirm(`Delete "${integ.name}"?`)) return
     try {
-      const token = localStorage.getItem('token') ?? ''
-      await fetch(`/api/admin/integrations/${integ.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      await apiFetch(`/api/admin/integrations/${integ.id}`, { method: 'DELETE' })
       toast.success('Deleted')
       load()
     } catch (e: any) { toast.error(e.message) }

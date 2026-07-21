@@ -865,35 +865,30 @@ func finIncomeChart(db *core.DB) http.HandlerFunc {
 			previous = fmt.Sprintf("%v", dateRows[1]["d"])
 		}
 
-		type chartRow struct {
-			Type     string `json:"type"`
-			Current  int64  `json:"current"`
-			Previous int64  `json:"previous"`
+		var prevArg any
+		if previous != "" {
+			prevArg = previous
 		}
-
-		types := []struct{ label, col string }{
-			{"Interest", "interest_charged_kobo"},
-			{"Fees",     "fees_kobo"},
-			{"Penalty",  "penalty_kobo"},
+		pivotRows, pivotErr := db.PGQuery(r.Context(), `
+			SELECT
+				COALESCE(SUM(CASE WHEN cycle_date=$1::date THEN interest_charged_kobo END),0) AS interest_cur,
+				COALESCE(SUM(CASE WHEN cycle_date=$1::date THEN fees_kobo END),0)             AS fees_cur,
+				COALESCE(SUM(CASE WHEN cycle_date=$1::date THEN penalty_kobo END),0)          AS penalty_cur,
+				COALESCE(SUM(CASE WHEN cycle_date=$2::date THEN interest_charged_kobo END),0) AS interest_prev,
+				COALESCE(SUM(CASE WHEN cycle_date=$2::date THEN fees_kobo END),0)             AS fees_prev,
+				COALESCE(SUM(CASE WHEN cycle_date=$2::date THEN penalty_kobo END),0)          AS penalty_prev
+			FROM card_cycle_data
+			WHERE cycle_date = $1::date OR cycle_date = $2::date`,
+			current, prevArg)
+		if pivotErr != nil || len(pivotRows) == 0 {
+			respond(w, []map[string]any{}, "pg")
+			return
 		}
-
-		out := make([]chartRow, len(types))
-		for i, t := range types {
-			curRows, _ := db.PGQuery(r.Context(),
-				fmt.Sprintf(`SELECT COALESCE(SUM(%s),0) AS v FROM card_cycle_data WHERE cycle_date=$1::date`, t.col),
-				current)
-			out[i].Type = t.label
-			if len(curRows) > 0 {
-				out[i].Current = toInt64(curRows[0]["v"])
-			}
-			if previous != "" {
-				prevRows, _ := db.PGQuery(r.Context(),
-					fmt.Sprintf(`SELECT COALESCE(SUM(%s),0) AS v FROM card_cycle_data WHERE cycle_date=$1::date`, t.col),
-					previous)
-				if len(prevRows) > 0 {
-					out[i].Previous = toInt64(prevRows[0]["v"])
-				}
-			}
+		p := pivotRows[0]
+		out := []map[string]any{
+			{"type": "Interest", "current": toInt64(p["interest_cur"]), "previous": toInt64(p["interest_prev"])},
+			{"type": "Fees",     "current": toInt64(p["fees_cur"]),     "previous": toInt64(p["fees_prev"])},
+			{"type": "Penalty",  "current": toInt64(p["penalty_cur"]),  "previous": toInt64(p["penalty_prev"])},
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(out) //nolint:errcheck

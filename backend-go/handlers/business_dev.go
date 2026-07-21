@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -18,6 +21,7 @@ func RegisterBusinessDev(r chi.Router, db *core.DB) {
 
 	r.Get("/leads", bdListLeads(db))
 	r.Post("/leads", bdCreateLead(db))
+	r.Post("/leads/import", bdImportLeads(db))
 	r.Patch("/leads/{id}", bdUpdateLead(db))
 	r.Get("/leads/{id}", bdGetLead(db))
 	r.Post("/leads/{id}/activity", bdLogActivity(db))
@@ -297,6 +301,11 @@ func bdCreateLead(db *core.DB) http.HandlerFunc {
 		if b.Stage == "" {
 			b.Stage = "prospect"
 		}
+		validBDStages := map[string]bool{"prospect": true, "qualified": true, "proposal": true, "negotiation": true, "won": true, "lost": true}
+		if !validBDStages[b.Stage] {
+			respondErr(w, 422, "invalid stage")
+			return
+		}
 		if b.EntityType == "" {
 			b.EntityType = "company"
 		}
@@ -488,5 +497,109 @@ func bdPipelineKPIs(db *core.DB) http.HandlerFunc {
 			return
 		}
 		respond(w, rows[0], "pg")
+	}
+}
+
+// ── CSV Import ────────────────────────────────────────────────────────────────
+
+func bdImportLeads(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(8 << 20); err != nil {
+			respondErr(w, 400, "Invalid multipart form")
+			return
+		}
+		f, _, err := r.FormFile("file")
+		if err != nil {
+			respondErr(w, 400, "No file uploaded")
+			return
+		}
+		defer f.Close()
+
+		reader := csv.NewReader(f)
+		reader.TrimLeadingSpace = true
+		reader.FieldsPerRecord = -1 // allow variable columns
+
+		headers, err := reader.Read()
+		if err != nil {
+			respondErr(w, 400, "Could not read CSV header")
+			return
+		}
+		// Normalise headers
+		hdrIdx := make(map[string]int)
+		for i, h := range headers {
+			hdrIdx[strings.ToLower(strings.TrimSpace(h))] = i
+		}
+
+		col := func(row []string, name string) string {
+			i, ok := hdrIdx[name]
+			if !ok || i >= len(row) {
+				return ""
+			}
+			return strings.TrimSpace(row[i])
+		}
+
+		ctx := r.Context()
+		imported, skipped := 0, 0
+
+		for {
+			row, err := reader.Read()
+			if err != nil {
+				break
+			}
+			entityType := col(row, "entity_type")
+			if entityType == "" {
+				entityType = "company"
+			}
+			companyName := col(row, "company_name")
+			contactName := col(row, "contact_name")
+			title := col(row, "title")
+			if title == "" {
+				if contactName != "" {
+					title = contactName
+				} else {
+					title = companyName
+				}
+			}
+			if title == "" {
+				skipped++
+				continue
+			}
+
+			email := col(row, "contact_email")
+			phone := col(row, "contact_phone")
+			leadType := col(row, "lead_type")
+			stage := col(row, "stage")
+			if stage == "" {
+				stage = "prospect"
+			}
+			notes := col(row, "notes")
+			valStr := col(row, "potential_value_naira")
+			var valueKobo int64
+			if valStr != "" {
+				var v float64
+				fmt.Sscanf(valStr, "%f", &v)
+				valueKobo = int64(math.Round(v * 100))
+			}
+
+			_, err = db.PGExec(ctx, `
+				INSERT INTO bd_leads
+					(entity_type, title, company_name, contact_name, contact_email,
+					 contact_phone, lead_type, stage, potential_value_kobo, notes, created_at, updated_at)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW())`,
+				entityType, title, coalesce(companyName, ""), coalesce(contactName, ""),
+				coalesce(email, ""), coalesce(phone, ""), coalesce(leadType, ""),
+				stage, valueKobo, coalesce(notes, ""))
+			if err != nil {
+				skipped++
+			} else {
+				imported++
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"imported": imported,
+			"skipped":  skipped,
+		})
 	}
 }

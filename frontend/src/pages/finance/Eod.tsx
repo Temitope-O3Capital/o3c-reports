@@ -144,15 +144,15 @@ export default function FinanceEOD() {
     const qs = `date_from=${dateFrom}&date_to=${dateTo}`
     try {
       const [uploadsRes, sumRes, prodRes, branchRes] = await Promise.allSettled([
-        apiFetch<EODUpload[]>('/api/eod/uploads'),
-        apiFetch<EODSummary>(`/api/eod/summary?${qs}`),
-        apiFetch<ByProductRow[]>(`/api/eod/by-product?${qs}`),
-        apiFetch<ByBranchRow[]>(`/api/eod/by-branch?${qs}`),
+        apiFetch<{ data: EODUpload[] }>('/api/eod/uploads'),
+        apiFetch<{ data: EODSummary }>(`/api/eod/summary?${qs}`),
+        apiFetch<{ data: ByProductRow[] }>(`/api/eod/by-product?${qs}`),
+        apiFetch<{ data: ByBranchRow[] }>(`/api/eod/by-branch?${qs}`),
       ])
-      if (uploadsRes.status === 'fulfilled') setUploads(uploadsRes.value ?? [])
-      if (sumRes.status === 'fulfilled') setSummary(sumRes.value)
-      if (prodRes.status === 'fulfilled') setByProduct(prodRes.value ?? [])
-      if (branchRes.status === 'fulfilled') setByBranch(branchRes.value ?? [])
+      if (uploadsRes.status === 'fulfilled') setUploads(uploadsRes.value?.data ?? [])
+      if (sumRes.status === 'fulfilled') setSummary(sumRes.value?.data ?? null)
+      if (prodRes.status === 'fulfilled') setByProduct(prodRes.value?.data ?? [])
+      if (branchRes.status === 'fulfilled') setByBranch(branchRes.value?.data ?? [])
     } catch (e: any) {
       setError(e.message)
     } finally {

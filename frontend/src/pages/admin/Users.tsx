@@ -397,8 +397,8 @@ export default function AdminUsers() {
     setLoading(true)
     setError(null)
     try {
-      const u = await apiFetch<User[]>(`/api/admin/users?from=${dateFrom}&to=${dateTo}`)
-      setRows(Array.isArray(u) ? u : [])
+      const u = await apiFetch<{ data: User[] }>(`/api/admin/users?from=${dateFrom}&to=${dateTo}`)
+      setRows(u.data ?? [])
     } catch (e: any) {
       setError(e.message)
     } finally {

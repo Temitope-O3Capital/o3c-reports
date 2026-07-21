@@ -400,6 +400,14 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 				respondErr(w, 403, fmt.Sprintf("Your role is not authorised to advance from '%s' to '%s'", fromStage, b.ToStage))
 				return
 			}
+		} else {
+			// Transition is allowed but has no mapped page requirement — deny by default so
+			// future transitions added to allowedTransitions without a corresponding entry in
+			// transitionRequiredPage don't silently become open to all authenticated users.
+			if !user.HasPage("los_all") {
+				respondErr(w, 403, fmt.Sprintf("Your role is not authorised to advance from '%s' to '%s'", fromStage, b.ToStage))
+				return
+			}
 		}
 
 		// Build extra field updates based on transition

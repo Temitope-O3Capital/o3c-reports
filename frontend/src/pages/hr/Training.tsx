@@ -14,13 +14,15 @@ import type { AuthUser } from '../../hooks/useAuth'
 
 interface Training {
   id: number
-  name: string
+  title: string
   training_type?: string
-  training_date?: string
+  start_date?: string
+  end_date?: string
+  venue?: string
   description?: string
-  trainer?: string
+  facilitator?: string
   status: string
-  attendee_count?: number
+  max_attendees?: number
   attendees?: Attendee[]
 }
 
@@ -49,7 +51,7 @@ function TypePill({ type }: { type?: string }) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-const BLANK = { name: '', training_type: 'Technical', training_date: '', description: '', trainer: '' }
+const BLANK = { title: '', training_type: 'Technical', start_date: '', end_date: '', venue: '', description: '', facilitator: '' }
 
 export default function Training() {
   const storedUser = localStorage.getItem('auth_user')
@@ -78,8 +80,8 @@ export default function Training() {
       if (statusFilter) p.set('status', statusFilter)
       p.set('from', dateFrom)
       p.set('to', dateTo)
-      const data = await apiFetch<Training[]>(`/api/hr/training?${p}`)
-      setTrainings(Array.isArray(data) ? data : [])
+      const data = await apiFetch<{ data: Training[] }>(`/api/hr/training?${p}`)
+      setTrainings(data.data ?? [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
   }, [statusFilter, dateFrom, dateTo])
@@ -87,7 +89,7 @@ export default function Training() {
   useEffect(() => { load() }, [load])
 
   async function handleCreate() {
-    if (!form.name) { toast.error('Training name is required'); return }
+    if (!form.title) { toast.error('Training name is required'); return }
     setSaving(true)
     try {
       await apiPost('/api/hr/training', form)
@@ -105,13 +107,13 @@ export default function Training() {
   }
 
   function exportTrainingCsv(rows: Training[]) {
-    const header = ['Name', 'Type', 'Date', 'Trainer', 'Attendees', 'Status']
+    const header = ['Name', 'Type', 'Date', 'Facilitator', 'Max Attendees', 'Status']
     const lines = rows.map(r => [
-      `"${String(r.name ?? '').replace(/"/g, '""')}"`,
+      `"${String(r.title ?? '').replace(/"/g, '""')}"`,
       r.training_type ?? '',
-      r.training_date ?? '',
-      `"${String(r.trainer ?? '').replace(/"/g, '""')}"`,
-      r.attendee_count ?? 0,
+      r.start_date ?? '',
+      `"${String(r.facilitator ?? '').replace(/"/g, '""')}"`,
+      r.max_attendees ?? 0,
       r.status ?? '',
     ].join(','))
     const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
@@ -128,26 +130,26 @@ export default function Training() {
 
   const cols: TableCol<Training>[] = [
     {
-      key: 'name', label: 'Training',
-      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.name}</span>,
+      key: 'title', label: 'Training',
+      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.title}</span>,
     },
     {
       key: 'training_type', label: 'Type',
       render: r => <TypePill type={r.training_type} />,
     },
     {
-      key: 'training_date', label: 'Date',
-      render: r => r.training_date ? (
-        <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{fmtDate(r.training_date)}</span>
+      key: 'start_date', label: 'Date',
+      render: r => r.start_date ? (
+        <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{fmtDate(r.start_date)}</span>
       ) : <span style={{ color: 'var(--txt3)' }}>TBD</span>,
     },
     {
-      key: 'trainer', label: 'Trainer',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.trainer ?? '—'}</span>,
+      key: 'facilitator', label: 'Facilitator',
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.facilitator ?? '—'}</span>,
     },
     {
-      key: 'attendee_count', label: 'Attendees', align: 'right',
-      render: r => <span style={NUM}>{r.attendee_count ?? 0}</span>,
+      key: 'max_attendees', label: 'Max Attendees', align: 'right',
+      render: r => <span style={NUM}>{r.max_attendees ?? 0}</span>,
     },
     {
       key: 'status', label: 'Status',
@@ -193,7 +195,7 @@ export default function Training() {
           onRowClick={openDetail}
           emptyText="No training records found."
           skeletonRows={loading ? 5 : 0}
-          searchKeys={['name', 'training_type', 'trainer', 'status']}
+          searchKeys={['title', 'training_type', 'facilitator', 'status']}
           searchPlaceholder="Search training…"
           pageSize={20}
 
@@ -215,7 +217,7 @@ export default function Training() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
             <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Training Name *</label>
-            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} />
+            <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} style={inputStyle} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <div>
@@ -227,12 +229,12 @@ export default function Training() {
             </div>
             <div>
               <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Date</label>
-              <input type="date" value={form.training_date} onChange={e => setForm(f => ({ ...f, training_date: e.target.value }))} style={{ ...inputStyle, height: 36 }} />
+              <input type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} style={{ ...inputStyle, height: 36 }} />
             </div>
           </div>
           <div>
-            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Trainer</label>
-            <input value={form.trainer} onChange={e => setForm(f => ({ ...f, trainer: e.target.value }))} style={inputStyle} placeholder="Name of trainer or institution" />
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Facilitator</label>
+            <input value={form.facilitator} onChange={e => setForm(f => ({ ...f, facilitator: e.target.value }))} style={inputStyle} placeholder="Name of trainer or institution" />
           </div>
           <div>
             <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Description</label>
@@ -243,7 +245,7 @@ export default function Training() {
       </Modal>
 
       {/* Detail modal */}
-      <Modal open={!!detail} onClose={() => setDetail(null)} title={detail?.name ?? 'Training Detail'} width={520}>
+      <Modal open={!!detail} onClose={() => setDetail(null)} title={detail?.title ?? 'Training Detail'} width={520}>
         {detail && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
@@ -252,9 +254,9 @@ export default function Training() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[2], fontSize: TEXT.base }}>
               {[
-                ['Date', detail.training_date ? fmtDate(detail.training_date) : 'TBD'],
-                ['Trainer', detail.trainer ?? '—'],
-                ['Attendees', String(detail.attendee_count ?? 0)],
+                ['Date', detail.start_date ? fmtDate(detail.start_date) : 'TBD'],
+                ['Facilitator', detail.facilitator ?? '—'],
+                ['Max Attendees', String(detail.max_attendees ?? 0)],
               ].map(([label, value]) => (
                 <div key={label}>
                   <span style={{ color: 'var(--txt2)' }}>{label}: </span>

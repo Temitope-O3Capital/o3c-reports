@@ -408,6 +408,9 @@ func main() {
 		r.Route("/api/risk", func(r chi.Router) {
 			handlers.RegisterRisk(r, db)
 		})
+		r.Route("/api/me", func(r chi.Router) {
+			handlers.RegisterMe(r, db)
+		})
 		r.Route("/api/customer-service", func(r chi.Router) {
 			handlers.RegisterCustomerService(r, db)
 		})

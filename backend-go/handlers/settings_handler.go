@@ -212,7 +212,7 @@ func settingsUpdate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Update failed")
 			return
 		}
-		respondErr(w, 200, "Setting updated")
+		respond(w, map[string]string{"message": "Setting updated"}, "pg")
 	}
 }
 
@@ -272,6 +272,10 @@ func settingsSyncStatusInsert(db *core.DB) http.HandlerFunc {
 			b.StartedAt, b.FinishedAt, b.Status, b.RowsSynced, b.ErrorMsg)
 		if err != nil {
 			respondErr(w, 500, "Insert failed")
+			return
+		}
+		if len(rows) == 0 {
+			respondErr(w, 500, "Insert returned no rows")
 			return
 		}
 		respond(w, rows[0], "pg")
@@ -340,9 +344,13 @@ func settingsUserCreate(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		if len(rows) == 0 {
+			respondErr(w, 500, "User created but no row returned")
+			return
+		}
 		result := map[string]any{
-			"user":              rows[0],
-			"temporary_password": plain, // one-time — share with the user immediately
+			"user":               rows[0],
+			"temporary_password": plain,
 		}
 		respond(w, result, "pg")
 	}
@@ -377,7 +385,7 @@ func settingsUserUpdate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Update failed")
 			return
 		}
-		respondErr(w, 200, "User updated")
+		respond(w, map[string]string{"message": "User updated"}, "pg")
 	}
 }
 
@@ -429,7 +437,7 @@ func settingsUserDelete(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Delete failed")
 			return
 		}
-		respondErr(w, 200, "User deleted")
+		respond(w, map[string]string{"message": "User deleted"}, "pg")
 	}
 }
 

@@ -32,6 +32,9 @@ func RegisterRisk(r chi.Router, db *core.DB) {
 	// EyeScore
 	r.With(access).Get("/eye-scores", riskEyeScores(db))
 	r.With(access).Get("/eye-kpis", riskEyeKPIs(db))
+
+	// CreditFile
+	r.With(access).Get("/credit-file/{cif}", riskCreditFile(db))
 }
 
 // ── AppReview ─────────────────────────────────────────────────────────────────
@@ -699,5 +702,121 @@ func riskEyeKPIs(db *core.DB) http.HandlerFunc {
 			return
 		}
 		respond(w, rows[0], "pg")
+	}
+}
+
+// ── CreditFile ─────────────────────────────────────────────────────────────────
+
+func riskCreditFile(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cif := chi.URLParam(r, "cif")
+		ctx := r.Context()
+
+		// Loan history from loan_applications
+		loans, err := db.PGQuery(ctx, `
+			SELECT
+				id,
+				COALESCE(reference, 'LA-'||id::text) AS ref,
+				COALESCE(product_type, loan_type, 'Loan') AS product,
+				COALESCE(amount_requested_kobo, 0) AS principal_kobo,
+				COALESCE(outstanding_kobo, 0) AS outstanding_kobo,
+				COALESCE(dpd, 0) AS dpd,
+				COALESCE(status, 'unknown') AS status,
+				COALESCE(disbursed_at, created_at)::text AS disbursed_at
+			FROM loan_applications
+			WHERE applicant_cif = $1
+			ORDER BY created_at DESC`, cif)
+		if err != nil {
+			if strings.Contains(err.Error(), "does not exist") {
+				respondErr(w, 404, "No credit file found for CIF")
+				return
+			}
+			respondErr(w, 500, err.Error())
+			return
+		}
+		if len(loans) == 0 {
+			respondErr(w, 404, "No credit file found for CIF")
+			return
+		}
+
+		// Aggregate stats
+		var totalOutstanding, totalCount, activeCount, worstDPD int64
+		for _, l := range loans {
+			totalCount++
+			outstanding := toInt64(l["outstanding_kobo"])
+			totalOutstanding += outstanding
+			if str(l["status"]) == "active" || str(l["status"]) == "disbursed" {
+				activeCount++
+			}
+			if dpd := toInt64(l["dpd"]); dpd > worstDPD {
+				worstDPD = dpd
+			}
+		}
+
+		// Eye score + DTI from most recent scored application
+		var eyeScore, eyeBand, dtiPct any
+		eyeRows, _ := db.PGQuery(ctx, `
+			SELECT eye_score, eye_rating, dti_pct
+			FROM loan_applications
+			WHERE applicant_cif = $1 AND eye_score IS NOT NULL
+			ORDER BY created_at DESC LIMIT 1`, cif)
+		if len(eyeRows) > 0 {
+			eyeScore = eyeRows[0]["eye_score"]
+			eyeBand = eyeRows[0]["eye_rating"]
+			dtiPct = eyeRows[0]["dti_pct"]
+		}
+
+		// Customer info: try MSSQL first, fall back to PG loan_applications
+		custRows, _, _ := db.DualQuery(ctx,
+			`SELECT TOP 1 CIF_Number AS cif,
+				COALESCE(First_Name,'') + ' ' + COALESCE(Last_Name,'') AS full_name,
+				COALESCE(Phone,'') AS phone,
+				COALESCE(BVN,'') AS bvn,
+				COALESCE(KYC_Status,'unknown') AS kyc_status
+			 FROM dbo.Contact WHERE CIF_Number = @p1`,
+			`SELECT "CIF Number" AS cif,
+				COALESCE("First Name",'') || ' ' || COALESCE("Last Name",'') AS full_name,
+				COALESCE("Phone Number",'') AS phone,
+				'' AS bvn,
+				'unknown' AS kyc_status
+			 FROM "Accounts" WHERE "CIF Number" = $1 LIMIT 1`,
+			cif)
+
+		custName, phone, bvn, kycStatus := cif, "", "", "unknown"
+		if len(custRows) > 0 {
+			if v := str(custRows[0]["full_name"]); strings.TrimSpace(v) != "" {
+				custName = strings.TrimSpace(v)
+			}
+			phone = str(custRows[0]["phone"])
+			bvn = str(custRows[0]["bvn"])
+			kycStatus = str(custRows[0]["kyc_status"])
+		} else {
+			// Fallback: get name+phone from loan application
+			appRows, _ := db.PGQuery(ctx,
+				`SELECT applicant_name, phone FROM loan_applications WHERE applicant_cif = $1 LIMIT 1`, cif)
+			if len(appRows) > 0 {
+				if v := str(appRows[0]["applicant_name"]); v != "" {
+					custName = v
+				}
+				phone = str(appRows[0]["phone"])
+			}
+		}
+
+		respond(w, map[string]any{
+			"cif":                    cif,
+			"customer_name":          custName,
+			"phone":                  phone,
+			"eye_score":              eyeScore,
+			"eye_band":               eyeBand,
+			"bureau_score":           nil,
+			"total_loan_count":       totalCount,
+			"active_loan_count":      activeCount,
+			"total_outstanding_kobo": totalOutstanding,
+			"worst_dpd":              worstDPD,
+			"dti_pct":               dtiPct,
+			"kyc_status":            kycStatus,
+			"bvn":                   bvn,
+			"loans":                 loans,
+		}, "pg")
 	}
 }

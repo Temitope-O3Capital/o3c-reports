@@ -128,11 +128,11 @@ export default function FinanceTransactions() {
     setLoading(true); setError(null)
     try {
       const [res, kpiRes] = await Promise.all([
-        apiFetch<TxnResponse>(`/api/eod/transactions?${buildQS(off)}`, { signal: abortRef.current.signal }),
+        apiFetch<{ data: TxnResponse }>(`/api/eod/transactions?${buildQS(off)}`, { signal: abortRef.current.signal }),
         apiFetch<{ data: TxnKPIs }>('/api/finance/transaction-kpis'),
       ])
-      setRows(res.data ?? [])
-      setTotal(res.total ?? 0)
+      setRows(res.data?.data ?? [])
+      setTotal(res.data?.total ?? 0)
       setOffset(off)
       setKpis(kpiRes.data)
     } catch (e: any) {

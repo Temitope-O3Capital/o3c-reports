@@ -48,38 +48,42 @@ func RegisterDialerWebhookOnly(db *core.DB) http.HandlerFunc {
 func RegisterDialer(r chi.Router, db *core.DB) {
 	ensureDialerSchema(context.Background(), db)
 
-	// Campaign CRUD
-	r.Get("/campaigns", dlListCampaigns(db))
-	r.Post("/campaigns", dlCreateCampaign(db))
-	r.Get("/campaigns/{id}", dlGetCampaign(db))
-	r.Put("/campaigns/{id}", dlUpdateCampaign(db))
-	r.Delete("/campaigns/{id}", dlDeleteCampaign(db))
+	r.Group(func(r chi.Router) {
+		r.Use(core.RequirePages("telemarketing"))
 
-	// Campaign lifecycle
-	r.Post("/campaigns/{id}/start", dlStartCampaign(db))
-	r.Post("/campaigns/{id}/pause", dlPauseCampaign(db))
-	r.Post("/campaigns/{id}/stop", dlStopCampaign(db))
+		// Campaign CRUD
+		r.Get("/campaigns", dlListCampaigns(db))
+		r.Post("/campaigns", dlCreateCampaign(db))
+		r.Get("/campaigns/{id}", dlGetCampaign(db))
+		r.Put("/campaigns/{id}", dlUpdateCampaign(db))
+		r.Delete("/campaigns/{id}", dlDeleteCampaign(db))
 
-	// Contact upload (CSV body or JSON array)
-	r.Post("/campaigns/{id}/contacts", dlUploadContacts(db))
+		// Campaign lifecycle
+		r.Post("/campaigns/{id}/start", dlStartCampaign(db))
+		r.Post("/campaigns/{id}/pause", dlPauseCampaign(db))
+		r.Post("/campaigns/{id}/stop", dlStopCampaign(db))
 
-	// Live stats (polled by supervisor page)
-	r.Get("/campaigns/{id}/stats", dlCampaignStats(db))
-	r.Get("/campaigns/{id}/queue", dlCampaignQueue(db))
-	r.Get("/live", dlLiveStats(db))
+		// Contact upload (CSV body or JSON array)
+		r.Post("/campaigns/{id}/contacts", dlUploadContacts(db))
 
-	// Agent session
-	r.Post("/sessions", dlJoinSession(db))
-	r.Delete("/sessions", dlLeaveSession(db))
-	r.Put("/sessions/status", dlSetSessionStatus(db))
-	r.Get("/sessions/me", dlMySession(db))
-	r.Get("/sessions/me/next-contact", dlNextContact(db))
+		// Live stats (polled by supervisor page)
+		r.Get("/campaigns/{id}/stats", dlCampaignStats(db))
+		r.Get("/campaigns/{id}/queue", dlCampaignQueue(db))
+		r.Get("/live", dlLiveStats(db))
 
-	// Agent-triggered call (preview/progressive mode)
-	r.Post("/calls/manual", dlManualCall(db))
+		// Agent session
+		r.Post("/sessions", dlJoinSession(db))
+		r.Delete("/sessions", dlLeaveSession(db))
+		r.Put("/sessions/status", dlSetSessionStatus(db))
+		r.Get("/sessions/me", dlMySession(db))
+		r.Get("/sessions/me/next-contact", dlNextContact(db))
 
-	// Call disposition (agent sets after call ends)
-	r.Post("/calls/{id}/disposition", dlSetDisposition(db))
+		// Agent-triggered call (preview/progressive mode)
+		r.Post("/calls/manual", dlManualCall(db))
+
+		// Call disposition (agent sets after call ends)
+		r.Post("/calls/{id}/disposition", dlSetDisposition(db))
+	})
 
 	// Start engine
 	dialerEngine.once.Do(func() {

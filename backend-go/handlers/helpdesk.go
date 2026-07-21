@@ -164,91 +164,94 @@ func StartSLABreachMonitor(db *core.DB) {
 
 func RegisterHelpdesk(r chi.Router, db *core.DB) {
 	ensureHelpdeskColumns(context.Background(), db)
-	go StartSLABreachMonitor(db)
-	r.Get("/stats", hdStats(db))
-	r.Get("/supervisor", hdSupervisor(db))
-	r.Post("/tickets", hdCreateTicket(db))
-	r.Get("/tickets", hdListTickets(db))
-	r.Get("/tickets/search", hdSearchTickets(db))
-	// Bulk actions — must be before /{id} so chi resolves them first
-	r.Post("/tickets/bulk-assign", hdBulkAssignTickets(db))
-	r.Post("/tickets/bulk-close", hdBulkCloseTickets(db))
-	r.Post("/tickets/bulk-priority", hdBulkPriorityTickets(db))
-	r.Post("/tickets/{id}/claim", hdClaimTicket(db))
-	r.Get("/tickets/{id}", hdGetTicket(db))
-	r.Patch("/tickets/{id}", hdUpdateTicket(db))
-	r.Post("/tickets/{id}/messages", hdSendMessage(db))
-	r.Post("/tickets/{id}/merge", hdMergeTicket(db))
-	r.Get("/canned-responses", hdListCanned(db))
-	r.Post("/canned-responses", hdCreateCanned(db))
-	r.Put("/canned-responses/{id}", hdUpdateCanned(db))
-	r.Delete("/canned-responses/{id}", hdDeleteCanned(db))
-	r.Get("/sla-policies", hdListSLA(db))
-	r.Put("/sla-policies/{id}", hdUpdateSLA(db))
-	r.Get("/calls", hdListCalls(db))
-	r.Post("/calls", hdLogCall(db))
-	r.Get("/calls/stats", hdCallStats(db))
-
-	// Knowledge Base
-	r.Get("/kb", hdKBList(db))
-	r.Post("/kb", hdKBCreate(db))
-	r.Get("/kb/search", hdKBSearch(db))
-	r.Get("/kb/{id}", hdKBGet(db))
-	r.Put("/kb/{id}", hdKBUpdate(db))
-	r.Delete("/kb/{id}", hdKBDelete(db))
-	r.Post("/kb/{id}/view", hdKBIncView(db))
-	r.Put("/kb/{id}/status", hdKBSetStatus(db))
-
-	// Analytics endpoints consumed by Stats page
-	r.Get("/agents", hdListAgents(db))
-	r.Get("/csat-trend", hdCSATTrend(db))
-	r.Get("/handle-time-by-type", hdHandleTimeByType(db))
-	r.Get("/resolution-by-agent", hdResolutionByAgent(db))
-	r.Get("/type-distribution", hdTypeDistribution(db))
-
-	// Inbound call auto-ticket webhook (Zoho Voice)
-	r.Get("/inbound/call", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
-	r.Post("/inbound/call", hdInboundCall(db))
-
-	// Ticket enriched context (customer360 data)
-	r.Get("/tickets/{id}/context", hdTicketContext(db))
-
-	// KB article feedback
-	r.Post("/kb/{id}/feedback", hdKBFeedback(db))
-	// KB compliance approval
-	r.Put("/kb/{id}/approve", hdKBApprove(db))
-
-	// Extended stats analytics
-	r.Get("/stats/leaderboard", hdStatsLeaderboard(db))
-	r.Get("/stats/sla-by-agent", hdStatsSLAByAgent(db))
-	r.Get("/stats/busiest-hours", hdStatsBusiestHours(db))
-	r.Get("/stats/channel-breakdown", hdStatsChannelBreakdown(db))
-
-	// Agent helpdesk status (Available / On Call / Break / Offline)
-	r.Put("/agents/{id}/status", hdSetAgentStatus(db))
-
-	// Routing rules CRUD
-	r.Get("/routing-rules", hdListRoutingRules(db))
-	r.Post("/routing-rules", hdCreateRoutingRule(db))
-	r.Put("/routing-rules/{id}", hdUpdateRoutingRule(db))
-	r.Delete("/routing-rules/{id}", hdDeleteRoutingRule(db))
-
-	// MS Graph email ingest — poll helpdesk inbox and create tickets
-	r.Post("/email-ingest", hdMSGraphIngest(db))
-
-	// KB feedback schema (moved out of hot path)
 	ensureKBFeedbackSchema(context.Background(), db)
-
-	// CBN Consumer Protection report
-	r.Get("/reports/cbn-consumer-protection", hdCBNReport(db))
-
-	// Call scripts
 	ensureCallScriptsSchema(context.Background(), db)
-	r.Get("/call-scripts", hdListCallScripts(db))
-	r.Get("/call-scripts/by-type", hdGetCallScriptByType(db))
-	r.Post("/call-scripts", hdCreateCallScript(db))
-	r.Put("/call-scripts/{id}", hdUpdateCallScript(db))
-	r.Delete("/call-scripts/{id}", hdDeleteCallScript(db))
+	go StartSLABreachMonitor(db)
+
+	r.Group(func(r chi.Router) {
+		r.Use(core.RequirePages("helpdesk"))
+
+		r.Get("/stats", hdStats(db))
+		r.Get("/supervisor", hdSupervisor(db))
+		r.Post("/tickets", hdCreateTicket(db))
+		r.Get("/tickets", hdListTickets(db))
+		r.Get("/tickets/search", hdSearchTickets(db))
+		// Bulk actions — must be before /{id} so chi resolves them first
+		r.Post("/tickets/bulk-assign", hdBulkAssignTickets(db))
+		r.Post("/tickets/bulk-close", hdBulkCloseTickets(db))
+		r.Post("/tickets/bulk-priority", hdBulkPriorityTickets(db))
+		r.Post("/tickets/{id}/claim", hdClaimTicket(db))
+		r.Get("/tickets/{id}", hdGetTicket(db))
+		r.Patch("/tickets/{id}", hdUpdateTicket(db))
+		r.Post("/tickets/{id}/messages", hdSendMessage(db))
+		r.Post("/tickets/{id}/merge", hdMergeTicket(db))
+		r.Get("/canned-responses", hdListCanned(db))
+		r.Post("/canned-responses", hdCreateCanned(db))
+		r.Put("/canned-responses/{id}", hdUpdateCanned(db))
+		r.Delete("/canned-responses/{id}", hdDeleteCanned(db))
+		r.Get("/sla-policies", hdListSLA(db))
+		r.Put("/sla-policies/{id}", hdUpdateSLA(db))
+		r.Get("/calls", hdListCalls(db))
+		r.Post("/calls", hdLogCall(db))
+		r.Get("/calls/stats", hdCallStats(db))
+
+		// Knowledge Base
+		r.Get("/kb", hdKBList(db))
+		r.Post("/kb", hdKBCreate(db))
+		r.Get("/kb/search", hdKBSearch(db))
+		r.Get("/kb/{id}", hdKBGet(db))
+		r.Put("/kb/{id}", hdKBUpdate(db))
+		r.Delete("/kb/{id}", hdKBDelete(db))
+		r.Post("/kb/{id}/view", hdKBIncView(db))
+		r.Put("/kb/{id}/status", hdKBSetStatus(db))
+
+		// Analytics endpoints consumed by Stats page
+		r.Get("/agents", hdListAgents(db))
+		r.Get("/csat-trend", hdCSATTrend(db))
+		r.Get("/handle-time-by-type", hdHandleTimeByType(db))
+		r.Get("/resolution-by-agent", hdResolutionByAgent(db))
+		r.Get("/type-distribution", hdTypeDistribution(db))
+
+		// Inbound call auto-ticket webhook (Zoho Voice)
+		r.Get("/inbound/call", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
+		r.Post("/inbound/call", hdInboundCall(db))
+
+		// Ticket enriched context (customer360 data)
+		r.Get("/tickets/{id}/context", hdTicketContext(db))
+
+		// KB article feedback
+		r.Post("/kb/{id}/feedback", hdKBFeedback(db))
+		// KB compliance approval
+		r.Put("/kb/{id}/approve", hdKBApprove(db))
+
+		// Extended stats analytics
+		r.Get("/stats/leaderboard", hdStatsLeaderboard(db))
+		r.Get("/stats/sla-by-agent", hdStatsSLAByAgent(db))
+		r.Get("/stats/busiest-hours", hdStatsBusiestHours(db))
+		r.Get("/stats/channel-breakdown", hdStatsChannelBreakdown(db))
+
+		// Agent helpdesk status (Available / On Call / Break / Offline)
+		r.Put("/agents/{id}/status", hdSetAgentStatus(db))
+
+		// Routing rules CRUD
+		r.Get("/routing-rules", hdListRoutingRules(db))
+		r.Post("/routing-rules", hdCreateRoutingRule(db))
+		r.Put("/routing-rules/{id}", hdUpdateRoutingRule(db))
+		r.Delete("/routing-rules/{id}", hdDeleteRoutingRule(db))
+
+		// MS Graph email ingest — poll helpdesk inbox and create tickets
+		r.Post("/email-ingest", hdMSGraphIngest(db))
+
+		// CBN Consumer Protection report
+		r.Get("/reports/cbn-consumer-protection", hdCBNReport(db))
+
+		// Call scripts
+		r.Get("/call-scripts", hdListCallScripts(db))
+		r.Get("/call-scripts/by-type", hdGetCallScriptByType(db))
+		r.Post("/call-scripts", hdCreateCallScript(db))
+		r.Put("/call-scripts/{id}", hdUpdateCallScript(db))
+		r.Delete("/call-scripts/{id}", hdDeleteCallScript(db))
+	})
 }
 
 // ── Tickets ───────────────────────────────────────────────────────────────────
@@ -571,6 +574,11 @@ func hdBulkCloseTickets(db *core.DB) http.HandlerFunc {
 
 func hdBulkPriorityTickets(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		caller := core.UserFromCtx(r.Context())
+		if caller == nil || (caller.Role != "call_center_head" && caller.Role != "admin") {
+			respondErr(w, 403, "insufficient role")
+			return
+		}
 		var b struct {
 			TicketIDs []int64 `json:"ticket_ids"`
 			Priority  string  `json:"priority"`

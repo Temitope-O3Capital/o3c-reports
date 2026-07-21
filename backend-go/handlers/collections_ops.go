@@ -530,7 +530,11 @@ func collectionsOpsSendToRecovery(db *core.DB) http.HandlerFunc {
 		dpd := str(a["dpd_bucket"])
 
 		// Generate case ref
-		refRows, _ := db.PGQuery(ctx, `SELECT LPAD(NEXTVAL('sar_ref_seq')::TEXT,6,'0') AS ref`)
+		refRows, refErr := db.PGQuery(ctx, `SELECT LPAD(NEXTVAL('sar_ref_seq')::TEXT,6,'0') AS ref`)
+		if refErr != nil || len(refRows) == 0 {
+			respondErr(w, 500, "Failed to generate case reference")
+			return
+		}
 		caseRef := "RC-" + str(refRows[0]["ref"])
 
 		caseRows, err := db.PGQuery(ctx,
@@ -553,7 +557,7 @@ func collectionsOpsSendToRecovery(db *core.DB) http.HandlerFunc {
 		sendNotification(ctx, db, user.ID, "sent_to_recovery", //nolint:errcheck
 			fmt.Sprintf("Account %s sent to recovery", accountCIF),
 			fmt.Sprintf("Case %s created", caseRef),
-			"recovery_case", int64(caseID.(int64)))
+			"recovery_case", toInt64(caseID))
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -1029,18 +1033,17 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
 
-		count := 0
-		for _, id := range b.IDs {
-			res, err := db.PGQuery(ctx,
-				`UPDATE recovery_write_off_approvals
-				 SET status='approved', approved_by=$1, approved_at=NOW()
-				 WHERE id=$2 AND status='pending'
-				 RETURNING id`,
-				user.ID, id)
-			if err == nil && len(res) > 0 {
-				count++
-			}
+		updateRows, err := db.PGQuery(ctx,
+			`UPDATE recovery_write_off_approvals
+			 SET status='approved', approved_by=$1, approved_at=NOW()
+			 WHERE id = ANY($2) AND status='pending'
+			 RETURNING id`,
+			user.ID, b.IDs)
+		if err != nil {
+			respondErr(w, 500, "Update failed")
+			return
 		}
+		count := len(updateRows)
 		if count > 0 {
 			go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
 				EventType: EvtWriteoffApproved,

@@ -75,8 +75,8 @@ export default function AdminSyncStatus() {
     setLoading(true)
     setError(null)
     try {
-      const data = await apiFetch<SyncRun[]>(`/api/settings/sync-status?from=${dateFrom}&to=${dateTo}`)
-      setRows(Array.isArray(data) ? data : [])
+      const data = await apiFetch<{ data: SyncRun[] }>(`/api/settings/sync-status?from=${dateFrom}&to=${dateTo}`)
+      setRows(Array.isArray(data?.data) ? data.data : [])
     } catch (e: any) {
       setError(e.message)
     } finally {

@@ -35,8 +35,17 @@ func approvalsBatch(db *core.DB) http.HandlerFunc {
 		Success bool   `json:"success"`
 		Error   string `json:"error,omitempty"`
 	}
+	approverRoles := map[string]bool{
+		"admin": true, "md": true, "cfo": true,
+		"finance_head": true, "los_head": true, "compliance_head": true,
+		"hr_manager": true, "collections_head": true, "recovery_head": true,
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
+		if !approverRoles[user.Role] {
+			respondErr(w, 403, "Insufficient permissions to approve or reject items")
+			return
+		}
 		ctx := r.Context()
 		var req batchReq
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

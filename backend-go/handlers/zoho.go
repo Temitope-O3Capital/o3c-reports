@@ -68,10 +68,13 @@ func voiceRefreshUserToken(ctx context.Context, refreshToken string) (string, ti
 
 func RegisterZoho(r chi.Router, db *core.DB) {
 	r.Get("/sync-status", zohoSyncStatus(db))
-	r.Post("/voice/import-logs", zohoImportVoiceLogs(db))
-	r.Post("/voice/call", zohoInitiateCall(db))
 	r.Post("/import-tickets", zohoImportTickets(db))
 	r.Post("/import-calls", zohoImportDeskCalls(db))
+
+	// Voice routes require call_center page permission — these initiate or import live calls.
+	cc := core.RequirePages("call_center")
+	r.With(cc).Post("/voice/import-logs", zohoImportVoiceLogs(db))
+	r.With(cc).Post("/voice/call", zohoInitiateCall(db))
 }
 
 // RegisterZohoAdmin mounts the import endpoints outside the JWT auth group,

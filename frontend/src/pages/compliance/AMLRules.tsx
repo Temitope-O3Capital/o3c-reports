@@ -202,10 +202,7 @@ export default function AMLRules() {
     if (!deleteTarget) return
     setDeleting(true)
     try {
-      await fetch(`/api/compliance/aml-rules/${deleteTarget.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token') ?? ''}` },
-      })
+      await apiFetch(`/api/compliance/aml-rules/${deleteTarget.id}`, { method: 'DELETE' })
       toast.success('Rule deleted')
       setDeleteTarget(null)
       load()

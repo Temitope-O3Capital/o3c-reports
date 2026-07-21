@@ -391,7 +391,7 @@ function WriteOffTab({ caseId, outstanding, onDone }: { caseId: number; outstand
       <div>
         <label style={labelStyle}>Amount (₦) — blank to write off full outstanding</label>
         <input type="number" value={amountNaira} onChange={e => setAmountNaira(e.target.value)}
-          placeholder={`${(outstanding / 100).toLocaleString()}`} style={{ ...fieldStyle, height: 36 }} />
+          placeholder={fmtKobo(outstanding)} style={{ ...fieldStyle, height: 36 }} />
       </div>
       <div>
         <label style={labelStyle}>Reason <span style={{ color: RED }}>*</span></label>
@@ -418,8 +418,8 @@ function CaseTimeline({ caseId }: { caseId: number }) {
 
   useEffect(() => {
     setLoading(true)
-    apiFetch<CaseDetail>(`/api/recovery-ops/cases/${caseId}`)
-      .then(res => setDetail(res))
+    apiFetch<{ data: CaseDetail }>(`/api/recovery-ops/cases/${caseId}`)
+      .then(res => setDetail(res.data ?? null))
       .catch(() => setDetail(null))
       .finally(() => setLoading(false))
   }, [caseId])

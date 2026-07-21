@@ -511,7 +511,20 @@ func biListRuns(db *core.DB) http.HandlerFunc {
 			args = append(args, to)
 			query += " AND rr.started_at::date <= $" + itoa(len(args)) + "::date"
 		}
-		query += " ORDER BY rr.started_at DESC LIMIT 100"
+		limit := 100
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 && parsed <= 500 {
+				limit = parsed
+			}
+		}
+		offset := 0
+		if v := r.URL.Query().Get("offset"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+				offset = parsed
+			}
+		}
+		args = append(args, limit, offset)
+		query += " ORDER BY rr.started_at DESC LIMIT $" + itoa(len(args)-1) + " OFFSET $" + itoa(len(args))
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed"); return

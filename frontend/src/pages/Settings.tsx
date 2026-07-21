@@ -299,8 +299,8 @@ function TOTPSection() {
   const [loading,  setLoading]  = useState(false)
 
   useEffect(() => {
-    apiFetch<{ totp_enabled: boolean }>('/api/auth/totp/status')
-      .then(r => setEnabled(r.totp_enabled))
+    apiFetch<{ data: { totp_enabled: boolean } }>('/api/auth/totp/status')
+      .then(r => setEnabled(r.data?.totp_enabled ?? false))
       .catch(() => setEnabled(false))
   }, [])
 
@@ -505,8 +505,8 @@ function NotificationsTab() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await apiFetch<NotifPref[]>('/api/user/notification-preferences')
-      setPrefs(data ?? [])
+      const data = await apiFetch<{ data: NotifPref[] }>('/api/user/notification-preferences')
+      setPrefs(data.data ?? [])
     } catch { /* table may not exist yet */ }
     finally { setLoading(false) }
   }, [])
@@ -617,8 +617,8 @@ function SignatureTab() {
   const [saving,  setSaving]  = useState(false)
 
   useEffect(() => {
-    apiFetch<{ signature_html: string; signature_text: string }>('/api/mail/signature')
-      .then(r => { setHtml(r.signature_html ?? ''); setText(r.signature_text ?? '') })
+    apiFetch<{ data: { signature_html: string; signature_text: string } }>('/api/mail/signature')
+      .then(r => { setHtml(r.data?.signature_html ?? ''); setText(r.data?.signature_text ?? '') })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])

@@ -36,6 +36,10 @@ func RegisterSales(r chi.Router, db *core.DB) {
 	// Marketing analytics (Wave 5G)
 	r.Get("/by-lead-source",       salesByLeadSource(db))
 	r.Get("/campaign-attribution", salesCampaignAttribution(db))
+
+	// Cohort heatmap
+	r.Get("/cohort-matrix", salesCohortMatrix(db))
+	r.Get("/cohort-detail", salesCohortDetail(db))
 }
 
 // salesLoanKPIs returns LOS-based KPIs for the Sales Overview page.
@@ -318,9 +322,12 @@ func salesFunnel(db *core.DB) http.HandlerFunc {
 
 func salesAccountsTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		from := qstr(r, "from")
-		to   := qstr(r, "to")
-		// Build optional date filters for dual queries (interpolated safely — format validated by qstr)
+		from, err1 := validDate(r, "from")
+		to, err2   := validDate(r, "to")
+		if err1 != nil || err2 != nil {
+			respondErr(w, 400, "from and to must be YYYY-MM-DD dates")
+			return
+		}
 		msWhere := "Account_Created IS NOT NULL"
 		pgWhere := `"Account Created Date" IS NOT NULL`
 		if from != "" {
@@ -513,7 +520,11 @@ func salesTargetCreate(db *core.DB) http.HandlerFunc {
 		if err != nil {
 			respondErr(w, 500, "DB error"); return
 		}
-		if len(rows) > 0 { respond(w, rows[0], "pg") }
+		if len(rows) > 0 {
+			respond(w, rows[0], "pg")
+		} else {
+			respondErr(w, 500, "Target saved but no row returned")
+		}
 	}
 }
 
@@ -552,6 +563,10 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 		to     := qstr(r, "to")
 		periodExpr := "DATE_TRUNC('month', NOW())"
 		if period != "" && period != "current" {
+			if !periodRE.MatchString(period) {
+				respondErr(w, 400, "period must be YYYY-MM")
+				return
+			}
 			periodExpr = fmt.Sprintf("DATE_TRUNC('month', '%s-01'::date)", period)
 		}
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
@@ -627,5 +642,135 @@ func salesCampaignAttribution(db *core.DB) http.HandlerFunc {
 		if err != nil { respondErr(w, 500, "Query failed"); return }
 		if rows == nil { rows = []core.Row{} }
 		respond(w, rows, "pg")
+	}
+}
+
+// ── Cohort Heatmap ────────────────────────────────────────────────────────────
+
+// salesCohortMatrix returns a retention heatmap: for each booking-month cohort,
+// what % of accounts were still transacting at 1m / 3m / 6m / 9m / 12m.
+// Uses loan_applications as the cohort source. "Transacting" = status not in
+// (rejected, cancelled, withdrawn) at the measured age.
+func salesCohortMatrix(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to := qstr(r, "to")
+
+		var dateWhere string
+		var args []any
+		n := 1
+		if from != "" {
+			dateWhere += fmt.Sprintf(" AND DATE_TRUNC('month', created_at) >= DATE_TRUNC('month', $%d::date)", n)
+			args = append(args, from); n++
+		}
+		if to != "" {
+			dateWhere += fmt.Sprintf(" AND DATE_TRUNC('month', created_at) <= DATE_TRUNC('month', $%d::date)", n)
+			args = append(args, to); n++
+		}
+		_ = n
+
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+				TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS cohort_month,
+				COUNT(*) AS cohort_size,
+				-- Retention at age N = % still active at month N after booking
+				ROUND(100.0 * COUNT(*) FILTER (
+					WHERE status NOT IN ('rejected','cancelled','withdrawn')
+					  AND created_at <= NOW() - INTERVAL '1 month'
+				) / NULLIF(COUNT(*), 0), 1) AS ret_1m,
+				ROUND(100.0 * COUNT(*) FILTER (
+					WHERE status NOT IN ('rejected','cancelled','withdrawn')
+					  AND created_at <= NOW() - INTERVAL '3 months'
+				) / NULLIF(COUNT(*) FILTER (WHERE created_at <= NOW() - INTERVAL '3 months'), 0), 1) AS ret_3m,
+				ROUND(100.0 * COUNT(*) FILTER (
+					WHERE status NOT IN ('rejected','cancelled','withdrawn')
+					  AND created_at <= NOW() - INTERVAL '6 months'
+				) / NULLIF(COUNT(*) FILTER (WHERE created_at <= NOW() - INTERVAL '6 months'), 0), 1) AS ret_6m,
+				ROUND(100.0 * COUNT(*) FILTER (
+					WHERE status NOT IN ('rejected','cancelled','withdrawn')
+					  AND created_at <= NOW() - INTERVAL '9 months'
+				) / NULLIF(COUNT(*) FILTER (WHERE created_at <= NOW() - INTERVAL '9 months'), 0), 1) AS ret_9m,
+				ROUND(100.0 * COUNT(*) FILTER (
+					WHERE status NOT IN ('rejected','cancelled','withdrawn')
+					  AND created_at <= NOW() - INTERVAL '12 months'
+				) / NULLIF(COUNT(*) FILTER (WHERE created_at <= NOW() - INTERVAL '12 months'), 0), 1) AS ret_12m,
+				-- PAR30 rates per cohort age
+				ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30) / NULLIF(COUNT(*),0), 1) AS par30_current
+			FROM loan_applications
+			WHERE stage NOT IN ('draft') `+dateWhere+`
+			GROUP BY DATE_TRUNC('month', created_at)
+			ORDER BY DATE_TRUNC('month', created_at) DESC
+			LIMIT 24`, args...)
+
+		if err != nil {
+			respond(w, []core.Row{}, "pg")
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+// salesCohortDetail returns the list of loan applications in a specific cohort-month
+// so the frontend can drill into a heatmap cell.
+func salesCohortDetail(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cohort := qstr(r, "cohort") // e.g. "2024-03"
+		if cohort == "" {
+			respondErr(w, 400, "cohort required (YYYY-MM)")
+			return
+		}
+		stage := qstr(r, "stage")
+		limit := qint(r, "limit", 100, 1, 500)
+
+		q := `
+			SELECT
+				id, reference, applicant_name,
+				COALESCE(product_type, loan_type, '') AS product_type,
+				COALESCE(employer, '') AS employer,
+				COALESCE(amount_requested_kobo, 0) AS amount_requested_kobo,
+				COALESCE(outstanding_kobo, 0) AS outstanding_kobo,
+				COALESCE(dpd, 0) AS dpd,
+				status, stage, created_at
+			FROM loan_applications
+			WHERE TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') = $1`
+		args := []any{cohort}
+		n := 2
+		if stage != "" {
+			q += fmt.Sprintf(" AND stage = $%d", n)
+			args = append(args, stage)
+			n++
+		}
+		q += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", n)
+		args = append(args, limit)
+
+		rows, err := db.PGQuery(r.Context(), q, args...)
+		if err != nil {
+			respond(w, map[string]any{"data": []any{}, "cohort": cohort}, "pg")
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+
+		// Quick summary stats
+		var totalOutstanding int64
+		var par30Count int64
+		for _, row := range rows {
+			totalOutstanding += toInt64(row["outstanding_kobo"])
+			if toInt64(row["dpd"]) > 30 {
+				par30Count++
+			}
+		}
+
+		respond(w, map[string]any{
+			"cohort":              cohort,
+			"data":                rows,
+			"count":               len(rows),
+			"total_outstanding":   totalOutstanding,
+			"par30_count":         par30Count,
+		}, "pg")
 	}
 }

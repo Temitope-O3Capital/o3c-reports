@@ -121,8 +121,8 @@ export default function FinanceBudget() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const data = await apiFetch<BudgetLine[]>(`/api/finance/budget?period=${period}`)
-      setRows(data ?? [])
+      const data = await apiFetch<{ data: BudgetLine[] }>(`/api/finance/budget?period=${period}`)
+      setRows(data.data ?? [])
     } catch (e: any) {
       setError(e.message ?? 'Failed to load budget')
     } finally {

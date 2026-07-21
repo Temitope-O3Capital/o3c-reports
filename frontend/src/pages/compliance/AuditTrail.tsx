@@ -45,14 +45,9 @@ export default function AuditTrail() {
       if (to)   p.set('date_to', to)
       p.set('limit', String(PAGE_SIZE))
       p.set('offset', String((page - 1) * PAGE_SIZE))
-      const data = await apiFetch<{ logs: AuditLog[]; total: number } | AuditLog[]>(`/api/compliance/audit-log?${p}`)
-      if (Array.isArray(data)) {
-        setLogs(data)
-        setTotal(data.length)
-      } else {
-        setLogs(data.logs ?? [])
-        setTotal(data.total ?? 0)
-      }
+      const res = await apiFetch<{ data: { logs: AuditLog[]; total: number } }>(`/api/compliance/audit-log?${p}`)
+      setLogs(res.data?.logs ?? [])
+      setTotal(res.data?.total ?? 0)
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
   }, [moduleFilter, actionFilter, from, to, page])

@@ -101,13 +101,13 @@ export default function BDAnalytics() {
     setLoading(true); setErr(null)
     try {
       const [s, l, e] = await Promise.all([
-        apiFetch<BDStats>(`/api/bd/stats?from=${dateFrom}&to=${dateTo}`),
-        apiFetch<BDLead[]>(`/api/bd/leads?limit=500&from=${dateFrom}&to=${dateTo}`),
-        apiFetch<Employer[]>(`/api/bd/employers?limit=100&from=${dateFrom}&to=${dateTo}`),
+        apiFetch<{ data: BDStats }>(`/api/bd/stats?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<{ data: BDLead[] }>(`/api/bd/leads?limit=500&from=${dateFrom}&to=${dateTo}`),
+        apiFetch<{ data: Employer[] }>(`/api/bd/employers?limit=100&from=${dateFrom}&to=${dateTo}`),
       ])
-      setStats(s)
-      setLeads(Array.isArray(l) ? l : [])
-      setEmployers(Array.isArray(e) ? e : [])
+      setStats(s.data ?? null)
+      setLeads(l.data ?? [])
+      setEmployers(e.data ?? [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
   }, [dateFrom, dateTo])

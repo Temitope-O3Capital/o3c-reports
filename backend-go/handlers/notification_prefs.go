@@ -8,7 +8,7 @@ import (
 	"github.com/o3c/reports/core"
 )
 
-// TODO: CREATE TABLE notification_preferences (user_id BIGINT, event_type TEXT, channel TEXT, enabled BOOL, updated_at TIMESTAMPTZ, PRIMARY KEY (user_id, event_type, channel))
+// Table created by migration 076_notification_preferences.sql
 
 // RegisterNotificationPrefs mounts user-facing preference endpoints.
 // Mount under /api/user inside the auth group.

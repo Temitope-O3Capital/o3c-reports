@@ -666,8 +666,20 @@ func hrAppraisalList(db *core.DB) http.HandlerFunc {
 			args = append(args, to)
 			n++
 		}
-		_ = n
-		query += " ORDER BY a.created_at DESC LIMIT 200"
+		limit := 200
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 && parsed <= 500 {
+				limit = parsed
+			}
+		}
+		offset := 0
+		if v := r.URL.Query().Get("offset"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+				offset = parsed
+			}
+		}
+		args = append(args, limit, offset)
+		query += fmt.Sprintf(" ORDER BY a.created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
@@ -804,8 +816,20 @@ func hrDisciplinaryList(db *core.DB) http.HandlerFunc {
 			args = append(args, to)
 			n++
 		}
-		_ = n
-		query += " ORDER BY dc.created_at DESC LIMIT 200"
+		limit := 200
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 && parsed <= 500 {
+				limit = parsed
+			}
+		}
+		offset := 0
+		if v := r.URL.Query().Get("offset"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+				offset = parsed
+			}
+		}
+		args = append(args, limit, offset)
+		query += fmt.Sprintf(" ORDER BY dc.created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
@@ -953,8 +977,20 @@ func hrTrainingList(db *core.DB) http.HandlerFunc {
 			args = append(args, to)
 			n++
 		}
-		_ = n
-		query += " ORDER BY start_date DESC LIMIT 200"
+		limit := 200
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 && parsed <= 500 {
+				limit = parsed
+			}
+		}
+		offset := 0
+		if v := r.URL.Query().Get("offset"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+				offset = parsed
+			}
+		}
+		args = append(args, limit, offset)
+		query += fmt.Sprintf(" ORDER BY start_date DESC LIMIT $%d OFFSET $%d", n, n+1)
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {

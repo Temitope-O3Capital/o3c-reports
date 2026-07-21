@@ -262,13 +262,13 @@ export default function AdminOverview() {
     setError(null)
     try {
       const [u, r, a] = await Promise.allSettled([
-        apiFetch<User[]>('/api/admin/users'),
-        apiFetch<Role[]>('/api/admin/roles'),
-        apiFetch<Activity[]>('/api/admin/activity?limit=20'),
+        apiFetch<{ data: User[] }>('/api/admin/users'),
+        apiFetch<{ data: Role[] }>('/api/admin/roles'),
+        apiFetch<{ data: Activity[] }>('/api/admin/activity?limit=20'),
       ])
-      if (u.status === 'fulfilled') setUsers(Array.isArray(u.value) ? u.value : [])
-      if (r.status === 'fulfilled') setRoles(Array.isArray(r.value) ? r.value : [])
-      if (a.status === 'fulfilled') setActivity(Array.isArray(a.value) ? a.value : [])
+      if (u.status === 'fulfilled') setUsers(u.value?.data ?? [])
+      if (r.status === 'fulfilled') setRoles(r.value?.data ?? [])
+      if (a.status === 'fulfilled') setActivity(a.value?.data ?? [])
     } catch (e: any) {
       setError(e.message)
     } finally {

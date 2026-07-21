@@ -20,7 +20,8 @@ import (
 	"github.com/o3c/reports/core"
 )
 
-var dateRE = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+var dateRE   = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+var periodRE = regexp.MustCompile(`^\d{4}-\d{2}$`)
 
 // nullStr returns a *string pointer for s, or nil if s is empty (stores as SQL NULL).
 func nullStr(s string) *string {

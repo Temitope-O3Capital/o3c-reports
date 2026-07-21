@@ -21,6 +21,7 @@ func RegisterNotifications(r chi.Router, db *core.DB) {
 	r.Put("/{id}/read", notificationsMarkRead(db))
 	r.Patch("/{id}/read", notificationsMarkRead(db))
 	r.Put("/read-all", notificationsReadAll(db))
+	r.Post("/read-all", notificationsReadAll(db))
 	r.Post("/mark-all-read", notificationsReadAll(db))
 	r.Delete("/{id}", notificationsDelete(db))
 	r.Post("/sse-ticket", notificationsSSETicket())

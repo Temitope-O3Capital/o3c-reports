@@ -263,13 +263,13 @@ export default function FinanceFixedDeposit() {
       const qs = `date_from=${dateFrom}&date_to=${dateTo}`
       const [txRes, sumRes, trendRes, kpiRes] = await Promise.allSettled([
         apiFetch<{ data: FDRecord[] }>(`/api/fixed-deposit/transactions?${qs}`),
-        apiFetch<FDSummary>(`/api/fixed-deposit/summary?${qs}`),
-        apiFetch<TrendPoint[]>('/api/fixed-deposit/trend'),
+        apiFetch<{ data: FDSummary }>(`/api/fixed-deposit/summary?${qs}`),
+        apiFetch<{ data: TrendPoint[] }>('/api/fixed-deposit/trend'),
         apiFetch<{ data: FDKPIs }>('/api/finance/fd-kpis'),
       ])
       if (txRes.status === 'fulfilled') setRows(txRes.value?.data ?? [])
-      if (sumRes.status === 'fulfilled') setSummary(sumRes.value)
-      if (trendRes.status === 'fulfilled') setTrend(trendRes.value ?? [])
+      if (sumRes.status === 'fulfilled') setSummary(sumRes.value?.data ?? null)
+      if (trendRes.status === 'fulfilled') setTrend(trendRes.value?.data ?? [])
       if (kpiRes.status === 'fulfilled') setFdKpis(kpiRes.value?.data ?? null)
     } catch (e: any) {
       setError(e.message)

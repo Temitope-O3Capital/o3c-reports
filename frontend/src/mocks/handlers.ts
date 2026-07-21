@@ -735,14 +735,13 @@ const RISK = [
     avg_credit_score: 672, top_employer_exposure_kobo: 480_000_000_00,
   })),
   http.get(u('/api/risk/par-trend'), () => wd(
-    MONTHS_ISO.map(m => ({ month: m, par30: rng(4,8), par60: rng(1,4), par90: rng(0,2) }))
+    MONTHS_ISO.map(m => ({ month: m, par30_kobo: rng(4,8)*1_000_000_00, par60_kobo: rng(1,4)*1_000_000_00, par90_kobo: rng(0,2)*1_000_000_00 }))
   )),
   http.get(u('/api/risk/band-distribution'), () => wd([
-    { band:'Current (0 DPD)',  count: 3837, outstanding_kobo: 4_340_000_000_00, pct: 88.4 },
-    { band:'1–30 DPD',         count: 241,  outstanding_kobo: 241_000_000_00,   pct: 5.0  },
-    { band:'31–60 DPD',        count: 98,   outstanding_kobo: 98_000_000_00,    pct: 2.0  },
-    { band:'61–90 DPD',        count: 42,   outstanding_kobo: 42_000_000_00,    pct: 0.9  },
-    { band:'91+ DPD',          count: 28,   outstanding_kobo: 99_000_000_00,    pct: 2.1  },
+    { band:'Prime',       count: 2184, pct: 52.1 },
+    { band:'Near-Prime',  count: 1241, pct: 29.6 },
+    { band:'Sub-Prime',   count: 583,  pct: 13.9 },
+    { band:'High-Risk',   count: 188,  pct: 4.4  },
   ])),
   http.get(u('/api/risk/sector-concentration'), () => wd([
     { sector:'Salary Earners', outstanding_kobo: 2_840_000_000_00, count: 2814, book_pct: 58.9 },
@@ -767,35 +766,51 @@ const RISK = [
   })),
   http.get(u('/api/risk/eye-scores'), () => ok({
     data: Array.from({ length: 20 }, (_, i) => ({
-      id: i+1, cif: `CIF${String(i+100000).padStart(7,'0')}`, customer_name: name(),
-      score: rng(400,850), band: pick(['low','medium','high']), scored_at: isoDate(rng(0,30)),
+      id: i+1, application_id: 1000+i, applicant_name: name(),
+      product_type: pick(LOS_PRODUCTS),
+      score: rng(400,850), band: pick(['Prime','Near-Prime','Sub-Prime','High-Risk']),
+      top_factor: pick(['DTI too high','Low bureau score','Short employment tenure',null]),
+      dti_pct: rng(15,55), scored_at: isoDate(rng(0,30)),
     })),
     total: 100,
   })),
   http.get(u('/api/risk/vintage-kpis'), () => wd({
-    avg_par30_pct: 4.8, avg_par90_pct: 1.2, best_vintage: '2025-Q3', worst_vintage: '2025-Q1',
+    avg_par30_6m: 4.8, avg_par30_12m: 6.2,
   })),
   http.get(u('/api/risk/vintage'), () => wd(
-    ['2025-Q1','2025-Q2','2025-Q3','2026-Q1','2026-Q2'].map(v => ({
-      vintage: v, disbursed_kobo: rng(200,600)*1_000_000_00, par30_pct: rng(2,10), par90_pct: rng(0,3),
+    ['2025-01','2025-02','2025-03','2025-04','2025-05','2025-06',
+     '2025-07','2025-08','2025-09','2025-10','2025-11','2026-01'].map(m => ({
+      booking_month: m, cohort_count: rng(80,300),
+      par30_1m: rng(1,5), par30_3m: rng(2,8), par30_6m: rng(3,12),
+      par30_12m: m < '2025-07' ? rng(4,15) : null,
     }))
   )),
   http.get(u('/api/risk/credit-file/:cif'), () => ok({
-    cif: 'CIF1000001', full_name: name(), score: 682, band: 'medium',
-    income_kobo: 45_000_000_00, dti_pct: 28.4, employer: 'Shell Nigeria',
-    loans: [], flags: [],
+    cif: 'CIF1000001', customer_name: name(), phone: `0801${rng(1000000,9999999)}`,
+    eye_score: 682, eye_band: 'Near-Prime', bureau_score: 651,
+    total_loan_count: 3, active_loan_count: 1,
+    total_outstanding_kobo: 85_000_000_00, worst_dpd: 14,
+    dti_pct: 28.4, kyc_status: 'verified', bvn: `2234${rng(10000000,99999999)}`,
+    loans: Array.from({ length: 3 }, (_, i) => ({
+      id: i+1, ref: `LN${rng(10000,99999)}`,
+      product: pick(LOS_PRODUCTS), principal_kobo: rng(10,150)*1_000_000_00,
+      outstanding_kobo: i === 0 ? 85_000_000_00 : 0,
+      dpd: i === 0 ? 14 : 0, status: i === 0 ? 'active' : 'closed',
+      disbursed_at: isoDate(rng(30, 730)),
+    })),
   })),
-  http.get(u('/api/risk/app-review'), () => ok({
+  http.get(u('/api/risk/applications'), () => ok({
     data: Array.from({ length: 15 }, (_, i) => ({
-      id: i+1, ref: `APP${rng(10000,99999)}`,
-      applicant_name: name(), product_type: pick(LOS_PRODUCTS),
+      id: i+1, reference: `APP${rng(10000,99999)}`,
+      applicant_name: name(), employer_name: pick(['Shell Nigeria','MTN','NNPC','Access Bank',null]),
+      eye_score: rng(400,850), risk_band: pick(['Prime','Near-Prime','Sub-Prime','High-Risk']),
+      monthly_income_kobo: rng(15,80)*1_000_000_00, dti_pct: rng(15,55),
       amount_requested_kobo: rng(10,200)*1_000_000_00,
-      score: rng(400,850), band: pick(['low','medium','high']),
-      recommendation: pick(['approve','review','decline']),
-      assigned_to: name(), created_at: isoDate(rng(0,14)),
+      product_type: pick(LOS_PRODUCTS), submitted_at: isoDate(rng(0,14)),
     })),
     total: 15,
   })),
+  http.get(u('/api/risk/applications/export'), () => new HttpResponse(new Blob(['ref,applicant\n'], { type: 'text/csv' }))),
 ]
 
 // ── HR ────────────────────────────────────────────────────────────────────────
@@ -2783,7 +2798,9 @@ const CAMPAIGNS_DETAIL = [
     })),
     total: 4820,
   })),
-  http.post(u('/api/campaigns/:id/resume'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/campaigns/:id/resume'),    () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/campaigns/:id/duplicate'), ({ params }) => ok({ id: rng(200, 999), name: `Copy of Campaign ${params.id}` })),
+  http.post(u('/api/campaigns/:id/restart'),   () => ok({ status: 'draft' })),
 ]
 
 // ── Contact Lists — missing endpoints ─────────────────────────────────────────
@@ -3035,6 +3052,126 @@ const GAP_FILL = [
   )),
   http.put(u('/api/telemarketing/leads/:id/disposition'), () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/telemarketing/leads/bulk-assign'),    () => ok({ assigned: rng(10,200) })),
+
+  // ── LOS — missing action endpoints ───────────────────────────────────────────
+  http.put(u('/api/los/:id/credit-assessment'), () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/los/:id/decline'),           () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/los/:id/request-info'),      () => new HttpResponse(null, { status: 204 })),
+
+  // ── Admin — module toggle ─────────────────────────────────────────────────────
+  http.put(u('/api/admin/modules/:key'), () => new HttpResponse(null, { status: 204 })),
+
+  // ── Collections-ops — individual assign + repayment instalment ───────────────
+  http.post(u('/api/collections-ops/:id/assign'),                          () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/collections-ops/repayment-plans/instalments/:id/paid'), () => new HttpResponse(null, { status: 204 })),
+
+  // ── Compliance — close finding + deactivate watchlist ────────────────────────
+  http.post(u('/api/compliance/findings/:id/close'),          () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/compliance/watch-list/:id/deactivate'),    () => new HttpResponse(null, { status: 204 })),
+
+  // ── Helpdesk KB — approve + status toggle ────────────────────────────────────
+  http.put(u('/api/helpdesk/kb/:id/approve'), () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/helpdesk/kb/:id/status'),  () => new HttpResponse(null, { status: 204 })),
+
+  // ── HR — close disciplinary + onboarding/offboarding checklist items ─────────
+  http.post(u('/api/hr/disciplinary/:id/close'),              () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/hr/employees/:id/onboarding/:itemId'),     () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/hr/employees/:id/offboarding/:itemId'),    () => new HttpResponse(null, { status: 204 })),
+
+  // ── Recovery — delete debt sale ───────────────────────────────────────────────
+  http.delete(u('/api/recovery/debt-sales/:id'), () => new HttpResponse(null, { status: 204 })),
+
+  // ── Settlements — escalate failed + resolve NIP + resolve failed ─────────────
+  http.post(u('/api/settlements/failed/:id/escalate'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/settlements/failed/:id/resolve'),  () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/settlements/nip/:id/resolve'),     () => new HttpResponse(null, { status: 204 })),
+
+  // ── HR — leave approve / decline ─────────────────────────────────────────────
+  http.put(u('/api/hr/leave/:id/approve'), () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/hr/leave/:id/decline'), () => new HttpResponse(null, { status: 204 })),
+
+  // ── Recovery-ops — individual case assign ─────────────────────────────────────
+  http.put(u('/api/recovery-ops/cases/:id/assign'), () => new HttpResponse(null, { status: 204 })),
+
+  // ── Contact-list members — add / edit / remove ───────────────────────────────
+  http.post(u('/api/contact-lists/:id/members'),           () => ok({ id: rng(1,9999) })),
+  http.put(u('/api/contact-lists/:id/members/:memberId'),   () => new HttpResponse(null, { status: 204 })),
+  http.delete(u('/api/contact-lists/:id/members/:memberId'), () => new HttpResponse(null, { status: 204 })),
+
+  // ── Me dashboard ─────────────────────────────────────────────────────────────
+  http.get(u('/api/me/dashboard'), () => wd({
+    user_id: 1, full_name: 'Temitope Posi', role: 'admin',
+    kpi: { open_tickets: 7, my_applications: 12, my_leads: 5, my_queue: 18 },
+    tickets: Array.from({ length: 5 }, (_, i) => ({
+      id: i+1, ref: `TKT-2026-0${1000+i}`, subject: pick(['Card blocked at POS','Statement not received','Loan query','Interest dispute','Account freeze']),
+      status: pick(['open','pending','open']), priority: pick(['high','medium','low']), created_at: isoDate(rng(0,7)),
+    })),
+    applications: Array.from({ length: 5 }, (_, i) => ({
+      id: i+1, reference: `LN-2026-${1000+i}`, applicant_name: name(), stage: pick(['document_review','credit_assessment','offer_letter','disbursement']),
+      status: 'pending', amount_requested_kobo: rng(10,200)*1_000_000_00, created_at: isoDate(rng(0,14)),
+    })),
+    leads: Array.from({ length: 5 }, (_, i) => ({
+      id: i+1, title: `Lead — ${name()}`, stage: pick(['qualified','proposal','negotiation']),
+      potential_value_kobo: rng(5,50)*1_000_000_00, created_at: isoDate(rng(0,30)),
+    })),
+    collections: Array.from({ length: 5 }, (_, i) => ({
+      id: i+1, account_cif: `CIF${String(i+100000).padStart(7,'0')}`, customer_name: name(),
+      dpd: rng(1,90), status: pick(['pending','in_contact','promise_to_pay']),
+    })),
+    activity: Array.from({ length: 8 }, (_, i) => ({
+      page: pick(['/los', '/helpdesk', '/collections-ops']), action: pick(['viewed','updated','assigned']),
+      detail: `Record #${rng(1,200)}`, ts: isoDate(rng(0,3)),
+    })),
+  })),
+
+  // ── Dialer — next contact for agent session ───────────────────────────────────
+  http.get(u('/api/dialer/sessions/me/next-contact'), () => ok({
+    contact: {
+      id: rng(1,9999), phone: `0801${rng(1000000,9999999)}`,
+      customer_name: name(), cif: `CIF${String(rng(100000,999999)).padStart(7,'0')}`,
+      metadata: { dpd: rng(1,90) }, priority: rng(1,5), attempts: rng(0,3),
+    },
+  })),
+
+  // ── Zoho sync status ──────────────────────────────────────────────────────────
+  http.get(u('/api/zoho/sync-status'), () => ok({
+    configured: true, last_sync_at: isoDate(0), total_imported: 1842,
+  })),
+
+  // ── Sales cohort matrix + detail ──────────────────────────────────────────────
+  http.get(u('/api/sales/cohort-matrix'), () => ok({
+    data: ['2025-01','2025-02','2025-03','2025-04','2025-05','2025-06',
+           '2025-07','2025-08','2025-09','2025-10','2025-11','2026-01'].map(m => ({
+      cohort_month: m, cohort_size: rng(50,300),
+      ret_1m: rng(70,95), ret_3m: rng(60,88), ret_6m: rng(50,82),
+      ret_9m: m < '2025-07' ? rng(45,78) : null,
+      ret_12m: m < '2025-04' ? rng(40,74) : null,
+      par30_current: rng(2,12),
+    })),
+  })),
+  http.get(u('/api/sales/cohort-detail'), ({ request }) => {
+    const cohort = new URL(request.url).searchParams.get('cohort') ?? '2025-06'
+    return ok({
+      cohort, count: 142, total_outstanding: 213_000_000_00, par30_count: 14,
+      data: Array.from({ length: 20 }, (_, i) => ({
+        id: i+1, reference: `LN-2025-${1000+i}`, applicant_name: name(),
+        product_type: pick(LOS_PRODUCTS), employer: pick(['Shell Nigeria','MTN','NNPC','Access Bank','Civil Service']),
+        amount_requested_kobo: rng(10,150)*1_000_000_00, outstanding_kobo: rng(0,100)*1_000_000_00,
+        dpd: rng(0,60), status: pick(['active','active','active','closed','delinquent']),
+        stage: pick(['disbursed','completed','cancelled']), created_at: isoDate(rng(30,180)),
+      })),
+    })
+  }),
+
+  // ── Contact list segment builder ──────────────────────────────────────────────
+  http.post(u('/api/contact-lists/segment/preview'), () => ok({ count: rng(200, 4000) })),
+  http.post(u('/api/contact-lists/segment/create'),  () => ok({ contact_list_id: rng(10,99), added: rng(200, 4000) })),
+
+  // ── Campaign progress + test-send ─────────────────────────────────────────────
+  http.get(u('/api/campaigns/:id/progress'), () => ok({
+    sent: rng(100,500), delivered: rng(80,400), bounced: rng(0,30), progress_pct: rng(40,95),
+  })),
+  http.post(u('/api/campaigns/:id/test-send'), () => ok({ sent: 1, warnings: [] })),
 ]
 
 // ── Catch-all ─────────────────────────────────────────────────────────────────

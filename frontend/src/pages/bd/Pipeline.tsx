@@ -1,8 +1,8 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Modal, filterInputStyle, SearchInput, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch, apiPost } from '../../lib/api'
+import { apiFetch, apiPost, API, getCsrfToken } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, today, monthStart } from '../../lib/fmt'
 import { RED, AMBER, GREEN, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
@@ -173,15 +173,20 @@ export default function BDPipeline() {
   const [newForm,    setNewForm]    = useState(EMPTY_LEAD)
   const [saving,     setSaving]     = useState(false)
   const [detailLead, setDetailLead] = useState<Lead | null>(null)
+  const [newTab,     setNewTab]     = useState<'manual' | 'csv'>('manual')
+  const [csvFile,    setCsvFile]    = useState<File | null>(null)
+  const [csvPreview, setCsvPreview] = useState<{ valid: number; invalid: number; errors: string[] } | null>(null)
+  const [csvImporting, setCsvImporting] = useState(false)
+  const csvFileRef = useRef<HTMLInputElement>(null)
 
   async function load() {
     setLoading(true); setErr(null)
     try {
       const [data, kpiRes] = await Promise.all([
-        apiFetch<Lead[]>('/api/bd/leads?limit=500'),
+        apiFetch<{ data: Lead[] }>('/api/bd/leads?limit=500'),
         apiFetch<{ data: PipelineKPIs }>('/api/bd/pipeline-kpis'),
       ])
-      setLeads(data ?? [])
+      setLeads(data.data ?? [])
       setKpis(kpiRes.data)
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load leads')
@@ -247,6 +252,53 @@ export default function BDPipeline() {
     const a = document.createElement('a'); a.href = url
     a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
+  function downloadLeadTemplate() {
+    const csv = [
+      'entity_type,title,company_name,contact_name,contact_email,contact_phone,lead_type,stage,potential_value_naira,notes',
+      'company,Acme Limited,Acme Limited,Chidi Okeke,chidi@acme.ng,+2348001234567,Salary Loan,prospect,500000,',
+      'individual,,Fatima Ibrahim,Fatima Ibrahim,fatima@email.ng,+2348091234567,Personal Loan,qualified,250000,Referred by staff',
+      'individual_at_company,Bello Ahmed,First Bank,Bello Ahmed,bello@firstbank.ng,+2348071234567,Business Loan,prospect,1000000,',
+    ].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = 'leads-import-template.csv'
+    document.body.appendChild(a); a.click(); a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  async function pickLeadCsv(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setCsvFile(file); setCsvPreview(null)
+    const text = await file.text()
+    const lines = text.split('\n').filter(l => l.trim() && !l.startsWith('entity_type'))
+    const valid = lines.filter(l => l.split(',').length >= 2 && l.split(',')[0].trim()).length
+    setCsvPreview({ valid, invalid: lines.length - valid, errors: [] })
+    if (csvFileRef.current) csvFileRef.current.value = ''
+  }
+
+  async function importLeadsCsv() {
+    if (!csvFile) return
+    setCsvImporting(true)
+    try {
+      const fd = new FormData(); fd.append('file', csvFile)
+      const res = await fetch(`${API}/api/bd/leads/import`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'X-CSRF-Token': getCsrfToken() },
+        body: fd,
+      })
+      if (!res.ok) {
+        const msg = await res.json().catch(() => ({}))
+        throw new Error((msg as any)?.error ?? `HTTP ${res.status}`)
+      }
+      const data: { imported: number; skipped: number } = await res.json()
+      toast.success(`Imported ${data.imported} leads${data.skipped > 0 ? ` (${data.skipped} skipped)` : ''}`)
+      setNewOpen(false); setCsvFile(null); setCsvPreview(null); setNewTab('manual'); load()
+    } catch (e: any) { toast.error(e.message ?? 'Import failed') }
+    finally { setCsvImporting(false) }
   }
 
   async function doCreateLead() {
@@ -789,72 +841,158 @@ export default function BDPipeline() {
       {/* New Lead Modal */}
       <Modal
         open={newOpen}
-        onClose={() => { setNewOpen(false); setNewForm(EMPTY_LEAD) }}
+        onClose={() => { setNewOpen(false); setNewForm(EMPTY_LEAD); setNewTab('manual'); setCsvFile(null); setCsvPreview(null) }}
         title="New Lead"
         width={520}
         footer={
-          <>
-            <button onClick={() => { setNewOpen(false); setNewForm(EMPTY_LEAD) }} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
-            <button onClick={doCreateLead} disabled={saving} style={{ padding: `${SP[2]} 18px`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
-              {saving ? 'Creating…' : 'Create Lead'}
-            </button>
-          </>
+          newTab === 'manual' ? (
+            <>
+              <button onClick={() => { setNewOpen(false); setNewForm(EMPTY_LEAD); setNewTab('manual') }} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={doCreateLead} disabled={saving} style={{ padding: `${SP[2]} 18px`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+                {saving ? 'Creating…' : 'Create Lead'}
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => { setNewOpen(false); setCsvFile(null); setCsvPreview(null); setNewTab('manual') }} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={importLeadsCsv} disabled={csvImporting || !csvFile || !csvPreview || csvPreview.valid === 0} style={{ padding: `${SP[2]} 18px`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: (csvImporting || !csvFile || !csvPreview || csvPreview.valid === 0) ? 'not-allowed' : 'pointer', opacity: (csvImporting || !csvFile || !csvPreview || csvPreview.valid === 0) ? 0.6 : 1 }}>
+                {csvImporting ? 'Importing…' : `Import ${csvPreview?.valid ?? 0} Leads`}
+              </button>
+            </>
+          )
         }
       >
-        {/* Entity type toggle */}
-        <div style={{ display: 'flex', gap: 4, marginBottom: 18, padding: 4, background: 'var(--th-bg)', borderRadius: RADIUS.lg }}>
-          {(['company', 'individual', 'individual_at_company'] as EntityType[]).map(et => {
-            const active = newForm.entity_type === et
-            return (
-              <button key={et} onClick={() => setNewForm(f => ({ ...f, entity_type: et }))} style={{
-                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                padding: '7px 8px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: active ? FW.semibold : FW.medium,
-                border: 'none', cursor: 'pointer',
-                background: active ? 'var(--card)' : 'transparent',
-                color: active ? 'var(--txt)' : 'var(--txt2)',
-                boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                transition: 'all 0.12s',
-              }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{ENTITY_ICONS[et]}</span>
-                {ENTITY_LABELS[et]}
-              </button>
-            )
-          })}
+        {/* Tab switcher */}
+        <div style={{ display: 'flex', gap: 0, marginBottom: 18, borderBottom: '1px solid var(--bdr)' }}>
+          {([
+            { key: 'manual', label: 'Manual Entry', icon: 'edit' },
+            { key: 'csv',    label: 'CSV Import',   icon: 'upload_file' },
+          ] as const).map(t => (
+            <button key={t.key} onClick={() => setNewTab(t.key)} style={{
+              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              padding: '9px 12px', fontSize: TEXT.sm, fontWeight: FW.semibold,
+              border: 'none', cursor: 'pointer', background: 'transparent',
+              color: newTab === t.key ? NAVY : 'var(--txt2)',
+              borderBottom: newTab === t.key ? `2px solid ${NAVY}` : '2px solid transparent',
+              marginBottom: -1,
+            }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{t.icon}</span>
+              {t.label}
+            </button>
+          ))}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {newForm.entity_type === 'company' ? (<>
-            <FormField label="Organisation Name *" fullWidth value={newForm.company_name} onChange={v => setNewForm(f => ({ ...f, company_name: v }))} />
-            <FormField label="Product / Loan Type" value={newForm.lead_type} onChange={v => setNewForm(f => ({ ...f, lead_type: v }))} />
-            <FormField label="Contact Person" value={newForm.contact_name} onChange={v => setNewForm(f => ({ ...f, contact_name: v }))} />
-            <FormField label="Contact Email" value={newForm.contact_email} onChange={v => setNewForm(f => ({ ...f, contact_email: v }))} />
-            <FormField label="Contact Phone" value={newForm.contact_phone} onChange={v => setNewForm(f => ({ ...f, contact_phone: v }))} />
-            <FormField label="Est. Value (₦)" value={newForm.potential_value_kobo} onChange={v => setNewForm(f => ({ ...f, potential_value_kobo: v }))} />
-          </>) : newForm.entity_type === 'individual' ? (<>
-            <FormField label="Full Name *" fullWidth value={newForm.contact_name} onChange={v => setNewForm(f => ({ ...f, contact_name: v }))} />
-            <FormField label="Product / Loan Type" value={newForm.lead_type} onChange={v => setNewForm(f => ({ ...f, lead_type: v }))} />
-            <FormField label="Email" value={newForm.contact_email} onChange={v => setNewForm(f => ({ ...f, contact_email: v }))} />
-            <FormField label="Phone" value={newForm.contact_phone} onChange={v => setNewForm(f => ({ ...f, contact_phone: v }))} />
-            <FormField label="Est. Value (₦)" fullWidth value={newForm.potential_value_kobo} onChange={v => setNewForm(f => ({ ...f, potential_value_kobo: v }))} />
-          </>) : (<>
-            <FormField label="Full Name *" value={newForm.contact_name} onChange={v => setNewForm(f => ({ ...f, contact_name: v }))} />
-            <FormField label="Company / Employer *" value={newForm.company_name} onChange={v => setNewForm(f => ({ ...f, company_name: v }))} />
-            <FormField label="Product / Loan Type" value={newForm.lead_type} onChange={v => setNewForm(f => ({ ...f, lead_type: v }))} />
-            <FormField label="Email" value={newForm.contact_email} onChange={v => setNewForm(f => ({ ...f, contact_email: v }))} />
-            <FormField label="Phone" value={newForm.contact_phone} onChange={v => setNewForm(f => ({ ...f, contact_phone: v }))} />
-            <FormField label="Est. Value (₦)" value={newForm.potential_value_kobo} onChange={v => setNewForm(f => ({ ...f, potential_value_kobo: v }))} />
-          </>)}
+        {newTab === 'manual' ? (
+          <>
+            {/* Entity type toggle */}
+            <div style={{ display: 'flex', gap: 4, marginBottom: 18, padding: 4, background: 'var(--th-bg)', borderRadius: RADIUS.lg }}>
+              {(['company', 'individual', 'individual_at_company'] as EntityType[]).map(et => {
+                const active = newForm.entity_type === et
+                return (
+                  <button key={et} onClick={() => setNewForm(f => ({ ...f, entity_type: et }))} style={{
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    padding: '7px 8px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: active ? FW.semibold : FW.medium,
+                    border: 'none', cursor: 'pointer',
+                    background: active ? 'var(--card)' : 'transparent',
+                    color: active ? 'var(--txt)' : 'var(--txt2)',
+                    boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                    transition: 'all 0.12s',
+                  }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{ENTITY_ICONS[et]}</span>
+                    {ENTITY_LABELS[et]}
+                  </button>
+                )
+              })}
+            </div>
 
-          <div style={{ gridColumn: '1/-1', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Notes</label>
-            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
-              value={newForm.notes}
-              onChange={e => setNewForm(f => ({ ...f, notes: e.target.value }))}
-              rows={3}
-              style={{ ...filterInputStyle, height: 'auto', resize: 'vertical', padding: '8px 10px' }}
-            />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {newForm.entity_type === 'company' ? (<>
+                <FormField label="Organisation Name *" fullWidth value={newForm.company_name} onChange={v => setNewForm(f => ({ ...f, company_name: v }))} />
+                <FormField label="Product / Loan Type" value={newForm.lead_type} onChange={v => setNewForm(f => ({ ...f, lead_type: v }))} />
+                <FormField label="Contact Person" value={newForm.contact_name} onChange={v => setNewForm(f => ({ ...f, contact_name: v }))} />
+                <FormField label="Contact Email" value={newForm.contact_email} onChange={v => setNewForm(f => ({ ...f, contact_email: v }))} />
+                <FormField label="Contact Phone" value={newForm.contact_phone} onChange={v => setNewForm(f => ({ ...f, contact_phone: v }))} />
+                <FormField label="Est. Value (₦)" value={newForm.potential_value_kobo} onChange={v => setNewForm(f => ({ ...f, potential_value_kobo: v }))} />
+              </>) : newForm.entity_type === 'individual' ? (<>
+                <FormField label="Full Name *" fullWidth value={newForm.contact_name} onChange={v => setNewForm(f => ({ ...f, contact_name: v }))} />
+                <FormField label="Product / Loan Type" value={newForm.lead_type} onChange={v => setNewForm(f => ({ ...f, lead_type: v }))} />
+                <FormField label="Email" value={newForm.contact_email} onChange={v => setNewForm(f => ({ ...f, contact_email: v }))} />
+                <FormField label="Phone" value={newForm.contact_phone} onChange={v => setNewForm(f => ({ ...f, contact_phone: v }))} />
+                <FormField label="Est. Value (₦)" fullWidth value={newForm.potential_value_kobo} onChange={v => setNewForm(f => ({ ...f, potential_value_kobo: v }))} />
+              </>) : (<>
+                <FormField label="Full Name *" value={newForm.contact_name} onChange={v => setNewForm(f => ({ ...f, contact_name: v }))} />
+                <FormField label="Company / Employer *" value={newForm.company_name} onChange={v => setNewForm(f => ({ ...f, company_name: v }))} />
+                <FormField label="Product / Loan Type" value={newForm.lead_type} onChange={v => setNewForm(f => ({ ...f, lead_type: v }))} />
+                <FormField label="Email" value={newForm.contact_email} onChange={v => setNewForm(f => ({ ...f, contact_email: v }))} />
+                <FormField label="Phone" value={newForm.contact_phone} onChange={v => setNewForm(f => ({ ...f, contact_phone: v }))} />
+                <FormField label="Est. Value (₦)" value={newForm.potential_value_kobo} onChange={v => setNewForm(f => ({ ...f, potential_value_kobo: v }))} />
+              </>)}
+              <div style={{ gridColumn: '1/-1', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Notes</label>
+                <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
+                  value={newForm.notes}
+                  onChange={e => setNewForm(f => ({ ...f, notes: e.target.value }))}
+                  rows={3}
+                  style={{ ...filterInputStyle, height: 'auto', resize: 'vertical', padding: '8px 10px' }}
+                />
+              </div>
+            </div>
+          </>
+        ) : (
+          /* CSV import tab */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Template download */}
+            <div style={{ background: 'var(--th-bg)', borderRadius: RADIUS.lg, padding: 14, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 20, color: NAVY, flexShrink: 0, marginTop: 1 }}>info</span>
+              <div>
+                <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 4 }}>CSV Format</div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.6 }}>
+                  Required columns: <code>entity_type</code> (company / individual / individual_at_company), <code>contact_name</code> or <code>company_name</code>.<br />
+                  Optional: <code>contact_email</code>, <code>contact_phone</code>, <code>lead_type</code>, <code>stage</code>, <code>potential_value_naira</code>, <code>notes</code>
+                </div>
+                <button onClick={downloadLeadTemplate} style={{
+                  marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 5,
+                  padding: '5px 10px', borderRadius: RADIUS.md, border: `1px solid ${NAVY}30`,
+                  background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer',
+                }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
+                  Download Template
+                </button>
+              </div>
+            </div>
+
+            {/* File picker */}
+            <input ref={csvFileRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={pickLeadCsv} />
+            <button
+              onClick={() => csvFileRef.current?.click()}
+              style={{
+                padding: '20px', borderRadius: RADIUS.lg, border: `2px dashed var(--bdr)`, background: 'transparent',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, cursor: 'pointer',
+                color: 'var(--txt2)', fontSize: TEXT.sm,
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = NAVY; (e.currentTarget as HTMLButtonElement).style.color = NAVY }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--bdr)'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--txt2)' }}
+            >
+              <span className="material-symbols-rounded" style={{ fontSize: 32 }}>upload_file</span>
+              <span>{csvFile ? csvFile.name : 'Click to select a CSV file'}</span>
+              {!csvFile && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>or drag and drop here</span>}
+            </button>
+
+            {/* Preview */}
+            {csvPreview && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div style={{ background: `${GREEN}12`, borderRadius: RADIUS.md, padding: '12px 16px', textAlign: 'center' }}>
+                  <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: GREEN }}>{csvPreview.valid}</div>
+                  <div style={{ fontSize: TEXT.xs, color: GREEN, marginTop: 2 }}>Valid rows</div>
+                </div>
+                <div style={{ background: csvPreview.invalid > 0 ? `${RED}12` : `${NAVY}08`, borderRadius: RADIUS.md, padding: '12px 16px', textAlign: 'center' }}>
+                  <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: csvPreview.invalid > 0 ? RED : 'var(--txt3)' }}>{csvPreview.invalid}</div>
+                  <div style={{ fontSize: TEXT.xs, color: csvPreview.invalid > 0 ? RED : 'var(--txt3)', marginTop: 2 }}>Invalid rows</div>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
+        )}
       </Modal>
 
       {/* Lead Detail Modal */}
@@ -878,7 +1016,7 @@ export default function BDPipeline() {
                 if (detailLead.contact_name) params.set('contact', detailLead.contact_name)
                 if (detailLead.company_name) params.set('employer', detailLead.company_name)
                 if (detailLead.lead_type)    params.set('product', detailLead.lead_type)
-                navigate(`/los/new?${params.toString()}`)
+                navigate(`/sales/applications/new?${params.toString()}`)
               }}
               style={{ padding: `${SP[2]} 18px`, borderRadius: RADIUS.md, border: 'none', background: RED, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}
             >

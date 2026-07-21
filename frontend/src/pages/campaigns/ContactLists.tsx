@@ -311,13 +311,31 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
               </div>
 
               <input ref={fileRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={pickCsvFile} />
-              <button
-                onClick={() => fileRef.current?.click()}
-                style={{ ...btnSecondary, width: '100%', justifyContent: 'center', gap: 6, display: 'flex' }}
-              >
-                <span className="material-symbols-rounded" style={{ fontSize: 16 }}>upload_file</span>
-                Upload CSV
-              </button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  style={{ ...btnSecondary, flex: 1, justifyContent: 'center', gap: 6, display: 'flex' }}
+                >
+                  <span className="material-symbols-rounded" style={{ fontSize: 16 }}>upload_file</span>
+                  Upload CSV
+                </button>
+                <button
+                  onClick={() => {
+                    const csv = 'first_name,last_name,phone,email,cif_number\nJohn,Smith,+2348001234567,john@example.com,CIF001\nAisha,Bello,+2348091234567,aisha@example.com,\n'
+                    const blob = new Blob([csv], { type: 'text/csv' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a'); a.href = url
+                    a.download = 'contact-list-template.csv'
+                    document.body.appendChild(a); a.click(); a.remove()
+                    URL.revokeObjectURL(url)
+                  }}
+                  style={{ ...btnSecondary, justifyContent: 'center', gap: 5, display: 'flex', padding: '7px 11px' }}
+                  title="Download CSV template"
+                >
+                  <span className="material-symbols-rounded" style={{ fontSize: 16 }}>download</span>
+                  Template
+                </button>
+              </div>
               <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 5, textAlign: 'center' }}>
                 Columns: <code>first_name, last_name, phone, email, cif_number</code> — at least one required per row.
               </p>

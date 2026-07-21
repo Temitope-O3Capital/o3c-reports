@@ -89,11 +89,11 @@ export default function Approvals() {
     setLoading(true); setErr(null)
     try {
       const [pending, summ] = await Promise.all([
-        apiFetch<ApprovalItem[]>(`/api/approvals/pending?from=${dateFrom}&to=${dateTo}`),
-        apiFetch<Summary>(`/api/approvals/summary?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<{ data: ApprovalItem[] }>(`/api/approvals/pending?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<{ data: Summary }>(`/api/approvals/summary?from=${dateFrom}&to=${dateTo}`),
       ])
-      setItems(Array.isArray(pending) ? pending : [])
-      setSummary(summ)
+      setItems(pending.data ?? [])
+      setSummary(summ.data ?? null)
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
   }, [dateFrom, dateTo])

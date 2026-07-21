@@ -44,11 +44,11 @@ export default function BDOverview() {
     setLoading(true)
     try {
       const [s, l] = await Promise.all([
-        apiFetch<BDStats>(`/api/bd/stats?from=${from}&to=${to}`),
-        apiFetch<Lead[]>(`/api/bd/leads?limit=20&from=${from}&to=${to}`),
+        apiFetch<{ data: BDStats }>(`/api/bd/stats?from=${from}&to=${to}`),
+        apiFetch<{ data: Lead[] }>(`/api/bd/leads?limit=20&from=${from}&to=${to}`),
       ])
-      setStats(s)
-      setLeads(l ?? [])
+      setStats(s.data ?? null)
+      setLeads(l.data ?? [])
     } finally {
       setLoading(false)
     }

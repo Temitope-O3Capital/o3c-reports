@@ -28,7 +28,8 @@ const SECTIONS: Section[] = [
   {
     key: 'root',
     items: [
-      { icon: 'space_dashboard', label: 'Overview', to: '/', vis: 'all' },
+      { icon: 'space_dashboard', label: 'Overview',       to: '/',   vis: 'all' },
+      { icon: 'person',          label: 'My Dashboard',   to: '/me', vis: 'all' },
     ],
   },
   {
@@ -61,6 +62,7 @@ const SECTIONS: Section[] = [
           { label: 'All Campaigns',      to: '/campaigns' },
           { label: 'Templates',          to: '/campaigns/templates' },
           { label: 'Contact Lists',      to: '/campaigns/lists' },
+          { label: 'Contact Segments',   to: '/contact-segments' },
           { label: 'Campaign Analytics', to: '/campaigns/analytics' },
           { label: 'Attribution Report', to: '/marketing/attribution' },
           { label: 'Acquisition Funnel', to: '/marketing/funnel' },

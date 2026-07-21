@@ -80,8 +80,8 @@ export default function AdminAuditLog() {
     setLoading(true)
     setError(null)
     try {
-      const data = await apiFetch<LogEntry[]>(`/api/admin/activity?limit=${lim}&from=${dateFrom}&to=${dateTo}`)
-      setRows(Array.isArray(data) ? data : [])
+      const data = await apiFetch<{ data: LogEntry[] }>(`/api/admin/activity?limit=${lim}&from=${dateFrom}&to=${dateTo}`)
+      setRows(data.data ?? [])
     } catch (e: any) {
       setError(e.message)
     } finally {

@@ -463,8 +463,8 @@ function PushToTelemarketingModal({ campaignId, open, onClose }: { campaignId: s
 
   useEffect(() => {
     if (!open) return
-    apiFetch<any>('/api/telemarketing/campaigns').then(r => setTmCampaigns(Array.isArray(r) ? r : [])).catch(() => {})
-    apiFetch<any>('/api/admin/users?role=telemarketing_agent&limit=100').then(r => setAgents(Array.isArray(r) ? r : [])).catch(() => {})
+    apiFetch<{ data: any[] }>('/api/telemarketing/campaigns').then(r => setTmCampaigns(r.data ?? [])).catch(() => {})
+    apiFetch<{ data: any[] }>('/api/admin/users?role=telemarketing_agent&limit=100').then(r => setAgents(r.data ?? [])).catch(() => {})
   }, [open])
 
   async function push() {

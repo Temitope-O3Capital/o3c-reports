@@ -61,13 +61,16 @@ const MailThread     = lazy(() => import('./pages/mail/ThreadDetail'))
 // Sales
 const SalesOverview  = lazy(() => import('./pages/sales/Overview'))
 const SalesCohort    = lazy(() => import('./pages/sales/Cohort'))
+const SalesCohortDetail = lazy(() => import('./pages/sales/CohortDetail'))
 const SalesReports   = lazy(() => import('./pages/sales/Reports'))
 const SalesTargets   = lazy(() => import('./pages/sales/Targets'))
 const CRMContacts    = lazy(() => import('./pages/sales/Customers'))
 const CRMContactDetail = lazy(() => import('./pages/sales/ContactDetail'))
 const ContactProfile   = lazy(() => import('./pages/contacts/ContactProfile'))
+const ContactSegments  = lazy(() => import('./pages/contacts/Segments'))
 const CRMPipelinePg  = lazy(() => import('./pages/sales/CRMPipeline'))
 const CRMTasks       = lazy(() => import('./pages/sales/Tasks'))
+const MeDashboard    = lazy(() => import('./pages/me/Dashboard'))
 
 // LOS (loan origination)
 const LOSQueue         = lazy(() => import('./pages/los/Queue'))
@@ -426,8 +429,8 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
 
   const loadApprovals = useCallback(() => {
     if (!canApprove) return
-    apiFetch<ApprovalItem[]>('/api/approvals/pending', { silent: true })
-      .then(d => { const list = Array.isArray(d) ? d : []; setItems(list); setCount(list.length) })
+    apiFetch<{ data: ApprovalItem[] }>('/api/approvals/pending', { silent: true })
+      .then(d => { const list = d.data ?? []; setItems(list); setCount(list.length) })
       .catch(() => {})
   }, [canApprove])
 
@@ -891,12 +894,15 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
                   <Route path="/sales"           element={<RequireAccess page="sales" user={user}><PageErrorBoundary><SalesOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/overview" element={<RequireAccess page="sales" user={user}><PageErrorBoundary><SalesOverview /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/sales/cohort"    element={<RequireAccess page="cohort" user={user}><PageErrorBoundary><SalesCohort /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/cohort"         element={<RequireAccess page="cohort" user={user}><PageErrorBoundary><SalesCohort /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/cohort/:month"  element={<RequireAccess page="cohort" user={user}><PageErrorBoundary><SalesCohortDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/reports"   element={<RequireAccess page="crm_reports" user={user}><PageErrorBoundary><SalesReports /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/targets"   element={<RequireAccess page="sales" user={user}><PageErrorBoundary><SalesTargets /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/customers"     element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><CRMContacts /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/customers/:id" element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><CRMContactDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/contacts/:id"        element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><ContactProfile /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/contact-segments"    element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><ContactSegments /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/me"                  element={<PageErrorBoundary><MeDashboard /></PageErrorBoundary>} />
                   <Route path="/sales/crm"           element={<RequireAccess page="crm_pipeline" user={user}><PageErrorBoundary><CRMPipelinePg /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/tasks"         element={<RequireAccess page="crm_tasks" user={user}><PageErrorBoundary><CRMTasks /></PageErrorBoundary></RequireAccess>} />
 

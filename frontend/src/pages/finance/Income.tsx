@@ -251,9 +251,9 @@ export default function FinanceIncome() {
 
   // Load cycle dates
   useEffect(() => {
-    apiFetch<{ cycle_date: string }[]>('/api/cards/cycle-dates')
+    apiFetch<{ data: { cycle_date: string }[] }>('/api/cards/cycle-dates')
       .then(d => {
-        const dates = (d ?? []).map(x => x.cycle_date)
+        const dates = (d.data ?? []).map(x => x.cycle_date)
         setCycleDates(dates)
         if (dates.length) setSelectedDate(dates[0])
       })
@@ -265,30 +265,30 @@ export default function FinanceIncome() {
     if (!selectedDate) return
     setLoading(true)
     Promise.all([
-      apiFetch<Summary>(`/api/finance/income/summary?cycle_date=${selectedDate}`),
-      apiFetch<ChartRow[]>('/api/finance/income/chart'),
-      apiFetch<SummaryRow[]>(`/api/cards/cycle-summary?cycle_date=${selectedDate}`),
+      apiFetch<{ data: Summary }>(`/api/finance/income/summary?cycle_date=${selectedDate}`),
+      apiFetch<{ data: ChartRow[] }>('/api/finance/income/chart'),
+      apiFetch<{ data: SummaryRow[] }>(`/api/cards/cycle-summary?cycle_date=${selectedDate}`),
     ])
       .then(([s, c, rows]) => {
-        setSummary(s)
-        setChart(c ?? [])
-        setCycleData(rows ?? [])
+        setSummary(s.data ?? null)
+        setChart(c.data ?? [])
+        setCycleData(rows.data ?? [])
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }, [selectedDate])
 
   const loadLoans = useCallback(() => {
-    apiFetch<LoanRow[]>(`/api/finance/income/loans?date_from=${dateFrom}&date_to=${dateTo}`)
-      .then(d => setLoans(d ?? []))
+    apiFetch<{ data: LoanRow[] }>(`/api/finance/income/loans?date_from=${dateFrom}&date_to=${dateTo}`)
+      .then(d => setLoans(d.data ?? []))
       .catch(() => {})
   }, [dateFrom, dateTo])
 
   const loadFees = useCallback(() => {
     const params = new URLSearchParams({ date_from: dateFrom, date_to: dateTo })
     if (feeTypeFilter) params.set('fee_type', feeTypeFilter)
-    apiFetch<FeeTypeResponse>(`/api/finance/income/fee-types?${params}`)
-      .then(d => setFeeData(d))
+    apiFetch<{ data: FeeTypeResponse }>(`/api/finance/income/fee-types?${params}`)
+      .then(d => setFeeData(d.data ?? null))
       .catch(() => {})
   }, [feeTypeFilter, dateFrom, dateTo])
 

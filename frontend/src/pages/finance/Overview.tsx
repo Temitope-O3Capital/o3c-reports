@@ -161,19 +161,19 @@ export default function FinanceOverview() {
     const to = dateTo
     try {
       const [eodRes, fdRes, trendRes, prodRes, txnRes, treasuryRes] = await Promise.allSettled([
-        apiFetch<EODSummary>(`/api/eod/summary?date_from=${from}&date_to=${to}`),
-        apiFetch<FDSummary>(`/api/fixed-deposit/summary?date_from=${from}&date_to=${to}`),
-        apiFetch<TrendPoint[]>('/api/eod/trend'),
-        apiFetch<ProductPoint[]>('/api/eod/by-product'),
+        apiFetch<{ data: EODSummary }>(`/api/eod/summary?date_from=${from}&date_to=${to}`),
+        apiFetch<{ data: FDSummary }>(`/api/fixed-deposit/summary?date_from=${from}&date_to=${to}`),
+        apiFetch<{ data: TrendPoint[] }>('/api/eod/trend'),
+        apiFetch<{ data: ProductPoint[] }>('/api/eod/by-product'),
         apiFetch<{ data: TxnRow[] }>(`/api/eod/transactions?date_from=${from}&date_to=${to}&limit=10`),
-        apiFetch<Treasury>('/api/finance/treasury'),
+        apiFetch<{ data: Treasury }>('/api/finance/treasury'),
       ])
-      if (eodRes.status === 'fulfilled') setEod(eodRes.value)
-      if (fdRes.status === 'fulfilled') setFd(fdRes.value)
-      if (trendRes.status === 'fulfilled') setTrend(trendRes.value ?? [])
-      if (prodRes.status === 'fulfilled') setProducts(prodRes.value ?? [])
+      if (eodRes.status === 'fulfilled') setEod(eodRes.value?.data ?? null)
+      if (fdRes.status === 'fulfilled') setFd(fdRes.value?.data ?? null)
+      if (trendRes.status === 'fulfilled') setTrend(trendRes.value?.data ?? [])
+      if (prodRes.status === 'fulfilled') setProducts(prodRes.value?.data ?? [])
       if (txnRes.status === 'fulfilled') setTxns(txnRes.value?.data ?? [])
-      if (treasuryRes.status === 'fulfilled') setTreasury(treasuryRes.value)
+      if (treasuryRes.status === 'fulfilled') setTreasury(treasuryRes.value?.data ?? null)
     } catch (e: any) {
       setError(e.message)
     } finally {

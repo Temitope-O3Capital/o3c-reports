@@ -147,8 +147,8 @@ export default function CreditFile() {
     if (!cif) return
     setLoading(true); setErr(null); setFile(null); setNotFound(null)
     try {
-      const res = await apiFetch<CreditFile>(`/api/risk/credit-file/${encodeURIComponent(cif)}`)
-      setFile(res)
+      const res = await apiFetch<{ data: CreditFile }>(`/api/risk/credit-file/${encodeURIComponent(cif)}`)
+      setFile(res.data)
     } catch (e: any) {
       if (e.status === 404 || (e.message ?? '').toLowerCase().includes('not found')) {
         setNotFound(cif)

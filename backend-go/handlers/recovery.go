@@ -89,16 +89,22 @@ func recoveryKPIs(db *core.DB) http.HandlerFunc {
 		kpis["success_rate_pct"] = kpis["recovery_rate"]
 
 		// avg days open — PG-only; falls back to 0 gracefully
+		avgArgs  := []any{}
 		avgWhere := ""
-		if from != "" {
-			avgWhere += fmt.Sprintf(" AND opened_at::date >= '%s'::date", from)
+		n := 1
+		if from != "" && dateRE.MatchString(from) {
+			avgWhere += fmt.Sprintf(" AND opened_at::date >= $%d::date", n)
+			avgArgs = append(avgArgs, from)
+			n++
 		}
-		if to != "" {
-			avgWhere += fmt.Sprintf(" AND opened_at::date <= '%s'::date", to)
+		if to != "" && dateRE.MatchString(to) {
+			avgWhere += fmt.Sprintf(" AND opened_at::date <= $%d::date", n)
+			avgArgs = append(avgArgs, to)
 		}
+		_ = n
 		avgRows, _ := db.PGQuery(ctx, `
 			SELECT COALESCE(ROUND(AVG(EXTRACT(DAY FROM NOW() - opened_at)))::int, 0) AS avg_days
-			FROM recovery_cases WHERE status = 'open'`+avgWhere)
+			FROM recovery_cases WHERE status = 'open'`+avgWhere, avgArgs...)
 		if len(avgRows) > 0 {
 			kpis["avg_days_in_recovery"] = avgRows[0]["avg_days"]
 		} else {
@@ -797,7 +803,7 @@ func recoveryCreateDebtSale(db *core.DB) http.HandlerFunc {
 // M3: recoveryDeleteDebtSale performs a soft delete so the sale record is
 // preserved for audit purposes.
 //
-// TODO: ALTER TABLE debt_sales ADD COLUMN deleted_at TIMESTAMPTZ, ADD COLUMN deleted_by BIGINT;
+// Columns added by migration 073_debt_sales_soft_delete.sql
 func recoveryDeleteDebtSale(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
