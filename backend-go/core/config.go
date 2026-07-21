@@ -20,6 +20,8 @@ type Config struct {
 	Port             string
 	ResetAdminSecret string // from RESET_ADMIN_SECRET env var
 	EnableResetAdmin bool   // from ENABLE_RESET_ADMIN env var
+	TermiiAPIKey     string // empty = SMS disabled
+	TermiiSenderID   string
 }
 
 func LoadConfig() (*Config, error) {
@@ -38,6 +40,8 @@ func LoadConfig() (*Config, error) {
 		Port:             coalesce(os.Getenv("PORT"), "8000"),
 		ResetAdminSecret: os.Getenv("RESET_ADMIN_SECRET"),
 		EnableResetAdmin: os.Getenv("ENABLE_RESET_ADMIN") == "true",
+		TermiiAPIKey:     os.Getenv("TERMII_API_KEY"),
+		TermiiSenderID:   coalesce(os.Getenv("TERMII_SENDER_ID"), "O3CCARDS"),
 	}
 
 	weakKeys := []string{"change-this-in-production", "change-this-to-a-random-64-char-string"}

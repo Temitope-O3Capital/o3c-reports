@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard } from '../../components/UI'
+import { Page, SectionCard, Button, Input } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -52,7 +52,7 @@ function TabBtn({ label, active, onClick }: { label: string; active: boolean; on
       style={{
         padding: `${SP[2]} ${SP[5]}`, border: 'none', borderBottom: `2px solid ${active ? RED : 'transparent'}`,
         background: 'none', fontWeight: active ? FW.bold : FW.medium, fontSize: TEXT.md,
-        color: active ? RED : '#64748B', cursor: 'pointer', transition: 'all 0.15s',
+        color: active ? RED : 'var(--txt2)', cursor: 'pointer', transition: 'all 0.15s',
       }}
     >{label}</button>
   )
@@ -82,17 +82,17 @@ function DropZone({
       onDrop={handleDrop}
       onClick={() => inputRef.current?.click()}
       style={{
-        border: `2px dashed ${over ? RED : '#CBD5E1'}`,
+        border: `2px dashed ${over ? RED : 'var(--bdr)'}`,
         borderRadius: RADIUS.lg, padding: `${SP[10]} ${SP[6]}`, textAlign: 'center',
-        cursor: 'pointer', background: over ? '#FFF5F5' : '#FAFBFC',
+        cursor: 'pointer', background: over ? 'rgba(192,0,0,.04)' : 'var(--bg)',
         transition: 'all 0.15s',
       }}
     >
-      <span className="material-symbols-rounded" style={{ fontSize: 40, color: over ? RED : '#94A3B8', display: 'block', marginBottom: SP[2] }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 40, color: over ? RED : 'var(--txt3)', display: 'block', marginBottom: SP[2] }}>
         upload_file
       </span>
       <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: NAVY }}>{label}</div>
-      {sublabel && <div style={{ fontSize: TEXT.sm, color: '#94A3B8', marginTop: 4 }}>{sublabel}</div>}
+      {sublabel && <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', marginTop: 4 }}>{sublabel}</div>}
       <input ref={inputRef} type="file" accept={accept} multiple={multiple} style={{ display: 'none' }}
         onChange={e => { const f = Array.from(e.target.files ?? []); if (f.length) onFiles(f) }} />
     </div>
@@ -104,7 +104,7 @@ function DropZone({
 function PreviewSummary({ h }: { h: ParsedHeader }) {
   const overLimit = h.LineOfCredit > 0 && h.ClosingBalance > h.LineOfCredit
   return (
-    <div style={{ background: '#F8FAFC', borderRadius: RADIUS.md, padding: SP[4], display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: SP[3], marginBottom: 16 }}>
+    <div style={{ background: 'var(--card)', borderRadius: RADIUS.md, padding: SP[4], display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: SP[3], marginBottom: 16 }}>
       {[
         { label: 'Customer', value: h.CustomerName },
         { label: 'Account', value: h.AccountNumber, mono: true },
@@ -119,7 +119,7 @@ function PreviewSummary({ h }: { h: ParsedHeader }) {
         { label: 'Payment Due', value: h.PaymentDueDate?.slice(0, 10) },
       ].map(f => (
         <div key={f.label}>
-          <div style={{ fontSize: TEXT.xs, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{f.label}</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{f.label}</div>
           <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: f.color ?? NAVY, fontFamily: f.mono ? 'DM Mono, monospace' : undefined, marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
             {f.value || '—'}
             {f.warn && <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, color: RED }}>warning</span>}
@@ -130,30 +130,47 @@ function PreviewSummary({ h }: { h: ParsedHeader }) {
   )
 }
 
-function PreviewTxns({ txns }: { txns: ParsedTxn[] }) {
+function PreviewTxns({ txns, openingBalance }: { txns: ParsedTxn[]; openingBalance: number }) {
+  let runBal = openingBalance
   return (
-    <div style={{ overflowX: 'auto', maxHeight: 320, overflowY: 'auto' }}>
+    <div style={{ overflowX: 'auto', maxHeight: 360, overflowY: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.sm }}>
-        <thead style={{ position: 'sticky', top: 0, background: 'var(--th-bg)' }}>
+        <thead style={{ position: 'sticky', top: 0, background: NAVY }}>
           <tr>
-            {['#', 'Date', 'Posting', 'Trace', 'Card', 'Description', 'Debit', 'Credit'].map(h => (
-              <th key={h} style={{ padding: `${SP[2]} 10px`, textAlign: 'left', fontWeight: FW.bold, fontSize: TEXT.xs, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
+            {[
+              { label: '#',           right: false, color: 'rgba(255,255,255,.6)' },
+              { label: 'Date',        right: false, color: 'rgba(255,255,255,.6)' },
+              { label: 'Trace',       right: false, color: 'rgba(255,255,255,.6)' },
+              { label: 'Card',        right: false, color: 'rgba(255,255,255,.6)' },
+              { label: 'Description', right: false, color: '#fff' },
+              { label: 'Debit',       right: true,  color: '#ffb3b3' },
+              { label: 'Credit',      right: true,  color: '#86efac' },
+              { label: 'Balance',     right: true,  color: 'rgba(255,255,255,.7)' },
+            ].map(col => (
+              <th key={col.label} style={{ padding: '9px 10px', textAlign: col.right ? 'right' : 'left', fontWeight: FW.bold, fontSize: TEXT.xs, color: col.color, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{col.label}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {txns.map(t => (
-            <tr key={t.Seq} style={{ borderBottom: '1px solid #F1F5F9', background: t.IsFinanceCharge ? '#FFFBEB' : undefined }}>
-              <td style={{ padding: '7px 10px', color: '#94A3B8' }}>{t.Seq}</td>
-              <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace' }}>{t.TxnDate ? t.TxnDate.slice(0, 10) : '—'}</td>
-              <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace' }}>{t.PostingDate ? t.PostingDate.slice(0, 10) : '—'}</td>
-              <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace', color: '#64748B' }}>{t.TraceNo || '—'}</td>
-              <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace', fontSize: TEXT.xs }}>{t.CardPAN || '—'}</td>
-              <td style={{ padding: '7px 10px', color: t.IsFinanceCharge ? AMBER : NAVY, fontWeight: t.IsFinanceCharge ? FW.semibold : undefined }}>{t.Description}</td>
-              <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace', color: t.DebitKobo > 0 ? RED : '#CBD5E1' }}>{t.DebitKobo > 0 ? fmtKobo(t.DebitKobo) : '—'}</td>
-              <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace', color: t.CreditKobo > 0 ? GREEN : '#CBD5E1' }}>{t.CreditKobo > 0 ? fmtKobo(t.CreditKobo) : '—'}</td>
-            </tr>
-          ))}
+          {txns.map((t, i) => {
+            runBal += t.DebitKobo - t.CreditKobo
+            const bal = runBal
+            return (
+              <tr key={t.Seq} style={{ borderBottom: '1px solid var(--bdr)', background: t.IsFinanceCharge ? 'rgba(217,119,6,.06)' : i % 2 === 1 ? 'var(--row-hvr)' : undefined }}>
+                <td style={{ padding: '7px 10px', color: 'var(--txt3)' }}>{t.Seq}</td>
+                <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace', color: 'var(--txt2)' }}>{t.TxnDate ? t.TxnDate.slice(0, 10) : '—'}</td>
+                <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace', color: 'var(--txt2)' }}>{t.TraceNo || '—'}</td>
+                <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace', fontSize: TEXT.xs, color: 'var(--txt2)' }}>{t.CardPAN || '—'}</td>
+                <td style={{ padding: '7px 10px', color: t.IsFinanceCharge ? AMBER : 'var(--txt)', fontWeight: t.IsFinanceCharge ? FW.semibold : undefined }}>
+                  {t.Description}
+                  {t.IsFinanceCharge && <span style={{ marginLeft: 6, fontSize: TEXT.xs, background: '#FEF3C7', color: AMBER, borderRadius: RADIUS.xs, padding: '1px 5px' }}>charge</span>}
+                </td>
+                <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'DM Mono, monospace', color: t.DebitKobo > 0 ? (t.IsFinanceCharge ? AMBER : RED) : 'var(--txt3)' }}>{t.DebitKobo > 0 ? fmtKobo(t.DebitKobo) : '—'}</td>
+                <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'DM Mono, monospace', color: t.CreditKobo > 0 ? GREEN : 'var(--txt3)' }}>{t.CreditKobo > 0 ? fmtKobo(t.CreditKobo) : '—'}</td>
+                <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'DM Mono, monospace', fontVariantNumeric: 'tabular-nums', fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtKobo(bal)}</td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -215,7 +232,7 @@ function SingleUploadTab() {
           sublabel=".txt format (same layout as sample file)"
         />
       )}
-      {loading && <div style={{ textAlign: 'center', padding: SP[8], color: '#94A3B8', fontSize: TEXT.base }}>Parsing file…</div>}
+      {loading && <div style={{ textAlign: 'center', padding: SP[8], color: 'var(--txt3)', fontSize: TEXT.base }}>Parsing file…</div>}
       {preview && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -223,23 +240,16 @@ function SingleUploadTab() {
               Preview — {preview.transactions.length} transactions
             </div>
             <div style={{ display: 'flex', gap: SP[2] }}>
-              <button
-                onClick={() => { setFile(null); setPreview(null) }}
-                style={{ padding: `7px ${SP[4]}`, border: '1px solid #E2E8F0', borderRadius: RADIUS.sm, background: '#fff', fontSize: TEXT.base, cursor: 'pointer', color: '#64748B' }}
-              >
+              <Button variant="secondary" onClick={() => { setFile(null); setPreview(null) }}>
                 Change file
-              </button>
-              <button
-                onClick={save}
-                disabled={saving}
-                style={{ padding: `7px ${SP[4]}`, background: saving ? '#94A3B8' : RED, color: '#fff', border: 'none', borderRadius: RADIUS.sm, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'default' : 'pointer' }}
-              >
+              </Button>
+              <Button variant="danger" onClick={save} loading={saving}>
                 {saving ? 'Saving…' : 'Confirm & Save'}
-              </button>
+              </Button>
             </div>
           </div>
           <PreviewSummary h={preview.header} />
-          <PreviewTxns txns={preview.transactions} />
+          <PreviewTxns txns={preview.transactions} openingBalance={preview.header.OpeningBalance} />
         </div>
       )}
     </div>
@@ -296,29 +306,20 @@ function BulkUploadTab() {
               <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: NAVY, marginBottom: SP[2] }}>
                 {files.length} file{files.length !== 1 ? 's' : ''} selected
               </div>
-              <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #E2E8F0', borderRadius: RADIUS.sm }}>
+              <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--bdr)', borderRadius: RADIUS.sm }}>
                 {files.map((f, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[2]} ${SP[3]}`, borderBottom: '1px solid #F1F5F9' }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: '#94A3B8' }}>description</span>
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: `${SP[2]} ${SP[3]}`, borderBottom: '1px solid var(--bdr)' }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: 'var(--txt3)' }}>description</span>
                     <span style={{ fontSize: TEXT.base, flex: 1 }}>{f.name}</span>
-                    <span style={{ fontSize: TEXT.sm, color: '#94A3B8' }}>{(f.size / 1024).toFixed(1)} KB</span>
+                    <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{(f.size / 1024).toFixed(1)} KB</span>
                   </div>
                 ))}
               </div>
               <div style={{ marginTop: 14, display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
-                <button
-                  onClick={() => setFiles([])}
-                  style={{ padding: `${SP[2]} ${SP[4]}`, border: '1px solid #E2E8F0', borderRadius: RADIUS.sm, background: '#fff', fontSize: TEXT.base, cursor: 'pointer', color: '#64748B' }}
-                >
-                  Clear
-                </button>
-                <button
-                  onClick={upload}
-                  disabled={uploading}
-                  style={{ padding: `${SP[2]} 18px`, background: uploading ? '#94A3B8' : RED, color: '#fff', border: 'none', borderRadius: RADIUS.sm, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: uploading ? 'default' : 'pointer' }}
-                >
+                <Button variant="secondary" onClick={() => setFiles([])}>Clear</Button>
+                <Button variant="danger" onClick={upload} loading={uploading}>
                   {uploading ? `Uploading ${files.length} files…` : `Upload ${files.length} files`}
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -339,24 +340,21 @@ function BulkUploadTab() {
                 <span style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: '#991B1B' }}>{failed} failed</span>
               </div>
             )}
-            <button
-              onClick={() => { setFiles([]); setResults(null) }}
-              style={{ marginLeft: 'auto', padding: `${SP[2]} ${SP[4]}`, border: '1px solid #E2E8F0', borderRadius: RADIUS.sm, background: '#fff', fontSize: TEXT.base, cursor: 'pointer', color: '#64748B' }}
-            >
+            <Button variant="secondary" onClick={() => { setFiles([]); setResults(null) }} style={{ marginLeft: 'auto' }}>
               Upload more
-            </button>
+            </Button>
           </div>
 
           {/* Result rows */}
-          <div style={{ border: '1px solid #E2E8F0', borderRadius: RADIUS.md, overflow: 'hidden' }}>
+          <div style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.md, overflow: 'hidden' }}>
             {results.map((r, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: `${SP[2]} 14px`, borderBottom: i < results.length - 1 ? '1px solid #F1F5F9' : undefined, background: r.ok ? undefined : '#FFF5F5' }}>
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: `${SP[2]} 14px`, borderBottom: i < results.length - 1 ? '1px solid var(--bdr)' : undefined, background: r.ok ? undefined : '#FFF5F5' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: r.ok ? GREEN : RED, flexShrink: 0 }}>
                   {r.ok ? 'check_circle' : 'error'}
                 </span>
                 <span style={{ fontSize: TEXT.base, flex: 1, fontWeight: FW.medium }}>{r.filename}</span>
                 {r.ok
-                  ? <span style={{ fontSize: TEXT.sm, color: '#64748B' }}>{r.txn_count} transactions · ID {r.id}</span>
+                  ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.txn_count} transactions · ID {r.id}</span>
                   : <span style={{ fontSize: TEXT.sm, color: RED }}>{r.error}</span>
                 }
               </div>
@@ -418,16 +416,7 @@ function FromDBTab() {
   }
 
   const field = (label: string, key: keyof typeof form, type = 'text', hint?: string) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</label>
-      <input
-        type={type}
-        value={form[key]}
-        onChange={set(key)}
-        placeholder={hint}
-        style={{ padding: `${SP[2]} ${SP[3]}`, border: '1px solid #E2E8F0', borderRadius: RADIUS.sm, fontSize: TEXT.base, outline: 'none', color: NAVY }}
-      />
-    </div>
+    <Input label={label} type={type} value={form[key]} onChange={set(key)} placeholder={hint} />
   )
 
   return (
@@ -446,13 +435,9 @@ function FromDBTab() {
         {field('Payment Due Date', 'payment_due_date', 'date')}
       </div>
       <div style={{ marginTop: SP[5], display: 'flex', justifyContent: 'flex-end' }}>
-        <button
-          onClick={submit}
-          disabled={loading}
-          style={{ padding: `${SP[2]} ${SP[6]}`, background: loading ? '#94A3B8' : RED, color: '#fff', border: 'none', borderRadius: RADIUS.sm, fontSize: TEXT.md, fontWeight: FW.semibold, cursor: loading ? 'default' : 'pointer' }}
-        >
+        <Button variant="danger" onClick={submit} loading={loading}>
           {loading ? 'Building…' : 'Build Statement'}
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -469,18 +454,14 @@ export default function CCStatementNew() {
       title="New Credit Card Statement"
       subtitle="Import from a file or build from existing transaction records"
       actions={
-        <button
-          onClick={() => navigate('/statements/credit-cards')}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: `${SP[2]} ${SP[4]}`, border: '1px solid #E2E8F0', borderRadius: RADIUS.sm, background: '#fff', fontSize: TEXT.base, cursor: 'pointer', color: '#64748B' }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>arrow_back</span>
+        <Button variant="secondary" icon="arrow_back" onClick={() => navigate('/statements/credit-cards')}>
           Back
-        </button>
+        </Button>
       }
     >
       <SectionCard>
         {/* Tab bar */}
-        <div style={{ borderBottom: '1px solid #E2E8F0', marginBottom: SP[6], display: 'flex' }}>
+        <div style={{ borderBottom: '1px solid var(--bdr)', marginBottom: SP[6], display: 'flex' }}>
           <TabBtn label="Single Upload"  active={tab === 'single'} onClick={() => setTab('single')} />
           <TabBtn label="Bulk Upload"    active={tab === 'bulk'}   onClick={() => setTab('bulk')} />
           <TabBtn label="From Database"  active={tab === 'db'}     onClick={() => setTab('db')} />

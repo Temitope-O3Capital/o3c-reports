@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, ErrBanner, Sk, FilterBar, filterInputStyle } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Sk, FilterBar, filterInputStyle, DateFilter } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtDate } from '../../lib/fmt'
+import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -146,16 +146,21 @@ export default function CardsBilling() {
   const [error, setError]       = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState('')
   const [expandedKey, setExpandedKey]   = useState<string | null>(null)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   useEffect(() => {
-    apiFetch<SummaryRow[]>('/api/cards/cycle-summary')
+    setLoading(true)
+    setSelectedDate('')
+    setExpandedKey(null)
+    apiFetch<SummaryRow[]>(`/api/cards/cycle-summary?from=${dateFrom}&to=${dateTo}`)
       .then(data => {
         setAllRows(data ?? [])
         if (data?.length) setSelectedDate(data[0].cycle_date)
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [dateFrom, dateTo])
 
   const cycleDates = useMemo(() =>
     [...new Set(allRows.map(r => r.cycle_date))].sort((a, b) => b.localeCompare(a)),
@@ -183,15 +188,18 @@ export default function CardsBilling() {
       title="Billing Cycles"
       subtitle="Card statement cycles from the processing system"
       actions={
-        <select
-          value={selectedDate}
-          onChange={e => { setSelectedDate(e.target.value); setExpandedKey(null) }}
-          style={{ ...filterInputStyle, minWidth: 180 }}
-        >
-          {cycleDates.map(d => (
-            <option key={d} value={d}>Cycle ending {fmtDate(d)}</option>
-          ))}
-        </select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <select
+            value={selectedDate}
+            onChange={e => { setSelectedDate(e.target.value); setExpandedKey(null) }}
+            style={{ ...filterInputStyle, minWidth: 180 }}
+          >
+            {cycleDates.map(d => (
+              <option key={d} value={d}>Cycle ending {fmtDate(d)}</option>
+            ))}
+          </select>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={() => setError(null)} />

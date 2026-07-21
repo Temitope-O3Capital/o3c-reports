@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import { apiFetch, apiPost } from '../../lib/api'
 import { NAVY, GREEN, AMBER, BLUE, PURPLE, TEXT, FW, SP, RADIUS, NUM } from '../../lib/design'
-import { Page, SectionCard, Spinner } from '../../components/UI'
+import { Page, SectionCard, Spinner, DateFilter } from '../../components/UI'
 import { toast } from 'sonner'
 
 const CURRENCIES = ['USD', 'EUR', 'GBP']
@@ -70,6 +70,12 @@ export default function FXRates() {
     return () => clearInterval(id)
   }, [])
 
+  // Auto-poll latest rates every 5 minutes
+  useEffect(() => {
+    const id = setInterval(() => loadLatest(), 5 * 60_000)
+    return () => clearInterval(id)
+  }, [loadLatest])
+
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
     try {
@@ -116,12 +122,12 @@ export default function FXRates() {
   return (
     <Page
       title="FX Parallel Rates"
-      subtitle="Indicative Naira parallel-market rates — aggregated BDC quotes, not a licensed FX feed."
+      subtitle="Indicative Naira parallel-market rates — scraped hourly, display refreshes every 5 minutes."
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
           {lastUpdatedLabel && (
             <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', whiteSpace: 'nowrap' }}>
-              {lastUpdatedLabel} · auto-refreshes hourly
+              {lastUpdatedLabel} · scrapes hourly
             </span>
           )}
           <button
@@ -176,11 +182,8 @@ export default function FXRates() {
               ))}
             </div>
 
-            <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
-              <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={INPUT_S} />
-              <span style={{ color: 'var(--txt3)', fontSize: TEXT.sm }}>to</span>
-              <input type="date" value={to} onChange={e => setTo(e.target.value)} style={INPUT_S} />
-              <button onClick={loadHistory} style={BTN_OUTLINE}>Apply</button>
+            <div style={{ marginLeft: 'auto' }}>
+              <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />
             </div>
           </div>
 

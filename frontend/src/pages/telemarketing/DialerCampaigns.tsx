@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, ErrBanner, Spinner,
-  Modal, ConfirmModal,
+  Modal, ConfirmModal, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, API, getCsrfToken } from '../../lib/api'
-import { fmtDatetime } from '../../lib/fmt'
+import { fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -163,6 +163,8 @@ export default function DialerCampaigns() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const [newOpen, setNewOpen] = useState(false)
   const [editCamp, setEditCamp] = useState<Campaign | null>(null)
@@ -183,11 +185,11 @@ export default function DialerCampaigns() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const data = await apiFetch<Campaign[]>('/api/dialer/campaigns')
+      const data = await apiFetch<Campaign[]>(`/api/dialer/campaigns?from=${dateFrom}&to=${dateTo}`)
       setCampaigns(Array.isArray(data) ? data : [])
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -337,11 +339,14 @@ export default function DialerCampaigns() {
       title="Dialer Campaigns"
       subtitle="Create and manage predictive dialer campaigns"
       actions={
-        <button onClick={() => { setForm(EMPTY_FORM); setNewOpen(true) }}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
-          New Campaign
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => { setForm(EMPTY_FORM); setNewOpen(true) }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
+            New Campaign
+          </button>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />
@@ -350,7 +355,7 @@ export default function DialerCampaigns() {
         <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}><Spinner size={28} /></div>
       ) : (
         <SectionCard title="All Campaigns">
-          <DataTable cols={cols} rows={campaigns} emptyText="No campaigns yet. Create one to start auto-dialing." />
+          <DataTable cols={cols} rows={campaigns} keyFn={r => r.id} emptyText="No campaigns yet. Create one to start auto-dialing." searchKeys={['name', 'status']} />
 
           {/* Inline stats panels */}
           {Object.entries(statsMap).map(([idStr, stats]) => {

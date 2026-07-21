@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, SearchInput } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDate } from '../../lib/fmt'
+import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -198,19 +198,21 @@ export default function CardsIssuance() {
   const [search,  setSearch]  = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [sel, setSel] = useState<Set<string | number>>(new Set())
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const data = await apiFetch<IssuanceRequest[]>('/api/cards/issuance')
+      const data = await apiFetch<IssuanceRequest[]>(`/api/cards/issuance?from=${dateFrom}&to=${dateTo}`)
       setRows(Array.isArray(data) ? data : [])
     } catch (e: any) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -248,13 +250,16 @@ export default function CardsIssuance() {
       title="Issuance Queue"
       subtitle="Card issuance requests and status tracking"
       actions={
-        <button onClick={() => setShowNew(true)} style={{
-          display: 'flex', alignItems: 'center', gap: 6, padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.lg,
-          border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
-        }}>
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
-          New Issuance
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => setShowNew(true)} style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.lg,
+            border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
+            New Issuance
+          </button>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />

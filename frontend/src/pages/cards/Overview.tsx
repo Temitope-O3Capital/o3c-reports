@@ -3,10 +3,10 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell, Legend,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtNum, fmtPct } from '../../lib/fmt'
+import { fmtNum, fmtPct, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, BLUE, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -84,13 +84,15 @@ export default function CardsOverview() {
   const [volume, setVolume]     = useState<VolumeRow[]>([])
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState<string | null>(null)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       const [k, p, s, v] = await Promise.all([
-        apiFetch<KPIs>('/api/cards/kpis'),
+        apiFetch<KPIs>(`/api/cards/kpis?from=${dateFrom}&to=${dateTo}`),
         apiFetch<ProductRow[]>('/api/cards/by-product'),
         apiFetch<StatusRow[]>('/api/cards/by-status'),
         apiFetch<VolumeRow[]>('/api/cards/volume-by-type'),
@@ -104,7 +106,7 @@ export default function CardsOverview() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -120,7 +122,9 @@ export default function CardsOverview() {
   })
 
   return (
-    <Page title="Cards Overview" subtitle="Card portfolio health and transaction activity">
+    <Page title="Cards Overview" subtitle="Card portfolio health and transaction activity" actions={
+      <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+    }>
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip */}

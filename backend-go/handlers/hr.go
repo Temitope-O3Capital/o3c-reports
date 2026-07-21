@@ -103,6 +103,8 @@ func hrEmployeeList(db *core.DB) http.HandlerFunc {
 		status := qstr(r, "status")
 		dept := qstr(r, "dept")
 		q := qstr(r, "q")
+		from := qstr(r, "from")
+		to := qstr(r, "to")
 		deptID := qint(r, "department_id", 0, 0, 1<<30)
 		gradeLevelID := qint(r, "grade_level_id", 0, 0, 1<<30)
 		limit := qint(r, "limit", 50, 1, 200)
@@ -141,6 +143,16 @@ func hrEmployeeList(db *core.DB) http.HandlerFunc {
 		if q != "" {
 			query += fmt.Sprintf(" AND (e.first_name ILIKE $%d OR e.last_name ILIKE $%d OR e.staff_id ILIKE $%d OR e.email ILIKE $%d)", n, n, n, n)
 			args = append(args, "%"+q+"%")
+			n++
+		}
+		if from != "" {
+			query += fmt.Sprintf(" AND e.created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			query += fmt.Sprintf(" AND e.created_at::date <= $%d::date", n)
+			args = append(args, to)
 			n++
 		}
 		query += fmt.Sprintf(" ORDER BY e.last_name, e.first_name LIMIT $%d OFFSET $%d", n, n+1)
@@ -332,8 +344,8 @@ func hrLeaveList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status := qstr(r, "status")
 		empID := qstr(r, "employee_id")
-		dateFrom := qstr(r, "date_from")
-		dateTo := qstr(r, "date_to")
+		dateFrom := qstr(r, "from")
+		dateTo := qstr(r, "to")
 		limit := qint(r, "limit", 50, 1, 200)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -617,6 +629,8 @@ func hrAppraisalList(db *core.DB) http.HandlerFunc {
 		cycleID := qstr(r, "cycle_id")
 		empID := qstr(r, "employee_id")
 		status := qstr(r, "status")
+		from := qstr(r, "from")
+		to := qstr(r, "to")
 
 		query := `SELECT a.*, rc.name AS cycle_name,
 		                 e.first_name, e.last_name, e.staff_id
@@ -642,6 +656,17 @@ func hrAppraisalList(db *core.DB) http.HandlerFunc {
 			args = append(args, status)
 			n++
 		}
+		if from != "" {
+			query += fmt.Sprintf(" AND a.created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			query += fmt.Sprintf(" AND a.created_at::date <= $%d::date", n)
+			args = append(args, to)
+			n++
+		}
+		_ = n
 		query += " ORDER BY a.created_at DESC LIMIT 200"
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
@@ -736,6 +761,8 @@ func hrDisciplinaryList(db *core.DB) http.HandlerFunc {
 		status := qstr(r, "status")
 		empID := qstr(r, "employee_id")
 		caseType := qstr(r, "case_type")
+		from := qstr(r, "from")
+		to := qstr(r, "to")
 
 		query := `SELECT dc.id, dc.employee_id, dc.initiated_by,
 		                 dc.offense_type AS case_type,
@@ -767,8 +794,18 @@ func hrDisciplinaryList(db *core.DB) http.HandlerFunc {
 			args = append(args, caseType)
 			n++
 		}
+		if from != "" {
+			query += fmt.Sprintf(" AND dc.created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			query += fmt.Sprintf(" AND dc.created_at::date <= $%d::date", n)
+			args = append(args, to)
+			n++
+		}
+		_ = n
 		query += " ORDER BY dc.created_at DESC LIMIT 200"
-		_ = n // n maintained for future filters
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
@@ -895,13 +932,28 @@ func hrDisciplinaryStatus(db *core.DB) http.HandlerFunc {
 func hrTrainingList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status := qstr(r, "status")
+		from := qstr(r, "from")
+		to := qstr(r, "to")
 
 		query := `SELECT * FROM training_sessions WHERE 1=1`
 		args := []any{}
+		n := 1
 		if status != "" {
-			query += " AND status = $1"
+			query += fmt.Sprintf(" AND status = $%d", n)
 			args = append(args, status)
+			n++
 		}
+		if from != "" {
+			query += fmt.Sprintf(" AND start_date::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			query += fmt.Sprintf(" AND start_date::date <= $%d::date", n)
+			args = append(args, to)
+			n++
+		}
+		_ = n
 		query += " ORDER BY start_date DESC LIMIT 200"
 
 		rows, err := db.PGQuery(r.Context(), query, args...)

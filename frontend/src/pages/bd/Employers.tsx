@@ -1,8 +1,8 @@
-import { useEffect, useState, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, Modal, Spinner, SearchInput } from '../../components/UI'
+import { useEffect, useState, useMemo, useCallback } from 'react'
+import { Page, SectionCard, DataTable, ErrBanner, Modal, Spinner, SearchInput, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDate, fmtNum } from '../../lib/fmt'
+import { fmtDate, fmtNum, monthStart, today } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -194,20 +194,22 @@ export default function Employers() {
   const [selected,   setSelected]   = useState<Set<string | number>>(new Set())
   const [showAdd,    setShowAdd]    = useState(false)
   const [detailRow,  setDetailRow]  = useState<Employer | null>(null)
+  const [dateFrom,   setDateFrom]   = useState(monthStart())
+  const [dateTo,     setDateTo]     = useState(today())
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const data = await apiFetch<Employer[]>('/api/bd/employers')
+      const data = await apiFetch<Employer[]>(`/api/bd/employers?from=${dateFrom}&to=${dateTo}`)
       setEmployers(data ?? [])
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load employers')
     } finally {
       setLoading(false)
     }
-  }
+  }, [dateFrom, dateTo])
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [load])
 
   const uniqueSectors = useMemo(() => [...new Set(employers.map(e => e.sector).filter(Boolean))].sort() as string[], [employers])
   const uniqueStates  = useMemo(() => [...new Set(employers.map(e => e.state).filter(Boolean))].sort() as string[], [employers])
@@ -344,13 +346,16 @@ export default function Employers() {
       title="Employer Register"
       subtitle={`${fmtNum(filtered.length)} employers`}
       actions={
-        <button
-          onClick={() => setShowAdd(true)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>
-          Add Employer
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button
+            onClick={() => setShowAdd(true)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>
+            Add Employer
+          </button>
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />

@@ -3,10 +3,10 @@ import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell,
   PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtPct, fmtNum } from '../../lib/fmt'
+import { fmtKobo, fmtPct, fmtNum, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, DARKRED, AMBER, GREEN, BLUE, INTER, SORA, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -144,17 +144,20 @@ export default function PortfolioHealth() {
   const [employers, setEmployers] = useState<EmployerRow[]>([])
   const [loading,   setLoading]   = useState(true)
   const [error,     setError]     = useState<string | null>(null)
+  const [dateFrom,  setDateFrom]  = useState(monthStart())
+  const [dateTo,    setDateTo]    = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
+    const qs = `from=${dateFrom}&to=${dateTo}`
     try {
       const [kpisRes, trendRes, bandRes, sectorRes, empRes] = await Promise.all([
-        apiFetch<{ data: PortfolioKPIs }>('/api/risk/portfolio-kpis').catch(() => ({ data: null as unknown as PortfolioKPIs })),
-        apiFetch<{ data: PARTrendPoint[] }>('/api/risk/par-trend').catch(() => ({ data: [] as PARTrendPoint[] })),
-        apiFetch<{ data: BandDist[] }>('/api/risk/band-distribution').catch(() => ({ data: [] as BandDist[] })),
-        apiFetch<{ data: SectorConc[] }>('/api/risk/sector-concentration').catch(() => ({ data: [] as SectorConc[] })),
-        apiFetch<{ data: EmployerRow[] }>('/api/risk/top-employers').catch(() => ({ data: [] as EmployerRow[] })),
+        apiFetch<{ data: PortfolioKPIs }>(`/api/risk/portfolio-kpis?${qs}`).catch(() => ({ data: null as unknown as PortfolioKPIs })),
+        apiFetch<{ data: PARTrendPoint[] }>(`/api/risk/par-trend?${qs}`).catch(() => ({ data: [] as PARTrendPoint[] })),
+        apiFetch<{ data: BandDist[] }>(`/api/risk/band-distribution?${qs}`).catch(() => ({ data: [] as BandDist[] })),
+        apiFetch<{ data: SectorConc[] }>(`/api/risk/sector-concentration?${qs}`).catch(() => ({ data: [] as SectorConc[] })),
+        apiFetch<{ data: EmployerRow[] }>(`/api/risk/top-employers?${qs}`).catch(() => ({ data: [] as EmployerRow[] })),
       ])
       setKpis(kpisRes.data)
       setParTrend(trendRes.data ?? [])
@@ -166,7 +169,7 @@ export default function PortfolioHealth() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -193,6 +196,9 @@ export default function PortfolioHealth() {
     <Page
       title="Portfolio Health"
       subtitle="NPL, PAR rates, credit score distribution, and employer concentration"
+      actions={
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+      }
     >
       <ErrBanner error={error} onRetry={load} />
 

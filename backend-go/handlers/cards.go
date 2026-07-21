@@ -42,13 +42,16 @@ func RegisterCards(r chi.Router, db *core.DB) {
 func cardsKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cardType := qstr(r, "card_type")
+		from     := qstr(r, "from")
+		to       := qstr(r, "to")
 		ctx := r.Context()
 		kpis := map[string]any{}
 		var sources []string
 
-		// card_type filter — same arg position for both dbs
+		// card_type + date filter — same arg position for both dbs
 		var ctFilter Filter
 		ctFilter.Eq(" AND Product_Name=?", ` AND "Product Name"=?`, cardType)
+		ctFilter.Date("Account_Created_Date", `"Account Created Date"`, from, to)
 
 		type spec struct{ key, ms, pg string }
 		for _, s := range []spec{
@@ -183,12 +186,15 @@ func cardsCardholders(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status   := qstr(r, "status")
 		cardType := qstr(r, "card_type")
+		from     := qstr(r, "from")
+		to       := qstr(r, "to")
 		limit    := qint(r, "limit",  50, 1, 200)
 		offset   := qint(r, "offset", 0,  0, 1<<30)
 
 		var f Filter
 		f.Eq(" AND Status=?", ` AND "Account Status"=?`, status)
 		f.Eq(" AND Product_Name=?", ` AND "Product Name"=?`, cardType)
+		f.Date("Account_Created_Date", `"Account Created Date"`, from, to)
 
 		total, _, _ := db.DualScalar(r.Context(), "val",
 			fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Account WHERE 1=1%s", f.MS()),

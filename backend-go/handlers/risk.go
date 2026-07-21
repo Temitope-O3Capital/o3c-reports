@@ -215,6 +215,22 @@ func riskApplicationsExport(db *core.DB) http.HandlerFunc {
 
 func riskPortfolioKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
+		var dateWhere string
+		var args []any
+		n := 1
+		if from != "" {
+			dateWhere += fmt.Sprintf(" AND submitted_at::date >= $%d", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			dateWhere += fmt.Sprintf(" AND submitted_at::date <= $%d", n)
+			args = append(args, to)
+			n++
+		}
+		_ = n
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 				-- C10: compute DPD on-the-fly from maturity_date rather than relying on the
@@ -245,7 +261,8 @@ func riskPortfolioKPIs(db *core.DB) http.HandlerFunc {
 					ORDER BY 1 DESC
 					LIMIT 1
 				), 0) AS top_employer_exposure_kobo
-			FROM loan_applications la`)
+			FROM loan_applications la
+			WHERE 1=1`+dateWhere, args...)
 		if err != nil {
 			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
 				respond(w, map[string]any{
@@ -426,13 +443,28 @@ func riskVintage(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		product := qstr(r, "product")
+		from    := qstr(r, "from")
+		to      := qstr(r, "to")
 
-		productClause := ""
+		var extraClauses strings.Builder
 		var args []any
+		n := 1
 		if product != "" {
-			productClause = " AND COALESCE(product_type, loan_type) = $1"
+			extraClauses.WriteString(fmt.Sprintf(" AND COALESCE(product_type, loan_type) = $%d", n))
 			args = append(args, product)
+			n++
 		}
+		if from != "" {
+			extraClauses.WriteString(fmt.Sprintf(" AND COALESCE(disbursed_at, created_at)::date >= $%d", n))
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			extraClauses.WriteString(fmt.Sprintf(" AND COALESCE(disbursed_at, created_at)::date <= $%d", n))
+			args = append(args, to)
+			n++
+		}
+		_ = n
 
 		// H3: group by disbursement month (not application creation month) so cohort
 		// timing reflects when the loan was actually booked, not applied for.
@@ -454,7 +486,7 @@ func riskVintage(db *core.DB) http.HandlerFunc {
 				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
 				          / NULLIF(COUNT(*), 0), 1) END AS par30_12m
 			FROM loan_applications
-			WHERE 1=1`+productClause+`
+			WHERE 1=1`+extraClauses.String()+`
 			GROUP BY DATE_TRUNC('month', COALESCE(disbursed_at, created_at))
 			ORDER BY _sort DESC
 			LIMIT 24`, args...)
@@ -480,13 +512,28 @@ func riskVintageKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		product := qstr(r, "product")
+		from    := qstr(r, "from")
+		to      := qstr(r, "to")
 
-		productClause := ""
+		var extraClauses strings.Builder
 		var args []any
+		n := 1
 		if product != "" {
-			productClause = " AND COALESCE(product_type, loan_type) = $1"
+			extraClauses.WriteString(fmt.Sprintf(" AND COALESCE(product_type, loan_type) = $%d", n))
 			args = append(args, product)
+			n++
 		}
+		if from != "" {
+			extraClauses.WriteString(fmt.Sprintf(" AND COALESCE(disbursed_at, created_at)::date >= $%d", n))
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			extraClauses.WriteString(fmt.Sprintf(" AND COALESCE(disbursed_at, created_at)::date <= $%d", n))
+			args = append(args, to)
+			n++
+		}
+		_ = n
 
 		rows, err := db.PGQuery(ctx, `
 			WITH cohorts AS (
@@ -495,7 +542,7 @@ func riskVintageKPIs(db *core.DB) http.HandlerFunc {
 					ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
 					      / NULLIF(COUNT(*), 0), 1) AS par30_rate
 				FROM loan_applications
-				WHERE 1=1`+productClause+`
+				WHERE 1=1`+extraClauses.String()+`
 				GROUP BY DATE_TRUNC('month', COALESCE(disbursed_at, created_at))
 			)
 			SELECT

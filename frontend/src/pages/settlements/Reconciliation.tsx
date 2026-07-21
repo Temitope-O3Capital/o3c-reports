@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, ErrBanner, StatusBadge } from '../../components/UI'
+import { Page, ErrBanner, StatusBadge, DateFilter } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKoboExact, fmtKobo, fmtNum, fmtDate, today, monthStart } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -846,14 +846,7 @@ export default function ProcessorReconciliation() {
       title="Processor Reconciliation"
       subtitle="Paystack and Interswitch settlement data vs internal EOD ledger"
       actions={
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.medium }}>From</span>
-          <input type="date" value={from} onChange={e => handleFrom(e.target.value)}
-            style={{ height: 32, padding: '0 10px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: TEXT.base }} />
-          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.medium }}>To</span>
-          <input type="date" value={to} onChange={e => handleTo(e.target.value)}
-            style={{ height: 32, padding: '0 10px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: TEXT.base }} />
-        </div>
+        <DateFilter from={from} to={to} onChange={(f, t) => { handleFrom(f); handleTo(t) }} align="right" />
       }
     >
       {/* Tab strip */}

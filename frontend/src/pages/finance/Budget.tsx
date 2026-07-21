@@ -227,6 +227,7 @@ export default function FinanceBudget() {
               rows={filtered}
               keyFn={r => r.id}
               emptyText="No budget lines for this period"
+              searchKeys={['cost_centre', 'category', 'period']}
               pageSize={20}
             />
           </SectionCard>

@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  Modal, ConfirmModal, ErrBanner, Spinner, btnPrimary,
+  Modal, ConfirmModal, ErrBanner, Spinner, btnPrimary, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtDate } from '../../lib/fmt'
+import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -63,6 +63,8 @@ export default function RegulatoryCalendar() {
   const [err, setErr] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
   const [horizonFilter, setHorizonFilter] = useState('')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo, setDateTo] = useState(today())
 
   const [addOpen, setAddOpen] = useState(false)
   const [form, setForm] = useState(BLANK)
@@ -73,7 +75,10 @@ export default function RegulatoryCalendar() {
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const data = await apiFetch<CBNReport[]>('/api/compliance/cbn-reports')
+      const p = new URLSearchParams()
+      if (dateFrom) p.set('from', dateFrom)
+      if (dateTo)   p.set('to', dateTo)
+      const data = await apiFetch<CBNReport[]>(`/api/compliance/cbn-reports?${p}`)
       let rows = Array.isArray(data) ? data : []
       // Client-side horizon filter
       if (horizonFilter) {
@@ -93,7 +98,7 @@ export default function RegulatoryCalendar() {
       setItems(rows)
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [statusFilter, horizonFilter])
+  }, [statusFilter, horizonFilter, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -178,10 +183,13 @@ export default function RegulatoryCalendar() {
       title="Regulatory Calendar"
       subtitle="CBN, NDIC, and regulatory submission deadlines"
       actions={
-        <button onClick={() => { setForm(BLANK); setAddOpen(true) }} style={btnPrimary}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
-          New Entry
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => { setForm(BLANK); setAddOpen(true) }} style={btnPrimary}>
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+            New Entry
+          </button>
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />

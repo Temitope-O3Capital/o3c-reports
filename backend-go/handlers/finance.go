@@ -56,7 +56,9 @@ func RegisterFinance(r chi.Router, db *core.DB) {
 
 func finGLList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		class := qstr(r, "class")
+		class            := qstr(r, "class")
+		dateFrom, _      := validDate(r, "date_from")
+		dateTo, _        := validDate(r, "date_to")
 		where := "1=1"
 		var args []any
 		n := 1
@@ -67,6 +69,12 @@ func finGLList(db *core.DB) http.HandlerFunc {
 		}
 		if qstr(r, "active") == "true" {
 			where += " AND is_active=TRUE"
+		}
+		if dateFrom != "" {
+			where += fmt.Sprintf(" AND created_at::date >= $%d::date", n); args = append(args, dateFrom); n++
+		}
+		if dateTo != "" {
+			where += fmt.Sprintf(" AND created_at::date <= $%d::date", n); args = append(args, dateTo); n++
 		}
 		_ = n
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(
@@ -152,7 +160,9 @@ func finGLUpdate(db *core.DB) http.HandlerFunc {
 
 func finPostingsList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		status := qstr(r, "status")
+		status       := qstr(r, "status")
+		dateFrom, _  := validDate(r, "date_from")
+		dateTo, _    := validDate(r, "date_to")
 		where := "1=1"
 		var args []any
 		n := 1
@@ -160,6 +170,12 @@ func finPostingsList(db *core.DB) http.HandlerFunc {
 			where += fmt.Sprintf(" AND status=$%d", n)
 			args = append(args, status)
 			n++
+		}
+		if dateFrom != "" {
+			where += fmt.Sprintf(" AND initiated_at::date >= $%d::date", n); args = append(args, dateFrom); n++
+		}
+		if dateTo != "" {
+			where += fmt.Sprintf(" AND initiated_at::date <= $%d::date", n); args = append(args, dateTo); n++
 		}
 		limit := qint(r, "limit", 100, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
@@ -983,8 +999,21 @@ func finIncomeSummary(db *core.DB) http.HandlerFunc {
 
 func finIncomeLoans(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		limit  := qint(r, "limit",  100, 1, 500)
-		offset := qint(r, "offset", 0,   0, 1<<30)
+		limit        := qint(r, "limit",  100, 1, 500)
+		offset       := qint(r, "offset", 0,   0, 1<<30)
+		dateFrom, _  := validDate(r, "date_from")
+		dateTo, _    := validDate(r, "date_to")
+
+		where := "disbursed_at IS NOT NULL"
+		var args []any
+		n := 1
+		if dateFrom != "" {
+			where += fmt.Sprintf(" AND disbursed_at::date >= $%d::date", n); args = append(args, dateFrom); n++
+		}
+		if dateTo != "" {
+			where += fmt.Sprintf(" AND disbursed_at::date <= $%d::date", n); args = append(args, dateTo); n++
+		}
+		args = append(args, limit, offset)
 
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
@@ -1019,9 +1048,9 @@ func finIncomeLoans(db *core.DB) http.HandlerFunc {
 			    ELSE 'Active'
 			  END                                                              AS maturity_status
 			FROM loan_applications
-			WHERE disbursed_at IS NOT NULL
+			WHERE %s
 			ORDER BY disbursed_at DESC
-			LIMIT $1 OFFSET $2`, ), limit, offset)
+			LIMIT $%d OFFSET $%d`, where, n, n+1), args...)
 		if err != nil {
 			respondErr(w, 500, "loan income query failed: "+err.Error())
 			return

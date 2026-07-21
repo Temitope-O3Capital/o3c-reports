@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle,
-  Modal, ConfirmModal, ErrBanner, Spinner, StatusBadge, btnPrimary,
+  Modal, ConfirmModal, ErrBanner, Spinner, StatusBadge, btnPrimary, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKobo, fmtDate } from '../../lib/fmt'
+import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 import type { AuthUser } from '../../hooks/useAuth'
@@ -66,6 +66,9 @@ export default function PayrollOverview() {
   const userRole = storedUser ? (JSON.parse(storedUser) as AuthUser).role : ''
   const canCreate = ['payroll_officer', 'payroll_manager', 'hr_manager', 'admin', 'cfo'].includes(userRole)
 
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
+
   const [data, setData] = useState<SummaryData | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
@@ -78,11 +81,11 @@ export default function PayrollOverview() {
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const d = await apiFetch<SummaryData>('/api/payroll/summary')
+      const d = await apiFetch<SummaryData>(`/api/payroll/summary?from=${dateFrom}&to=${dateTo}`)
       setData(d)
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -174,12 +177,15 @@ export default function PayrollOverview() {
       title="Payroll"
       subtitle="Monthly payroll runs and processing"
       actions={
-        canCreate ? (
-          <button onClick={() => setNewOpen(true)} style={btnPrimary}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
-            New Payroll Run
-          </button>
-        ) : undefined
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          {canCreate && (
+            <button onClick={() => setNewOpen(true)} style={btnPrimary}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
+              New Payroll Run
+            </button>
+          )}
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />
@@ -200,6 +206,8 @@ export default function PayrollOverview() {
           onRowClick={r => navigate(`/payroll/runs/${r.id}`)}
           emptyText="No payroll runs yet. Create the first run to get started."
           skeletonRows={loading ? 6 : 0}
+          searchKeys={['status', 'created_by_name']}
+          searchPlaceholder="Search payroll runs…"
         />
       </SectionCard>
 

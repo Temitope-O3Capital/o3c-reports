@@ -27,6 +27,8 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 // collectionsPortfolioKPIs returns PAR-based KPIs from collection_assignments.
 func collectionsPortfolioKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 				COALESCE(SUM(CASE WHEN dpd_bucket = '1-30'
@@ -44,7 +46,9 @@ func collectionsPortfolioKPIs(db *core.DB) http.HandlerFunc {
 				       / COUNT(*)::numeric * 100, 1
 				     )
 				END                                                              AS current_rate_pct
-			FROM collection_assignments`)
+			FROM collection_assignments
+			WHERE ($1 = '' OR created_at::date >= $1::date)
+			  AND ($2 = '' OR created_at::date <= $2::date)`, from, to)
 		if err != nil || len(rows) == 0 {
 			respond(w, map[string]any{
 				"par30_kobo": int64(0), "par60_kobo": int64(0), "par90_kobo": int64(0),
@@ -60,6 +64,8 @@ func collectionsPortfolioKPIs(db *core.DB) http.HandlerFunc {
 // collectionsDPDTrend returns 6-month PAR trend from collection_assignments.
 func collectionsDPDTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
 		rows, err := db.PGQuery(r.Context(), `
 			WITH months AS (
 				SELECT generate_series(
@@ -80,8 +86,10 @@ func collectionsDPDTrend(db *core.DB) http.HandlerFunc {
 			FROM months m
 			LEFT JOIN collection_assignments ca
 				ON DATE_TRUNC('month', ca.updated_at) = m.m
+				AND ($1 = '' OR ca.updated_at::date >= $1::date)
+				AND ($2 = '' OR ca.updated_at::date <= $2::date)
 			GROUP BY m.m
-			ORDER BY m.m`)
+			ORDER BY m.m`, from, to)
 		if err != nil {
 			respond(w, []any{}, "pg")
 			return
@@ -97,6 +105,9 @@ func collectionsRollRate(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
+
 		// Current DPD distribution
 		current, err := db.PGQuery(ctx, `
 			SELECT
@@ -104,6 +115,8 @@ func collectionsRollRate(db *core.DB) http.HandlerFunc {
 				COUNT(*)                             AS account_count,
 				COALESCE(SUM(outstanding_kobo), 0)  AS outstanding_kobo
 			FROM collection_assignments
+			WHERE ($1 = '' OR created_at::date >= $1::date)
+			  AND ($2 = '' OR created_at::date <= $2::date)
 			GROUP BY dpd_bucket
 			ORDER BY
 				CASE dpd_bucket
@@ -114,7 +127,7 @@ func collectionsRollRate(db *core.DB) http.HandlerFunc {
 					WHEN '91-180'  THEN 4
 					WHEN '181-360' THEN 5
 					ELSE 6
-				END`)
+				END`, from, to)
 		if err != nil {
 			respondErr(w, 500, "Roll rate query failed")
 			return
@@ -357,13 +370,17 @@ func collectionsExport(db *core.DB) http.HandlerFunc {
 
 func collectionsPromiseKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 				COUNT(*)                                                      AS total,
 				COUNT(*) FILTER (WHERE is_kept = TRUE)                        AS kept,
 				COUNT(*) FILTER (WHERE is_kept = FALSE)                       AS broken,
 				COALESCE(SUM(promised_amount_kobo), 0)                        AS amount_promised_kobo
-			FROM collection_promises`)
+			FROM collection_promises
+			WHERE ($1 = '' OR created_at::date >= $1::date)
+			  AND ($2 = '' OR created_at::date <= $2::date)`, from, to)
 		if err != nil || len(rows) == 0 {
 			respond(w, map[string]any{
 				"total": int64(0), "kept": int64(0), "broken": int64(0),
@@ -377,6 +394,8 @@ func collectionsPromiseKPIs(db *core.DB) http.HandlerFunc {
 
 func collectionsRepaymentKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 				COUNT(*) FILTER (WHERE status = 'Active')                         AS active,
@@ -395,7 +414,9 @@ func collectionsRepaymentKPIs(db *core.DB) http.HandlerFunc {
 					        AND ri.status != 'Paid')
 					ELSE 0 END
 				), 0)                                                              AS monthly_due_kobo
-			FROM repayment_plans rp`)
+			FROM repayment_plans rp
+			WHERE ($1 = '' OR rp.created_at::date >= $1::date)
+			  AND ($2 = '' OR rp.created_at::date <= $2::date)`, from, to)
 		if err != nil || len(rows) == 0 {
 			respond(w, map[string]any{
 				"active": int64(0), "on_track": int64(0),
@@ -409,6 +430,8 @@ func collectionsRepaymentKPIs(db *core.DB) http.HandlerFunc {
 
 func collectionsWriteoffKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 				COUNT(*)                                                          AS total,
@@ -420,7 +443,9 @@ func collectionsWriteoffKPIs(db *core.DB) http.HandlerFunc {
 				END                                                               AS recovery_rate_pct,
 				COUNT(*) FILTER (WHERE wo.status = 'pending')                    AS pending
 			FROM recovery_write_off_approvals wo
-			JOIN recovery_cases rc ON wo.case_id = rc.id`)
+			JOIN recovery_cases rc ON wo.case_id = rc.id
+			WHERE ($1 = '' OR wo.created_at::date >= $1::date)
+			  AND ($2 = '' OR wo.created_at::date <= $2::date)`, from, to)
 		if err != nil || len(rows) == 0 {
 			respond(w, map[string]any{
 				"total": int64(0), "amount_kobo": int64(0),

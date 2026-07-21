@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, StatusBadge, filterInputStyle, SearchInput, ErrBanner, Spinner } from '../../components/UI'
+import { Page, SectionCard, DataTable, StatusBadge, filterInputStyle, SearchInput, ErrBanner, Spinner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKobo, fmtDatetime } from '../../lib/fmt'
+import { fmtKobo, fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -173,6 +173,8 @@ export default function FinanceManualPosting() {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
   const [filterOpen, setFilterOpen] = useState(false)
   const [showPropose, setShowPropose] = useState(false)
   const [sel, setSel] = useState<Set<string | number>>(new Set())
@@ -183,6 +185,8 @@ export default function FinanceManualPosting() {
       const params = new URLSearchParams()
       if (statusFilter) params.set('status', statusFilter)
       params.set('limit', '200')
+      params.set('date_from', dateFrom)
+      params.set('date_to', dateTo)
       const res = await apiFetch<{ data: Posting[]; total: number }>(`/api/finance/manual-postings?${params}`)
       setRows(res?.data ?? [])
     } catch (e: any) {
@@ -190,7 +194,7 @@ export default function FinanceManualPosting() {
     } finally {
       setLoading(false)
     }
-  }, [statusFilter])
+  }, [statusFilter, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -247,7 +251,8 @@ export default function FinanceManualPosting() {
       title="Manual Postings"
       subtitle="Approval queue for GL manual entries"
       actions={
-        <div style={{ display: 'flex', gap: SP[2] }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           <button onClick={() => exportPostingsCsv(filtered)} style={{
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '6px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',

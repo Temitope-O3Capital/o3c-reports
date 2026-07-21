@@ -2,8 +2,7 @@
   <!-- Red left sphere -->
   <circle cx="78"  cy="60" r="52" fill="#C00000"/>
   <!-- Dark right sphere -->
-  <circle cx="142" cy="60" r="52" fill="#282828"/>
-  <!-- White rim + steel grey centre sphere -->
-  <circle cx="110" cy="60" r="56" fill="#FFFFFF"/>
+  <circle cx="142" cy="60" r="52" fill="#3C3C3C"/>
+  <!-- Steel grey centre sphere — no white rim, works on any background -->
   <circle cx="110" cy="60" r="52" fill="#8DAAB7"/>
 </svg>

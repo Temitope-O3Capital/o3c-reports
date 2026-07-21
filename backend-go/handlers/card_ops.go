@@ -148,21 +148,31 @@ func cardListIssuance(db *core.DB) http.HandlerFunc {
 			return
 		}
 		status := qstr(r, "status")
-		limit := qint(r, "limit", 100, 1, 500)
+		from   := qstr(r, "from")
+		to     := qstr(r, "to")
+		limit  := qint(r, "limit", 100, 1, 500)
 
-		q := `SELECT id, 'ISS-' || LPAD(id::TEXT, 5, '0') AS ref,
+		where := "1=1"
+		args  := []any{}
+		n     := 1
+
+		if status != "" {
+			where += fmt.Sprintf(" AND status=$%d", n); args = append(args, status); n++
+		}
+		if from != "" {
+			where += fmt.Sprintf(" AND created_at::date >= $%d::date", n); args = append(args, from); n++
+		}
+		if to != "" {
+			where += fmt.Sprintf(" AND created_at::date <= $%d::date", n); args = append(args, to); n++
+		}
+		args = append(args, limit)
+
+		q := fmt.Sprintf(`SELECT id, 'ISS-' || LPAD(id::TEXT, 5, '0') AS ref,
 		       cif_number, customer_name, card_type, status,
 		       TO_CHAR(created_at, 'YYYY-MM-DD') AS submitted_date,
 		       EXTRACT(EPOCH FROM (NOW() - created_at))::INT / 86400 AS days_pending
-		      FROM card_issuance_requests`
-		args := []any{}
-		if status != "" {
-			q += ` WHERE status = $1 ORDER BY created_at DESC LIMIT $2`
-			args = append(args, status, limit)
-		} else {
-			q += ` ORDER BY created_at DESC LIMIT $1`
-			args = append(args, limit)
-		}
+		      FROM card_issuance_requests
+		      WHERE %s ORDER BY created_at DESC LIMIT $%d`, where, n)
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
@@ -258,22 +268,32 @@ func cardListDisputes(db *core.DB) http.HandlerFunc {
 			return
 		}
 		status := qstr(r, "status")
-		limit := qint(r, "limit", 100, 1, 500)
+		from   := qstr(r, "from")
+		to     := qstr(r, "to")
+		limit  := qint(r, "limit", 100, 1, 500)
 
-		q := `SELECT id, 'DSP-' || LPAD(id::TEXT, 4, '0') AS ref,
+		where := "1=1"
+		args  := []any{}
+		n     := 1
+
+		if status != "" {
+			where += fmt.Sprintf(" AND status=$%d", n); args = append(args, status); n++
+		}
+		if from != "" {
+			where += fmt.Sprintf(" AND filed_at::date >= $%d::date", n); args = append(args, from); n++
+		}
+		if to != "" {
+			where += fmt.Sprintf(" AND filed_at::date <= $%d::date", n); args = append(args, to); n++
+		}
+		args = append(args, limit)
+
+		q := fmt.Sprintf(`SELECT id, 'DSP-' || LPAD(id::TEXT, 4, '0') AS ref,
 		       cif_number, customer_name, card_type, amount_kobo,
 		       dispute_type, status,
 		       TO_CHAR(filed_at, 'YYYY-MM-DD') AS filed_date,
 		       EXTRACT(EPOCH FROM (NOW() - filed_at))::INT / 86400 AS days_open
-		      FROM card_disputes`
-		args := []any{}
-		if status != "" {
-			q += ` WHERE status = $1 ORDER BY filed_at DESC LIMIT $2`
-			args = append(args, status, limit)
-		} else {
-			q += ` ORDER BY filed_at DESC LIMIT $1`
-			args = append(args, limit)
-		}
+		      FROM card_disputes
+		      WHERE %s ORDER BY filed_at DESC LIMIT $%d`, where, n)
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
@@ -433,22 +453,32 @@ func cardListCreditLimits(db *core.DB) http.HandlerFunc {
 			return
 		}
 		status := qstr(r, "status")
-		limit := qint(r, "limit", 100, 1, 500)
+		from   := qstr(r, "from")
+		to     := qstr(r, "to")
+		limit  := qint(r, "limit", 100, 1, 500)
 
-		q := `SELECT id, 'CLR-' || LPAD(id::TEXT, 4, '0') AS ref,
+		where := "1=1"
+		args  := []any{}
+		n     := 1
+
+		if status != "" {
+			where += fmt.Sprintf(" AND status=$%d", n); args = append(args, status); n++
+		}
+		if from != "" {
+			where += fmt.Sprintf(" AND created_at::date >= $%d::date", n); args = append(args, from); n++
+		}
+		if to != "" {
+			where += fmt.Sprintf(" AND created_at::date <= $%d::date", n); args = append(args, to); n++
+		}
+		args = append(args, limit)
+
+		q := fmt.Sprintf(`SELECT id, 'CLR-' || LPAD(id::TEXT, 4, '0') AS ref,
 		       cif_number, customer_name, card_type,
 		       current_limit_kobo, proposed_limit_kobo,
 		       utilization_pct, eye_score, status, recommended_by,
 		       TO_CHAR(created_at, 'YYYY-MM-DD') AS submitted_date
-		      FROM card_credit_limit_reviews`
-		args := []any{}
-		if status != "" {
-			q += ` WHERE status = $1 ORDER BY created_at DESC LIMIT $2`
-			args = append(args, status, limit)
-		} else {
-			q += ` ORDER BY created_at DESC LIMIT $1`
-			args = append(args, limit)
-		}
+		      FROM card_credit_limit_reviews
+		      WHERE %s ORDER BY created_at DESC LIMIT $%d`, where, n)
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
@@ -569,14 +599,31 @@ func cardListBilling(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "schema init failed")
 			return
 		}
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT id, product,
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
+
+		where := "1=1"
+		args  := []any{}
+		n     := 1
+
+		if from != "" {
+			where += fmt.Sprintf(" AND cycle_start >= $%d::date", n); args = append(args, from); n++
+		}
+		if to != "" {
+			where += fmt.Sprintf(" AND cycle_start <= $%d::date", n); args = append(args, to); n++
+		}
+		args = append(args, 60)
+
+		q := fmt.Sprintf(`SELECT id, product,
 			       TO_CHAR(cycle_start, 'YYYY-MM-DD') AS cycle_start,
 			       TO_CHAR(cycle_end,   'YYYY-MM-DD') AS cycle_end,
 			       accounts_count, total_balance_kobo, statements_generated, status
 			FROM card_billing_cycles
+			WHERE %s
 			ORDER BY cycle_start DESC, product ASC
-			LIMIT 60`)
+			LIMIT $%d`, where, n)
+
+		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
 			respondErr(w, 500, "query failed")
 			return

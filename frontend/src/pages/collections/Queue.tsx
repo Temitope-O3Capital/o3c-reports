@@ -1,11 +1,11 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, FilterBar, Tabs, ConfirmModal, ErrBanner, Spinner, Modal,
-  filterInputStyle,
+  filterInputStyle, DateFilter, SearchInput,
 } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtKobo, fmtDate } from '../../lib/fmt'
+import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { GREEN, AMBER, RED, DARKRED, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -647,6 +647,9 @@ export default function CollectionsQueue() {
   const [dpdFilter,     setDpdFilter]     = useState('All')
   const [contactFilter, setContactFilter] = useState('Any')
   const [agentFilter,   setAgentFilter]   = useState('')
+  const [dateFrom,      setDateFrom]      = useState(monthStart())
+  const [dateTo,        setDateTo]        = useState(today())
+  const [search,        setSearch]        = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -654,6 +657,8 @@ export default function CollectionsQueue() {
     const params = new URLSearchParams({ limit: '100' })
     if (dpdFilter !== 'All') params.set('dpd_bucket', dpdFilter)
     if (agentFilter.trim()) params.set('q', agentFilter.trim())
+    if (dateFrom) params.set('from', dateFrom)
+    if (dateTo)   params.set('to', dateTo)
 
     try {
       const [queueRes, usersRes] = await Promise.all([
@@ -689,7 +694,17 @@ export default function CollectionsQueue() {
     } finally {
       setLoading(false)
     }
-  }, [dpdFilter, contactFilter, agentFilter])
+  }, [dpdFilter, contactFilter, agentFilter, dateFrom, dateTo])
+
+  const displayed = useMemo(() => {
+    if (!search.trim()) return items
+    const q = search.toLowerCase()
+    return items.filter(item =>
+      ['account_cif', 'dpd_bucket', 'agent_name'].some(k =>
+        String((item as any)[k] ?? '').toLowerCase().includes(q)
+      )
+    )
+  }, [items, search])
 
   useEffect(() => { load() }, [load])
 
@@ -705,7 +720,14 @@ export default function CollectionsQueue() {
   function clearChecked() { setCheckedIds(new Set()) }
 
   return (
-    <Page title="Collections Queue" subtitle="Manage and work assigned collection accounts" noPad>
+    <Page
+      title="Collections Queue"
+      subtitle="Manage and work assigned collection accounts"
+      noPad
+      actions={
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+      }
+    >
       <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
 
         {/* ── Left panel ─────────────────────────────────────────────────────── */}
@@ -737,8 +759,14 @@ export default function CollectionsQueue() {
             <input
               value={agentFilter}
               onChange={e => setAgentFilter(e.target.value)}
-              placeholder="Search by CIF…"
+              placeholder="Filter by agent…"
               style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }}
+            />
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder="Search CIF, DPD, agent…"
+              style={{ width: '100%', boxSizing: 'border-box', marginTop: 6 }}
             />
           </div>
 
@@ -786,12 +814,12 @@ export default function CollectionsQueue() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10, color: 'var(--txt2)', fontSize: TEXT.base }}>
                 <Spinner size={16} color={NAVY} /> Loading…
               </div>
-            ) : items.length === 0 ? (
+            ) : displayed.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--txt2)', fontSize: TEXT.base }}>
                 No accounts match the current filters.
               </div>
             ) : (
-              items.map(item => {
+              displayed.map(item => {
                 const isSelected = selected?.id === item.id
                 const isChecked  = checkedIds.has(item.id)
                 return (

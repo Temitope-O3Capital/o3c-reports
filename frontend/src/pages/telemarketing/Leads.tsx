@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Page, ErrBanner, Spinner, TblSearch, filterInputStyle, ConfirmModal,
+  Page, ErrBanner, Spinner, TblSearch, filterInputStyle, ConfirmModal, DateFilter,
 } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDatetime } from '../../lib/fmt'
+import { fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { GREEN, AMBER, RED, BLUE, PURPLE, NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -209,6 +209,8 @@ export default function TelemarketingLeads() {
   const [campaignId, setCampaignId] = useState('')
   const [status, setStatus]         = useState('')
   const [search, setSearch]         = useState('')
+  const [dateFrom, setDateFrom]     = useState(monthStart())
+  const [dateTo,   setDateTo]       = useState(today())
 
   // Selection
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
@@ -225,6 +227,8 @@ export default function TelemarketingLeads() {
     if (campaignId) p.set('campaign_id', campaignId)
     if (status)     p.set('status', status)
     if (search)     p.set('search', search)
+    if (dateFrom)   p.set('from', dateFrom)
+    if (dateTo)     p.set('to', dateTo)
     try {
       const res = await apiFetch<Lead[]>(`/api/telemarketing/leads?${p}`)
       const fresh = Array.isArray(res) ? res : []
@@ -235,7 +239,7 @@ export default function TelemarketingLeads() {
       }
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [campaignId, status, search])
+  }, [campaignId, status, search, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -314,7 +318,9 @@ export default function TelemarketingLeads() {
   const selectedCampaignName = campaigns.find(c => String(c.id) === campaignId)?.name ?? 'All Campaigns'
 
   return (
-    <Page title="Marketing Leads" subtitle="Contacts pushed from email & SMS campaigns" noPad>
+    <Page title="Marketing Leads" subtitle="Contacts pushed from email & SMS campaigns" noPad
+      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
+    >
       <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
 
         {/* ── Left panel ──────────────────────────────────────────────────── */}

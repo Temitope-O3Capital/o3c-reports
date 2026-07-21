@@ -93,6 +93,34 @@ func parseDate(s string) time.Time {
 	return time.Time{}
 }
 
+// extractAmountsByColumn uses the column positions of the Dr/Cr header to correctly
+// classify a transaction line's amounts. Numbers are right-aligned, so a credit
+// amount can START before the midpoint between the two headers even though it
+// clearly belongs to the Cr column. We therefore classify by the END position of
+// the amount rather than its start — a number whose right edge falls before the
+// midpoint is a debit; one whose right edge falls at or after the midpoint is a credit.
+func extractAmountsByColumn(line string, drCol, crCol int) (drKobo, crKobo int64) {
+	mid := (drCol + crCol) / 2
+	// Search from 15 chars before drCol (amounts may start before header position).
+	searchFrom := drCol - 15
+	if searchFrom < 0 {
+		searchFrom = 0
+	}
+	if searchFrom >= len(line) {
+		return
+	}
+	suffix := line[searchFrom:]
+	for _, loc := range reAmount.FindAllStringIndex(suffix, -1) {
+		absEnd := searchFrom + loc[1]
+		if absEnd <= mid {
+			drKobo = parseAmount(suffix[loc[0]:loc[1]])
+		} else {
+			crKobo = parseAmount(suffix[loc[0]:loc[1]])
+		}
+	}
+	return
+}
+
 // parseStatementText parses the fixed-format credit-card statement text file.
 func parseStatementText(text string) (ccHeader, []ccTxn, error) {
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
@@ -112,6 +140,9 @@ func parseStatementText(text string) (ccHeader, []ccTxn, error) {
 	inTxnSection := false
 	currentCardPAN := ""
 	seq := 0
+	// Column positions of Amount(Dr) and Amount(Cr) in the header row.
+	// Used to correctly classify amounts when only one is present per line.
+	drCol, crCol := -1, -1
 
 	for _, raw := range lines {
 		line := raw // preserve spacing for column detection
@@ -122,10 +153,13 @@ func parseStatementText(text string) (ccHeader, []ccTxn, error) {
 				continue
 			}
 
-			// Detect transaction table header
+			// Detect transaction table header — record Dr/Cr column positions.
 			if strings.HasPrefix(strings.ToLower(trimmed), "txn date") {
 				inHeader = false
 				inTxnSection = true
+				lineLower := strings.ToLower(line)
+				drCol = strings.Index(lineLower, "amount(dr)")
+				crCol = strings.Index(lineLower, "amount(cr)")
 				continue
 			}
 
@@ -212,8 +246,33 @@ func parseStatementText(text string) (ccHeader, []ccTxn, error) {
 			postDate := parseDate(m[2])
 			traceNo := strings.TrimSpace(m[3])
 			desc := strings.TrimSpace(m[4])
-			drStr := strings.TrimSpace(m[5])
-			crStr := strings.TrimSpace(m[6])
+
+			var drKobo, crKobo int64
+			if drCol > 0 && crCol > 0 && crCol > drCol {
+				// Use column positions to correctly classify Dr vs Cr amounts.
+				drKobo, crKobo = extractAmountsByColumn(line, drCol, crCol)
+			} else {
+				a5 := parseAmount(strings.TrimSpace(m[5]))
+				a6 := parseAmount(strings.TrimSpace(m[6]))
+				if a6 > 0 {
+					// Two amounts: left group = debit, right group = credit.
+					drKobo, crKobo = a5, a6
+				} else {
+					// Single amount — the regex can't distinguish Dr vs Cr column.
+					// Classify by description: payments/refunds/credits go to Cr;
+					// everything else (purchases, withdrawals, fees) goes to Dr.
+					descLow := strings.ToLower(desc)
+					if strings.Contains(descLow, "payment") ||
+						strings.Contains(descLow, "refund") ||
+						strings.Contains(descLow, "reversal") ||
+						strings.Contains(descLow, "chargeback") ||
+						strings.Contains(descLow, "credit") {
+						crKobo = a5
+					} else {
+						drKobo = a5
+					}
+				}
+			}
 
 			seq++
 			txns = append(txns, ccTxn{
@@ -222,8 +281,8 @@ func parseStatementText(text string) (ccHeader, []ccTxn, error) {
 				PostingDate: postDate,
 				TraceNo:     traceNo,
 				Description: desc,
-				DebitKobo:   parseAmount(drStr),
-				CreditKobo:  parseAmount(crStr),
+				DebitKobo:   drKobo,
+				CreditKobo:  crKobo,
 				Seq:         seq,
 			})
 			continue
@@ -236,26 +295,41 @@ func parseStatementText(text string) (ccHeader, []ccTxn, error) {
 			d1 := parseDate(parts[0])
 			d2 := parseDate(parts[1])
 			if !d1.IsZero() && !d2.IsZero() {
-				// last 1 or 2 tokens should be amounts
 				var drKobo, crKobo int64
-				descEnd := len(parts)
-				for i := len(parts) - 1; i >= 3; i-- {
-					if reAmount.MatchString(parts[i]) {
-						if crKobo == 0 && drKobo == 0 {
-							crKobo = parseAmount(parts[i])
+				var descEnd int
+				if drCol > 0 && crCol > 0 && crCol > drCol {
+					// Prefer column-based extraction when we know the header positions.
+					drKobo, crKobo = extractAmountsByColumn(line, drCol, crCol)
+					// Description = everything from part[3] up to the Dr column.
+					descEnd = len(parts)
+					for i := len(parts) - 1; i >= 3; i-- {
+						if reAmount.MatchString(parts[i]) {
+							descEnd = i
 						} else {
-							drKobo = crKobo
-							crKobo = parseAmount(parts[i])
+							break
 						}
-						descEnd = i
-					} else {
-						break
 					}
-				}
-				// heuristic: descriptions with "transfer out" are debits
-				if drKobo == 0 && crKobo > 0 && strings.Contains(strings.ToLower(trimmed), "transfer out") {
-					drKobo = crKobo
-					crKobo = 0
+				} else {
+					// last 1 or 2 tokens should be amounts
+					descEnd = len(parts)
+					for i := len(parts) - 1; i >= 3; i-- {
+						if reAmount.MatchString(parts[i]) {
+							if crKobo == 0 && drKobo == 0 {
+								crKobo = parseAmount(parts[i])
+							} else {
+								drKobo = crKobo
+								crKobo = parseAmount(parts[i])
+							}
+							descEnd = i
+						} else {
+							break
+						}
+					}
+					// heuristic: "transfer out" lines are debits
+					if drKobo == 0 && crKobo > 0 && strings.Contains(strings.ToLower(trimmed), "transfer out") {
+						drKobo = crKobo
+						crKobo = 0
+					}
 				}
 				desc := strings.Join(parts[3:descEnd], " ")
 				traceNo := ""
@@ -395,6 +469,16 @@ func ccList(db *core.DB) http.HandlerFunc {
 		}
 		if v := r.URL.Query().Get("date_to"); v != "" {
 			wheres = append(wheres, fmt.Sprintf("s.statement_date <= $%d", n))
+			args = append(args, v)
+			n++
+		}
+		if v := r.URL.Query().Get("from"); v != "" {
+			wheres = append(wheres, fmt.Sprintf("s.created_at::date >= $%d::date", n))
+			args = append(args, v)
+			n++
+		}
+		if v := r.URL.Query().Get("to"); v != "" {
+			wheres = append(wheres, fmt.Sprintf("s.created_at::date <= $%d::date", n))
 			args = append(args, v)
 			n++
 		}

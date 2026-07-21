@@ -3,10 +3,10 @@ import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtPct, fmtNum } from '../../lib/fmt'
+import { fmtKobo, fmtPct, fmtNum, monthStart, today } from '../../lib/fmt'
 import { RED, DARKRED, AMBER, GREEN, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -133,15 +133,19 @@ export default function CollectionsOverview() {
   const [loading, setLoading]   = useState(true)
   const [err, setErr]           = useState<string | null>(null)
 
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
+
   const load = useCallback(async () => {
     setLoading(true)
     setErr(null)
+    const qs = `?from=${dateFrom}&to=${dateTo}`
     try {
       const [kpisRes, trendRes, agentRes, rollRes] = await Promise.all([
-        apiFetch<{ data: PortfolioKPIs }>('/api/collections/portfolio-kpis'),
-        apiFetch<{ data: DPDTrendPoint[] }>('/api/collections/dpd-trend'),
-        apiFetch<{ data: AgentRow[] }>('/api/collections/by-agent'),
-        apiFetch<{ data: { current_distribution: RollBucket[] } }>('/api/collections/roll-rate'),
+        apiFetch<{ data: PortfolioKPIs }>(`/api/collections/portfolio-kpis${qs}`),
+        apiFetch<{ data: DPDTrendPoint[] }>(`/api/collections/dpd-trend${qs}`),
+        apiFetch<{ data: AgentRow[] }>(`/api/collections/by-agent${qs}`),
+        apiFetch<{ data: { current_distribution: RollBucket[] } }>(`/api/collections/roll-rate${qs}`),
       ])
       setKpis(kpisRes.data)
       setDpdTrend(trendRes.data ?? [])
@@ -152,7 +156,7 @@ export default function CollectionsOverview() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -166,6 +170,9 @@ export default function CollectionsOverview() {
     <Page
       title="Collections Overview"
       subtitle="Portfolio at risk, recovery performance, and agent activity"
+      actions={
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+      }
     >
       <ErrBanner error={err} onRetry={load} />
 

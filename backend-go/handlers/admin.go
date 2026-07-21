@@ -85,9 +85,21 @@ func validRole(db *core.DB, r *http.Request, role string) bool {
 func listUsers(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		includeRemoved := r.URL.Query().Get("include_removed") == "true"
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
+
 		where := "WHERE deleted_at IS NULL"
 		if includeRemoved {
-			where = ""
+			where = "WHERE 1=1"
+		}
+		var args []any
+		if from != "" {
+			args = append(args, from)
+			where += " AND created_at::date >= $" + itoa(len(args)) + "::date"
+		}
+		if to != "" {
+			args = append(args, to)
+			where += " AND created_at::date <= $" + itoa(len(args)) + "::date"
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT id, email, full_name,
@@ -95,7 +107,7 @@ func listUsers(db *core.DB) http.HandlerFunc {
 			       COALESCE(last_name,'')  AS last_name,
 			       role, department, created_at,
 			       must_change_password, last_login, is_active, deleted_at
-			FROM o3c_users `+where+` ORDER BY created_at DESC, id DESC`)
+			FROM o3c_users `+where+` ORDER BY created_at DESC, id DESC`, args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -484,13 +496,26 @@ func roleResponse(name, label string, pages []string, builtIn bool, extra map[st
 
 func listRoles(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
+
 		roles := make([]map[string]any, 0, len(core.RolePages))
 		for _, name := range core.BuiltinRoleNames() {
 			roles = append(roles, roleResponse(name, "", core.ParsePages(core.RolePages[name]), true, nil))
 		}
 
-		rows, err := db.PGQuery(r.Context(),
-			`SELECT id, name, label, pages, created_at FROM o3c_custom_roles ORDER BY created_at DESC`)
+		customQ := `SELECT id, name, label, pages, created_at FROM o3c_custom_roles WHERE 1=1`
+		var args []any
+		if from != "" {
+			args = append(args, from)
+			customQ += " AND created_at::date >= $" + itoa(len(args)) + "::date"
+		}
+		if to != "" {
+			args = append(args, to)
+			customQ += " AND created_at::date <= $" + itoa(len(args)) + "::date"
+		}
+		customQ += " ORDER BY created_at DESC"
+		rows, err := db.PGQuery(r.Context(), customQ, args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -687,7 +712,9 @@ func getActivity(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		limit := qint(r, "limit", 200, 1, 1000)
 		userID := r.URL.Query().Get("user_id")
-		page := r.URL.Query().Get("page")
+		page   := r.URL.Query().Get("page")
+		from   := r.URL.Query().Get("from")
+		to     := r.URL.Query().Get("to")
 
 		q := `SELECT a.id, a.page, a.action, a.detail, a.ip, a.ts,
 		             u.full_name, u.email, u.role
@@ -700,6 +727,14 @@ func getActivity(db *core.DB) http.HandlerFunc {
 		if page != "" {
 			args = append(args, page)
 			q += " AND a.page=$" + itoa(len(args))
+		}
+		if from != "" {
+			args = append(args, from)
+			q += " AND a.ts::date >= $" + itoa(len(args)) + "::date"
+		}
+		if to != "" {
+			args = append(args, to)
+			q += " AND a.ts::date <= $" + itoa(len(args)) + "::date"
 		}
 		args = append(args, limit)
 		q += " ORDER BY a.ts DESC LIMIT $" + itoa(len(args))

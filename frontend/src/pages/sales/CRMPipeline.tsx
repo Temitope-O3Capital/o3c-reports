@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
-  Page, SectionCard, DataTable, Modal, ErrBanner, btnPrimary, btnSecondary, filterInputStyle, Spinner,
+  Page, SectionCard, DataTable, Modal, ErrBanner, btnPrimary, btnSecondary, filterInputStyle, Spinner, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtDatetime } from '../../lib/fmt'
+import { fmtKobo, fmtDate, fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -241,6 +241,8 @@ export default function CRMPipeline() {
   const [view, setView]         = useState<'table' | 'kanban'>('table')
   const [selected, setSelected] = useState<Deal | null>(null)
   const [newDealOpen, setNewDealOpen] = useState(false)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
   const dragDealId  = useRef<number | null>(null)
   const [dragOverStage, setDragOverStage] = useState<number | null>(null)
 
@@ -248,14 +250,14 @@ export default function CRMPipeline() {
     setLoading(true); setErr(null)
     try {
       const [p, d] = await Promise.all([
-        apiFetch<PipelineResponse>('/api/crm/pipeline'),
-        apiFetch<Deal[]>('/api/crm/deals'),
+        apiFetch<PipelineResponse>(`/api/crm/pipeline?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<Deal[]>(`/api/crm/deals?from=${dateFrom}&to=${dateTo}`),
       ])
       setPipeline(p)
       setAllDeals(Array.isArray(d) ? d : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -313,6 +315,7 @@ export default function CRMPipeline() {
       subtitle="Deal management and sales pipeline"
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           <button
             onClick={() => setNewDealOpen(true)}
             style={{ ...btnPrimary, display: 'inline-flex', alignItems: 'center', gap: 6 }}
@@ -347,6 +350,8 @@ export default function CRMPipeline() {
             onRowClick={r => setSelected(r)}
             emptyText="No deals found."
             skeletonRows={loading ? 8 : 0}
+            searchKeys={['title', 'first_name', 'last_name', 'stage_name']}
+            searchPlaceholder="Search deals…"
           />
         </SectionCard>
       ) : (

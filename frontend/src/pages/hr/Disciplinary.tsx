@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  Modal, ErrBanner, Spinner, StatusBadge, btnPrimary,
+  Modal, ErrBanner, Spinner, StatusBadge, btnPrimary, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtDate } from '../../lib/fmt'
+import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 import type { AuthUser } from '../../hooks/useAuth'
@@ -72,6 +72,9 @@ export default function Disciplinary() {
   const [cases, setCases]           = useState<DisciplinaryCase[]>([])
   const [loading, setLoading]       = useState(true)
   const [err, setErr]               = useState<string | null>(null)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
+
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
 
@@ -88,11 +91,13 @@ export default function Disciplinary() {
       const p = new URLSearchParams()
       if (typeFilter)   p.set('case_type', typeFilter)
       if (statusFilter) p.set('status', statusFilter)
+      p.set('from', dateFrom)
+      p.set('to', dateTo)
       const res = await apiFetch<{ data: DisciplinaryCase[] }>(`/api/hr/disciplinary?${p}`)
       setCases(Array.isArray(res.data) ? res.data : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [typeFilter, statusFilter])
+  }, [typeFilter, statusFilter, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -183,12 +188,15 @@ export default function Disciplinary() {
       title="Disciplinary"
       subtitle="Disciplinary cases and outcomes"
       actions={
-        canManage ? (
-          <button onClick={() => { setForm(BLANK); setNewOpen(true) }} style={btnPrimary}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
-            New Case
-          </button>
-        ) : undefined
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          {canManage && (
+            <button onClick={() => { setForm(BLANK); setNewOpen(true) }} style={btnPrimary}>
+              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+              New Case
+            </button>
+          )}
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard } from '../../components/UI'
+import { Page, SectionCard, Button, Input, Select, DateFilter } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtDate } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
+import { NAVY, RED, GREEN, BLUE, PURPLE, MONO, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 interface CCStatement {
   id: number
@@ -24,8 +24,8 @@ interface CCStatement {
 }
 
 const SOURCE_META = {
-  upload: { label: 'File Upload', icon: 'upload_file', color: '#1D4ED8' },
-  db:     { label: 'From DB',     icon: 'storage',      color: '#7C3AED' },
+  upload: { label: 'File Upload', icon: 'upload_file', color: BLUE },
+  db:     { label: 'From DB',     icon: 'storage',      color: PURPLE },
 }
 
 function SourceBadge({ source }: { source: 'upload' | 'db' }) {
@@ -49,19 +49,23 @@ export default function CCStatements() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [sourceFilter, setSourceFilter] = useState('')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const load = () => {
     setLoading(true)
     const params = new URLSearchParams()
     if (search) params.set('account_number', search)
     if (sourceFilter) params.set('source', sourceFilter)
+    if (dateFrom) params.set('from', dateFrom)
+    if (dateTo)   params.set('to', dateTo)
     apiFetch<any>(`/api/cc-statements?${params}`)
       .then(d => setRows(Array.isArray(d?.data) ? d.data : []))
       .catch(() => {})
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [search, sourceFilter]) // eslint-disable-line
+  useEffect(() => { load() }, [search, sourceFilter, dateFrom, dateTo]) // eslint-disable-line
 
   const overLimit = (s: CCStatement) =>
     s.line_of_credit_kobo && s.closing_balance_kobo > s.line_of_credit_kobo
@@ -71,54 +75,45 @@ export default function CCStatements() {
       title="Credit Card Statements"
       subtitle="Parsed from file uploads or synthesised from transaction records"
       actions={
-        <button
-          onClick={() => navigate('/statements/credit-cards/new')}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            background: RED, color: '#fff', border: 'none', borderRadius: RADIUS.sm,
-            padding: `${SP[2]} ${SP[4]}`, fontWeight: FW.semibold, fontSize: TEXT.base, cursor: 'pointer',
-          }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl }}>add</span>
-          New Statement
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <Button variant="danger" icon="add" onClick={() => navigate('/statements/credit-cards/new')}>
+            New Statement
+          </Button>
+        </div>
       }
     >
       {/* Filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: SP[5], flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: '1 1 220px' }}>
-          <span className="material-symbols-rounded" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: TEXT.lg, color: '#94A3B8' }}>search</span>
-          <input
+        <div style={{ flex: '1 1 220px' }}>
+          <Input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Account number…"
-            style={{ width: '100%', boxSizing: 'border-box', padding: `${SP[2]} ${SP[3]} ${SP[2]} 32px`, border: '1px solid #E2E8F0', borderRadius: RADIUS.sm, fontSize: TEXT.base, outline: 'none' }}
+            prefix="search"
           />
         </div>
-        <select
-          value={sourceFilter}
-          onChange={e => setSourceFilter(e.target.value)}
-          style={{ padding: `${SP[2]} ${SP[3]}`, border: '1px solid #E2E8F0', borderRadius: RADIUS.sm, fontSize: TEXT.base, background: '#fff', color: NAVY }}
-        >
+        <Select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}>
           <option value="">All sources</option>
           <option value="upload">File Upload</option>
           <option value="db">From DB</option>
-        </select>
+        </Select>
       </div>
 
       <SectionCard>
         {loading ? (
-          <div style={{ textAlign: 'center', padding: SP[12], color: '#94A3B8', fontSize: TEXT.base }}>Loading…</div>
+          <div style={{ textAlign: 'center', padding: SP[12], color: 'var(--txt3)', fontSize: TEXT.base }}>Loading…</div>
         ) : rows.length === 0 ? (
           <div style={{ textAlign: 'center', padding: SP[12] }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 40, color: '#CBD5E1', display: 'block', marginBottom: SP[3] }}>receipt_long</span>
-            <div style={{ fontSize: TEXT.md, color: '#64748B' }}>No statements yet</div>
-            <button
+            <span className="material-symbols-rounded" style={{ fontSize: 40, color: 'var(--txt3)', display: 'block', marginBottom: SP[3] }}>receipt_long</span>
+            <div style={{ fontSize: TEXT.md, color: 'var(--txt2)' }}>No statements yet</div>
+            <Button
+              variant="danger"
               onClick={() => navigate('/statements/credit-cards/new')}
-              style={{ marginTop: SP[4], padding: `${SP[2]} 18px`, background: RED, color: '#fff', border: 'none', borderRadius: RADIUS.sm, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}
+              style={{ marginTop: SP[4] }}
             >
               Add first statement
-            </button>
+            </Button>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -126,7 +121,7 @@ export default function CCStatements() {
               <thead>
                 <tr style={{ background: 'var(--th-bg)' }}>
                   {['Customer', 'Account', 'Statement Date', 'Closing Balance', 'Debits', 'Credits', 'Txns', 'Source', 'Added'].map(h => (
-                    <th key={h} style={{ padding: `${SP[2]} ${SP[4]}`, textAlign: 'left', fontSize: TEXT.xs, fontWeight: FW.bold, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
+                    <th key={h} style={{ padding: `${SP[2]} ${SP[4]}`, textAlign: 'left', fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
                       {h}
                     </th>
                   ))}
@@ -137,14 +132,14 @@ export default function CCStatements() {
                   <tr
                     key={s.id}
                     onClick={() => navigate(`/statements/credit-cards/${s.id}`)}
-                    style={{ borderBottom: '1px solid #F1F5F9', cursor: 'pointer' }}
+                    style={{ borderBottom: '1px solid var(--bdr)', cursor: 'pointer' }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
                     onMouseLeave={e => (e.currentTarget.style.background = '')}
                   >
                     <td style={{ padding: `${SP[3]} ${SP[4]}`, fontWeight: FW.medium, color: NAVY }}>{s.customer_name}</td>
-                    <td style={{ padding: `${SP[3]} ${SP[4]}`, fontFamily: 'DM Mono, monospace', fontSize: TEXT.sm }}>{s.account_number}</td>
+                    <td style={{ padding: `${SP[3]} ${SP[4]}`, ...NUM, fontSize: TEXT.sm }}>{s.account_number}</td>
                     <td style={{ padding: `${SP[3]} ${SP[4]}` }}>{fmtDate(s.statement_date)}</td>
-                    <td style={{ padding: `${SP[3]} ${SP[4]}`, fontFamily: 'DM Mono, monospace', fontWeight: FW.semibold, color: overLimit(s) ? RED : NAVY }}>
+                    <td style={{ padding: `${SP[3]} ${SP[4]}`, ...NUM, fontWeight: FW.semibold, color: overLimit(s) ? RED : NAVY }}>
                       {fmtKobo(s.closing_balance_kobo)}
                       {overLimit(s) && (
                         <span title="Over credit limit" style={{ marginLeft: 6 }}>
@@ -152,11 +147,11 @@ export default function CCStatements() {
                         </span>
                       )}
                     </td>
-                    <td style={{ padding: `${SP[3]} ${SP[4]}`, fontFamily: 'DM Mono, monospace', color: RED }}>{fmtKobo(s.total_debit_kobo)}</td>
-                    <td style={{ padding: `${SP[3]} ${SP[4]}`, fontFamily: 'DM Mono, monospace', color: GREEN }}>{fmtKobo(s.total_credit_kobo)}</td>
+                    <td style={{ padding: `${SP[3]} ${SP[4]}`, ...NUM, color: RED }}>{fmtKobo(s.total_debit_kobo)}</td>
+                    <td style={{ padding: `${SP[3]} ${SP[4]}`, ...NUM, color: GREEN }}>{fmtKobo(s.total_credit_kobo)}</td>
                     <td style={{ padding: `${SP[3]} ${SP[4]}`, textAlign: 'center' }}>{s.txn_count}</td>
                     <td style={{ padding: `${SP[3]} ${SP[4]}` }}><SourceBadge source={s.source} /></td>
-                    <td style={{ padding: `${SP[3]} ${SP[4]}`, color: '#94A3B8', fontSize: TEXT.sm }}>{fmtDate(s.created_at)}</td>
+                    <td style={{ padding: `${SP[3]} ${SP[4]}`, color: 'var(--txt3)', fontSize: TEXT.sm }}>{fmtDate(s.created_at)}</td>
                   </tr>
                 ))}
               </tbody>

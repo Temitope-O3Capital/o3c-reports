@@ -424,9 +424,11 @@ func soaFailedEscalate(db *core.DB) http.HandlerFunc {
 
 func soaManualPostingsList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		statusRaw := qstr(r, "status")
-		search    := qstr(r, "q")
-		limit     := qint(r, "limit", 100, 1, 500)
+		statusRaw    := qstr(r, "status")
+		search       := qstr(r, "q")
+		dateFrom, _  := validDate(r, "date_from")
+		dateTo, _    := validDate(r, "date_to")
+		limit        := qint(r, "limit", 100, 1, 500)
 
 		where := "1=1"
 		var args []any
@@ -449,6 +451,12 @@ func soaManualPostingsList(db *core.DB) http.HandlerFunc {
 			where += fmt.Sprintf(" AND (initiated_by_name ILIKE $%d OR narrative ILIKE $%d)", n, n)
 			args = append(args, "%"+search+"%")
 			n++
+		}
+		if dateFrom != "" {
+			where += fmt.Sprintf(" AND created_at::date >= $%d::date", n); args = append(args, dateFrom); n++
+		}
+		if dateTo != "" {
+			where += fmt.Sprintf(" AND created_at::date <= $%d::date", n); args = append(args, dateTo); n++
 		}
 		args = append(args, limit)
 

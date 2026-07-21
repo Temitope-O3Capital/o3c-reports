@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, ErrBanner, Spinner, DataTable, ConfirmModal, btnPrimary, btnDanger, btnSecondary } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Spinner, DataTable, ConfirmModal, btnPrimary, btnDanger, btnSecondary, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDatetime, fmtDate } from '../../lib/fmt'
+import { fmtDatetime, fmtDate, monthStart, today } from '../../lib/fmt'
 import { GREEN, AMBER, RED, NAVY, BLUE, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -67,19 +67,21 @@ export default function BIOverview() {
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
   const [deleting, setDeleting] = useState<ReportDef | null>(null)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
       const [reps, runList] = await Promise.all([
-        apiFetch<ReportDef[]>('/api/bi/reports'),
-        apiFetch<Run[]>('/api/bi/runs'),
+        apiFetch<ReportDef[]>(`/api/bi/reports?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<Run[]>(`/api/bi/runs?from=${dateFrom}&to=${dateTo}`),
       ])
       setReports(reps ?? [])
       setRuns(runList ?? [])
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -155,7 +157,12 @@ export default function BIOverview() {
     <Page
       title="BI Reports"
       subtitle="Saved cross-module reports and run history"
-      actions={<button onClick={() => navigate('/bi/builder')} style={btnPrimary}>+ New Report</button>}
+      actions={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => navigate('/bi/builder')} style={btnPrimary}>+ New Report</button>
+        </div>
+      }
     >
       <ErrBanner error={error} onRetry={load} />
 
@@ -165,11 +172,11 @@ export default function BIOverview() {
         <>
           <SectionCard title="Saved Reports" badge={reports.length}
             actions={<button onClick={() => navigate('/bi/scheduled')} style={{ ...btnSecondary, fontSize: TEXT.sm }}>Scheduled Reports</button>}>
-            <DataTable cols={REPORT_COLS} rows={reports} keyFn={r => r.id} emptyText="No saved reports yet — create your first report." />
+            <DataTable cols={REPORT_COLS} rows={reports} keyFn={r => r.id} emptyText="No saved reports yet — create your first report." searchKeys={['name', 'module']} />
           </SectionCard>
 
           <SectionCard title="Recent Runs" badge={runs.length}>
-            <DataTable cols={RUN_COLS} rows={runs} keyFn={r => r.id} emptyText="No report runs yet" />
+            <DataTable cols={RUN_COLS} rows={runs} keyFn={r => r.id} emptyText="No report runs yet" searchKeys={['report_name', 'status']} />
           </SectionCard>
         </>
       )}

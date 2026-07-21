@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, DataTable, ErrBanner, SearchInput, Modal } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, SearchInput, Modal, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDate, fmtDatetime } from '../../lib/fmt'
+import { fmtDate, fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -272,6 +272,8 @@ export default function CardsManagement() {
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
 
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
   const [filterOpen,   setFilterOpen]   = useState(false)
   const [search,       setSearch]       = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -287,6 +289,8 @@ export default function CardsManagement() {
       p.set('offset', String((pg - 1) * PAGE_SIZE))
       if (statusFilter)  p.set('status',    statusFilter)
       if (productFilter) p.set('card_type', productFilter)
+      p.set('from', dateFrom)
+      p.set('to',   dateTo)
       const res = await apiFetch<ListResp>(`/api/cards/cardholders?${p}`)
       setRows(res?.data ?? [])
       setTotal(res?.total ?? 0)
@@ -296,7 +300,7 @@ export default function CardsManagement() {
     } finally {
       setLoading(false)
     }
-  }, [statusFilter, productFilter])
+  }, [statusFilter, productFilter, dateFrom, dateTo])
 
   useEffect(() => { load(1) }, [load])
 
@@ -323,7 +327,9 @@ export default function CardsManagement() {
   }
 
   return (
-    <Page title="Cardholder Management" subtitle="View and manage all issued cards">
+    <Page title="Cardholder Management" subtitle="View and manage all issued cards" actions={
+      <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+    }>
 
       <ErrBanner error={error} onRetry={() => load(page)} />
 

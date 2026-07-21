@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, filterInputStyle, SearchInput, ErrBanner, Spinner } from '../../components/UI'
+import { Page, SectionCard, DataTable, filterInputStyle, SearchInput, ErrBanner, Spinner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKobo, fmtDate, today } from '../../lib/fmt'
+import { fmtKobo, fmtDate, today, monthStart } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -153,6 +153,8 @@ export default function FinanceCostTracking() {
   const [search, setSearch] = useState('')
   const [deptFilter, setDeptFilter] = useState('')
   const [catFilter, setCatFilter] = useState('')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
   const [filterOpen, setFilterOpen] = useState(false)
   const [showNew, setShowNew] = useState(false)
 
@@ -163,6 +165,8 @@ export default function FinanceCostTracking() {
       if (deptFilter) params.set('department', deptFilter)
       if (catFilter) params.set('category', catFilter)
       params.set('limit', '500')
+      params.set('date_from', dateFrom)
+      params.set('date_to', dateTo)
       const res = await apiFetch<{ data: CostEntry[]; total: number }>(`/api/finance/costs?${params}`)
       setRows(res?.data ?? [])
     } catch (e: any) {
@@ -170,7 +174,7 @@ export default function FinanceCostTracking() {
     } finally {
       setLoading(false)
     }
-  }, [deptFilter, catFilter])
+  }, [deptFilter, catFilter, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -213,13 +217,16 @@ export default function FinanceCostTracking() {
       title="Cost Tracking"
       subtitle="Departmental operational costs vs budget"
       actions={
-        <button onClick={() => setShowNew(true)} style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          padding: '6px 14px', borderRadius: RADIUS.md, border: 'none',
-          background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
-        }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>Add Entry
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => setShowNew(true)} style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '6px 14px', borderRadius: RADIUS.md, border: 'none',
+            background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>Add Entry
+          </button>
+        </div>
       }
     >
       {error && <ErrBanner error={error} onRetry={load} />}

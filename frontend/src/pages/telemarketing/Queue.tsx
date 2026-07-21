@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Page, ErrBanner, Spinner, ConfirmModal, TblSearch,
+  Page, ErrBanner, Spinner, ConfirmModal, TblSearch, DateFilter,
 } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtDatetime, today } from '../../lib/fmt'
+import { fmtKobo, fmtDate, fmtDatetime, today, monthStart } from '../../lib/fmt'
 import { GREEN, AMBER, RED, DARKRED, BLUE, PURPLE, NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -513,6 +513,8 @@ export default function TelemarketingQueue() {
   const [disposition, setDisposition] = useState('All')
   const [dpd, setDpd] = useState('All')
   const [search, setSearch] = useState('')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const [skipConfirm, setSkipConfirm] = useState(false)
   const [skipLoading, setSkipLoading] = useState(false)
@@ -525,6 +527,8 @@ export default function TelemarketingQueue() {
     if (disposition !== 'All') params.set('disposition', disposition)
     if (dpd !== 'All') params.set('dpd', dpd)
     if (search) params.set('search', search)
+    if (dateFrom) params.set('from', dateFrom)
+    if (dateTo)   params.set('to', dateTo)
     try {
       const res = await apiFetch<{ data: TelemarketingContact[] }>(`/api/telemarketing/queue?${params}`)
       setItems(res.data ?? [])
@@ -533,7 +537,7 @@ export default function TelemarketingQueue() {
     } finally {
       setLoading(false)
     }
-  }, [priority, disposition, dpd, search])
+  }, [priority, disposition, dpd, search, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -579,7 +583,9 @@ export default function TelemarketingQueue() {
   }
 
   return (
-    <Page title="Outbound Queue" subtitle="Telemarketing call queue" noPad>
+    <Page title="Outbound Queue" subtitle="Telemarketing call queue" noPad
+      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
+    >
       <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
 
         {/* ── Left panel ─────────────────────────────────────────────────── */}

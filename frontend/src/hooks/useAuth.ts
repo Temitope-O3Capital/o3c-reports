@@ -13,6 +13,7 @@ export type Role =
   | 'bd_officer' | 'bd_head'
   | 'payroll_officer' | 'payroll_manager'
   | 'settlement_officer'
+  | 'bi_analyst' | 'bi_head'
 
 export interface AuthUser {
   id:                  number
@@ -94,6 +95,10 @@ export const ROLE_PAGES: Record<string, string[]> = {
   // Finance ops
   head_of_reconciliation: ['overview','income','eod','transactions','uploads','reconciliation','credit_portfolio','fixed_deposit','settlement','kpi_dashboard','reports','statements'],
   settlement_officer:     ['overview','settlement','reconciliation','eod','transactions','credit_portfolio'],
+
+  // BI / Analytics
+  bi_analyst:             ['overview','reports','kpi_dashboard'],
+  bi_head:                ['overview','reports','kpi_dashboard','admin_users'],
 }
 
 export function parseToken(token: string): { exp: number; [key: string]: unknown } | null {

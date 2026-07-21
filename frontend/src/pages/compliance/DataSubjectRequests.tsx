@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, ErrBanner, Spinner, DataTable, Modal, btnPrimary, btnSecondary } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Spinner, DataTable, Modal, btnPrimary, btnSecondary, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDatetime } from '../../lib/fmt'
+import { fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, BLUE, INTER, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -42,6 +42,8 @@ export default function DataSubjectRequests() {
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState<string | null>(null)
   const [statusF,  setStatusF]  = useState('')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
   const [showNew,  setShowNew]  = useState(false)
   const [selected, setSelected] = useState<DSAR | null>(null)
 
@@ -55,12 +57,15 @@ export default function DataSubjectRequests() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const qs = statusF ? `?status=${statusF}` : ''
-      const res = await apiFetch<DSAR[]>(`/api/compliance/data-subject-requests${qs}`)
+      const p = new URLSearchParams()
+      if (statusF)  p.set('status', statusF)
+      if (dateFrom) p.set('from', dateFrom)
+      if (dateTo)   p.set('to', dateTo)
+      const res = await apiFetch<DSAR[]>(`/api/compliance/data-subject-requests?${p}`)
       setItems(res ?? [])
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
-  }, [statusF])
+  }, [statusF, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -138,7 +143,12 @@ export default function DataSubjectRequests() {
     <Page
       title="Data Subject Requests"
       subtitle="NDPR / GDPR data subject access, erasure and portability requests"
-      actions={<button onClick={() => setShowNew(true)} style={btnPrimary}>+ New DSAR</button>}
+      actions={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => setShowNew(true)} style={btnPrimary}>+ New DSAR</button>
+        </div>
+      }
     >
       <ErrBanner error={error} onRetry={load} />
 
@@ -158,7 +168,9 @@ export default function DataSubjectRequests() {
         <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner size={32} /></div>
       ) : (
         <SectionCard title="Data Subject Requests" badge={items.length}>
-          <DataTable cols={COLS} rows={items} keyFn={r => r.id} emptyText="No data subject requests recorded" />
+          <DataTable cols={COLS} rows={items} keyFn={r => r.id} emptyText="No data subject requests recorded"
+            searchKeys={['subject_name', 'request_type', 'status']}
+            searchPlaceholder="Search by name, type or status…" />
         </SectionCard>
       )}
 

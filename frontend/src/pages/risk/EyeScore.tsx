@@ -238,6 +238,8 @@ export default function EyeScore() {
           loading={loading}
           skeletonRows={8}
           emptyText="No score requests found"
+          searchKeys={['applicant_name', 'band']}
+          searchPlaceholder="Search by applicant name or score band…"
         />
 
         {pages > 1 && (

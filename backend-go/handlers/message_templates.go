@@ -62,6 +62,16 @@ func listTemplates(db *core.DB) http.HandlerFunc {
 			args = append(args, v)
 			n++
 		}
+		if v := qstr(r, "from"); v != "" {
+			where += fmt.Sprintf(" AND t.created_at::date >= $%d::date", n)
+			args = append(args, v)
+			n++
+		}
+		if v := qstr(r, "to"); v != "" {
+			where += fmt.Sprintf(" AND t.created_at::date <= $%d::date", n)
+			args = append(args, v)
+			n++
+		}
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT t.*, u.full_name AS created_by_name
 			FROM message_templates t

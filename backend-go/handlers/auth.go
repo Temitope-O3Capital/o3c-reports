@@ -22,6 +22,7 @@ func RegisterAuth(r chi.Router, db *core.DB) {
 	r.Post("/refresh", refreshHandler(db))
 	r.Get("/me", meHandler())
 	r.Post("/change-password", changePasswordHandler(db))
+	r.Post("/force-change-password", forceChangePasswordHandler(db))
 	r.Post("/forgot-password", ForgotPasswordHandler(db))
 }
 
@@ -492,6 +493,36 @@ func changePasswordHandler(db *core.DB) http.HandlerFunc {
 			`UPDATE o3c_users SET password_hash = $1, must_change_password = FALSE WHERE id = $2`,
 			hash, user.ID)
 		// H8: Invalidate all existing sessions so open sessions are forced to re-authenticate.
+		db.PGExec(r.Context(), `DELETE FROM user_sessions WHERE user_id=$1`, user.ID) //nolint:errcheck
+		respondErr(w, 200, "Password updated successfully")
+	}
+}
+
+// forceChangePasswordHandler is used on first login when must_change_password=true.
+// It skips the current-password check because the user just authenticated via JWT.
+func forceChangePasswordHandler(db *core.DB) http.HandlerFunc {
+	type body struct {
+		NewPassword string `json:"new_password"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if len(b.NewPassword) < 12 {
+			respondErr(w, 422, "Password must be at least 12 characters")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		hash, err := core.HashPassword(b.NewPassword)
+		if err != nil {
+			respondErr(w, 500, "Password hashing failed")
+			return
+		}
+		db.PGExec(r.Context(), //nolint:errcheck
+			`UPDATE o3c_users SET password_hash = $1, must_change_password = FALSE WHERE id = $2`,
+			hash, user.ID)
 		db.PGExec(r.Context(), `DELETE FROM user_sessions WHERE user_id=$1`, user.ID) //nolint:errcheck
 		respondErr(w, 200, "Password updated successfully")
 	}

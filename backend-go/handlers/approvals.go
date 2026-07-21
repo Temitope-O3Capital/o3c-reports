@@ -108,6 +108,12 @@ func approvalsPending(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
+		nullStr := func(s string) interface{} {
+			if s == "" { return nil }
+			return s
+		}
 
 		type item struct {
 			Module      string `json:"module"`
@@ -157,8 +163,10 @@ func approvalsPending(db *core.DB) http.HandlerFunc {
 					LEFT JOIN o3c_users u ON u.id = la.created_by
 					WHERE la.stage = $1
 					  AND la.status NOT IN ('declined','active','written_off')
+					  AND ($2 IS NULL OR la.created_at::date >= $2::date)
+					  AND ($3 IS NULL OR la.created_at::date <= $3::date)
 					ORDER BY la.updated_at ASC
-					LIMIT 50`, stage)
+					LIMIT 50`, stage, nullStr(from), nullStr(to))
 				if err == nil {
 					for _, row := range rows {
 						amt := toInt64(row["amount_requested_kobo"])
@@ -203,8 +211,10 @@ func approvalsPending(db *core.DB) http.HandlerFunc {
 				JOIN recovery_cases rc ON rc.id = wo.case_id
 				LEFT JOIN o3c_users u ON u.id = wo.requested_by
 				WHERE wo.status = $1
+				  AND ($2 IS NULL OR wo.created_at::date >= $2::date)
+				  AND ($3 IS NULL OR wo.created_at::date <= $3::date)
 				ORDER BY wo.created_at ASC
-				LIMIT 50`, wofLevel)
+				LIMIT 50`, wofLevel, nullStr(from), nullStr(to))
 			if err == nil {
 				for _, row := range rows {
 					days := toInt64(row["waiting_days"])
@@ -244,8 +254,10 @@ func approvalsPending(db *core.DB) http.HandlerFunc {
 				JOIN employees e ON e.id = lr.employee_id
 				JOIN leave_types lt ON lt.id = lr.leave_type_id
 				WHERE lr.status = 'pending'
+				  AND ($1 IS NULL OR lr.created_at::date >= $1::date)
+				  AND ($2 IS NULL OR lr.created_at::date <= $2::date)
 				ORDER BY lr.created_at ASC
-				LIMIT 50`)
+				LIMIT 50`, nullStr(from), nullStr(to))
 			if err == nil {
 				for _, row := range rows {
 					days := toInt64(row["waiting_days"])
@@ -275,10 +287,12 @@ func approvalsPending(db *core.DB) http.HandlerFunc {
 					EXTRACT(DAY FROM NOW() - f.created_at)::int AS waiting_days
 				FROM audit_findings f
 				WHERE f.status = 'open'
+				  AND ($1 IS NULL OR f.created_at::date >= $1::date)
+				  AND ($2 IS NULL OR f.created_at::date <= $2::date)
 				ORDER BY
 					CASE f.severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END,
 					f.created_at ASC
-				LIMIT 30`)
+				LIMIT 30`, nullStr(from), nullStr(to))
 			if err == nil {
 				for _, row := range rows {
 					days := toInt64(row["waiting_days"])

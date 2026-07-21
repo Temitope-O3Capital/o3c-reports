@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, FilterBar, filterInputStyle, Spinner, KpiCard } from '../../components/UI'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Page, SectionCard, DataTable, ErrBanner, FilterBar, filterInputStyle, Spinner, KpiCard, DateFilter, SearchInput } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtNum, today } from '../../lib/fmt'
+import { fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
 import { BLUE, AMBER, GREEN, RED, PURPLE, NAVY, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -255,6 +255,9 @@ export default function RecoveryLegal() {
 
   const [milestoneFilter, setMilestoneFilter] = useState('')
   const [solicitorFilter, setSolicitorFilter] = useState('')
+  const [dateFrom,        setDateFrom]        = useState(monthStart())
+  const [dateTo,          setDateTo]          = useState(today())
+  const [search,          setSearch]          = useState('')
 
   const [kpis, setKpis]         = useState<LegalKPIs | null>(null)
   const [kpiLoading, setKpiLoading] = useState(true)
@@ -264,6 +267,8 @@ export default function RecoveryLegal() {
     const params = new URLSearchParams({ limit: '100' })
     if (milestoneFilter) params.set('milestone', milestoneFilter)
     if (solicitorFilter.trim()) params.set('q', solicitorFilter.trim())
+    if (dateFrom) params.set('from', dateFrom)
+    if (dateTo)   params.set('to',   dateTo)
     try {
       const res = await apiFetch<{ data: LegalCase[] }>(`/api/recovery/legal?${params}`)
       setRows(res.data ?? [])
@@ -272,7 +277,7 @@ export default function RecoveryLegal() {
     } finally {
       setLoading(false)
     }
-  }, [milestoneFilter, solicitorFilter])
+  }, [milestoneFilter, solicitorFilter, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -314,6 +319,16 @@ export default function RecoveryLegal() {
   }
 
   const todayStr = today()
+
+  const filtered = useMemo(() => {
+    if (!search) return rows
+    const q = search.toLowerCase()
+    return rows.filter(r =>
+      [r.customer_name, r.current_milestone, r.solicitor].some(v =>
+        String(v ?? '').toLowerCase().includes(q)
+      )
+    )
+  }, [rows, search])
 
   const cols: TableCol<LegalCase>[] = [
     {
@@ -372,31 +387,34 @@ export default function RecoveryLegal() {
   ]
 
   // Custom render with inline expand — we build the table manually to inject expanded rows
-  const filtered = rows
+  // `filtered` is derived via useMemo above based on the `search` state
 
   return (
     <Page
       title="Legal Cases"
       subtitle="Manage accounts in legal proceedings"
       actions={
-        <button
-          onClick={() => exportLegalCsv(rows)}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '7px 14px', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)',
-            background: 'var(--card)', color: 'var(--txt)',
-            fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
-          }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
-          Export CSV
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button
+            onClick={() => exportLegalCsv(rows)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '7px 14px', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)',
+              background: 'var(--card)', color: 'var(--txt)',
+              fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
+            Export CSV
+          </button>
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />
 
       {/* Page-level filter */}
-      <FilterBar onReset={() => { setMilestoneFilter(''); setSolicitorFilter('') }}>
+      <FilterBar onReset={() => { setMilestoneFilter(''); setSolicitorFilter(''); setSearch('') }}>
         <select value={milestoneFilter} onChange={e => setMilestoneFilter(e.target.value)} style={filterInputStyle}>
           <option value="">All Milestones</option>
           {MILESTONE_ORDER.map(m => <option key={m} value={m}>{m}</option>)}
@@ -412,6 +430,12 @@ export default function RecoveryLegal() {
           background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
         }}>Apply</button>
       </FilterBar>
+      <SearchInput
+        value={search}
+        onChange={setSearch}
+        placeholder="Search by name, milestone, court…"
+        style={{ marginBottom: 12, maxWidth: 340 }}
+      />
 
       {/* KPI cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: SP[5] }}>

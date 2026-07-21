@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react'
-import { Page, KpiCard, SectionCard, ErrBanner, FilterBar, filterInputStyle, StatusBadge, DateFilter } from '../../components/UI'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
+import { Page, KpiCard, SectionCard, ErrBanner, FilterBar, filterInputStyle, StatusBadge, DateFilter, SearchInput } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtDatetime, fmtNum, today, monthStart } from '../../lib/fmt'
 import { GREEN, RED, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -108,6 +108,7 @@ export default function SettlementBatches() {
   const [error, setError] = useState<string | null>(null)
 
   const [statusFilter, setStatusFilter] = useState('')
+  const [search, setSearch] = useState('')
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo] = useState(today())
 
@@ -160,8 +161,18 @@ export default function SettlementBatches() {
     }
   }
 
+  const filteredRows = useMemo(() => {
+    if (!search) return rows
+    const q = search.toLowerCase()
+    return rows.filter(r =>
+      r.batch_ref.toLowerCase().includes(q) ||
+      r.status.toLowerCase().includes(q)
+    )
+  }, [rows, search])
+
   function handleReset() {
     setStatusFilter('')
+    setSearch('')
     setDateFrom(monthStart())
     setDateTo(today())
   }
@@ -180,9 +191,10 @@ export default function SettlementBatches() {
         <KpiCard label="Success Rate" value={kpis ? `${Number(kpis.success_rate_pct).toFixed(1)}%` : '—'} icon="trending_up" accent={NAVY} loading={kpiLoading} />
       </div>
 
-      <SectionCard title="Batches" badge={rows.length} padding={false}>
+      <SectionCard title="Batches" badge={filteredRows.length} padding={false}>
         <div style={{ padding: '12px 16px 0' }}>
           <FilterBar onReset={handleReset}>
+            <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
               <option value="">All statuses</option>
               <option value="Pending">Pending</option>
@@ -212,7 +224,7 @@ export default function SettlementBatches() {
               </tr>
             </thead>
             <tbody>
-              {rows.map(row => (
+              {filteredRows.map(row => (
                 <React.Fragment key={row.id}>
                   <tr
                     onClick={() => toggleExpand(row.id)}

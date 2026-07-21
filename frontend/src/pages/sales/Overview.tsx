@@ -4,10 +4,10 @@ import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, DataTable } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtPct, fmtNum, fmtDatetime } from '../../lib/fmt'
+import { fmtKobo, fmtPct, fmtNum, fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, BLUE, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -97,16 +97,18 @@ export default function SalesOverview() {
   const [apps,      setApps]      = useState<RecentApp[]>([])
   const [leadSrc,   setLeadSrc]   = useState<LeadSourceItem[]>([])
   const [loading,   setLoading]   = useState(true)
+  const [dateFrom,  setDateFrom]  = useState(monthStart())
+  const [dateTo,    setDateTo]    = useState(today())
 
-  async function load() {
+  async function load(from: string, to: string) {
     setLoading(true)
     try {
       const [k, m, p, a, ls] = await Promise.all([
-        apiFetch<{data: LoanKPIs}>('/api/sales/loan-kpis'),
-        apiFetch<{data: MonthlyPoint[]}>('/api/sales/monthly-disbursements'),
-        apiFetch<{data: TopPerformer[]}>('/api/sales/top-performers'),
-        apiFetch<{data: RecentApp[]}>('/api/sales/recent-applications'),
-        apiFetch<{data: LeadSourceItem[]}>('/api/sales/by-lead-source'),
+        apiFetch<{data: LoanKPIs}>(`/api/sales/loan-kpis?from=${from}&to=${to}`),
+        apiFetch<{data: MonthlyPoint[]}>(`/api/sales/monthly-disbursements?from=${from}&to=${to}`),
+        apiFetch<{data: TopPerformer[]}>(`/api/sales/top-performers?from=${from}&to=${to}`),
+        apiFetch<{data: RecentApp[]}>(`/api/sales/recent-applications?from=${from}&to=${to}`),
+        apiFetch<{data: LeadSourceItem[]}>(`/api/sales/by-lead-source?from=${from}&to=${to}`),
       ])
       setKpis(k.data)
       setMonthly(m.data ?? [])
@@ -118,7 +120,7 @@ export default function SalesOverview() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(dateFrom, dateTo) }, [dateFrom, dateTo])
 
   const appCols: TableCol<RecentApp>[] = [
     {
@@ -185,17 +187,20 @@ export default function SalesOverview() {
       title="Sales Overview"
       subtitle="Credit origination performance"
       actions={
-        <button
-          onClick={() => navigate('/sales/applications/new')}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '7px 16px', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold,
-            border: 'none', background: RED, color: '#fff', cursor: 'pointer',
-          }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
-          New Application
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button
+            onClick={() => navigate('/sales/applications/new')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 16px', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold,
+              border: 'none', background: RED, color: '#fff', cursor: 'pointer',
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+            New Application
+          </button>
+        </div>
       }
     >
       {/* KPI strip */}

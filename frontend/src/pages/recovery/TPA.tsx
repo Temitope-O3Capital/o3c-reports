@@ -4,11 +4,11 @@ import {
 } from 'recharts'
 import {
   Page, SectionCard, DataTable, Modal, ConfirmModal, ErrBanner, Tabs,
-  filterInputStyle, btnPrimary,
+  filterInputStyle, btnPrimary, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtKobo, fmtPct, fmtNum } from '../../lib/fmt'
+import { fmtKobo, fmtPct, fmtNum, monthStart, today } from '../../lib/fmt'
 import { BLUE, NAVY, RED, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -367,17 +367,21 @@ export default function RecoveryTPA() {
   const [deactivateTarget, setDeactivateTarget] = useState<TPAAgency | null>(null)
   const [deactivateSaving, setDeactivateSaving] = useState(false)
 
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
+
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const res = await apiFetch<{ data: TPAAgency[] }>('/api/recovery/tpa-agencies')
+      const qs = `from=${dateFrom}&to=${dateTo}`
+      const res = await apiFetch<{ data: TPAAgency[] }>(`/api/recovery/tpa-agencies?${qs}`)
       setAgencies(res.data ?? [])
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load TPA agencies')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -540,10 +544,13 @@ export default function RecoveryTPA() {
       title="TPA Agencies"
       subtitle="Manage third-party collection agencies"
       actions={
-        <button onClick={() => { setShowRegister(true); setRegisterErr(null) }} style={btnPrimary}>
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
-          Register TPA
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => { setShowRegister(true); setRegisterErr(null) }} style={btnPrimary}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
+            Register TPA
+          </button>
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />

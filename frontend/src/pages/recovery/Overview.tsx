@@ -3,10 +3,10 @@ import {
   ResponsiveContainer, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtPct, fmtNum, fmtDate } from '../../lib/fmt'
+import { fmtKobo, fmtPct, fmtNum, fmtDate, monthStart, today } from '../../lib/fmt'
 import { GREEN, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -169,16 +169,19 @@ export default function RecoveryOverview() {
   const [agents, setAgents]       = useState<AgentRow[]>([])
   const [loading, setLoading]     = useState(true)
   const [err, setErr]             = useState<string | null>(null)
+  const [dateFrom, setDateFrom]   = useState(monthStart())
+  const [dateTo, setDateTo]       = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true)
     setErr(null)
+    const qs = `from=${dateFrom}&to=${dateTo}`
     try {
       const [kpisRes, trendRes, channelRes, agentRes] = await Promise.all([
-        apiFetch<{ data: RecoveryKPIs }>('/api/recovery/kpis'),
-        apiFetch<{ data: MonthlyPoint[] }>('/api/recovery/monthly-trend'),
-        apiFetch<{ data: ChannelRow[] }>('/api/recovery/by-channel'),
-        apiFetch<{ data: AgentRow[] }>('/api/recovery/by-agent'),
+        apiFetch<{ data: RecoveryKPIs }>(`/api/recovery/kpis?${qs}`),
+        apiFetch<{ data: MonthlyPoint[] }>(`/api/recovery/monthly-trend?${qs}`),
+        apiFetch<{ data: ChannelRow[] }>(`/api/recovery/by-channel?${qs}`),
+        apiFetch<{ data: AgentRow[] }>(`/api/recovery/by-agent?${qs}`),
       ])
       setKpis(kpisRes.data)
       setTrend(trendRes.data ?? [])
@@ -189,7 +192,7 @@ export default function RecoveryOverview() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -199,6 +202,9 @@ export default function RecoveryOverview() {
     <Page
       title="Recovery Overview"
       subtitle="Recovery performance, channel analysis, and agent activity"
+      actions={
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+      }
     >
       <ErrBanner error={err} onRetry={load} />
 
@@ -298,6 +304,8 @@ export default function RecoveryOverview() {
           loading={loading}
           skeletonRows={8}
           emptyText="No agent data found"
+          searchKeys={['agent_name']}
+          searchPlaceholder="Search by agent name…"
         />
       </SectionCard>
     </Page>

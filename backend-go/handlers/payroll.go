@@ -89,14 +89,31 @@ func computeItem(grossKobo int64) (basic, housing, transport, otherAllowance, pa
 
 func payrollSummary(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT r.id, r.period_year, r.period_month, r.status,
+		from := qstr(r, "from")
+		to := qstr(r, "to")
+
+		query := `SELECT r.id, r.period_year, r.period_month, r.status,
 			       r.headcount, r.total_gross_kobo, r.total_net_kobo,
 			       r.total_paye_kobo, r.total_pension_kobo, r.total_nhf_kobo,
 			       r.total_loan_deduction_kobo, r.created_at, r.approved_at, r.paid_at
 			FROM payroll_runs r
-			ORDER BY r.period_year DESC, r.period_month DESC
-			LIMIT 12`)
+			WHERE 1=1`
+		args := []any{}
+		n := 1
+		if from != "" {
+			query += fmt.Sprintf(" AND r.created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			query += fmt.Sprintf(" AND r.created_at::date <= $%d::date", n)
+			args = append(args, to)
+			n++
+		}
+		_ = n
+		query += " ORDER BY r.period_year DESC, r.period_month DESC LIMIT 12"
+
+		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
 			respondErr(w, 500, err.Error())
 			return

@@ -30,8 +30,10 @@ func bdListEmployers(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		search := qstr(r, "search")
 		sector := qstr(r, "sector")
-		mou := qstr(r, "mou_status")
-		limit := qint(r, "limit", 100, 1, 500)
+		mou    := qstr(r, "mou_status")
+		from   := qstr(r, "from")
+		to     := qstr(r, "to")
+		limit  := qint(r, "limit", 100, 1, 500)
 
 		q := `SELECT e.id, e.name, e.sector, e.staff_count,
 		             e.monthly_payroll_kobo, e.credit_limit_kobo,
@@ -59,6 +61,14 @@ func bdListEmployers(db *core.DB) http.HandlerFunc {
 			q += fmt.Sprintf(" AND e.mou_status=$%d", n)
 			args = append(args, mou)
 			n++
+		}
+		if from != "" {
+			q += fmt.Sprintf(" AND e.created_at::date >= $%d::date", n)
+			args = append(args, from); n++
+		}
+		if to != "" {
+			q += fmt.Sprintf(" AND e.created_at::date <= $%d::date", n)
+			args = append(args, to); n++
 		}
 		q += " GROUP BY e.id"
 		args = append(args, limit)
@@ -241,6 +251,14 @@ func bdListLeads(db *core.DB) http.HandlerFunc {
 			args = append(args, "%"+search+"%")
 			n++
 		}
+		if from := qstr(r, "from"); from != "" {
+			q += fmt.Sprintf(" AND l.created_at::date >= $%d::date", n)
+			args = append(args, from); n++
+		}
+		if to := qstr(r, "to"); to != "" {
+			q += fmt.Sprintf(" AND l.created_at::date <= $%d::date", n)
+			args = append(args, to); n++
+		}
 		args = append(args, limit)
 		q += fmt.Sprintf(" ORDER BY l.updated_at DESC LIMIT $%d", n)
 
@@ -412,18 +430,22 @@ func bdLogActivity(db *core.DB) http.HandlerFunc {
 func bdStats(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
 
 		pipeline, _ := db.PGQuery(ctx, `
 			SELECT stage,
 			       COUNT(*) AS count,
 			       COALESCE(SUM(potential_value_kobo), 0) AS total_value_kobo
 			FROM bd_leads
+			WHERE ($1='' OR created_at::date >= $1::date)
+			  AND ($2='' OR created_at::date <= $2::date)
 			GROUP BY stage
 			ORDER BY CASE stage
 			  WHEN 'prospect' THEN 1 WHEN 'qualified' THEN 2
 			  WHEN 'proposal' THEN 3  WHEN 'negotiation' THEN 4
 			  WHEN 'won' THEN 5       WHEN 'lost' THEN 6 ELSE 7
-			END`)
+			END`, from, to)
 
 		employers, _ := db.PGQuery(ctx, `
 			SELECT COUNT(*) FILTER (WHERE is_active)                                         AS active,

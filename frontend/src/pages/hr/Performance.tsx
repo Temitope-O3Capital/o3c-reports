@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  Modal, ErrBanner, Spinner, StatusBadge, btnPrimary,
+  Modal, ErrBanner, Spinner, StatusBadge, btnPrimary, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDate } from '../../lib/fmt'
+import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 import type { AuthUser } from '../../hooks/useAuth'
@@ -68,6 +68,9 @@ export default function Performance() {
   const [cycles, setCycles]             = useState<ReviewCycle[]>([])
   const [loading, setLoading]           = useState(true)
   const [err, setErr]                   = useState<string | null>(null)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
+
   const [periodFilter, setPeriodFilter] = useState('')
   const [deptFilter, setDeptFilter]     = useState('')
 
@@ -81,6 +84,8 @@ export default function Performance() {
       const p = new URLSearchParams()
       if (periodFilter) p.set('period', periodFilter)
       if (deptFilter)   p.set('department', deptFilter)
+      p.set('from', dateFrom)
+      p.set('to', dateTo)
       const [apps, cs] = await Promise.all([
         apiFetch<Appraisal[]>(`/api/hr/appraisals?${p}`),
         apiFetch<ReviewCycle[]>('/api/hr/review-cycles'),
@@ -89,7 +94,7 @@ export default function Performance() {
       setCycles(Array.isArray(cs) ? cs : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [periodFilter, deptFilter])
+  }, [periodFilter, deptFilter, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -170,12 +175,15 @@ export default function Performance() {
       title="Performance"
       subtitle="Employee appraisals and review cycles"
       actions={
-        canCreate ? (
-          <button onClick={() => { setForm(BLANK); setNewOpen(true) }} style={btnPrimary}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
-            New Review
-          </button>
-        ) : undefined
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          {canCreate && (
+            <button onClick={() => { setForm(BLANK); setNewOpen(true) }} style={btnPrimary}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
+              New Review
+            </button>
+          )}
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />

@@ -346,6 +346,8 @@ export default function WriteoffQueue() {
           bulkBar={bulkBar}
           emptyText="No accounts in write-off queue"
           skeletonRows={8}
+          searchKeys={['account_cif', 'customer_name', 'recommended_by']}
+          searchPlaceholder="Search CIF, name, recommended by…"
         />
       </SectionCard>
 

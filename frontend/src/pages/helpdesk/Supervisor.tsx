@@ -4,10 +4,10 @@ import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, DataTable, Spinner, ErrBanner } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, Spinner, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDatetime, fmtNum } from '../../lib/fmt'
+import { fmtDatetime, fmtNum, monthStart, today } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, BLUE, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -152,13 +152,17 @@ export default function Supervisor() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
+
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     setErr(null)
+    const qs = `?from=${dateFrom}&to=${dateTo}`
     try {
       const [sup, st] = await Promise.all([
-        apiFetch<SupervisorData>('/api/helpdesk/supervisor'),
-        apiFetch<StatsData>('/api/helpdesk/stats'),
+        apiFetch<SupervisorData>(`/api/helpdesk/supervisor${qs}`),
+        apiFetch<StatsData>(`/api/helpdesk/stats${qs}`),
       ])
       setSupervisor(sup)
       setStats(st)
@@ -168,7 +172,7 @@ export default function Supervisor() {
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => {
     load()
@@ -290,6 +294,7 @@ export default function Supervisor() {
       subtitle="Live agent and queue health"
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           {lastRefresh && (
             <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>
               Updated {lastRefresh.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
@@ -372,6 +377,8 @@ export default function Supervisor() {
           keyFn={r => r.agent_name}
           emptyText="No agent performance data available."
           skeletonRows={4}
+          searchKeys={['agent_name']}
+          searchPlaceholder="Search agent…"
         />
       </SectionCard>
 

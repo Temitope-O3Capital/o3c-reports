@@ -16,6 +16,8 @@ func RegisterSales(r chi.Router, db *core.DB) {
 	r.Get("/monthly-disbursements", salesMonthlyDisbursements(db)) // 12-month disbursements trend
 	r.Get("/recent-applications",   salesRecentApplications(db))   // recent LOS applications
 	r.Get("/top-performers",        salesTopPerformers(db))         // top officers by disbursements
+	r.Get("/contact-kpis",         salesContactKPIs(db))           // CRM contact KPIs
+	r.Get("/task-kpis",            salesTaskKPIs(db))              // CRM task KPIs
 	r.Get("/funnel", salesFunnel(db))
 	r.Get("/accounts-trend", salesAccountsTrend(db))
 	r.Get("/by-state", salesByState(db))
@@ -39,13 +41,17 @@ func RegisterSales(r chi.Router, db *core.DB) {
 // salesLoanKPIs returns LOS-based KPIs for the Sales Overview page.
 func salesLoanKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
-				COUNT(CASE WHEN DATE_TRUNC('month', created_at) = DATE_TRUNC('month', NOW())
+				COUNT(CASE WHEN ($1='' OR created_at::date >= $1::date)
+				            AND ($2='' OR created_at::date <= $2::date)
 				           THEN 1 END)                                    AS submitted_mtd,
 				COALESCE(SUM(
 					CASE WHEN stage = 'active'
-					     AND DATE_TRUNC('month', updated_at) = DATE_TRUNC('month', NOW())
+					     AND ($1='' OR updated_at::date >= $1::date)
+					     AND ($2='' OR updated_at::date <= $2::date)
 					THEN amount_approved_kobo END
 				), 0)                                                     AS disbursed_mtd_kobo,
 				COALESCE(SUM(
@@ -61,7 +67,7 @@ func salesLoanKPIs(db *core.DB) http.HandlerFunc {
 				        + COUNT(CASE WHEN stage = 'declined' THEN 1 END))::numeric * 100, 1
 				     )
 				END                                                       AS win_rate_pct
-			FROM loan_applications`)
+			FROM loan_applications`, from, to)
 		if err != nil || len(rows) == 0 {
 			respond(w, map[string]any{
 				"submitted_mtd": int64(0), "disbursed_mtd_kobo": int64(0),
@@ -76,6 +82,8 @@ func salesLoanKPIs(db *core.DB) http.HandlerFunc {
 // salesMonthlyDisbursements returns 12 months of disbursement data.
 func salesMonthlyDisbursements(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
 		rows, err := db.PGQuery(r.Context(), `
 			WITH months AS (
 				SELECT generate_series(
@@ -91,7 +99,9 @@ func salesMonthlyDisbursements(db *core.DB) http.HandlerFunc {
 			LEFT JOIN loan_applications la
 				ON la.stage = 'active'
 				AND DATE_TRUNC('month', la.updated_at) = m.m
-			GROUP BY m.m ORDER BY m.m`)
+				AND ($1 = '' OR la.updated_at::date >= $1::date)
+				AND ($2 = '' OR la.updated_at::date <= $2::date)
+			GROUP BY m.m ORDER BY m.m`, from, to)
 		if err != nil {
 			respond(w, []any{}, "pg")
 			return
@@ -104,6 +114,8 @@ func salesMonthlyDisbursements(db *core.DB) http.HandlerFunc {
 func salesRecentApplications(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
 		// H13: use o3c_users (not legacy users table) and full_name column
 		q := `SELECT la.id, la.stage, la.status, la.amount_requested_kobo,
 		             la.amount_approved_kobo, la.created_at, la.updated_at,
@@ -118,6 +130,14 @@ func salesRecentApplications(db *core.DB) http.HandlerFunc {
 			args = append(args, user.ID)
 			n++
 		}
+		if from != "" {
+			q += fmt.Sprintf(" AND la.created_at::date >= $%d::date", n)
+			args = append(args, from); n++
+		}
+		if to != "" {
+			q += fmt.Sprintf(" AND la.created_at::date <= $%d::date", n)
+			args = append(args, to); n++
+		}
 		q += " ORDER BY la.updated_at DESC LIMIT 20"
 		_ = n
 		rows, err := db.PGQuery(r.Context(), q, args...)
@@ -129,9 +149,11 @@ func salesRecentApplications(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// salesTopPerformers returns top 10 officers by disbursements this month.
+// salesTopPerformers returns top 10 officers by disbursements in the given period.
 func salesTopPerformers(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
 		// H13: use o3c_users (not legacy users table) and full_name column
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT u.full_name, u.role,
@@ -140,14 +162,67 @@ func salesTopPerformers(db *core.DB) http.HandlerFunc {
 			FROM loan_applications la
 			JOIN o3c_users u ON u.id = la.officer_id
 			WHERE la.stage = 'active'
-			  AND DATE_TRUNC('month', la.updated_at) = DATE_TRUNC('month', NOW())
+			  AND ($1 = '' OR la.updated_at::date >= $1::date)
+			  AND ($2 = '' OR la.updated_at::date <= $2::date)
 			GROUP BY u.id, u.full_name, u.role
-			ORDER BY amount_kobo DESC LIMIT 10`)
+			ORDER BY amount_kobo DESC LIMIT 10`, from, to)
 		if err != nil {
 			respond(w, []any{}, "pg")
 			return
 		}
 		respond(w, rows, "pg")
+	}
+}
+
+// salesContactKPIs returns aggregate KPIs for CRM contacts.
+func salesContactKPIs(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+				COUNT(*)                                                                      AS total,
+				COUNT(*) FILTER (WHERE updated_at >= DATE_TRUNC('month', NOW()))              AS active_this_month,
+				COUNT(*) FILTER (WHERE ($1='' OR created_at::date >= $1::date)
+				                   AND ($2='' OR created_at::date <= $2::date))               AS new_this_month,
+				CASE WHEN COUNT(*) = 0 THEN 0::numeric
+				     ELSE ROUND(COUNT(*) FILTER (WHERE status='customer')::numeric
+				                / COUNT(*)::numeric * 100, 1)
+				END                                                                           AS conversion_rate_pct
+			FROM crm_contacts`, from, to)
+		if err != nil || len(rows) == 0 {
+			respond(w, map[string]any{
+				"total": int64(0), "active_this_month": int64(0),
+				"new_this_month": int64(0), "conversion_rate_pct": 0.0,
+			}, "pg")
+			return
+		}
+		respond(w, rows[0], "pg")
+	}
+}
+
+// salesTaskKPIs returns aggregate KPIs for CRM tasks.
+func salesTaskKPIs(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+				COUNT(*)                                                                      AS total,
+				COUNT(*) FILTER (WHERE status='open')                                        AS open,
+				COUNT(*) FILTER (WHERE status NOT IN ('done','cancelled') AND due_date<NOW()) AS overdue,
+				COUNT(*) FILTER (WHERE status='done'
+				    AND ($1='' OR updated_at::date >= $1::date)
+				    AND ($2='' OR updated_at::date <= $2::date))                             AS completed_this_month
+			FROM crm_tasks`, from, to)
+		if err != nil || len(rows) == 0 {
+			respond(w, map[string]any{
+				"total": int64(0), "open": int64(0),
+				"overdue": int64(0), "completed_this_month": int64(0),
+			}, "pg")
+			return
+		}
+		respond(w, rows[0], "pg")
 	}
 }
 
@@ -243,19 +318,32 @@ func salesFunnel(db *core.DB) http.HandlerFunc {
 
 func salesAccountsTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
+		// Build optional date filters for dual queries (interpolated safely — format validated by qstr)
+		msWhere := "Account_Created IS NOT NULL"
+		pgWhere := `"Account Created Date" IS NOT NULL`
+		if from != "" {
+			msWhere += fmt.Sprintf(" AND Account_Created >= '%s'", from)
+			pgWhere += fmt.Sprintf(` AND "Account Created Date" >= '%s'`, from)
+		}
+		if to != "" {
+			msWhere += fmt.Sprintf(" AND Account_Created <= '%s'", to)
+			pgWhere += fmt.Sprintf(` AND "Account Created Date" <= '%s'`, to)
+		}
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT FORMAT(Account_Created,'MMM yyyy') AS month,
+			fmt.Sprintf(`SELECT FORMAT(Account_Created,'MMM yyyy') AS month,
 			        DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1) AS month_sort,
 			        COUNT(DISTINCT CIF) AS new_accounts
-			 FROM dbo.Contact WHERE Account_Created IS NOT NULL
+			 FROM dbo.Contact WHERE %s
 			 GROUP BY DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1),
 			          FORMAT(Account_Created,'MMM yyyy')
-			 ORDER BY month_sort`,
-			`SELECT TO_CHAR(DATE_TRUNC('month',"Account Created Date"),'Mon YYYY') AS month,
+			 ORDER BY month_sort`, msWhere),
+			fmt.Sprintf(`SELECT TO_CHAR(DATE_TRUNC('month',"Account Created Date"),'Mon YYYY') AS month,
 			        DATE_TRUNC('month',"Account Created Date") AS month_sort,
 			        COUNT(DISTINCT "CIF Number") AS new_accounts
-			 FROM "Accounts" WHERE "Account Created Date" IS NOT NULL
-			 GROUP BY DATE_TRUNC('month',"Account Created Date") ORDER BY month_sort`)
+			 FROM "Accounts" WHERE %s
+			 GROUP BY DATE_TRUNC('month',"Account Created Date") ORDER BY month_sort`, pgWhere))
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -373,10 +461,20 @@ func salesCustomers(db *core.DB) http.HandlerFunc {
 func salesTargetList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		period := qstr(r, "period")
+		from   := qstr(r, "from")
+		to     := qstr(r, "to")
 		where, args := "WHERE 1=1", []any{}
 		if period != "" {
 			where += fmt.Sprintf(" AND st.period=$%d", len(args)+1)
 			args = append(args, period)
+		}
+		if from != "" {
+			where += fmt.Sprintf(" AND st.updated_at::date >= $%d::date", len(args)+1)
+			args = append(args, from)
+		}
+		if to != "" {
+			where += fmt.Sprintf(" AND st.updated_at::date <= $%d::date", len(args)+1)
+			args = append(args, to)
 		}
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT st.id, st.user_id, u.full_name, u.email, st.period,
@@ -450,6 +548,8 @@ func salesTargetDelete(db *core.DB) http.HandlerFunc {
 func salesTargetActuals(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		period := qstr(r, "period")
+		from   := qstr(r, "from")
+		to     := qstr(r, "to")
 		periodExpr := "DATE_TRUNC('month', NOW())"
 		if period != "" && period != "current" {
 			periodExpr = fmt.Sprintf("DATE_TRUNC('month', '%s-01'::date)", period)
@@ -466,11 +566,13 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			LEFT JOIN loan_applications a
 			    ON a.created_by_user_id=u.id
 			    AND DATE_TRUNC('month',a.created_at)=%s
+			    AND ($1 = '' OR a.created_at::date >= $1::date)
+			    AND ($2 = '' OR a.created_at::date <= $2::date)
 			    AND a.stage NOT IN ('withdrawn')
 			WHERE u.role IN ('sales_officer','sales_head','bd_officer','bd_head')
 			  AND u.deleted_at IS NULL
 			GROUP BY u.id, u.full_name, t.loan_count, t.disbursement_kobo
-			ORDER BY actual_kobo DESC`, periodExpr, periodExpr))
+			ORDER BY actual_kobo DESC`, periodExpr, periodExpr), from, to)
 		if err != nil { respondErr(w, 500, "DB error"); return }
 		if rows == nil { rows = []core.Row{} }
 		respond(w, rows, "pg")

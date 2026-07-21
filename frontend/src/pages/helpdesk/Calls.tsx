@@ -13,8 +13,6 @@ import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, today, monthStart } from '../../lib/fmt'
 import { NAVY, BLUE, PURPLE, GREEN, RED, AMBER, NUM, SORA, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
-import { useATVoice } from '../../hooks/useATVoice'
-import type { ATCallState } from '../../lib/atVoice'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -184,137 +182,75 @@ function OutcomeDonut({ rows }: { rows: CallLog[] }) {
   )
 }
 
-// ── Live Dialer (AT WebRTC) ───────────────────────────────────────────────────
+// ── Zoho Sync Bar ─────────────────────────────────────────────────────────────
 
-function fmtTimer(secs: number): string {
-  const m = Math.floor(secs / 60)
-  const s = secs % 60
-  return `${m}:${s.toString().padStart(2, '0')}`
+interface ZohoSyncStatus {
+  configured: boolean
+  last_sync_at: string | null
+  total_imported: number
 }
 
-function statusDot(state: ATCallState) {
-  if (state.type === 'reconnecting') return { color: AMBER, label: 'Reconnecting…' }
-  if (state.type === 'calling')      return { color: AMBER, label: 'Dialing…' }
-  if (state.type === 'active')       return { color: GREEN, label: `In Call · ${fmtTimer(state.elapsed)}` }
-  if (state.type === 'incoming')     return { color: GREEN, label: 'Incoming call' }
-  if (state.type === 'ready')        return { color: GREEN, label: 'Ready' }
-  return { color: 'var(--txt3)', label: 'Starting…' }
-}
+function ZohoSyncBar({ onSynced }: { onSynced: () => void }) {
+  const [status, setStatus] = useState<ZohoSyncStatus | null>(null)
+  const [syncing, setSyncing] = useState(false)
 
-function LiveDialer({ onCallLogged }: { onCallLogged: () => void }) {
-  const { state, configured, call, acceptIncoming, hangup } = useATVoice()
-  const [phone, setPhone] = useState('')
-  const [calling, setCalling] = useState(false)
+  const fetchStatus = useCallback(() => {
+    apiFetch<ZohoSyncStatus>('/api/zoho/sync-status').then(setStatus).catch(() => {})
+  }, [])
 
-  if (!configured) return null
+  useEffect(() => { fetchStatus() }, [fetchStatus])
 
-  const isIdle     = state.type === 'idle' || state.type === 'ready'
-  const isActive   = state.type === 'calling' || state.type === 'active'
-  const isIncoming = state.type === 'incoming'
-  const dot        = statusDot(state)
+  if (!status?.configured) return null
 
-  async function handleCall() {
-    const num = phone.trim()
-    if (!num) { toast.error('Enter a phone number first'); return }
-    setCalling(true)
+  async function handleSync() {
+    setSyncing(true)
     try {
-      await call(num)
+      const res = await apiPost<{ imported: number; skipped: number; failed: number }>(
+        '/api/zoho/voice/import-logs', {}
+      )
+      toast.success(`Synced ${res.imported} new call${res.imported !== 1 ? 's' : ''} from Zoho Voice`)
+      fetchStatus()
+      onSynced()
     } catch (e: any) {
-      toast.error(e?.message ?? 'Call failed')
+      toast.error(e.message ?? 'Zoho sync failed')
     } finally {
-      setCalling(false)
+      setSyncing(false)
     }
-  }
-
-  async function handleHangup() {
-    hangup()
-    // Prompt agent to log the call after hanging up
-    onCallLogged()
   }
 
   return (
     <div style={{
-      background: 'var(--card)', border: `1px solid ${isActive ? GREEN + '40' : isIncoming ? GREEN + '60' : 'var(--bdr)'}`,
-      borderRadius: RADIUS.lg, padding: '14px 18px', marginBottom: SP[4],
-      display: 'flex', alignItems: 'center', gap: SP[4], flexWrap: 'wrap',
-      boxShadow: isIncoming ? `0 0 0 3px ${GREEN}25` : undefined,
-      transition: 'border-color 0.2s, box-shadow 0.2s',
+      background: 'var(--card)', border: '1px solid var(--bdr)',
+      borderRadius: RADIUS.lg, padding: '10px 16px', marginBottom: SP[4],
+      display: 'flex', alignItems: 'center', gap: SP[3], flexWrap: 'wrap',
     }}>
-      {/* Status */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], minWidth: 140 }}>
-        <div style={{ width: 8, height: 8, borderRadius: '50%', background: dot.color, flexShrink: 0,
-          boxShadow: isActive || isIncoming ? `0 0 0 3px ${dot.color}30` : undefined }} />
-        <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: dot.color }}>{dot.label}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: GREEN, flexShrink: 0 }} />
+        <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>Zoho Voice</span>
       </div>
-
-      {/* Incoming call banner */}
-      {isIncoming && state.type === 'incoming' && (
-        <>
-          <span style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.semibold }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, verticalAlign: 'middle', marginRight: 4 }}>call_received</span>
-            {state.phone}
-          </span>
-          <button onClick={acceptIncoming}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 14px', background: GREEN, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>call</span>
-            Accept
-          </button>
-          <button onClick={hangup}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 14px', background: RED, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>call_end</span>
-            Decline
-          </button>
-        </>
+      <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+        {status.total_imported.toLocaleString()} calls imported
+      </span>
+      {status.last_sync_at && (
+        <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>
+          · Last synced {relativeTime(status.last_sync_at)} · Auto-syncs hourly
+        </span>
       )}
-
-      {/* Active call */}
-      {isActive && (
-        <>
-          {state.type === 'active' || state.type === 'calling' ? (
-            <span style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.semibold, ...NUM }}>
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, verticalAlign: 'middle', marginRight: 4 }}>call</span>
-              {state.phone}
-              {state.type === 'active' && (
-                <span style={{ marginLeft: 8, fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.bold }}>{fmtTimer(state.elapsed)}</span>
-              )}
-            </span>
-          ) : null}
-          <button onClick={handleHangup}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 14px', background: RED, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>call_end</span>
-            Hang up
-          </button>
-        </>
-      )}
-
-      {/* Idle — show dial pad */}
-      {isIdle && (
-        <>
-          <div style={{ display: 'flex', gap: 6, flex: 1, minWidth: 220, maxWidth: 340 }}>
-            <input
-              value={phone}
-              onChange={e => setPhone(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleCall()}
-              placeholder="Phone number, e.g. +2348012345678"
-              style={{
-                flex: 1, height: 36, padding: '0 10px', border: '1px solid var(--input-bdr)',
-                borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
-                fontFamily: SORA,
-              }}
-            />
-            <button onClick={handleCall} disabled={calling}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '0 14px', height: 36,
-                background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold,
-                cursor: calling ? 'wait' : 'pointer', opacity: calling ? 0.7 : 1 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>call</span>
-              Call
-            </button>
-          </div>
-          <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 'auto' }}>
-            AT WebRTC · Calls log automatically
-          </span>
-        </>
-      )}
+      <div style={{ flex: 1 }} />
+      <button onClick={handleSync} disabled={syncing}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5,
+          padding: '6px 13px', background: `${NAVY}0D`,
+          color: NAVY, border: `1px solid ${NAVY}20`, borderRadius: RADIUS.md,
+          fontSize: TEXT.sm, fontWeight: FW.semibold,
+          cursor: syncing ? 'wait' : 'pointer', opacity: syncing ? 0.7 : 1,
+        }}>
+        {syncing
+          ? <Spinner size={13} />
+          : <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>sync</span>
+        }
+        {syncing ? 'Syncing…' : 'Sync Now'}
+      </button>
     </div>
   )
 }
@@ -548,8 +484,8 @@ export default function Calls() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      {/* Live dialer — only renders when AT_API_KEY / AT_USERNAME are set on the server */}
-      <LiveDialer onCallLogged={() => setLogOpen(true)} />
+      {/* Zoho sync bar — only renders when Zoho credentials are configured */}
+      <ZohoSyncBar onSynced={load} />
 
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: SP[3], marginBottom: SP[4] }}>

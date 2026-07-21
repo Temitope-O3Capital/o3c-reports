@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  ErrBanner,
+  ErrBanner, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDate } from '../../lib/fmt'
+import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, RED, GREEN, AMBER } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -52,32 +52,26 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function KYCExpiry() {
   const [items, setItems] = useState<KYCExpiry[]>([])
-  const [filtered, setFiltered] = useState<KYCExpiry[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [horizon, setHorizon] = useState('30')
-  const [search, setSearch] = useState('')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo, setDateTo] = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const qs = horizon === 'expired' ? 'horizon_days=0' : `horizon_days=${horizon}`
-      const data = await apiFetch<KYCExpiry[]>(`/api/compliance/kyc-expiry?${qs}`)
+      const p = new URLSearchParams()
+      p.set(horizon === 'expired' ? 'horizon_days' : 'horizon_days', horizon === 'expired' ? '0' : horizon)
+      if (dateFrom) p.set('from', dateFrom)
+      if (dateTo)   p.set('to', dateTo)
+      const data = await apiFetch<KYCExpiry[]>(`/api/compliance/kyc-expiry?${p}`)
       setItems(Array.isArray(data) ? data : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [horizon])
+  }, [horizon, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-
-  useEffect(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) { setFiltered(items); return }
-    setFiltered(items.filter(r =>
-      r.customer_name.toLowerCase().includes(q) ||
-      r.cif.toLowerCase().includes(q)
-    ))
-  }, [items, search])
 
   const cols: TableCol<KYCExpiry>[] = [
     {
@@ -115,39 +109,38 @@ export default function KYCExpiry() {
       title="KYC Expiry Monitor"
       subtitle="Customers with KYC documents expiring within the selected horizon"
       actions={
-        <button
-          onClick={() => window.open('/api/compliance/kyc-expiry/export?horizon_days=' + (horizon === 'expired' ? '0' : horizon))}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>download</span>
-          Export CSV
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button
+            onClick={() => window.open('/api/compliance/kyc-expiry/export?horizon_days=' + (horizon === 'expired' ? '0' : horizon))}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>download</span>
+            Export CSV
+          </button>
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <FilterBar onReset={() => { setHorizon('30'); setSearch('') }}>
+      <FilterBar onReset={() => setHorizon('30')}>
         <select value={horizon} onChange={e => setHorizon(e.target.value)} style={filterInputStyle}>
           <option value="30">30 days</option>
           <option value="60">60 days</option>
           <option value="90">90 days</option>
           <option value="expired">Expired</option>
         </select>
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search by name or CIF…"
-          style={filterInputStyle}
-        />
       </FilterBar>
 
-      <SectionCard title="KYC Documents" badge={filtered.length} padding={false}>
+      <SectionCard title="KYC Documents" badge={items.length} padding={false}>
         <DataTable<KYCExpiry>
           cols={cols}
-          rows={filtered}
+          rows={items}
           keyFn={r => r.id}
           emptyText="No KYC documents expiring within this horizon"
           skeletonRows={loading ? 5 : 0}
+          searchKeys={['customer_name', 'kyc_type']}
+          searchPlaceholder="Search by name or KYC type…"
           pageSize={20}
         />
       </SectionCard>

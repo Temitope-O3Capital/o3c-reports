@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, Spinner, Modal } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, Spinner, Modal, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKobo, fmtDate } from '../../lib/fmt'
+import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -76,6 +76,9 @@ export default function AgentDashboard() {
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState<string | null>(null)
 
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
+
   // Log-contact modal
   const [logRow,       setLogRow]       = useState<QueueRow | null>(null)
   const [contactType,  setContactType]  = useState('call')
@@ -85,16 +88,17 @@ export default function AgentDashboard() {
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
+    const qs = `?from=${dateFrom}&to=${dateTo}`
     try {
       const [aRes, qRes] = await Promise.all([
-        apiFetch<{ data: AgentRow[] }>('/api/collections-ops/agent-dashboard'),
-        apiFetch<{ data: QueueRow[] }>('/api/collections-ops/queue?limit=100'),
+        apiFetch<{ data: AgentRow[] }>(`/api/collections-ops/agent-dashboard${qs}`),
+        apiFetch<{ data: QueueRow[] }>(`/api/collections-ops/queue?limit=100&from=${dateFrom}&to=${dateTo}`),
       ])
       setAgents(Array.isArray(aRes.data) ? aRes.data : [])
       setQueue(Array.isArray(qRes.data) ? qRes.data : [])
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -195,7 +199,13 @@ export default function AgentDashboard() {
   )
 
   return (
-    <Page title="Collections Agent Dashboard" subtitle="Agent performance and account queue">
+    <Page
+      title="Collections Agent Dashboard"
+      subtitle="Agent performance and account queue"
+      actions={
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+      }
+    >
       <ErrBanner error={error} onRetry={load} />
 
       {/* Summary tiles */}
@@ -219,6 +229,8 @@ export default function AgentDashboard() {
           loading={loading}
           skeletonRows={6}
           emptyText="No agent data"
+          searchKeys={['full_name']}
+          searchPlaceholder="Search agent…"
         />
       </SectionCard>
 
@@ -232,6 +244,8 @@ export default function AgentDashboard() {
           skeletonRows={8}
           emptyText="No accounts in queue"
           pageSize={20}
+          searchKeys={['account_cif', 'agent_name', 'dpd_bucket']}
+          searchPlaceholder="Search CIF, agent, DPD…"
         />
       </SectionCard>
 

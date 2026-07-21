@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, SearchInput } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtDate } from '../../lib/fmt'
+import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -206,19 +206,21 @@ export default function CardsDisputes() {
   const [search,  setSearch]  = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [sel, setSel] = useState<Set<string | number>>(new Set())
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const data = await apiFetch<Dispute[]>('/api/cards/disputes')
+      const data = await apiFetch<Dispute[]>(`/api/cards/disputes?from=${dateFrom}&to=${dateTo}`)
       setRows(Array.isArray(data) ? data : [])
     } catch (e: any) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -264,13 +266,16 @@ export default function CardsDisputes() {
       title="Disputes"
       subtitle="Card dispute tracking and resolution workflow"
       actions={
-        <button onClick={() => setShowNew(true)} style={{
-          display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: RADIUS.lg,
-          border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
-        }}>
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
-          File Dispute
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => setShowNew(true)} style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: RADIUS.lg,
+            border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
+            File Dispute
+          </button>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />

@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDatetime, fmtNum } from '../../lib/fmt'
+import { fmtDatetime, fmtNum, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -125,14 +125,16 @@ export default function AdminMailHealth() {
   const [deliverability, setDeliverability] = useState<Deliverability | null>(null)
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState<string | null>(null)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       const [m, s, d] = await Promise.allSettled([
-        apiFetch<MailMetrics>('/api/mail/metrics'),
-        apiFetch<Suppression[]>('/api/mail/suppressions'),
+        apiFetch<MailMetrics>(`/api/mail/metrics?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<Suppression[]>(`/api/mail/suppressions?from=${dateFrom}&to=${dateTo}`),
         apiFetch<Deliverability>('/api/mail/deliverability'),
       ])
       if (m.status === 'fulfilled') setMetrics(m.value)
@@ -143,12 +145,14 @@ export default function AdminMailHealth() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
   return (
-    <Page back={{ label: 'Admin', to: '/admin' }} title="Mail Health" subtitle="SendGrid delivery metrics, deliverability, and suppressions">
+    <Page back={{ label: 'Admin', to: '/admin' }} title="Mail Health" subtitle="SendGrid delivery metrics, deliverability, and suppressions"
+      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
+    >
       <ErrBanner error={error} onRetry={load} />
 
       {/* Metrics strip */}
@@ -199,6 +203,7 @@ export default function AdminMailHealth() {
           keyFn={r => r.email}
           loading={loading}
           emptyText="No suppressions found"
+          searchKeys={['email', 'source', 'reason']}
         />
       </SectionCard>
     </Page>

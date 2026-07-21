@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  Modal, ConfirmModal, ErrBanner, Spinner, Tabs, StatusBadge, btnPrimary,
+  Modal, ConfirmModal, ErrBanner, Spinner, Tabs, StatusBadge, btnPrimary, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtDate, fmtKobo } from '../../lib/fmt'
+import { fmtDate, fmtKobo, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 import type { AuthUser } from '../../hooks/useAuth'
@@ -63,6 +63,9 @@ export default function Employees() {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
+
   const [deptFilter, setDeptFilter]     = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [gradeFilter, setGradeFilter]   = useState('')
@@ -85,6 +88,8 @@ export default function Employees() {
       if (deptFilter)   p.set('department_id', deptFilter)
       if (statusFilter) p.set('status', statusFilter)
       if (gradeFilter)  p.set('grade_level_id', gradeFilter)
+      p.set('from', dateFrom)
+      p.set('to', dateTo)
       const [emps, ds, gs] = await Promise.all([
         apiFetch<{ data: Employee[] }>(`/api/hr/employees?${p}`),
         apiFetch<{ data: Department[] }>('/api/hr/departments'),
@@ -95,7 +100,7 @@ export default function Employees() {
       setGrades(Array.isArray(gs.data) ? gs.data : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [deptFilter, statusFilter, gradeFilter])
+  }, [deptFilter, statusFilter, gradeFilter, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -192,12 +197,15 @@ export default function Employees() {
       title="Employees"
       subtitle="Employee directory and records"
       actions={
-        canManage ? (
-          <button onClick={() => { setForm(BLANK); setAddOpen(true) }} style={btnPrimary}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>person_add</span>
-            Add Employee
-          </button>
-        ) : undefined
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          {canManage && (
+            <button onClick={() => { setForm(BLANK); setAddOpen(true) }} style={btnPrimary}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>person_add</span>
+              Add Employee
+            </button>
+          )}
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />

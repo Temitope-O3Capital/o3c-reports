@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDatetime, fmtNum } from '../../lib/fmt'
+import { fmtDatetime, fmtNum, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, NUM, INTER, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -68,19 +68,21 @@ export default function AdminSyncStatus() {
   const [rows,    setRows]    = useState<SyncRun[]>([])
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const data = await apiFetch<SyncRun[]>('/api/settings/sync-status')
+      const data = await apiFetch<SyncRun[]>(`/api/settings/sync-status?from=${dateFrom}&to=${dateTo}`)
       setRows(Array.isArray(data) ? data : [])
     } catch (e: any) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -108,13 +110,16 @@ export default function AdminSyncStatus() {
       title="Sync Status"
       subtitle="MSSQL → PostgreSQL sync run history"
       actions={
-        <button onClick={triggerSync} style={{
-          display: 'flex', alignItems: 'center', gap: SP[1], padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,
-          border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
-        }}>
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>sync</span>
-          Log Sync Run
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={triggerSync} style={{
+            display: 'flex', alignItems: 'center', gap: SP[1], padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,
+            border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>sync</span>
+            Log Sync Run
+          </button>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />
@@ -135,7 +140,7 @@ export default function AdminSyncStatus() {
       </div>
 
       <SectionCard title="Run History" badge={rows.length} padding={false}>
-        <DataTable cols={COLS} rows={rows} keyFn={r => r.id} loading={loading} emptyText="No sync runs recorded" />
+        <DataTable cols={COLS} rows={rows} keyFn={r => r.id} loading={loading} emptyText="No sync runs recorded" searchKeys={['status']} />
       </SectionCard>
     </Page>
   )

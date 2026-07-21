@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, ErrBanner, Spinner } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Spinner, DateFilter } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo } from '../../lib/fmt'
+import { fmtKobo, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, NUM, INTER } from '../../lib/design'
 
 interface ConcentrationData {
@@ -32,15 +32,20 @@ export default function ConcentrationRisk() {
   const [data,    setData]    = useState<ConcentrationData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const res = await apiFetch<ConcentrationData>('/api/compliance/concentration-risk')
+      const p = new URLSearchParams()
+      if (dateFrom) p.set('from', dateFrom)
+      if (dateTo)   p.set('to', dateTo)
+      const res = await apiFetch<ConcentrationData>(`/api/compliance/concentration-risk?${p}`)
       setData(res)
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -55,6 +60,9 @@ export default function ConcentrationRisk() {
     <Page
       title="Concentration Risk"
       subtitle="CBN-required obligor, sector, and employer concentration metrics"
+      actions={
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+      }
     >
       <ErrBanner error={error} onRetry={load} />
 

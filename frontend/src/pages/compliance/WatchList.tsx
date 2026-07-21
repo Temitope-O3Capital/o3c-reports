@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  Modal, ConfirmModal, ErrBanner, Spinner, btnPrimary,
+  Modal, ConfirmModal, ErrBanner, Spinner, btnPrimary, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtDate } from '../../lib/fmt'
+import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -58,6 +58,8 @@ export default function Watchlist() {
   const [err, setErr] = useState<string | null>(null)
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo, setDateTo] = useState(today())
 
   const [addOpen, setAddOpen] = useState(false)
   const [form, setForm] = useState(BLANK)
@@ -71,11 +73,13 @@ export default function Watchlist() {
       const p = new URLSearchParams()
       if (typeFilter)   p.set('entity_type', typeFilter)
       if (statusFilter) p.set('is_active', statusFilter)
+      if (dateFrom) p.set('from', dateFrom)
+      if (dateTo)   p.set('to', dateTo)
       const data = await apiFetch<WatchEntry[]>(`/api/compliance/watch-list?${p}`)
       setEntries(Array.isArray(data) ? data : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [typeFilter, statusFilter])
+  }, [typeFilter, statusFilter, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -168,10 +172,13 @@ export default function Watchlist() {
       title="AML Watchlist"
       subtitle="PEP, sanctions, and internal watchlist entries"
       actions={
-        <button onClick={() => { setForm(BLANK); setAddOpen(true) }} style={btnPrimary}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
-          Add Entry
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => { setForm(BLANK); setAddOpen(true) }} style={btnPrimary}>
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+            Add Entry
+          </button>
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />

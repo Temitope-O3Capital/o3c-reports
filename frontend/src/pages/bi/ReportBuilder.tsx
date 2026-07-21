@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Page, SectionCard, ErrBanner, Spinner, btnPrimary, btnSecondary } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Spinner, btnPrimary, btnSecondary, DateFilter } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { GREEN, AMBER, RED, NAVY, BLUE, NUM, INTER, MONO, FW, RADIUS, SP, TEXT } from '../../lib/design'
-import { fmtKobo, fmtNum } from '../../lib/fmt'
+import { fmtKobo, fmtNum, monthStart, today } from '../../lib/fmt'
 import { toast } from 'sonner'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -106,6 +106,8 @@ export default function ReportBuilder() {
   const [isPublic,   setIsPublic]   = useState(false)
   const [fromDate,   setFromDate]   = useState('')
   const [toDate,     setToDate]     = useState('')
+  const [dateFrom,   setDateFrom]   = useState(monthStart())
+  const [dateTo,     setDateTo]     = useState(today())
 
   const [preview,    setPreview]    = useState<Row[] | null>(null)
   const [running,    setRunning]    = useState(false)
@@ -176,6 +178,7 @@ export default function ReportBuilder() {
       title={id ? 'Edit Report' : 'New Report'}
       subtitle="Define module, date range, and metrics — then preview and save"
       back={{ label: 'All Reports', to: '/bi' }}
+      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
     >
       <ErrBanner error={error} onRetry={() => setError(null)} />
 

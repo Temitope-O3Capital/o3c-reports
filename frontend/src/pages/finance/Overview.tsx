@@ -3,7 +3,7 @@ import {
   ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell, Tooltip,
   XAxis, YAxis, CartesianGrid,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Tabs, Sk } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Tabs, Sk, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
@@ -144,6 +144,8 @@ export default function FinanceOverview() {
   const [tab, setTab] = useState('overview')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo, setDateTo] = useState(today())
 
   const [eod, setEod] = useState<EODSummary | null>(null)
   const [fd, setFd] = useState<FDSummary | null>(null)
@@ -155,8 +157,8 @@ export default function FinanceOverview() {
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
-    const from = monthStart()
-    const to = today()
+    const from = dateFrom
+    const to = dateTo
     try {
       const [eodRes, fdRes, trendRes, prodRes, txnRes, treasuryRes] = await Promise.allSettled([
         apiFetch<EODSummary>(`/api/eod/summary?date_from=${from}&date_to=${to}`),
@@ -177,7 +179,7 @@ export default function FinanceOverview() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -188,7 +190,11 @@ export default function FinanceOverview() {
   const totalVolume = eod?.total_volume ?? 0
 
   return (
-    <Page title="Finance" subtitle={eod ? `${fmtNum(eod.active_accounts)} active accounts · ${fmtNum(eod.txn_count)} transactions this period` : undefined}>
+    <Page title="Finance" subtitle={eod ? `${fmtNum(eod.active_accounts)} active accounts · ${fmtNum(eod.txn_count)} transactions this period` : undefined}
+      actions={
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+      }
+    >
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip */}

@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  ErrBanner, Spinner, KpiCard,
+  ErrBanner, Spinner, KpiCard, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDatetime, fmtNum } from '../../lib/fmt'
+import { fmtDatetime, fmtNum, monthStart, today } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, BLUE, PURPLE, RED, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 const C360 = lazy(() => import('../../components/C360Drawer'))
@@ -83,6 +83,9 @@ export default function CRMContacts() {
   const [kpis, setKpis]         = useState<ContactKPIs | null>(null)
   const [kpiLoading, setKpiLoading] = useState(true)
 
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
+
   const [statusFilter, setStatusFilter]     = useState('')
   const [sourceFilter, setSourceFilter]     = useState('')
   const [assigneeFilter, setAssigneeFilter] = useState('')
@@ -96,6 +99,8 @@ export default function CRMContacts() {
       if (statusFilter)   p.set('status',      statusFilter)
       if (sourceFilter)   p.set('source',       sourceFilter)
       if (assigneeFilter) p.set('assigned_to',  assigneeFilter)
+      if (dateFrom)       p.set('from',          dateFrom)
+      if (dateTo)         p.set('to',            dateTo)
 
       const [res, us] = await Promise.all([
         apiFetch<{ data: Contact[]; total: number }>(`/api/crm/contacts?${p}`),
@@ -106,17 +111,17 @@ export default function CRMContacts() {
       setUsers(Array.isArray(us) ? us : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [statusFilter, sourceFilter, assigneeFilter])
+  }, [statusFilter, sourceFilter, assigneeFilter, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
     setKpiLoading(true)
-    apiFetch<{ data: ContactKPIs }>('/api/sales/contact-kpis')
+    apiFetch<{ data: ContactKPIs }>(`/api/sales/contact-kpis?from=${dateFrom}&to=${dateTo}`)
       .then(r => setKpis(r.data))
       .catch(() => {})
       .finally(() => setKpiLoading(false))
-  }, [])
+  }, [dateFrom, dateTo])
 
   function exportContactsCsv(data: Contact[]) {
     const header = ['CIF', 'First Name', 'Last Name', 'Email', 'Phone', 'Source', 'Status', 'Assigned', 'Updated At']
@@ -170,7 +175,9 @@ export default function CRMContacts() {
   ]
 
   return (
-    <Page title="CRM Contacts" subtitle={`${fmtNum(total)} total contacts`}>
+    <Page title="CRM Contacts" subtitle={`${fmtNum(total)} total contacts`}
+      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
+    >
       <ErrBanner error={err} onRetry={load} />
 
       {/* KPI cards */}

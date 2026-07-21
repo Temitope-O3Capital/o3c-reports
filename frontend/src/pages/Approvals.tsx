@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, DataTable, ErrBanner, KpiCard } from '../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, KpiCard, DateFilter } from '../components/UI'
 import type { TableCol } from '../components/UI'
 import { apiFetch, apiPost } from '../lib/api'
-import { fmtKobo, fmtNum } from '../lib/fmt'
+import { fmtKobo, fmtNum, monthStart, today } from '../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM, TEXT, FW, RADIUS, SP } from '../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -82,19 +82,21 @@ export default function Approvals() {
   const [moduleFilter, setModuleFilter] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [batchBusy, setBatchBusy] = useState(false)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
       const [pending, summ] = await Promise.all([
-        apiFetch<ApprovalItem[]>('/api/approvals/pending'),
-        apiFetch<Summary>('/api/approvals/summary'),
+        apiFetch<ApprovalItem[]>(`/api/approvals/pending?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<Summary>(`/api/approvals/summary?from=${dateFrom}&to=${dateTo}`),
       ])
       setItems(Array.isArray(pending) ? pending : [])
       setSummary(summ)
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -193,6 +195,7 @@ export default function Approvals() {
     <Page
       title="Approvals"
       subtitle={summary ? `${fmtNum(summary.total)} items awaiting your action` : undefined}
+      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
     >
       <ErrBanner error={err} onRetry={load} />
 
@@ -264,6 +267,7 @@ export default function Approvals() {
           keyFn={(r, i) => `${r.module}-${r.item_id}-${i}`}
           emptyText={loading ? '' : 'No items pending your approval.'}
           skeletonRows={loading ? 8 : 0}
+          searchKeys={['title', 'module', 'requested_by']}
           onRowClick={r => {
             const route = MODULE_ROUTES[r.module]
             if (route) navigate(route(r.item_id))

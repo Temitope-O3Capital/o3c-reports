@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Page, SectionCard, ErrBanner, Spinner, Modal, DataTable,
+  Page, SectionCard, ErrBanner, Spinner, Modal, DataTable, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { GREEN, AMBER, RED, NAVY, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { monthStart, today } from '../../lib/fmt'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -72,6 +73,8 @@ export default function SalesTargets() {
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState<string | null>(null)
   const [period,   setPeriod]   = useState(currentPeriod)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
   const [showForm, setShowForm] = useState(false)
   const [saving,   setSaving]   = useState(false)
 
@@ -85,8 +88,8 @@ export default function SalesTargets() {
     setLoading(true); setError(null)
     try {
       const [act, tgt, usr] = await Promise.all([
-        apiFetch<{ data: Actual[] }>(`/api/sales/targets/actuals?period=${period}`),
-        apiFetch<{ data: SalesTarget[] }>(`/api/sales/targets?period=${period}`),
+        apiFetch<{ data: Actual[] }>(`/api/sales/targets/actuals?period=${period}&from=${dateFrom}&to=${dateTo}`),
+        apiFetch<{ data: SalesTarget[] }>(`/api/sales/targets?period=${period}&from=${dateFrom}&to=${dateTo}`),
         apiFetch<{ data: User[] }>('/api/admin/users'),
       ])
       setActuals(act?.data ?? [])
@@ -96,7 +99,7 @@ export default function SalesTargets() {
       ))
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
-  }, [period])
+  }, [period, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -171,6 +174,7 @@ export default function SalesTargets() {
       subtitle={`Performance vs targets — ${period}`}
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           <input type="month" value={period} onChange={e => setPeriod(e.target.value)}
             style={{ padding: '7px 10px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: INTER }} />
           <button onClick={() => setShowForm(true)}
@@ -207,6 +211,8 @@ export default function SalesTargets() {
             rows={leaderboard}
             keyFn={r => r.user_id}
             emptyText="No targets set for this period"
+            searchKeys={['full_name']}
+            searchPlaceholder="Search officer…"
           />
         </SectionCard>
       )}

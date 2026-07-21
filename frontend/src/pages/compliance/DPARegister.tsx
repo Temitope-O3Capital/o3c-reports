@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, ErrBanner, Spinner, Modal, btnPrimary, btnSecondary } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Spinner, Modal, btnPrimary, btnSecondary, DateFilter } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDatetime } from '../../lib/fmt'
+import { fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, BLUE, INTER } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -68,6 +68,9 @@ export default function DPARegister() {
   const [showNew, setShowNew] = useState(false)
   const [selected, setSelected] = useState<DPAEntry | null>(null)
   const [saving,  setSaving]  = useState(false)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
+  const [search,   setSearch]   = useState('')
 
   const [fName,       setFName]       = useState('')
   const [fPurpose,    setFPurpose]    = useState('')
@@ -81,11 +84,14 @@ export default function DPARegister() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const res = await apiFetch<DPAEntry[]>('/api/compliance/dpa-register')
+      const p = new URLSearchParams()
+      if (dateFrom) p.set('from', dateFrom)
+      if (dateTo)   p.set('to', dateTo)
+      const res = await apiFetch<DPAEntry[]>(`/api/compliance/dpa-register?${p}`)
       setItems(res ?? [])
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -132,7 +138,12 @@ export default function DPARegister() {
     <Page
       title="Data Processing Register"
       subtitle="NDPR Article 4.1 / FCCPC compliance — inventory of personal data processing activities"
-      actions={<button onClick={() => setShowNew(true)} style={btnPrimary}>+ Add Activity</button>}
+      actions={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => setShowNew(true)} style={btnPrimary}>+ Add Activity</button>
+        </div>
+      }
     >
       <ErrBanner error={error} onRetry={load} />
 
@@ -140,6 +151,14 @@ export default function DPARegister() {
         <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner size={32} /></div>
       ) : (
         <SectionCard title="Processing Activities" badge={items.length} padding={false}>
+          <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--bdr)' }}>
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search by activity name or recipients…"
+              style={{ ...inp, maxWidth: 340 }}
+            />
+          </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
               <thead>
@@ -150,7 +169,11 @@ export default function DPARegister() {
                 </tr>
               </thead>
               <tbody>
-                {items.map(row => (
+                {items.filter(row => {
+                  if (!search.trim()) return true
+                  const q = search.trim().toLowerCase()
+                  return row.processing_name.toLowerCase().includes(q) || (row.recipients ?? '').toLowerCase().includes(q)
+                }).map(row => (
                   <tr key={row.id} style={{ background: 'transparent' }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}

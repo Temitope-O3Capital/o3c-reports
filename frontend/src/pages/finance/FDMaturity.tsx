@@ -1,12 +1,10 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, filterInputStyle, SearchInput } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, filterInputStyle, SearchInput, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtPct, today } from '../../lib/fmt'
+import { fmtKobo, fmtDate, fmtPct, today, monthStart } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
-
-void today
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -189,13 +187,15 @@ export default function FinanceFDMaturity() {
   const [horizon, setHorizon] = useState('30')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       // Fetch all active FD inflows; filter client-side by maturity horizon
-      const res = await apiFetch<{ data: FDRecord[] }>('/api/fixed-deposit/transactions?transaction_type=inflow')
+      const res = await apiFetch<{ data: FDRecord[] }>(`/api/fixed-deposit/transactions?transaction_type=inflow&from=${dateFrom}&to=${dateTo}`)
       const data: FDRecord[] = res?.data ?? []
       // Filter to inflow records maturing within horizon (or all if horizon='0')
       const now = Date.now()
@@ -214,7 +214,7 @@ export default function FinanceFDMaturity() {
     } finally {
       setLoading(false)
     }
-  }, [horizon])
+  }, [horizon, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -265,12 +265,15 @@ export default function FinanceFDMaturity() {
       title="FD Maturity Calendar"
       subtitle={`${rows.length} FDs maturing · ${horizonLabel(horizon)} · Total: ${fmtKobo(totalPrincipal)}`}
       actions={
-        <select value={horizon} onChange={e => setHorizon(e.target.value)} style={filterInputStyle}>
-          <option value="30">Next 30 days</option>
-          <option value="60">Next 60 days</option>
-          <option value="90">Next 90 days</option>
-          <option value="0">All active</option>
-        </select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <select value={horizon} onChange={e => setHorizon(e.target.value)} style={filterInputStyle}>
+            <option value="30">Next 30 days</option>
+            <option value="60">Next 60 days</option>
+            <option value="90">Next 90 days</option>
+            <option value="0">All active</option>
+          </select>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />

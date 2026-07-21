@@ -3,11 +3,11 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, CartesianGrid, Tooltip, Legend, LabelList,
 } from 'recharts'
 import {
-  Page, SectionCard, DataTable, ErrBanner, Sk, Tabs, FilterBar, filterInputStyle, KpiCard,
+  Page, SectionCard, DataTable, ErrBanner, Sk, Tabs, FilterBar, filterInputStyle, KpiCard, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtCurrencyMinor, fmtKoboExact, fmtDate } from '../../lib/fmt'
+import { fmtCurrencyMinor, fmtKoboExact, fmtDate, monthStart, today } from '../../lib/fmt'
 import { GREEN, AMBER, RED, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -246,6 +246,8 @@ export default function FinanceIncome() {
   const [feeTypeFilter, setFeeTypeFilter] = useState('')
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState<string | null>(null)
+  const [dateFrom, setDateFrom]     = useState(monthStart())
+  const [dateTo, setDateTo]         = useState(today())
 
   // Load cycle dates
   useEffect(() => {
@@ -277,17 +279,18 @@ export default function FinanceIncome() {
   }, [selectedDate])
 
   const loadLoans = useCallback(() => {
-    apiFetch<LoanRow[]>('/api/finance/income/loans')
+    apiFetch<LoanRow[]>(`/api/finance/income/loans?date_from=${dateFrom}&date_to=${dateTo}`)
       .then(d => setLoans(d ?? []))
       .catch(() => {})
-  }, [])
+  }, [dateFrom, dateTo])
 
   const loadFees = useCallback(() => {
-    const params = feeTypeFilter ? `?fee_type=${feeTypeFilter}` : ''
-    apiFetch<FeeTypeResponse>(`/api/finance/income/fee-types${params}`)
+    const params = new URLSearchParams({ date_from: dateFrom, date_to: dateTo })
+    if (feeTypeFilter) params.set('fee_type', feeTypeFilter)
+    apiFetch<FeeTypeResponse>(`/api/finance/income/fee-types?${params}`)
       .then(d => setFeeData(d))
       .catch(() => {})
-  }, [feeTypeFilter])
+  }, [feeTypeFilter, dateFrom, dateTo])
 
   useEffect(() => { if (tab === 'loans') loadLoans() }, [tab, loadLoans])
   useEffect(() => { if (tab === 'fees') loadFees() }, [tab, loadFees])
@@ -322,15 +325,18 @@ export default function FinanceIncome() {
       title="Income Statement"
       subtitle="Cards · Loans · Fees"
       actions={
-        <select
-          value={selectedDate}
-          onChange={e => setSelectedDate(e.target.value)}
-          style={{ ...filterInputStyle, minWidth: 180 }}
-        >
-          {cycleDates.map(d => (
-            <option key={d} value={d}>Cycle: {fmtDate(d)}</option>
-          ))}
-        </select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <select
+            value={selectedDate}
+            onChange={e => setSelectedDate(e.target.value)}
+            style={{ ...filterInputStyle, minWidth: 180 }}
+          >
+            {cycleDates.map(d => (
+              <option key={d} value={d}>Cycle: {fmtDate(d)}</option>
+            ))}
+          </select>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={() => setError(null)} />

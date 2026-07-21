@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  Modal, ConfirmModal, ErrBanner, Spinner, StatusBadge, btnPrimary,
+  Modal, ConfirmModal, ErrBanner, Spinner, StatusBadge, btnPrimary, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtDate } from '../../lib/fmt'
+import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 import type { AuthUser } from '../../hooks/useAuth'
@@ -57,6 +57,9 @@ export default function Leave() {
   const [loading, setLoading]       = useState(true)
   const [err, setErr]               = useState<string | null>(null)
 
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
+
   const [typeFilter, setTypeFilter]     = useState('')
   const [statusFilter, setStatusFilter] = useState('')
 
@@ -78,6 +81,8 @@ export default function Leave() {
       const p = new URLSearchParams()
       if (typeFilter)   p.set('leave_type', typeFilter)
       if (statusFilter) p.set('status', statusFilter)
+      p.set('from', dateFrom)
+      p.set('to', dateTo)
       const [ls, ts] = await Promise.all([
         apiFetch<{ data: Leave[] }>(`/api/hr/leave?${p}`),
         apiFetch<{ data: LeaveType[] }>('/api/hr/leave-types'),
@@ -86,7 +91,7 @@ export default function Leave() {
       setLeaveTypes(Array.isArray(ts.data) ? ts.data : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [typeFilter, statusFilter])
+  }, [typeFilter, statusFilter, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -215,10 +220,13 @@ export default function Leave() {
       title="Leave Management"
       subtitle="Employee leave requests and approvals"
       actions={
-        <button onClick={() => { setForm(BLANK); setNewOpen(true) }} style={btnPrimary}>
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
-          New Request
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => { setForm(BLANK); setNewOpen(true) }} style={btnPrimary}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
+            New Request
+          </button>
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />

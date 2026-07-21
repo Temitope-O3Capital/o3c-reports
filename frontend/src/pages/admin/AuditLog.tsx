@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, SearchInput } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDatetime } from '../../lib/fmt'
+import { fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { NAVY, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -73,19 +73,21 @@ export default function AdminAuditLog() {
   const [search,  setSearch]  = useState('')
   const [pageFilter, setPageFilter] = useState('')
   const [limit, setLimit]     = useState(200)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const load = useCallback(async (lim = limit) => {
     setLoading(true)
     setError(null)
     try {
-      const data = await apiFetch<LogEntry[]>(`/api/admin/activity?limit=${lim}`)
+      const data = await apiFetch<LogEntry[]>(`/api/admin/activity?limit=${lim}&from=${dateFrom}&to=${dateTo}`)
       setRows(Array.isArray(data) ? data : [])
     } catch (e: any) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [limit])
+  }, [limit, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -114,16 +116,19 @@ export default function AdminAuditLog() {
       title="Audit Log"
       subtitle="All platform activity — user actions, logins, data changes"
       actions={
-        <select
-          value={limit}
-          onChange={e => { setLimit(Number(e.target.value)); load(Number(e.target.value)) }}
-          style={{ padding: '7px 12px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}
-        >
-          <option value={100}>Last 100</option>
-          <option value={200}>Last 200</option>
-          <option value={500}>Last 500</option>
-          <option value={1000}>Last 1000</option>
-        </select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <select
+            value={limit}
+            onChange={e => { setLimit(Number(e.target.value)); load(Number(e.target.value)) }}
+            style={{ padding: '7px 12px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}
+          >
+            <option value={100}>Last 100</option>
+            <option value={200}>Last 200</option>
+            <option value={500}>Last 500</option>
+            <option value={1000}>Last 1000</option>
+          </select>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />

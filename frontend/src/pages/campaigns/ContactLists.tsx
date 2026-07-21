@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Page, SectionCard, DataTable, Modal, ConfirmModal,
-  ErrBanner, btnPrimary, btnSecondary, Spinner,
+  ErrBanner, btnPrimary, btnSecondary, Spinner, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch, apiPost, apiDelete, API, getCsrfToken } from '../../lib/api'
-import { fmtNum, fmtDatetime } from '../../lib/fmt'
+import { apiFetch, apiPost, apiPut, apiDelete, API, getCsrfToken } from '../../lib/api'
+import { fmtNum, fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { NAVY, GREEN, RED, AMBER, SORA, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { filterInputStyle } from '../../components/UI'
 import { toast } from 'sonner'
@@ -24,22 +24,12 @@ interface ContactList {
 interface Member {
   id: number
   cif_number?: string
-  contact_name?: string
   first_name?: string
   last_name?: string
   phone?: string
   email?: string
   added_at?: string
   created_at?: string
-}
-
-interface SearchResult {
-  cif_number: string
-  name?: string
-  first_name?: string
-  last_name?: string
-  phone?: string
-  email?: string
 }
 
 interface PreflightResult {
@@ -49,80 +39,136 @@ interface PreflightResult {
   errors?: string[]
 }
 
+// ── Shared input style ────────────────────────────────────────────────────────
+
+const lbl: React.CSSProperties = {
+  fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)',
+  display: 'block', marginBottom: 5, fontFamily: INTER,
+}
+const inp = (w = '100%'): React.CSSProperties => ({
+  ...filterInputStyle, width: w, boxSizing: 'border-box' as const,
+})
+
+// ── Empty contact form ────────────────────────────────────────────────────────
+
+const emptyForm = () => ({ firstName: '', lastName: '', phone: '', email: '', cifNumber: '' })
+
 // ── Member Drawer ──────────────────────────────────────────────────────────────
 
 function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose: () => void; canWrite: boolean }) {
-  const [members,    setMembers]    = useState<Member[]>([])
-  const [loading,    setLoading]    = useState(true)
-  const [err,        setErr]        = useState<string | null>(null)
-  const [search,     setSearch]     = useState('')
-  const [results,    setResults]    = useState<SearchResult[]>([])
-  const [searching,  setSearching]  = useState(false)
-  const [addErr,     setAddErr]     = useState<string | null>(null)
+  const [members,      setMembers]      = useState<Member[]>([])
+  const [loading,      setLoading]      = useState(true)
+  const [err,          setErr]          = useState<string | null>(null)
+  const [form,         setForm]         = useState(emptyForm())
+  const [adding,       setAdding]       = useState(false)
+  const [addErr,       setAddErr]       = useState<string | null>(null)
+  const [editTarget,   setEditTarget]   = useState<Member | null>(null)
+  const [editForm,     setEditForm]     = useState(emptyForm())
+  const [editSaving,   setEditSaving]   = useState(false)
+  const [editErr,      setEditErr]      = useState<string | null>(null)
   const [removeTarget, setRemoveTarget] = useState<Member | null>(null)
-  const [csvFile,    setCsvFile]    = useState<File | null>(null)
-  const [preflight,  setPreflight]  = useState<PreflightResult | null>(null)
-  const [uploading,  setUploading]  = useState(false)
+  const [csvFile,      setCsvFile]      = useState<File | null>(null)
+  const [preflight,    setPreflight]    = useState<PreflightResult | null>(null)
+  const [uploading,    setUploading]    = useState(false)
   const [showCsvModal, setShowCsvModal] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const loadMembers = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const data = await apiFetch<Member[]>(`/api/contact-lists/${list.id}/members`)
-      setMembers(Array.isArray(data) ? data : [])
+      const res = await apiFetch<{ data: Member[] } | Member[]>(`/api/contact-lists/${list.id}/members?limit=500`)
+      const arr = Array.isArray(res) ? res : ((res as any)?.data ?? [])
+      setMembers(Array.isArray(arr) ? arr : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
   }, [list.id])
 
   useEffect(() => { loadMembers() }, [loadMembers])
 
-  function triggerSearch(q: string) {
-    setSearch(q)
-    if (searchTimer.current) clearTimeout(searchTimer.current)
-    if (q.trim().length < 2) { setResults([]); return }
-    searchTimer.current = setTimeout(async () => {
-      setSearching(true)
-      try {
-        const data = await apiFetch<SearchResult[]>(`/api/contact-lists/${list.id}/search?q=${encodeURIComponent(q)}`)
-        setResults(Array.isArray(data) ? data : [])
-      } catch { setResults([]) }
-      finally { setSearching(false) }
-    }, 300)
+  function memberName(m: Member) {
+    return [m.first_name, m.last_name].filter(Boolean).join(' ') || m.cif_number || '—'
   }
 
-  async function addMember(cif: string) {
-    setAddErr(null)
+  // ── Add contact ──────────────────────────────────────────────────────────────
+
+  async function addContact() {
+    const payload: Record<string, string> = {}
+    if (form.firstName.trim()) payload.first_name = form.firstName.trim()
+    if (form.lastName.trim())  payload.last_name  = form.lastName.trim()
+    if (form.phone.trim())     payload.phone      = form.phone.trim()
+    if (form.email.trim())     payload.email      = form.email.trim()
+    if (form.cifNumber.trim()) payload.cif_number = form.cifNumber.trim()
+    if (Object.keys(payload).length === 0) {
+      setAddErr('Please fill in at least one field.')
+      return
+    }
+    setAdding(true); setAddErr(null)
     try {
-      await apiPost(`/api/contact-lists/${list.id}/members`, { cif_number: cif })
-      setSearch(''); setResults([])
-      toast.success('Member added')
+      await apiPost(`/api/contact-lists/${list.id}/members`, payload)
+      setForm(emptyForm())
+      toast.success('Contact added')
       loadMembers()
-    } catch (ex: any) { setAddErr(ex.message ?? 'Failed to add member') }
+    } catch (ex: any) { setAddErr(ex.message ?? 'Failed to add contact') }
+    finally { setAdding(false) }
   }
+
+  // ── Edit contact ─────────────────────────────────────────────────────────────
+
+  function openEdit(m: Member) {
+    setEditTarget(m)
+    setEditForm({
+      firstName: m.first_name ?? '',
+      lastName:  m.last_name  ?? '',
+      phone:     m.phone      ?? '',
+      email:     m.email      ?? '',
+      cifNumber: m.cif_number ?? '',
+    })
+    setEditErr(null)
+  }
+
+  async function saveEdit() {
+    if (!editTarget) return
+    const payload: Record<string, string | null> = {
+      first_name: editForm.firstName.trim() || null,
+      last_name:  editForm.lastName.trim()  || null,
+      phone:      editForm.phone.trim()     || null,
+      email:      editForm.email.trim()     || null,
+      cif_number: editForm.cifNumber.trim() || null,
+    }
+    setEditSaving(true); setEditErr(null)
+    try {
+      await apiPut(`/api/contact-lists/${list.id}/members/${editTarget.id}`, payload)
+      setEditTarget(null)
+      toast.success('Contact updated')
+      loadMembers()
+    } catch (ex: any) { setEditErr(ex.message ?? 'Failed to update contact') }
+    finally { setEditSaving(false) }
+  }
+
+  // ── Remove contact ────────────────────────────────────────────────────────────
 
   async function removeMember() {
     if (!removeTarget) return
     try {
       await apiDelete(`/api/contact-lists/${list.id}/members/${removeTarget.id}`)
       setRemoveTarget(null)
-      toast.success('Member removed')
+      toast.success('Contact removed')
       loadMembers()
     } catch (ex: any) { toast.error(ex.message ?? 'Failed to remove') }
   }
 
+  // ── CSV ───────────────────────────────────────────────────────────────────────
+
   async function postMultipart<T>(endpoint: string, file: File): Promise<T> {
     const fd = new FormData(); fd.append('file', file)
     const res = await fetch(`${API}${endpoint}`, {
-      method: 'POST',
-      credentials: 'include',
+      method: 'POST', credentials: 'include',
       headers: { 'X-CSRF-Token': getCsrfToken() },
       body: fd,
     })
     if (!res.ok) {
       const msg = await res.json().catch(() => ({}))
-      throw new Error(msg?.error ?? `HTTP ${res.status}`)
+      throw new Error((msg as any)?.error ?? `HTTP ${res.status}`)
     }
     return res.json()
   }
@@ -130,12 +176,10 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
   async function pickCsvFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    setCsvFile(file)
-    setPreflight(null)
+    setCsvFile(file); setPreflight(null)
     try {
       const res = await postMultipart<PreflightResult>(`/api/contact-lists/${list.id}/preflight`, file)
-      setPreflight(res)
-      setShowCsvModal(true)
+      setPreflight(res); setShowCsvModal(true)
     } catch (ex: any) { toast.error(ex.message ?? 'Preflight failed') }
     if (fileRef.current) fileRef.current.value = ''
   }
@@ -144,7 +188,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
     if (!csvFile) return
     setUploading(true)
     try {
-      await postMultipart(`/api/contact-lists/${list.id}/upload-csv`, csvFile)
+      await postMultipart(`/api/contact-lists/${list.id}/upload`, csvFile)
       setShowCsvModal(false); setCsvFile(null); setPreflight(null)
       toast.success('CSV imported')
       loadMembers()
@@ -152,13 +196,11 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
     finally { setUploading(false) }
   }
 
-  function memberName(m: Member) {
-    return m.contact_name ?? ([m.first_name, m.last_name].filter(Boolean).join(' ') || '—')
-  }
+  // ── Table columns ─────────────────────────────────────────────────────────────
 
   const memberCols: TableCol<Member>[] = [
     {
-      key: 'contact_name', label: 'Name',
+      key: 'first_name', label: 'Name',
       render: m => (
         <div>
           <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{memberName(m)}</div>
@@ -169,41 +211,40 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
     { key: 'phone', label: 'Phone', render: m => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{m.phone ?? '—'}</span> },
     { key: 'email', label: 'Email', render: m => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{m.email ?? '—'}</span> },
     {
-      key: 'added_at', label: 'Added',
+      key: 'created_at', label: 'Added',
       render: m => <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDatetime(m.added_at ?? m.created_at ?? '')}</span>,
     },
     ...(canWrite ? [{
       key: 'id', label: '', align: 'right' as const,
       render: (m: Member) => (
-        <button
-          onClick={() => setRemoveTarget(m)}
-          style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '2px 9px', color: RED, borderColor: `${RED}40` }}
-        >
-          Remove
-        </button>
+        <div style={{ display: 'flex', gap: 5 }}>
+          <button
+            onClick={() => openEdit(m)}
+            style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '2px 9px' }}
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => setRemoveTarget(m)}
+            style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '2px 9px', color: RED, borderColor: `${RED}40` }}
+          >
+            Remove
+          </button>
+        </div>
       ),
     }] : []),
   ]
 
-  const lbl: React.CSSProperties = { fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }
-  const inp: React.CSSProperties = { ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const }
-
   return (
     <>
       {/* Backdrop */}
-      <div
-        onClick={onClose}
-        style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', zIndex: 900,
-        }}
-      />
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', zIndex: 900 }} />
 
       {/* Drawer */}
       <div style={{
-        position: 'fixed', top: 0, right: 0, bottom: 0, width: 560,
+        position: 'fixed', top: 0, right: 0, bottom: 0, width: 580,
         background: 'var(--card)', zIndex: 901, display: 'flex', flexDirection: 'column',
-        boxShadow: '-8px 0 32px rgba(0,0,0,.15)',
-        overflow: 'hidden',
+        boxShadow: '-8px 0 32px rgba(0,0,0,.15)', overflow: 'hidden',
       }}>
         {/* Header */}
         <div style={{
@@ -213,7 +254,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
           <div>
             <div style={{ fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: SORA }}>{list.name}</div>
             <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2 }}>
-              {fmtNum(members.length)} member{members.length !== 1 ? 's' : ''}
+              {fmtNum(members.length)} contact{members.length !== 1 ? 's' : ''}
               {list.description ? ` · ${list.description}` : ''}
             </div>
           </div>
@@ -224,76 +265,61 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
         <div style={{ flex: 1, overflow: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
           <ErrBanner error={err} onRetry={loadMembers} />
 
-          {/* Add member */}
+          {/* Add contact panel */}
           {canWrite && (
             <div style={{ background: 'var(--bg)', borderRadius: RADIUS.lg, padding: 16, border: '1px solid var(--bdr)' }}>
               <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: SORA, marginBottom: 12 }}>
-                Add Member
+                Add Contact
               </div>
-              <label style={lbl}>Search by name, phone, email, or CIF</label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  value={search}
-                  onChange={e => triggerSearch(e.target.value)}
-                  placeholder="Type at least 2 characters…"
-                  style={inp}
-                />
-                {searching && (
-                  <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)' }}>
-                    <Spinner size={14} />
-                  </span>
-                )}
-              </div>
-              {addErr && <div style={{ fontSize: TEXT.sm, color: RED, marginTop: 6 }}>{addErr}</div>}
-              {results.length > 0 && (
-                <div style={{
-                  marginTop: 6, border: '1px solid var(--bdr)', borderRadius: RADIUS.md,
-                  background: 'var(--card)', maxHeight: 180, overflowY: 'auto',
-                }}>
-                  {results.map(r => (
-                    <button
-                      key={r.cif_number}
-                      onClick={() => addMember(r.cif_number)}
-                      style={{
-                        display: 'flex', width: '100%', padding: '9px 14px',
-                        borderBottom: '1px solid var(--bdr)', background: 'none', border: 'none',
-                        cursor: 'pointer', textAlign: 'left', gap: 10, alignItems: 'center',
-                      }}
-                    >
-                      <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt3)' }}>person</span>
-                      <div>
-                        <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-                          {r.name ?? ([r.first_name, r.last_name].filter(Boolean).join(' ') || '—')}
-                        </div>
-                        <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
-                          {[r.cif_number, r.phone, r.email].filter(Boolean).join(' · ')}
-                        </div>
-                      </div>
-                      <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: NAVY, fontWeight: FW.semibold }}>Add →</span>
-                    </button>
-                  ))}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div>
+                  <label style={lbl}>First Name</label>
+                  <input value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))}
+                    placeholder="First name" style={inp()} />
                 </div>
-              )}
-              {search.length >= 2 && !searching && results.length === 0 && (
-                <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', marginTop: 6 }}>No contacts found for "{search}"</div>
-              )}
+                <div>
+                  <label style={lbl}>Last Name</label>
+                  <input value={form.lastName} onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))}
+                    placeholder="Last name" style={inp()} />
+                </div>
+                <div>
+                  <label style={lbl}>Phone</label>
+                  <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                    placeholder="+234 800 000 0000" type="tel" style={inp()} />
+                </div>
+                <div>
+                  <label style={lbl}>Email</label>
+                  <input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                    placeholder="prospect@email.com" type="email" style={inp()} />
+                </div>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label style={lbl}>CIF Number <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional — for existing customers)</span></label>
+                <input value={form.cifNumber} onChange={e => setForm(f => ({ ...f, cifNumber: e.target.value }))}
+                  placeholder="Leave blank for prospects" style={inp()} />
+              </div>
+              {addErr && <div style={{ fontSize: TEXT.sm, color: RED, marginBottom: 8 }}>{addErr}</div>}
+              <button onClick={addContact} disabled={adding} style={{ ...btnPrimary, width: '100%', justifyContent: 'center' }}>
+                {adding ? <Spinner size={14} /> : <span className="material-symbols-rounded" style={{ fontSize: 16 }}>person_add</span>}
+                {adding ? 'Adding…' : 'Add Contact'}
+              </button>
 
-              <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ margin: '14px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ flex: 1, height: 1, background: 'var(--bdr)' }} />
-                <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', flexShrink: 0 }}>or</span>
+                <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', flexShrink: 0 }}>or import from CSV</span>
                 <div style={{ flex: 1, height: 1, background: 'var(--bdr)' }} />
               </div>
 
               <input ref={fileRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={pickCsvFile} />
               <button
                 onClick={() => fileRef.current?.click()}
-                style={{ ...btnSecondary, width: '100%', marginTop: 12, justifyContent: 'center', gap: 6, display: 'flex' }}
+                style={{ ...btnSecondary, width: '100%', justifyContent: 'center', gap: 6, display: 'flex' }}
               >
                 <span className="material-symbols-rounded" style={{ fontSize: 16 }}>upload_file</span>
                 Upload CSV
               </button>
               <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 5, textAlign: 'center' }}>
-                CSV must have a <code>cif_number</code> column. Each row adds one member.
+                Columns: <code>first_name, last_name, phone, email, cif_number</code> — at least one required per row.
               </p>
             </div>
           )}
@@ -301,7 +327,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
           {/* Members table */}
           <div>
             <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: SORA, marginBottom: 10 }}>
-              Members ({fmtNum(members.length)})
+              Contacts ({fmtNum(members.length)})
             </div>
             {loading ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: 32 }}><Spinner /></div>
@@ -310,9 +336,9 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
                 cols={memberCols}
                 rows={members}
                 keyFn={m => m.id}
-                emptyText="No members yet. Add contacts above."
-                searchKeys={['contact_name', 'first_name', 'last_name', 'phone', 'email', 'cif_number']}
-                searchPlaceholder="Filter members…"
+                emptyText="No contacts yet. Add someone above."
+                searchKeys={['first_name', 'last_name', 'phone', 'email', 'cif_number']}
+                searchPlaceholder="Filter contacts…"
                 pageSize={25}
               />
             )}
@@ -343,9 +369,9 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               {[
-                ['Total Rows',   preflight.total,   '#6B7280'],
-                ['Valid',        preflight.valid,   GREEN],
-                ['Invalid',      preflight.invalid, preflight.invalid > 0 ? RED : '#6B7280'],
+                ['Total Rows', preflight.total,   '#6B7280'],
+                ['Valid',      preflight.valid,   GREEN],
+                ['Invalid',    preflight.invalid, preflight.invalid > 0 ? RED : '#6B7280'],
               ].map(([label, val, color]) => (
                 <div key={String(label)} style={{ background: 'var(--bg)', borderRadius: RADIUS.md, padding: '12px 14px', textAlign: 'center' as const }}>
                   <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: String(color), fontFamily: SORA }}>
@@ -373,9 +399,56 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
         )}
       </Modal>
 
+      {/* Edit member modal */}
+      <Modal
+        open={!!editTarget}
+        onClose={() => { setEditTarget(null); setEditErr(null) }}
+        title="Edit Contact"
+        width={440}
+        footer={
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => { setEditTarget(null); setEditErr(null) }} style={btnSecondary}>Cancel</button>
+            <button onClick={saveEdit} disabled={editSaving} style={btnPrimary}>
+              {editSaving ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        }
+      >
+        {editErr && <div style={{ color: RED, fontSize: TEXT.sm, marginBottom: 10 }}>{editErr}</div>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={lbl}>First Name</label>
+              <input value={editForm.firstName} onChange={e => setEditForm(f => ({ ...f, firstName: e.target.value }))}
+                placeholder="First name" style={inp()} />
+            </div>
+            <div>
+              <label style={lbl}>Last Name</label>
+              <input value={editForm.lastName} onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))}
+                placeholder="Last name" style={inp()} />
+            </div>
+          </div>
+          <div>
+            <label style={lbl}>Phone</label>
+            <input value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))}
+              placeholder="+234 800 000 0000" type="tel" style={inp()} />
+          </div>
+          <div>
+            <label style={lbl}>Email</label>
+            <input value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
+              placeholder="contact@email.com" type="email" style={inp()} />
+          </div>
+          <div>
+            <label style={lbl}>CIF Number <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
+            <input value={editForm.cifNumber} onChange={e => setEditForm(f => ({ ...f, cifNumber: e.target.value }))}
+              placeholder="Leave blank for prospects" style={inp()} />
+          </div>
+        </div>
+      </Modal>
+
       <ConfirmModal
         open={!!removeTarget}
-        title="Remove Member"
+        title="Remove Contact"
         body={`Remove "${memberName(removeTarget ?? ({} as Member))}" from this list? They can be re-added later.`}
         onConfirm={removeMember}
         onClose={() => setRemoveTarget(null)}
@@ -393,26 +466,33 @@ const CAMPAIGN_READ_ONLY = new Set(['bd_officer', 'bd_head'])
 export default function ContactLists() {
   const role = (() => { try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}').role ?? '' } catch { return '' } })()
   const canWrite = !CAMPAIGN_READ_ONLY.has(role)
-  const [lists, setLists]       = useState<ContactList[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [err, setErr]           = useState<string | null>(null)
-  const [showCreate, setShowCreate] = useState(false)
-  const [name, setName]         = useState('')
-  const [desc, setDesc]         = useState('')
-  const [saving, setSaving]     = useState(false)
-  const [saveErr, setSaveErr]   = useState<string | null>(null)
+  const [lists,        setLists]        = useState<ContactList[]>([])
+  const [loading,      setLoading]      = useState(true)
+  const [err,          setErr]          = useState<string | null>(null)
+  const [showCreate,   setShowCreate]   = useState(false)
+  const [name,         setName]         = useState('')
+  const [desc,         setDesc]         = useState('')
+  const [saving,       setSaving]       = useState(false)
+  const [saveErr,      setSaveErr]      = useState<string | null>(null)
+  const [editTarget,   setEditTarget]   = useState<ContactList | null>(null)
+  const [editName,     setEditName]     = useState('')
+  const [editDesc,     setEditDesc]     = useState('')
+  const [editSaving,   setEditSaving]   = useState(false)
+  const [editErr,      setEditErr]      = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ContactList | null>(null)
-  const [openList, setOpenList] = useState<ContactList | null>(null)
-  const [sel, setSel]           = useState<Set<string | number>>(new Set())
+  const [openList,     setOpenList]     = useState<ContactList | null>(null)
+  const [dateFrom,     setDateFrom]     = useState(monthStart())
+  const [dateTo,       setDateTo]       = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const res = await apiFetch<ContactList[]>('/api/contact-lists')
-      setLists(Array.isArray(res) ? res : [])
+      const res = await apiFetch<ContactList[] | { data: ContactList[] }>(`/api/contact-lists?from=${dateFrom}&to=${dateTo}`)
+      const arr = Array.isArray(res) ? res : ((res as any)?.data ?? [])
+      setLists(Array.isArray(arr) ? arr : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -420,10 +500,27 @@ export default function ContactLists() {
     if (!name.trim()) return
     setSaving(true); setSaveErr(null)
     try {
-      await apiPost('/api/contact-lists', { name: name.trim(), description: desc || undefined })
+      await apiPost('/api/contact-lists', { name: name.trim(), description: desc.trim() || undefined })
       setShowCreate(false); setName(''); setDesc(''); load()
     } catch (ex: any) { setSaveErr(ex.message) }
     finally { setSaving(false) }
+  }
+
+  function openEdit(r: ContactList) {
+    setEditTarget(r); setEditName(r.name); setEditDesc(r.description ?? ''); setEditErr(null)
+  }
+
+  async function doEdit() {
+    if (!editTarget || !editName.trim()) return
+    setEditSaving(true); setEditErr(null)
+    try {
+      await apiPut(`/api/contact-lists/${editTarget.id}`, {
+        name: editName.trim(),
+        description: editDesc.trim() || null,
+      })
+      setEditTarget(null); load()
+    } catch (ex: any) { setEditErr(ex.message) }
+    finally { setEditSaving(false) }
   }
 
   async function doDelete() {
@@ -431,7 +528,7 @@ export default function ContactLists() {
     try {
       await apiDelete(`/api/contact-lists/${deleteTarget.id}`)
       setDeleteTarget(null); load()
-    } catch (ex: any) { setErr(ex.message) }
+    } catch (ex: any) { toast.error(ex.message) }
   }
 
   function exportListsCsv(data: ContactList[]) {
@@ -463,7 +560,7 @@ export default function ContactLists() {
       ),
     },
     {
-      key: 'member_count', label: 'Members', align: 'right',
+      key: 'member_count', label: 'Contacts', align: 'right',
       render: r => (
         <span style={{ ...NUM, color: Number(r.member_count ?? 0) > 0 ? GREEN : 'var(--txt3)', fontWeight: FW.bold }}>
           {fmtNum(Number(r.member_count ?? 0))}
@@ -481,15 +578,23 @@ export default function ContactLists() {
             style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px', gap: 4, display: 'flex', alignItems: 'center' }}
           >
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.base }}>group</span>
-            Members
+            Contacts
           </button>
           {canWrite && (
-            <button
-              onClick={e => { e.stopPropagation(); setDeleteTarget(r) }}
-              style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px', color: RED, borderColor: `${RED}40` }}
-            >
-              Delete
-            </button>
+            <>
+              <button
+                onClick={e => { e.stopPropagation(); openEdit(r) }}
+                style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px' }}
+              >
+                Edit
+              </button>
+              <button
+                onClick={e => { e.stopPropagation(); setDeleteTarget(r) }}
+                style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px', color: RED, borderColor: `${RED}40` }}
+              >
+                Delete
+              </button>
+            </>
           )}
         </div>
       ),
@@ -499,13 +604,18 @@ export default function ContactLists() {
   return (
     <Page
       title="Contact Lists"
-      subtitle={`${lists.length} lists · ${fmtNum(totalMembers)} total members`}
-      actions={canWrite ? (
-        <button onClick={() => setShowCreate(true)} style={btnPrimary}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
-          New List
-        </button>
-      ) : undefined}
+      subtitle={`${lists.length} list${lists.length !== 1 ? 's' : ''} · ${fmtNum(totalMembers)} total contacts`}
+      actions={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          {canWrite && (
+            <button onClick={() => setShowCreate(true)} style={btnPrimary}>
+              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+              New List
+            </button>
+          )}
+        </div>
+      }
     >
       <ErrBanner error={err} onRetry={load} />
 
@@ -527,7 +637,7 @@ export default function ContactLists() {
           cols={cols}
           rows={lists}
           keyFn={r => r.id}
-          emptyText="No contact lists yet."
+          emptyText="No contact lists yet. Create your first list."
           skeletonRows={loading ? 5 : 0}
           searchKeys={['name', 'description', 'created_by_name']}
           searchPlaceholder="Search lists…"
@@ -545,7 +655,7 @@ export default function ContactLists() {
         />
       )}
 
-      {/* Create modal */}
+      {/* Create list modal */}
       <Modal
         open={showCreate}
         onClose={() => { setShowCreate(false); setName(''); setDesc(''); setSaveErr(null) }}
@@ -563,27 +673,48 @@ export default function ContactLists() {
         {saveErr && <div style={{ color: RED, fontSize: TEXT.sm, marginBottom: 10 }}>{saveErr}</div>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
-              List Name *
-            </label>
-            <input
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="e.g. Active Cardholders Q3"
-              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }}
-            />
+            <label style={lbl}>List Name *</label>
+            <input value={name} onChange={e => setName(e.target.value)}
+              placeholder="e.g. Active Prospects Q3" style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
           </div>
           <div>
-            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5, fontFamily: INTER }}>
-              Description (optional)
-            </label>
+            <label style={lbl}>Description <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
-              value={desc}
-              onChange={e => setDesc(e.target.value)}
-              rows={3}
+              value={desc} onChange={e => setDesc(e.target.value)} rows={3}
               placeholder="What's this list for?"
-              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', resize: 'none', fontSize: TEXT.base }}
-            />
+              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', resize: 'none', fontSize: TEXT.base }} />
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit list modal */}
+      <Modal
+        open={!!editTarget}
+        onClose={() => { setEditTarget(null); setEditErr(null) }}
+        title="Edit List"
+        width={420}
+        footer={
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => { setEditTarget(null); setEditErr(null) }} style={btnSecondary}>Cancel</button>
+            <button onClick={doEdit} disabled={editSaving || !editName.trim()} style={btnPrimary}>
+              {editSaving ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        }
+      >
+        {editErr && <div style={{ color: RED, fontSize: TEXT.sm, marginBottom: 10 }}>{editErr}</div>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={lbl}>List Name *</label>
+            <input value={editName} onChange={e => setEditName(e.target.value)}
+              placeholder="List name" style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
+          </div>
+          <div>
+            <label style={lbl}>Description <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
+              value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3}
+              placeholder="What's this list for?"
+              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', resize: 'none', fontSize: TEXT.base }} />
           </div>
         </div>
       </Modal>
@@ -591,7 +722,7 @@ export default function ContactLists() {
       <ConfirmModal
         open={!!deleteTarget}
         title="Delete Contact List"
-        body={`Delete "${deleteTarget?.name}" and all its members? This cannot be undone.`}
+        body={`Delete "${deleteTarget?.name}" and all its contacts? This cannot be undone.`}
         onConfirm={doDelete}
         onClose={() => setDeleteTarget(null)}
       />

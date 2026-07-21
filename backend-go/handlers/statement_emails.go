@@ -482,7 +482,8 @@ func sendStatementToRecipient(ctx context.Context, db *core.DB, createdBy int64,
 		b.Subject = fmt.Sprintf("Your O3 Cards statement: %s to %s", dateFrom, dateTo)
 	}
 	filename := sanitizeAttachmentName(fmt.Sprintf("statement_%s_%s_%s.pdf", b.CIF, dateFrom, dateTo))
-	pdf := buildStatementPDF(data)
+	htmlForPDF := buildStatementHTMLPreview(data, "")
+	pdf := ccPDFForEmail(htmlForPDF, func() []byte { return buildStatementPDF(data) })
 	message := strings.TrimSpace(b.Message)
 	if message == "" {
 		message = "Please find your account statement attached to this email."
@@ -657,13 +658,49 @@ func getRowString(row core.Row, keys ...string) string {
 }
 
 func statementEmailHTML(name, message, dateFrom, dateTo string) string {
-	body := strings.ReplaceAll(escapeHTML(message), "\n", "<br>")
-	return fmt.Sprintf(`<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.5">
-<p>Dear %s,</p>
-<p>%s</p>
-<p><strong>Statement period:</strong> %s to %s</p>
-<p>Regards,<br>O3 Cards</p>
-</div>`, escapeHTML(name), body, escapeHTML(dateFrom), escapeHTML(dateTo))
+	body := strings.ReplaceAll(escapeHTML(message), "\n", "<br>\n")
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#F4F4F4;font-family:Arial,Helvetica,sans-serif">
+<table width="100%%" cellpadding="0" cellspacing="0" style="background:#F4F4F4;padding:24px 0">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%%">
+
+  <tr><td style="background:#0E2841;padding:20px 32px;border-radius:4px 4px 0 0">
+    <table width="100%%" cellpadding="0" cellspacing="0"><tr>
+      <td>
+        <span style="color:#C00000;font-size:20px;font-weight:800;font-family:Arial,sans-serif;line-height:1">O3 Capital</span><span style="color:#C00000;font-size:20px;font-weight:800">.</span>
+        <div style="color:rgba(255,255,255,.45);font-size:8px;letter-spacing:2px;margin-top:4px;text-transform:uppercase">credible &middot; accessible &middot; reliable</div>
+      </td>
+      <td align="right" style="color:rgba(255,255,255,.5);font-size:9px;vertical-align:top;line-height:1.6">
+        Period<br><strong style="color:rgba(255,255,255,.75)">%s &ndash; %s</strong>
+      </td>
+    </tr></table>
+  </td></tr>
+  <tr><td style="height:3px;background:#C00000"></td></tr>
+
+  <tr><td style="background:#ffffff;padding:28px 32px">
+    <p style="font-family:Arial,sans-serif;font-size:14px;font-weight:600;color:#0E2841;margin:0 0 16px">Dear %s,</p>
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#374151;line-height:1.8">%s</div>
+    <p style="font-family:Arial,sans-serif;font-size:11px;color:#9CA3AF;margin:20px 0 0;border-top:1px solid #F3F4F6;padding-top:16px">
+      Statement period: <strong style="color:#6B7280">%s</strong> to <strong style="color:#6B7280">%s</strong>
+    </p>
+  </td></tr>
+
+  <tr><td style="background:#EEF2F7;padding:12px 32px;border-top:1px solid #E5E7EB">
+    <div style="font-size:11px;color:#9CA3AF">Please open the attached PDF to view your full account statement with transaction details.</div>
+  </td></tr>
+
+  <tr><td style="background:#0E2841;padding:12px 32px;border-radius:0 0 4px 4px;text-align:center;font-size:9px;color:rgba(255,255,255,.4);letter-spacing:1px;text-transform:uppercase">
+    O3 Capital Limited &ensp;&middot;&ensp; CBN Licensed &ensp;&middot;&ensp; care@o3cards.com
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>`, escapeHTML(dateFrom), escapeHTML(dateTo), escapeHTML(name), body, escapeHTML(dateFrom), escapeHTML(dateTo))
 }
 
 func escapeHTML(s string) string {
@@ -860,7 +897,7 @@ func buildStatementHTMLPreview(data customerStatementData, stmtType string) stri
 		titleLabel = "Credit Card Statement"
 	}
 
-	const css = `*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;font-size:11px;color:#111;background:#fff;max-width:920px;margin:0 auto}.hd{background:#0E2841;color:#fff;padding:22px 36px;display:flex;justify-content:space-between;align-items:flex-start}.logo{font-size:20px;font-weight:800;letter-spacing:-.3px}.dot{color:#C00000}.tagline{font-size:7.5px;letter-spacing:2.5px;text-transform:uppercase;opacity:.5;margin-top:2px}.addr{text-align:right;font-size:9px;line-height:1.9;opacity:.75}.tb{border-bottom:3px solid #0E2841;padding:12px 36px;display:flex;justify-content:space-between;align-items:center;background:#f8f9fa}.tb h1{font-size:14px;font-weight:700;color:#0E2841}.tb .meta{font-size:9.5px;color:#777;text-align:right;line-height:1.7}.sref{font-family:"Courier New",monospace;font-size:8.5px;background:#0E2841;color:#fff;padding:2px 7px;border-radius:3px;letter-spacing:.5px;display:inline-block;margin-top:3px}.info{display:flex;justify-content:space-between;padding:16px 36px;border-bottom:1px solid #e8eaed;gap:40px}.cname{font-size:14px;font-weight:700;color:#0E2841;margin-bottom:4px}.il{font-size:10px;color:#555;line-height:1.9}.lbl{font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#aaa;display:block;margin-top:6px}.th{display:flex;justify-content:space-between;align-items:center;padding:14px 36px 6px}.th-lbl{font-size:10px;font-weight:700;color:#0E2841;text-transform:uppercase;letter-spacing:.6px}.th-ct{font-size:9.5px;color:#999}table{width:calc(100% - 72px);margin:0 36px 0;border-collapse:collapse}thead tr{background:#0E2841}thead th{padding:9px 10px;text-align:left;color:rgba(255,255,255,.85);font-size:8px;text-transform:uppercase;letter-spacing:.7px;font-weight:700;white-space:nowrap}th.r{text-align:right}tbody tr{border-bottom:1px solid #f0f2f5}tbody tr:nth-child(even){background:#fafbfc}td{padding:8px 10px;color:#333;vertical-align:middle}td.dt{color:#888;white-space:nowrap;font-size:9.5px;font-family:"Courier New",monospace}td.ds{font-size:10.5px;max-width:220px}td.mn{font-size:9.5px;color:#999;max-width:160px}td.am{text-align:right;font-family:"Courier New",monospace;font-size:10.5px;white-space:nowrap;font-weight:600}td.am.dr{color:#C00000}td.am.cr{color:#15803d}.empty{text-align:center;padding:28px;color:#aaa;font-style:italic}.ft{margin:20px 36px 0;padding:14px 0;border-top:2px solid #0E2841}.comp{text-align:center;font-size:7.5px;color:#aaa;letter-spacing:1.2px;text-transform:uppercase;padding:10px 0;border-bottom:1px solid #eee;margin-bottom:12px}.fg{display:grid;grid-template-columns:1fr 1fr;gap:20px}.ft-h{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#0E2841;margin-bottom:4px}.ft-p{font-size:8.5px;color:#888;line-height:1.75}.ft-p li{margin-left:14px;list-style:disc}.ft-b{margin-top:12px;padding-top:10px;border-top:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center}.gen{font-size:7.5px;color:#ccc;font-family:"Courier New",monospace}.flogo{font-size:12px;font-weight:800;color:#0E2841}.nobr{white-space:nowrap}`
+	const css = `*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:11px;color:#1A2332;background:#fff;max-width:900px;margin:0 auto;line-height:1.5}.hd{background:#0E2841;padding:26px 40px;display:flex;justify-content:space-between;align-items:center}.hd-l{display:flex;align-items:center;gap:16px}.brand{font-size:19px;font-weight:800;letter-spacing:-.3px;color:#fff;line-height:1}.brand-dot{color:#C00000}.brand-tag{font-size:7.5px;letter-spacing:2.8px;text-transform:uppercase;color:rgba(255,255,255,.4);margin-top:3px}.hd-r{text-align:right}.stmt-type{font-size:8.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:rgba(255,255,255,.5)}.stmt-ref{font-family:"Courier New",monospace;font-size:14px;font-weight:700;color:#fff;letter-spacing:.5px;margin-top:5px}.accent{height:4px;background:#C00000}.dstrip{background:#F4F6F9;padding:11px 40px;display:flex;border-bottom:1px solid #DDE3EA}.ds-item{flex:1;padding-right:20px;border-right:1px solid #DDE3EA}.ds-item:last-child{border-right:none;text-align:right;padding-right:0}.ds-lbl{font-size:7.5px;letter-spacing:1.8px;text-transform:uppercase;color:#94A3B8;font-weight:700;display:block;margin-bottom:3px}.ds-val{font-size:10.5px;color:#1A2332;font-weight:600}.ds-val.mono{font-family:"Courier New",monospace;letter-spacing:.3px}.info{padding:22px 40px;display:flex;justify-content:space-between;align-items:flex-start;gap:32px;border-bottom:1px solid #E8EDF2}.cname{font-size:18px;font-weight:800;color:#0E2841;letter-spacing:-.3px;margin-bottom:10px}.meta-row{display:flex;align-items:baseline;gap:10px;margin-bottom:5px}.meta-lbl{font-size:7.5px;letter-spacing:1.2px;text-transform:uppercase;color:#94A3B8;font-weight:700;min-width:80px;flex-shrink:0}.meta-val{font-size:10px;color:#334155;font-weight:500}.acct-card{background:#F4F6F9;border:1px solid #DDE3EA;border-radius:6px;padding:16px 20px;min-width:175px;text-align:right;flex-shrink:0}.acct-lbl{font-size:7.5px;letter-spacing:1.8px;text-transform:uppercase;color:#94A3B8;font-weight:700;display:block;margin-bottom:6px}.acct-num{font-family:"Courier New",monospace;font-size:14px;font-weight:800;color:#0E2841;letter-spacing:.3px}.acct-sub{font-size:8.5px;color:#64748B;margin-top:5px}.th{display:flex;justify-content:space-between;align-items:center;padding:16px 40px 8px}.th-lbl{font-size:8px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:#0E2841}.th-ct{font-size:8.5px;color:#94A3B8}table{width:calc(100% - 80px);margin:0 40px;border-collapse:collapse}thead tr{background:#0E2841}thead th{padding:10px 12px;text-align:left;color:rgba(255,255,255,.75);font-size:7.5px;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;white-space:nowrap}th.r{text-align:right}tbody tr{border-bottom:1px solid #F1F5F9}tbody tr:nth-child(even){background:#FAFBFD}td{padding:9px 12px;color:#334155;vertical-align:middle}td.dt{color:#94A3B8;white-space:nowrap;font-size:8.5px;font-family:"Courier New",monospace}td.ds{font-size:10.5px;max-width:220px;color:#1E293B;font-weight:500}td.mn{font-size:8.5px;color:#94A3B8;max-width:160px}td.am{text-align:right;font-family:"Courier New",monospace;font-size:10.5px;white-space:nowrap;font-weight:700;font-variant-numeric:tabular-nums}td.am.dr{color:#C00000}td.am.cr{color:#15803d}.empty{text-align:center;padding:28px;color:#94A3B8;font-style:italic}.ft{background:#0E2841;margin-top:32px;padding:24px 40px 20px}.ft-comp{font-size:7px;letter-spacing:1.8px;text-transform:uppercase;color:rgba(255,255,255,.3);text-align:center;padding-bottom:16px;margin-bottom:16px;border-bottom:1px solid rgba(255,255,255,.1)}.ft-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:28px;margin-bottom:16px}.ft-col-h{font-size:7.5px;letter-spacing:1.8px;text-transform:uppercase;color:rgba(255,255,255,.4);font-weight:700;margin-bottom:6px}.ft-col-b{font-size:8.5px;color:rgba(255,255,255,.7);line-height:1.9}.ft-div{border:none;border-top:1px solid rgba(255,255,255,.1);margin:0 0 14px}.ft-btm{display:flex;justify-content:space-between;align-items:center}.ft-stamp{font-size:7px;font-family:"Courier New",monospace;color:rgba(255,255,255,.3);letter-spacing:.5px}.ft-brand{display:flex;align-items:center;gap:10px}.ft-brand-name{font-size:11px;font-weight:800;color:rgba(255,255,255,.8);letter-spacing:-.2px}.ft-brand-dot{color:#C00000}.sref{font-family:"Courier New",monospace;font-size:8.5px;background:rgba(255,255,255,.15);color:#fff;padding:2px 7px;border-radius:3px;letter-spacing:.5px;display:inline-block;margin-top:3px}.nobr{white-space:nowrap}@media print{@page{size:A4;margin:10mm 12mm}html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.ft{page-break-inside:avoid}}`
 
 	var txnRows strings.Builder
 	for _, t := range data.Transactions {
@@ -898,27 +935,26 @@ func buildStatementHTMLPreview(data customerStatementData, stmtType string) stri
 	}
 
 	txnCount := len(data.Transactions)
+	hdrDiv := `<div class="hd"><div class="hd-l">` + logoSVG + `<div><div class="brand">O3 Capital<span class="brand-dot">.</span></div><div class="brand-tag">credible &middot; accessible &middot; reliable</div></div></div><div class="hd-r"><div class="stmt-type">Account Statement</div></div></div>`
 
 	return fmt.Sprintf(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>O3 Capital — %s</title><style>%s</style></head>
 <body>
-<div class="hd">
-  <div><div class="logo">O3 Capital<span class="dot">.</span></div><div class="tagline">credible · accessible · reliable</div></div>
-  <div class="addr">7th Floor Churchgate Tower 1<br>Plot 30, Churchgate Street<br>Victoria Island, Lagos 101001<br>care@o3cards.com</div>
-</div>
-<div class="tb">
-  <h1>%s</h1>
-  <div class="meta">Period: %s to %s<br>Generated: %s<br><span class="sref">%s</span></div>
+%s
+<div class="accent"></div>
+<div class="dstrip">
+  <div class="ds-item"><span class="ds-lbl">Period</span><span class="ds-val">%s &mdash; %s</span></div>
+  <div class="ds-item"><span class="ds-lbl">Statement Type</span><span class="ds-val">%s</span></div>
+  <div class="ds-item"><span class="ds-lbl">Generated</span><span class="ds-val">%s</span></div>
+  <div class="ds-item"><span class="ds-lbl">Reference</span><span class="ds-val mono"><span class="sref">%s</span></span></div>
 </div>
 <div class="info">
   <div>
     <div class="cname">%s</div>
-    <span class="lbl">CIF Number</span><div class="il">%s</div>
-    <span class="lbl">Email</span><div class="il">%s</div>
-    <span class="lbl">Phone</span><div class="il">%s</div>
+    <div class="meta-row"><span class="meta-lbl">CIF Number</span><span class="meta-val">%s</span></div>
+    <div class="meta-row"><span class="meta-lbl">Email</span><span class="meta-val">%s</span></div>
+    <div class="meta-row"><span class="meta-lbl">Phone</span><span class="meta-val">%s</span></div>
   </div>
-  <div style="text-align:right">
-    <span class="lbl">Location</span><div class="il">%s</div>
-  </div>
+  <div class="acct-card"><span class="acct-lbl">Location</span><div class="acct-num" style="font-size:13px">%s</div></div>
 </div>
 %s
 <div class="th"><span class="th-lbl">Transactions</span><span class="th-ct">%d transaction(s)</span></div>
@@ -927,17 +963,23 @@ func buildStatementHTMLPreview(data customerStatementData, stmtType string) stri
   <tbody>%s</tbody>
 </table>
 <div class="ft">
-  <div class="comp">This is a computer generated statement — it does not require a signature or stamp</div>
-  <div class="fg">
-    <div><div class="ft-h">Important Notice</div><p class="ft-p">This statement is confidential and intended solely for the named account holder. Transactions reflect activity within the stated period only.</p></div>
-    <div><div class="ft-h">Disputes &amp; Enquiries</div><ul class="ft-p"><li>Email: care@o3cards.com</li><li>Call: +234 201 330 1070</li><li>O3 Cards mobile app</li></ul></div>
+  <div class="ft-comp">Computer generated statement &mdash; no signature or stamp required</div>
+  <div class="ft-grid">
+    <div><div class="ft-col-h">Important Notice</div><div class="ft-col-b">This statement is confidential and intended solely for the named account holder. Transactions reflect activity within the stated period only.</div></div>
+    <div><div class="ft-col-h">Disputes &amp; Enquiries</div><div class="ft-col-b">Email: care@o3cards.com<br>Call: +234 201 330 1070<br>App: O3 Capital mobile app</div></div>
+    <div><div class="ft-col-h">O3 Capital Cards</div><div class="ft-col-b">7th Floor, Churchgate Tower 1<br>Plot 30, Churchgate Street<br>Victoria Island, Lagos 101001<br>Nigeria</div></div>
   </div>
-  <div class="ft-b"><span class="gen">Generated %s &nbsp;|&nbsp; Ref: %s &nbsp;|&nbsp; Period: %s to %s</span><span class="flogo">O3<span style="color:#C00000"> Capital</span></span></div>
+  <hr class="ft-div">
+  <div class="ft-btm">
+    <span class="ft-stamp">Generated %s &nbsp;|&nbsp; Ref: %s &nbsp;|&nbsp; Period: %s to %s</span>
+    <div class="ft-brand"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 120" width="34" height="19" style="display:block"><circle cx="78" cy="60" r="52" fill="#C00000"/><circle cx="142" cy="60" r="52" fill="#282828"/><circle cx="110" cy="60" r="56" fill="rgba(255,255,255,.12)"/><circle cx="110" cy="60" r="52" fill="#8DAAB7"/></svg><span class="ft-brand-name">O3 Capital<span class="ft-brand-dot">.</span></span></div>
+  </div>
 </div>
 </body></html>`,
 		escapeHTML(titleLabel), css,
-		escapeHTML(titleLabel),
+		hdrDiv,
 		escapeHTML(data.DateFrom), escapeHTML(data.DateTo),
+		escapeHTML(titleLabel),
 		escapeHTML(genTime), escapeHTML(stmtRef),
 		escapeHTML(name), escapeHTML(data.CIF),
 		emailAddr, phone, location,

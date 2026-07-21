@@ -494,10 +494,12 @@ var RolePages = map[string][]string{
 	"call_center_agent": {
 		"overview", "call_center", "customer360", "transactions",
 		"crm_contacts", "uploads",
+		"helpdesk", "helpdesk_stats", "helpdesk_canned",
 	},
 	"call_center_head": {
 		"overview", "call_center", "customer360", "transactions",
 		"crm_contacts", "uploads", "kpi_dashboard", "statements", "helpdesk_kb",
+		"helpdesk", "helpdesk_stats", "helpdesk_canned",
 	},
 
 	// ── HR ─────────────────────────────────────────────────────────────────────
@@ -634,5 +636,18 @@ var RolePages = map[string][]string{
 	},
 	"payroll_manager": {
 		"overview", "payroll", "payroll_manager", "hr_employees", "kpi_dashboard",
+	},
+
+	// ── BI / Analytics ────────────────────────────────────────────────────────
+	"bi_analyst": {
+		"overview", "reports", "kpi_dashboard",
+	},
+	"bi_head": {
+		"overview", "reports", "kpi_dashboard", "admin_users",
+	},
+
+	// ── Settlement ────────────────────────────────────────────────────────────
+	"settlement_officer": {
+		"overview", "settlement", "reconciliation", "eod", "transactions", "credit_portfolio",
 	},
 }

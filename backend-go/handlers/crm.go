@@ -121,6 +121,14 @@ func listContacts(db *core.DB) http.HandlerFunc {
 			where += fmt.Sprintf(" AND c.assigned_to=$%d", n)
 			args = append(args, v); n++
 		}
+		if v := qstr(r, "from"); v != "" {
+			where += fmt.Sprintf(" AND c.created_at::date >= $%d::date", n)
+			args = append(args, v); n++
+		}
+		if v := qstr(r, "to"); v != "" {
+			where += fmt.Sprintf(" AND c.created_at::date <= $%d::date", n)
+			args = append(args, v); n++
+		}
 
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT c.*,
@@ -350,11 +358,23 @@ func listStages(db *core.DB) http.HandlerFunc {
 
 func getPipeline(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
 		stages, err := db.PGQuery(r.Context(), "SELECT DISTINCT ON (LOWER(name)) * FROM crm_pipeline_stages ORDER BY LOWER(name), order_index")
 		if err != nil {
 			respondErr(w, 500, "Query failed"); return
 		}
-		deals, _ := db.PGQuery(r.Context(), `
+		dateWhere := ""
+		var dealArgs []any
+		dn := 1
+		if from != "" {
+			dateWhere += fmt.Sprintf(" AND d.created_at::date >= $%d::date", dn); dealArgs = append(dealArgs, from); dn++
+		}
+		if to != "" {
+			dateWhere += fmt.Sprintf(" AND d.created_at::date <= $%d::date", dn); dealArgs = append(dealArgs, to); dn++
+		}
+		_ = dn
+		deals, _ := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT d.*, s.name AS stage_name, s.color AS stage_color, s.is_won, s.is_lost,
 			       c.first_name, c.last_name, c.phone, c.status AS contact_status,
 			       u.full_name AS assigned_name
@@ -362,7 +382,8 @@ func getPipeline(db *core.DB) http.HandlerFunc {
 			JOIN crm_pipeline_stages s ON s.id=d.stage_id
 			JOIN crm_contacts c ON c.id=d.contact_id
 			LEFT JOIN o3c_users u ON u.id=d.assigned_to
-			ORDER BY d.updated_at DESC`)
+			WHERE 1=1%s
+			ORDER BY d.updated_at DESC`, dateWhere), dealArgs...)
 
 		byStage := map[string][]core.Row{}
 		for _, d := range deals {
@@ -385,6 +406,12 @@ func listDeals(db *core.DB) http.HandlerFunc {
 		}
 		if v := qstr(r, "stage_id"); v != "" {
 			where += fmt.Sprintf(" AND d.stage_id=$%d", n); args = append(args, v); n++
+		}
+		if v := qstr(r, "from"); v != "" {
+			where += fmt.Sprintf(" AND d.created_at::date >= $%d::date", n); args = append(args, v); n++
+		}
+		if v := qstr(r, "to"); v != "" {
+			where += fmt.Sprintf(" AND d.created_at::date <= $%d::date", n); args = append(args, v); n++
 		}
 		args = append(args, limit)
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
@@ -621,6 +648,12 @@ func listTasks(db *core.DB) http.HandlerFunc {
 		}
 		if r.URL.Query().Get("overdue") == "true" {
 			where += " AND t.due_date < NOW() AND t.status NOT IN ('done','cancelled')"
+		}
+		if v := qstr(r, "from"); v != "" {
+			where += fmt.Sprintf(" AND t.created_at::date >= $%d::date", n); args = append(args, v); n++
+		}
+		if v := qstr(r, "to"); v != "" {
+			where += fmt.Sprintf(" AND t.created_at::date <= $%d::date", n); args = append(args, v); n++
 		}
 		args = append(args, limit)
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
@@ -1125,14 +1158,30 @@ func updateRequest(db *core.DB) http.HandlerFunc {
 
 func crmReportOverview(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
-			  (SELECT COUNT(*) FROM crm_contacts)                                           AS total_contacts,
-			  (SELECT COUNT(*) FROM crm_contacts WHERE status='lead')                       AS total_leads,
-			  (SELECT COUNT(*) FROM crm_contacts WHERE status='customer')                   AS total_customers,
-			  (SELECT COUNT(*) FROM crm_deals)                                              AS total_deals,
-			  (SELECT COUNT(*) FROM crm_deals d JOIN crm_pipeline_stages s ON s.id=d.stage_id WHERE s.is_won)  AS won_deals,
-			  (SELECT COUNT(*) FROM crm_deals d JOIN crm_pipeline_stages s ON s.id=d.stage_id WHERE s.is_lost) AS lost_deals,
+			  (SELECT COUNT(*) FROM crm_contacts
+			    WHERE ($1='' OR created_at::date >= $1::date)
+			      AND ($2='' OR created_at::date <= $2::date))                             AS total_contacts,
+			  (SELECT COUNT(*) FROM crm_contacts WHERE status='lead'
+			    AND ($1='' OR created_at::date >= $1::date)
+			    AND ($2='' OR created_at::date <= $2::date))                               AS total_leads,
+			  (SELECT COUNT(*) FROM crm_contacts WHERE status='customer'
+			    AND ($1='' OR created_at::date >= $1::date)
+			    AND ($2='' OR created_at::date <= $2::date))                               AS total_customers,
+			  (SELECT COUNT(*) FROM crm_deals
+			    WHERE ($1='' OR created_at::date >= $1::date)
+			      AND ($2='' OR created_at::date <= $2::date))                             AS total_deals,
+			  (SELECT COUNT(*) FROM crm_deals d JOIN crm_pipeline_stages s ON s.id=d.stage_id
+			    WHERE s.is_won
+			      AND ($1='' OR d.created_at::date >= $1::date)
+			      AND ($2='' OR d.created_at::date <= $2::date))                           AS won_deals,
+			  (SELECT COUNT(*) FROM crm_deals d JOIN crm_pipeline_stages s ON s.id=d.stage_id
+			    WHERE s.is_lost
+			      AND ($1='' OR d.created_at::date >= $1::date)
+			      AND ($2='' OR d.created_at::date <= $2::date))                           AS lost_deals,
 			  (SELECT COUNT(*) FROM crm_activities WHERE created_at >= NOW()-INTERVAL '30 days') AS activities_30d,
 			  (SELECT COUNT(*) FROM crm_tasks WHERE status='open')                          AS open_tasks,
 			  (SELECT COUNT(*) FROM crm_tasks WHERE status NOT IN ('done','cancelled') AND due_date < NOW()) AS overdue_tasks,
@@ -1141,7 +1190,7 @@ func crmReportOverview(db *core.DB) http.HandlerFunc {
 			    WHERE status NOT IN ('resolved','closed')
 			    AND created_at+(sla_hours||' hours')::INTERVAL < NOW())                     AS sla_breached,
 			  (SELECT ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at-created_at))/3600)::NUMERIC,1)
-			    FROM crm_requests WHERE resolved_at IS NOT NULL)                            AS avg_resolution_hrs`)
+			    FROM crm_requests WHERE resolved_at IS NOT NULL)                            AS avg_resolution_hrs`, from, to)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 500, "Query failed"); return
 		}
@@ -1152,6 +1201,8 @@ func crmReportOverview(db *core.DB) http.HandlerFunc {
 
 func crmReportPipeline(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT s.name, s.color, s.order_index, s.is_won, s.is_lost,
 			       COUNT(d.id) AS deal_count,
@@ -1159,8 +1210,10 @@ func crmReportPipeline(db *core.DB) http.HandlerFunc {
 			       ROUND(AVG(d.probability)::NUMERIC,1) AS avg_probability
 			FROM crm_pipeline_stages s
 			LEFT JOIN crm_deals d ON d.stage_id=s.id
+			    AND ($1='' OR d.created_at::date >= $1::date)
+			    AND ($2='' OR d.created_at::date <= $2::date)
 			GROUP BY s.id,s.name,s.color,s.order_index,s.is_won,s.is_lost
-			ORDER BY s.order_index`)
+			ORDER BY s.order_index`, from, to)
 		if err != nil {
 			respondErr(w, 500, "Query failed"); return
 		}
@@ -1186,9 +1239,13 @@ func crmReportConversion(db *core.DB) http.HandlerFunc {
 func crmReportAgentPerformance(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		days := qint(r, "days", 30, 1, 365)
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT u.id, u.full_name, u.role,
-			       COUNT(DISTINCT a.id) FILTER (WHERE a.created_at >= NOW()-($1::int||' days')::INTERVAL) AS activities,
+			       COUNT(DISTINCT a.id) FILTER (WHERE a.created_at >= NOW()-($1::int||' days')::INTERVAL
+			           AND ($2='' OR a.created_at::date >= $2::date)
+			           AND ($3='' OR a.created_at::date <= $3::date))  AS activities,
 			       COUNT(DISTINCT d.id)                                 AS deals_owned,
 			       COUNT(DISTINCT d.id) FILTER (WHERE s.is_won)        AS deals_won,
 			       COUNT(DISTINCT t.id)                                 AS tasks_assigned,
@@ -1202,7 +1259,7 @@ func crmReportAgentPerformance(db *core.DB) http.HandlerFunc {
 			LEFT JOIN crm_contacts        c ON c.assigned_to=u.id
 			WHERE u.role IN ('sales','management','admin','collections','call_centre')
 			GROUP BY u.id,u.full_name,u.role
-			ORDER BY activities DESC NULLS LAST`, days)
+			ORDER BY activities DESC NULLS LAST`, days, from, to)
 		if err != nil {
 			respondErr(w, 500, "Query failed"); return
 		}
@@ -1227,10 +1284,15 @@ func crmReportActivityTrend(db *core.DB) http.HandlerFunc {
 
 func crmReportContactsBySource(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT source, COUNT(*) AS total,
 			       COUNT(*) FILTER (WHERE status='customer') AS converted
-			FROM crm_contacts GROUP BY source ORDER BY total DESC`)
+			FROM crm_contacts
+			WHERE ($1='' OR created_at::date >= $1::date)
+			  AND ($2='' OR created_at::date <= $2::date)
+			GROUP BY source ORDER BY total DESC`, from, to)
 		if err != nil {
 			respondErr(w, 500, "Query failed"); return
 		}
@@ -1258,14 +1320,18 @@ func crmReportRequestsSLA(db *core.DB) http.HandlerFunc {
 
 func crmReportNewContactsTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT TO_CHAR(DATE_TRUNC('month',created_at),'Mon YYYY') AS month,
 			       COUNT(*) AS new_contacts,
 			       COUNT(*) FILTER (WHERE status='customer') AS converted
 			FROM crm_contacts
 			WHERE created_at >= NOW()-INTERVAL '12 months'
+			  AND ($1='' OR created_at::date >= $1::date)
+			  AND ($2='' OR created_at::date <= $2::date)
 			GROUP BY DATE_TRUNC('month',created_at)
-			ORDER BY DATE_TRUNC('month',created_at)`)
+			ORDER BY DATE_TRUNC('month',created_at)`, from, to)
 		if err != nil {
 			respondErr(w, 500, "Query failed"); return
 		}

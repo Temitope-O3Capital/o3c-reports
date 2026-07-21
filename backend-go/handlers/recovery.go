@@ -39,25 +39,30 @@ func RegisterRecovery(r chi.Router, db *core.DB) {
 func recoveryKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
+		var f Filter
+		f.Date("[Recovery Date]", `"Recovery Date"`, from, to)
+
 		kpis := map[string]any{}
 		var sources []string
 
 		type spec struct{ key, ms, pg string }
 		for _, s := range []spec{
 			{"total_recovered",
-				"SELECT ISNULL(SUM([Recovery Amount]),0) AS val FROM dbo.RecoveryMasterSheet",
-				`SELECT COALESCE(SUM("Recovery Amount"),0) AS val FROM "Recovery Master Sheet"`},
+				"SELECT ISNULL(SUM([Recovery Amount]),0) AS val FROM dbo.RecoveryMasterSheet WHERE 1=1" + f.MS(),
+				`SELECT COALESCE(SUM("Recovery Amount"),0) AS val FROM "Recovery Master Sheet" WHERE 1=1` + f.PG()},
 			{"accounts_in_legal",
-				"SELECT COUNT(DISTINCT [CIF Number]) AS val FROM dbo.RecoveryMasterSheet WHERE [Legal Stage] IS NOT NULL",
-				`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Recovery Master Sheet" WHERE "Legal Stage" IS NOT NULL`},
+				"SELECT COUNT(DISTINCT [CIF Number]) AS val FROM dbo.RecoveryMasterSheet WHERE [Legal Stage] IS NOT NULL" + f.MS(),
+				`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Recovery Master Sheet" WHERE "Legal Stage" IS NOT NULL` + f.PG()},
 			{"recovery_mtd",
-				"SELECT ISNULL(SUM([Recovery Amount]),0) AS val FROM dbo.RecoveryMasterSheet WHERE MONTH([Recovery Date])=MONTH(GETDATE()) AND YEAR([Recovery Date])=YEAR(GETDATE())",
-				`SELECT COALESCE(SUM("Recovery Amount"),0) AS val FROM "Recovery Master Sheet" WHERE DATE_TRUNC('month',"Recovery Date")=DATE_TRUNC('month',CURRENT_DATE)`},
+				"SELECT ISNULL(SUM([Recovery Amount]),0) AS val FROM dbo.RecoveryMasterSheet WHERE MONTH([Recovery Date])=MONTH(GETDATE()) AND YEAR([Recovery Date])=YEAR(GETDATE())" + f.MS(),
+				`SELECT COALESCE(SUM("Recovery Amount"),0) AS val FROM "Recovery Master Sheet" WHERE DATE_TRUNC('month',"Recovery Date")=DATE_TRUNC('month',CURRENT_DATE)` + f.PG()},
 			{"open_cases",
-				"SELECT COUNT(DISTINCT [CIF Number]) AS val FROM dbo.RecoveryMasterSheet WHERE [Status] IS NULL OR [Status] NOT IN ('Recovered','Paid','Closed')",
-				`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Recovery Master Sheet" WHERE "Status" IS NULL OR "Status" NOT IN ('Recovered','Paid','Closed')`},
+				"SELECT COUNT(DISTINCT [CIF Number]) AS val FROM dbo.RecoveryMasterSheet WHERE ([Status] IS NULL OR [Status] NOT IN ('Recovered','Paid','Closed'))" + f.MS(),
+				`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Recovery Master Sheet" WHERE ("Status" IS NULL OR "Status" NOT IN ('Recovered','Paid','Closed'))` + f.PG()},
 		} {
-			val, src, err := db.DualScalar(ctx, "val", s.ms, s.pg)
+			val, src, err := db.DualScalar(ctx, "val", s.ms, s.pg, f.Args()...)
 			if err != nil {
 				respondErr(w, 500, "Query failed: "+s.key)
 				return
@@ -84,9 +89,16 @@ func recoveryKPIs(db *core.DB) http.HandlerFunc {
 		kpis["success_rate_pct"] = kpis["recovery_rate"]
 
 		// avg days open — PG-only; falls back to 0 gracefully
+		avgWhere := ""
+		if from != "" {
+			avgWhere += fmt.Sprintf(" AND opened_at::date >= '%s'::date", from)
+		}
+		if to != "" {
+			avgWhere += fmt.Sprintf(" AND opened_at::date <= '%s'::date", to)
+		}
 		avgRows, _ := db.PGQuery(ctx, `
 			SELECT COALESCE(ROUND(AVG(EXTRACT(DAY FROM NOW() - opened_at)))::int, 0) AS avg_days
-			FROM recovery_cases WHERE status = 'open'`)
+			FROM recovery_cases WHERE status = 'open'`+avgWhere)
 		if len(avgRows) > 0 {
 			kpis["avg_days_in_recovery"] = avgRows[0]["avg_days"]
 		} else {
@@ -114,11 +126,17 @@ func recoveryByMethod(db *core.DB) http.HandlerFunc {
 
 func recoveryMonthlyTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
+		var f Filter
+		f.Date("[Recovery Date]", `"Recovery Date"`, from, to)
+
 		data, src, err := db.DualQuery(r.Context(),
 			`SELECT FORMAT([Recovery Date],'MMM yyyy') AS month,
 			        DATEFROMPARTS(YEAR([Recovery Date]),MONTH([Recovery Date]),1) AS month_sort,
 			        ISNULL(SUM([Recovery Amount]),0) AS amount_kobo
 			 FROM dbo.RecoveryMasterSheet
+			 WHERE 1=1`+f.MS()+`
 			 GROUP BY DATEFROMPARTS(YEAR([Recovery Date]),MONTH([Recovery Date]),1),
 			          FORMAT([Recovery Date],'MMM yyyy')
 			 ORDER BY month_sort`,
@@ -126,7 +144,9 @@ func recoveryMonthlyTrend(db *core.DB) http.HandlerFunc {
 			        DATE_TRUNC('month',"Recovery Date") AS month_sort,
 			        COALESCE(SUM("Recovery Amount"),0) AS amount_kobo
 			 FROM "Recovery Master Sheet"
-			 GROUP BY DATE_TRUNC('month',"Recovery Date") ORDER BY month_sort`)
+			 WHERE 1=1`+f.PG()+`
+			 GROUP BY DATE_TRUNC('month',"Recovery Date") ORDER BY month_sort`,
+			f.Args()...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -219,6 +239,22 @@ func recoveryExport(db *core.DB) http.HandlerFunc {
 // Uses recovery_payments.channel, which is PG-only.
 func recoveryByChannel(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
+		var where string
+		var args []any
+		n := 1
+		if from != "" {
+			where += fmt.Sprintf(" AND payment_date::date >= $%d", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			where += fmt.Sprintf(" AND payment_date::date <= $%d", n)
+			args = append(args, to)
+			n++
+		}
+		_ = n
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT channel,
 			       COALESCE(SUM(amount_kobo), 0) AS amount_kobo,
@@ -228,8 +264,9 @@ func recoveryByChannel(db *core.DB) http.HandlerFunc {
 			           1
 			       ) AS pct
 			FROM recovery_payments
+			WHERE 1=1`+where+`
 			GROUP BY channel
-			ORDER BY amount_kobo DESC`)
+			ORDER BY amount_kobo DESC`, args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -244,6 +281,22 @@ func recoveryByChannel(db *core.DB) http.HandlerFunc {
 // recoveryByAgent aggregates case counts and recovered totals per assigned agent.
 func recoveryByAgent(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
+		var where string
+		var args []any
+		n := 1
+		if from != "" {
+			where += fmt.Sprintf(" AND rc.opened_at::date >= $%d", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			where += fmt.Sprintf(" AND rc.opened_at::date <= $%d", n)
+			args = append(args, to)
+			n++
+		}
+		_ = n
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 			    COALESCE(u.full_name, 'Unassigned') AS agent_name,
@@ -257,8 +310,9 @@ func recoveryByAgent(db *core.DB) http.HandlerFunc {
 			    ) AS success_rate_pct
 			FROM recovery_cases rc
 			LEFT JOIN o3c_users u ON rc.assigned_agent_id = u.id
+			WHERE 1=1`+where+`
 			GROUP BY u.full_name
-			ORDER BY recovered_kobo DESC`)
+			ORDER BY recovered_kobo DESC`, args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -274,6 +328,22 @@ func recoveryByAgent(db *core.DB) http.HandlerFunc {
 func recoveryLegal(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		limit := qint(r, "limit", 200, 1, 1000)
+		from  := qstr(r, "from")
+		to    := qstr(r, "to")
+		var dateWhere string
+		var args []any
+		n := 1
+		if from != "" {
+			dateWhere += fmt.Sprintf(" AND rc.opened_at::date >= $%d", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			dateWhere += fmt.Sprintf(" AND rc.opened_at::date <= $%d", n)
+			args = append(args, to)
+			n++
+		}
+		args = append(args, limit)
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
 			    rc.id,
@@ -291,9 +361,9 @@ func recoveryLegal(db *core.DB) http.HandlerFunc {
 			    ORDER BY filing_date DESC
 			    LIMIT 1
 			) lp ON true
-			WHERE rc.legal_stage IS NOT NULL
+			WHERE rc.legal_stage IS NOT NULL%s
 			ORDER BY rc.updated_at DESC
-			LIMIT %d`, limit))
+			LIMIT $%d`, dateWhere, n), args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -419,6 +489,22 @@ func recoveryAddLegalMilestone(db *core.DB) http.HandlerFunc {
 
 func recoveryTPAAgencies(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
+		var rcWhere string
+		var args []any
+		n := 1
+		if from != "" {
+			rcWhere += fmt.Sprintf(" AND rc.opened_at::date >= $%d", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			rcWhere += fmt.Sprintf(" AND rc.opened_at::date <= $%d", n)
+			args = append(args, to)
+			n++
+		}
+		_ = n
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 			    ta.id,
@@ -432,10 +518,10 @@ func recoveryTPAAgencies(db *core.DB) http.HandlerFunc {
 			    ROUND(COALESCE(SUM(rc.recovered_kobo), 0) * ta.commission_pct / 100.0) AS commission_accrued_kobo,
 			    ta.active
 			FROM tpa_agencies ta
-			LEFT JOIN recovery_cases rc ON rc.tpa_agency_id = ta.id
+			LEFT JOIN recovery_cases rc ON rc.tpa_agency_id = ta.id AND 1=1`+rcWhere+`
 			GROUP BY ta.id, ta.name, ta.licence_number, ta.contact_name,
 			         ta.contact_phone, ta.commission_pct, ta.active
-			ORDER BY ta.name`)
+			ORDER BY ta.name`, args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -597,12 +683,29 @@ func recoveryTPAAgencyPerformance(db *core.DB) http.HandlerFunc {
 
 func recoveryDebtSales(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
+		var where string
+		var args []any
+		n := 1
+		if from != "" {
+			where += fmt.Sprintf(" AND sale_date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			where += fmt.Sprintf(" AND sale_date <= $%d::date", n)
+			args = append(args, to)
+			n++
+		}
+		_ = n
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT id, buyer_name, sale_date, account_count,
 			       face_value_kobo, sale_price_kobo, recovery_post_sale_kobo,
 			       notes, created_at
 			FROM debt_sales
-			ORDER BY sale_date DESC`)
+			WHERE deleted_at IS NULL`+where+`
+			ORDER BY sale_date DESC`, args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return

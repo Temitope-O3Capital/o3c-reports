@@ -131,6 +131,45 @@ func RegisterMailPublic(r chi.Router, db *core.DB) {
 	r.Get("/unsubscribe", mailUnsubscribe(db))
 	r.Post("/unsubscribe", mailUnsubscribe(db))
 	r.Post("/inbound", mailInboundParse(db))
+	r.Post("/events", sendgridEventWebhook(db))
+}
+
+// sendgridEventWebhook receives SendGrid Event Webhook POSTs and updates mail tracking.
+// Configure in SendGrid: Settings → Mail Settings → Event Webhook → HTTP Post URL = /api/mail/events
+func sendgridEventWebhook(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// Verify signature when key is configured (optional but recommended).
+		if pubKey := resolveSendGridWebhookPublicKey(r.Context(), db); pubKey != "" {
+			timestamp := r.Header.Get("X-Twilio-Email-Event-Webhook-Timestamp")
+			signature := r.Header.Get("X-Twilio-Email-Event-Webhook-Signature")
+			if !verifyInboundWebhookHMAC(pubKey, timestamp, signature, body) {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+		}
+
+		var events []map[string]any
+		if err := json.Unmarshal(body, &events); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		ctx := r.Context()
+		for _, ev := range events {
+			providerID := str(ev["sg_message_id"])
+			eventType := str(ev["event"])
+			if providerID == "" || eventType == "" {
+				continue
+			}
+			recordMailEvent(ctx, db, providerID, eventType, ev)
+		}
+		w.WriteHeader(http.StatusOK)
+	}
 }
 
 // verifyInboundWebhookHMAC verifies HMAC-SHA256 signature on SendGrid Inbound Parse webhooks.
@@ -324,6 +363,18 @@ func mailMetrics(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Mail storage setup failed: "+err.Error())
 			return
 		}
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
+		where := "WHERE 1=1"
+		var args []any
+		if from != "" {
+			args = append(args, from)
+			where += " AND created_at::date >= $" + itoa(len(args)) + "::date"
+		}
+		if to != "" {
+			args = append(args, to)
+			where += " AND created_at::date <= $" + itoa(len(args)) + "::date"
+		}
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 				COUNT(*)                                       AS total_sent,
@@ -332,7 +383,7 @@ func mailMetrics(db *core.DB) http.HandlerFunc {
 				COUNT(*) FILTER (WHERE status='clicked')       AS total_clicked,
 				COUNT(*) FILTER (WHERE status='bounced')       AS total_bounced,
 				COUNT(*) FILTER (WHERE status='spam_report')   AS total_spam
-			FROM mail_messages`)
+			FROM mail_messages `+where, args...)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 500, "Query failed")
 			return
@@ -544,11 +595,20 @@ func mailListSuppressions(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Mail storage setup failed: "+err.Error())
 			return
 		}
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT email, reason, source, is_active, updated_at
-			FROM mail_suppressions
-			ORDER BY updated_at DESC
-			LIMIT 500`)
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
+		q := `SELECT email, reason, source, is_active, updated_at FROM mail_suppressions WHERE 1=1`
+		var args []any
+		if from != "" {
+			args = append(args, from)
+			q += " AND updated_at::date >= $" + itoa(len(args)) + "::date"
+		}
+		if to != "" {
+			args = append(args, to)
+			q += " AND updated_at::date <= $" + itoa(len(args)) + "::date"
+		}
+		q += " ORDER BY updated_at DESC LIMIT 500"
+		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return

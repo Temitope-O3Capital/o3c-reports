@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, ErrBanner, FilterBar, filterInputStyle, StatusBadge, Modal, ConfirmModal, btnPrimary } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, FilterBar, filterInputStyle, StatusBadge, Modal, ConfirmModal, btnPrimary, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { DataTable } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtKobo, fmtDate } from '../../lib/fmt'
+import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { GREEN, RED, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { roleLabel } from '../../lib/roles'
 import type { WorkflowTemplate } from '../admin/WorkflowTemplates'
@@ -357,6 +357,8 @@ export default function ManualPostings() {
   const [error, setError]         = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
   const [initiatorSearch, setInitiatorSearch] = useState('')
+  const [dateFrom, setDateFrom]   = useState(monthStart())
+  const [dateTo, setDateTo]       = useState(today())
 
   const [newOpen, setNewOpen]             = useState(false)
   const [detail, setDetail]               = useState<ManualPosting | null>(null)
@@ -379,6 +381,8 @@ export default function ManualPostings() {
       const p = new URLSearchParams()
       if (statusFilter)     p.set('stage', statusFilter)
       if (initiatorSearch)  p.set('q', initiatorSearch)
+      p.set('date_from', dateFrom)
+      p.set('date_to', dateTo)
       p.set('limit', '100')
       const res = await apiFetch<{ data: ManualPosting[] }>(`/api/settlements/manual-postings?${p}`)
       setRows(res.data ?? [])
@@ -387,7 +391,7 @@ export default function ManualPostings() {
     } finally {
       setLoading(false)
     }
-  }, [statusFilter, initiatorSearch])
+  }, [statusFilter, initiatorSearch, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -577,7 +581,8 @@ export default function ManualPostings() {
 
       <SectionCard title="Manual Postings" badge={rows.length} padding={false} actions={<button onClick={() => exportCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <div style={{ padding: '12px 16px 0' }}>
-          <FilterBar onReset={() => { setStatusFilter(''); setInitiatorSearch('') }}>
+          <FilterBar onReset={() => { setStatusFilter(''); setInitiatorSearch(''); setDateFrom(monthStart()); setDateTo(today()) }}>
+            <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
               {STAGE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>

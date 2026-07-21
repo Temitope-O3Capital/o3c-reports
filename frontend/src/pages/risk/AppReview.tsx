@@ -271,6 +271,8 @@ export default function RiskAppReview() {
           onSelect={setSelected}
           bulkBar={bulkBar}
           emptyText="No applications found"
+          searchKeys={['applicant_name', 'product_type', 'risk_band']}
+          searchPlaceholder="Search by applicant, product, band…"
         />
 
         {pages > 1 && (

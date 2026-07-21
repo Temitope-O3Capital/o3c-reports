@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Page, SectionCard, DataTable, Modal, ConfirmModal, ErrBanner, Spinner, filterInputStyle,
+  Page, SectionCard, DataTable, Modal, ConfirmModal, ErrBanner, Spinner, filterInputStyle, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiDelete } from '../../lib/api'
-import { fmtKobo, fmtDate } from '../../lib/fmt'
+import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -219,16 +219,19 @@ export default function DebtSales() {
   const [createOpen,  setCreateOpen]  = useState(false)
   const [deleteId,    setDeleteId]    = useState<number | null>(null)
   const [deleting,    setDeleting]    = useState(false)
+  const [dateFrom,    setDateFrom]    = useState(monthStart())
+  const [dateTo,      setDateTo]      = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const res = await apiFetch<DebtSale[] | { data: DebtSale[] }>('/api/recovery/debt-sales')
+      const qs = `from=${dateFrom}&to=${dateTo}`
+      const res = await apiFetch<DebtSale[] | { data: DebtSale[] }>(`/api/recovery/debt-sales?${qs}`)
       setSales(Array.isArray(res) ? res : (res as any).data ?? [])
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load debt sales')
     } finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -255,17 +258,20 @@ export default function DebtSales() {
       title="Debt Sales"
       subtitle="Portfolio of accounts sold to third-party buyers"
       actions={
-        <button
-          onClick={() => setCreateOpen(true)}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: 'none',
-            background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer',
-          }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
-          Record Sale
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button
+            onClick={() => setCreateOpen(true)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: 'none',
+              background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer',
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
+            Record Sale
+          </button>
+        </div>
       }
     >
       {/* Summary strip */}
@@ -304,6 +310,8 @@ export default function DebtSales() {
             rows={sales}
             keyFn={r => r.id}
             emptyText="No debt sales recorded yet."
+            searchKeys={['buyer_name', 'notes']}
+            searchPlaceholder="Search by buyer name or notes…"
           />
         </SectionCard>
       )}

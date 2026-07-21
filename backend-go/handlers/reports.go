@@ -719,6 +719,8 @@ func reportKPIsHandler(db *core.DB) http.HandlerFunc {
 		period := qstr(r, "period")
 		if period == "" { period = "this_month" }
 		dateFrom, dateTo := reportPeriodRange(period)
+		if v := r.URL.Query().Get("from"); v != "" { dateFrom = v }
+		if v := r.URL.Query().Get("to");   v != "" { dateTo   = v }
 
 		out := map[string]any{}
 

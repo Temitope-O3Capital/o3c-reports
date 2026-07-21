@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  Modal, ConfirmModal, ErrBanner, Spinner, btnPrimary,
+  Modal, ConfirmModal, ErrBanner, Spinner, btnPrimary, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
+import { monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -128,6 +129,8 @@ export default function AMLRules() {
   const [rules, setRules] = useState<AMLRule[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo, setDateTo] = useState(today())
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<AMLRule | null>(null)
@@ -140,11 +143,14 @@ export default function AMLRules() {
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const data = await apiFetch<AMLRule[]>('/api/compliance/aml-rules')
+      const p = new URLSearchParams()
+      if (dateFrom) p.set('from', dateFrom)
+      if (dateTo)   p.set('to', dateTo)
+      const data = await apiFetch<AMLRule[]>(`/api/compliance/aml-rules?${p}`)
       setRules(Array.isArray(data) ? data : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -268,10 +274,13 @@ export default function AMLRules() {
       title="AML Rules"
       subtitle="Configure automated flagging rules for suspicious transaction patterns"
       actions={
-        <button onClick={openNew} style={btnPrimary}>
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
-          New Rule
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={openNew} style={btnPrimary}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
+            New Rule
+          </button>
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />

@@ -370,23 +370,46 @@ func overviewCardsSummary(db *core.DB) http.HandlerFunc {
 		}
 
 		row := rows[0]
-		// C5 TODO: outstanding/balance fields are 0 because the live card data source (MSSQL dbo.Account)
-		// does not expose per-tier outstanding balance columns in the current schema. Query the
-		// Outstanding_Balance or Available_Credit column once confirmed available.
+
+		// Balances from card_cycle_data (most recent billing cycle) joined to card_products.
+		// Counts still come from the DualQuery above (MSSQL is the source of truth for active accounts).
+		balRows, _ := db.PGQuery(ctx, `
+			SELECT
+			  COALESCE(SUM(CASE WHEN LOWER(p.product_name) LIKE '%green%'    AND d.currency='NGN'
+			               THEN d.outstanding_balance_kobo END), 0) AS green_outstanding_kobo,
+			  COALESCE(SUM(CASE WHEN LOWER(p.product_name) LIKE '%gold%'     AND d.currency='NGN'
+			               THEN d.outstanding_balance_kobo END), 0) AS gold_outstanding_kobo,
+			  COALESCE(SUM(CASE WHEN LOWER(p.product_name) LIKE '%platinum%' AND d.currency='NGN'
+			               THEN d.outstanding_balance_kobo END), 0) AS platinum_outstanding_kobo,
+			  COALESCE(SUM(CASE WHEN p.category='prepaid' AND d.currency='NGN'
+			               THEN d.outstanding_balance_kobo END), 0) AS prepaid_ngn_balance_kobo,
+			  COALESCE(SUM(CASE WHEN p.category='prepaid' AND d.currency='USD'
+			               THEN d.outstanding_balance_kobo END), 0) AS prepaid_usd_balance_cents,
+			  COALESCE(SUM(CASE WHEN p.category='credit'  AND d.currency='NGN'
+			               THEN d.outstanding_balance_kobo END), 0) AS credit_ngn_balance_kobo
+			FROM card_cycle_data d
+			LEFT JOIN card_products p ON p.product_code = d.product_code
+			WHERE d.cycle_date = (SELECT MAX(cycle_date) FROM card_cycle_data)`)
+
+		bal := map[string]any{}
+		if len(balRows) > 0 {
+			bal = balRows[0]
+		}
+
 		respond(w, map[string]any{
 			"disputes_open":             disputes,
 			"green_count":               toInt64(row["green_count"]),
-			"green_outstanding_kobo":    0, // TODO: query from MSSQL when balance column confirmed
+			"green_outstanding_kobo":    toInt64(bal["green_outstanding_kobo"]),
 			"gold_count":                toInt64(row["gold_count"]),
-			"gold_outstanding_kobo":     0, // TODO: query from MSSQL when balance column confirmed
+			"gold_outstanding_kobo":     toInt64(bal["gold_outstanding_kobo"]),
 			"platinum_count":            toInt64(row["platinum_count"]),
-			"platinum_outstanding_kobo": 0, // TODO: query from MSSQL when balance column confirmed
+			"platinum_outstanding_kobo": toInt64(bal["platinum_outstanding_kobo"]),
 			"prepaid_ngn_count":         toInt64(row["prepaid_ngn_count"]),
-			"prepaid_ngn_balance_kobo":  0, // TODO: query from MSSQL when balance column confirmed
+			"prepaid_ngn_balance_kobo":  toInt64(bal["prepaid_ngn_balance_kobo"]),
 			"prepaid_usd_count":         toInt64(row["prepaid_usd_count"]),
-			"prepaid_usd_balance_cents": 0, // TODO: query from MSSQL when balance column confirmed
+			"prepaid_usd_balance_cents": toInt64(bal["prepaid_usd_balance_cents"]),
 			"credit_ngn_count":          toInt64(row["credit_ngn_count"]),
-			"credit_ngn_balance_kobo":   0, // TODO: query from MSSQL when balance column confirmed
+			"credit_ngn_balance_kobo":   toInt64(bal["credit_ngn_balance_kobo"]),
 		}, "pg")
 	}
 }

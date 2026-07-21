@@ -686,49 +686,174 @@ function SignatureTab() {
 
 // ── Voice Tab ─────────────────────────────────────────────────────────────────
 
-function VoiceTab() {
-  const [configured, setConfigured] = useState<boolean | null>(null)
+interface ZohoVoiceStatus { connected: boolean; agent_id: string }
 
-  useEffect(() => {
-    apiFetch<{ configured: boolean }>('/api/voice/status', { silent: true } as any)
-      .then(r => setConfigured(r.configured ?? false))
-      .catch(() => setConfigured(false))
+function VoiceTab() {
+  const [status, setStatus]     = useState<ZohoVoiceStatus | null>(null)
+  const [loading, setLoading]   = useState(true)
+  const [saving, setSaving]     = useState(false)
+  const [token, setToken]       = useState('')
+  const [agentId, setAgentId]   = useState('')
+  const [showToken, setShowToken] = useState(false)
+
+  const fetchStatus = useCallback(() => {
+    apiFetch<ZohoVoiceStatus>('/api/settings/zoho-voice')
+      .then(r => { setStatus(r); setLoading(false) })
+      .catch(() => { setStatus({ connected: false, agent_id: '' }); setLoading(false) })
   }, [])
 
+  useEffect(() => { fetchStatus() }, [fetchStatus])
+
+  async function handleConnect(e: React.FormEvent) {
+    e.preventDefault()
+    if (!token.trim()) { toast.error('Refresh token is required'); return }
+    setSaving(true)
+    try {
+      await apiPut('/api/settings/zoho-voice', { refresh_token: token.trim(), agent_id: agentId.trim() })
+      toast.success('Zoho Voice connected')
+      setToken(''); setAgentId('')
+      fetchStatus()
+    } catch (e: any) {
+      toast.error(e.message ?? 'Failed to connect')
+    } finally { setSaving(false) }
+  }
+
+  async function handleDisconnect() {
+    try {
+      await apiFetch('/api/settings/zoho-voice', { method: 'DELETE' })
+      toast.success('Zoho Voice disconnected')
+      fetchStatus()
+    } catch (e: any) {
+      toast.error(e.message ?? 'Failed to disconnect')
+    }
+  }
+
+  if (loading) return <div style={{ padding: 40, display: 'flex', justifyContent: 'center' }}><Spinner size={24} /></div>
+
   return (
-    <SectionCard title="Voice & Calling" subtitle="Make and receive calls directly from the workspace">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP[4] }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[5] }}>
+
+      {/* Status card */}
+      <SectionCard title="Zoho Voice" subtitle="Connect your Zoho Voice account to enable click-to-call and dialer integration">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP[4], flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
-            <div style={{ width: 42, height: 42, borderRadius: RADIUS.lg, background: configured ? `${GREEN}15` : 'var(--th-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT['2xl'], color: configured ? GREEN : 'var(--txt3)' }}>phone_in_talk</span>
+            <div style={{ width: 44, height: 44, borderRadius: RADIUS.lg, background: status?.connected ? `${GREEN}15` : 'var(--th-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT['2xl'], color: status?.connected ? GREEN : 'var(--txt3)' }}>phone_in_talk</span>
             </div>
             <div>
-              <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)' }}>Telnyx WebRTC</div>
+              <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+                {status?.connected ? 'Connected' : 'Not connected'}
+              </div>
               <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2 }}>
-                {configured === null
-                  ? 'Checking configuration…'
-                  : configured
-                    ? 'SIP credentials configured. Use the phone widget (bottom-right) to call.'
-                    : 'SIP credentials not set. Contact your IT admin to enable calling.'}
+                {status?.connected
+                  ? `Agent ID: ${status.agent_id || '—'} · Your Zoho Voice account is linked`
+                  : 'Link your Zoho Voice account below to use click-to-call and the predictive dialer'}
               </div>
             </div>
           </div>
-          <span style={{
-            flexShrink: 0, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '3px 10px', borderRadius: RADIUS['2xl'],
-            background: configured ? `${GREEN}18` : 'var(--chip-bg, #F0F4FF)',
-            color: configured ? GREEN : 'var(--txt2)',
-          }}>
-            {configured === null ? '…' : configured ? 'Configured' : 'Not configured'}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+            <span style={{
+              fontSize: TEXT.xs, fontWeight: FW.bold, padding: '3px 10px', borderRadius: RADIUS['2xl'],
+              background: status?.connected ? `${GREEN}18` : 'var(--chip-bg, #F0F4FF)',
+              color: status?.connected ? GREEN : 'var(--txt2)',
+            }}>
+              {status?.connected ? 'Active' : 'Inactive'}
+            </span>
+            {status?.connected && (
+              <button onClick={handleDisconnect}
+                style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: `1px solid ${RED}30`, background: `${RED}08`, color: RED, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+                Disconnect
+              </button>
+            )}
+          </div>
         </div>
+      </SectionCard>
 
-        <div style={{ background: 'var(--th-bg)', borderRadius: RADIUS.lg, padding: `${SP[3]} ${SP[4]}`, fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.65 }}>
-          <div style={{ fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 4 }}>How calling works</div>
-          SIP credentials are provisioned by the IT Admin via <strong>Admin → Users</strong>. Once configured, the call widget appears in the bottom-right corner of the workspace. Contact IT if calling is not working for your account.
+      {/* Connect form — only shown when not connected */}
+      {!status?.connected && (
+        <SectionCard title="Connect Zoho Voice" subtitle="Paste your Zoho Voice refresh token to link your account">
+          <form onSubmit={handleConnect} style={{ display: 'flex', flexDirection: 'column', gap: SP[3], maxWidth: 440 }}>
+
+            <div>
+              <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 6 }}>
+                Zoho OAuth Refresh Token *
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showToken ? 'text' : 'password'}
+                  value={token}
+                  onChange={e => setToken(e.target.value)}
+                  placeholder="1000.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+                  style={{ ...INPUT, paddingRight: 40, fontFamily: 'monospace', fontSize: TEXT.sm }}
+                  required
+                />
+                <button type="button" onClick={() => setShowToken(v => !v)}
+                  style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt3)', padding: 0 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl }}>{showToken ? 'visibility_off' : 'visibility'}</span>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 6 }}>
+                Zoho Voice Agent ID (optional)
+              </label>
+              <input
+                type="text"
+                value={agentId}
+                onChange={e => setAgentId(e.target.value)}
+                placeholder="e.g. 123456789"
+                style={{ ...INPUT, fontFamily: 'monospace', fontSize: TEXT.sm }}
+              />
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>
+                Found in Zoho Voice → Settings → My Profile
+              </div>
+            </div>
+
+            <button type="submit" disabled={saving} style={{ ...BTN_PRIMARY, alignSelf: 'flex-start' }}>
+              {saving && <Spinner size={14} color="#fff" />}
+              {saving ? 'Connecting…' : 'Connect Account'}
+            </button>
+          </form>
+        </SectionCard>
+      )}
+
+      {/* How-to guide */}
+      <SectionCard title="How to get your refresh token">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3], fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.65 }}>
+          {[
+            { n: 1, text: 'Go to api-console.zoho.com and sign in with your Zoho account' },
+            { n: 2, text: 'Click "Self Client" → "Create Now"' },
+            { n: 3, text: 'Add scopes: VoiceAPI.calls.ALL, VoiceAPI.logs.READ, Desk.calls.ALL' },
+            { n: 4, text: 'Set the time to "10 minutes" and generate the code' },
+            { n: 5, text: 'Exchange the code for a refresh token using the Generate Tokens tab' },
+            { n: 6, text: 'Copy the refresh_token value and paste it above' },
+          ].map(({ n, text }) => (
+            <div key={n} style={{ display: 'flex', gap: SP[3], alignItems: 'flex-start' }}>
+              <div style={{ width: 24, height: 24, borderRadius: '50%', background: NAVY, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, flexShrink: 0, marginTop: 1 }}>{n}</div>
+              <span>{text}</span>
+            </div>
+          ))}
+          <div style={{ marginTop: SP[1], padding: `${SP[2]} ${SP[3]}`, background: `${AMBER}10`, border: `1px solid ${AMBER}25`, borderRadius: RADIUS.md, color: AMBER, fontSize: TEXT.xs, fontWeight: FW.medium }}>
+            The refresh token does not expire unless revoked. Keep it confidential — it is encrypted at rest in the workspace.
+          </div>
         </div>
-      </div>
-    </SectionCard>
+      </SectionCard>
+
+      {/* How the dialer works */}
+      <SectionCard title="How the dialer works">
+        <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.7 }}>
+          <p style={{ marginTop: 0 }}>
+            Once connected, the workspace predictive dialer automatically calls contacts in your campaign queue via Zoho Voice.
+            Your registered Zoho phone (desk phone or soft phone) rings when a contact answers — you pick up, and the customer is already on the line.
+          </p>
+          <p style={{ marginBottom: 0 }}>
+            In <strong>preview mode</strong>, you see the next contact's details before the call fires and can choose to call now or skip.
+            The dialer tracks outcomes, schedules retries, and monitors the CBN 3% abandonment cap automatically.
+          </p>
+        </div>
+      </SectionCard>
+    </div>
   )
 }
 

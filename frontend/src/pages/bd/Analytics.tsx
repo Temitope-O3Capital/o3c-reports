@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, KpiCard, DataTable, ErrBanner } from '../../components/UI'
+import { Page, SectionCard, KpiCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtNum } from '../../lib/fmt'
+import { fmtKobo, fmtNum, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar,
@@ -94,21 +94,23 @@ export default function BDAnalytics() {
   const [employers, setEmployers] = useState<Employer[]>([])
   const [loading, setLoading]     = useState(true)
   const [err, setErr]             = useState<string | null>(null)
+  const [dateFrom, setDateFrom]   = useState(monthStart())
+  const [dateTo,   setDateTo]     = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
       const [s, l, e] = await Promise.all([
-        apiFetch<BDStats>('/api/bd/stats'),
-        apiFetch<BDLead[]>('/api/bd/leads?limit=500'),
-        apiFetch<Employer[]>('/api/bd/employers?limit=100'),
+        apiFetch<BDStats>(`/api/bd/stats?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<BDLead[]>(`/api/bd/leads?limit=500&from=${dateFrom}&to=${dateTo}`),
+        apiFetch<Employer[]>(`/api/bd/employers?limit=100&from=${dateFrom}&to=${dateTo}`),
       ])
       setStats(s)
       setLeads(Array.isArray(l) ? l : [])
       setEmployers(Array.isArray(e) ? e : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -132,7 +134,9 @@ export default function BDAnalytics() {
   ]
 
   return (
-    <Page title="BD Analytics" subtitle="Business development performance and pipeline overview">
+    <Page title="BD Analytics" subtitle="Business development performance and pipeline overview"
+      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
+    >
       <ErrBanner error={err} onRetry={load} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[5] }}>

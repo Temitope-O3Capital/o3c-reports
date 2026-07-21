@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Page, SectionCard, FilterBar, filterInputStyle, ErrBanner, Sk } from '../../components/UI'
+import { Page, SectionCard, FilterBar, filterInputStyle, ErrBanner, Sk, DateFilter } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtPct, fmtNum } from '../../lib/fmt'
+import { fmtPct, fmtNum, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, INTER, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -99,19 +99,23 @@ function SkeletonRows({ count }: { count: number }) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function VintageAnalysis() {
-  const [rows,    setRows]    = useState<VintageRow[]>([])
-  const [kpis,    setKpis]    = useState<VintageKPIs | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState<string | null>(null)
-  const [product, setProduct] = useState('')
+  const [rows,     setRows]    = useState<VintageRow[]>([])
+  const [kpis,     setKpis]    = useState<VintageKPIs | null>(null)
+  const [loading,  setLoading] = useState(true)
+  const [error,    setError]   = useState<string | null>(null)
+  const [product,  setProduct] = useState('')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const abortRef = useRef<AbortController | null>(null)
 
   const buildQS = useCallback(() => {
     const p = new URLSearchParams()
-    if (product) p.set('product', product)
+    if (product)  p.set('product', product)
+    if (dateFrom) p.set('from', dateFrom)
+    if (dateTo)   p.set('to', dateTo)
     return p.toString()
-  }, [product])
+  }, [product, dateFrom, dateTo])
 
   const load = useCallback(async () => {
     abortRef.current?.abort()
@@ -165,6 +169,9 @@ export default function VintageAnalysis() {
     <Page
       title="Vintage Analysis"
       subtitle="PAR30 cohort performance by booking month"
+      actions={
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+      }
     >
       <ErrBanner error={error} onRetry={load} />
 

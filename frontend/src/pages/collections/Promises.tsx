@@ -298,6 +298,8 @@ export default function CollectionsPromises() {
           bulkBar={bulkBar}
           emptyText="No promises found"
           skeletonRows={8}
+          searchKeys={['account_cif', 'customer_name', 'agent_name', 'promise_date']}
+          searchPlaceholder="Search CIF, name, agent, date…"
           rowStyle={r => {
             const s = r.status
             if (s === 'Kept')   return { background: `${GREEN}0C` }

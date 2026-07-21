@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -72,6 +73,10 @@ func RegisterDialer(r chi.Router, db *core.DB) {
 	r.Delete("/sessions", dlLeaveSession(db))
 	r.Put("/sessions/status", dlSetSessionStatus(db))
 	r.Get("/sessions/me", dlMySession(db))
+	r.Get("/sessions/me/next-contact", dlNextContact(db))
+
+	// Agent-triggered call (preview/progressive mode)
+	r.Post("/calls/manual", dlManualCall(db))
 
 	// Call disposition (agent sets after call ends)
 	r.Post("/calls/{id}/disposition", dlSetDisposition(db))
@@ -158,11 +163,24 @@ func ensureDialerSchema(ctx context.Context, db *core.DB) {
 
 func dlListCampaigns(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.PGQuery(r.Context(),
-			`SELECT id, name, description, status, dial_ratio, max_abandonment_pct,
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
+
+		q := `SELECT id, name, description, status, dial_ratio, max_abandonment_pct,
 			        caller_id, max_attempts, retry_delay_minutes,
 			        schedule_start, schedule_end, created_by, created_at, updated_at
-			 FROM dialer_campaigns ORDER BY created_at DESC`)
+			 FROM dialer_campaigns WHERE 1=1`
+		var args []any
+		if from != "" {
+			args = append(args, from)
+			q += " AND created_at::date >= $" + itoa(len(args)) + "::date"
+		}
+		if to != "" {
+			args = append(args, to)
+			q += " AND created_at::date <= $" + itoa(len(args)) + "::date"
+		}
+		q += " ORDER BY created_at DESC"
+		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
 			respondErr(w, 500, err.Error())
 			return
@@ -651,6 +669,223 @@ func dlSetDisposition(db *core.DB) http.HandlerFunc {
 		}
 
 		w.WriteHeader(204)
+	}
+}
+
+// ── Preview / progressive dialing ─────────────────────────────────────────────
+
+// dlNextContact returns the next pending contact in the agent's campaign queue
+// so the agent can preview the contact before the call fires.
+func dlNextContact(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "unauthorized")
+			return
+		}
+		ctx := r.Context()
+
+		// Find agent's active session and campaign
+		sessRows, err := db.PGQuery(ctx,
+			`SELECT campaign_id FROM dialer_sessions
+			 WHERE agent_user_id=$1 AND status IN ('ready','on_call','paused')
+			 ORDER BY joined_at DESC LIMIT 1`, user.ID)
+		if err != nil || len(sessRows) == 0 {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"contact": nil}) //nolint:errcheck
+			return
+		}
+		campaignID := int64(numVal(sessRows[0]["campaign_id"]))
+
+		var contacts []core.Row
+		var qErr error
+		if campaignID > 0 {
+			contacts, qErr = db.PGQuery(ctx,
+				`SELECT id, phone, customer_name, cif, metadata, priority, attempts
+				 FROM dialer_queue
+				 WHERE campaign_id=$1
+				   AND status='pending'
+				   AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+				 ORDER BY priority ASC, created_at ASC LIMIT 1`, campaignID)
+		} else {
+			// Agent joined with "any campaign" — search across all active campaigns
+			contacts, qErr = db.PGQuery(ctx,
+				`SELECT q.id, q.phone, q.customer_name, q.cif, q.metadata, q.priority, q.attempts
+				 FROM dialer_queue q
+				 JOIN dialer_campaigns c ON c.id = q.campaign_id
+				 WHERE c.status = 'active'
+				   AND q.status = 'pending'
+				   AND (q.next_attempt_at IS NULL OR q.next_attempt_at <= NOW())
+				 ORDER BY q.priority ASC, q.created_at ASC LIMIT 1`)
+		}
+		if qErr != nil || len(contacts) == 0 {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"contact": nil}) //nolint:errcheck
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"contact": contacts[0]}) //nolint:errcheck
+	}
+}
+
+// dlManualCall lets an agent in preview/progressive mode trigger the next call
+// themselves, rather than waiting for the auto-dialer engine to fire it.
+func dlManualCall(db *core.DB) http.HandlerFunc {
+	type body struct {
+		QueueEntryID int64  `json:"queue_entry_id"`
+		Phone        string `json:"phone"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "unauthorized")
+			return
+		}
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "invalid JSON")
+			return
+		}
+		ctx := r.Context()
+
+		// Agent must have a ready session
+		sessRows, err := db.PGQuery(ctx,
+			`SELECT id, campaign_id FROM dialer_sessions
+			 WHERE agent_user_id=$1 AND status='ready'
+			 ORDER BY joined_at DESC LIMIT 1`, user.ID)
+		if err != nil || len(sessRows) == 0 {
+			respondErr(w, 400, "no ready session — join a campaign first")
+			return
+		}
+		campaignID := int64(numVal(sessRows[0]["campaign_id"]))
+
+		phone := strings.TrimSpace(b.Phone)
+		queueID := b.QueueEntryID
+
+		// If queue entry ID given, resolve phone and campaign from it
+		if queueID > 0 {
+			qRows, _ := db.PGQuery(ctx,
+				`SELECT phone, campaign_id FROM dialer_queue WHERE id=$1`, queueID)
+			if len(qRows) > 0 {
+				if phone == "" {
+					phone = str(qRows[0]["phone"])
+				}
+				if campaignID == 0 {
+					campaignID = int64(numVal(qRows[0]["campaign_id"]))
+				}
+			}
+		}
+		// Fallback: if still no campaign, pick the first active one
+		if campaignID == 0 {
+			cRows, _ := db.PGQuery(ctx,
+				`SELECT id FROM dialer_campaigns WHERE status='active' ORDER BY created_at LIMIT 1`)
+			if len(cRows) > 0 {
+				campaignID = int64(numVal(cRows[0]["id"]))
+			}
+		}
+		if phone == "" {
+			respondErr(w, 422, "phone or queue_entry_id is required")
+			return
+		}
+		if campaignID == 0 {
+			respondErr(w, 400, "no active campaign found")
+			return
+		}
+
+		// Mark agent as on_call immediately so the engine doesn't double-fire
+		db.PGExec(ctx, //nolint:errcheck
+			`UPDATE dialer_sessions SET status='on_call', last_active_at=NOW()
+			 WHERE agent_user_id=$1 AND status='ready'`, user.ID)
+
+		// Mark queue entry as dialing
+		if queueID > 0 {
+			db.PGExec(ctx, //nolint:errcheck
+				`UPDATE dialer_queue
+				 SET status='dialing', last_attempt_at=NOW(), attempts=attempts+1
+				 WHERE id=$1`, queueID)
+		}
+
+		// Fetch agent's per-user Zoho Voice access token.
+		// The Zoho Desk REST API can only log calls, not initiate them.
+		// Real outbound calls require the Zoho Voice click-to-call API with a per-user token.
+		agentRows, _ := db.PGQuery(ctx,
+			`SELECT zoho_voice_access_token, zoho_voice_token_expiry, zoho_voice_refresh_token
+			 FROM o3c_users WHERE id=$1`, user.ID)
+		if len(agentRows) == 0 {
+			respondErr(w, 403, "Zoho Voice not connected — go to Settings → Voice & Calling")
+			return
+		}
+		encAccess, _ := agentRows[0]["zoho_voice_access_token"].(string)
+		expiry, _    := agentRows[0]["zoho_voice_token_expiry"].(time.Time)
+		encRefresh, _ := agentRows[0]["zoho_voice_refresh_token"].(string)
+
+		var voiceToken string
+		if encAccess != "" && time.Now().Add(60*time.Second).Before(expiry) {
+			voiceToken, _ = decryptValue(encAccess)
+		} else if encRefresh != "" {
+			if rt, _ := decryptValue(encRefresh); rt != "" {
+				newAccess, newExpiry, err := voiceRefreshUserToken(ctx, rt)
+				if err == nil {
+					voiceToken = newAccess
+					if enc, err := encryptValue(newAccess); err == nil {
+						db.PGExec(ctx, //nolint:errcheck
+							`UPDATE o3c_users SET zoho_voice_access_token=$1, zoho_voice_token_expiry=$2 WHERE id=$3`,
+							enc, newExpiry, user.ID)
+					}
+				}
+			}
+		}
+		if voiceToken == "" {
+			respondErr(w, 403, "Zoho Voice token expired or missing — reconnect in Settings → Voice & Calling")
+			return
+		}
+
+		// Create call log before firing so we have a record even if Zoho fails.
+		var queueIDArg any
+		if queueID > 0 {
+			queueIDArg = queueID
+		}
+		callRows, insErr := db.PGQuery(ctx,
+			`INSERT INTO dialer_call_logs
+			   (campaign_id, queue_entry_id, agent_user_id, agent_name, phone, call_state)
+			 VALUES ($1,$2,$3,$4,$5,'dialing')
+			 RETURNING id`, campaignID, queueIDArg, user.ID, user.FullName, phone)
+		if insErr != nil {
+			slog.Error("dlManualCall: insert log", "err", insErr)
+			respondErr(w, 500, "failed to create call log")
+			return
+		}
+		callLogID := int64(numVal(callRows[0]["id"]))
+
+		// Fire via Zoho Voice click-to-call API.
+		// This rings the agent's registered Zoho phone first; when they answer,
+		// Zoho dials the customer and bridges the two parties.
+		voiceBase := "https://voice.zoho." + zohoDC + "/rest/json/zv"
+		c2cURL := voiceBase + "/calls/click2call?toNumber=" + url.QueryEscape(phone)
+		c2cReq, _ := http.NewRequestWithContext(ctx, "POST", c2cURL, nil)
+		c2cReq.Header.Set("Authorization", "Zoho-oauthtoken "+voiceToken)
+		c2cReq.Header.Set("Accept", "application/json")
+		c2cResp, voiceErr := zohoHTTP.Do(c2cReq)
+		if voiceErr != nil {
+			slog.Error("dlManualCall: zoho voice click2call", "phone", phone, "err", voiceErr)
+			db.PGExec(ctx, `UPDATE dialer_call_logs SET call_state='failed' WHERE id=$1`, callLogID)     //nolint:errcheck
+			db.PGExec(ctx, `UPDATE dialer_sessions SET status='ready' WHERE agent_user_id=$1`, user.ID) //nolint:errcheck
+			if queueID > 0 {
+				db.PGExec(ctx, `UPDATE dialer_queue SET status='pending' WHERE id=$1`, queueID) //nolint:errcheck
+			}
+			respondErr(w, 502, "Zoho Voice click-to-call failed: "+voiceErr.Error())
+			return
+		}
+		defer c2cResp.Body.Close()
+		var c2cResult map[string]any
+		json.NewDecoder(c2cResp.Body).Decode(&c2cResult) //nolint:errcheck
+		if zohoCallID := str(c2cResult["call_id"]); zohoCallID != "" {
+			db.PGExec(ctx, `UPDATE dialer_call_logs SET zoho_call_id=$1 WHERE id=$2`, zohoCallID, callLogID) //nolint:errcheck
+		}
+
+		slog.Info("dlManualCall: click2call fired", "phone", phone, "agent", user.FullName, "log_id", callLogID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"call_log_id": callLogID}) //nolint:errcheck
 	}
 }
 

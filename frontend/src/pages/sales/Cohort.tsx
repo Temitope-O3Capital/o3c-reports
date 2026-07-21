@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, KpiCard, DataTable, ErrBanner } from '../../components/UI'
+import { Page, SectionCard, KpiCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtNum, fmtPct } from '../../lib/fmt'
+import { fmtNum, fmtPct, monthStart, today } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, BLUE, NUM, TEXT, FW, SP } from '../../lib/design'
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar,
@@ -21,19 +21,21 @@ export default function SalesCohort() {
   const [funnel, setFunnel]   = useState<FunnelData | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr]         = useState<string | null>(null)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
       const [t, f] = await Promise.all([
-        apiFetch<{ data: TrendPoint[] }>('/api/sales/accounts-trend'),
-        apiFetch<{ data: FunnelData }>('/api/sales/funnel'),
+        apiFetch<{ data: TrendPoint[] }>(`/api/sales/accounts-trend?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<{ data: FunnelData }>(`/api/sales/funnel?from=${dateFrom}&to=${dateTo}`),
       ])
       setTrend(Array.isArray(t?.data) ? t.data : [])
       setFunnel(f?.data ?? null)
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -56,7 +58,9 @@ export default function SalesCohort() {
   ]
 
   return (
-    <Page title="Cohort Analysis" subtitle="Customer acquisition and lifecycle progression">
+    <Page title="Cohort Analysis" subtitle="Customer acquisition and lifecycle progression"
+      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
+    >
       <ErrBanner error={err} onRetry={load} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[5] }}>

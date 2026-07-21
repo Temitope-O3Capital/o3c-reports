@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Page, SectionCard, ErrBanner, Spinner, Modal, DataTable,
+  Page, SectionCard, ErrBanner, Spinner, Modal, DataTable, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDate } from '../../lib/fmt'
+import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, BLUE, INTER, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -59,6 +59,9 @@ function Pill({ value, colorMap }: { value: string; colorMap: Record<string, str
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function Recruitment() {
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
+
   const [jobs,       setJobs]       = useState<Job[]>([])
   const [applicants, setApplicants] = useState<Applicant[]>([])
   const [loading,    setLoading]    = useState(true)
@@ -85,14 +88,14 @@ export default function Recruitment() {
     setLoading(true); setError(null)
     try {
       const [j, a] = await Promise.all([
-        apiFetch<{ data: Job[] }>('/api/hr/jobs'),
-        apiFetch<{ data: Applicant[] }>('/api/hr/applicants'),
+        apiFetch<{ data: Job[] }>(`/api/hr/jobs?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<{ data: Applicant[] }>(`/api/hr/applicants?from=${dateFrom}&to=${dateTo}`),
       ])
       setJobs(Array.isArray(j.data) ? j.data : [])
       setApplicants(Array.isArray(a.data) ? a.data : [])
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -177,11 +180,14 @@ export default function Recruitment() {
       title="Recruitment"
       subtitle="Job openings and applicant pipeline"
       actions={
-        <button onClick={() => setShowNewJob(true)}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
-          New Job
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => setShowNewJob(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
+            New Job
+          </button>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />
@@ -204,7 +210,8 @@ export default function Recruitment() {
       {loading ? <div style={{ display:'flex', justifyContent:'center', padding: 60 }}><Spinner size={32} /></div> : (
         <>
           <SectionCard title="Job Openings" badge={jobs.length}>
-            <DataTable cols={JOB_COLS} rows={jobs} keyFn={r => r.id} emptyText="No job postings" />
+            <DataTable cols={JOB_COLS} rows={jobs} keyFn={r => r.id} emptyText="No job postings"
+              searchKeys={['title', 'department', 'status']} searchPlaceholder="Search jobs…" />
           </SectionCard>
 
           <SectionCard
@@ -217,7 +224,8 @@ export default function Recruitment() {
               </button>
             )}
           >
-            <DataTable cols={APP_COLS} rows={displayedApplicants} keyFn={r => r.id} emptyText="No applicants yet" />
+            <DataTable cols={APP_COLS} rows={displayedApplicants} keyFn={r => r.id} emptyText="No applicants yet"
+              searchKeys={['full_name', 'job_title', 'source', 'stage']} searchPlaceholder="Search applicants…" />
           </SectionCard>
         </>
       )}

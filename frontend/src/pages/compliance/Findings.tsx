@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  Modal, ConfirmModal, ErrBanner, Spinner, Tabs, btnPrimary,
+  Modal, ConfirmModal, ErrBanner, Spinner, Tabs, btnPrimary, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtDate } from '../../lib/fmt'
+import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -102,6 +102,8 @@ export default function Findings() {
   const [sevFilter, setSevFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [sel, setSel] = useState<Set<string | number>>(new Set())
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo, setDateTo] = useState(today())
 
   const [newOpen, setNewOpen] = useState(false)
   const [form, setForm] = useState(BLANK_FORM)
@@ -121,11 +123,13 @@ export default function Findings() {
       const p = new URLSearchParams()
       if (sevFilter)    p.set('severity', sevFilter)
       if (statusFilter) p.set('status', statusFilter)
+      if (dateFrom) p.set('from', dateFrom)
+      if (dateTo)   p.set('to', dateTo)
       const data = await apiFetch<Finding[]>(`/api/compliance/findings?${p}`)
       setFindings(Array.isArray(data) ? data : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [sevFilter, statusFilter])
+  }, [sevFilter, statusFilter, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -234,10 +238,13 @@ export default function Findings() {
       title="Audit Findings"
       subtitle="Internal and external audit findings tracking"
       actions={
-        <button onClick={() => { setForm(BLANK_FORM); setNewOpen(true) }} style={btnPrimary}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
-          New Finding
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => { setForm(BLANK_FORM); setNewOpen(true) }} style={btnPrimary}>
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+            New Finding
+          </button>
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />

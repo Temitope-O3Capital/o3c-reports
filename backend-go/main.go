@@ -100,6 +100,9 @@ func main() {
 	// FX parallel-market rates — scrape NgnRates.com immediately then every hour.
 	go handlers.StartFXRatesScraper(db)
 
+	// Zoho Voice — import call logs every hour so the Calls page stays current.
+	go handlers.StartZohoAutoSync(db)
+
 	// Activity log worker pool — 3 goroutines drain a 1000-entry buffered channel.
 	activityCh := make(chan activityLogEntry, 1000)
 	startActivityWorkers(db, activityCh, 3)

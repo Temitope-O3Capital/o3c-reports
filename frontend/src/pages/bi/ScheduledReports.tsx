@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, ErrBanner, Spinner, DataTable, Modal, ConfirmModal, btnPrimary, btnSecondary, btnDanger } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Spinner, DataTable, Modal, ConfirmModal, btnPrimary, btnSecondary, btnDanger, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDatetime, fmtDate } from '../../lib/fmt'
+import { fmtDatetime, fmtDate, monthStart, today } from '../../lib/fmt'
 import { GREEN, AMBER, RED, NAVY, BLUE, NUM, INTER, MONO, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -48,6 +48,8 @@ export default function ScheduledReports() {
   const [error,      setError]      = useState<string | null>(null)
   const [showNew,    setShowNew]    = useState(false)
   const [deleting,   setDeleting]   = useState<Schedule | null>(null)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   // New schedule form
   const [formReport,    setFormReport]    = useState('')
@@ -60,7 +62,7 @@ export default function ScheduledReports() {
     setLoading(true); setError(null)
     try {
       const [scheds, reps] = await Promise.all([
-        apiFetch<Schedule[]>('/api/bi/scheduled'),
+        apiFetch<Schedule[]>(`/api/bi/scheduled?from=${dateFrom}&to=${dateTo}`),
         apiFetch<ReportDef[]>('/api/bi/reports'),
       ])
       setSchedules(scheds ?? [])
@@ -70,7 +72,7 @@ export default function ScheduledReports() {
       }
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
-  }, [formReport])
+  }, [formReport, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -152,7 +154,12 @@ export default function ScheduledReports() {
       title="Scheduled Reports"
       subtitle="Automate report delivery to email recipients"
       back={{ label: 'BI Overview', to: '/bi' }}
-      actions={<button onClick={() => setShowNew(true)} style={btnPrimary}>+ New Schedule</button>}
+      actions={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => setShowNew(true)} style={btnPrimary}>+ New Schedule</button>
+        </div>
+      }
     >
       <ErrBanner error={error} onRetry={load} />
 
@@ -161,7 +168,8 @@ export default function ScheduledReports() {
       ) : (
         <SectionCard title="Schedules" badge={schedules.length}>
           <DataTable cols={COLS} rows={schedules} keyFn={r => r.id}
-            emptyText="No scheduled reports yet. Create one to automate report delivery." />
+            emptyText="No scheduled reports yet. Create one to automate report delivery."
+            searchKeys={['report_name', 'cron_expr']} />
         </SectionCard>
       )}
 

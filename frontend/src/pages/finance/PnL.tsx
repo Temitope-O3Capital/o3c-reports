@@ -3,10 +3,10 @@ import {
   ResponsiveContainer, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, DataTable, filterInputStyle } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, filterInputStyle, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo } from '../../lib/fmt'
+import { fmtKobo, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -78,21 +78,29 @@ function PnLTooltip({ active, payload, label }: any) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function FinancePnL() {
-  const [period,  setPeriod]  = useState('mtd')
-  const [product, setProduct] = useState('')
-  const [data,    setData]    = useState<PnLData | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [period,   setPeriod]   = useState('mtd')
+  const [product,  setProduct]  = useState('')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
+  const [data,     setData]     = useState<PnLData | null>(null)
+  const [loading,  setLoading]  = useState(false)
+
+  function handlePeriod(p: string) {
+    setPeriod(p)
+    const { from, to } = periodDates(p)
+    setDateFrom(from)
+    setDateTo(to)
+  }
 
   useEffect(() => {
-    const { from, to } = periodDates(period)
-    const params = new URLSearchParams({ from, to })
+    const params = new URLSearchParams({ from: dateFrom, to: dateTo })
     if (product) params.set('product', product)
     setLoading(true)
     apiFetch<PnLData>(`/api/finance/pnl?${params}`)
       .then(setData)
       .catch(() => setData(null))
       .finally(() => setLoading(false))
-  }, [period, product])
+  }, [dateFrom, dateTo, product])
 
   const lines   = data?.lines          ?? []
   const totRev  = data?.total_revenue  ?? 0
@@ -119,7 +127,8 @@ export default function FinancePnL() {
       title="Profit & Loss"
       subtitle="Revenue, cost of funds, provisioning, net income"
       actions={
-        <div style={{ display: 'flex', gap: SP[2] }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           <select value={product} onChange={e => setProduct(e.target.value)} style={filterInputStyle}>
             <option value="">All products</option>
             <option value="salary_loan">Salary Loan</option>
@@ -127,7 +136,7 @@ export default function FinancePnL() {
             <option value="credit_card">Credit Card</option>
             <option value="fixed_deposit">Fixed Deposit</option>
           </select>
-          <select value={period} onChange={e => setPeriod(e.target.value)} style={filterInputStyle}>
+          <select value={period} onChange={e => handlePeriod(e.target.value)} style={filterInputStyle}>
             <option value="mtd">Month to Date</option>
             <option value="qtd">Quarter to Date</option>
             <option value="ytd">Year to Date</option>

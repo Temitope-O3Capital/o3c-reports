@@ -19,10 +19,12 @@ func RegisterContactLists(r chi.Router, db *core.DB) {
 	r.With(access).Get("/{id}", getContactList(db))
 	r.With(access).Put("/{id}", updateContactList(db))
 	r.With(access).Delete("/{id}", deleteContactList(db))
+	r.With(access).Get("/{id}/members", listListMembers(db))
 	r.With(access).Post("/{id}/members", addListMember(db))
-	r.With(access).Get("/{id}/members/search", searchListMembers(db))
-	r.With(access).Post("/{id}/upload", uploadListCSV(db))
+	r.With(access).Put("/{id}/members/{mid}", updateListMember(db))
 	r.With(access).Delete("/{id}/members/{mid}", removeListMember(db))
+	r.With(access).Post("/{id}/preflight", preflightListCSV(db))
+	r.With(access).Post("/{id}/upload", uploadListCSV(db))
 }
 
 func syncListCount(db *core.DB, r *http.Request, listID string) {
@@ -38,16 +40,33 @@ func listContactLists(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		limit := qint(r, "limit", 100, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
+		from := r.URL.Query().Get("from")
+		to := r.URL.Query().Get("to")
+
+		where := "1=1"
+		var filterArgs []any
+		n := 1
+		if from != "" {
+			filterArgs = append(filterArgs, from)
+			where += " AND cl.created_at::date >= $" + itoa(n) + "::date"
+			n++
+		}
+		if to != "" {
+			filterArgs = append(filterArgs, to)
+			where += " AND cl.created_at::date <= $" + itoa(n) + "::date"
+			n++
+		}
 
 		total := 0
-		if tr, _ := db.PGQuery(r.Context(), "SELECT COUNT(*) AS n FROM contact_lists"); len(tr) > 0 {
+		if tr, _ := db.PGQuery(r.Context(), "SELECT COUNT(*) AS n FROM contact_lists cl WHERE "+where, filterArgs...); len(tr) > 0 {
 			total = int(toInt64(tr[0]["n"]))
 		}
-		rows, err := db.PGQuery(r.Context(), `
+		args := append(append([]any(nil), filterArgs...), limit, offset)
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT cl.*, u.full_name AS created_by_name
 			FROM contact_lists cl
 			LEFT JOIN o3c_users u ON cl.created_by=u.id
-			ORDER BY cl.created_at DESC LIMIT $1 OFFSET $2`, limit, offset)
+			WHERE %s ORDER BY cl.created_at DESC LIMIT $%d OFFSET $%d`, where, n, n+1), args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -93,41 +112,59 @@ func createContactList(db *core.DB) http.HandlerFunc {
 func getContactList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
-		limit := qint(r, "limit", 100, 1, 1000)
-		offset := qint(r, "offset", 0, 0, 1<<30)
-
 		listRows, err := db.PGQuery(r.Context(), "SELECT * FROM contact_lists WHERE id=$1", id)
 		if err != nil || len(listRows) == 0 {
 			respondErr(w, 404, "List not found")
 			return
 		}
-		lst := listRows[0]
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(listRows[0]) //nolint:errcheck
+	}
+}
+
+func listListMembers(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		limit := qint(r, "limit", 200, 1, 1000)
+		offset := qint(r, "offset", 0, 0, 1<<30)
+		search := qstr(r, "q")
+
+		if rows, _ := db.PGQuery(r.Context(), "SELECT 1 FROM contact_lists WHERE id=$1", id); len(rows) == 0 {
+			respondErr(w, 404, "List not found")
+			return
+		}
 
 		where := "list_id=$1 AND status='active'"
 		args := []any{id}
 		n := 2
-		if s := qstr(r, "search"); s != "" {
+		if search != "" {
 			where += fmt.Sprintf(
 				" AND (first_name ILIKE $%d OR last_name ILIKE $%d OR phone ILIKE $%d OR email ILIKE $%d OR cif_number ILIKE $%d)",
 				n, n, n, n, n)
-			args = append(args, "%"+s+"%")
+			args = append(args, "%"+search+"%")
 			n++
 		}
 		filterArgs := append([]any(nil), args...)
-		args = append(args, limit, offset)
 
 		total := 0
 		if tr, _ := db.PGQuery(r.Context(),
 			fmt.Sprintf("SELECT COUNT(*) AS n FROM contact_list_members WHERE %s", where), filterArgs...); len(tr) > 0 {
 			total = int(toInt64(tr[0]["n"]))
 		}
-		members, _ := db.PGQuery(r.Context(),
+		args = append(args, limit, offset)
+		members, err := db.PGQuery(r.Context(),
 			fmt.Sprintf("SELECT * FROM contact_list_members WHERE %s ORDER BY id ASC LIMIT $%d OFFSET $%d", where, n, n+1), args...)
-
-		lst["total_members"] = total
-		lst["members"] = members
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(lst) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"data":   members,
+			"total":  total,
+			"limit":  limit,
+			"offset": offset,
+		})
 	}
 }
 
@@ -157,8 +194,6 @@ func updateContactList(db *core.DB) http.HandlerFunc {
 func deleteContactList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
-		// H10: refuse deletion if ANY campaign references this list (not just draft/scheduled),
-		// because completed campaigns still need the list for audit/re-send purposes.
 		guard, _ := db.PGQuery(r.Context(),
 			"SELECT COUNT(*) AS n FROM campaigns WHERE list_id=$1", id)
 		if len(guard) > 0 && toInt64(guard[0]["n"]) > 0 {
@@ -191,14 +226,18 @@ func addListMember(db *core.DB) http.HandlerFunc {
 		b.Phone = cleanStringPtr(b.Phone)
 		b.Email = cleanStringPtr(b.Email)
 		b.CIFNumber = cleanStringPtr(b.CIFNumber)
-		if b.Phone == nil && b.Email == nil {
-			respondErr(w, 422, "phone or email is required")
+		if b.FirstName == nil && b.LastName == nil && b.Phone == nil && b.Email == nil && b.CIFNumber == nil {
+			respondErr(w, 422, "at least one field is required (name, phone, email, or CIF number)")
 			return
 		}
 		mergeJSON, _ := json.Marshal(b.MergeData)
 		var phoneVal, emailVal string
-		if b.Phone != nil { phoneVal = *b.Phone }
-		if b.Email != nil { emailVal = *b.Email }
+		if b.Phone != nil {
+			phoneVal = *b.Phone
+		}
+		if b.Email != nil {
+			emailVal = *b.Email
+		}
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO contact_list_members
 			    (list_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data)
@@ -217,10 +256,139 @@ func addListMember(db *core.DB) http.HandlerFunc {
 	}
 }
 
-func uploadListCSV(db *core.DB) http.HandlerFunc {
+func updateListMember(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
+		mid := chi.URLParam(r, "mid")
+		var b struct {
+			FirstName *string `json:"first_name"`
+			LastName  *string `json:"last_name"`
+			Phone     *string `json:"phone"`
+			Email     *string `json:"email"`
+			CIFNumber *string `json:"cif_number"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		b.FirstName = cleanStringPtr(b.FirstName)
+		b.LastName = cleanStringPtr(b.LastName)
+		b.Phone = cleanStringPtr(b.Phone)
+		b.Email = cleanStringPtr(b.Email)
+		b.CIFNumber = cleanStringPtr(b.CIFNumber)
+		var phoneVal, emailVal string
+		if b.Phone != nil {
+			phoneVal = *b.Phone
+		}
+		if b.Email != nil {
+			emailVal = *b.Email
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			UPDATE contact_list_members
+			SET first_name=$1, last_name=$2, phone=$3, email=$4,
+			    phone_hmac=$5, email_hmac=$6, cif_number=$7, updated_at=NOW()
+			WHERE id=$8 AND list_id=$9 RETURNING *`,
+			b.FirstName, b.LastName, b.Phone, b.Email,
+			nullStr(blindContactHMAC(phoneVal)), nullStr(blindContactHMAC(emailVal)),
+			b.CIFNumber, mid, id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Member not found")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
 
+func removeListMember(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		mid := chi.URLParam(r, "mid")
+		rows, _ := db.PGQuery(r.Context(),
+			"SELECT 1 FROM contact_list_members WHERE id=$1 AND list_id=$2", mid, id)
+		if len(rows) == 0 {
+			respondErr(w, 404, "Member not found")
+			return
+		}
+		db.PGExec(r.Context(), "DELETE FROM contact_list_members WHERE id=$1", mid) //nolint:errcheck
+		syncListCount(db, r, id)
+		w.WriteHeader(204)
+	}
+}
+
+// parseContactCSV parses a CSV file into valid rows and validation errors.
+// Used by both preflight and upload endpoints.
+type csvContactRow struct {
+	firstName *string
+	lastName  *string
+	phone     interface{}
+	email     interface{}
+	phoneHMAC *string
+	emailHMAC *string
+	cifNumber interface{}
+	mergeJSON string
+}
+
+var knownContactCols = map[string]bool{
+	"first_name": true, "last_name": true, "phone": true, "email": true, "cif_number": true,
+}
+
+func parseContactCSV(records [][]string) ([]csvContactRow, []string) {
+	headers := make([]string, len(records[0]))
+	for i, h := range records[0] {
+		headers[i] = normaliseCSVHeader(h)
+	}
+	var valid []csvContactRow
+	var errors []string
+	for i, rec := range records[1:] {
+		row := make(map[string]string, len(headers))
+		for j, val := range rec {
+			if j < len(headers) {
+				row[headers[j]] = strings.TrimSpace(val)
+			}
+		}
+		fn := strings.TrimSpace(row["first_name"])
+		ln := strings.TrimSpace(row["last_name"])
+		cif := strings.TrimSpace(row["cif_number"])
+		phone := emptyToNil(row["phone"])
+		email := emptyToNil(row["email"])
+		if fn == "" && ln == "" && cif == "" && phone == nil && email == nil {
+			errors = append(errors, fmt.Sprintf("Row %d: no identifiable fields — skipped", i+2))
+			continue
+		}
+		merge := map[string]string{}
+		for k, v := range row {
+			if !knownContactCols[k] && v != "" {
+				merge[k] = v
+			}
+		}
+		mergeJSON, _ := json.Marshal(merge)
+		valid = append(valid, csvContactRow{
+			firstName: func() *string {
+				if fn == "" {
+					return nil
+				}
+				return &fn
+			}(),
+			lastName: func() *string {
+				if ln == "" {
+					return nil
+				}
+				return &ln
+			}(),
+			phone:     phone,
+			email:     email,
+			phoneHMAC: nullStr(blindContactHMAC(row["phone"])),
+			emailHMAC: nullStr(blindContactHMAC(row["email"])),
+			cifNumber: emptyToNil(cif),
+			mergeJSON: string(mergeJSON),
+		})
+	}
+	return valid, errors
+}
+
+func preflightListCSV(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseMultipartForm(10 << 20); err != nil {
 			respondErr(w, 400, "Cannot parse multipart form")
 			return
@@ -235,74 +403,52 @@ func uploadListCSV(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "File must be a CSV")
 			return
 		}
-
-		known := map[string]bool{
-			"first_name": true, "last_name": true, "phone": true, "email": true, "cif_number": true,
-		}
-
-		reader := csv.NewReader(file)
-		records, err := reader.ReadAll()
+		records, err := csv.NewReader(file).ReadAll()
 		if err != nil || len(records) < 2 {
 			respondErr(w, 422, "Invalid CSV or empty file")
 			return
 		}
-
-		// Normalise headers
-		headers := make([]string, len(records[0]))
-		for i, h := range records[0] {
-			headers[i] = normaliseCSVHeader(h)
+		valid, errors := parseContactCSV(records)
+		maxErrors := 20
+		if len(errors) < maxErrors {
+			maxErrors = len(errors)
 		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"total":   len(records) - 1,
+			"valid":   len(valid),
+			"invalid": len(errors),
+			"errors":  errors[:maxErrors],
+		})
+	}
+}
 
-		// csvRecord holds one validated row ready for batch insert.
-		type csvRecord struct {
-			firstName *string
-			lastName  *string
-			phone     interface{}
-			email     interface{}
-			phoneHMAC *string
-			emailHMAC *string
-			cifNumber interface{}
-			mergeJSON string
+func uploadListCSV(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			respondErr(w, 400, "Cannot parse multipart form")
+			return
 		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			respondErr(w, 400, "file field required")
+			return
+		}
+		defer file.Close()
+		if !strings.HasSuffix(strings.ToLower(header.Filename), ".csv") {
+			respondErr(w, 400, "File must be a CSV")
+			return
+		}
+		records, err := csv.NewReader(file).ReadAll()
+		if err != nil || len(records) < 2 {
+			respondErr(w, 422, "Invalid CSV or empty file")
+			return
+		}
+		validRows, parseErrors := parseContactCSV(records)
 
 		inserted := 0
-		var errors []string
-
-		// Validate all rows and collect valid ones.
-		var validRows []csvRecord
-		for i, rec := range records[1:] {
-			row := make(map[string]string, len(headers))
-			for j, val := range rec {
-				if j < len(headers) {
-					row[headers[j]] = strings.TrimSpace(val)
-				}
-			}
-			phone := emptyToNil(row["phone"])
-			email := emptyToNil(row["email"])
-			if phone == nil && email == nil {
-				errors = append(errors, fmt.Sprintf("Row %d: no phone or email — skipped", i+2))
-				continue
-			}
-			merge := map[string]string{}
-			for k, v := range row {
-				if !known[k] && v != "" {
-					merge[k] = v
-				}
-			}
-			mergeJSON, _ := json.Marshal(merge)
-			validRows = append(validRows, csvRecord{
-				firstName: func() *string { v := emptyToNil(row["first_name"]); if s, ok := v.(string); ok { return &s }; return nil }(),
-				lastName:  func() *string { v := emptyToNil(row["last_name"]); if s, ok := v.(string); ok { return &s }; return nil }(),
-				phone:     phone,
-				email:     email,
-				phoneHMAC: nullStr(blindContactHMAC(row["phone"])),
-				emailHMAC: nullStr(blindContactHMAC(row["email"])),
-				cifNumber: emptyToNil(row["cif_number"]),
-				mergeJSON: string(mergeJSON),
-			})
-		}
-
-		// Batch insert in chunks of 500.
+		var insertErrors []string
 		const batchSize = 500
 		for start := 0; start < len(validRows); start += batchSize {
 			end := start + batchSize
@@ -326,7 +472,7 @@ func uploadListCSV(db *core.DB) http.HandlerFunc {
 				if len(errMsg) > 120 {
 					errMsg = errMsg[:120]
 				}
-				errors = append(errors, fmt.Sprintf("Batch rows %d-%d: %s", start+2, end+1, errMsg))
+				insertErrors = append(insertErrors, fmt.Sprintf("Batch rows %d-%d: %s", start+2, end+1, errMsg))
 			} else {
 				inserted += len(batch)
 			}
@@ -334,61 +480,16 @@ func uploadListCSV(db *core.DB) http.HandlerFunc {
 		syncListCount(db, r, id)
 		db.PGExec(r.Context(), "UPDATE contact_lists SET source='csv', updated_at=NOW() WHERE id=$1", id) //nolint:errcheck
 
+		allErrors := append(parseErrors, insertErrors...)
 		maxErrors := 20
-		if len(errors) < maxErrors {
-			maxErrors = len(errors)
+		if len(allErrors) < maxErrors {
+			maxErrors = len(allErrors)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"inserted": inserted,
-			"errors":   errors[:maxErrors],
+			"errors":   allErrors[:maxErrors],
 		})
-	}
-}
-
-func searchListMembers(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		phone := strings.TrimSpace(r.URL.Query().Get("phone"))
-		email := strings.TrimSpace(r.URL.Query().Get("email"))
-		if phone == "" && email == "" {
-			respondErr(w, 400, "phone or email query parameter required")
-			return
-		}
-		var rows []map[string]any
-		var err error
-		if phone != "" {
-			h := blindContactHMAC(phone)
-			rows, err = db.PGQuery(r.Context(),
-				`SELECT * FROM contact_list_members WHERE list_id=$1 AND phone_hmac=$2 ORDER BY id`,
-				id, h)
-		} else {
-			h := blindContactHMAC(email)
-			rows, err = db.PGQuery(r.Context(),
-				`SELECT * FROM contact_list_members WHERE list_id=$1 AND email_hmac=$2 ORDER BY id`,
-				id, h)
-		}
-		if err != nil {
-			respondErr(w, 500, "Query failed")
-			return
-		}
-		respond(w, rows, "supabase")
-	}
-}
-
-func removeListMember(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		mid := chi.URLParam(r, "mid")
-		rows, _ := db.PGQuery(r.Context(),
-			"SELECT 1 FROM contact_list_members WHERE id=$1 AND list_id=$2", mid, id)
-		if len(rows) == 0 {
-			respondErr(w, 404, "Member not found")
-			return
-		}
-		db.PGExec(r.Context(), "DELETE FROM contact_list_members WHERE id=$1", mid) //nolint:errcheck
-		syncListCount(db, r, id)
-		w.WriteHeader(204)
 	}
 }
 

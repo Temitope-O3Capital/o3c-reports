@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, Modal, ConfirmModal, Spinner } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, Modal, ConfirmModal, Spinner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
-import { fmtDate } from '../../lib/fmt'
+import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -115,6 +115,9 @@ export default function Canned() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
+
   // Modals
   const [newOpen, setNewOpen] = useState(false)
   const [editItem, setEditItem] = useState<CannedResponse | null>(null)
@@ -128,14 +131,17 @@ export default function Canned() {
     setLoading(true)
     setError(null)
     try {
-      const data = await apiFetch<CannedResponse[]>('/api/helpdesk/canned-responses')
+      const params = new URLSearchParams()
+      if (dateFrom) params.set('from', dateFrom)
+      if (dateTo)   params.set('to', dateTo)
+      const data = await apiFetch<CannedResponse[]>(`/api/helpdesk/canned-responses?${params}`)
       setRows(Array.isArray(data) ? data : [])
     } catch (e: any) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -280,10 +286,13 @@ export default function Canned() {
       title="Canned Responses"
       subtitle="Saved replies for common queries"
       actions={
-        <button onClick={openNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
-          New Response
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={openNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
+            New Response
+          </button>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />

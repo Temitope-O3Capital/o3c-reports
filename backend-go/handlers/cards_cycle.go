@@ -127,6 +127,12 @@ func cardCycleSummary(db *core.DB) http.HandlerFunc {
 		if v := qstr(r, "category"); v != "" {
 			where += fmt.Sprintf(" AND p.category=$%d", n); args = append(args, v); n++
 		}
+		if v := qstr(r, "from"); v != "" {
+			where += fmt.Sprintf(" AND d.cycle_date >= $%d::date", n); args = append(args, v); n++
+		}
+		if v := qstr(r, "to"); v != "" {
+			where += fmt.Sprintf(" AND d.cycle_date <= $%d::date", n); args = append(args, v); n++
+		}
 		_ = n
 
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`

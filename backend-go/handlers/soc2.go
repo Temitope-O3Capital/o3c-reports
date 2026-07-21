@@ -109,6 +109,8 @@ func soc2ControlList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status := qstr(r, "status")
 		criteria := qstr(r, "criteria")
+		from, _ := validDate(r, "from")
+		to, _   := validDate(r, "to")
 
 		where := " WHERE 1=1"
 		args := []any{}
@@ -121,6 +123,16 @@ func soc2ControlList(db *core.DB) http.HandlerFunc {
 		if criteria != "" {
 			where += fmt.Sprintf(" AND c.trust_criteria=$%d", n)
 			args = append(args, criteria)
+			n++
+		}
+		if from != "" {
+			where += fmt.Sprintf(" AND c.created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			where += fmt.Sprintf(" AND c.created_at::date <= $%d::date", n)
+			args = append(args, to)
 			n++
 		}
 
@@ -480,6 +492,23 @@ func soc2PolicyUpdate(db *core.DB) http.HandlerFunc {
 
 func pentestList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from, _ := validDate(r, "from")
+		to, _   := validDate(r, "to")
+
+		where := " WHERE 1=1"
+		args := []any{}
+		n := 1
+		if from != "" {
+			where += fmt.Sprintf(" AND e.created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			where += fmt.Sprintf(" AND e.created_at::date <= $%d::date", n)
+			args = append(args, to)
+			n++
+		}
+
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT e.*,
 			  u.full_name AS created_by_name,
@@ -492,9 +521,10 @@ func pentestList(db *core.DB) http.HandlerFunc {
 			  COUNT(f.id) FILTER (WHERE f.status='resolved')               AS resolved_findings
 			FROM pentest_engagements e
 			LEFT JOIN o3c_users u    ON e.created_by = u.id
-			LEFT JOIN pentest_findings f ON f.engagement_id = e.id
+			LEFT JOIN pentest_findings f ON f.engagement_id = e.id`+
+			where+`
 			GROUP BY e.id, u.full_name
-			ORDER BY e.created_at DESC`)
+			ORDER BY e.created_at DESC`, args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -622,11 +652,23 @@ func pentestFindingListAll(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		severity := qstr(r, "severity")
 		status := qstr(r, "status")
+		from, _ := validDate(r, "from")
+		to, _   := validDate(r, "to")
 		where := " WHERE 1=1"
 		args := []any{}
 		n := 1
 		if severity != "" { where += fmt.Sprintf(" AND f.severity=$%d", n); args = append(args, severity); n++ }
 		if status != "" { where += fmt.Sprintf(" AND f.status=$%d", n);   args = append(args, status);   n++ }
+		if from != "" {
+			where += fmt.Sprintf(" AND f.created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			where += fmt.Sprintf(" AND f.created_at::date <= $%d::date", n)
+			args = append(args, to)
+			n++
+		}
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT f.*, e.title AS engagement_title, e.vendor_name,
 			  u.full_name AS assigned_to_name

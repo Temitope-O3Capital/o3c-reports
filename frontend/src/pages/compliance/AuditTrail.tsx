@@ -152,6 +152,8 @@ export default function AuditTrail() {
           keyFn={r => r.id}
           emptyText="No audit log entries found."
           skeletonRows={loading ? 10 : 0}
+          searchKeys={['actor_name', 'action', 'entity_type']}
+          searchPlaceholder="Search by user, action or entity…"
         />
         {/* Pagination */}
         {totalPages > 1 && (

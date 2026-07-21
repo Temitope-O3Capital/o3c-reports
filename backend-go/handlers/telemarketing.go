@@ -144,6 +144,18 @@ func tmListLeads(db *core.DB) http.HandlerFunc {
 			args = append(args, "%"+search+"%")
 			n++
 		}
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
+		if from != "" {
+			q += fmt.Sprintf(" AND l.created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			q += fmt.Sprintf(" AND l.created_at::date <= $%d::date", n)
+			args = append(args, to)
+			n++
+		}
 		args = append(args, limit)
 		q += fmt.Sprintf(" ORDER BY l.updated_at DESC LIMIT $%d", n)
 
@@ -687,6 +699,18 @@ func tmListQueue(db *core.DB) http.HandlerFunc {
 		if search != "" {
 			q += fmt.Sprintf(" AND (customer_name ILIKE $%d OR phone ILIKE $%d)", n, n)
 			args = append(args, "%"+search+"%")
+			n++
+		}
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
+		if from != "" {
+			q += fmt.Sprintf(" AND created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			q += fmt.Sprintf(" AND created_at::date <= $%d::date", n)
+			args = append(args, to)
 			n++
 		}
 

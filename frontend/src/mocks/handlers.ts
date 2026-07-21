@@ -412,7 +412,19 @@ const RECOVERY = [
   http.get(u('/api/recovery/legal-kpis'), () => wd({
     total_cases: 38, active: 24, won: 7, total_debt_recovered_kobo: 142_500_000_00,
   })),
-  http.get(u('/api/recovery/debt-sales'), () => ok([])),
+  http.get(u('/api/recovery/debt-sales'), () => ok(
+    Array.from({ length: 8 }, (_, i) => ({
+      id: i+1, sale_ref: `DS-2026-${String(i+100).padStart(4,'0')}`,
+      buyer: pick(['AXA Mansard Debt Fund','Cardinal Stone Partners','FBN Capital','Meristem Wealth']),
+      portfolio_size: rng(50,300),
+      face_value_kobo: rng(100,500)*1_000_000_00,
+      sale_price_kobo: rng(10,40)*1_000_000_00,
+      recovery_rate_pct: rng(8,32),
+      status: pick(['negotiating','agreed','completed','cancelled']),
+      agreed_date: i < 4 ? dateStr(rng(0,30)) : null,
+      completed_date: i < 2 ? dateStr(rng(1,60)) : null,
+    }))
+  )),
   // recovery-ops cases
   http.get(u('/api/recovery-ops/cases'), () => wd(
     Array.from({ length: 20 }, (_, i) => ({
@@ -773,7 +785,17 @@ const RISK = [
     income_kobo: 45_000_000_00, dti_pct: 28.4, employer: 'Shell Nigeria',
     loans: [], flags: [],
   })),
-  http.get(u('/api/risk/app-review'), () => ok({ data: [], total: 0 })),
+  http.get(u('/api/risk/app-review'), () => ok({
+    data: Array.from({ length: 15 }, (_, i) => ({
+      id: i+1, ref: `APP${rng(10000,99999)}`,
+      applicant_name: name(), product_type: pick(LOS_PRODUCTS),
+      amount_requested_kobo: rng(10,200)*1_000_000_00,
+      score: rng(400,850), band: pick(['low','medium','high']),
+      recommendation: pick(['approve','review','decline']),
+      assigned_to: name(), created_at: isoDate(rng(0,14)),
+    })),
+    total: 15,
+  })),
 ]
 
 // ── HR ────────────────────────────────────────────────────────────────────────
@@ -1381,13 +1403,50 @@ const CAMPAIGNS = [
   http.post(u('/api/contact-lists'), () => ok({ id: 99 })),
   http.delete(u('/api/contact-lists/:id'), () => new HttpResponse(null, { status: 204 })),
 
-  http.get(u('/api/message-templates'), () => ok(
-    Array.from({ length: 8 }, (_, i) => ({
-      id: i+1, name: pick(['Loan Offer','Payment Reminder','Welcome','Card Upgrade']),
-      channel: pick(['email','sms']), subject: 'Your O3 Capital Update',
-      body: 'Dear {{name}}, ...', created_by: name(), updated_at: isoDate(rng(0,30)),
-    }))
-  )),
+  http.get(u('/api/message-templates'), () => ok([
+    { id:1, name:'Loan Offer', channel:'sms', category:'promotional',
+      sms_body:'Dear {{first_name}}, you have a pre-approved loan offer from O3 Capital. Visit o3capital.ng/apply or call 01 330 1070. Reply STOP to opt out.',
+      email_subject:null, email_blocks:null, created_by:name(), updated_at:isoDate(2) },
+    { id:2, name:'Payment Reminder', channel:'sms', category:'transactional',
+      sms_body:'Dear {{first_name}}, your loan repayment of ₦{{amount}} is due on {{due_date}}. Pay via the app or call us. O3 Capital.',
+      email_subject:null, email_blocks:null, created_by:name(), updated_at:isoDate(5) },
+    { id:3, name:'Welcome Email', channel:'email', category:'transactional',
+      sms_body:null,
+      email_subject:'Welcome to O3 Capital, {{first_name}}!',
+      email_blocks:null, created_by:name(), updated_at:isoDate(10) },
+    { id:4, name:'Card Upgrade', channel:'email', category:'promotional',
+      sms_body:null,
+      email_subject:'Upgrade your O3 Capital card today, {{first_name}} {{last_name}}',
+      email_blocks:null, created_by:name(), updated_at:isoDate(8) },
+    { id:5, name:'Delinquency Notice', channel:'sms', category:'transactional',
+      sms_body:'Dear {{first_name}}, your O3 Capital account (CIF: {{cif_number}}) is {{days_overdue}} days overdue. Please contact us immediately. O3 Capital.',
+      email_subject:null, email_blocks:null, created_by:name(), updated_at:isoDate(1) },
+    { id:6, name:'Loan Approval', channel:'email', category:'transactional',
+      sms_body:null,
+      email_subject:'Your loan has been approved, {{first_name}}!',
+      email_blocks:null, created_by:name(), updated_at:isoDate(3) },
+    { id:7, name:'Savings Promo', channel:'sms', category:'promotional',
+      sms_body:'Hi {{first_name}}, earn up to 12% p.a. on your savings with O3 Capital Fixed Deposit. Visit o3capital.ng or call 01 330 1070. O3 Capital.',
+      email_subject:null, email_blocks:null, created_by:name(), updated_at:isoDate(7) },
+    { id:8, name:'Account Alert', channel:'email', category:'notification',
+      sms_body:null,
+      email_subject:'Important account update for {{first_name}}',
+      email_blocks:null, created_by:name(), updated_at:isoDate(0) },
+  ])),
+  http.get(u('/api/message-templates/:id'), ({ params }) => {
+    const templates = [
+      { id:1, name:'Loan Offer', channel:'sms', category:'promotional',
+        sms_body:'Dear {{first_name}}, you have a pre-approved loan offer from O3 Capital. Visit o3capital.ng/apply or call 01 330 1070. Reply STOP to opt out.',
+        email_subject:null, email_blocks:null },
+      { id:2, name:'Payment Reminder', channel:'sms', category:'transactional',
+        sms_body:'Dear {{first_name}}, your loan repayment of ₦{{amount}} is due on {{due_date}}. Pay via the app or call us. O3 Capital.',
+        email_subject:null, email_blocks:null },
+      { id:3, name:'Welcome Email', channel:'email', category:'transactional',
+        sms_body:null, email_subject:'Welcome to O3 Capital, {{first_name}}!', email_blocks:null },
+    ]
+    const t = templates[(Number(params.id)-1) % templates.length] ?? templates[0]
+    return ok({ ...t, id:Number(params.id), created_by:name(), updated_at:isoDate(rng(0,30)) })
+  }),
   http.post(u('/api/message-templates'), () => ok({ id: 99 })),
   http.put(u('/api/message-templates/:id'), () => new HttpResponse(null, { status: 204 })),
   http.delete(u('/api/message-templates/:id'), () => new HttpResponse(null, { status: 204 })),
@@ -2654,6 +2713,330 @@ const CONTACTS_EXTRA = [
   http.post(u('/api/crm/activities'), () => new HttpResponse(null, { status: 204 })),
 ]
 
+// ── Campaigns — missing endpoints ────────────────────────────────────────────
+// Note: /api/campaigns/preflight must come before /api/campaigns/:id so that
+// the static segment beats the parameterized one.
+
+const CAMPAIGNS_DETAIL = [
+  http.get(u('/api/campaigns/preflight'), ({ request }) => {
+    const url = new URL(request.url)
+    const listId = url.searchParams.get('list_id')
+    const total = listId ? rng(1200, 5000) : 0
+    const suppressed = Math.floor(total * 0.03)
+    const duplicates  = Math.floor(total * 0.008)
+    const invalid     = Math.floor(total * 0.015)
+    const usable      = Math.max(0, total - suppressed - duplicates - invalid)
+    return ok({
+      total, usable, suppressed, duplicates, invalid,
+      with_email: Math.floor(usable * 0.88),
+      with_phone: usable,
+      warnings: listId ? [] : ['No contact list selected — select a list before starting'],
+    })
+  }),
+  http.get(u('/api/campaigns/:id'), ({ params }) => {
+    const i = (Number(params.id) - 1) % CAMPAIGNS_LIST.length
+    const base = CAMPAIGNS_LIST[Math.max(0, i)] ?? CAMPAIGNS_LIST[0]
+    const isSMS   = base.type === 'sms'
+    const isEmail = base.type === 'email'
+    const isMulti = base.type === 'multi'
+    const isActive    = ['active','paused','completed'].includes(base.status)
+    const isDone      = base.status === 'completed'
+    return ok({
+      ...base,
+      list_id: 1,
+      sms_body: (isSMS || isMulti)
+        ? 'Dear {{first_name}}, you have a pre-approved loan offer from O3 Capital. Visit o3capital.ng/apply or call 01 330 1070. Reply STOP to opt out.'
+        : null,
+      email_subject: (isEmail || isMulti) ? 'Exclusive offer for {{first_name}} {{last_name}} — O3 Capital' : null,
+      email_body_html: (isEmail || isMulti)
+        ? '<p>Dear {{first_name}},</p><p>You have a pre-approved loan offer waiting. Click the button below to apply online in minutes.</p><p>Best regards,<br/>O3 Capital</p>'
+        : null,
+      email_body_text: (isEmail || isMulti)
+        ? 'Dear {{first_name}}, You have a pre-approved loan offer waiting. Apply online at o3capital.ng/apply. Best regards, O3 Capital'
+        : null,
+      email_blocks_json: null,
+      from_name: 'O3 Capital',
+      from_email: 'care@o3capital.com',
+      scheduled_at: base.status === 'scheduled' ? new Date(Date.now() + 86400000*2).toISOString() : null,
+      started_at:   isActive ? isoDate(7) : null,
+      completed_at: isDone   ? isoDate(6) : null,
+      contact_count: isActive ? rng(800, 5000) : 0,
+      sent_count:    isDone   ? rng(700, 4800) : base.status === 'active' ? rng(100, 800) : 0,
+      delivered_count: isDone ? rng(600, 4500) : base.status === 'active' ? rng(80, 700)  : 0,
+      pause_reason: base.status === 'paused' ? 'Rate limit reached — will resume automatically' : null,
+      created_by: 'Temitope Posi',
+      created_at: isoDate(14),
+      updated_at: isoDate(1),
+    })
+  }),
+  http.patch(u('/api/campaigns/:id'),  () => new HttpResponse(null, { status: 204 })),
+  http.delete(u('/api/campaigns/:id'), () => new HttpResponse(null, { status: 204 })),
+  http.get(u('/api/campaigns/:id/contacts'), () => ok({
+    data: Array.from({ length: 20 }, (_, i) => ({
+      id: i+1,
+      first_name: FIRST[i % FIRST.length],
+      last_name:  LAST[i % LAST.length],
+      email: `contact${i+1}@example.ng`,
+      phone: `080${rng(10000000,99999999)}`,
+      sms_status:   pick(['sent','delivered','delivered','failed','pending']),
+      email_status: pick(['sent','delivered','opened','clicked','failed','pending']),
+    })),
+    total: 4820,
+  })),
+  http.post(u('/api/campaigns/:id/resume'), () => new HttpResponse(null, { status: 204 })),
+]
+
+// ── Contact Lists — missing endpoints ─────────────────────────────────────────
+
+const CONTACT_LISTS_DETAIL = [
+  http.get(u('/api/contact-lists/:id'), ({ params }) => {
+    const names = ['All Salary Earners','Delinquent Customers','High-Value Borrowers','New Applicants','Card Holders','Dormant Accounts']
+    const total = rng(500, 5000)
+    return ok({
+      id: Number(params.id),
+      name: names[Number(params.id) % names.length] ?? names[0],
+      member_count: total, total,
+      description: null,
+      created_at: isoDate(rng(10, 90)),
+      created_by: 'Temitope Posi',
+    })
+  }),
+  http.get(u('/api/contact-lists/:id/members'), () => ok({
+    data: Array.from({ length: 20 }, (_, i) => ({
+      id: i+1, cif: `CIF${String(i+100000).padStart(7,'0')}`,
+      first_name: FIRST[i % FIRST.length],
+      last_name:  LAST[i % LAST.length],
+      email: `contact${i}@example.ng`,
+      phone: `080${rng(10000000,99999999)}`,
+      status: pick(['active','active','active','suppressed']),
+      added_at: isoDate(rng(0, 30)),
+    })),
+    total: 3247,
+  })),
+  http.post(u('/api/contact-lists/:id/import'),         () => ok({ imported: 847, skipped: 12, total: 859 })),
+  http.post(u('/api/contact-lists/:id/contacts'),       () => ok({ id: 99 })),
+  http.delete(u('/api/contact-lists/:id/contacts/:cid'), () => new HttpResponse(null, { status: 204 })),
+]
+
+// ── Gap fill — endpoints identified in second sweep ───────────────────────────
+
+const GAP_FILL = [
+
+  // ── Global search ────────────────────────────────────────────────────────────
+  http.get(u('/api/search'), ({ request }) => {
+    const q = new URL(request.url).searchParams.get('q') ?? ''
+    return ok({
+      customers: q ? [
+        { cif: 'CIF0100042', name: 'Adewale Ogundimu', phone: '08031234567', type: 'customer' },
+        { cif: 'CIF0100081', name: 'Ngozi Eze',         phone: '08054321987', type: 'customer' },
+      ] : [],
+      loans: q ? [
+        { id: 12, ref: 'LA-2026-0012', customer: 'Adewale Ogundimu', amount_kobo: 50_000_000_00, status: 'active' },
+      ] : [],
+      tickets: q ? [
+        { id: 4, ref: 'TKT-2026-01004', subject: 'Card not working at POS', status: 'open' },
+      ] : [],
+    })
+  }),
+
+  // ── CC Statements (credit card statements) ───────────────────────────────────
+  // Static paths must come before /:id
+  http.get(u('/api/cc-statements/from-db'), () => ok(
+    Array.from({ length: 10 }, (_, i) => ({
+      id: i+1, cif: `CIF${String(i+100000).padStart(7,'0')}`,
+      customer_name: name(), account_number: `4000${String(rng(10000000,99999999))}`,
+      statement_date: dateStr(rng(0,30)), closing_balance_kobo: rng(5,200)*100_00,
+      status: pick(['ready','sent','pending']),
+    }))
+  )),
+  http.post(u('/api/cc-statements/bulk'), () => ok({ queued: 847, already_sent: 12 })),
+  http.post(u('/api/cc-statements/upload'), () => ok({ processed: 120, skipped: 3 })),
+  http.get(u('/api/cc-statements'), () => ok({
+    data: Array.from({ length: 20 }, (_, i) => ({
+      id: i+1, cif: `CIF${String(i+100000).padStart(7,'0')}`,
+      customer_name: name(), account_number: `4000${String(rng(10000000,99999999))}`,
+      statement_period: `${2026}-${String((i % 12)+1).padStart(2,'0')}`,
+      opening_balance_kobo: rng(10,100)*100_00,
+      closing_balance_kobo: rng(10,100)*100_00,
+      total_spend_kobo: rng(5,80)*100_00,
+      total_payments_kobo: rng(5,60)*100_00,
+      status: pick(['ready','sent','pending']),
+      sent_at: Math.random() > 0.4 ? isoDate(rng(0,14)) : null,
+    })),
+    total: 1840,
+  })),
+  http.get(u('/api/cc-statements/:id'), ({ params }) => ok({
+    id: Number(params.id), cif: 'CIF0100042', customer_name: 'Adewale Ogundimu',
+    account_number: '4000123456789012',
+    statement_period: '2026-06',
+    opening_balance_kobo: 24_500_00, closing_balance_kobo: 18_200_00,
+    credit_limit_kobo: 200_000_00,
+    total_spend_kobo: 62_300_00, total_payments_kobo: 68_600_00,
+    minimum_payment_kobo: 5_000_00, payment_due_date: dateStr(14),
+    transactions: Array.from({ length: 15 }, (_, j) => ({
+      id: j+1, date: dateStr(rng(0,30)),
+      description: pick(['POS Purchase - Shoprite','ATM Withdrawal - GTBank','Online - Netflix','Fuel Station','Restaurant']),
+      amount_kobo: rng(1,50)*1_000_00,
+      type: pick(['debit','credit']),
+      balance_kobo: rng(10,200)*100_00,
+    })),
+    status: 'ready', sent_at: null,
+  })),
+  http.post(u('/api/cc-statements/:id/send'), () => new HttpResponse(null, { status: 204 })),
+
+  // ── Core banking status ───────────────────────────────────────────────────────
+  http.get(u('/api/cbs/status'), () => ok({
+    connected: true, provider: 'Udara360', latency_ms: 142,
+    last_sync_at: isoDate(0), environment: 'production',
+    services: {
+      accounts: 'healthy', loans: 'healthy', transfers: 'healthy',
+      cards: 'healthy', kyc: 'healthy',
+    },
+  })),
+
+  // ── Admin modules ─────────────────────────────────────────────────────────────
+  http.get(u('/api/admin/modules'), () => ok([
+    { id: 'loans',       name: 'Loan Origination',  enabled: true,  roles: ['admin','los_officer','credit_analyst'] },
+    { id: 'cards',       name: 'Cards',              enabled: true,  roles: ['admin','cards_ops'] },
+    { id: 'collections', name: 'Collections',        enabled: true,  roles: ['admin','collections_officer'] },
+    { id: 'recovery',    name: 'Recovery',           enabled: true,  roles: ['admin','recovery_agent'] },
+    { id: 'compliance',  name: 'Compliance',         enabled: true,  roles: ['admin','compliance_officer'] },
+    { id: 'hr',          name: 'HR & Payroll',       enabled: true,  roles: ['admin','hr_manager'] },
+    { id: 'finance',     name: 'Finance',            enabled: true,  roles: ['admin','finance_manager'] },
+    { id: 'campaigns',   name: 'Campaigns',          enabled: true,  roles: ['admin','marketing_officer'] },
+    { id: 'helpdesk',    name: 'Helpdesk',           enabled: true,  roles: ['admin','helpdesk_agent'] },
+    { id: 'risk',        name: 'Risk',               enabled: true,  roles: ['admin','risk_officer'] },
+  ])),
+
+  // ── Settings — Zoho Voice ─────────────────────────────────────────────────────
+  http.get(u('/api/settings/zoho-voice'), () => ok({
+    enabled: true, account_id: 'ZV-O3-0001', department_id: 'DEPT-002',
+    api_domain: 'voice.zoho.com', click_to_call: true,
+    call_recording: true, transcription: false,
+    connected_at: isoDate(120),
+  })),
+  http.put(u('/api/settings/zoho-voice'), () => new HttpResponse(null, { status: 204 })),
+
+  // ── Finance — FX Rates ────────────────────────────────────────────────────────
+  // Static paths first
+  http.get(u('/api/finance/fx-rates/history'), ({ request }) => {
+    const url = new URL(request.url)
+    const pair = url.searchParams.get('pair') ?? 'USD/NGN'
+    return ok(Array.from({ length: 30 }, (_, i) => ({
+      date: dateStr(30 - i),
+      rate: pair === 'USD/NGN' ? 1580 + rng(-40, 60) :
+            pair === 'GBP/NGN' ? 2020 + rng(-50, 70) :
+                                  1680 + rng(-40, 60),
+    })))
+  }),
+  http.post(u('/api/finance/fx-rates/refresh'), () => ok({ updated: 6, as_of: new Date().toISOString() })),
+  http.get(u('/api/finance/fx-rates/latest'), () => ok([
+    { pair: 'USD/NGN', rate: 1612.50, bid: 1610.00, ask: 1615.00, change_pct: 0.3, source: 'CBN', as_of: new Date().toISOString() },
+    { pair: 'GBP/NGN', rate: 2048.75, bid: 2045.00, ask: 2052.50, change_pct: -0.1, source: 'CBN', as_of: new Date().toISOString() },
+    { pair: 'EUR/NGN', rate: 1748.20, bid: 1744.00, ask: 1752.40, change_pct:  0.5, source: 'CBN', as_of: new Date().toISOString() },
+    { pair: 'USD/EUR', rate:    0.92, bid:    0.919, ask:    0.921, change_pct: -0.2, source: 'ECB', as_of: new Date().toISOString() },
+    { pair: 'USD/GBP', rate:    0.79, bid:    0.789, ask:    0.791, change_pct:  0.1, source: 'BOE', as_of: new Date().toISOString() },
+    { pair: 'XAU/USD', rate: 2418.00, bid: 2416.00, ask: 2420.00, change_pct:  0.8, source: 'LBMA', as_of: new Date().toISOString() },
+  ])),
+
+  // ── Campaigns — push to telemarketing ─────────────────────────────────────────
+  http.post(u('/api/campaigns/:id/push-to-telemarketing'), () => ok({ queued: rng(80, 400) })),
+
+  // ── Collections-ops — per-case actions ───────────────────────────────────────
+  http.post(u('/api/collections-ops/:id/send-to-recovery'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/collections-ops/:id/contact'),          () => ok({ id: rng(100, 999) })),
+  http.post(u('/api/collections-ops/:id/promise'),          () => ok({ id: rng(100, 999) })),
+  http.post(u('/api/collections-ops/writeoffs/:id/approve'),          () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/collections-ops/writeoffs/:id/return-recovery'),  () => new HttpResponse(null, { status: 204 })),
+
+  // ── Recovery-ops — per-case actions ──────────────────────────────────────────
+  http.post(u('/api/recovery-ops/cases/:id/legal'),     () => ok({ id: rng(100,999) })),
+  http.post(u('/api/recovery-ops/cases/:id/payment'),   () => ok({ id: rng(100,999) })),
+  http.post(u('/api/recovery-ops/cases/:id/visit'),     () => ok({ id: rng(100,999) })),
+  http.post(u('/api/recovery-ops/cases/:id/write-off'), () => new HttpResponse(null, { status: 204 })),
+
+  // ── Recovery — legal milestone ────────────────────────────────────────────────
+  http.post(u('/api/recovery/cases/:id/legal-milestone'), () => ok({ id: rng(100,999) })),
+
+  // ── Compliance — action endpoints ─────────────────────────────────────────────
+  http.post(u('/api/compliance/checklists/:id/respond'),  () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/compliance/findings/:id/response'),   () => ok({ id: rng(100,999) })),
+  http.get(u('/api/compliance/pentests/:id/findings'), () => ok(
+    Array.from({ length: 8 }, (_, i) => ({
+      id: i+1,
+      title: pick(['SQL Injection in loan endpoint','Insecure direct object reference','Missing rate limit','Weak session token','XSS in dashboard','IDOR on card account','Unencrypted PII in logs','Missing HSTS header']),
+      severity: pick(['critical','high','medium','low']),
+      cvss: pick([9.1, 8.4, 7.2, 6.5, 4.3, 3.1]),
+      status: pick(['open','remediated','accepted','in_progress']),
+      affected_endpoint: pick(['/api/loans','POST /api/cards','/api/admin/users','GET /api/search']),
+      reported_at: dateStr(rng(5,60)), remediated_at: Math.random() > 0.5 ? dateStr(rng(0,30)) : null,
+    }))
+  )),
+  http.get(u('/api/compliance/soc2/controls/:id/evidence'), () => ok(
+    Array.from({ length: 5 }, (_, i) => ({
+      id: i+1, control_id: 1, filename: `evidence_${i+1}.pdf`,
+      description: pick(['System access log export','Quarterly security review report','Penetration test certificate','DR test results','Vendor assessment']),
+      uploaded_by: name(), uploaded_at: isoDate(rng(0,60)), file_size_bytes: rng(40000, 800000),
+    }))
+  )),
+  http.delete(u('/api/compliance/soc2/evidence/:id'), () => new HttpResponse(null, { status: 204 })),
+
+  // ── Helpdesk — additional actions ────────────────────────────────────────────
+  http.post(u('/api/helpdesk/tickets/:id/claim'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/helpdesk/kb/:id/feedback'),   () => new HttpResponse(null, { status: 204 })),
+  http.get(u('/api/helpdesk/reports/cbn-consumer-protection'), ({ request }) => {
+    const url    = new URL(request.url)
+    const month  = url.searchParams.get('month')  ?? '2026-06'
+    const period = month.length === 7 ? month : '2026-06'
+    return ok({
+      period,
+      total_complaints: 284, resolved: 241, pending: 28, escalated: 15,
+      avg_resolution_days: 2.4, sla_compliance_pct: 91.2,
+      by_category: [
+        { category: 'Card Disputes',     count: 92, resolved: 81 },
+        { category: 'Loan Complaints',   count: 74, resolved: 62 },
+        { category: 'Account Issues',    count: 58, resolved: 52 },
+        { category: 'Recovery Conduct',  count: 36, resolved: 28 },
+        { category: 'Interest/Charges',  count: 24, resolved: 18 },
+      ],
+      repeat_complainants: 12, csat_avg: 3.8,
+    })
+  }),
+
+  // ── HR — applicant stage & employee exit ──────────────────────────────────────
+  http.put(u('/api/hr/applicants/:id/stage'),   () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/hr/employees/:id/exit'), () => ok({
+    id: rng(100,999), exit_date: dateStr(rng(0,90)),
+    clearance_status: 'initiated',
+  })),
+
+  // ── Payroll — payslip download & run approval ─────────────────────────────────
+  http.get(u('/api/payroll/payslips/:runId/:employeeId'), ({ params }) => ok({
+    run_id: Number(params.runId), employee_id: Number(params.employeeId),
+    employee_name: name(), staff_id: `O3C-${String(rng(1000,9999))}`,
+    period: '2026-06', department: pick(DEPTS),
+    gross_kobo: 42_000_000_00,
+    deductions: { paye_kobo: 5_040_000_00, pension_kobo: 2_520_000_00, nhf_kobo: 1_050_000_00, loan_kobo: 0 },
+    net_kobo: 33_390_000_00,
+    bank_name: 'Access Bank', account_number: '0123456789',
+    paid_at: isoDate(5),
+  })),
+  http.post(u('/api/payroll/runs/:id/approve'),   () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/payroll/runs/:id/disburse'),  () => new HttpResponse(null, { status: 204 })),
+
+  // ── Telemarketing — agents, lead disposition, bulk-assign ────────────────────
+  http.get(u('/api/telemarketing/agents'), () => ok(
+    Array.from({ length: 12 }, (_, i) => ({
+      id: i+1, name: name(), status: pick(['online','offline','on_call']),
+      leads_assigned: rng(5,30), leads_converted: rng(0,8),
+      calls_today: rng(10,60), avg_call_min: rng(3,12),
+      last_active: isoDate(0),
+    }))
+  )),
+  http.put(u('/api/telemarketing/leads/:id/disposition'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/telemarketing/leads/bulk-assign'),    () => ok({ assigned: rng(10,200) })),
+]
+
 // ── Catch-all ─────────────────────────────────────────────────────────────────
 
 const CATCH_ALL = [
@@ -2703,5 +3086,8 @@ export const handlers = [
   ...MARKETING_EXTRA,
   ...USER_MISC,
   ...CONTACTS_EXTRA,
+  ...CAMPAIGNS_DETAIL,
+  ...CONTACT_LISTS_DETAIL,
+  ...GAP_FILL,
   ...CATCH_ALL,
 ]

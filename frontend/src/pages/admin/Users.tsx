@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, SearchInput } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDate, fmtDatetime } from '../../lib/fmt'
+import { fmtDate, fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, BLUE, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
 import { roleLabel, ROLE_LABELS } from '../../lib/roles'
@@ -384,6 +384,8 @@ export default function AdminUsers() {
   const [editing,   setEditing]   = useState<User | null>(null)
   const [inviting,  setInviting]  = useState(false)
   const [search,    setSearch]    = useState('')
+  const [dateFrom,  setDateFrom]  = useState(monthStart())
+  const [dateTo,    setDateTo]    = useState(today())
   const [roleFilter,   setRoleFilter]   = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [deptFilter,   setDeptFilter]   = useState('')
@@ -395,14 +397,14 @@ export default function AdminUsers() {
     setLoading(true)
     setError(null)
     try {
-      const u = await apiFetch<User[]>('/api/admin/users')
+      const u = await apiFetch<User[]>(`/api/admin/users?from=${dateFrom}&to=${dateTo}`)
       setRows(Array.isArray(u) ? u : [])
     } catch (e: any) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
   useEffect(() => { setPage(1) }, [search, roleFilter, statusFilter, deptFilter])
@@ -474,13 +476,16 @@ export default function AdminUsers() {
       title="User Management"
       subtitle={`${rows.filter(u => u.is_active).length} active · ${rows.filter(u => !u.is_active).length} inactive`}
       actions={
-        <button onClick={() => setInviting(true)} style={{
-          display: 'flex', alignItems: 'center', gap: SP[1], padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,
-          border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
-        }}>
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>person_add</span>
-          Invite User
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => setInviting(true)} style={{
+            display: 'flex', alignItems: 'center', gap: SP[1], padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,
+            border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>person_add</span>
+            Invite User
+          </button>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />

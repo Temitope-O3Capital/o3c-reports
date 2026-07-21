@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
+import { monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -259,13 +260,15 @@ export default function AdminRoles() {
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
   const [editing, setEditing] = useState<Role | null | false>(false)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       const [r, u] = await Promise.all([
-        apiFetch<Role[]>('/api/admin/roles'),
+        apiFetch<Role[]>(`/api/admin/roles?from=${dateFrom}&to=${dateTo}`),
         apiFetch<{ role: string; full_name: string }[]>('/api/admin/users'),
       ])
       const roleList = Array.isArray(r) ? r : []
@@ -281,7 +284,7 @@ export default function AdminRoles() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -315,13 +318,16 @@ export default function AdminRoles() {
       title="Roles"
       subtitle="Role-based access control — page permissions per role"
       actions={
-        <button onClick={() => setEditing(null)} style={{
-          display: 'flex', alignItems: 'center', gap: SP[1], padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,
-          border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
-        }}>
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
-          Create Role
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={() => setEditing(null)} style={{
+            display: 'flex', alignItems: 'center', gap: SP[1], padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,
+            border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
+            Create Role
+          </button>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />

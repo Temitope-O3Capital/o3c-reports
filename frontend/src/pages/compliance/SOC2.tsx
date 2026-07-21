@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, ErrBanner, Spinner, Modal, btnPrimary, btnSecondary } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Spinner, Modal, btnPrimary, btnSecondary, DateFilter } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDate } from '../../lib/fmt'
+import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, BLUE, INTER } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -127,6 +127,8 @@ export default function SOC2() {
   const [filterSt,  setFilterSt]  = useState('')
   const [filterCr,  setFilterCr]  = useState('')
   const [showNew,   setShowNew]   = useState(false)
+  const [dateFrom,  setDateFrom]  = useState(monthStart())
+  const [dateTo,    setDateTo]    = useState(today())
   const [saving,    setSaving]    = useState(false)
   const [newCode,   setNewCode]   = useState('')
   const [newGroup,  setNewGroup]  = useState('')
@@ -139,15 +141,18 @@ export default function SOC2() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
+      const p = new URLSearchParams()
+      if (dateFrom) p.set('from', dateFrom)
+      if (dateTo)   p.set('to', dateTo)
       const [ovRes, ctrlRes] = await Promise.all([
         apiFetch<{ data: SOC2Overview }>('/api/compliance/soc2/overview'),
-        apiFetch<{ data: SOC2Control[] }>('/api/compliance/soc2/controls'),
+        apiFetch<{ data: SOC2Control[] }>(`/api/compliance/soc2/controls?${p}`),
       ])
       setOverview(ovRes?.data ?? null)
       setControls(ctrlRes?.data ?? [])
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -198,6 +203,7 @@ export default function SOC2() {
         <h1 style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: 'var(--txt)', margin: 0, flex: 1 }}>
           SOC 2 Type II Readiness
         </h1>
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
         <button style={btnSecondary} onClick={handleExport}>Export CSV</button>
         <button style={btnPrimary}   onClick={() => setShowNew(true)}>+ Add Control</button>
       </div>

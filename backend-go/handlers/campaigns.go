@@ -414,10 +414,17 @@ func startDispatch(db *core.DB, campaignID int64) {
 			time.Sleep(sendDelay) // rate-limit provider calls
 		}
 
-		db.PGExec(ctx, //nolint:errcheck
-			"UPDATE campaigns SET status='completed', pause_reason=NULL, paused_until=NULL, completed_at=NOW(), updated_at=NOW() WHERE id=$1 AND status='active'",
-			campaignID)
-		slog.Info("Campaign dispatch complete", "id", campaignID)
+		// Only auto-complete if there were contacts to send — a campaign with
+		// 0 contacts (no list attached yet) stays active so the user can attach
+		// a list and resume without it locking itself immediately.
+		if len(contactRows) > 0 {
+			db.PGExec(ctx, //nolint:errcheck
+				"UPDATE campaigns SET status='completed', pause_reason=NULL, paused_until=NULL, completed_at=NOW(), updated_at=NOW() WHERE id=$1 AND status='active'",
+				campaignID)
+			slog.Info("Campaign dispatch complete", "id", campaignID)
+		} else {
+			slog.Info("Campaign dispatch: no pending contacts, campaign stays active", "id", campaignID)
+		}
 	}()
 }
 
@@ -513,7 +520,7 @@ func resumeDailyLimitCampaigns(db *core.DB) {
 
 var campaignUpdateCols = []string{
 	"name", "description", "email_subject", "email_body_html", "email_body_text",
-	"from_name", "from_email", "sms_body", "scheduled_at", "list_id",
+	"from_name", "from_email", "sms_body", "scheduled_at", "list_id", "email_blocks_json",
 }
 
 func RegisterCampaigns(r chi.Router, db *core.DB) {
@@ -716,6 +723,16 @@ func listCampaigns(db *core.DB) http.HandlerFunc {
 		}
 		if v := qstr(r, "status"); v != "" {
 			where += fmt.Sprintf(" AND c.status=$%d", n)
+			args = append(args, v)
+			n++
+		}
+		if v := qstr(r, "from"); v != "" {
+			where += fmt.Sprintf(" AND c.created_at::date >= $%d::date", n)
+			args = append(args, v)
+			n++
+		}
+		if v := qstr(r, "to"); v != "" {
+			where += fmt.Sprintf(" AND c.created_at::date <= $%d::date", n)
 			args = append(args, v)
 			n++
 		}

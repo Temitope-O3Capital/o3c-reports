@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"math/big"
@@ -30,6 +31,103 @@ func RegisterSettings(r chi.Router, db *core.DB) {
 	r.With(settings).Put("/users/{id}", settingsUserUpdate(db))
 	r.With(settings).Put("/users/{id}/reset-password", settingsUserResetPassword(db))
 	r.With(settings).Delete("/users/{id}", settingsUserDelete(db))
+
+	// Per-user Zoho Voice connection (any authenticated user manages their own)
+	r.Get("/zoho-voice", zohoVoiceStatus(db))
+	r.Put("/zoho-voice", zohoVoiceConnect(db))
+	r.Delete("/zoho-voice", zohoVoiceDisconnect(db))
+}
+
+// ── Zoho Voice per-user connection ────────────────────────────────────────────
+
+func ensureZohoVoiceColumns(ctx context.Context, db *core.DB) {
+	db.PGExec(ctx, `ALTER TABLE o3c_users ADD COLUMN IF NOT EXISTS zoho_voice_refresh_token TEXT`)       //nolint:errcheck
+	db.PGExec(ctx, `ALTER TABLE o3c_users ADD COLUMN IF NOT EXISTS zoho_voice_access_token TEXT`)        //nolint:errcheck
+	db.PGExec(ctx, `ALTER TABLE o3c_users ADD COLUMN IF NOT EXISTS zoho_voice_token_expiry TIMESTAMPTZ`) //nolint:errcheck
+	db.PGExec(ctx, `ALTER TABLE o3c_users ADD COLUMN IF NOT EXISTS zoho_voice_agent_id TEXT`)            //nolint:errcheck
+}
+
+func zohoVoiceStatus(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+		if user == nil {
+			respondErr(w, 401, "unauthorized")
+			return
+		}
+		ensureZohoVoiceColumns(ctx, db)
+		rows, err := db.PGQuery(ctx,
+			`SELECT zoho_voice_agent_id FROM o3c_users WHERE id=$1`, user.ID)
+		connected := err == nil && len(rows) > 0 && str(rows[0]["zoho_voice_agent_id"]) != ""
+		agentID := ""
+		if connected {
+			agentID = str(rows[0]["zoho_voice_agent_id"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"connected": connected,
+			"agent_id":  agentID,
+		})
+	}
+}
+
+func zohoVoiceConnect(db *core.DB) http.HandlerFunc {
+	type body struct {
+		RefreshToken string `json:"refresh_token"`
+		AgentID      string `json:"agent_id"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+		if user == nil {
+			respondErr(w, 401, "unauthorized")
+			return
+		}
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "invalid JSON")
+			return
+		}
+		if strings.TrimSpace(b.RefreshToken) == "" {
+			respondErr(w, 422, "refresh_token is required")
+			return
+		}
+		ensureZohoVoiceColumns(ctx, db)
+		encToken, err := encryptValue(b.RefreshToken)
+		if err != nil {
+			respondErr(w, 500, "encryption error")
+			return
+		}
+		_, err = db.PGExec(ctx,
+			`UPDATE o3c_users
+			 SET zoho_voice_refresh_token=$1, zoho_voice_agent_id=$2,
+			     zoho_voice_access_token=NULL, zoho_voice_token_expiry=NULL
+			 WHERE id=$3`,
+			encToken, strings.TrimSpace(b.AgentID), user.ID)
+		if err != nil {
+			respondErr(w, 500, "save failed")
+			return
+		}
+		w.WriteHeader(204)
+	}
+}
+
+func zohoVoiceDisconnect(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+		if user == nil {
+			respondErr(w, 401, "unauthorized")
+			return
+		}
+		ensureZohoVoiceColumns(ctx, db)
+		db.PGExec(ctx, //nolint:errcheck
+			`UPDATE o3c_users
+			 SET zoho_voice_refresh_token=NULL, zoho_voice_access_token=NULL,
+			     zoho_voice_token_expiry=NULL, zoho_voice_agent_id=NULL
+			 WHERE id=$1`, user.ID)
+		w.WriteHeader(204)
+	}
 }
 
 // ── Settings key-value ────────────────────────────────────────────────────────
@@ -122,8 +220,21 @@ func settingsUpdate(db *core.DB) http.HandlerFunc {
 
 func settingsSyncStatusList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT * FROM sync_engine_status ORDER BY created_at DESC LIMIT 10`)
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
+
+		q := `SELECT * FROM sync_engine_status WHERE 1=1`
+		var args []any
+		if from != "" {
+			args = append(args, from)
+			q += " AND created_at::date >= $" + itoa(len(args)) + "::date"
+		}
+		if to != "" {
+			args = append(args, to)
+			q += " AND created_at::date <= $" + itoa(len(args)) + "::date"
+		}
+		q += " ORDER BY created_at DESC LIMIT 100"
+		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return

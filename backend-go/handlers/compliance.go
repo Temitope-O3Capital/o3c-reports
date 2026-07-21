@@ -81,6 +81,9 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 	r.With(aml).Post("/aml/rules",         complianceCreateAMLRule(db))
 	r.With(aml).Delete("/aml/rules/{id}", complianceDeleteAMLRule(db))
 	r.With(aml).Get("/aml/stats",          complianceAMLStats(db))
+	r.With(aml).Get("/aml-rules",          complianceListAMLRules(db))
+	r.With(aml).Post("/aml-rules",         complianceCreateAMLRule(db))
+	r.With(aml).Delete("/aml-rules/{id}",  complianceDeleteAMLRule(db))
 
 	// Phase 12 — KYC Expiry (C2)
 	r.With(all).Get("/kyc-expiry",               complianceListKYCExpiry(db))
@@ -266,6 +269,8 @@ func complianceCBNList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		year := qstr(r, "year")
 		status := qstr(r, "status")
+		from, _ := validDate(r, "from")
+		to, _   := validDate(r, "to")
 		limit := qint(r, "limit", 200, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -292,6 +297,16 @@ func complianceCBNList(db *core.DB) http.HandlerFunc {
 		if status != "" {
 			query += fmt.Sprintf(" AND c.status = $%d", n)
 			args = append(args, status)
+			n++
+		}
+		if from != "" {
+			query += fmt.Sprintf(" AND COALESCE(c.due_date, c.period_end)::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			query += fmt.Sprintf(" AND COALESCE(c.due_date, c.period_end)::date <= $%d::date", n)
+			args = append(args, to)
 			n++
 		}
 		query += fmt.Sprintf(" ORDER BY COALESCE(c.due_date, c.period_end) ASC NULLS LAST LIMIT $%d OFFSET $%d", n, n+1)
@@ -675,6 +690,8 @@ func complianceWatchList(db *core.DB) http.HandlerFunc {
 		q := qstr(r, "q")
 		isActive := qstr(r, "is_active")
 		entityType := qstr(r, "entity_type")
+		from, _ := validDate(r, "from")
+		to, _   := validDate(r, "to")
 		limit := qint(r, "limit", 50, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -699,6 +716,16 @@ func complianceWatchList(db *core.DB) http.HandlerFunc {
 		if q != "" {
 			query += fmt.Sprintf(" AND (entity_name ILIKE $%d OR id_value ILIKE $%d)", n, n)
 			args = append(args, "%"+q+"%")
+			n++
+		}
+		if from != "" {
+			query += fmt.Sprintf(" AND created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			query += fmt.Sprintf(" AND created_at::date <= $%d::date", n)
+			args = append(args, to)
 			n++
 		}
 		query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
@@ -799,6 +826,8 @@ func complianceFindingList(db *core.DB) http.HandlerFunc {
 		status := qstr(r, "status")
 		severity := qstr(r, "severity")
 		assignedTo := qstr(r, "assigned_to")
+		from, _ := validDate(r, "from")
+		to, _   := validDate(r, "to")
 		limit := qint(r, "limit", 50, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -822,6 +851,16 @@ func complianceFindingList(db *core.DB) http.HandlerFunc {
 		if assignedTo != "" {
 			query += fmt.Sprintf(" AND af.assigned_to = $%d", n)
 			args = append(args, assignedTo)
+			n++
+		}
+		if from != "" {
+			query += fmt.Sprintf(" AND af.created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			query += fmt.Sprintf(" AND af.created_at::date <= $%d::date", n)
+			args = append(args, to)
 			n++
 		}
 		query += fmt.Sprintf(" ORDER BY af.created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
@@ -1370,6 +1409,8 @@ func complianceCreditBureauExport(db *core.DB) http.HandlerFunc {
 func complianceDSARList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status := qstr(r, "status")
+		from, _ := validDate(r, "from")
+		to, _   := validDate(r, "to")
 		limit := qint(r, "limit", 50, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -1385,6 +1426,16 @@ func complianceDSARList(db *core.DB) http.HandlerFunc {
 		if status != "" {
 			query += fmt.Sprintf(" AND d.status=$%d", n)
 			args = append(args, status)
+			n++
+		}
+		if from != "" {
+			query += fmt.Sprintf(" AND d.created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			query += fmt.Sprintf(" AND d.created_at::date <= $%d::date", n)
+			args = append(args, to)
 			n++
 		}
 		query += fmt.Sprintf(" ORDER BY d.created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
@@ -1496,14 +1547,31 @@ func complianceRetentionSchedule(_ *core.DB) http.HandlerFunc {
 
 func complianceDPARegister(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		from, _ := validDate(r, "from")
+		to, _   := validDate(r, "to")
 		limit := qint(r, "limit", 50, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
-		rows, err := db.PGQuery(r.Context(),
-			`SELECT d.*, u.full_name AS created_by_name
+		query := `SELECT d.*, u.full_name AS created_by_name
 			 FROM dpa_processing_register d
 			 LEFT JOIN o3c_users u ON u.id = d.created_by
-			 ORDER BY d.created_at DESC LIMIT $1 OFFSET $2`, limit, offset)
+			 WHERE 1=1`
+		args := []any{}
+		n := 1
+		if from != "" {
+			query += fmt.Sprintf(" AND d.created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			query += fmt.Sprintf(" AND d.created_at::date <= $%d::date", n)
+			args = append(args, to)
+			n++
+		}
+		query += fmt.Sprintf(" ORDER BY d.created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
+		args = append(args, limit, offset)
+
+		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
 			respondErr(w, 500, err.Error())
 			return
@@ -1791,10 +1859,26 @@ func runNDPRErasure(db *core.DB) {
 // Returns an empty list gracefully if the table does not yet exist.
 func complianceListAMLRules(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT id, name, description, threshold_kobo, is_active, created_at
-			FROM aml_rules
-			ORDER BY created_at DESC`)
+		from, _ := validDate(r, "from")
+		to, _   := validDate(r, "to")
+
+		query := `SELECT id, name, description, threshold_kobo, is_active, created_at
+			FROM aml_rules WHERE 1=1`
+		args := []any{}
+		n := 1
+		if from != "" {
+			query += fmt.Sprintf(" AND created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			query += fmt.Sprintf(" AND created_at::date <= $%d::date", n)
+			args = append(args, to)
+			n++
+		}
+		query += " ORDER BY created_at DESC"
+
+		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
 			// Table may not exist yet — return empty list rather than 500.
 			w.Header().Set("Content-Type", "application/json")
@@ -1886,8 +1970,10 @@ func complianceAMLStats(db *core.DB) http.HandlerFunc {
 // Queries the kyc_records table; returns empty list gracefully if absent.
 func complianceListKYCExpiry(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT
+		from, _ := validDate(r, "from")
+		to, _   := validDate(r, "to")
+
+		query := `SELECT
 			  k.cif_number,
 			  c.full_name      AS customer_name,
 			  k.expiry_date    AS kyc_expiry_date,
@@ -1896,8 +1982,22 @@ func complianceListKYCExpiry(db *core.DB) http.HandlerFunc {
 			FROM kyc_records k
 			LEFT JOIN customers c ON c.cif_number = k.cif_number
 			WHERE k.expiry_date IS NOT NULL
-			  AND k.expiry_date::date <= CURRENT_DATE + INTERVAL '90 days'
-			ORDER BY k.expiry_date ASC`)
+			  AND k.expiry_date::date <= CURRENT_DATE + INTERVAL '90 days'`
+		args := []any{}
+		n := 1
+		if from != "" {
+			query += fmt.Sprintf(" AND k.expiry_date::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			query += fmt.Sprintf(" AND k.expiry_date::date <= $%d::date", n)
+			args = append(args, to)
+			n++
+		}
+		query += " ORDER BY k.expiry_date ASC"
+
+		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
 			// kyc_records may not exist yet — return empty list.
 			w.Header().Set("Content-Type", "application/json")

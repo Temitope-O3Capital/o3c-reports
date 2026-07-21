@@ -50,6 +50,8 @@ func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
 		stage := qstr(r, "stage")
 		q := qstr(r, "q")
 		accountCIF := qstr(r, "account_cif")
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
 		limit := qint(r, "limit", 50, 1, 200)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -95,6 +97,16 @@ func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
 		if q != "" {
 			query += fmt.Sprintf(" AND ca.account_cif ILIKE $%d", n)
 			args = append(args, "%"+q+"%")
+			n++
+		}
+		if from != "" {
+			query += fmt.Sprintf(" AND ca.created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			query += fmt.Sprintf(" AND ca.created_at::date <= $%d::date", n)
+			args = append(args, to)
 			n++
 		}
 
@@ -602,6 +614,8 @@ func collectionsOpsListPlans(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(ctx)
 		status := qstr(r, "status")
 		q := qstr(r, "q")
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
 		limit := qint(r, "limit", 50, 1, 200)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -626,6 +640,14 @@ func collectionsOpsListPlans(db *core.DB) http.HandlerFunc {
 		if q != "" {
 			query += fmt.Sprintf(" AND (rp.account_cif ILIKE $%d OR rp.customer_name ILIKE $%d)", n, n)
 			args = append(args, "%"+q+"%"); n++
+		}
+		if from != "" {
+			query += fmt.Sprintf(" AND rp.created_at::date >= $%d::date", n)
+			args = append(args, from); n++
+		}
+		if to != "" {
+			query += fmt.Sprintf(" AND rp.created_at::date <= $%d::date", n)
+			args = append(args, to); n++
 		}
 		query += fmt.Sprintf(" ORDER BY rp.created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
 		args = append(args, limit, offset)

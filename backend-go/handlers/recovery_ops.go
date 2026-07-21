@@ -39,6 +39,8 @@ func recoveryOpsCases(db *core.DB) http.HandlerFunc {
 		legalStage := qstr(r, "legal_stage")
 		agentID := qstr(r, "agent_id")
 		q := qstr(r, "q")
+		from := qstr(r, "from")
+		to   := qstr(r, "to")
 		limit := qint(r, "limit", 50, 1, 200)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -78,6 +80,16 @@ func recoveryOpsCases(db *core.DB) http.HandlerFunc {
 		if q != "" {
 			query += fmt.Sprintf(" AND rc.account_cif ILIKE $%d", n)
 			args = append(args, "%"+q+"%")
+			n++
+		}
+		if from != "" {
+			query += fmt.Sprintf(" AND rc.opened_at::date >= $%d", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			query += fmt.Sprintf(" AND rc.opened_at::date <= $%d", n)
+			args = append(args, to)
 			n++
 		}
 

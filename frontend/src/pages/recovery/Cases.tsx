@@ -2,10 +2,10 @@ import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, FilterBar, Tabs, ConfirmModal, ErrBanner, Spinner, Modal,
-  filterInputStyle,
+  filterInputStyle, DateFilter,
 } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtKobo, fmtDate } from '../../lib/fmt'
+import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { RED, NAVY, GREEN, AMBER, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -650,12 +650,16 @@ export default function RecoveryCases() {
 
   const [statusFilter, setStatusFilter] = useState('')
   const [searchQ,      setSearchQ]      = useState('')
+  const [dateFrom,     setDateFrom]     = useState(monthStart())
+  const [dateTo,       setDateTo]       = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     const params = new URLSearchParams({ limit: '100' })
     if (statusFilter) params.set('status', statusFilter)
     if (searchQ.trim()) params.set('q', searchQ.trim())
+    if (dateFrom) params.set('from', dateFrom)
+    if (dateTo)   params.set('to',   dateTo)
     try {
       const [casesRes, usersRes] = await Promise.all([
         apiFetch<{ data: RecoveryCase[] }>(`/api/recovery-ops/cases?${params}`),
@@ -666,7 +670,7 @@ export default function RecoveryCases() {
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load cases')
     } finally { setLoading(false) }
-  }, [statusFilter, searchQ])
+  }, [statusFilter, searchQ, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -682,7 +686,14 @@ export default function RecoveryCases() {
   function clearChecked() { setCheckedIds(new Set()) }
 
   return (
-    <Page title="Recovery Cases" subtitle="Manage recovery cases and actions" noPad>
+    <Page
+      title="Recovery Cases"
+      subtitle="Manage recovery cases and actions"
+      noPad
+      actions={
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+      }
+    >
       <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
 
         {/* ── Left panel ──────────────────────────────────────────────────── */}

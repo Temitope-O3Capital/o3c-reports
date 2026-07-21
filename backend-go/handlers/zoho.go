@@ -67,6 +67,7 @@ func voiceRefreshUserToken(ctx context.Context, refreshToken string) (string, ti
 // ── Route registration ────────────────────────────────────────────────────────
 
 func RegisterZoho(r chi.Router, db *core.DB) {
+	r.Get("/sync-status", zohoSyncStatus(db))
 	r.Post("/voice/import-logs", zohoImportVoiceLogs(db))
 	r.Post("/voice/call", zohoInitiateCall(db))
 	r.Post("/import-tickets", zohoImportTickets(db))
@@ -151,6 +152,154 @@ func zohoWrite(ctx context.Context, method, path string, body io.Reader) (*http.
 
 // ── Zoho Voice — import call logs ─────────────────────────────────────────────
 
+// runZohoVoiceImport fetches call logs from Zoho Voice and inserts them into
+// helpdesk_calls. Called by the HTTP handler and the hourly auto-sync goroutine.
+func runZohoVoiceImport(ctx context.Context, db *core.DB, fromDate, toDate string) (imported, skipped, failed int, err error) {
+	token, err := zohoAccessToken(ctx)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("token error: %w", err)
+	}
+
+	voiceBase := "https://voice.zoho.com/rest/json/zv"
+	pageFrom := 0
+	pageSize := 100
+
+	for {
+		reqURL := fmt.Sprintf("%s/logs?from=%d&size=%d&fromDate=%s&toDate=%s",
+			voiceBase, pageFrom, pageSize, url.QueryEscape(fromDate), url.QueryEscape(toDate))
+		req, reqErr := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+		if reqErr != nil {
+			break
+		}
+		req.Header.Set("Authorization", "Zoho-oauthtoken "+token)
+		req.Header.Set("Accept", "application/json")
+
+		resp, doErr := zohoHTTP.Do(req)
+		if doErr != nil {
+			slog.Error("runZohoVoiceImport: request", "err", doErr)
+			break
+		}
+
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		var result map[string]any
+		json.Unmarshal(bodyBytes, &result) //nolint:errcheck
+
+		if resp.StatusCode != 200 {
+			slog.Warn("runZohoVoiceImport: non-200", "status", resp.StatusCode, "body", string(bodyBytes[:min(len(bodyBytes), 400)]))
+			return imported, skipped, failed, fmt.Errorf("Zoho Voice API error (HTTP %d): %s",
+				resp.StatusCode, strings.TrimSpace(string(bodyBytes[:min(len(bodyBytes), 400)])))
+		}
+
+		var logs []map[string]any
+		if arr, ok := result["logs"].([]any); ok {
+			for _, item := range arr {
+				if m, ok := item.(map[string]any); ok {
+					logs = append(logs, m)
+				}
+			}
+		} else if arr, ok := result["data"].([]any); ok {
+			for _, item := range arr {
+				if m, ok := item.(map[string]any); ok {
+					logs = append(logs, m)
+				}
+			}
+		} else if resp2, ok := result["response"].(map[string]any); ok {
+			if arr2, ok := resp2["result"].([]any); ok {
+				for _, item := range arr2 {
+					if m, ok := item.(map[string]any); ok {
+						logs = append(logs, m)
+					}
+				}
+			}
+		}
+		if len(logs) == 0 {
+			break
+		}
+
+		for _, c := range logs {
+			voiceID := zohoStr(c["logid"])
+			if voiceID == "" {
+				voiceID = zohoStr(c["id"])
+				if voiceID == "" {
+					voiceID = zohoStr(c["call_id"])
+				}
+			}
+			if voiceID == "" {
+				skipped++
+				continue
+			}
+
+			callType := zohoStr(c["call_type"])
+			direction := "inbound"
+			if strings.Contains(strings.ToLower(callType), "outgoing") ||
+				strings.Contains(strings.ToLower(callType), "outbound") {
+				direction = "outbound"
+			}
+
+			outcome := "missed"
+			hangup := zohoStr(c["hangup_cause_displayname"])
+			if strings.Contains(strings.ToLower(hangup), "normal") ||
+				zohoStr(c["answer_time"]) != "" {
+				outcome = "resolved"
+			}
+
+			durSec := zohoParseDurationSec(c["duration"])
+
+			agentName := zohoStr(c["destination_name"])
+			if agentName == "" {
+				agentName = zohoStr(c["agent_number"])
+			}
+			customerPhone := zohoStr(c["caller_id_number"])
+			callTo := zohoStr(c["destination_number"])
+			if callTo == "" {
+				callTo = zohoStr(c["did_number"])
+			}
+
+			startedAt := time.Now()
+			if ts := zohoParseMillisTime(c["start_time"]); !ts.IsZero() {
+				startedAt = ts
+			} else if st := zohoStr(c["start_time"]); st != "" {
+				if ts, err2 := time.Parse("2006-01-02 15:04:05", st); err2 == nil {
+					startedAt = ts
+				} else if ts, err2 := time.Parse(time.RFC3339, st); err2 == nil {
+					startedAt = ts
+				}
+			}
+
+			res, insErr := db.PGExec(ctx, `
+				INSERT INTO helpdesk_calls
+				    (agent_name, customer_phone, call_to, direction, duration_sec,
+				     outcome, started_at, zoho_voice_id)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+				ON CONFLICT DO NOTHING`,
+				ptrOrNilStr(agentName), ptrOrNilStr(customerPhone),
+				ptrOrNilStr(callTo), direction, durSec, outcome, startedAt, voiceID)
+			if insErr != nil {
+				slog.Warn("runZohoVoiceImport: insert", "voice_id", voiceID, "err", insErr)
+				failed++
+			} else {
+				if n, _ := res.RowsAffected(); n > 0 {
+					imported++
+				} else {
+					skipped++
+				}
+			}
+		}
+
+		if len(logs) < pageSize {
+			break
+		}
+		pageFrom += pageSize
+		if pageFrom > 5000 {
+			break
+		}
+	}
+
+	slog.Info("runZohoVoiceImport done", "imported", imported, "skipped", skipped, "failed", failed)
+	return imported, skipped, failed, nil
+}
+
 func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -163,13 +312,6 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		token, err := zohoAccessToken(ctx)
-		if err != nil {
-			respondErr(w, 503, "Token error: "+err.Error())
-			return
-		}
-
-		// Date range: default last 30 days.
 		fromDate := time.Now().AddDate(0, 0, -30).Format("2006-01-02")
 		toDate := time.Now().Format("2006-01-02")
 		if v := r.URL.Query().Get("from_date"); v != "" {
@@ -179,153 +321,82 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 			toDate = v
 		}
 
-		voiceBase := "https://voice.zoho.com/rest/json/zv"
-		var imported, skipped, failed int
-		var minStartedAt, maxStartedAt time.Time
-		pageFrom := 0
-		pageSize := 100
-
-		for {
-			reqURL := fmt.Sprintf("%s/logs?from=%d&size=%d&fromDate=%s&toDate=%s",
-				voiceBase, pageFrom, pageSize, url.QueryEscape(fromDate), url.QueryEscape(toDate))
-			req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
-			if err != nil {
-				break
-			}
-			req.Header.Set("Authorization", "Zoho-oauthtoken "+token)
-			req.Header.Set("Accept", "application/json")
-
-			resp, err := zohoHTTP.Do(req)
-			if err != nil {
-				slog.Error("zohoImportVoiceLogs: request", "err", err)
-				break
-			}
-
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			var result map[string]any
-			json.Unmarshal(bodyBytes, &result) //nolint:errcheck
-
-			var logs []map[string]any
-			if resp.StatusCode != 200 {
-				slog.Warn("zohoImportVoiceLogs: non-200", "status", resp.StatusCode, "body", string(bodyBytes[:min(len(bodyBytes), 400)]))
-				respondErr(w, resp.StatusCode, "Zoho Voice API error: "+strings.TrimSpace(string(bodyBytes[:min(len(bodyBytes), 800)])))
-				return
-			}
-			if arr, ok := result["logs"].([]any); ok {
-				for _, item := range arr {
-					if m, ok := item.(map[string]any); ok {
-						logs = append(logs, m)
-					}
-				}
-			} else if arr, ok := result["data"].([]any); ok {
-				for _, item := range arr {
-					if m, ok := item.(map[string]any); ok {
-						logs = append(logs, m)
-					}
-				}
-			} else if resp2, ok := result["response"].(map[string]any); ok {
-				if arr2, ok := resp2["result"].([]any); ok {
-					for _, item := range arr2 {
-						if m, ok := item.(map[string]any); ok {
-							logs = append(logs, m)
-						}
-					}
-				}
-			}
-			if len(logs) == 0 {
-				break
-			}
-
-			for _, c := range logs {
-				voiceID := zohoStr(c["logid"])
-				if voiceID == "" {
-					voiceID = zohoStr(c["id"])
-					if voiceID == "" {
-						voiceID = zohoStr(c["call_id"])
-					}
-				}
-				if voiceID == "" {
-					skipped++
-					continue
-				}
-
-				callType := zohoStr(c["call_type"])
-				direction := "inbound"
-				if strings.Contains(strings.ToLower(callType), "outgoing") ||
-					strings.Contains(strings.ToLower(callType), "outbound") {
-					direction = "outbound"
-				}
-
-				outcome := "missed"
-				hangup := zohoStr(c["hangup_cause_displayname"])
-				if strings.Contains(strings.ToLower(hangup), "normal") ||
-					zohoStr(c["answer_time"]) != "" {
-					outcome = "resolved"
-				}
-
-				durSec := zohoParseDurationSec(c["duration"])
-
-				agentName := zohoStr(c["destination_name"])
-				if agentName == "" {
-					agentName = zohoStr(c["agent_number"])
-				}
-				customerPhone := zohoStr(c["caller_id_number"])
-				callTo := zohoStr(c["destination_number"])
-				if callTo == "" {
-					callTo = zohoStr(c["did_number"])
-				}
-
-				startedAt := time.Now()
-				if ts := zohoParseMillisTime(c["start_time"]); !ts.IsZero() {
-					startedAt = ts
-				} else if st := zohoStr(c["start_time"]); st != "" {
-					if ts, err2 := time.Parse("2006-01-02 15:04:05", st); err2 == nil {
-						startedAt = ts
-					} else if ts, err2 := time.Parse(time.RFC3339, st); err2 == nil {
-						startedAt = ts
-					}
-				}
-				zohoTrackDateRange(startedAt, &minStartedAt, &maxStartedAt)
-
-				res, err := db.PGExec(ctx, `
-					INSERT INTO helpdesk_calls
-					    (agent_name, customer_phone, call_to, direction, duration_sec,
-					     outcome, started_at, zoho_voice_id)
-					VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-					ON CONFLICT DO NOTHING`,
-					ptrOrNilStr(agentName), ptrOrNilStr(customerPhone),
-					ptrOrNilStr(callTo), direction, durSec, outcome, startedAt, voiceID)
-				if err != nil {
-					slog.Warn("zohoImportVoiceLogs: insert", "voice_id", voiceID, "err", err)
-					failed++
-				} else {
-					if n, _ := res.RowsAffected(); n > 0 {
-						imported++
-					} else {
-						skipped++
-					}
-				}
-			}
-
-			if len(logs) < pageSize {
-				break
-			}
-			pageFrom += pageSize
-			if pageFrom > 5000 {
-				break
-			}
+		imported, skipped, failed, err := runZohoVoiceImport(ctx, db, fromDate, toDate)
+		if err != nil {
+			respondErr(w, 502, err.Error())
+			return
 		}
 
-		slog.Info("zohoImportVoiceLogs done", "imported", imported, "skipped", skipped, "failed", failed)
 		w.Header().Set("Content-Type", "application/json")
-		out := map[string]any{"imported": imported, "skipped": skipped, "failed": failed}
-		if !minStartedAt.IsZero() {
-			out["date_from"] = minStartedAt.Format("2006-01-02")
-			out["date_to"] = maxStartedAt.Format("2006-01-02")
-		}
-		json.NewEncoder(w).Encode(out) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"imported": imported, "skipped": skipped, "failed": failed,
+		})
 	}
+}
+
+// zohoSyncStatus returns Zoho configuration state and the last call import stats.
+func zohoSyncStatus(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		configured := zohoEnsureConfigured(ctx, db)
+
+		// Ensure the zoho_voice_id / zoho_call_id columns exist before querying them.
+		ensureCallLogSchema(ctx, db) //nolint:errcheck
+
+		var lastSyncAt *string
+		var totalImported int64
+
+		rows, _ := db.PGQuery(ctx, `
+			SELECT MAX(started_at), COUNT(*)
+			FROM helpdesk_calls
+			WHERE zoho_voice_id IS NOT NULL OR zoho_call_id IS NOT NULL`)
+		if len(rows) > 0 {
+			if v, ok := rows[0]["max"].(time.Time); ok && !v.IsZero() {
+				s := v.UTC().Format(time.RFC3339)
+				lastSyncAt = &s
+			}
+			if v, ok := rows[0]["count"].(int64); ok {
+				totalImported = v
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"configured":     configured,
+			"last_sync_at":   lastSyncAt,
+			"total_imported": totalImported,
+		})
+	}
+}
+
+// StartZohoAutoSync launches a background goroutine that imports Zoho Voice
+// call logs every hour, keeping the Calls page current without manual syncs.
+func StartZohoAutoSync(db *core.DB) {
+	if !zohoConfigured() {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			ctx := context.Background()
+			if !zohoEnsureConfigured(ctx, db) {
+				continue
+			}
+			if err := ensureCallLogSchema(ctx, db); err != nil {
+				slog.Error("zoho auto-sync: schema error", "err", err)
+				continue
+			}
+			from := time.Now().AddDate(0, 0, -2).Format("2006-01-02")
+			to := time.Now().Format("2006-01-02")
+			imported, _, failed, err := runZohoVoiceImport(ctx, db, from, to)
+			if err != nil {
+				slog.Error("zoho auto-sync: import failed", "err", err)
+			} else {
+				slog.Info("zoho auto-sync: done", "imported", imported, "failed", failed)
+			}
+		}
+	}()
 }
 
 // ── Zoho Desk — import tickets ────────────────────────────────────────────────

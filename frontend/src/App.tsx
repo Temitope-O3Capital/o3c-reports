@@ -101,6 +101,7 @@ const CollOpsAgentDash = lazy(() => import('./pages/collections-ops/AgentDashboa
 // Helpdesk
 const HelpdeskTickets     = lazy(() => import('./pages/helpdesk/Tickets'))
 const HelpdeskTicketDetail = lazy(() => import('./pages/helpdesk/TicketDetail'))
+const HelpdeskNewTicket   = lazy(() => import('./pages/helpdesk/NewTicketPage'))
 const HelpdeskSupervisor  = lazy(() => import('./pages/helpdesk/Supervisor'))
 const HelpdeskCalls       = lazy(() => import('./pages/helpdesk/Calls'))
 const HelpdeskStats       = lazy(() => import('./pages/helpdesk/Stats'))
@@ -919,6 +920,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
                   <Route path="/helpdesk"                element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskTickets /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/tickets"        element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskTickets /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/helpdesk/new"            element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskNewTicket /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/calls"          element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskCalls /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/supervisor"     element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskSupervisor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/stats"          element={<RequireAccess page="helpdesk_stats" user={user}><PageErrorBoundary><HelpdeskStats /></PageErrorBoundary></RequireAccess>} />
@@ -1049,11 +1051,11 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/admin/workflow-templates"    element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminWorkflowTemplates /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Mail */}
-                  <Route path="/mail/inbox"   element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><MailInbox /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/mail/sent"    element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><MailInbox /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/mail/drafts"  element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><MailInbox /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/mail/compose" element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><MailCompose /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/mail/:id"     element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><MailThread /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/mail/inbox"   element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailInbox /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/mail/sent"    element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailInbox /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/mail/drafts"  element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailInbox /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/mail/compose" element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailCompose /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/mail/:id"     element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailThread /></PageErrorBoundary></RequireAccess>} />
 
                   <Route path="/settings" element={<PageErrorBoundary><UserSettings /></PageErrorBoundary>} />
 

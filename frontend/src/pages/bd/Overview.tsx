@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
-import { Page, KpiCard, SectionCard, DataTable } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtNum, fmtPct, fmtDate } from '../../lib/fmt'
+import { fmtKobo, fmtNum, fmtPct, fmtDate, monthStart, today } from '../../lib/fmt'
 import { RED, AMBER, GREEN, BLUE, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 interface PipelineStage { stage: string; count: number; total_value_kobo: number }
@@ -34,16 +34,18 @@ function StagePill({ stage }: { stage: string }) {
 
 export default function BDOverview() {
   const navigate = useNavigate()
-  const [stats,   setStats]   = useState<BDStats | null>(null)
-  const [leads,   setLeads]   = useState<Lead[]>([])
-  const [loading, setLoading] = useState(true)
+  const [stats,    setStats]   = useState<BDStats | null>(null)
+  const [leads,    setLeads]   = useState<Lead[]>([])
+  const [loading,  setLoading] = useState(true)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
-  async function load() {
+  async function load(from: string, to: string) {
     setLoading(true)
     try {
       const [s, l] = await Promise.all([
-        apiFetch<BDStats>('/api/bd/stats'),
-        apiFetch<Lead[]>('/api/bd/leads?limit=20'),
+        apiFetch<BDStats>(`/api/bd/stats?from=${from}&to=${to}`),
+        apiFetch<Lead[]>(`/api/bd/leads?limit=20&from=${from}&to=${to}`),
       ])
       setStats(s)
       setLeads(l ?? [])
@@ -52,7 +54,7 @@ export default function BDOverview() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(dateFrom, dateTo) }, [dateFrom, dateTo])
 
   const pipeline = stats?.pipeline ?? []
   const totalLeads     = pipeline.reduce((s, r) => s + Number(r.count ?? 0), 0)
@@ -100,18 +102,21 @@ export default function BDOverview() {
       title="Business Development"
       subtitle="Pipeline and employer overview"
       actions={
-        <button
-          onClick={() => navigate('/bd/employers')}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '7px 14px', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.medium,
-            border: '1px solid var(--bdr)', background: 'var(--card)',
-            color: 'var(--txt)', cursor: 'pointer',
-          }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>corporate_fare</span>
-          Employers
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button
+            onClick={() => navigate('/bd/employers')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 14px', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.medium,
+              border: '1px solid var(--bdr)', background: 'var(--card)',
+              color: 'var(--txt)', cursor: 'pointer',
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>corporate_fare</span>
+            Employers
+          </button>
+        </div>
       }
     >
       {/* KPI strip */}
@@ -213,6 +218,8 @@ export default function BDOverview() {
           emptyText="No leads yet — add your first lead"
           keyFn={r => r.id}
           onRowClick={() => navigate('/bd/pipeline')}
+          searchKeys={['company_name', 'contact_name', 'stage']}
+          searchPlaceholder="Search leads…"
         />
       </SectionCard>
     </Page>

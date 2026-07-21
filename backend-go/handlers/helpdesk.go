@@ -1064,6 +1064,16 @@ func hdListCanned(db *core.DB) http.HandlerFunc {
 			args = append(args, v)
 			n++
 		}
+		if v := r.URL.Query().Get("from"); v != "" {
+			where += fmt.Sprintf(" AND c.created_at::date >= $%d::date", n)
+			args = append(args, v)
+			n++
+		}
+		if v := r.URL.Query().Get("to"); v != "" {
+			where += fmt.Sprintf(" AND c.created_at::date <= $%d::date", n)
+			args = append(args, v)
+			n++
+		}
 		_ = n
 		rows, err := db.PGQuery(r.Context(),
 			fmt.Sprintf(`SELECT c.id, c.name AS title, c.category, c.body_text AS body,
@@ -2084,6 +2094,8 @@ func hdListCalls(db *core.DB) http.HandlerFunc {
 func hdSupervisor(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
 
 		totals, _ := db.PGQuery(ctx, `
 			SELECT
@@ -2092,7 +2104,9 @@ func hdSupervisor(db *core.DB) http.HandlerFunc {
 			  COUNT(*) FILTER (WHERE status NOT IN ('closed','resolved') AND assigned_to IS NULL)       AS unassigned,
 			  COUNT(DISTINCT assigned_to) FILTER (WHERE status NOT IN ('closed','resolved')
 			    AND assigned_to IS NOT NULL)                                                             AS active_agents
-			FROM helpdesk_tickets`)
+			FROM helpdesk_tickets
+			WHERE ($1 = '' OR created_at::date >= $1::date)
+			  AND ($2 = '' OR created_at::date <= $2::date)`, from, to)
 
 		agents, _ := db.PGQuery(ctx, `
 			SELECT

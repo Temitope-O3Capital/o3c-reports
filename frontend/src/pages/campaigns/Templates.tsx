@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  Modal, ConfirmModal, ErrBanner, btnPrimary, btnSecondary,
+  Modal, ConfirmModal, ErrBanner, btnPrimary, btnSecondary, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiDelete } from '../../lib/api'
-import { fmtDatetime } from '../../lib/fmt'
+import { fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { NAVY, BLUE, PURPLE, GREEN, NUM, INTER, TEXT, FW, RADIUS } from '../../lib/design'
 import { blocksToHtml, type Block } from '../../components/EmailBlockEditor'
 
@@ -62,6 +62,8 @@ export default function CampaignTemplates() {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Template | null>(null)
   const [preview, setPreview]     = useState<Template | null>(null)
+  const [dateFrom, setDateFrom]   = useState(monthStart())
+  const [dateTo,   setDateTo]     = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -69,11 +71,13 @@ export default function CampaignTemplates() {
       const p = new URLSearchParams()
       if (channelFilter)  p.set('channel',  channelFilter)
       if (categoryFilter) p.set('category', categoryFilter)
+      if (dateFrom)       p.set('from',     dateFrom)
+      if (dateTo)         p.set('to',       dateTo)
       const res = await apiFetch<Template[]>(`/api/message-templates?${p}`)
       setTemplates(Array.isArray(res) ? res : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [channelFilter, categoryFilter])
+  }, [channelFilter, categoryFilter, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -135,12 +139,17 @@ export default function CampaignTemplates() {
     <Page
       title="Message Templates"
       subtitle="Reusable SMS and email campaign templates"
-      actions={canWrite ? (
-        <button onClick={() => navigate('/campaigns/templates/new')} style={btnPrimary}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
-          New Template
-        </button>
-      ) : undefined}
+      actions={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          {canWrite && (
+            <button onClick={() => navigate('/campaigns/templates/new')} style={btnPrimary}>
+              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+              New Template
+            </button>
+          )}
+        </div>
+      }
     >
       <ErrBanner error={err} onRetry={load} />
 

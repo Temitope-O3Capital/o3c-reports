@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  Modal, ErrBanner, btnPrimary, btnSecondary, KpiCard,
+  Modal, ErrBanner, btnPrimary, btnSecondary, KpiCard, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtNum, fmtDatetime, fmtPct } from '../../lib/fmt'
+import { fmtNum, fmtDatetime, fmtPct, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ function openRate(c: Campaign): number {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-const BLANK = { name: '', description: '', type: 'email', list_id: '', scheduled_at: '' }
+const BLANK = { name: '', description: '', type: 'email', list_id: '', scheduled_at: '', sms_body: '', email_subject: '' }
 
 // BD roles can view campaigns but cannot create, start, pause, or cancel them.
 const CAMPAIGN_READ_ONLY = new Set(['bd_officer', 'bd_head'])
@@ -105,6 +105,8 @@ export default function CampaignsList() {
   const [typeFilter, setTypeFilter]     = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [showCreate, setShowCreate] = useState(false)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
   const [form, setForm]           = useState(BLANK)
   const [saving, setSaving]       = useState(false)
   const [actionErr, setActionErr] = useState<string | null>(null)
@@ -115,18 +117,21 @@ export default function CampaignsList() {
       const p = new URLSearchParams({ limit: '50', offset: '0' })
       if (typeFilter)   p.set('type',   typeFilter)
       if (statusFilter) p.set('status', statusFilter)
+      if (dateFrom)     p.set('from',   dateFrom)
+      if (dateTo)       p.set('to',     dateTo)
       const [res, ls] = await Promise.all([
         apiFetch<{ total: number; campaigns: Campaign[] }>(`/api/campaigns?${p}`),
-        apiFetch<ContactList[]>('/api/contact-lists'),
+        apiFetch<ContactList[] | { data: ContactList[] }>('/api/contact-lists?limit=200'),
       ])
       const newCampaigns = Array.isArray(res?.campaigns) ? res.campaigns : []
       setCampaigns(newCampaigns)
       setTotal(res?.total ?? 0)
       setHasMore(newCampaigns.length === 50)
-      setLists(Array.isArray(ls) ? ls : [])
+      const lsArr = Array.isArray(ls) ? ls : ((ls as any)?.data ?? [])
+      setLists(Array.isArray(lsArr) ? lsArr : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [typeFilter, statusFilter])
+  }, [typeFilter, statusFilter, dateFrom, dateTo])
 
   async function loadMore() {
     setLoadingMore(true)
@@ -135,6 +140,8 @@ export default function CampaignsList() {
       const p = new URLSearchParams({ limit: '50', offset: String((nextPage - 1) * 50) })
       if (typeFilter)   p.set('type',   typeFilter)
       if (statusFilter) p.set('status', statusFilter)
+      if (dateFrom)     p.set('from',   dateFrom)
+      if (dateTo)       p.set('to',     dateTo)
       const res = await apiFetch<{ total: number; campaigns: Campaign[] }>(`/api/campaigns?${p}`)
       const newCampaigns = Array.isArray(res?.campaigns) ? res.campaigns : []
       setCampaigns(prev => [...prev, ...newCampaigns])
@@ -158,12 +165,17 @@ export default function CampaignsList() {
     if (!form.name.trim()) return
     setSaving(true); setActionErr(null)
     try {
+      const isSMSType   = form.type === 'sms'   || form.type === 'multi'
+      const isEmailType = form.type === 'email'  || form.type === 'multi'
       const body: Record<string, any> = { name: form.name.trim(), type: form.type }
-      if (form.description.trim()) body.description = form.description.trim()
-      if (form.list_id) body.list_id = Number(form.list_id)
-      if (form.scheduled_at) body.scheduled_at = form.scheduled_at
-      await apiPost('/api/campaigns', body)
-      setShowCreate(false); setForm(BLANK); load()
+      if (form.description.trim()) body.description   = form.description.trim()
+      if (form.list_id)            body.list_id        = Number(form.list_id)
+      if (form.scheduled_at)       body.scheduled_at   = form.scheduled_at
+      if (isSMSType   && form.sms_body.trim())     body.sms_body      = form.sms_body.trim()
+      if (isEmailType && form.email_subject.trim()) body.email_subject = form.email_subject.trim()
+      const camp = await apiPost<{ id: number }>('/api/campaigns', body)
+      setShowCreate(false); setForm(BLANK)
+      navigate(`/campaigns/${camp.id}/report`)
     } catch (ex: any) { setActionErr(ex.message) }
     finally { setSaving(false) }
   }
@@ -247,30 +259,36 @@ export default function CampaignsList() {
       key: 'id', label: 'Actions', align: 'right' as const,
       render: (r: Campaign) => (
         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-          {r.status === 'draft' || r.status === 'scheduled' ? (
+          {(r.status === 'draft' || r.status === 'scheduled') && (
+            <button onClick={e => { e.stopPropagation(); navigate(`/campaigns/${r.id}/report`) }}
+              style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px' }}>
+              Edit
+            </button>
+          )}
+          {(r.status === 'draft' || r.status === 'scheduled') && (
             <button onClick={e => { e.stopPropagation(); doAction(r.id, 'start') }}
-              style={{ ...btnPrimary, fontSize: TEXT.xs, padding: '3px 10px', background: GREEN }}>
+              style={{ ...btnPrimary, fontSize: TEXT.xs, padding: '3px 10px', background: GREEN, borderColor: GREEN }}>
               Start
             </button>
-          ) : null}
-          {r.status === 'active' ? (
+          )}
+          {r.status === 'active' && (
             <button onClick={e => { e.stopPropagation(); doAction(r.id, 'pause') }}
               style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px' }}>
               Pause
             </button>
-          ) : null}
-          {r.status === 'paused' ? (
+          )}
+          {r.status === 'paused' && (
             <button onClick={e => { e.stopPropagation(); doAction(r.id, 'start') }}
-              style={{ ...btnPrimary, fontSize: TEXT.xs, padding: '3px 10px' }}>
+              style={{ ...btnPrimary, fontSize: TEXT.xs, padding: '3px 10px', background: GREEN, borderColor: GREEN }}>
               Resume
             </button>
-          ) : null}
-          {r.status !== 'cancelled' && r.status !== 'completed' ? (
+          )}
+          {r.status !== 'cancelled' && r.status !== 'completed' && (
             <button onClick={e => { e.stopPropagation(); doAction(r.id, 'cancel') }}
               style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px', color: RED, borderColor: `${RED}40` }}>
               Cancel
             </button>
-          ) : null}
+          )}
         </div>
       ),
     }] : []),
@@ -280,12 +298,17 @@ export default function CampaignsList() {
     <Page
       title="Campaigns"
       subtitle={`${fmtNum(total)} total campaigns`}
-      actions={canWrite ? (
-        <button onClick={() => setShowCreate(true)} style={btnPrimary}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
-          New Campaign
-        </button>
-      ) : undefined}
+      actions={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          {canWrite && (
+            <button onClick={() => setShowCreate(true)} style={btnPrimary}>
+              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+              New Campaign
+            </button>
+          )}
+        </div>
+      }
     >
       <ErrBanner error={err} onRetry={load} />
       {actionErr && <ErrBanner error={actionErr} />}
@@ -329,7 +352,7 @@ export default function CampaignsList() {
           onRowClick={r => navigate(`/campaigns/${r.id}/report`)}
           emptyText="No campaigns found."
           skeletonRows={loading ? 8 : 0}
-          searchKeys={['name', 'status']}
+          searchKeys={['name', 'status', 'type']}
           searchPlaceholder="Search campaigns…"
           pageSize={20}
         />
@@ -413,6 +436,42 @@ export default function CampaignsList() {
               ))}
             </div>
           </div>
+
+          {/* Email subject — shown for email + multi */}
+          {(form.type === 'email' || form.type === 'multi') && (
+            <div>
+              <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>
+                EMAIL SUBJECT
+              </div>
+              <input
+                value={form.email_subject}
+                onChange={e => setForm(f => ({ ...f, email_subject: e.target.value }))}
+                placeholder="e.g. Your O3 Capital statement is ready"
+                style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', height: 36 }}
+              />
+            </div>
+          )}
+
+          {/* SMS body — shown for sms + multi */}
+          {(form.type === 'sms' || form.type === 'multi') && (
+            <div>
+              <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>
+                SMS MESSAGE
+                <span style={{ fontWeight: 400, marginLeft: 6, color: form.sms_body.length > 160 ? RED : 'var(--txt3)' }}>
+                  {form.sms_body.length}/160{form.sms_body.length > 160 ? ` (${Math.ceil(form.sms_body.length / 153)} SMS parts)` : ''}
+                </span>
+              </div>
+              <textarea
+                spellCheck={false}
+                value={form.sms_body}
+                onChange={e => setForm(f => ({ ...f, sms_body: e.target.value }))}
+                placeholder={`Write your SMS message. Use {{firstName}}, {{lastName}} for personalisation.`}
+                rows={4}
+                maxLength={480}
+                style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', height: 'auto', resize: 'vertical', lineHeight: 1.6, padding: '8px 12px' }}
+              />
+            </div>
+          )}
 
           {/* Contact list + Schedule (2-col) */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>

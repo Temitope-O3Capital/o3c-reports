@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, KpiCard, DataTable, ErrBanner } from '../../components/UI'
+import { Page, SectionCard, KpiCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtNum } from '../../lib/fmt'
+import { fmtNum, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP } from '../../lib/design'
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar,
@@ -72,16 +72,18 @@ export default function SalesReports() {
   const [trend,    setTrend]    = useState<TrendPoint[]>([])
   const [loading,  setLoading]  = useState(true)
   const [err,      setErr]      = useState<string | null>(null)
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
       const [k, p, s, a, t] = await Promise.all([
-        apiFetch<OverviewKPIs>('/api/crm/reports/overview'),
-        apiFetch<PipelineReport[]>('/api/crm/reports/pipeline'),
-        apiFetch<SourceReport[]>('/api/crm/reports/contacts-by-source'),
-        apiFetch<AgentReport[]>('/api/crm/reports/agent-performance?days=30'),
-        apiFetch<TrendPoint[]>('/api/crm/reports/new-contacts-trend'),
+        apiFetch<OverviewKPIs>(`/api/crm/reports/overview?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<PipelineReport[]>(`/api/crm/reports/pipeline?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<SourceReport[]>(`/api/crm/reports/contacts-by-source?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<AgentReport[]>(`/api/crm/reports/agent-performance?days=30&from=${dateFrom}&to=${dateTo}`),
+        apiFetch<TrendPoint[]>(`/api/crm/reports/new-contacts-trend?from=${dateFrom}&to=${dateTo}`),
       ])
       setKpis(k)
       setPipeline(Array.isArray(p) ? p : [])
@@ -90,7 +92,7 @@ export default function SalesReports() {
       setTrend(Array.isArray(t) ? t : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -114,7 +116,9 @@ export default function SalesReports() {
   ]
 
   return (
-    <Page title="CRM Reports" subtitle="Sales and CRM performance analytics">
+    <Page title="CRM Reports" subtitle="Sales and CRM performance analytics"
+      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
+    >
       <ErrBanner error={err} onRetry={load} />
 
       {/* KPI strip */}

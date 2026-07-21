@@ -543,6 +543,8 @@ export default function RepaymentPlans() {
           onRowClick={r => setDetailPlan(r)}
           emptyText="No repayment plans found"
           skeletonRows={8}
+          searchKeys={['account_cif', 'customer_name', 'status']}
+          searchPlaceholder="Search CIF, name, status…"
         />
       </SectionCard>
 

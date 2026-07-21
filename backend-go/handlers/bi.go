@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,16 +38,28 @@ func biListReports(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
-		rows, err := db.PGQuery(ctx, `
-			SELECT d.id, d.name, d.description, d.module, d.dimensions, d.metrics,
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
+
+		q := `SELECT d.id, d.name, d.description, d.module, d.dimensions, d.metrics,
 			       d.date_range, d.is_public, d.created_at,
 			       u.full_name AS created_by_name,
 			       (SELECT COUNT(*) FROM bi_report_runs WHERE report_id=d.id) AS run_count,
 			       (SELECT MAX(started_at) FROM bi_report_runs WHERE report_id=d.id) AS last_run_at
 			FROM bi_report_definitions d
 			LEFT JOIN o3c_users u ON d.created_by = u.id
-			WHERE d.is_public=TRUE OR d.created_by=$1
-			ORDER BY d.updated_at DESC`, user.ID)
+			WHERE (d.is_public=TRUE OR d.created_by=$1)`
+		args := []any{user.ID}
+		if from != "" {
+			args = append(args, from)
+			q += " AND d.created_at::date >= $" + itoa(len(args)) + "::date"
+		}
+		if to != "" {
+			args = append(args, to)
+			q += " AND d.created_at::date <= $" + itoa(len(args)) + "::date"
+		}
+		q += " ORDER BY d.updated_at DESC"
+		rows, err := db.PGQuery(ctx, q, args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed"); return
 		}
@@ -431,15 +444,28 @@ func biScheduleReport(db *core.DB) http.HandlerFunc {
 
 func biListScheduled(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT s.id, s.report_id, d.name AS report_name, d.module,
+		from := r.URL.Query().Get("from")
+		to   := r.URL.Query().Get("to")
+
+		q := `SELECT s.id, s.report_id, d.name AS report_name, d.module,
 			       s.cron_expr, s.recipients, s.format, s.is_active,
 			       s.last_run_at, s.next_run_at, s.created_at,
 			       u.full_name AS created_by_name
 			FROM bi_scheduled_reports s
 			JOIN bi_report_definitions d ON d.id = s.report_id
 			LEFT JOIN o3c_users u ON s.created_by = u.id
-			ORDER BY s.created_at DESC`)
+			WHERE 1=1`
+		var args []any
+		if from != "" {
+			args = append(args, from)
+			q += " AND s.created_at::date >= $" + itoa(len(args)) + "::date"
+		}
+		if to != "" {
+			args = append(args, to)
+			q += " AND s.created_at::date <= $" + itoa(len(args)) + "::date"
+		}
+		q += " ORDER BY s.created_at DESC"
+		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed"); return
 		}
@@ -462,6 +488,8 @@ func biDeleteSchedule(db *core.DB) http.HandlerFunc {
 func biListRuns(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		reportID := r.URL.Query().Get("report_id")
+		from     := r.URL.Query().Get("from")
+		to       := r.URL.Query().Get("to")
 		query := `
 			SELECT rr.id, rr.report_id, d.name AS report_name, rr.status,
 			       rr.row_count, rr.error_message, rr.started_at, rr.finished_at,
@@ -472,8 +500,16 @@ func biListRuns(db *core.DB) http.HandlerFunc {
 			WHERE 1=1`
 		args := []any{}
 		if reportID != "" {
-			query += " AND rr.report_id=$1"
 			args = append(args, reportID)
+			query += " AND rr.report_id=$" + itoa(len(args))
+		}
+		if from != "" {
+			args = append(args, from)
+			query += " AND rr.started_at::date >= $" + itoa(len(args)) + "::date"
+		}
+		if to != "" {
+			args = append(args, to)
+			query += " AND rr.started_at::date <= $" + itoa(len(args)) + "::date"
 		}
 		query += " ORDER BY rr.started_at DESC LIMIT 100"
 		rows, err := db.PGQuery(r.Context(), query, args...)
@@ -593,11 +629,42 @@ func batchRunScheduledBIReports(ctx context.Context, db *core.DB) error {
 
 		db.PGExec(ctx, `UPDATE bi_report_runs SET status='success', row_count=$2, finished_at=NOW() WHERE id=$1`, runID, len(rows)) //nolint:errcheck
 
-		// Advance next_run_at by 24 hours (simple daily schedule).
-		// TODO: parse cron_expr for more precise scheduling.
-		db.PGExec(ctx, `UPDATE bi_scheduled_reports SET last_run_at=NOW(), next_run_at=NOW()+INTERVAL '24 hours' WHERE id=$1`, schedID) //nolint:errcheck
+		nextRun := nextCronRun(str(sched["cron_expr"]), time.Now().UTC())
+		db.PGExec(ctx, `UPDATE bi_scheduled_reports SET last_run_at=NOW(), next_run_at=$2 WHERE id=$1`, schedID, nextRun) //nolint:errcheck
 
 		slog.Info("batchRunScheduledBIReports: report sent", "report", reportName, "recipients", len(recipients), "rows", len(rows))
 	}
 	return lastErr
+}
+
+// nextCronRun returns the next execution time after `after` for the given cron expression.
+// Supports named schedules (@hourly, @daily, @weekly, @monthly) and standard 5-field
+// expressions of the form "0 H * * *" (daily at hour H). Everything else defaults to 24h.
+func nextCronRun(expr string, after time.Time) time.Time {
+	switch strings.TrimSpace(strings.ToLower(expr)) {
+	case "@hourly":
+		return after.Add(time.Hour).Truncate(time.Hour)
+	case "@daily", "@midnight":
+		d := after.AddDate(0, 0, 1)
+		return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, after.Location())
+	case "@weekly":
+		d := after.AddDate(0, 0, 7)
+		return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, after.Location())
+	case "@monthly":
+		d := after.AddDate(0, 1, 0)
+		return time.Date(d.Year(), d.Month(), 1, 0, 0, 0, 0, after.Location())
+	}
+	// Standard 5-field cron: min hour dom month dow
+	// Handle "0 H * * *" — daily at a specific hour.
+	parts := strings.Fields(expr)
+	if len(parts) == 5 && parts[0] == "0" && parts[2] == "*" && parts[3] == "*" && parts[4] == "*" {
+		if h, err := strconv.Atoi(parts[1]); err == nil && h >= 0 && h <= 23 {
+			candidate := time.Date(after.Year(), after.Month(), after.Day(), h, 0, 0, 0, after.Location())
+			if !candidate.After(after) {
+				candidate = candidate.AddDate(0, 0, 1)
+			}
+			return candidate
+		}
+	}
+	return after.Add(24 * time.Hour)
 }
