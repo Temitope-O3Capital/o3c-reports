@@ -606,13 +606,14 @@ interface EmailBlockEditorProps {
   value?: EditorValue
   onChange?: (v: EditorValue) => void
   previewSubject?: string
+  suppressAutoTemplate?: boolean
 }
 
-export default function EmailBlockEditor({ value, onChange, previewSubject = '' }: EmailBlockEditorProps) {
+export default function EmailBlockEditor({ value, onChange, previewSubject = '', suppressAutoTemplate = false }: EmailBlockEditorProps) {
   const [settings, setSettings]           = useState<EmailSettings>(value?.settings || { background: '#E8ECF2', contentWidth: 660 })
   const { value: blocks, push, undo, redo, canUndo, canRedo } = useHistory<EmailBlock[]>((value?.blocks || []).map(b => ({ ...b, id: b.id || uid() })))
   const [selectedId, setSelectedId]       = useState<string | null>(null)
-  const [showTemplates, setShowTemplates]  = useState(!value?.blocks?.length)
+  const [showTemplates, setShowTemplates]  = useState(!suppressAutoTemplate && !value?.blocks?.length)
   const [preview, setPreview]             = useState(false)
   const [previewHtml, setPreviewHtml]     = useState('')
   const [dragId, setDragId]               = useState<string | null>(null)

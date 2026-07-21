@@ -649,6 +649,10 @@ export default function CampaignDetail() {
   const [testPhone,   setTestPhone]   = useState('')
   const [testSending, setTestSending] = useState(false)
 
+  // multi-channel overrides (only relevant for type='multi')
+  const [enableSMS,   setEnableSMS]   = useState(true)
+  const [enableEmail, setEnableEmail] = useState(true)
+
   // live progress
   const [progress, setProgress] = useState<Progress | null>(null)
 
@@ -787,7 +791,11 @@ export default function CampaignDetail() {
     setStarting(true)
     try {
       if (canEdit) await apiFetch(`/api/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(buildPayload()) })
-      await apiPost(`/api/campaigns/${id}/start`, {})
+      const isMulti = campaign?.type === 'multi'
+      await apiPost(`/api/campaigns/${id}/start`, {
+        skip_sms:   isMulti && !enableSMS,
+        skip_email: isMulti && !enableEmail,
+      })
       toast.success('Campaign started')
       setPreflightOpen(false)
       load()
@@ -857,13 +865,20 @@ export default function CampaignDetail() {
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner /></div>
   if (!campaign) return <ErrBanner error={err ?? 'Campaign not found'} />
 
+  const isMulti      = campaign.type === 'multi'
+  const activeSMS    = isSMS   && (!isMulti || enableSMS)
+  const activeEmail  = isEmail && (!isMulti || enableEmail)
+
   const checks = [
-    { label: 'Campaign name',      ok: name.trim().length > 0,           hint: 'Enter a name in Setup' },
-    { label: 'Contact list',       ok: listId !== '',                     hint: 'Choose a list in Setup' },
-    ...(isSMS   ? [{ label: 'SMS body',      ok: smsBody.trim().length > 0,        hint: 'Write your SMS in Content' }]  : []),
-    ...(isEmail ? [
-      { label: 'Email subject',    ok: emailSubject.trim().length > 0,   hint: 'Enter a subject in Content' },
-      { label: 'Email body',       ok: emailBlocks.blocks.length > 0,    hint: 'Build your email in Content' },
+    { label: 'Campaign name',   ok: name.trim().length > 0,                   hint: 'Enter a name in Setup' },
+    { label: 'Contact list',    ok: listId !== '',                             hint: 'Choose a list in Setup' },
+    ...(isMulti && !enableSMS && !enableEmail
+      ? [{ label: 'At least one channel enabled', ok: false, hint: 'Enable SMS or Email in Content' }]
+      : []),
+    ...(activeSMS   ? [{ label: 'SMS body',      ok: smsBody.trim().length > 0,      hint: 'Write your SMS in Content' }]  : []),
+    ...(activeEmail ? [
+      { label: 'Email subject', ok: emailSubject.trim().length > 0, hint: 'Enter a subject in Content' },
+      { label: 'Email body',    ok: emailBlocks.blocks.length > 0,  hint: 'Build your email in Content' },
     ] : []),
   ]
   const allChecksPass = checks.every(c => c.ok)
@@ -977,7 +992,8 @@ export default function CampaignDetail() {
       <div style={{ display: 'flex', borderBottom: '1px solid var(--bdr)', marginBottom: 24 }}>
         {TABS.map(t => {
           const isActive = tab === t.key
-          const locked   = !canEdit && (t.key === 'setup' || t.key === 'content' || t.key === 'review')
+          // Only "Review & Launch" is locked when campaign isn't editable
+          const locked   = !canEdit && t.key === 'review'
           return (
             <button key={t.key}
               onClick={() => !locked && setTab(t.key)}
@@ -990,7 +1006,7 @@ export default function CampaignDetail() {
                 color: isActive ? NAVY : locked ? 'var(--txt3)' : 'var(--txt2)',
                 fontWeight: isActive ? FW.semibold : FW.normal,
                 fontFamily: INTER, fontSize: TEXT.sm,
-                opacity: locked ? .45 : 1,
+                opacity: locked ? .4 : 1,
                 transition: 'color .12s',
               }}
             >
@@ -1084,97 +1100,131 @@ export default function CampaignDetail() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {!canEdit && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', fontSize: TEXT.sm, color: 'var(--txt2)' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt3)' }}>lock</span>
-              Content locked — campaign is {campaign.status}
+              <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt3)' }}>visibility</span>
+              Viewing content — campaign is {campaign.status} (read-only)
+            </div>
+          )}
+
+          {/* Multi-channel toggles */}
+          {isMulti && canEdit && (
+            <div style={{ display: 'flex', gap: 10, padding: '10px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', alignItems: 'center' }}>
+              <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginRight: 4 }}>Send via:</span>
+              {([
+                { key: 'sms',   label: 'SMS',   icon: 'smartphone', color: PURPLE, enabled: enableSMS,   set: setEnableSMS },
+                { key: 'email', label: 'Email', icon: 'mail',       color: BLUE,   enabled: enableEmail, set: setEnableEmail },
+              ] as const).map(ch => (
+                <button key={ch.key} type="button"
+                  onClick={() => ch.set(v => !v)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '5px 12px', borderRadius: RADIUS.xl,
+                    border: `1.5px solid ${ch.enabled ? ch.color : 'var(--bdr)'}`,
+                    background: ch.enabled ? `${ch.color}12` : 'var(--card)',
+                    color: ch.enabled ? ch.color : 'var(--txt3)',
+                    fontSize: TEXT.xs, fontWeight: FW.semibold,
+                    cursor: 'pointer', transition: 'all .14s',
+                  }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{ch.enabled ? 'check_circle' : 'radio_button_unchecked'}</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{ch.icon}</span>
+                  {ch.label}
+                </button>
+              ))}
+              {!enableSMS && !enableEmail && (
+                <span style={{ fontSize: TEXT.xs, color: RED, marginLeft: 4 }}>At least one channel must be enabled</span>
+              )}
             </div>
           )}
 
           {isSMS && (
-            <SectionCard padding title={undefined}
-              actions={canEdit ? (
-                <button onClick={() => { setTplFor('sms'); setTplOpen(true) }}
-                  style={{ ...btnSecondary, fontSize: TEXT.sm, padding: '4px 12px', gap: 5 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>folder_open</span>
-                  Load Template
-                </button>
-              ) : undefined}
-            >
-              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: PURPLE, letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>smartphone</span>
-                SMS Message
-              </div>
-              <SMSBuilder value={smsBody} onChange={setSmsBody} canEdit={canEdit} senderName={fromName || campaign.from_name} />
-            </SectionCard>
+            <div style={{ opacity: isMulti && !enableSMS ? .45 : 1, pointerEvents: isMulti && !enableSMS ? 'none' : 'auto', transition: 'opacity .2s' }}>
+              <SectionCard padding title={undefined}
+                actions={canEdit ? (
+                  <button onClick={() => { setTplFor('sms'); setTplOpen(true) }}
+                    style={{ ...btnSecondary, fontSize: TEXT.sm, padding: '4px 12px', gap: 5 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: 14 }}>folder_open</span>
+                    Load Template
+                  </button>
+                ) : undefined}
+              >
+                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: PURPLE, letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>smartphone</span>
+                  SMS Message
+                  {isMulti && !enableSMS && <span style={{ fontSize: TEXT.xs, fontWeight: FW.normal, color: 'var(--txt3)', marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>disabled for this send</span>}
+                </div>
+                <SMSBuilder value={smsBody} onChange={setSmsBody} canEdit={canEdit} senderName={fromName || campaign.from_name} />
+              </SectionCard>
+            </div>
           )}
 
           {isEmail && (
-            <SectionCard padding title={undefined}
-              actions={canEdit ? (
-                <button onClick={() => { setTplFor('email'); setTplOpen(true) }}
-                  style={{ ...btnSecondary, fontSize: TEXT.sm, padding: '4px 12px', gap: 5 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>folder_open</span>
-                  Load Template
-                </button>
-              ) : undefined}
-            >
-              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: BLUE, letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>mail</span>
-                Email Content
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
-                <div>
-                  <label style={lbl}>Subject Line *</label>
-                  <input value={emailSubject} onChange={e => setEmailSubject(e.target.value)} disabled={!canEdit}
-                    placeholder="e.g. Your O3 Capital statement is ready" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
+            <div style={{ opacity: isMulti && !enableEmail ? .45 : 1, pointerEvents: isMulti && !enableEmail ? 'none' : 'auto', transition: 'opacity .2s' }}>
+              <SectionCard padding title={undefined}
+                actions={canEdit ? (
+                  <button onClick={() => { setTplFor('email'); setTplOpen(true) }}
+                    style={{ ...btnSecondary, fontSize: TEXT.sm, padding: '4px 12px', gap: 5 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: 14 }}>folder_open</span>
+                    Load Template
+                  </button>
+                ) : undefined}
+              >
+                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: BLUE, letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>mail</span>
+                  Email Content
+                  {isMulti && !enableEmail && <span style={{ fontSize: TEXT.xs, fontWeight: FW.normal, color: 'var(--txt3)', marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>disabled for this send</span>}
                 </div>
-                <div>
-                  <label style={lbl}>From Name</label>
-                  <input value={fromName} onChange={e => setFromName(e.target.value)} disabled={!canEdit}
-                    placeholder="O3 Capital" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
+                  <div>
+                    <label style={lbl}>Subject Line *</label>
+                    <input value={emailSubject} onChange={e => setEmailSubject(e.target.value)} disabled={!canEdit}
+                      placeholder="e.g. Your O3 Capital statement is ready" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
+                  </div>
+                  <div>
+                    <label style={lbl}>From Name</label>
+                    <input value={fromName} onChange={e => setFromName(e.target.value)} disabled={!canEdit}
+                      placeholder="O3 Capital" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
+                  </div>
+                  <div>
+                    <label style={lbl}>From Email</label>
+                    <input value={fromEmail} onChange={e => setFromEmail(e.target.value)} disabled={!canEdit}
+                      placeholder="care@o3cards.com" type="email" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
+                  </div>
                 </div>
-                <div>
-                  <label style={lbl}>From Email</label>
-                  <input value={fromEmail} onChange={e => setFromEmail(e.target.value)} disabled={!canEdit}
-                    placeholder="care@o3cards.com" type="email" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
-                </div>
-              </div>
-              {canEdit ? (
-                <div style={{ height: 560, border: '1px solid var(--bdr)', borderRadius: RADIUS.md, overflow: 'hidden', background: '#fff' }}>
-                  <EmailBlockEditor value={emailBlocks} onChange={setEmailBlocks} previewSubject={emailSubject} />
-                </div>
-              ) : (
-                <EmailReadOnlyPreview html={campaign.email_body_html ?? ''} subject={emailSubject} />
-              )}
-            </SectionCard>
+                {canEdit ? (
+                  <div style={{ height: 560, border: '1px solid var(--bdr)', borderRadius: RADIUS.md, overflow: 'hidden', background: '#fff' }}>
+                    <EmailBlockEditor value={emailBlocks} onChange={setEmailBlocks} previewSubject={emailSubject} suppressAutoTemplate />
+                  </div>
+                ) : (
+                  <EmailReadOnlyPreview html={campaign.email_body_html ?? ''} subject={emailSubject} />
+                )}
+              </SectionCard>
+            </div>
           )}
 
-          {/* Test send */}
-          {canEdit && (
-            <SectionCard title="Send a Test" padding>
-              <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 0, marginBottom: 14 }}>
-                Sends to yourself with sample data. Subject/SMS will be prefixed [TEST].
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: isEmail && isSMS ? '1fr 1fr auto' : '1fr auto', gap: 10, alignItems: 'flex-end' }}>
-                {isEmail && (
-                  <div>
-                    <label style={lbl}>Test email</label>
-                    <input type="email" value={testEmail} onChange={e => setTestEmail(e.target.value)} placeholder="you@example.com" style={fld} />
-                  </div>
-                )}
-                {isSMS && (
-                  <div>
-                    <label style={lbl}>Test phone</label>
-                    <input type="tel" value={testPhone} onChange={e => setTestPhone(e.target.value)} placeholder="+2348012345678" style={fld} />
-                  </div>
-                )}
-                <button onClick={sendTest} disabled={testSending || (!testEmail && !testPhone)}
-                  style={{ ...btnSecondary, gap: 6, height: 38, alignSelf: 'flex-end', whiteSpace: 'nowrap', opacity: testSending || (!testEmail && !testPhone) ? .55 : 1 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 15 }}>send</span>
-                  {testSending ? 'Sending…' : 'Send Test'}
-                </button>
-              </div>
-            </SectionCard>
-          )}
+          {/* Test send — always available */}
+          <SectionCard title="Send a Test" padding>
+            <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 0, marginBottom: 14 }}>
+              Sends a single test with sample merge data. Subject/SMS body will be prefixed [TEST].
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: isEmail && isSMS ? '1fr 1fr auto' : '1fr auto', gap: 10, alignItems: 'flex-end' }}>
+              {isEmail && (
+                <div>
+                  <label style={lbl}>Test email address</label>
+                  <input type="email" value={testEmail} onChange={e => setTestEmail(e.target.value)} placeholder="you@example.com" style={fld} />
+                </div>
+              )}
+              {isSMS && (
+                <div>
+                  <label style={lbl}>Test phone number</label>
+                  <input type="tel" value={testPhone} onChange={e => setTestPhone(e.target.value)} placeholder="+2348012345678" style={fld} />
+                </div>
+              )}
+              <button onClick={sendTest} disabled={testSending || (!testEmail && !testPhone)}
+                style={{ ...btnSecondary, gap: 6, height: 38, alignSelf: 'flex-end', whiteSpace: 'nowrap', opacity: testSending || (!testEmail && !testPhone) ? .55 : 1 }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>send</span>
+                {testSending ? 'Sending…' : 'Send Test'}
+              </button>
+            </div>
+          </SectionCard>
         </div>
       )}
 
@@ -1207,6 +1257,46 @@ export default function CampaignDetail() {
                 </div>
               </div>
             )}
+
+            {/* Content summary */}
+            <SectionCard title="What will be sent" padding>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {activeSMS && (
+                  <div style={{ background: `${PURPLE}08`, border: `1px solid ${PURPLE}25`, borderRadius: RADIUS.md, padding: '10px 14px' }}>
+                    <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: PURPLE, letterSpacing: '.05em', textTransform: 'uppercase', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: 13 }}>smartphone</span> SMS
+                    </div>
+                    {smsBody.trim() ? (
+                      <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', lineHeight: 1.6, fontFamily: 'monospace', maxHeight: 72, overflow: 'hidden', position: 'relative' }}>
+                        {smsBody.slice(0, 160)}{smsBody.length > 160 ? '…' : ''}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: TEXT.sm, color: RED }}>No SMS body — add one in Content tab</div>
+                    )}
+                  </div>
+                )}
+                {activeEmail && (
+                  <div style={{ background: `${BLUE}08`, border: `1px solid ${BLUE}25`, borderRadius: RADIUS.md, padding: '10px 14px' }}>
+                    <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: BLUE, letterSpacing: '.05em', textTransform: 'uppercase', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: 13 }}>mail</span> Email
+                    </div>
+                    <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+                      From: <span style={{ color: 'var(--txt)', fontWeight: FW.semibold }}>{fromName || '—'}</span>
+                      {fromEmail && <span style={{ color: 'var(--txt3)' }}> &lt;{fromEmail}&gt;</span>}
+                    </div>
+                    <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.semibold, marginTop: 3 }}>
+                      {emailSubject || <span style={{ color: RED }}>No subject — add one in Content tab</span>}
+                    </div>
+                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 3 }}>
+                      {emailBlocks.blocks.length} block{emailBlocks.blocks.length !== 1 ? 's' : ''} in email body
+                    </div>
+                  </div>
+                )}
+                {isMulti && !enableSMS && !enableEmail && (
+                  <div style={{ fontSize: TEXT.sm, color: RED }}>No channels enabled — enable at least one in Content tab.</div>
+                )}
+              </div>
+            </SectionCard>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

@@ -951,6 +951,14 @@ func updateCampaign(db *core.DB) http.HandlerFunc {
 func startCampaign(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
+
+		// Optional body: channel overrides for multi-channel campaigns
+		var opts struct {
+			SkipSMS   bool `json:"skip_sms"`
+			SkipEmail bool `json:"skip_email"`
+		}
+		json.NewDecoder(r.Body).Decode(&opts) //nolint:errcheck — body is optional
+
 		campRows, _ := db.PGQuery(r.Context(), "SELECT id,status,list_id FROM campaigns WHERE id=$1", id)
 		if len(campRows) == 0 {
 			respondErr(w, 404, "Campaign not found")
@@ -983,6 +991,16 @@ func startCampaign(db *core.DB) http.HandlerFunc {
 			}
 		}
 		prepareCampaignRecipients(r.Context(), db, campID)
+
+		// Apply channel overrides: skip entire channel for this run
+		if opts.SkipSMS {
+			db.PGExec(r.Context(), //nolint:errcheck
+				"UPDATE campaign_contacts SET sms_status='skipped', updated_at=NOW() WHERE campaign_id=$1 AND sms_status='pending'", campID)
+		}
+		if opts.SkipEmail {
+			db.PGExec(r.Context(), //nolint:errcheck
+				"UPDATE campaign_contacts SET email_status='skipped', updated_at=NOW() WHERE campaign_id=$1 AND email_status='pending'", campID)
+		}
 
 		db.PGExec(r.Context(), //nolint:errcheck
 			"UPDATE campaigns SET status='active', pause_reason=NULL, paused_until=NULL, started_at=COALESCE(started_at, NOW()), updated_at=NOW() WHERE id=$1", campID)
