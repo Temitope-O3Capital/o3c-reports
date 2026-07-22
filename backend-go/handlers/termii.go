@@ -42,7 +42,7 @@ func SendSMS(ctx context.Context, phone, message string) error {
 
 	senderID := strings.TrimSpace(os.Getenv("TERMII_SENDER_ID"))
 	if senderID == "" {
-		senderID = "O3CCARDS"
+		senderID = "O3 CARDS"
 	}
 
 	phone = normalizeTermiiPhone(phone)
@@ -56,7 +56,7 @@ func SendSMS(ctx context.Context, phone, message string) error {
 		SMS:     message,
 		Type:    "plain",
 		APIKey:  apiKey,
-		Channel: "generic",
+		Channel: "dnd",
 	}
 
 	body, err := json.Marshal(payload)

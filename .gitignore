@@ -44,6 +44,8 @@ backend-go/reports
 # compiled Go backend
 backend-go/o3c-backend.exe
 backend-go/o3c-backend
+backend-go/backend
+backend-go/server
 
 backend-go/frontend-dist/
 backend-go/o3c-backend.exe~

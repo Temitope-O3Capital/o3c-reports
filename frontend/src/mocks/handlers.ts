@@ -254,14 +254,19 @@ const CRM = [
 
 // ── LOS ───────────────────────────────────────────────────────────────────────
 
-const LOS_ROWS = Array.from({ length: 28 }, (_, i) => ({
-  id: i+1, reference: `LA-2026-${String(i+100).padStart(4,'0')}`,
-  applicant_name: name(), product_type: pick(LOS_PRODUCTS),
-  amount_requested_kobo: rng(5,80)*1_000_000_00,
-  stage: pick(LOS_STAGES), status: pick(['pending','in_review','approved','rejected']),
-  assigned_officer_name: name(), submitted_at: isoDate(rng(1,21)),
-  updated_at: isoDate(rng(0,3)), created_at: isoDate(rng(2,30)),
-}))
+const LOS_ROWS = Array.from({ length: 28 }, (_, i) => {
+  const stage = pick(LOS_STAGES)
+  const disbursed = stage === 'active'
+  return {
+    id: i+1, reference: `LA-2026-${String(i+100).padStart(4,'0')}`,
+    applicant_name: name(), product_type: pick(LOS_PRODUCTS),
+    amount_requested_kobo: rng(5,80)*1_000_000_00,
+    stage, status: pick(['pending','in_review','approved','rejected']),
+    assigned_officer_name: name(), submitted_at: isoDate(rng(1,21)),
+    disbursed_at: disbursed ? isoDate(rng(1,14)) : null,
+    updated_at: isoDate(rng(0,3)), created_at: isoDate(rng(2,30)),
+  }
+})
 
 const LOS = [
   http.get(u('/api/los/queue'), () => wd(LOS_ROWS)),
@@ -361,7 +366,9 @@ const COLLECTIONS = [
   )),
   http.post(u('/api/collections-ops/writeoffs/bulk-approve'), () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/collections-ops/promises'), () => ok({ id: 99 })),
-  http.put(u('/api/collections-ops/promises/:id'), () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/collections-ops/promises/:id'),        () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/collections-ops/promises/:id/kept'),   () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/collections-ops/promises/:id/broken'), () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/collections/promises'), () => ok({ id: 99 })),
   http.post(u('/api/collections-ops/queue/bulk-assign'), () => new HttpResponse(null, { status: 204 })),
   http.get(u('/api/collections/promise-kpis'), () => wd({ total: 247, kept: 138, broken: 64, amount_promised_kobo: 8_420_000_000_00 })),
@@ -2395,6 +2402,7 @@ const COMPLIANCE_EXTRA = [
     frequency: pick(['continuous','monthly','quarterly','annual']),
     owner_name: pick([name(), null]),
   }))})),
+  http.post(u('/api/compliance/soc2/controls'), () => ok({ id: rng(100,999) })),
   http.put(u('/api/compliance/soc2/controls'), () => new HttpResponse(null, { status: 204 })),
   http.put(u('/api/compliance/soc2/controls/:id'), () => new HttpResponse(null, { status: 204 })),
 
@@ -2996,6 +3004,11 @@ const GAP_FILL = [
       uploaded_by: name(), uploaded_at: isoDate(rng(0,60)), file_size_bytes: rng(40000, 800000),
     }))
   )),
+  http.post(u('/api/compliance/soc2/controls/:id/evidence'), () => ok({
+    id: rng(100,999), control_id: 1, filename: 'new_evidence.pdf',
+    description: 'Uploaded evidence', uploaded_by: 'Temitope Posi',
+    uploaded_at: isoDate(0), file_size_bytes: rng(40000, 800000),
+  })),
   http.delete(u('/api/compliance/soc2/evidence/:id'), () => new HttpResponse(null, { status: 204 })),
 
   // ── Helpdesk — additional actions ────────────────────────────────────────────
@@ -3152,26 +3165,39 @@ const GAP_FILL = [
   http.get(u('/api/sales/cohort-detail'), ({ request }) => {
     const cohort = new URL(request.url).searchParams.get('cohort') ?? '2025-06'
     return ok({
-      cohort, count: 142, total_outstanding: 213_000_000_00, par30_count: 14,
-      data: Array.from({ length: 20 }, (_, i) => ({
-        id: i+1, reference: `LN-2025-${1000+i}`, applicant_name: name(),
-        product_type: pick(LOS_PRODUCTS), employer: pick(['Shell Nigeria','MTN','NNPC','Access Bank','Civil Service']),
-        amount_requested_kobo: rng(10,150)*1_000_000_00, outstanding_kobo: rng(0,100)*1_000_000_00,
-        dpd: rng(0,60), status: pick(['active','active','active','closed','delinquent']),
-        stage: pick(['disbursed','completed','cancelled']), created_at: isoDate(rng(30,180)),
-      })),
+      data: {
+        cohort, count: 142, total_outstanding: 213_000_000_00, par30_count: 14,
+        data: Array.from({ length: 20 }, (_, i) => ({
+          id: i+1, reference: `LN-2025-${1000+i}`, applicant_name: name(),
+          product_type: pick(LOS_PRODUCTS), employer: pick(['Shell Nigeria','MTN','NNPC','Access Bank','Civil Service']),
+          amount_requested_kobo: rng(10,150)*1_000_000_00, outstanding_kobo: rng(0,100)*1_000_000_00,
+          dpd: rng(0,60), status: pick(['active','active','active','closed','delinquent']),
+          stage: pick(['disbursed','completed','cancelled']), created_at: isoDate(rng(30,180)),
+        })),
+      },
     })
   }),
 
   // ── Contact list segment builder ──────────────────────────────────────────────
-  http.post(u('/api/contact-lists/segment/preview'), () => ok({ count: rng(200, 4000) })),
-  http.post(u('/api/contact-lists/segment/create'),  () => ok({ contact_list_id: rng(10,99), added: rng(200, 4000) })),
+  http.post(u('/api/contact-lists/segment/preview'), () => ok({ data: { count: rng(200, 4000) } })),
+  http.post(u('/api/contact-lists/segment/create'),  () => ok({ data: { list_id: rng(10,99), imported: rng(200, 4000) } })),
 
   // ── Campaign progress + test-send ─────────────────────────────────────────────
   http.get(u('/api/campaigns/:id/progress'), () => ok({
     sent: rng(100,500), delivered: rng(80,400), bounced: rng(0,30), progress_pct: rng(40,95),
   })),
   http.post(u('/api/campaigns/:id/test-send'), () => ok({ sent: 1, warnings: [] })),
+
+  // ── Auth — force change password ──────────────────────────────────────────────
+  http.post(u('/api/auth/force-change-password'), () => new HttpResponse(null, { status: 204 })),
+
+  // ── Modules — enabled module keys for sidebar visibility ─────────────────────
+  http.get(u('/api/modules'), () => ok({
+    enabled: ['root','sales','contact','cards','lending','finance','compliance','people','analytics'],
+  })),
+
+  // ── Voice — Africa's Talking token ───────────────────────────────────────────
+  http.get(u('/api/voice/at-token'), () => ok({ token: 'mock-at-voice-token-for-demo' })),
 ]
 
 // ── Catch-all ─────────────────────────────────────────────────────────────────

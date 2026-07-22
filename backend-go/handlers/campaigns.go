@@ -27,7 +27,7 @@ var hrefRE = regexp.MustCompile(`href="(https?://[^"]+)"`)
 // ── Config ────────────────────────────────────────────────────────────────────
 
 var (
-	termiiSenderID           = coalesce(os.Getenv("TERMII_SENDER_ID"), "O3CCARDS")
+	termiiSenderID           = coalesce(os.Getenv("TERMII_SENDER_ID"), "O3 CARDS")
 	sendgridFromEmail        = os.Getenv("SENDGRID_FROM_EMAIL")
 	sendgridFromName         = coalesce(os.Getenv("SENDGRID_FROM_NAME"), "Care")
 	smsWebhookSecret         = os.Getenv("SMS_WEBHOOK_SECRET")
@@ -117,18 +117,21 @@ func sendSMS(ctx context.Context, db *core.DB, phone, body string) (ok bool, pro
 		"from":    senderID,
 		"sms":     body,
 		"type":    "plain",
-		"channel": "generic",
+		"channel": "dnd",
 	})
 	resp, err := httpPost("https://api.ng.termii.com/api/sms/send", "application/json", "", payload, 15*time.Second)
 	if err != nil {
+		slog.Warn("Campaign SMS: HTTP error", "phone", phone, "err", err)
 		return false, err.Error()
 	}
 	defer resp.Body.Close()
 	var d map[string]any
 	json.NewDecoder(resp.Body).Decode(&d) //nolint:errcheck
-	if resp.StatusCode == 200 && str(d["code"]) == "ok" {
+	if resp.StatusCode == 200 || resp.StatusCode == 201 {
+		slog.Info("Campaign SMS sent", "phone", phone, "message_id", str(d["message_id"]))
 		return true, str(d["message_id"])
 	}
+	slog.Warn("Campaign SMS failed", "phone", phone, "status", resp.StatusCode, "message", str(d["message"]))
 	return false, str(d["message"])
 }
 

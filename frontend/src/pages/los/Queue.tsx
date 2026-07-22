@@ -17,6 +17,7 @@ interface LoanApp {
   assigned_to_user_id: number
   assigned_officer_name?: string | null
   submitted_at: string | null
+  disbursed_at: string | null
   updated_at: string
   created_at: string
 }
@@ -74,7 +75,7 @@ function ProductPill({ product }: { product: string }) {
 
 
 function exportLOSCsv(rows: LoanApp[]) {
-  const header = ['App #', 'Applicant', 'Reference', 'Product', 'Amount (₦)', 'Stage', 'Status', 'Officer', 'Last Updated']
+  const header = ['App #', 'Applicant', 'Reference', 'Product', 'Amount (₦)', 'Stage', 'Status', 'Officer', 'Disbursement Date', 'Last Updated']
   const lines = rows.map(r => [
     `APP-${r.id}`,
     `"${String(r.applicant_name ?? '').replace(/"/g, '""')}"`,
@@ -84,6 +85,7 @@ function exportLOSCsv(rows: LoanApp[]) {
     r.stage ?? '',
     r.status ?? '',
     `"${String(r.assigned_officer_name ?? '').replace(/"/g, '""')}"`,
+    r.disbursed_at ?? '',
     r.updated_at ?? '',
   ].join(','))
   const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
@@ -231,6 +233,12 @@ export default function LOSQueue() {
         : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
     {
+      key: 'disbursed_at', label: 'Disbursement Date',
+      render: r => r.disbursed_at
+        ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDatetime(r.disbursed_at)}</span>
+        : <span style={{ color: 'var(--txt3)' }}>—</span>,
+    },
+    {
       key: 'updated_at', label: 'Last Updated',
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDatetime(r.updated_at)}</span>,
     },
@@ -327,71 +335,80 @@ export default function LOSQueue() {
               {/* Stage */}
               <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
                 <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>STAGE</div>
-                {STAGES.map(s => {
-                  const sc = STAGE_COLORS[s]
-                  const count = dateFiltered.filter(r => r.stage === s).length
-                  const label = s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-                  return (
-                    <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={fStages.has(s)} onChange={() => setFStages(toggleSet(fStages, s))}
-                        style={{ accentColor: sc?.txt ?? NAVY, width: 14, height: 14, cursor: 'pointer' }} />
-                      <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: sc?.bg ?? 'var(--chip-bg)', color: sc?.txt ?? 'var(--chip-txt)' }}>{label}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
-                    </label>
-                  )
-                })}
+                <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+                  {STAGES.map(s => {
+                    const sc = STAGE_COLORS[s]
+                    const count = dateFiltered.filter(r => r.stage === s).length
+                    const label = s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                    return (
+                      <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={fStages.has(s)} onChange={() => setFStages(toggleSet(fStages, s))}
+                          style={{ accentColor: sc?.txt ?? NAVY, width: 14, height: 14, cursor: 'pointer' }} />
+                        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: sc?.bg ?? 'var(--chip-bg)', color: sc?.txt ?? 'var(--chip-txt)' }}>{label}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
+                      </label>
+                    )
+                  })}
+                </div>
               </div>
 
               {/* Status */}
               <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
                 <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>STATUS</div>
-                {statuses.map(s => {
-                  const count = dateFiltered.filter(r => r.status === s).length
-                  const label = s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-                  return (
-                    <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={fStatuses.has(s)} onChange={() => setFStatuses(toggleSet(fStatuses, s))}
-                        style={{ accentColor: NAVY, width: 14, height: 14, cursor: 'pointer' }} />
-                      <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER }}>{label}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
-                    </label>
-                  )
-                })}
+                <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+                  {statuses.map(s => {
+                    const count = dateFiltered.filter(r => r.status === s).length
+                    const label = s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                    return (
+                      <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={fStatuses.has(s)} onChange={() => setFStatuses(toggleSet(fStatuses, s))}
+                          style={{ accentColor: NAVY, width: 14, height: 14, cursor: 'pointer' }} />
+                        <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER }}>{label}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
+                      </label>
+                    )
+                  })}
+                </div>
               </div>
 
               {/* Product */}
               <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
                 <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>PRODUCT</div>
-                {products.map(p => {
-                  const count = dateFiltered.filter(r => r.product_type === p).length
-                  const label = p.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-                  return (
-                    <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={fProducts.has(p)} onChange={() => setFProducts(toggleSet(fProducts, p))}
-                        style={{ accentColor: BLUE, width: 14, height: 14, cursor: 'pointer' }} />
-                      <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA }}>{label}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
-                    </label>
-                  )
-                })}
+                <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+                  {products.map(p => {
+                    const count = dateFiltered.filter(r => r.product_type === p).length
+                    const label = p.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                    return (
+                      <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={fProducts.has(p)} onChange={() => setFProducts(toggleSet(fProducts, p))}
+                          style={{ accentColor: BLUE, width: 14, height: 14, cursor: 'pointer' }} />
+                        <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA }}>{label}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
+                      </label>
+                    )
+                  })}
+                </div>
               </div>
 
               {/* Officer */}
               <div style={{ paddingLeft: 20 }}>
                 <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>OFFICER</div>
-                {officers.length === 0
-                  ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No assignments yet</span>
-                  : officers.map(o => {
-                  const count = dateFiltered.filter(r => r.assigned_officer_name === o).length
-                  return (
-                    <label key={o} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={fOfficers.has(o)} onChange={() => setFOfficers(toggleSet(fOfficers, o))}
-                        style={{ accentColor: NAVY, width: 14, height: 14, cursor: 'pointer' }} />
-                      <span style={{ fontSize: 12, color: 'var(--txt)', fontFamily: INTER, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER, flexShrink: 0 }}>{count}</span>
-                    </label>
-                  )
-                })}
+                <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+                  {officers.length === 0
+                    ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No assignments yet</span>
+                    : officers.map(o => {
+                      const count = dateFiltered.filter(r => r.assigned_officer_name === o).length
+                      return (
+                        <label key={o} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
+                          <input type="checkbox" checked={fOfficers.has(o)} onChange={() => setFOfficers(toggleSet(fOfficers, o))}
+                            style={{ accentColor: NAVY, width: 14, height: 14, cursor: 'pointer' }} />
+                          <span style={{ fontSize: 12, color: 'var(--txt)', fontFamily: INTER, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o}</span>
+                          <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER, flexShrink: 0 }}>{count}</span>
+                        </label>
+                      )
+                    })
+                  }
+                </div>
               </div>
 
             </div>
