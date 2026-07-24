@@ -1,17 +1,9 @@
 name: Deploy
 
-# Required Railway env vars (set in Railway dashboard, not here):
-#   SECRET_KEY         - JWT signing secret (32+ chars, generate: openssl rand -hex 32)
-#   ENCRYPTION_KEY     - Must be exactly 32 bytes
-#   DATABASE_URL       - Supabase PostgreSQL connection string
-#   ALLOWED_ORIGINS    - Comma-separated list of allowed CORS origins
-#   RESET_ADMIN_SECRET - Separate secret for /api/auth/reset-admin (set only when resetting)
-#   ENABLE_RESET_ADMIN - Set to "true" only when actively resetting a password, then remove
-#
-# Required GitHub secrets (set in repo Settings → Secrets and variables → Actions):
-#   CLOUDFLARE_API_TOKEN  - Cloudflare API token with Pages:Edit permission
-#   CF_ACCOUNT_ID         - Cloudflare account ID (never hardcode this)
-#   VITE_API_URL          - Backend Railway URL e.g. https://o3c-reports-production.up.railway.app
+# Required GitHub secrets (Settings → Secrets and variables → Actions):
+#   SERVER_HOST        - IP address or hostname of the on-prem server
+#   SSH_PRIVATE_KEY    - Private key for the deploy user on the server
+#   VITE_API_URL       - Backend URL visible to the browser, e.g. https://workspace.o3ccards.com
 
 on:
   push:
@@ -25,12 +17,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # full history so gitleaks can scan all commits in the push
+          fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ── Quality gate — must pass before any deploy ───────────────────────────────
+  # ── Quality gate — must pass before deploy ───────────────────────────────────
   test:
     name: Test & Type-check
     needs: [secret-scan]
@@ -86,51 +78,52 @@ jobs:
         run: npx tsc --noEmit
         working-directory: frontend
 
-  # ── Frontend → Cloudflare Pages ─────────────────────────────────────────────
-  deploy-frontend:
-    name: Frontend (Cloudflare Pages)
+  # ── Deploy — on-prem server via SSH ─────────────────────────────────────────
+  deploy:
+    name: Deploy (On-prem)
     needs: [test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      # Build React frontend on CI (avoids needing Node on the server)
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dependencies
+      - name: Install frontend dependencies
         run: npm ci
         working-directory: frontend
 
-      - name: Build
+      - name: Build frontend
         run: npm run build
         working-directory: frontend
         env:
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
 
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: pages deploy dist --project-name o3c-workspace
-          workingDirectory: frontend
+      # Set up SSH
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
-  # ── D1: Backend → Railway ────────────────────────────────────────────────────
-  deploy-backend:
-    name: Backend (Railway)
-    needs: [test]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      # Push frontend build to the server
+      - name: Sync frontend build
+        run: |
+          rsync -az --delete frontend/dist/ \
+            deploy@${{ secrets.SERVER_HOST }}:/opt/o3c/frontend/dist/
 
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy backend to Railway
-        run: railway redeploy --from-source --yes
-        working-directory: backend-go
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      # Rebuild and restart the Go API container
+      - name: Deploy backend
+        run: |
+          ssh deploy@${{ secrets.SERVER_HOST }} "
+            set -e
+            cd /opt/o3c
+            git pull origin main
+            docker compose up -d --build api
+            docker compose ps
+          "

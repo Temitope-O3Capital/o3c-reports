@@ -14,7 +14,7 @@ this project so you can continue development without asking Temitope to re-expla
 | **Build Guide** | `frontend/BUILD_GUIDE.md` | Canonical source of truth — sidebar structure, all page specs, build order, architecture rules. Read this first every session. |
 | **Design System** | `frontend/DESIGN_SYSTEM.md` | Component patterns, CSS token usage, typography, chart rules, table rules |
 | **Master Product Spec** | `docs/O3C_WORKSPACE_MASTER_SPEC.md` | Full product specification — all modules, roles, workflows, business rules |
-| **Deployment** | `docs/DEPLOYMENT.md` | Railway + Cloudflare Pages deploy steps |
+| **Deployment** | `docs/DEPLOYMENT.md` | On-prem (Docker Compose + Nginx) deploy steps |
 | **Cloudflare Tunnel** | `docs/CLOUDFLARE_TUNNEL.md` | MSSQL on-site access via Cloudflare Tunnel |
 
 **Archived (do not use for new work):**
@@ -46,22 +46,22 @@ Frontend (React 18 + TypeScript + Tailwind v3)
   ↓ REST / SSE
 Backend (Go + chi router)
   ↓
-PostgreSQL (Supabase / Railway Postgres)
+PostgreSQL (on-prem or Supabase)
   ↓  (secondary)
 MSSQL (on-site, via Cloudflare Tunnel — optional, for live card data)
 ```
 
 | Layer       | Technology                        | Deploy              |
 |-------------|-----------------------------------|---------------------|
-| Frontend    | React 18 + Vite + TypeScript      | Cloudflare Pages    |
+| Frontend    | React 18 + Vite + TypeScript      | On-prem (Nginx)     |
 | Styling     | Tailwind v3 + inline styles       | —                   |
 | Icons       | Material Symbols Rounded (CDN)    | Google Fonts        |
 | Charts      | Recharts                          | —                   |
 | Rich text   | Tiptap v3                         | —                   |
 | Toasts      | Sonner                            | —                   |
-| Backend     | Go (chi router)                   | Railway             |
+| Backend     | Go (chi router)                   | On-prem (Docker)    |
 | Auth        | JWT (HS256, 8 h access tokens)    | —                   |
-| Primary DB  | PostgreSQL (Supabase)             | Supabase            |
+| Primary DB  | PostgreSQL                        | On-prem or Supabase |
 | File store  | Supabase Storage                  | Supabase            |
 | Mail        | SendGrid + Microsoft Graph        | —                   |
 | Call center | Zoho Desk + Zoho Voice            | —                   |
@@ -87,7 +87,7 @@ Icons:   Material Symbols Rounded (Google CDN, variable font)
 ```
 o3c-reports/
 ├── CLAUDE.md                      ← you are here
-├── .github/workflows/deploy.yml   ← CI: frontend → Cloudflare Pages; backend → Railway
+├── .github/workflows/deploy.yml   ← CI: build frontend → rsync to server; SSH to rebuild Go container
 ├── docs/DEPLOYMENT.md
 │
 ├── frontend/
@@ -188,27 +188,27 @@ o3c-reports/
 
 ## Deployment
 
-- **Frontend** → Cloudflare Pages, project name `o3c-workspace`, auto-deploys on push to `main`
-- **Backend** → Railway, `railway redeploy --from-source --yes` from `backend-go/`
-- **Never use Vercel** — Cloudflare Pages only
+- **Everything** → on-premises server running Docker Compose + Nginx
+- CI (GitHub Actions) builds the frontend and SSHes into the server to deploy
+- Full details in `docs/DEPLOYMENT.md`
 
 ### Required GitHub Secrets (Actions)
-| Secret                | Purpose                                       |
-|-----------------------|-----------------------------------------------|
-| `CLOUDFLARE_API_TOKEN`| Pages:Edit permission                         |
-| `CF_ACCOUNT_ID`       | Cloudflare account ID                         |
-| `VITE_API_URL`        | Backend Railway URL (e.g. https://…railway.app)|
+| Secret            | Purpose                                              |
+|-------------------|------------------------------------------------------|
+| `SERVER_HOST`     | IP or hostname of the on-prem server                 |
+| `SSH_PRIVATE_KEY` | Private key for the `deploy` user on the server      |
+| `VITE_API_URL`    | Backend URL visible to the browser (e.g. `https://workspace.o3ccards.com`) |
 
-### Required Railway Env Vars
+### Required Server Env Vars (`backend-go/.env`)
 | Var                   | Notes                                         |
 |-----------------------|-----------------------------------------------|
 | `DATABASE_URL`        | PostgreSQL connection string                  |
-| `SECRET_KEY`          | JWT signing secret — 32+ chars, not "change-this*" |
-| `ENCRYPTION_KEY`      | Exactly 32 bytes — not "change-this*"         |
+| `SECRET_KEY`          | JWT signing secret — 32+ chars (`openssl rand -hex 32`) |
+| `ENCRYPTION_KEY`      | Exactly 32 bytes (`openssl rand -base64 24 \| head -c 32`) |
 | `ALLOWED_ORIGINS`     | Comma-separated CORS origins                  |
 | `SENDGRID_API_KEY`    | Transactional email                           |
-| `BOOTSTRAP_SECRET`    | Optional: guard on POST /api/auth/bootstrap   |
-| `RESET_ADMIN_SECRET`  | Optional: guard on reset-admin endpoint       |
+| `BOOTSTRAP_SECRET`    | Guards POST /api/auth/bootstrap               |
+| `METRICS_TOKEN`       | Bearer token for GET /metrics scrape          |
 
 ---
 
@@ -218,7 +218,7 @@ o3c-reports/
 - `apiFetch()` in `src/lib/api.ts` handles this automatically.
 - `config.go` rejects weak `SECRET_KEY`/`ENCRYPTION_KEY` at startup.
 - `auth.go` uses `crypto/subtle.ConstantTimeCompare` for secret header checks.
-- Rate limiter uses the **rightmost** `X-Forwarded-For` value (Railway appends real IP last).
+- Rate limiter uses the **rightmost** `X-Forwarded-For` value — set `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for` in Nginx so the real client IP is last.
 - Bootstrap endpoint (`POST /api/auth/bootstrap`) is guarded by `BOOTSTRAP_SECRET` if set.
 - API keys stored via AES-GCM encryption — `encryptValue()` fails hard if `ENCRYPTION_KEY` missing.
 
@@ -269,4 +269,4 @@ o3c-reports/
 3. `cd backend-go && go build ./...` → compiles cleanly.
 4. Any required DB migration/sequence is idempotent.
 5. Change is committed with a clear message.
-6. For deployed changes: `railway redeploy --from-source --yes` run and health endpoint responds.
+6. For deployed changes: push to `main` → CI deploys automatically. Verify with `curl https://workspace.o3ccards.com/api/health`.
