@@ -18,8 +18,9 @@ type Config struct {
 	MSSQLConnStr     string // empty = MSSQL disabled
 	AllowedOrigins   []string
 	Port             string
-	ResetAdminSecret string // from RESET_ADMIN_SECRET env var
-	EnableResetAdmin bool   // from ENABLE_RESET_ADMIN env var
+	ResetAdminSecret  string // from RESET_ADMIN_SECRET env var
+	EnableResetAdmin  bool   // from ENABLE_RESET_ADMIN env var
+	ZohoImportSecret  string // from ZOHO_IMPORT_SECRET env var (separate from ResetAdminSecret)
 	TermiiAPIKey     string // empty = SMS disabled
 	TermiiSenderID   string
 }
@@ -40,6 +41,7 @@ func LoadConfig() (*Config, error) {
 		Port:             coalesce(os.Getenv("PORT"), "8000"),
 		ResetAdminSecret: os.Getenv("RESET_ADMIN_SECRET"),
 		EnableResetAdmin: os.Getenv("ENABLE_RESET_ADMIN") == "true",
+		ZohoImportSecret: os.Getenv("ZOHO_IMPORT_SECRET"),
 		TermiiAPIKey:     os.Getenv("TERMII_API_KEY"),
 		TermiiSenderID:   coalesce(os.Getenv("TERMII_SENDER_ID"), "O3CCARDS"),
 	}
@@ -90,7 +92,10 @@ func LoadConfig() (*Config, error) {
 		// these legacy on-prem servers, overridable via MSSQL_TLS_MIN.
 		tlsMin := os.Getenv("MSSQL_TLS_MIN")
 		if tlsMin == "" {
-			tlsMin = "1.0"
+			tlsMin = "1.2" // M29: default to TLS 1.2; set MSSQL_TLS_MIN=1.0 for legacy servers
+		}
+		if tlsMin == "1.0" {
+			slog.Warn("MSSQL TLS 1.0 active — upgrade server or set MSSQL_TLS_MIN=1.2 when possible", "MSSQL_TLS_MIN", tlsMin)
 		}
 		if os.Getenv("MSSQL_TRUSTED") == "yes" {
 			c.MSSQLConnStr = fmt.Sprintf(

@@ -171,7 +171,7 @@ func collectionsOpsAssign(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf("A collection account has been assigned to you"),
 			"collection_assignment", id)
 
-		respondErr(w, 200, "Assigned successfully")
+		respondOK(w, "Assigned successfully")
 	}
 }
 
@@ -284,7 +284,7 @@ func collectionsOpsHonourPromise(db *core.DB) http.HandlerFunc {
 			respondErr(w, 403, "Promise not found or does not belong to you")
 			return
 		}
-		respondErr(w, 200, "Promise marked as honoured")
+		respondOK(w, "Promise marked as honoured")
 	}
 }
 
@@ -331,7 +331,7 @@ func collectionsOpsBrokenPromise(db *core.DB) http.HandlerFunc {
 			})
 		}
 
-		respondErr(w, 200, "Promise marked as broken")
+		respondOK(w, "Promise marked as broken")
 	}
 }
 
@@ -734,23 +734,34 @@ func collectionsOpsCreatePlan(db *core.DB) http.HandlerFunc {
 			return s
 		}
 
-		planRows, err := db.PGQuery(ctx,
-			`INSERT INTO repayment_plans
-			   (account_cif, customer_name, agent_user_id, total_kobo, instalment_count, next_payment_date, notes)
-			 VALUES ($1,$2,$3,$4,$5,$6::date,$7) RETURNING id`,
-			b.AccountCIF, ns(b.CustomerName), user.ID, total, len(instalments), instalments[0].DueDate, ns(b.Notes))
+		// Wrap plan + all instalments in one transaction so we never leave a
+		// plan without its instalment rows (M36).
+		tx, err := db.PG.BeginTx(ctx, nil)
 		if err != nil {
 			respondErr(w, 500, "Plan creation failed"); return
 		}
-		planID := planRows[0]["id"]
-
+		var planID any
+		if err = tx.QueryRowContext(ctx,
+			`INSERT INTO repayment_plans
+			   (account_cif, customer_name, agent_user_id, total_kobo, instalment_count, next_payment_date, notes)
+			 VALUES ($1,$2,$3,$4,$5,$6::date,$7) RETURNING id`,
+			b.AccountCIF, ns(b.CustomerName), user.ID, total, len(instalments), instalments[0].DueDate, ns(b.Notes),
+		).Scan(&planID); err != nil {
+			tx.Rollback() //nolint:errcheck
+			respondErr(w, 500, "Plan creation failed"); return
+		}
 		for i, inst := range instalments {
-			if _, iErr := db.PGExec(ctx,
+			if _, iErr := tx.ExecContext(ctx,
 				`INSERT INTO repayment_instalments (plan_id, instalment_number, due_date, amount_kobo)
 				 VALUES ($1,$2,$3::date,$4)`,
 				planID, i+1, inst.DueDate, inst.AmountKobo); iErr != nil {
-				slog.Error("repayment instalment insert failed", "plan_id", planID, "num", i+1, "err", iErr)
+				tx.Rollback() //nolint:errcheck
+				slog.Error("repayment instalment insert failed", "num", i+1, "err", iErr)
+				respondErr(w, 500, "Plan creation failed"); return
 			}
+		}
+		if err = tx.Commit(); err != nil {
+			respondErr(w, 500, "Plan creation failed"); return
 		}
 
 		// Notify the creating agent that their plan is live.
@@ -789,8 +800,14 @@ func collectionsOpsMarkPaid(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		iid := chi.URLParam(r, "iid")
 		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
 
-		instRows, err := db.PGQuery(ctx, `SELECT plan_id, status FROM repayment_instalments WHERE id=$1`, iid)
+		// Fetch instalment + plan info (including account_cif for GL reference) in one query.
+		instRows, err := db.PGQuery(ctx, `
+			SELECT ri.plan_id, ri.status, ri.amount_kobo, rp.account_cif
+			FROM repayment_instalments ri
+			JOIN repayment_plans rp ON rp.id = ri.plan_id
+			WHERE ri.id=$1`, iid)
 		if err != nil || len(instRows) == 0 {
 			respondErr(w, 404, "Instalment not found"); return
 		}
@@ -798,13 +815,23 @@ func collectionsOpsMarkPaid(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "Already marked paid"); return
 		}
 		planID := instRows[0]["plan_id"]
+		amountKobo := toInt64(instRows[0]["amount_kobo"])
+		accountCIF := str(instRows[0]["account_cif"])
 
-		db.PGExec(ctx, //nolint:errcheck
-			`UPDATE repayment_instalments SET status='Paid', paid_at=NOW() WHERE id=$1`, iid)
+		// Wrap instalment update, plan aggregate update, and GL entry in a single transaction.
+		tx, txErr := db.PG.BeginTx(ctx, nil)
+		if txErr != nil {
+			respondErr(w, 500, "Transaction failed"); return
+		}
 
-		// Update plan totals
-		db.PGExec(ctx, //nolint:errcheck
-			`UPDATE repayment_plans SET
+		if _, err = tx.ExecContext(ctx,
+			`UPDATE repayment_instalments SET status='Paid', paid_at=NOW() WHERE id=$1`, iid); err != nil {
+			tx.Rollback() //nolint:errcheck
+			respondErr(w, 500, "Mark paid failed"); return
+		}
+
+		if _, err = tx.ExecContext(ctx, `
+			UPDATE repayment_plans SET
 			   paid_count    = (SELECT COUNT(*) FROM repayment_instalments WHERE plan_id=$1 AND status='Paid'),
 			   paid_kobo     = (SELECT COALESCE(SUM(amount_kobo),0) FROM repayment_instalments WHERE plan_id=$1 AND status='Paid'),
 			   next_payment_date = (SELECT MIN(due_date) FROM repayment_instalments WHERE plan_id=$1 AND status='Pending'),
@@ -812,8 +839,33 @@ func collectionsOpsMarkPaid(db *core.DB) http.HandlerFunc {
 			     WHEN (SELECT COUNT(*) FROM repayment_instalments WHERE plan_id=$1 AND status != 'Paid') = 0
 			     THEN 'Completed' ELSE status END,
 			   updated_at = NOW()
-			 WHERE id=$1`, planID)
+			 WHERE id=$1`, planID); err != nil {
+			tx.Rollback() //nolint:errcheck
+			respondErr(w, 500, "Plan update failed"); return
+		}
 
+		// Post GL entry: Dr Cash (collections received) / Cr Loans_Receivable.
+		if amountKobo > 0 {
+			ref := fmt.Sprintf("RP-INST-%s", iid)
+			if glErr := postJournalTx(ctx, tx, glEntry{
+				Date:          time.Now(),
+				Description:   fmt.Sprintf("Repayment plan instalment paid - CIF %s", accountCIF),
+				Reference:     ref,
+				DebitAccount:  "cash",
+				CreditAccount: "loans_receivable",
+				AmountKobo:    amountKobo,
+				SourceType:    "repayment_instalment",
+				SourceID:      toInt64(instRows[0]["plan_id"]),
+				PostedBy:      user.ID,
+			}); glErr != nil {
+				tx.Rollback() //nolint:errcheck
+				respondErr(w, 500, "GL entry failed"); return
+			}
+		}
+
+		if err = tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed"); return
+		}
 		respond(w, map[string]any{"status": "paid"}, "json")
 	}
 }
@@ -966,33 +1018,64 @@ func collectionsOpsApproveWriteoff(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
 
+		tx, txErr := db.PG.BeginTx(ctx, nil)
+		if txErr != nil {
+			respondErr(w, 500, "Transaction failed"); return
+		}
+
+		// Lock the row and fetch amount for GL entry.
 		rows, err := db.PGQuery(ctx,
-			`SELECT status FROM recovery_write_off_approvals WHERE id=$1`, id)
+			`SELECT status, amount_kobo, case_id FROM recovery_write_off_approvals WHERE id=$1`, id)
 		if err != nil || len(rows) == 0 {
+			tx.Rollback() //nolint:errcheck
 			respondErr(w, 404, "Write-off not found"); return
 		}
 		if str(rows[0]["status"]) != "pending" {
+			tx.Rollback() //nolint:errcheck
 			respondErr(w, 422, "Write-off already processed"); return
 		}
+		amountKobo := toInt64(rows[0]["amount_kobo"])
+		caseID := toInt64(rows[0]["case_id"])
 
-		_, err = db.PGExec(ctx,
+		if _, err = tx.ExecContext(ctx,
 			`UPDATE recovery_write_off_approvals
 			 SET status='approved', approved_by=$1, approved_at=NOW()
 			 WHERE id=$2`,
-			user.ID, id)
-		if err != nil {
+			user.ID, id); err != nil {
+			tx.Rollback() //nolint:errcheck
 			respondErr(w, 500, "Approve failed"); return
 		}
 
-		// Notify finance_head that a write-off has been approved and needs GL posting.
+		// Post GL entry: Dr Bad_Debt_Expense / Cr Loans_Receivable.
+		if amountKobo > 0 {
+			if glErr := postJournalTx(ctx, tx, glEntry{
+				Date:          time.Now(),
+				Description:   fmt.Sprintf("Loan write-off approved — case #%d", caseID),
+				Reference:     fmt.Sprintf("WO-%d", id),
+				DebitAccount:  "bad_debt_expense",
+				CreditAccount: "loans_receivable",
+				AmountKobo:    amountKobo,
+				SourceType:    "write_off_approval",
+				SourceID:      id,
+				PostedBy:      user.ID,
+			}); glErr != nil {
+				tx.Rollback() //nolint:errcheck
+				respondErr(w, 500, "GL entry failed"); return
+			}
+		}
+
+		if err = tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed"); return
+		}
+
 		go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
 			EventType: EvtWriteoffApproved,
-			Title:     "Write-off approved — action required",
-			Body:      fmt.Sprintf("Write-off #%d approved by %s. Please post the GL entry.", id, user.FullName),
+			Title:     "Write-off approved",
+			Body:      fmt.Sprintf("Write-off #%d approved by %s. GL entry posted.", id, user.FullName),
 			ActionURL: "/collections/writeoff-queue",
 			EntityRef: fmt.Sprint(id),
 		})
-		respondErr(w, 200, "Write-off approved")
+		respondOK(w, "Write-off approved")
 	}
 }
 
@@ -1017,7 +1100,7 @@ func collectionsOpsReturnWriteoff(db *core.DB) http.HandlerFunc {
 			`UPDATE recovery_cases SET status='open', updated_at=NOW() WHERE id=$1`,
 			caseRows[0]["case_id"])
 
-		respondErr(w, 200, "Returned to recovery")
+		respondOK(w, "Returned to recovery")
 	}
 }
 
@@ -1033,25 +1116,74 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
 
-		updateRows, err := db.PGQuery(ctx,
+		tx, txErr := db.PG.BeginTx(ctx, nil)
+		if txErr != nil {
+			respondErr(w, 500, "Transaction failed"); return
+		}
+
+		// Fetch pending rows first so we have amount_kobo for each GL entry.
+		pendingRows, err := db.PGQuery(ctx,
+			`SELECT id, amount_kobo, case_id FROM recovery_write_off_approvals
+			 WHERE id = ANY($1) AND status='pending'`, b.IDs)
+		if err != nil {
+			tx.Rollback() //nolint:errcheck
+			respondErr(w, 500, "Query failed"); return
+		}
+
+		if len(pendingRows) == 0 {
+			tx.Rollback() //nolint:errcheck
+			respond(w, map[string]any{"approved": 0}, "json"); return
+		}
+
+		// Approve all pending rows in one statement.
+		pendingIDs := make([]int64, len(pendingRows))
+		for i, row := range pendingRows {
+			pendingIDs[i] = toInt64(row["id"])
+		}
+		if _, err = tx.ExecContext(ctx,
 			`UPDATE recovery_write_off_approvals
 			 SET status='approved', approved_by=$1, approved_at=NOW()
-			 WHERE id = ANY($2) AND status='pending'
-			 RETURNING id`,
-			user.ID, b.IDs)
-		if err != nil {
-			respondErr(w, 500, "Update failed")
-			return
+			 WHERE id = ANY($2)`,
+			user.ID, pendingIDs); err != nil {
+			tx.Rollback() //nolint:errcheck
+			respondErr(w, 500, "Update failed"); return
 		}
-		count := len(updateRows)
-		if count > 0 {
-			go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
-				EventType: EvtWriteoffApproved,
-				Title:     fmt.Sprintf("%d write-off(s) bulk approved — action required", count),
-				Body:      fmt.Sprintf("%d write-off(s) approved by %s. Please post GL entries.", count, user.FullName),
-				ActionURL: "/collections/writeoff-queue",
-			})
+
+		// Post a GL entry for each approved write-off.
+		for _, row := range pendingRows {
+			amountKobo := toInt64(row["amount_kobo"])
+			woID := toInt64(row["id"])
+			caseID := toInt64(row["case_id"])
+			if amountKobo <= 0 {
+				continue
+			}
+			if glErr := postJournalTx(ctx, tx, glEntry{
+				Date:          time.Now(),
+				Description:   fmt.Sprintf("Loan write-off approved — case #%d", caseID),
+				Reference:     fmt.Sprintf("WO-%d", woID),
+				DebitAccount:  "bad_debt_expense",
+				CreditAccount: "loans_receivable",
+				AmountKobo:    amountKobo,
+				SourceType:    "write_off_approval",
+				SourceID:      woID,
+				PostedBy:      user.ID,
+			}); glErr != nil {
+				tx.Rollback() //nolint:errcheck
+				respondErr(w, 500, "GL entry failed"); return
+			}
 		}
+
+		if err = tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed"); return
+		}
+
+		count := len(pendingRows)
+		go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
+			EventType: EvtWriteoffApproved,
+			Title:     fmt.Sprintf("%d write-off(s) bulk approved", count),
+			Body:      fmt.Sprintf("%d write-off(s) approved by %s. GL entries posted.", count, user.FullName),
+			ActionURL: "/collections/writeoff-queue",
+		})
 		respond(w, map[string]any{"approved": count}, "json")
 	}
 }

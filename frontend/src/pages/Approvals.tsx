@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { Page, SectionCard, DataTable, ErrBanner, KpiCard, DateFilter } from '../components/UI'
 import type { TableCol } from '../components/UI'
 import { apiFetch, apiPost } from '../lib/api'
@@ -64,7 +65,7 @@ function PriorityDot({ priority }: { priority: string }) {
 }
 
 const MODULE_ROUTES: Record<string, (id: number) => string> = {
-  LOS:        id => `/los/applications/${id}`,
+  LOS:        id => `/sales/applications/${id}`,
   'Write-off': id => `/recovery/write-offs/${id}`,
   Leave:      id => `/hr/leaves/${id}`,
   Compliance: id => `/compliance/findings/${id}`,
@@ -94,7 +95,7 @@ export default function Approvals() {
       ])
       setItems(pending.data ?? [])
       setSummary(summ.data ?? null)
-    } catch (ex: any) { setErr(ex.message) }
+    } catch (ex: any) { setErr(ex.message); toast.error(ex.message ?? 'Failed to load approvals') }
     finally { setLoading(false) }
   }, [dateFrom, dateTo])
 
@@ -131,7 +132,7 @@ export default function Approvals() {
       await apiPost('/api/approvals/batch', { action, notes: '', items: payload })
       setSelected(new Set())
       load()
-    } catch (e: any) { setErr(e.message) }
+    } catch (e: any) { toast.error(e.message ?? 'Batch action failed') }
     finally { setBatchBusy(false) }
   }
 

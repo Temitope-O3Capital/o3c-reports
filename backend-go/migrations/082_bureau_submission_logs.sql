@@ -1,6 +1,6 @@
 -- Credit bureau submission log — tracks monthly CRC / FirstCentral file submissions.
 
-CREATE TABLE bureau_submission_logs (
+CREATE TABLE IF NOT EXISTS bureau_submission_logs (
   id           BIGSERIAL   PRIMARY KEY,
   month        TEXT        NOT NULL,            -- YYYY-MM
   bureau       TEXT        NOT NULL DEFAULT 'CRC',
@@ -12,4 +12,4 @@ CREATE TABLE bureau_submission_logs (
   status       TEXT        NOT NULL DEFAULT 'submitted' CHECK (status IN ('submitted','acknowledged','rejected'))
 );
 
-CREATE INDEX idx_bureau_submission_logs_month ON bureau_submission_logs(month);
+CREATE INDEX IF NOT EXISTS idx_bureau_submission_logs_month ON bureau_submission_logs(month);

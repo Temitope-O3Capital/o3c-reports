@@ -29,13 +29,14 @@ func collectionsPortfolioKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := r.URL.Query().Get("from")
 		to   := r.URL.Query().Get("to")
+		// CBN PAR definition: PAR30 = all accounts with DPD > 30 (cumulative, not per-bucket).
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
-				COALESCE(SUM(CASE WHEN dpd_bucket = '1-30'
+				COALESCE(SUM(CASE WHEN dpd_bucket IN ('31-60','61-90','91-180','181-360','360+')
 				                  THEN outstanding_kobo END), 0)                 AS par30_kobo,
-				COALESCE(SUM(CASE WHEN dpd_bucket IN ('31-60','61-90')
+				COALESCE(SUM(CASE WHEN dpd_bucket IN ('61-90','91-180','181-360','360+')
 				                  THEN outstanding_kobo END), 0)                 AS par60_kobo,
-				COALESCE(SUM(CASE WHEN dpd_bucket IN ('91-180','181-360')
+				COALESCE(SUM(CASE WHEN dpd_bucket IN ('91-180','181-360','360+')
 				                  THEN outstanding_kobo END), 0)                 AS par90_kobo,
 				COALESCE(SUM(outstanding_kobo), 0)                              AS total_outstanding_kobo,
 				COUNT(*)                                                         AS total_accounts,
@@ -77,11 +78,11 @@ func collectionsDPDTrend(db *core.DB) http.HandlerFunc {
 			SELECT
 				TO_CHAR(m.m, 'Mon YY') AS month,
 				m.m                    AS month_sort,
-				COALESCE(SUM(CASE WHEN ca.dpd_bucket = '1-30'
+				COALESCE(SUM(CASE WHEN ca.dpd_bucket IN ('31-60','61-90','91-180','181-360','360+')
 				              THEN ca.outstanding_kobo END), 0)            AS par30_kobo,
-				COALESCE(SUM(CASE WHEN ca.dpd_bucket IN ('31-60','61-90')
+				COALESCE(SUM(CASE WHEN ca.dpd_bucket IN ('61-90','91-180','181-360','360+')
 				              THEN ca.outstanding_kobo END), 0)            AS par60_kobo,
-				COALESCE(SUM(CASE WHEN ca.dpd_bucket IN ('91-180','181-360')
+				COALESCE(SUM(CASE WHEN ca.dpd_bucket IN ('91-180','181-360','360+')
 				              THEN ca.outstanding_kobo END), 0)            AS par90_kobo
 			FROM months m
 			LEFT JOIN collection_assignments ca

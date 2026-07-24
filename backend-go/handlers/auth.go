@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -27,7 +28,17 @@ func RegisterAuth(r chi.Router, db *core.DB) {
 }
 
 // cookieAttrs returns (secure, sameSite) based on whether the request was HTTPS.
-// SameSite=None is required for cross-origin cookie sending (Cloudflare Pages → Railway).
+//
+// SameSite=None + Secure is intentional (M17): the frontend is served from
+// Cloudflare Pages (*.pages.dev or a custom CF domain) while the API is on
+// Railway (*.railway.app or a custom Railway domain). These are different
+// origins, so SameSite=Lax/Strict would prevent the browser from sending the
+// auth cookie on cross-origin requests — breaking login entirely.
+// SameSite=None is the only spec-compliant way to allow cross-origin cookie
+// transmission; it requires Secure (HTTPS), which is always true in production
+// (both Cloudflare and Railway enforce HTTPS). On plain HTTP (local dev) we
+// fall back to Lax because None requires Secure and would be ignored by
+// browsers, causing confusing auth failures during development.
 func cookieAttrs(r *http.Request) (bool, http.SameSite) {
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	if secure {
@@ -274,10 +285,48 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			respondErr(w, 503, "Database unavailable — please try again")
 			return
 		}
-		if len(rows) == 0 || !core.CheckPassword(password, str(rows[0]["password_hash"])) {
+		// S6: Always run bcrypt so email-not-found responses take the same time as
+		// wrong-password responses. Without this, timing difference reveals email existence.
+		if len(rows) == 0 {
+			core.DummyHashCheck(password)
 			respondErr(w, 401, "Invalid credentials")
 			return
 		}
+		userID := toInt64(rows[0]["id"])
+
+		// S7: Per-account lockout — block after 10 consecutive failures for 15 minutes.
+		lockRows, _ := db.PGQuery(r.Context(),
+			`SELECT failure_count, last_failure_at
+			 FROM login_failures WHERE user_id=$1`, userID)
+		if len(lockRows) > 0 {
+			count := toInt64(lockRows[0]["failure_count"])
+			if count >= 10 {
+				if lastFailure, ok := lockRows[0]["last_failure_at"].(time.Time); ok {
+					if time.Since(lastFailure) < 15*time.Minute {
+						respondErr(w, 429, "Account temporarily locked. Try again in 15 minutes.")
+						return
+					}
+					// Lockout window expired — reset
+					db.PGExec(r.Context(), //nolint:errcheck
+						`DELETE FROM login_failures WHERE user_id=$1`, userID)
+				}
+			}
+		}
+
+		if !core.CheckPassword(password, str(rows[0]["password_hash"])) {
+			// Increment per-account failure counter.
+			db.PGExec(r.Context(), //nolint:errcheck
+				`INSERT INTO login_failures (user_id, failure_count, last_failure_at)
+				 VALUES ($1, 1, NOW())
+				 ON CONFLICT (user_id) DO UPDATE
+				 SET failure_count = login_failures.failure_count + 1, last_failure_at = NOW()`,
+				userID)
+			respondErr(w, 401, "Invalid credentials")
+			return
+		}
+		// Successful auth — clear any accumulated failures.
+		db.PGExec(r.Context(), //nolint:errcheck
+			`DELETE FROM login_failures WHERE user_id=$1`, userID)
 		u := rows[0]
 		if u["deleted_at"] != nil {
 			respondErr(w, 403, "This account has been removed. Contact your administrator.")
@@ -396,6 +445,12 @@ func refreshHandler(db *core.DB) http.HandlerFunc {
 			respondErr(w, 401, "Invalid or expired refresh token")
 			return
 		}
+		// S2: Check the refresh token's JTI against the denylist so that logged-out
+		// tokens cannot be replayed to obtain a new access token.
+		if core.IsTokenRevoked(r.Context(), old.JTI) {
+			respondErr(w, 401, "Token has been revoked")
+			return
+		}
 
 		rows, err := db.PGQuery(r.Context(),
 			`SELECT id, email, full_name, role, department
@@ -469,8 +524,8 @@ func changePasswordHandler(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if len(b.NewPassword) < 12 {
-			respondErr(w, 422, "New password must be at least 12 characters")
+		if msg := validatePasswordComplexity(b.NewPassword); msg != "" {
+			respondErr(w, 422, msg)
 			return
 		}
 		user := core.UserFromCtx(r.Context())
@@ -494,7 +549,7 @@ func changePasswordHandler(db *core.DB) http.HandlerFunc {
 			hash, user.ID)
 		// H8: Invalidate all existing sessions so open sessions are forced to re-authenticate.
 		db.PGExec(r.Context(), `DELETE FROM user_sessions WHERE user_id=$1`, user.ID) //nolint:errcheck
-		respondErr(w, 200, "Password updated successfully")
+		respondOK(w, "Password updated successfully")
 	}
 }
 
@@ -510,8 +565,8 @@ func forceChangePasswordHandler(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if len(b.NewPassword) < 12 {
-			respondErr(w, 422, "Password must be at least 12 characters")
+		if msg := validatePasswordComplexity(b.NewPassword); msg != "" {
+			respondErr(w, 422, msg)
 			return
 		}
 		user := core.UserFromCtx(r.Context())
@@ -524,7 +579,7 @@ func forceChangePasswordHandler(db *core.DB) http.HandlerFunc {
 			`UPDATE o3c_users SET password_hash = $1, must_change_password = FALSE WHERE id = $2`,
 			hash, user.ID)
 		db.PGExec(r.Context(), `DELETE FROM user_sessions WHERE user_id=$1`, user.ID) //nolint:errcheck
-		respondErr(w, 200, "Password updated successfully")
+		respondOK(w, "Password updated successfully")
 	}
 }
 
@@ -553,8 +608,8 @@ func BootstrapHandler(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "email and password are required")
 			return
 		}
-		if len(b.Password) < 12 {
-			respondErr(w, 422, "Password must be at least 12 characters")
+		if msg := validatePasswordComplexity(b.Password); msg != "" {
+			respondErr(w, 422, msg)
 			return
 		}
 		if b.FullName == "" {
@@ -620,8 +675,12 @@ func ResetAdminHandler(db *core.DB, resetSecret string) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.Email == "" || len(b.Password) < 12 {
-			respondErr(w, 422, "email and password (min 12 chars) required")
+		if b.Email == "" {
+			respondErr(w, 422, "email is required")
+			return
+		}
+		if msg := validatePasswordComplexity(b.Password); msg != "" {
+			respondErr(w, 422, msg)
 			return
 		}
 		hash, err := core.HashPassword(b.Password)

@@ -1,3 +1,7 @@
+-- DB1: This file has a non-standard 079 prefix (conflicts with 079_at_voice_settings.sql).
+-- Cannot be renamed without breaking schema_migrations tracking. Left as-is with this notice.
+-- Sorts after 079_at_voice_settings.sql alphabetically (_cbs > _at).
+--
 -- Track linkage between O3C workspace records and Udara360 CBS account numbers.
 -- Each row maps a local entity (loan, customer, FD, card) to its CBS counterpart
 -- so O3C can look up the CBS account number for real-time syncs without re-querying.

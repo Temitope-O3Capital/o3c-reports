@@ -278,7 +278,7 @@ func hrEmployeeUpdate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Update failed")
 			return
 		}
-		respondErr(w, 200, "Updated successfully")
+		respondOK(w, "Updated successfully")
 	}
 }
 
@@ -545,7 +545,7 @@ func hrLeaveApprove(db *core.DB) http.HandlerFunc {
 			}
 		}()
 
-		respondErr(w, 200, "Leave approved")
+		respondOK(w, "Leave approved")
 	}
 }
 
@@ -604,7 +604,7 @@ func hrLeaveDecline(db *core.DB) http.HandlerFunc {
 			}
 		}()
 
-		respondErr(w, 200, "Leave declined")
+		respondOK(w, "Leave declined")
 	}
 }
 
@@ -947,7 +947,7 @@ func hrDisciplinaryStatus(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Update failed")
 			return
 		}
-		respondErr(w, 200, "Status updated")
+		respondOK(w, "Status updated")
 	}
 }
 
@@ -1067,7 +1067,7 @@ func hrTrainingAttend(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Record failed")
 			return
 		}
-		respondErr(w, 200, "Attendance recorded")
+		respondOK(w, "Attendance recorded")
 	}
 }
 

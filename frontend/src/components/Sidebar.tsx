@@ -245,6 +245,7 @@ const SECTIONS: Section[] = [
           { label: 'Pentest Tracker',     to: '/compliance/pentest' },
           { label: 'Policy Documents',    to: '/compliance/policies' },
           { label: 'Credit Bureau',       to: '/compliance/credit-bureau' },
+          { label: 'Data Breaches',       to: '/compliance/breach-incidents' },
         ],
       },
     ],
@@ -297,7 +298,7 @@ const SECTIONS: Section[] = [
         ],
       },
       {
-        icon: 'core_banking', label: 'Core Banking', to: '/core-banking',
+        icon: 'account_balance', label: 'Core Banking', to: '/core-banking',
         vis: ['it_admin','finance_officer','finance_head'],
       },
     ],
@@ -510,6 +511,23 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
   const navigate = useNavigate()
 
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('o3c_sb') === '1')
+
+  // M4: Poll /api/health every 60 s to reflect actual MSSQL connection status.
+  const [mssqlStatus, setMssqlStatus] = useState<'online' | 'offline' | 'not_configured' | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    async function poll() {
+      try {
+        const token = localStorage.getItem('o3c_token')
+        const res = await fetch('/api/health', token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
+        const json = await res.json()
+        if (!cancelled) setMssqlStatus(json.mssql ?? 'not_configured')
+      } catch { if (!cancelled) setMssqlStatus('offline') }
+    }
+    poll()
+    const id = setInterval(poll, 60_000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [])
 
   const [openKey, setOpenKey] = useState<string | null>(() => {
     for (const s of SECTIONS) {
@@ -774,11 +792,11 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
           }}>
             <span style={{
               width: 6, height: 6, minWidth: 6, borderRadius: '50%',
-              background: '#2FB673',
-              boxShadow: '0 0 0 3px rgba(47,182,115,.2)',
+              background: mssqlStatus === 'online' ? '#2FB673' : mssqlStatus === 'offline' ? '#C00000' : '#888',
+              boxShadow: mssqlStatus === 'online' ? '0 0 0 3px rgba(47,182,115,.2)' : undefined,
               display: 'inline-block', flexShrink: 0,
             }} />
-            DB sync · live · recon OK
+            {mssqlStatus === 'online' ? 'MSSQL · live' : mssqlStatus === 'offline' ? 'MSSQL · offline' : mssqlStatus === 'not_configured' ? 'MSSQL · not configured' : 'MSSQL · checking…'}
           </div>
         )}
       </div>

@@ -12,7 +12,9 @@ import (
 	"io"
 	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -245,6 +247,12 @@ func updateUser(db *core.DB) http.HandlerFunc {
 			setCols["email"] = newEmail
 		}
 		if b.Role != nil {
+			// S1: Block self-role update — a user cannot change their own role.
+			caller := core.UserFromCtx(r.Context())
+			if caller != nil && fmt.Sprint(caller.ID) == id {
+				respondErr(w, 403, "Cannot change your own role")
+				return
+			}
 			// Last-admin guard: prevent downgrading the last admin account (C2).
 			if *b.Role != "admin" {
 				curUser, _ := db.PGQuery(r.Context(),
@@ -681,6 +689,11 @@ func logActivity(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "Invalid page name")
 			return
 		}
+		// M42: Length caps and HTML tag stripping on all user-controlled fields.
+		if len(b.Action) > 256 { b.Action = b.Action[:256] }
+		if len(b.Detail) > 2048 { b.Detail = b.Detail[:2048] }
+		b.Action = stripHTMLTags(b.Action)
+		b.Detail = stripHTMLTags(b.Detail)
 		user := core.UserFromCtx(r.Context())
 
 		// Rightmost X-Forwarded-For — Railway appends real IP last; leftmost is attacker-controlled.
@@ -702,7 +715,7 @@ func logActivity(db *core.DB) http.HandlerFunc {
 			uid = user.ID
 		}
 		db.PGExec(r.Context(), //nolint:errcheck
-			`INSERT INTO o3c_activity_log (user_id, page, action, detail, ip) VALUES ($1,$2,$3,$4,$5)`,
+			`INSERT INTO o3c_activity_log (user_id, page, action, detail, ip_address) VALUES ($1,$2,$3,$4,$5)`,
 			uid, b.Page, action, b.Detail, ip)
 		w.WriteHeader(204)
 	}
@@ -716,7 +729,7 @@ func getActivity(db *core.DB) http.HandlerFunc {
 		from   := r.URL.Query().Get("from")
 		to     := r.URL.Query().Get("to")
 
-		q := `SELECT a.id, a.page, a.action, a.detail, a.ip, a.ts,
+		q := `SELECT a.id, a.page, a.action, a.detail, a.ip_address AS ip, a.ts,
 		             u.full_name, u.email, u.role
 		      FROM o3c_activity_log a LEFT JOIN o3c_users u ON u.id=a.user_id WHERE 1=1`
 		var args []any
@@ -757,7 +770,7 @@ func exportActivityCSV(db *core.DB) http.HandlerFunc {
 		from   := r.URL.Query().Get("from")
 		to     := r.URL.Query().Get("to")
 
-		q := `SELECT a.ts, u.full_name, u.email, u.role, a.page, a.action, a.detail, a.ip
+		q := `SELECT a.ts, u.full_name, u.email, u.role, a.page, a.action, a.detail, a.ip_address AS ip
 		      FROM o3c_activity_log a LEFT JOIN o3c_users u ON u.id = a.user_id WHERE 1=1`
 		var args []any
 		if userID != "" {
@@ -872,6 +885,9 @@ func encryptValue(plaintext string) (string, error) {
 // decryptValue reverses encryptValue.
 func decryptValue(stored string) (string, error) {
 	if strings.HasPrefix(stored, "plain:") {
+		// M19: Legacy plain: values predate mandatory ENCRYPTION_KEY. Log a warning so
+		// they can be re-encrypted by saving the credential again via the UI.
+		slog.Warn("decryptValue: plain: legacy prefix found — re-save this credential to encrypt it")
 		b, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(stored, "plain:"))
 		if err != nil {
 			return "", err
@@ -1321,6 +1337,23 @@ func deleteIntegration(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// isPrivateIP returns true for RFC1918, loopback, and link-local addresses to
+// prevent SSRF attacks via the integration health-check ping endpoint.
+func isPrivateIP(ip net.IP) bool {
+	private := []string{
+		"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+		"127.0.0.0/8", "169.254.0.0/16",
+		"::1/128", "fc00::/7", "fe80::/10",
+	}
+	for _, cidr := range private {
+		_, block, _ := net.ParseCIDR(cidr)
+		if block != nil && block.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 func pingIntegration(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -1338,6 +1371,24 @@ func pingIntegration(db *core.DB) http.HandlerFunc {
 				`UPDATE vendor_integrations SET last_ping=NOW(), status='unknown', updated_at=NOW() WHERE id=$1`, id)
 			respond(w, map[string]any{"status": "unknown", "note": "no health_url configured"}, "pg")
 			return
+		}
+
+		// S9: SSRF guard — only allow HTTPS; block private/loopback/link-local IPs.
+		parsed, parseErr := url.Parse(healthURL)
+		if parseErr != nil || parsed.Scheme != "https" {
+			respondErr(w, 422, "health_url must be an HTTPS URL")
+			return
+		}
+		addrs, resolveErr := net.LookupHost(parsed.Hostname())
+		if resolveErr != nil || len(addrs) == 0 {
+			respondErr(w, 422, "health_url hostname does not resolve")
+			return
+		}
+		for _, addr := range addrs {
+			if ip := net.ParseIP(addr); ip != nil && isPrivateIP(ip) {
+				respondErr(w, 422, "health_url must not resolve to a private or loopback address")
+				return
+			}
 		}
 
 		// Ping with a short timeout

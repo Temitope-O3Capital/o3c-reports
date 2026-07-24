@@ -215,7 +215,7 @@ func recoveryOpsAssign(db *core.DB) http.HandlerFunc {
 			EntityRef: fmt.Sprintf("recovery_case:%d", id),
 		})
 
-		respondErr(w, 200, "Assigned successfully")
+		respondOK(w, "Assigned successfully")
 	}
 }
 
@@ -268,7 +268,9 @@ func recoveryOpsPayment(db *core.DB) http.HandlerFunc {
 
 		_, err = tx.ExecContext(ctx, `
 			UPDATE recovery_cases
-			SET total_recovered_kobo = total_recovered_kobo + $1, updated_at = NOW()
+			SET recovered_kobo = COALESCE(recovered_kobo, 0) + $1,
+			    total_recovered_kobo = COALESCE(total_recovered_kobo, 0) + $1,
+			    updated_at = NOW()
 			WHERE id = $2`,
 			b.AmountKobo, id)
 		if err != nil {
@@ -384,7 +386,7 @@ func recoveryOpsUpdateLegal(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Update failed")
 			return
 		}
-		respondErr(w, 200, "Legal proceeding updated")
+		respondOK(w, "Legal proceeding updated")
 	}
 }
 
@@ -623,7 +625,7 @@ func recoveryOpsApproveWriteOff(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		respondErr(w, 200, fmt.Sprintf("Write-off advanced to '%s'", prog.next))
+		respondOK(w, fmt.Sprintf("Write-off advanced to '%s'", prog.next))
 	}
 }
 
@@ -652,7 +654,7 @@ func recoveryOpsRejectWriteOff(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Reject failed")
 			return
 		}
-		respondErr(w, 200, "Write-off rejected")
+		respondOK(w, "Write-off rejected")
 	}
 }
 

@@ -1,24 +1,31 @@
 package handlers
 
-import "net/http"
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/o3c/reports/core"
+)
 
 // APIDocs serves Swagger UI pointing at /api/docs/spec.
+// Uses the per-request nonce (set by securityHeaders middleware) for inline
+// style and script tags to satisfy nonce-based CSP (M44).
 func APIDocs() http.HandlerFunc {
-	const html = `<!DOCTYPE html>
+	const tmpl = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>O3 Capital API Reference</title>
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css">
-  <style>
+  <style nonce="%s">
     body { margin: 0; }
     .topbar { display: none !important; }
   </style>
 </head>
 <body>
   <div id="swagger-ui"></div>
-  <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"></script>
-  <script>
+  <script nonce="%s" src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"></script>
+  <script nonce="%s">
     SwaggerUIBundle({
       url: "/api/docs/spec",
       dom_id: "#swagger-ui",
@@ -31,8 +38,9 @@ func APIDocs() http.HandlerFunc {
 </body>
 </html>`
 	return func(w http.ResponseWriter, r *http.Request) {
+		nonce := core.CSPNonceFromCtx(r.Context())
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(html)) //nolint:errcheck
+		fmt.Fprintf(w, tmpl, nonce, nonce, nonce) //nolint:errcheck
 	}
 }
 

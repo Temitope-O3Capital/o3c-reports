@@ -94,6 +94,11 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 	// DSAR assignment (H6)
 	r.With(all).Post("/data-subject-requests/{id}/assign", complianceDSARAssign(db))
 
+	// R4: Data breach incident management
+	r.With(all).Get("/breach-incidents",         complianceListBreachIncidents(db))
+	r.With(all).Post("/breach-incidents",        complianceCreateBreachIncident(db))
+	r.With(all).Patch("/breach-incidents/{id}", complianceUpdateBreachIncident(db))
+
 	// DSAR worker stats
 	r.With(all).Get("/dsar-stats", complianceDSARStats(db))
 
@@ -434,7 +439,7 @@ func complianceCBNSignOff(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Report not found")
 			return
 		}
-		respondErr(w, 200, "Report signed off")
+		respondOK(w, "Report signed off")
 	}
 }
 
@@ -456,7 +461,7 @@ func complianceCBNSubmit(db *core.DB) http.HandlerFunc {
 			respondErr(w, 409, "Report not found or not in signed_off status")
 			return
 		}
-		respondErr(w, 200, "Report submitted")
+		respondOK(w, "Report submitted")
 	}
 }
 
@@ -684,7 +689,7 @@ func complianceSAREscalate(db *core.DB) http.HandlerFunc {
 			VALUES ($1, $2, $3, $4, $5, NOW())`,
 			id, fromStatus, b.ToStatus, user.ID, b.Notes) //nolint:errcheck
 
-		respondErr(w, 200, "SAR escalated")
+		respondOK(w, "SAR escalated")
 	}
 }
 
@@ -820,7 +825,7 @@ func complianceWatchListDeactivate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Entry not found")
 			return
 		}
-		respondErr(w, 200, "Entry deactivated")
+		respondOK(w, "Entry deactivated")
 	}
 }
 
@@ -1065,7 +1070,7 @@ func complianceFindingClose(db *core.DB) http.HandlerFunc {
 			})
 		}
 
-		respondErr(w, 200, "Finding closed")
+		respondOK(w, "Finding closed")
 	}
 }
 
@@ -1191,7 +1196,7 @@ func complianceChecklistRespond(db *core.DB) http.HandlerFunc {
 				  )
 			  )`, id) //nolint:errcheck
 
-		respondErr(w, 200, "Responses saved")
+		respondOK(w, "Responses saved")
 	}
 }
 
@@ -1351,28 +1356,74 @@ func compliancePrudentialRatios(db *core.DB) http.HandlerFunc {
 func complianceCreditBureauExport(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		bureau := qstr(r, "bureau") // CRC or FirstCentral
+		if bureau == "" {
+			bureau = "CRC"
+		}
 		month := qstr(r, "month") // YYYY-MM format
 		if month == "" {
 			now := time.Now().UTC()
 			month = fmt.Sprintf("%d-%02d", now.Year(), int(now.Month()))
 		}
 
-		// Fetch active and closed loan accounts for bureau submission
+		// CRC/FirstCentral 40-field export spec (CBN Credit Risk Management guidelines).
+		// Monetary fields converted from kobo to Naira in the export.
 		rows, err := db.PGQuery(ctx, `
 			SELECT
-			  la.id,
+			  la.id                                                AS account_id,
 			  c.cif_number,
 			  c.full_name,
-			  c.bvn,
-			  la.loan_amount_kobo,
-			  la.outstanding_balance_kobo,
-			  la.days_past_due,
-			  la.status,
-			  la.created_at::date AS open_date,
-			  la.closed_at::date  AS close_date
+			  COALESCE(c.bvn, '')                                  AS bvn,
+			  COALESCE(c.nin, '')                                  AS nin,
+			  COALESCE(c.date_of_birth::text, '')                  AS date_of_birth,
+			  COALESCE(c.gender, '')                               AS gender,
+			  COALESCE(c.phone, '')                                AS phone,
+			  COALESCE(c.email, '')                                AS email,
+			  COALESCE(c.address, '')                              AS residential_address,
+			  COALESCE(c.state_of_origin, '')                      AS state,
+			  COALESCE(c.lga, '')                                  AS lga,
+			  COALESCE(c.nationality, 'Nigerian')                  AS nationality,
+			  COALESCE(c.employment_status, '')                    AS employment_status,
+			  COALESCE(c.employer_name, '')                        AS employer_name,
+			  COALESCE(c.employer_address, '')                     AS employer_address,
+			  COALESCE(c.monthly_income_kobo, 0) / 100.0           AS monthly_income,
+			  'NGN'                                                AS currency,
+			  CASE la.loan_type
+			    WHEN 'salary'   THEN 'Personal Loan'
+			    WHEN 'business' THEN 'Business Loan'
+			    ELSE 'Consumer Loan'
+			  END                                                  AS account_type,
+			  la.id                                                AS account_number,
+			  COALESCE(la.loan_amount_kobo, 0) / 100.0             AS credit_limit,
+			  COALESCE(la.loan_amount_kobo, 0) / 100.0             AS sanctioned_amount,
+			  COALESCE(la.outstanding_balance_kobo, 0) / 100.0     AS outstanding_balance,
+			  COALESCE(la.monthly_instalment_kobo, 0) / 100.0      AS instalment_amount,
+			  la.created_at::date                                  AS open_date,
+			  COALESCE(la.disbursed_at::date::text, '')            AS disbursement_date,
+			  COALESCE(la.maturity_date::text, '')                 AS maturity_date,
+			  COALESCE(la.next_payment_date::text, '')             AS next_payment_date,
+			  COALESCE(la.last_payment_date::text, '')             AS last_payment_date,
+			  COALESCE(la.last_payment_amount_kobo, 0) / 100.0     AS last_payment_amount,
+			  COALESCE(la.days_past_due, 0)                        AS days_past_due,
+			  COALESCE(la.missed_payments_count, 0)                AS missed_payments,
+			  CASE
+			    WHEN COALESCE(la.days_past_due, 0) = 0   THEN 'CURRENT'
+			    WHEN la.days_past_due BETWEEN 1  AND 30  THEN 'WATCHLIST'
+			    WHEN la.days_past_due BETWEEN 31 AND 90  THEN 'SUBSTANDARD'
+			    WHEN la.days_past_due BETWEEN 91 AND 180 THEN 'DOUBTFUL'
+			    ELSE 'LOST'
+			  END                                                  AS classification,
+			  COALESCE(la.loan_purpose, '')                        AS loan_purpose,
+			  COALESCE(la.collateral_type, '')                     AS collateral_type,
+			  COALESCE(la.collateral_value_kobo, 0) / 100.0        AS collateral_value,
+			  COALESCE(la.interest_rate, 0)                        AS interest_rate,
+			  COALESCE(la.tenor_months, 0)                         AS tenor_months,
+			  la.status                                            AS account_status,
+			  COALESCE(la.closed_at::date::text, '')               AS close_date,
+			  la.updated_at::date                                  AS report_date
 			FROM loan_accounts la
 			JOIN customers c ON c.cif_number = la.cif_number
-			WHERE la.status IN ('active','closed')
+			WHERE la.status IN ('active', 'closed', 'written_off')
 			ORDER BY la.id`)
 		if err != nil {
 			respondErr(w, 500, "Query failed"); return
@@ -1381,28 +1432,44 @@ func complianceCreditBureauExport(db *core.DB) http.HandlerFunc {
 			rows = []core.Row{}
 		}
 
-		fname := fmt.Sprintf("credit_bureau_%s.csv", month)
+		fname := fmt.Sprintf("credit_bureau_%s_%s.csv", bureau, month)
 		w.Header().Set("Content-Type", "text/csv")
 		w.Header().Set("Content-Disposition", `attachment; filename="`+fname+`"`)
 
 		enc := csv.NewWriter(w)
-		enc.Write([]string{ //nolint:errcheck
-			"AccountID", "CIFNumber", "FullName", "BVN",
-			"LoanAmountKobo", "OutstandingKobo", "DaysPastDue", "Status",
-			"OpenDate", "CloseDate",
+		_ = enc.Write([]string{
+			"AccountID", "CIFNumber", "FullName", "BVN", "NIN",
+			"DateOfBirth", "Gender", "Phone", "Email", "ResidentialAddress",
+			"State", "LGA", "Nationality", "EmploymentStatus", "EmployerName",
+			"EmployerAddress", "MonthlyIncome", "Currency", "AccountType", "AccountNumber",
+			"CreditLimit", "SanctionedAmount", "OutstandingBalance", "InstalmentAmount",
+			"OpenDate", "DisbursementDate", "MaturityDate", "NextPaymentDate", "LastPaymentDate",
+			"LastPaymentAmount", "DaysPastDue", "MissedPayments", "Classification",
+			"LoanPurpose", "CollateralType", "CollateralValue", "InterestRate", "TenorMonths",
+			"AccountStatus", "CloseDate", "ReportDate",
 		})
+		s := func(v any) string {
+			if v == nil {
+				return ""
+			}
+			return fmt.Sprint(v)
+		}
 		for _, row := range rows {
-			enc.Write([]string{ //nolint:errcheck
-				fmt.Sprint(row["id"]),
-				str(row["cif_number"]),
-				str(row["full_name"]),
-				str(row["bvn"]),
-				fmt.Sprint(row["loan_amount_kobo"]),
-				fmt.Sprint(row["outstanding_balance_kobo"]),
-				fmt.Sprint(row["days_past_due"]),
-				str(row["status"]),
-				func(v any) string { if v == nil { return "" }; return fmt.Sprint(v) }(row["open_date"]),
-				func(v any) string { if v == nil { return "" }; return fmt.Sprint(v) }(row["close_date"]),
+			_ = enc.Write([]string{
+				s(row["account_id"]), s(row["cif_number"]), s(row["full_name"]),
+				s(row["bvn"]), s(row["nin"]), s(row["date_of_birth"]),
+				s(row["gender"]), s(row["phone"]), s(row["email"]),
+				s(row["residential_address"]), s(row["state"]), s(row["lga"]),
+				s(row["nationality"]), s(row["employment_status"]), s(row["employer_name"]),
+				s(row["employer_address"]), s(row["monthly_income"]), s(row["currency"]),
+				s(row["account_type"]), s(row["account_number"]), s(row["credit_limit"]),
+				s(row["sanctioned_amount"]), s(row["outstanding_balance"]), s(row["instalment_amount"]),
+				s(row["open_date"]), s(row["disbursement_date"]), s(row["maturity_date"]),
+				s(row["next_payment_date"]), s(row["last_payment_date"]), s(row["last_payment_amount"]),
+				s(row["days_past_due"]), s(row["missed_payments"]), s(row["classification"]),
+				s(row["loan_purpose"]), s(row["collateral_type"]), s(row["collateral_value"]),
+				s(row["interest_rate"]), s(row["tenor_months"]), s(row["account_status"]),
+				s(row["close_date"]), s(row["report_date"]),
 			})
 		}
 		enc.Flush()
@@ -1910,6 +1977,27 @@ func runNDPRErasure(db *core.DB) {
 					WHERE entity_id = $1 AND entity_type = 'customer'`, cif); err != nil {
 					slog.Warn("ndpr_erasure: audit_logs warning", "dsar_id", id, "cif", cif, "error", err)
 				}
+				// R3: helpdesk_tickets — anonymise subject and customer PII fields.
+				if _, err := tx.ExecContext(ctx, `
+					UPDATE helpdesk_tickets
+					SET subject        = '[ERASED]',
+					    customer_name  = '[ERASED]',
+					    customer_email = NULL,
+					    customer_phone = NULL
+					WHERE customer_cif = $1`, cif); err != nil {
+					slog.Warn("ndpr_erasure: helpdesk_tickets warning", "dsar_id", id, "cif", cif, "error", err)
+				}
+				// R3: campaign_contacts — anonymise PII; cif_number becomes the lookup key.
+				if _, err := tx.ExecContext(ctx, `
+					UPDATE campaign_contacts
+					SET first_name = '[ERASED]',
+					    last_name  = '[ERASED]',
+					    phone      = NULL,
+					    email      = NULL,
+					    merge_data = NULL
+					WHERE cif_number = $1`, cif); err != nil {
+					slog.Warn("ndpr_erasure: campaign_contacts warning", "dsar_id", id, "cif", cif, "error", err)
+				}
 				return nil
 			}()
 
@@ -2143,7 +2231,123 @@ func complianceKYCExpiryAction(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "KYC record not found for CIF "+cif)
 			return
 		}
-		respondErr(w, 200, "KYC action applied: "+b.Action)
+		respondOK(w, "KYC action applied: "+b.Action)
+	}
+}
+
+// ── R4: Data Breach Incident Management ──────────────────────────────────────
+
+func complianceListBreachIncidents(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT i.*,
+			       u.full_name  AS reported_by_name,
+			       au.full_name AS assigned_name
+			FROM data_breach_incidents i
+			LEFT JOIN o3c_users u  ON u.id = i.reported_by
+			LEFT JOIN o3c_users au ON au.id = i.assigned_to
+			ORDER BY i.discovered_at DESC
+			LIMIT 200`)
+		if err != nil {
+			respondErr(w, 500, "Query failed"); return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "")
+	}
+}
+
+func complianceCreateBreachIncident(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			Title            string   `json:"title"`
+			Description      string   `json:"description"`
+			DiscoveredAt     string   `json:"discovered_at"`
+			AffectedRecords  *int     `json:"affected_records"`
+			DataCategories   []string `json:"data_categories"`
+			BreachType       string   `json:"breach_type"`
+			Severity         string   `json:"severity"`
+			AssignedTo       *int64   `json:"assigned_to"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		if b.Title == "" {
+			respondErr(w, 422, "title is required"); return
+		}
+		user := core.UserFromCtx(r.Context())
+		if b.BreachType == "" {
+			b.BreachType = "unauthorized_access"
+		}
+		if b.Severity == "" {
+			b.Severity = "medium"
+		}
+		discoveredAt := b.DiscoveredAt
+		if discoveredAt == "" {
+			discoveredAt = time.Now().UTC().Format(time.RFC3339)
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO data_breach_incidents
+			  (title, description, discovered_at, affected_records, data_categories,
+			   breach_type, severity, reported_by, assigned_to)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			RETURNING *`,
+			b.Title, b.Description, discoveredAt, b.AffectedRecords, b.DataCategories,
+			b.BreachType, b.Severity, user.ID, b.AssignedTo)
+		if err != nil {
+			respondErr(w, 500, "Create failed"); return
+		}
+		// Fire EvtBreach notification to compliance head.
+		go NotifyRole(r.Context(), db, "head_compliance", NotifPayload{
+			EventType: "data_breach",
+			Title:     fmt.Sprintf("Data Breach Incident Reported: %s", b.Title),
+			Body:      fmt.Sprintf("A data breach incident has been reported. NDPC must be notified within 72 hours. Severity: %s", b.Severity),
+		})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+func complianceUpdateBreachIncident(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var b struct {
+			Status             string   `json:"status"`
+			ContainmentSteps   string   `json:"containment_steps"`
+			RemediationSteps   string   `json:"remediation_steps"`
+			NDPCNotified       *bool    `json:"ndpc_notified"`
+			NDPCRefNumber      string   `json:"ndpc_ref_number"`
+			AssignedTo         *int64   `json:"assigned_to"`
+			AffectedRecords    *int     `json:"affected_records"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		sets := []string{"updated_at=NOW()"}
+		args := []any{}
+		n := 1
+		add := func(col string, val any) { sets = append(sets, fmt.Sprintf("%s=$%d", col, n)); args = append(args, val); n++ }
+		if b.Status != "" { add("status", b.Status) }
+		if b.ContainmentSteps != "" { add("containment_steps", b.ContainmentSteps) }
+		if b.RemediationSteps != "" { add("remediation_steps", b.RemediationSteps) }
+		if b.NDPCNotified != nil && *b.NDPCNotified {
+			add("ndpc_notified", true)
+			add("ndpc_notified_at", time.Now().UTC())
+		}
+		if b.NDPCRefNumber != "" { add("ndpc_ref_number", b.NDPCRefNumber) }
+		if b.AssignedTo != nil { add("assigned_to", *b.AssignedTo) }
+		if b.AffectedRecords != nil { add("affected_records", *b.AffectedRecords) }
+		if b.Status == "closed" { add("closed_at", time.Now().UTC()) }
+		args = append(args, id)
+		rows, err := db.PGQuery(r.Context(),
+			fmt.Sprintf("UPDATE data_breach_incidents SET %s WHERE id=$%d RETURNING *",
+				strings.Join(sets, ","), n), args...)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Incident not found"); return
+		}
+		respond(w, rows[0], "")
 	}
 }
 

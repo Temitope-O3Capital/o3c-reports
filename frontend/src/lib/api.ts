@@ -142,6 +142,10 @@ export async function apiPut<T = any>(path: string, body: unknown): Promise<T> {
   return apiFetch<T>(path, { method: 'PUT', body: JSON.stringify(body) })
 }
 
+export async function apiPatch<T = any>(path: string, body: unknown): Promise<T> {
+  return apiFetch<T>(path, { method: 'PATCH', body: JSON.stringify(body) })
+}
+
 export async function apiDelete(path: string): Promise<void> {
   await apiFetch(path, { method: 'DELETE' })
 }

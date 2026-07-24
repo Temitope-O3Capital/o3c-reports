@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter, ConfirmModal } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtDatetime, monthStart, today } from '../../lib/fmt'
@@ -160,7 +160,7 @@ function InviteModal({ onClose, onSaved }: {
           <div>
             <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Email Address *</div>
             <input type="email" value={form.email} onChange={e => field('email', e.target.value)}
-              placeholder="staff@o3cards.com"
+              placeholder="name@company.com"
               style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
             />
           </div>
@@ -392,6 +392,7 @@ export default function AdminUsers() {
   const [selected,  setSelected]  = useState<Set<string | number>>(new Set())
   const [filterOpen, setFilterOpen] = useState(false)
   const [page, setPage] = useState(1)
+  const [deactivateOpen, setDeactivateOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -432,14 +433,12 @@ export default function AdminUsers() {
   const activeFilterCount = (roleFilter ? 1 : 0) + (statusFilter ? 1 : 0) + (deptFilter ? 1 : 0)
 
   async function batchDeactivate() {
-    if (!confirm(`Deactivate ${selected.size} user(s)?`)) return
     try {
       await Promise.all([...selected].map(id =>
         apiFetch(`/api/admin/users/${id}/deactivate`, { method: 'PATCH' })
       ))
       toast.success(`${selected.size} users deactivated`)
-      setSelected(new Set())
-      load()
+      setSelected(new Set()); setDeactivateOpen(false); load()
     } catch (e: any) {
       toast.error(e.message)
     }
@@ -551,7 +550,7 @@ export default function AdminUsers() {
         {selected.size > 0 && (
           <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--bdr)', background: '#F0F4FF', display: 'flex', gap: SP[2], alignItems: 'center' }}>
             <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: NAVY }}>{selected.size} selected</span>
-            <button onClick={batchDeactivate} style={{ padding: '5px 14px', borderRadius: 7, border: 'none', background: 'rgba(192,0,0,.1)', color: RED, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <button onClick={() => setDeactivateOpen(true)} style={{ padding: '5px 14px', borderRadius: 7, border: 'none', background: 'rgba(192,0,0,.1)', color: RED, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
               Deactivate
             </button>
             <button onClick={() => setSelected(new Set())} style={{ padding: '5px 10px', borderRadius: 7, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.sm, cursor: 'pointer' }}>
@@ -637,6 +636,15 @@ export default function AdminUsers() {
           onSaved={load}
         />
       )}
+      <ConfirmModal
+        open={deactivateOpen}
+        title={`Deactivate ${selected.size} user${selected.size !== 1 ? 's' : ''}?`}
+        body="Deactivated users lose access immediately and cannot log in until reactivated."
+        confirmLabel="Deactivate"
+        danger
+        onConfirm={batchDeactivate}
+        onClose={() => setDeactivateOpen(false)}
+      />
     </Page>
   )
 }

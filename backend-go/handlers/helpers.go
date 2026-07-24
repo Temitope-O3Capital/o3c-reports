@@ -20,8 +20,54 @@ import (
 	"github.com/o3c/reports/core"
 )
 
-var dateRE   = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
-var periodRE = regexp.MustCompile(`^\d{4}-\d{2}$`)
+var dateRE      = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+var periodRE    = regexp.MustCompile(`^\d{4}-\d{2}$`)
+var htmlTagRE   = regexp.MustCompile(`<[^>]*>`)
+
+// stripHTMLTags removes HTML/XML tags from s to prevent stored-XSS in log fields.
+func stripHTMLTags(s string) string { return htmlTagRE.ReplaceAllString(s, "") }
+
+var (
+	pwUpperRE   = regexp.MustCompile(`[A-Z]`)
+	pwDigitRE   = regexp.MustCompile(`[0-9]`)
+	pwSpecialRE = regexp.MustCompile(`[^A-Za-z0-9]`)
+)
+
+// validatePasswordComplexity returns an error message if pw does not meet the policy
+// (min 12 chars, at least one uppercase, one digit, one special character).
+// Returns "" if the password is valid.
+func validatePasswordComplexity(pw string) string {
+	if len(pw) < 12 {
+		return "Password must be at least 12 characters"
+	}
+	if !pwUpperRE.MatchString(pw) {
+		return "Password must contain at least one uppercase letter"
+	}
+	if !pwDigitRE.MatchString(pw) {
+		return "Password must contain at least one digit"
+	}
+	if !pwSpecialRE.MatchString(pw) {
+		return "Password must contain at least one special character"
+	}
+	return ""
+}
+
+// A10: Standardised machine-readable error codes for API consumers.
+// Use in respondErr(w, code, ErrXxx) for documented error conditions.
+const (
+	ErrNotFound          = "RESOURCE_NOT_FOUND"
+	ErrUnauthorized      = "UNAUTHORIZED"
+	ErrForbidden         = "FORBIDDEN"
+	ErrBadRequest        = "BAD_REQUEST"
+	ErrValidation        = "VALIDATION_FAILED"
+	ErrConflict          = "CONFLICT"
+	ErrInternal          = "INTERNAL_ERROR"
+	ErrInsufficientFunds = "INSUFFICIENT_FUNDS"
+	ErrDuplicate         = "DUPLICATE_RECORD"
+	ErrSessionExpired    = "SESSION_EXPIRED"
+	ErrRateLimited       = "RATE_LIMITED"
+	ErrIdempotencyReplay = "IDEMPOTENCY_KEY_REPLAYED"
+)
 
 // nullStr returns a *string pointer for s, or nil if s is empty (stores as SQL NULL).
 func nullStr(s string) *string {
@@ -72,11 +118,93 @@ func respondPaginated(w http.ResponseWriter, data any, total any, source string)
 	})
 }
 
-// respondErr writes a {detail} JSON error.
+// respondErr writes a {detail, error_code} JSON error (A10).
 func respondErr(w http.ResponseWriter, code int, msg string) {
+	// S11: Strip internal error details from 5xx responses so DB errors, stack
+	// traces, and internal paths are never sent to the client. Log at ERROR level
+	// so the detail is still available in Railway logs.
+	clientMsg := msg
+	errorCode := msg
+	if code >= 500 {
+		slog.Error("internal error", "status", code, "detail", msg)
+		clientMsg = "Internal server error"
+		errorCode = ErrInternal
+	} else if code == 404 {
+		errorCode = ErrNotFound
+	} else if code == 403 {
+		errorCode = ErrForbidden
+	} else if code == 401 {
+		errorCode = ErrUnauthorized
+	} else if code == 409 {
+		errorCode = ErrConflict
+	} else if code == 429 {
+		errorCode = ErrRateLimited
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"detail": msg}) //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+		"detail":     clientMsg,
+		"error_code": errorCode,
+	})
+}
+
+// checkIdempotency checks the Idempotency-Key header against the idempotency_keys table.
+// Returns (cached_body, cached_status, true) if a replay is found, or ("", 0, false) if new.
+// On a new key, it inserts a pending row; the caller must call finaliseIdempotency once done.
+func checkIdempotency(ctx context.Context, db *core.DB, w http.ResponseWriter, r *http.Request, operation string) (string, int, bool) {
+	key := r.Header.Get("Idempotency-Key")
+	if key == "" {
+		return "", 0, false
+	}
+	userID := int64(0)
+	if u := core.UserFromCtx(ctx); u != nil {
+		userID = u.ID
+	}
+	rows, err := db.PGQuery(ctx,
+		`SELECT response_status, response_body FROM idempotency_keys
+		 WHERE idempotency_key=$1 AND user_id=$2 AND operation=$3`,
+		key, userID, operation)
+	if err == nil && len(rows) > 0 {
+		status, _ := rows[0]["response_status"].(int64)
+		body, _ := rows[0]["response_body"].(string)
+		if status > 0 && body != "" {
+			w.Header().Set("Idempotency-Replayed", "true")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(int(status))
+			w.Write([]byte(body)) //nolint:errcheck
+			return body, int(status), true
+		}
+	}
+	// Register new key (pending — no response yet).
+	db.PGExec(ctx, //nolint:errcheck
+		`INSERT INTO idempotency_keys (idempotency_key, user_id, operation, created_at)
+		 VALUES ($1, $2, $3, NOW())
+		 ON CONFLICT (idempotency_key, user_id, operation) DO NOTHING`,
+		key, userID, operation)
+	return "", 0, false
+}
+
+// finaliseIdempotency stores the response body and status for future replays.
+func finaliseIdempotency(ctx context.Context, db *core.DB, r *http.Request, operation string, status int, body string) {
+	key := r.Header.Get("Idempotency-Key")
+	if key == "" {
+		return
+	}
+	userID := int64(0)
+	if u := core.UserFromCtx(ctx); u != nil {
+		userID = u.ID
+	}
+	db.PGExec(ctx, //nolint:errcheck
+		`UPDATE idempotency_keys SET response_status=$1, response_body=$2, completed_at=NOW()
+		 WHERE idempotency_key=$3 AND user_id=$4 AND operation=$5`,
+		status, body, key, userID, operation)
+}
+
+// respondOK writes a {"message": msg} JSON body with HTTP 200.
+// Use for action-confirmation responses (approve, assign, etc.) instead of respondErr(w, 200, ...).
+func respondOK(w http.ResponseWriter, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": msg}) //nolint:errcheck
 }
 
 // qstr reads a query parameter string (empty string if absent).

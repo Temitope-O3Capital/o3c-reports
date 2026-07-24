@@ -14,7 +14,7 @@ export default defineConfig({
     setupFiles: ['./src/test-setup.ts'],
   },
   build: {
-    sourcemap: true,
+    sourcemap: 'hidden',
     rollupOptions: {
       output: {
         manualChunks(id) {

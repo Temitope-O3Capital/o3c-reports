@@ -43,13 +43,15 @@ export function fmtNum(n: unknown): string {
   const x = Number(n)
   if (x >= 1_000_000) return (x / 1_000_000).toFixed(1) + 'M'
   if (x >= 1_000)     return (x / 1_000).toFixed(1) + 'K'
-  return x.toLocaleString()
+  return x.toLocaleString('en-NG')
 }
 
 export function fmtDate(s: string | null | undefined, opts?: Intl.DateTimeFormatOptions): string {
   if (!s) return '—'
   try {
-    const d = new Date(s.includes('T') ? s : s + 'T00:00:00Z')
+    // Date-only strings (YYYY-MM-DD) are parsed as local midnight to avoid
+    // UTC-to-local conversion shifting the date backward in west-of-UTC zones.
+    const d = s.includes('T') ? new Date(s) : new Date(s.replace(/-/g, '/'))
     return d.toLocaleDateString('en-GB', opts ?? { day: '2-digit', month: 'short', year: 'numeric' })
   } catch { return s }
 }

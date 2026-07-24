@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -72,14 +75,11 @@ func main() {
 		slog.Warn("Udara360 CBS not configured — /api/cbs/* endpoints will return 503 until UDARA360_CLIENT_ID, UDARA360_CLIENT_SECRET, and UDARA360_BASE_URL are set")
 	}
 
-	// Shutdown context — cancelled on SIGTERM/SIGINT so the batch loop exits cleanly.
+	// M28: Single signal handler coordinates both batch-loop shutdown and HTTP server shutdown.
+	// shutdownSig is captured by the goroutine registered before ListenAndServe.
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	go func() {
-		quit := make(chan os.Signal, 1)
-		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-		<-quit
-		shutdownCancel()
-	}()
+	shutdownSig := make(chan os.Signal, 1)
+	signal.Notify(shutdownSig, syscall.SIGINT, syscall.SIGTERM)
 	handlers.RunBatchNightly(shutdownCtx, db)
 
 	// Resume any campaigns that were mid-dispatch when the pod last restarted.
@@ -107,6 +107,48 @@ func main() {
 
 	// Zoho Voice — import call logs every hour so the Calls page stays current.
 	go handlers.StartZohoAutoSync(db)
+
+	// D8: MSSQL tunnel health monitor — pings every 60s, notifies IT Admin + CTO on failure.
+	if db.MS != nil {
+		go func() {
+			ticker := time.NewTicker(60 * time.Second)
+			defer ticker.Stop()
+			wasDown := false
+			for range ticker.C {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				err := db.MS.PingContext(ctx)
+				cancel()
+				if err != nil {
+					if !wasDown {
+						slog.Error("MSSQL tunnel health check failed", "err", err)
+						handlers.NotifyRoles(context.Background(), db, []string{"it_admin", "cto"}, handlers.NotifPayload{
+							EventType: handlers.EvtSystemAlert,
+							Title:     "MSSQL Tunnel Offline",
+							Body:      "The on-site MSSQL connection has been unreachable for 60s. Card data may be unavailable.",
+							ActionURL: "/admin/integrations",
+						})
+					}
+					wasDown = true
+				} else {
+					wasDown = false
+				}
+			}
+		}()
+	}
+
+	// DB14: TTL enforcement — nightly cleanup of expired short-lived rows.
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			ctx := context.Background()
+			db.PGExec(ctx, `DELETE FROM sse_tokens WHERE expires_at < NOW()`)               //nolint:errcheck
+			db.PGExec(ctx, `DELETE FROM token_denylists WHERE expires_at < NOW()`)          //nolint:errcheck
+			db.PGExec(ctx, `DELETE FROM voice_oauth_states WHERE expires_at < NOW()`)       //nolint:errcheck
+			db.PGExec(ctx, `DELETE FROM user_sessions WHERE created_at < NOW() - INTERVAL '90 days'`) //nolint:errcheck
+			db.PGExec(ctx, `DELETE FROM idempotency_keys WHERE expires_at < NOW()`)         //nolint:errcheck
+		}
+	}()
 
 	// Activity log worker pool — 3 goroutines drain a 1000-entry buffered channel.
 	activityCh := make(chan activityLogEntry, 1000)
@@ -136,22 +178,49 @@ func main() {
 
 	// ── Public endpoints ───────────────────────────────────────────────────────
 	r.Get("/api/health", healthHandler(db))
-	r.Get("/metrics", handlers.MetricsHandler().ServeHTTP) // Prometheus scrape endpoint
+	// S3: Gate /metrics with a static bearer token from METRICS_TOKEN env var.
+	// If METRICS_TOKEN is unset in production (RAILWAY_ENVIRONMENT set), requests are denied.
+	r.Get("/metrics", func(w http.ResponseWriter, req *http.Request) {
+		tok := os.Getenv("METRICS_TOKEN")
+		isProduction := os.Getenv("RAILWAY_ENVIRONMENT") != ""
+		if tok == "" && isProduction {
+			http.Error(w, `{"error":"metrics endpoint requires METRICS_TOKEN in production"}`, http.StatusForbidden)
+			return
+		}
+		if tok != "" {
+			auth := req.Header.Get("Authorization")
+			expected := "Bearer " + tok
+			if subtle.ConstantTimeCompare([]byte(auth), []byte(expected)) != 1 {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+		}
+		handlers.MetricsHandler().ServeHTTP(w, req)
+	})
 
-	// P9-07: OpenAPI developer reference (no auth — internal developer tool)
-	r.Get("/api/docs", handlers.APIDocs())
-	r.Get("/api/docs/spec", handlers.APISpec())
+	// A7: OpenAPI reference restricted to authenticated admin users.
+	r.Group(func(r chi.Router) {
+		r.Use(core.AuthMiddleware)
+		r.Use(core.RequirePages("admin"))
+		r.Get("/api/docs", handlers.APIDocs())
+		r.Get("/api/docs/spec", handlers.APISpec())
+	})
 
 	// Mount auth routes (token is public, me/change-password require auth)
 	r.Route("/api/auth", func(r chi.Router) {
 		r.With(httprate.Limit(5, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
 			return rightmostIP(r), nil
 		}))).Post("/token", loginPublic(db))
-		r.Post("/bootstrap", handlers.BootstrapHandler(db))
+		r.With(httprate.Limit(10, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
+			return rightmostIP(r), nil
+		}))).Post("/bootstrap", handlers.BootstrapHandler(db))
 		r.With(httprate.Limit(5, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
 			return rightmostIP(r), nil
 		}))).Post("/register", handlers.RegisterHandler(db))
-		r.Post("/refresh", RefreshPublic(db))
+		r.With(httprate.Limit(10, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
+			return rightmostIP(r), nil
+		}))).Post("/refresh", RefreshPublic(db))
 		r.With(httprate.Limit(5, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
 			return rightmostIP(r), nil
 		}))).Post("/forgot-password", handlers.ForgotPasswordHandler(db))
@@ -212,7 +281,7 @@ func main() {
 	// Zoho Voice routes (call initiation, voice log import)
 	r.Route("/api/zoho", func(r chi.Router) {
 		// Admin-secret protected import routes (no JWT needed)
-		handlers.RegisterZohoAdmin(r, db, cfg.ResetAdminSecret)
+		handlers.RegisterZohoAdmin(r, db, cfg.ZohoImportSecret)
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
 			r.Use(activityLogger(activityCh))
@@ -489,12 +558,11 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	// Graceful shutdown
+	// Graceful shutdown — single goroutine handles signal, cancels batch loop, then drains HTTP.
 	go func() {
-		quit := make(chan os.Signal, 1)
-		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-		<-quit
+		<-shutdownSig
 		slog.Info("Shutting down...")
+		shutdownCancel()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		srv.Shutdown(ctx) //nolint:errcheck
@@ -569,11 +637,19 @@ func activityLogger(ch chan<- activityLogEntry) func(http.Handler) http.Handler 
 					break
 				}
 			}
+			entry := activityLogEntry{userID: user.ID, page: page, action: action, ip: ip, resource: path, method: r.Method}
 			select {
-			case ch <- activityLogEntry{userID: user.ID, page: page, action: action, ip: ip, resource: path, method: r.Method}:
+			case ch <- entry:
 			default:
-				// Channel full — drop log entry rather than blocking the request handler.
-				slog.Warn("activity log channel full; dropping entry", "path", path)
+				// Channel momentarily full — retry in background so the request handler
+				// is not blocked. Drop only after 5 s of sustained overload (M18).
+				go func() {
+					select {
+					case ch <- entry:
+					case <-time.After(5 * time.Second):
+						slog.Warn("activity log channel full; entry dropped after 5s", "path", path)
+					}
+				}()
 			}
 		})
 	}
@@ -593,7 +669,7 @@ func corsMiddleware(allowed []string) func(http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-CSRF-Token")
+				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-CSRF-Token, Idempotency-Key, X-Request-ID")
 				w.Header().Set("Vary", "Origin")
 			}
 			if r.Method == http.MethodOptions {
@@ -623,18 +699,28 @@ func apiVersionRewrite(next http.Handler) http.Handler {
 
 // ── Security headers ──────────────────────────────────────────────────────────
 
+// securityHeaders sets standard security response headers.
+// A per-request nonce is generated for CSP so inline scripts/styles on served
+// HTML pages (e.g. /api/docs) can use 'nonce-{n}' instead of 'unsafe-inline' (M44).
+// The nonce is stored in context so HTML handlers can embed it.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var raw [16]byte
+		rand.Read(raw[:]) //nolint:errcheck
+		nonce := base64.StdEncoding.EncodeToString(raw[:])
+		r = r.WithContext(core.WithCSPNonce(r.Context(), nonce))
+
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'none'; "+
-				"script-src 'self'; "+
+				"script-src 'nonce-"+nonce+"' https://unpkg.com; "+
 				"connect-src 'self'; "+
 				"img-src 'self' data:; "+
-				"style-src 'self' 'unsafe-inline'; "+
+				"style-src 'nonce-"+nonce+"' https://unpkg.com; "+
 				"font-src 'self' data:; "+
 				"frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
@@ -653,10 +739,30 @@ func bodySizeLimit(maxBytes int64) func(http.Handler) http.Handler {
 
 // ── Health ─────────────────────────────────────────────────────────────────────
 
-func healthHandler(_ *core.DB) http.HandlerFunc {
+func healthHandler(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// D2: Verify DB reachability on every health check — return 503 if the
+		// DB ping fails so load balancers and Railway can detect an unhealthy pod.
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := db.PG.PingContext(ctx); err != nil {
+			slog.Error("health check: DB ping failed", "err", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{"status": "error", "detail": "database unreachable"}) //nolint:errcheck
+			return
+		}
+		// M4: Report MSSQL live status so the Sidebar can show a real indicator.
+		mssqlStatus := "not_configured"
+		if db.MS != nil {
+			if err := db.MS.PingContext(ctx); err != nil {
+				mssqlStatus = "offline"
+			} else {
+				mssqlStatus = "online"
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "mssql": mssqlStatus}) //nolint:errcheck
 	}
 }
 

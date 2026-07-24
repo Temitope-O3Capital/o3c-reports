@@ -275,7 +275,7 @@ function Step4() {
   return (
     <div>
       <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', marginBottom: SP[5], lineHeight: 1.6 }}>
-        Upload the required documents below. Document upload will be fully enabled in the next release — slots are shown for tracking purposes.
+        Upload the required documents below. Accepted formats: PDF, JPG, PNG (max 10 MB each).
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {DOC_SLOTS.map(slot => (

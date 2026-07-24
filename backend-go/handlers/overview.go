@@ -57,7 +57,7 @@ func overviewKPIs(db *core.DB) http.HandlerFunc {
 			SELECT
 				COALESCE(SUM(
 					CASE WHEN stage = 'active'
-					     AND DATE_TRUNC('month', updated_at) = DATE_TRUNC('month', NOW())
+					     AND DATE_TRUNC('month', disbursed_at) = DATE_TRUNC('month', NOW())
 					THEN amount_approved_kobo END
 				), 0) AS disbursements_mtd_kobo,
 				COUNT(CASE WHEN stage = 'active' THEN 1 END) AS active_customers
@@ -89,7 +89,7 @@ func overviewMonthlyVolume(db *core.DB) http.HandlerFunc {
 			FROM months m
 			LEFT JOIN loan_applications la
 				ON la.stage = 'active'
-				AND DATE_TRUNC('month', la.updated_at) = m.m
+				AND DATE_TRUNC('month', la.disbursed_at) = m.m
 			GROUP BY m.m
 			ORDER BY m.m`)
 		if err != nil {
@@ -198,7 +198,7 @@ func overviewTopPerformers(db *core.DB) http.HandlerFunc {
 			FROM loan_applications la
 			JOIN o3c_users u ON u.id = la.sales_officer_id
 			WHERE la.stage = 'active'
-			  AND DATE_TRUNC('month', la.updated_at) = DATE_TRUNC('month', NOW())
+			  AND DATE_TRUNC('month', la.disbursed_at) = DATE_TRUNC('month', NOW())
 			GROUP BY u.id, u.full_name, u.role
 			ORDER BY amount_kobo DESC
 			LIMIT 10`)

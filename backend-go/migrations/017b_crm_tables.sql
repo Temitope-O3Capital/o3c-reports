@@ -1,4 +1,4 @@
--- Migration 017b: CRM base tables
+-- Migration 017b: CRM base tables  [Bridge migration]
 -- CREATE TABLE IF NOT EXISTS throughout — idempotent on existing schema.
 -- Sorts before 018_task_comments.sql, so on an existing DB this is seeded as
 -- applied (without running); on a fresh DB it runs first and creates the tables

@@ -46,6 +46,19 @@ func UserFromCtx(ctx context.Context) *Claims {
 	return c
 }
 
+type ctxKeyNonce struct{}
+
+// WithCSPNonce stores a CSP nonce in ctx for use by HTML handlers.
+func WithCSPNonce(ctx context.Context, nonce string) context.Context {
+	return context.WithValue(ctx, ctxKeyNonce{}, nonce)
+}
+
+// CSPNonceFromCtx retrieves the CSP nonce from ctx (empty string if not set).
+func CSPNonceFromCtx(ctx context.Context) string {
+	s, _ := ctx.Value(ctxKeyNonce{}).(string)
+	return s
+}
+
 // HasPage reports whether the user has been granted the given page permission,
 // either via their role's built-in page list or their per-user page overrides.
 func (c *Claims) HasPage(page string) bool {
@@ -223,6 +236,21 @@ func HashPassword(pw string) (string, error) {
 
 func CheckPassword(plain, hashed string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hashed), []byte(plain)) == nil
+}
+
+// DummyHashCheck runs a bcrypt comparison against a pre-generated dummy hash so
+// that callers can equalise timing when the requested email address does not exist.
+// Without this the absence of a bcrypt call leaks whether an email is registered.
+var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("dummy-password-for-timing-eq"), 12)
+
+func DummyHashCheck(password string) {
+	bcrypt.CompareHashAndPassword(dummyHash, []byte(password)) //nolint:errcheck
+}
+
+// IsTokenRevoked is the public wrapper around isTokenRevoked used by the
+// refresh handler to validate refresh tokens against the denylist.
+func IsTokenRevoked(ctx context.Context, jti string) bool {
+	return isTokenRevoked(ctx, jti)
 }
 
 // AuthMiddleware validates the Bearer token (or o3c_token HttpOnly cookie as fallback)

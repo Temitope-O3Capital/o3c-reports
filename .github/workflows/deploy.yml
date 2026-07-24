@@ -18,9 +18,22 @@ on:
     branches: [main]
 
 jobs:
+  # ── D5: Secret scanning — must run before anything else ─────────────────────
+  secret-scan:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so gitleaks can scan all commits in the push
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # ── Quality gate — must pass before any deploy ───────────────────────────────
   test:
     name: Test & Type-check
+    needs: [secret-scan]
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -104,3 +117,20 @@ jobs:
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           command: pages deploy dist --project-name o3c-workspace
           workingDirectory: frontend
+
+  # ── D1: Backend → Railway ────────────────────────────────────────────────────
+  deploy-backend:
+    name: Backend (Railway)
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy backend to Railway
+        run: railway redeploy --from-source --yes
+        working-directory: backend-go
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

@@ -53,7 +53,7 @@ const BLANK: Partial<Employee> = {
 }
 
 export default function Employees() {
-  const storedUser = localStorage.getItem('auth_user')
+  const storedUser = localStorage.getItem('o3c_user')
   const userRole = storedUser ? (JSON.parse(storedUser) as AuthUser).role : ''
   const canManage = ['hr_manager', 'head_hr', 'admin', 'coo'].includes(userRole)
 
@@ -75,6 +75,8 @@ export default function Employees() {
   const [saving, setSaving]           = useState(false)
 
   const [sel, setSel] = useState<Set<string | number>>(new Set())
+  const [deactivateOpen, setDeactivateOpen] = useState(false)
+  const [deactivating, setDeactivating]     = useState(false)
 
   const [detail, setDetail]           = useState<Employee | null>(null)
   const [detailTab, setDetailTab]     = useState('personal')
@@ -127,6 +129,18 @@ export default function Employees() {
       setAddOpen(false); setForm(BLANK); load()
     } catch (e: any) { toast.error(e.message) }
     finally { setSaving(false) }
+  }
+
+  async function handleDeactivate() {
+    setDeactivating(true)
+    try {
+      await apiPost('/api/hr/employees/deactivate', { employee_ids: Array.from(sel) })
+      toast.success(`${sel.size} employee${sel.size > 1 ? 's' : ''} deactivated`)
+      setSel(new Set())
+      setDeactivateOpen(false)
+      load()
+    } catch (e: any) { toast.error(e.message ?? 'Deactivation failed') }
+    finally { setDeactivating(false) }
   }
 
   function exportEmployeesCsv(rows: Employee[]) {
@@ -243,9 +257,11 @@ export default function Employees() {
           selectedIds={sel}
           onSelect={setSel}
           bulkBar={
-            <button onClick={() => { setSel(new Set()) }}
-              style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: 'none', background: '#C00000', color: 'white', cursor: 'pointer', fontSize: TEXT.sm }}>
-              Deactivate Selected
+            <button
+              onClick={() => setDeactivateOpen(true)}
+              style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: 'none', background: '#C00000', color: 'white', cursor: 'pointer', fontSize: TEXT.sm }}
+            >
+              Deactivate Selected ({sel.size})
             </button>
           }
         />
@@ -302,6 +318,18 @@ export default function Employees() {
           </div>
         </div>
       </Modal>
+
+      {/* Deactivate confirm modal */}
+      <ConfirmModal
+        open={deactivateOpen}
+        title="Deactivate Employees"
+        body={`Are you sure you want to deactivate ${sel.size} selected employee${sel.size > 1 ? 's' : ''}? Their status will be set to inactive.`}
+        confirmLabel="Deactivate"
+        danger
+        loading={deactivating}
+        onConfirm={handleDeactivate}
+        onClose={() => setDeactivateOpen(false)}
+      />
 
       {/* Detail modal */}
       <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? `${detail.first_name} ${detail.last_name}` : ''} width={560}>

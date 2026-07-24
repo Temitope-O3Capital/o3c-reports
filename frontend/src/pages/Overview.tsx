@@ -332,37 +332,48 @@ export default function Overview() {
   }, [])
 
   async function load(p: Period) {
-    try {
-      const [k, m, pr, d, tp, ls, ccs, f, ca, cct, fn] = await Promise.all([
-        apiFetch<{ data: KPIs                 }>(`/api/overview/kpis?period=${p}`),
-        apiFetch<{ data: MonthlyPoint[]       }>(`/api/overview/monthly-volume?period=${p}`),
-        apiFetch<{ data: ProductPoint[]       }>(`/api/overview/product-mix?period=${p}`),
-        apiFetch<{ data: DPDPoint[]           }>(`/api/overview/dpd-trend?period=${p}`),
-        apiFetch<{ data: TopPerformer[]       }>(`/api/overview/top-performers?period=${p}`),
-        apiFetch<{ data: LOSStages            }>('/api/overview/los-stages'),
-        apiFetch<{ data: CCStages             }>('/api/overview/cc-stages'),
-        apiFetch<{ data: FDSummary            }>('/api/overview/fd-summary'),
-        apiFetch<{ data: CardsSummary         }>('/api/overview/cards-summary'),
-        apiFetch<{ data: ContactCenterSummary }>('/api/overview/contact-center'),
-        apiFetch<{ data: AcquisitionFunnel    }>('/api/overview/acquisition-funnel'),
-      ])
-      if (k?.data)          setKpis(k.data)
-      if (m?.data?.length)  setMonthly(m.data)
-      if (pr?.data?.length) setProducts(pr.data)
-      if (d?.data?.length)  setDpd(d.data)
-      if (tp?.data?.length) setPerformers(tp.data)
-      if (ls?.data)         setLosStages(ls.data)
-      if (ccs?.data)        setCcStages(ccs.data)
-      if (f?.data)          setFd(f.data)
-      if (ca?.data)         setCards(ca.data)
-      if (cct?.data)        setCcSummary(cct.data)
-      if (fn?.data)         setFunnel(fn.data)
-      setLastSync(new Date())
-    } catch {
-      // API unavailable — state stays null, empty sections shown
-    } finally {
-      setLoading(false)
+    // U2: Use Promise.allSettled so a single failed endpoint doesn't blank the
+    // entire dashboard — each section degrades independently.
+    const results = await Promise.allSettled([
+      apiFetch<{ data: KPIs                 }>(`/api/overview/kpis?period=${p}`),
+      apiFetch<{ data: MonthlyPoint[]       }>(`/api/overview/monthly-volume?period=${p}`),
+      apiFetch<{ data: ProductPoint[]       }>(`/api/overview/product-mix?period=${p}`),
+      apiFetch<{ data: DPDPoint[]           }>(`/api/overview/dpd-trend?period=${p}`),
+      apiFetch<{ data: TopPerformer[]       }>(`/api/overview/top-performers?period=${p}`),
+      apiFetch<{ data: LOSStages            }>('/api/overview/los-stages'),
+      apiFetch<{ data: CCStages             }>('/api/overview/cc-stages'),
+      apiFetch<{ data: FDSummary            }>('/api/overview/fd-summary'),
+      apiFetch<{ data: CardsSummary         }>('/api/overview/cards-summary'),
+      apiFetch<{ data: ContactCenterSummary }>('/api/overview/contact-center'),
+      apiFetch<{ data: AcquisitionFunnel    }>('/api/overview/acquisition-funnel'),
+    ])
+    function ok<T>(r: PromiseSettledResult<{ data: T }>): { data: T } | null {
+      return r.status === 'fulfilled' ? r.value : null
     }
+    const k   = ok<KPIs>(results[0]   as PromiseSettledResult<{ data: KPIs }>)
+    const m   = ok<MonthlyPoint[]>(results[1]  as PromiseSettledResult<{ data: MonthlyPoint[] }>)
+    const pr  = ok<ProductPoint[]>(results[2]  as PromiseSettledResult<{ data: ProductPoint[] }>)
+    const d   = ok<DPDPoint[]>(results[3]      as PromiseSettledResult<{ data: DPDPoint[] }>)
+    const tp  = ok<TopPerformer[]>(results[4]  as PromiseSettledResult<{ data: TopPerformer[] }>)
+    const ls  = ok<LOSStages>(results[5]       as PromiseSettledResult<{ data: LOSStages }>)
+    const ccs = ok<CCStages>(results[6]        as PromiseSettledResult<{ data: CCStages }>)
+    const f   = ok<FDSummary>(results[7]       as PromiseSettledResult<{ data: FDSummary }>)
+    const ca  = ok<CardsSummary>(results[8]    as PromiseSettledResult<{ data: CardsSummary }>)
+    const cct = ok<ContactCenterSummary>(results[9]  as PromiseSettledResult<{ data: ContactCenterSummary }>)
+    const fn  = ok<AcquisitionFunnel>(results[10] as PromiseSettledResult<{ data: AcquisitionFunnel }>)
+    if (k?.data)          setKpis(k.data)
+    if (m?.data?.length)  setMonthly(m.data)
+    if (pr?.data?.length) setProducts(pr.data)
+    if (d?.data?.length)  setDpd(d.data)
+    if (tp?.data?.length) setPerformers(tp.data)
+    if (ls?.data)         setLosStages(ls.data)
+    if (ccs?.data)        setCcStages(ccs.data)
+    if (f?.data)          setFd(f.data)
+    if (ca?.data)         setCards(ca.data)
+    if (cct?.data)        setCcSummary(cct.data)
+    if (fn?.data)         setFunnel(fn.data)
+    setLastSync(new Date())
+    setLoading(false)
   }
 
   useEffect(() => { load(period) }, [period])

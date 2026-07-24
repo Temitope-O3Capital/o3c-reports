@@ -21,8 +21,19 @@ var migrationFiles embed.FS
 // so we don't attempt to replay history.
 const firstNewMigration = "018_task_comments.sql"
 
+// migrationLockID is a fixed PostgreSQL advisory lock key that prevents concurrent
+// migration runs when multiple pods start simultaneously (D6).
+const migrationLockID = 0x4F33435F4D494752 // 'O3C_MIGR' in hex
+
 func runMigrations(db *core.DB) error {
 	ctx := context.Background()
+
+	// D6: Acquire a session-level advisory lock before touching schema_migrations.
+	// The lock is automatically released when this connection closes.
+	if _, err := db.PGExec(ctx, `SELECT pg_advisory_lock($1)`, migrationLockID); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+	defer db.PGExec(ctx, `SELECT pg_advisory_unlock($1)`, migrationLockID) //nolint:errcheck
 
 	// Ensure tracking table exists
 	if _, err := db.PGExec(ctx, `

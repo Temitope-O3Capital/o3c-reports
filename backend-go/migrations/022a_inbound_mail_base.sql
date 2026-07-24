@@ -1,4 +1,4 @@
--- 022a_inbound_mail_base
+-- 022a_inbound_mail_base  [Bridge migration]
 --
 -- Creates `inbound_mail` BEFORE 023 alters it.
 --

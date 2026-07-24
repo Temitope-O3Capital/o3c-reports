@@ -1,7 +1,7 @@
 -- Module configuration — controls which sidebar sections are visible to all users.
 -- Managed by it_admin via /admin/modules. root and admin sections are always on.
 
-CREATE TABLE module_config (
+CREATE TABLE IF NOT EXISTS module_config (
   key        TEXT        PRIMARY KEY,
   label      TEXT        NOT NULL,
   enabled    BOOLEAN     NOT NULL DEFAULT true,
@@ -18,4 +18,5 @@ INSERT INTO module_config (key, label, enabled, sort_order) VALUES
   ('finance',    'Finance',                      true, 5),
   ('compliance', 'Compliance',                   true, 6),
   ('people',     'People & HR',                  true, 7),
-  ('analytics',  'Analytics & Reports',          true, 8);
+  ('analytics',  'Analytics & Reports',          true, 8)
+ON CONFLICT (key) DO NOTHING;

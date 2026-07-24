@@ -96,15 +96,28 @@ func Notify(ctx context.Context, db *core.DB, p NotifPayload) {
 	}
 	u := users[0]
 
-	// Global channel config for this event
+	// M22: Notification channel resolution uses a 3-table hierarchy (documented order):
+	//   1. notification_defaults    — system-wide fallback for events not yet in event_config
+	//   2. notification_event_config — global per-event channel enable/disable (admin-controlled)
+	//   3. notification_preferences — per-user override (user-controlled)
+	// Resolution: defaults first; event_config overrides defaults; user prefs override both.
+	// A global disable (event_config.enabled=false) cannot be overridden by user prefs.
+
+	// Layer 1: system defaults
+	defRows, _ := db.PGQuery(ctx,
+		`SELECT channel, enabled FROM notification_defaults WHERE event_type=$1`, p.EventType)
+	globalEnabled := map[string]bool{}
+	for _, row := range defRows {
+		globalEnabled[str(row["channel"])] = row["enabled"] == true
+	}
+	// Layer 2: admin event config overrides defaults
 	cfgRows, _ := db.PGQuery(ctx,
 		`SELECT channel, enabled FROM notification_event_config WHERE event_type=$1`, p.EventType)
-	globalEnabled := map[string]bool{}
 	for _, row := range cfgRows {
 		globalEnabled[str(row["channel"])] = row["enabled"] == true
 	}
 
-	// Per-user overrides
+	// Layer 3: per-user overrides
 	prefRows, _ := db.PGQuery(ctx,
 		`SELECT channel, enabled FROM notification_preferences
 		 WHERE user_id=$1 AND event_type=$2`, p.UserID, p.EventType)
@@ -113,8 +126,7 @@ func Notify(ctx context.Context, db *core.DB, p NotifPayload) {
 		userPref[str(row["channel"])] = row["enabled"] == true
 	}
 
-	// channelOn: user override wins; if no override, use global default.
-	// If global disables a channel, it can never be re-enabled by user prefs.
+	// channelOn: user override wins; if global disables a channel, it cannot be re-enabled by user prefs.
 	channelOn := func(ch string) bool {
 		gOn, gSet := globalEnabled[ch]
 		if !gSet || !gOn {

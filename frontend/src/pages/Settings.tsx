@@ -218,10 +218,19 @@ function ChangePasswordSection() {
 
   const str = strength(next)
 
+  function complexityError(pw: string): string {
+    if (pw.length < 12) return 'Password must be at least 12 characters'
+    if (!/[A-Z]/.test(pw)) return 'Password must contain at least one uppercase letter'
+    if (!/[0-9]/.test(pw)) return 'Password must contain at least one digit'
+    if (!/[^A-Za-z0-9]/.test(pw)) return 'Password must contain at least one special character'
+    return ''
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (next !== confirm) { toast.error('Passwords do not match'); return }
-    if (next.length < 12) { toast.error('Password must be at least 12 characters'); return }
+    const err = complexityError(next)
+    if (err) { toast.error(err); return }
     setLoading(true)
     try {
       await apiPost('/api/auth/change-password', { current_password: current, new_password: next })
@@ -271,6 +280,19 @@ function ChangePasswordSection() {
               ))}
             </div>
             {str.label && <div style={{ fontSize: TEXT.xs, color: str.color, fontWeight: FW.semibold, marginTop: 4 }}>{str.label}</div>}
+            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {([
+                [next.length >= 12,        'At least 12 characters'],
+                [/[A-Z]/.test(next),       'One uppercase letter'],
+                [/[0-9]/.test(next),       'One number'],
+                [/[^A-Za-z0-9]/.test(next),'One special character'],
+              ] as [boolean, string][]).map(([ok, label]) => (
+                <div key={label} style={{ fontSize: TEXT['2xs'], color: ok ? GREEN : 'var(--txt3)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 12 }}>{ok ? 'check_circle' : 'radio_button_unchecked'}</span>
+                  {label}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

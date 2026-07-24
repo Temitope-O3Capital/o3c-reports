@@ -338,7 +338,7 @@ func losAssign(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf("A loan application has been assigned to you"),
 			"loan_application", id) //nolint:errcheck
 
-		respondErr(w, 200, "Assigned successfully")
+		respondOK(w, "Assigned successfully")
 	}
 }
 
@@ -510,7 +510,7 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		respondErr(w, 200, "Stage advanced")
+		respondOK(w, "Stage advanced")
 	}
 }
 
@@ -578,7 +578,7 @@ func losDecline(db *core.DB) http.HandlerFunc {
 			})
 		}
 
-		respondErr(w, 200, "Application declined")
+		respondOK(w, "Application declined")
 	}
 }
 
@@ -643,7 +643,7 @@ func losRequestInfo(db *core.DB) http.HandlerFunc {
 			VALUES ($1, 'request_info', $2, $3, $4, $5, NOW())`,
 			id, fromStage, prevStage, user.ID, b.Notes) //nolint:errcheck
 
-		respondErr(w, 200, "Sent back for more information")
+		respondOK(w, "Sent back for more information")
 	}
 }
 
@@ -704,7 +704,7 @@ func losMarkConditionMet(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Update failed")
 			return
 		}
-		respondErr(w, 200, "Condition marked as met")
+		respondOK(w, "Condition marked as met")
 	}
 }
 

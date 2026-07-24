@@ -260,14 +260,21 @@ func releaseCampaignDispatchLock(ctx context.Context, db *core.DB, campaignID in
 // ── Background dispatch ───────────────────────────────────────────────────────
 
 func startDispatch(db *core.DB, campaignID int64) {
+	// campaignDispatchWorkers is a pod-local guard against same-process duplicates.
+	// The DB-level dispatch_lock_until is the authoritative cross-pod lock — this map
+	// is an optimisation only, so acquireCampaignDispatchLock handles multi-pod safety.
 	if _, loaded := campaignDispatchWorkers.LoadOrStore(campaignID, true); loaded {
 		slog.Info("Campaign dispatch already running", "id", campaignID)
 		return
 	}
 	go func() {
-		// Defers run LIFO. Order: (1) release DB lock, (2) recover, (3) remove from in-process map.
-		// Releasing the DB lock before removing the map entry prevents a same-pod duplicate from
-		// winning the DB lock while the map still shows this goroutine as active.
+		// Defers run LIFO. Actual execution order (last-registered = first-run):
+		//   1st: releaseCampaignDispatchLock (registered 4th below)
+		//   2nd: cancel context (registered 3rd)
+		//   3rd: campaignDispatchWorkers.Delete (registered 2nd here)
+		//   4th: recover panic (registered 1st here)
+		// The DB lock is released before the in-process map entry is removed, so a
+		// same-pod retry can't win the DB lock while this goroutine is still "active".
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("Campaign dispatch panic recovered", "campaign_id", campaignID, "panic", r)

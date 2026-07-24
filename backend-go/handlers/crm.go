@@ -2,15 +2,43 @@ package handlers
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
 )
+
+// idNumberHMAC produces a consistent HMAC-SHA256 blind index for lookup.
+// Key = ENCRYPTION_KEY env var (first 32 bytes).
+func idNumberHMAC(value string) string {
+	key := []byte(os.Getenv("ENCRYPTION_KEY"))
+	if len(key) > 32 {
+		key = key[:32]
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(value))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// decryptIDNumber decrypts id_number_enc; returns "" if empty or on error.
+func decryptIDNumber(enc string) string {
+	if enc == "" {
+		return ""
+	}
+	plain, err := decryptValue(enc)
+	if err != nil {
+		return ""
+	}
+	return plain
+}
 
 var crmAccess = core.RequirePages(
 	"crm_pipeline", "crm_contacts", "crm_tasks", "crm_requests", "crm_reports",
@@ -90,7 +118,7 @@ func buildSet(body map[string]any, allowed []string, startN int) ([]string, []an
 var contactUpdateCols = []string{
 	"first_name", "last_name", "phone", "email", "state", "city", "address",
 	"date_of_birth", "gender", "occupation", "employer", "income_range",
-	"id_type", "id_number", "source", "cif_number", "status",
+	"id_type", "source", "cif_number", "status",
 	"assigned_to", "tags", "notes",
 }
 
@@ -154,6 +182,14 @@ func listContacts(db *core.DB) http.HandlerFunc {
 			total = int(toInt64(tr[0]["n"]))
 		}
 
+		// R2: decrypt id_number_enc; strip internal enc/hmac columns from response.
+		for i := range rows {
+			if plain := decryptIDNumber(str(rows[i]["id_number_enc"])); plain != "" {
+				rows[i]["id_number"] = plain
+			}
+			delete(rows[i], "id_number_enc")
+			delete(rows[i], "id_number_hmac")
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"data": rows, "total": total}) //nolint:errcheck
 	}
@@ -193,24 +229,41 @@ func createContact(db *core.DB) http.HandlerFunc {
 		st := coalesce(deref(b.Status), "lead")
 		user := core.UserFromCtx(r.Context())
 
+		// R2: encrypt BVN/NIN at rest; store HMAC blind index for lookup.
+		var idNumEnc, idNumHmac *string
+		if b.IDNumber != nil && *b.IDNumber != "" {
+			if enc, err := encryptValue(*b.IDNumber); err == nil {
+				idNumEnc = &enc
+				h := idNumberHMAC(*b.IDNumber)
+				idNumHmac = &h
+			}
+			b.IDNumber = nil // never store plaintext
+		}
+
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO crm_contacts
 			  (first_name, last_name, phone, email, state, city, address,
 			   date_of_birth, gender, occupation, employer, income_range,
-			   id_type, id_number, source, cif_number, status,
+			   id_type, id_number_enc, id_number_hmac, source, cif_number, status,
 			   assigned_to, tags, notes, created_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
 			RETURNING *`,
 			b.FirstName, b.LastName, b.Phone, b.Email, b.State, b.City, b.Address,
 			b.DateOfBirth, b.Gender, b.Occupation, b.Employer, b.IncomeRange,
-			b.IDType, b.IDNumber, src, b.CIFNumber, st,
+			b.IDType, idNumEnc, idNumHmac, src, b.CIFNumber, st,
 			b.AssignedTo, b.Tags, b.Notes, user.ID)
 		if err != nil {
 			respondErr(w, 500, "Create failed"); return
 		}
+		row := rows[0]
+		if plain := decryptIDNumber(str(row["id_number_enc"])); plain != "" {
+			row["id_number"] = plain
+		}
+		delete(row, "id_number_enc")
+		delete(row, "id_number_hmac")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+		json.NewEncoder(w).Encode(row) //nolint:errcheck
 	}
 }
 
@@ -226,8 +279,16 @@ func getContact(db *core.DB) http.HandlerFunc {
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "Contact not found"); return
 		}
+		row := rows[0]
+		if plain := decryptIDNumber(str(row["id_number_enc"])); plain != "" {
+			row["id_number"] = plain
+		} else if row["id_number"] == nil || row["id_number"] == "" {
+			row["id_number"] = decryptIDNumber(str(row["id_number"]))
+		}
+		delete(row, "id_number_enc")
+		delete(row, "id_number_hmac")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+		json.NewEncoder(w).Encode(row) //nolint:errcheck
 	}
 }
 
@@ -238,7 +299,16 @@ func updateContact(db *core.DB) http.HandlerFunc {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			respondErr(w, 400, "Invalid JSON"); return
 		}
-		parts, args := buildSet(body, contactUpdateCols, 1)
+		// R2: intercept id_number → encrypt before passing to buildSet.
+		if idNum, ok := body["id_number"].(string); ok && idNum != "" {
+			if enc, err := encryptValue(idNum); err == nil {
+				body["id_number_enc"] = enc
+				body["id_number_hmac"] = idNumberHMAC(idNum)
+			}
+			delete(body, "id_number")
+		}
+		allowedCols := append(contactUpdateCols, "id_number_enc", "id_number_hmac")
+		parts, args := buildSet(body, allowedCols, 1)
 		if len(parts) == 0 {
 			respondErr(w, 422, "No fields to update"); return
 		}
@@ -250,8 +320,14 @@ func updateContact(db *core.DB) http.HandlerFunc {
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "Contact not found"); return
 		}
+		row := rows[0]
+		if plain := decryptIDNumber(str(row["id_number_enc"])); plain != "" {
+			row["id_number"] = plain
+		}
+		delete(row, "id_number_enc")
+		delete(row, "id_number_hmac")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+		json.NewEncoder(w).Encode(row) //nolint:errcheck
 	}
 }
 

@@ -194,6 +194,7 @@ const ComplianceSOC2Detail    = lazy(() => import('./pages/compliance/SOC2Contro
 const CompliancePentest       = lazy(() => import('./pages/compliance/PentestDashboard'))
 const CompliancePolicies      = lazy(() => import('./pages/compliance/PolicyDocuments'))
 const ComplianceCreditBureau  = lazy(() => import('./pages/compliance/CreditBureau'))
+const ComplianceBreach        = lazy(() => import('./pages/compliance/BreachIncidents'))
 
 // HR
 const HREmployees    = lazy(() => import('./pages/hr/Employees'))
@@ -222,7 +223,9 @@ function homeFor(role: string): string {
     finance_officer: '/finance',   finance_head: '/finance',
     cards_ops_officer: '/cards',   cards_ops_head: '/cards',
     collections_agent: '/collections', collections_head: '/collections',
+    head_collections: '/collections',
     recovery_agent: '/recovery',   recovery_head: '/recovery',
+    head_recovery: '/recovery',
     call_center_agent: '/helpdesk', call_center_head: '/helpdesk',
     hr_officer: '/hr',             hr_manager: '/hr',
     compliance_officer: '/compliance', compliance_head: '/compliance',
@@ -266,6 +269,10 @@ function PageLoader() {
 
 function PageFade({ children }: { children: ReactNode }) {
   const { pathname } = useLocation()
+  useEffect(() => {
+    const match = MODULE_TITLES.find(([prefix]) => prefix === '/' ? pathname === '/' : pathname.startsWith(prefix))
+    document.title = match ? `${match[2]} — O3 Capital Workspace` : 'O3 Capital Workspace'
+  }, [pathname])
   return (
     <div key={pathname} style={{ animation: 'pageFadeIn 180ms ease both', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       {children}
@@ -1009,7 +1016,8 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/compliance/soc2/:id"       element={<RequireAccess page="audit_trail" user={user}><PageErrorBoundary><ComplianceSOC2Detail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/pentest"        element={<RequireAccess page="audit_trail" user={user}><PageErrorBoundary><CompliancePentest /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/policies"       element={<RequireAccess page="compliance_checklists" user={user}><PageErrorBoundary><CompliancePolicies /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/compliance/credit-bureau" element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceCreditBureau /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/credit-bureau"   element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceCreditBureau /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/breach-incidents" element={<RequireAccess page="compliance_all" user={user}><PageErrorBoundary><ComplianceBreach /></PageErrorBoundary></RequireAccess>} />
 
                   {/* People */}
                   <Route path="/hr"               element={<RequireAccess page="hr_employees" user={user}><Navigate to="/hr/employees" replace /></RequireAccess>} />

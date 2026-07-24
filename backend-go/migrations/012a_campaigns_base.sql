@@ -1,4 +1,4 @@
--- 012a_campaigns_base
+-- 012a_campaigns_base  [Bridge migration]
 --
 -- Creates `campaigns` BEFORE 013 alters it.
 --

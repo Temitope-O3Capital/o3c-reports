@@ -85,7 +85,7 @@ func fdCreateTransaction(db *core.DB) http.HandlerFunc {
 		var b struct {
 			TransactionDate string   `json:"transaction_date"`
 			CustomerName    string   `json:"customer_name"`
-			TransactionType string   `json:"transaction_type"` // inflow | liquidation
+			TransactionType string   `json:"transaction_type"` // inflow only; liquidations go to /liquidate
 			Principal       *int64   `json:"principal"`
 			InterestPaid    *int64   `json:"interest_paid"`
 			GrossAmount     *int64   `json:"gross_amount"`
@@ -108,8 +108,8 @@ func fdCreateTransaction(db *core.DB) http.HandlerFunc {
 		if b.TransactionDate == "" {
 			respondErr(w, 422, "transaction_date is required"); return
 		}
-		if b.TransactionType != "inflow" && b.TransactionType != "liquidation" {
-			respondErr(w, 422, "transaction_type must be inflow or liquidation"); return
+		if b.TransactionType != "inflow" {
+			respondErr(w, 422, "transaction_type must be 'inflow'; use the /liquidate endpoint for liquidations"); return
 		}
 		if b.Currency == "" {
 			b.Currency = "NGN"
@@ -496,6 +496,7 @@ func fdRollover(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "Only active inflow FDs can be rolled over"); return
 		}
 
+		// rate is a PERCENTAGE (e.g. 12.5 for 12.5%) — not BPS (M41).
 		rate := float64(0)
 		if v, ok := fd["rate"].(float64); ok { rate = v }
 		if b.Rate != nil { rate = *b.Rate }
@@ -509,13 +510,17 @@ func fdRollover(db *core.DB) http.HandlerFunc {
 			principalVal = v
 		}
 
-		// H1: carry forward accrued interest into the rolled-over principal
+		// H1: carry forward accrued interest into the rolled-over principal.
+		// Compute in kobo then convert back to Naira to avoid float64 precision loss (M40).
+		// rate is a percentage (e.g. 12.5 for 12.5%); convert to basis-points for integer math.
 		if principalVal > 0 && rate > 0 {
 			if txnDate, ok := fd["transaction_date"].(time.Time); ok && !txnDate.IsZero() {
 				daysElapsed := int64(time.Since(txnDate).Hours() / 24)
 				if daysElapsed > 0 {
-					accrued := int64(principalVal * rate / 100 / 365 * float64(daysElapsed))
-					principalVal += float64(accrued)
+					principalKobo := int64(principalVal * 100)
+					rateBP := int64(rate * 100) // basis points (e.g. 1250 for 12.5%)
+					accruedKobo := principalKobo * rateBP * daysElapsed / (10000 * 365)
+					principalVal = float64(principalKobo+accruedKobo) / 100.0
 				}
 			}
 		}
@@ -562,7 +567,7 @@ func fdRollover(db *core.DB) http.HandlerFunc {
 				Reference:     "FDR-" + oldRef,
 				DebitAccount:  "fixed_deposits_liability",
 				CreditAccount: "fixed_deposits_liability",
-				AmountKobo:    int64(principalVal),
+				AmountKobo:    int64(principalVal * 100),
 				SourceType:    "fd_rollover",
 				SourceID:      newID,
 				PostedBy:      user.ID,

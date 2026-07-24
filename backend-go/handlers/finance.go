@@ -293,6 +293,7 @@ func finPostingsApprove(db *core.DB) http.HandlerFunc {
 		// Post GL journal
 		p := existing[0]
 		glErr := postJournalTx(r.Context(), tx, glEntry{
+			Date:          time.Now(),
 			Description:   fmt.Sprintf("%v", p["narrative"]),
 			Reference:     fmt.Sprintf("MP-%v", id),
 			DebitAccount:  fmt.Sprintf("%v", p["dr_account"]),
