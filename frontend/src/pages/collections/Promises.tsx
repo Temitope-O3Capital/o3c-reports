@@ -54,7 +54,7 @@ function PtpPill({ status }: { status: string }) {
 // ── Export CSV ────────────────────────────────────────────────────────────────
 
 function exportPromisesCsv(rows: PTPane[]) {
-  const header = ['CIF', 'Customer Name', 'Outstanding (₦)', 'PTP Amount (₦)', 'Due Date', 'Status', 'Agent', 'Created']
+  const header = ['CIF', 'Customer Name', 'Outstanding NGN', 'PTP Amount (NGN)', 'Due Date', 'Status', 'Agent', 'Created']
   const lines = rows.map(r => [
     r.account_cif ?? '',
     `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
@@ -165,7 +165,7 @@ export default function CollectionsPromises() {
     },
     {
       key: 'promise_amount_kobo',
-      label: 'PTP Amount ₦',
+      label: 'PTP Amount NGN',
       align: 'right',
       sortable: true,
       render: r => <span style={{ ...NUM, fontWeight: FW.semibold, color: NAVY }}>{fmtKobo(r.promise_amount_kobo)}</span>,

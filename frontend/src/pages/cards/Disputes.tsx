@@ -177,7 +177,7 @@ function NewDisputeModal({ onClose, onCreated }: { onClose: () => void; onCreate
 // ── Export CSV ────────────────────────────────────────────────────────────────
 
 function exportDisputesCsv(rows: Dispute[]) {
-  const header = ['Dispute #', 'Customer', 'CIF Number', 'Card Type', 'Amount (₦)', 'Type', 'Status', 'Filed Date', 'Days Open']
+  const header = ['Dispute #', 'Customer', 'CIF Number', 'Card Type', 'Amount (NGN)', 'Type', 'Status', 'Filed Date', 'Days Open']
   const lines = rows.map(r => [
     `"${String(r.ref ?? '').replace(/"/g, '""')}"`,
     `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,

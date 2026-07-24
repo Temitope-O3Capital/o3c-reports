@@ -152,6 +152,9 @@ CREATE INDEX IF NOT EXISTS idx_sse_tokens_expires ON sse_tokens(expires_at);
 -- SECTION 3 — Helpdesk (Customer Service)
 -- =============================================================================
 
+-- ticket_ref_seq is non-transactional: gaps in TKT-XXXXX numbers are expected
+-- when a transaction rolls back after consuming a sequence value. This is by
+-- design — sequences never reuse values, which prevents ref collisions.
 CREATE SEQUENCE IF NOT EXISTS ticket_ref_seq START WITH 1 INCREMENT BY 1;
 
 CREATE TABLE IF NOT EXISTS helpdesk_tickets (

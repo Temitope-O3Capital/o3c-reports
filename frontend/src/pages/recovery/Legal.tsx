@@ -227,7 +227,7 @@ function MilestoneTimeline({
 // ── Export CSV ────────────────────────────────────────────────────────────────
 
 function exportLegalCsv(rows: LegalCase[]) {
-  const header = ['CIF', 'Customer Name', 'Outstanding (₦)', 'Milestone', 'Solicitor', 'Next Court Date', 'Days in Legal']
+  const header = ['CIF', 'Customer Name', 'Outstanding NGN', 'Milestone', 'Solicitor', 'Next Court Date', 'Days in Legal']
   const lines = rows.map(r => [
     r.account_cif ?? '',
     `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,

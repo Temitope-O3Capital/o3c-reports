@@ -346,7 +346,7 @@ export default function AMLRules() {
           {/* Amount Threshold fields */}
           {form.rule_type === 'amount_threshold' && (
             <div>
-              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Threshold Amount (₦) *</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Threshold Amount (NGN) *</label>
               <input
                 type="number"
                 min="0"

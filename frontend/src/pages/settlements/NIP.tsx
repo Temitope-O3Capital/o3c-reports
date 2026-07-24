@@ -261,7 +261,7 @@ export default function NIPReconciliation() {
   }, [rows])
 
   function handleExportExceptions() {
-    const header = ['NIP Ref', 'Amount ₦', 'Value Date', 'Customer', 'Core Banking Credited', 'Match Status', 'Exception Type']
+    const header = ['NIP Ref', 'Amount NGN', 'Value Date', 'Customer', 'Core Banking Credited', 'Match Status', 'Exception Type']
     const lines = sorted.map(r => [
       r.nip_ref ?? '',
       (r.amount_kobo / 100).toFixed(2),
@@ -296,7 +296,7 @@ export default function NIPReconciliation() {
       render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: '#0E2841' }}>{r.nip_ref}</span>,
     },
     {
-      key: 'amount_kobo', label: 'Amount ₦', align: 'right',
+      key: 'amount_kobo', label: 'Amount NGN', align: 'right',
       render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.amount_kobo)}</span>,
     },
     {

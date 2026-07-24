@@ -325,7 +325,7 @@ function RecordPaymentTab({ caseId, onDone }: { caseId: number; onDone: () => vo
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <ErrBanner error={err} />
       <div>
-        <label style={labelStyle}>Amount (₦) <span style={{ color: RED }}>*</span></label>
+        <label style={labelStyle}>Amount (NGN) <span style={{ color: RED }}>*</span></label>
         <input type="number" value={amountNaira} onChange={e => setAmountNaira(e.target.value)}
           placeholder="e.g. 50000" style={{ ...fieldStyle, height: 36 }} />
       </div>
@@ -389,7 +389,7 @@ function WriteOffTab({ caseId, outstanding, onDone }: { caseId: number; outstand
         Submit a write-off request for supervisor approval. Outstanding: {fmtKobo(outstanding)}.
       </div>
       <div>
-        <label style={labelStyle}>Amount (₦) — blank to write off full outstanding</label>
+        <label style={labelStyle}>Amount (NGN) — blank to write off full outstanding</label>
         <input type="number" value={amountNaira} onChange={e => setAmountNaira(e.target.value)}
           placeholder={fmtKobo(outstanding)} style={{ ...fieldStyle, height: 36 }} />
       </div>

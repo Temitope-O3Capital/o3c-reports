@@ -37,9 +37,9 @@ const COLS: TableCol<Batch>[] = [
     )},
   { key: 'txn_count', label: 'Txns', align: 'right', sortable: true,
     render: r => <span style={NUM}>{fmtNum(r.txn_count)}</span> },
-  { key: 'total_credits', label: 'Credits ₦', align: 'right', sortable: true,
+  { key: 'total_credits', label: 'Credits NGN', align: 'right', sortable: true,
     render: r => <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtKobo(r.total_credits)}</span> },
-  { key: 'total_debits', label: 'Debits ₦', align: 'right', sortable: true,
+  { key: 'total_debits', label: 'Debits NGN', align: 'right', sortable: true,
     render: r => <span style={{ ...NUM, color: RED, fontWeight: FW.semibold }}>{fmtKobo(r.total_debits)}</span> },
   { key: 'exception_count', label: 'Exceptions', align: 'right',
     render: r => (
@@ -83,7 +83,7 @@ export default function SettlementBatches() {
   const openBatches = rows.filter(r => r.status === 'pending').length
 
   function exportBatchesCsv(data: Batch[]) {
-    const header = ['Date', 'Batch Ref', 'Type', 'Txns', 'Credits ₦', 'Debits ₦', 'Exceptions', 'Status']
+    const header = ['Date', 'Batch Ref', 'Type', 'Txns', 'Credits NGN', 'Debits NGN', 'Exceptions', 'Status']
     const lines = data.map(r => [
       r.batch_date ?? '',
       r.batch_ref ?? '',

@@ -241,7 +241,7 @@ export default function FinanceFDMaturity() {
   const maturingThisWeek = rows.filter(r => daysToMaturity(r.maturity_date) <= 7).length
 
   function exportFDCsv(data: FDRecord[]) {
-    const header = ['Customer', 'Currency', 'Amount ₦', 'Rate %', 'Start Date', 'Maturity Date', 'Tenor (days)', 'Account Officer', 'Location']
+    const header = ['Customer', 'Currency', 'Amount NGN', 'Rate %', 'Start Date', 'Maturity Date', 'Tenor (days)', 'Account Officer', 'Location']
     const lines = data.map(r => [
       `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
       r.currency ?? '',

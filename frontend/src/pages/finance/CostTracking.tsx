@@ -125,8 +125,8 @@ function NewEntryModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
               {CATEGORIES.map(c => <option key={c}>{c}</option>)}
             </select>
           </div>
-          {row('Actual Amount (₦)', 'amount', 'number')}
-          {row('Budget Amount (₦)', 'budget_amount', 'number')}
+          {row('Actual Amount (NGN)', 'amount', 'number')}
+          {row('Budget Amount (NGN)', 'budget_amount', 'number')}
           <div style={{ gridColumn: '1/-1' }}>
             <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Description *</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={form.description} onChange={e => update('description', e.target.value)} rows={2}
@@ -195,7 +195,7 @@ export default function FinanceCostTracking() {
   function resetFilters() { setSearch(''); setDeptFilter(''); setCatFilter('') }
 
   function exportCostsCsv(data: CostEntry[]) {
-    const header = ['Date', 'Department', 'Category', 'Description', 'Actual ₦', 'Budget ₦', 'Recorded By']
+    const header = ['Date', 'Department', 'Category', 'Description', 'Actual NGN', 'Budget NGN', 'Recorded By']
     const lines = data.map(r => [
       r.entry_date ?? '',
       r.department ?? '',

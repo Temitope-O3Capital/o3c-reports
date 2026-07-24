@@ -25,6 +25,7 @@ func RegisterFinance(r chi.Router, db *core.DB) {
 	r.With(access).Patch("/manual-postings/{id}/approve",   finPostingsApprove(db))
 	r.With(access).Patch("/manual-postings/{id}/reject",    finPostingsReject(db))
 	r.With(access).Post("/manual-postings/{id}/reverse",    finPostingsReverse(db))
+	r.With(access).Post("/manual-postings/{id}/confirm-reversal", finPostingsConfirmReversal(db))
 
 	// P&L
 	r.With(access).Get("/pnl", finPnL(db))
@@ -358,29 +359,71 @@ func finPostingsReject(db *core.DB) http.HandlerFunc {
 	}
 }
 
-/* ── C7: GL Posting Reversal ─────────────────────────────────────────────── */
+/* ── C7: GL Posting Reversal (M39: 4-eyes control) ───────────────────────── */
 
+// finPostingsReverse initiates a reversal request — sets status to 'pending_reversal'.
+// A second authorized user (not the same person) must call finPostingsConfirmReversal
+// to execute the actual GL reversal.
 func finPostingsReverse(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Reason string `json:"reason"`
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		user := core.UserFromCtx(r.Context())
+		var b body
+		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
 
-		// Only finance_head or above may reverse
 		if user.Role != "finance_head" && user.Role != "cfo" && user.Role != "admin" && user.Role != "md" {
-			respondErr(w, 403, "Only finance_head or above can reverse a posting")
+			respondErr(w, 403, "Only finance_head or above can request a reversal")
 			return
 		}
-
-		// Fetch original approved posting
 		existing, err := db.PGQuery(r.Context(),
-			`SELECT * FROM manual_postings WHERE id=$1 AND status='approved'`, id)
+			`SELECT id, initiated_by FROM manual_postings WHERE id=$1 AND status='approved'`, id)
 		if err != nil || len(existing) == 0 {
 			respondErr(w, 404, "Posting not found or not in approved state")
 			return
 		}
+		_, err = db.PGExec(r.Context(),
+			`UPDATE manual_postings SET status='pending_reversal',
+			  reversal_requested_by=$1, reversal_requested_at=NOW(), reversal_reason=$2
+			 WHERE id=$3`,
+			user.ID, b.Reason, id)
+		if err != nil {
+			respondErr(w, 500, "Reversal request failed")
+			return
+		}
+		respondOK(w, "Reversal request submitted — awaiting second authorisation")
+	}
+}
+
+// finPostingsConfirmReversal is step 2 of the 4-eyes reversal flow.
+// The confirmer must be a different user from the one who requested the reversal.
+func finPostingsConfirmReversal(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		user := core.UserFromCtx(r.Context())
+		ctx := r.Context()
+
+		if user.Role != "finance_head" && user.Role != "cfo" && user.Role != "admin" && user.Role != "md" {
+			respondErr(w, 403, "Only finance_head or above can confirm a reversal")
+			return
+		}
+
+		existing, err := db.PGQuery(ctx, `SELECT * FROM manual_postings WHERE id=$1 AND status='pending_reversal'`, id)
+		if err != nil || len(existing) == 0 {
+			respondErr(w, 404, "Posting not found or not pending reversal")
+			return
+		}
 		p := existing[0]
 
-		tx, txErr := db.PG.BeginTx(r.Context(), nil)
+		// 4-eyes: confirmer must not be the same person who requested the reversal.
+		if toInt64(p["reversal_requested_by"]) == user.ID {
+			respondErr(w, 403, "You cannot confirm your own reversal request")
+			return
+		}
+
+		tx, txErr := db.PG.BeginTx(ctx, nil)
 		if txErr != nil {
 			respondErr(w, 500, "Transaction failed")
 			return
@@ -388,7 +431,7 @@ func finPostingsReverse(db *core.DB) http.HandlerFunc {
 
 		// Insert reversal posting (swapped dr/cr accounts)
 		var reversalID int64
-		err = tx.QueryRowContext(r.Context(), `
+		err = tx.QueryRowContext(ctx, `
 			INSERT INTO manual_postings
 			    (dr_account, cr_account, amount_kobo, narrative, initiated_by, status)
 			VALUES ($1, $2, $3, $4, $5, 'approved')
@@ -405,7 +448,7 @@ func finPostingsReverse(db *core.DB) http.HandlerFunc {
 		}
 
 		// Mark original as reversed
-		_, err = tx.ExecContext(r.Context(),
+		_, err = tx.ExecContext(ctx,
 			`UPDATE manual_postings SET status='reversed', updated_at=NOW() WHERE id=$1`, id)
 		if err != nil {
 			tx.Rollback() //nolint:errcheck
@@ -415,7 +458,7 @@ func finPostingsReverse(db *core.DB) http.HandlerFunc {
 
 		// Post GL reversal entry (swapped debit/credit)
 		ref := fmt.Sprintf("MP-%v-REV", id)
-		if glErr := postJournalTx(r.Context(), tx, glEntry{
+		if glErr := postJournalTx(ctx, tx, glEntry{
 			Date:          time.Now(),
 			Description:   "REVERSAL: " + fmt.Sprintf("%v", p["narrative"]),
 			Reference:     ref,

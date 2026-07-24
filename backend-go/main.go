@@ -177,7 +177,9 @@ func main() {
 	})))
 
 	// ── Public endpoints ───────────────────────────────────────────────────────
-	r.Get("/api/health", healthHandler(db))
+	// L24: /api/health is registered on the outer mux (see srv.Handler below) so
+	// Railway/load-balancer probes are never blocked by the rate limiter.
+	r.Get("/api/health", healthHandler(db)) // also keep on r for versionRewrite compat
 	// S3: Gate /metrics with a static bearer token from METRICS_TOKEN env var.
 	// If METRICS_TOKEN is unset in production (RAILWAY_ENVIRONMENT set), requests are denied.
 	r.Get("/metrics", func(w http.ResponseWriter, req *http.Request) {
@@ -550,9 +552,14 @@ func main() {
 	}
 
 	// ── Server ─────────────────────────────────────────────────────────────────
+	// L24: outer mux routes /api/health before the chi router (which carries the
+	// rate-limiter middleware), so Railway health probes are never rate-limited.
+	outerMux := http.NewServeMux()
+	outerMux.HandleFunc("/api/health", healthHandler(db))
+	outerMux.Handle("/", r)
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      r,
+		Handler:      outerMux,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 60 * time.Second, // allow time for large CSV exports
 		IdleTimeout:  120 * time.Second,

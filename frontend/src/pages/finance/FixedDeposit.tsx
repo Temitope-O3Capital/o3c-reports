@@ -70,7 +70,7 @@ const COLS: TableCol<FDRecord>[] = [
   { key: 'id', label: 'FD#', width: 90, render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>FD-{String(r.id).padStart(5, '0')}</span> },
   { key: 'customer_name', label: 'Investor', sortable: true,
     render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.customer_name || '—'}</span> },
-  { key: 'principal', label: 'Amount ₦', align: 'right', sortable: true,
+  { key: 'principal', label: 'Amount NGN', align: 'right', sortable: true,
     render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{r.currency === 'USD' ? `$${(r.usd_amount / 100).toLocaleString()}` : fmtKobo(r.ngn_amount || r.principal)}</span> },
   { key: 'rate', label: 'Rate %', align: 'right', render: r => <span style={NUM}>{fmtPct(r.rate)}</span> },
   { key: 'transaction_date', label: 'Start', sortable: true, width: 100,
@@ -304,7 +304,7 @@ export default function FinanceFixedDeposit() {
   }
 
   function exportFDRecordsCsv(data: FDRecord[]) {
-    const header = ['FD#', 'Investor', 'Currency', 'Principal ₦', 'Interest Paid ₦', 'Rate %', 'Start Date', 'Maturity Date', 'Tenor Days', 'Location', 'Officer', 'Status', 'Notes']
+    const header = ['FD#', 'Investor', 'Currency', 'Principal NGN', 'Interest Paid NGN', 'Rate %', 'Start Date', 'Maturity Date', 'Tenor Days', 'Location', 'Officer', 'Status', 'Notes']
     const lines = data.map(r => [
       `FD-${String(r.id).padStart(5, '0')}`,
       `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
@@ -358,7 +358,7 @@ export default function FinanceFixedDeposit() {
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[5] }}>
         <KpiCard label="Total FDs" value={fdKpis ? String(fdKpis.total_fds) : '—'} icon="savings" accent={NAVY} loading={kpiLoading} />
-        <KpiCard label="Total Principal ₦" value={fdKpis ? fmtKobo(fdKpis.total_principal_kobo) : '—'} icon="account_balance" accent={GREEN} loading={kpiLoading} />
+        <KpiCard label="Total Principal NGN" value={fdKpis ? fmtKobo(fdKpis.total_principal_kobo) : '—'} icon="account_balance" accent={GREEN} loading={kpiLoading} />
         <KpiCard label="Avg Rate %" value={fdKpis ? `${fdKpis.avg_rate_pct.toFixed(1)}%` : '—'} icon="percent" accent={BLUE} loading={kpiLoading} />
         <KpiCard label="Maturing This Month" value={fdKpis ? String(fdKpis.maturing_this_month) : '—'} icon="event" accent={AMBER} loading={kpiLoading} />
       </div>

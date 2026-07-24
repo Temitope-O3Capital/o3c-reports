@@ -50,9 +50,9 @@ function periodDates(period: string): { from: string; to: string } {
 
 const LINE_COLS: TableCol<ProductLine>[] = [
   { key: 'product', label: 'Product', render: r => <span style={{ fontWeight: FW.medium }}>{r.product}</span> },
-  { key: 'revenue', label: 'Revenue ₦',  align: 'right', render: r => <span style={NUM}>{fmtKobo(r.revenue)}</span> },
-  { key: 'cost',    label: 'Cost ₦',     align: 'right', render: r => <span style={{ ...NUM, color: RED }}>{fmtKobo(r.cost)}</span> },
-  { key: 'net',     label: 'Net ₦',      align: 'right', render: r => (
+  { key: 'revenue', label: 'Revenue NGN',  align: 'right', render: r => <span style={NUM}>{fmtKobo(r.revenue)}</span> },
+  { key: 'cost',    label: 'Cost NGN',     align: 'right', render: r => <span style={{ ...NUM, color: RED }}>{fmtKobo(r.cost)}</span> },
+  { key: 'net',     label: 'Net NGN',      align: 'right', render: r => (
     <span style={{ ...NUM, color: r.net >= 0 ? GREEN : RED, fontWeight: FW.semibold }}>{fmtKobo(r.net)}</span>
   )},
 ]
@@ -108,7 +108,7 @@ export default function FinancePnL() {
   const netInc  = data?.net_income     ?? 0
 
   function exportPnlCsv(data: ProductLine[]) {
-    const header = ['Product', 'Revenue ₦', 'Cost ₦', 'Net ₦']
+    const header = ['Product', 'Revenue NGN', 'Cost NGN', 'Net NGN']
     const rows = data.map(r => [
       `"${String(r.product ?? '').replace(/"/g, '""')}"`,
       (r.revenue / 100).toFixed(2),

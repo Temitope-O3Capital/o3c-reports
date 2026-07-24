@@ -71,7 +71,7 @@ function DynamicFields({
             style={inputStyle}
           />
         </Field>
-        <Field label="Disputed Amount (₦)">
+        <Field label="Disputed Amount (NGN)">
           <input
             type="number" placeholder="e.g. 15000"
             value={custom.disputed_amount ?? ''}
@@ -138,7 +138,7 @@ function DynamicFields({
             style={inputStyle}
           />
         </Field>
-        <Field label="Amount (₦)">
+        <Field label="Amount (NGN)">
           <input
             type="number" placeholder="e.g. 50000"
             value={custom.amount ?? ''}
@@ -485,6 +485,7 @@ export default function NewTicketForm({
         <button
           type="submit"
           disabled={submitting}
+          title="Cmd+Enter"
           style={{
             padding: '9px 24px', borderRadius: RADIUS.md, border: 'none',
             background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold,

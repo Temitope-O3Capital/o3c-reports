@@ -75,7 +75,7 @@ function ProductPill({ product }: { product: string }) {
 
 
 function exportLOSCsv(rows: LoanApp[]) {
-  const header = ['App #', 'Applicant', 'Reference', 'Product', 'Amount (₦)', 'Stage', 'Status', 'Officer', 'Disbursement Date', 'Last Updated']
+  const header = ['App #', 'Applicant', 'Reference', 'Product', 'Amount (NGN)', 'Stage', 'Status', 'Officer', 'Disbursement Date', 'Last Updated']
   const lines = rows.map(r => [
     `APP-${r.id}`,
     `"${String(r.applicant_name ?? '').replace(/"/g, '""')}"`,
@@ -131,15 +131,21 @@ export default function LOSQueue() {
   const [dateFrom,   setDateFrom]   = useState('')
   const [dateTo,     setDateTo]     = useState('')
   const [page,       setPage]       = useState(1)
+  // M10: cursor-based pagination state
+  const [nextCursor, setNextCursor] = useState<number | null>(null)
+  const [hasMore,    setHasMore]    = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
       const [queueRes, statsRes] = await Promise.all([
-        apiFetch<{ data: LoanApp[] }>('/api/los/queue?limit=200&offset=0'),
+        apiFetch<{ data: LoanApp[]; next_cursor: number; has_more: boolean }>('/api/los/queue?limit=50'),
         apiFetch<{ data: LOSStats }>('/api/los/stats'),
       ])
       setRows(queueRes.data ?? [])
+      setNextCursor(queueRes.next_cursor ?? null)
+      setHasMore(queueRes.has_more ?? false)
       setStats(statsRes.data ?? null)
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load')
@@ -147,6 +153,20 @@ export default function LOSQueue() {
       setLoading(false)
     }
   }, [])
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const res = await apiFetch<{ data: LoanApp[]; next_cursor: number; has_more: boolean }>(
+        `/api/los/queue?limit=50&after_id=${nextCursor}`
+      )
+      setRows(prev => [...prev, ...(res.data ?? [])])
+      setNextCursor(res.next_cursor ?? null)
+      setHasMore(res.has_more ?? false)
+    } catch { /* silently ignore */ }
+    finally { setLoadingMore(false) }
+  }, [nextCursor, loadingMore])
 
   useEffect(() => { load() }, [load])
 
@@ -490,22 +510,38 @@ export default function LOSQueue() {
           <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
             {filtered.length === 0
               ? 'No applications'
-              : `Showing ${showStart}–${showEnd} of ${filtered.length} applications`}
+              : `Showing ${showStart}–${showEnd} of ${filtered.length}${hasMore ? '+' : ''} applications`}
           </span>
-          {totalPages > 1 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <PageBtn icon="chevron_left" disabled={safePage === 1} onClick={() => setPage(p => p - 1)} />
-              {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-                let pg: number
-                if (totalPages <= 7) pg = i + 1
-                else if (safePage <= 4) pg = i + 1
-                else if (safePage >= totalPages - 3) pg = totalPages - 6 + i
-                else pg = safePage - 3 + i
-                return <PageBtn key={pg} active={pg === safePage} onClick={() => setPage(pg)}>{pg}</PageBtn>
-              })}
-              <PageBtn icon="chevron_right" disabled={safePage === totalPages} onClick={() => setPage(p => p + 1)} />
-            </div>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {hasMore && (
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                style={{
+                  padding: '5px 12px', fontSize: TEXT.sm, borderRadius: RADIUS.sm,
+                  border: '1px solid var(--bdr)', background: 'var(--card)',
+                  color: 'var(--txt2)', cursor: loadingMore ? 'default' : 'pointer',
+                  opacity: loadingMore ? 0.6 : 1,
+                }}
+              >
+                {loadingMore ? 'Loading…' : 'Load more'}
+              </button>
+            )}
+            {totalPages > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <PageBtn icon="chevron_left" disabled={safePage === 1} onClick={() => setPage(p => p - 1)} />
+                {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                  let pg: number
+                  if (totalPages <= 7) pg = i + 1
+                  else if (safePage <= 4) pg = i + 1
+                  else if (safePage >= totalPages - 3) pg = totalPages - 6 + i
+                  else pg = safePage - 3 + i
+                  return <PageBtn key={pg} active={pg === safePage} onClick={() => setPage(pg)}>{pg}</PageBtn>
+                })}
+                <PageBtn icon="chevron_right" disabled={safePage === totalPages} onClick={() => setPage(p => p + 1)} />
+              </div>
+            )}
+          </div>
         </div>
 
       </SectionCard>

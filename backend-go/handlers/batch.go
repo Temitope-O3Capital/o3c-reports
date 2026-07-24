@@ -197,7 +197,15 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		}
 	}
 
-	// 10. DPD-90 alerts — loans crossing 90-day threshold today
+	// 10. AML engine — M47: evaluate rules, create flags, auto-create SAR drafts for high/critical
+	if err := RunAMLEngine(ctx, db); err != nil {
+		slog.Error("Batch: AML engine failed", "err", err)
+		steps = append(steps, "aml_engine:FAILED")
+	} else {
+		steps = append(steps, "aml_engine:ok")
+	}
+
+	// 12. DPD-90 alerts — loans crossing 90-day threshold today
 	if err := batchDPD90Alerts(ctx, db); err != nil {
 		slog.Error("Batch: DPD-90 alerts failed", "err", err)
 		steps = append(steps, "dpd90_alerts:FAILED")
@@ -205,7 +213,7 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, "dpd90_alerts:ok")
 	}
 
-	// 11. Vendor integration key expiry alerts — 7-day warning
+	// 13. Vendor integration key expiry alerts — 7-day warning
 	if err := batchAPIKeyExpiryAlerts(ctx, db); err != nil {
 		slog.Error("Batch: API key expiry alerts failed", "err", err)
 		steps = append(steps, "api_key_expiry:FAILED")

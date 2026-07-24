@@ -68,9 +68,9 @@ const PRODUCT_COLS: TableCol<ByProductRow>[] = [
   { key: 'product_code', label: 'Code', render: r => <span style={NUM}>{r.product_code}</span> },
   { key: 'product_name', label: 'Product', sortable: true },
   { key: 'count', label: 'Txns', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtNum(r.count)}</span> },
-  { key: 'cr', label: 'Credits ₦', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtKobo(r.cr)}</span> },
-  { key: 'dr', label: 'Debits ₦', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: RED, fontWeight: FW.semibold }}>{fmtKobo(r.dr)}</span> },
-  { key: 'volume', label: 'Volume ₦', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.volume)}</span> },
+  { key: 'cr', label: 'Credits NGN', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtKobo(r.cr)}</span> },
+  { key: 'dr', label: 'Debits NGN', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: RED, fontWeight: FW.semibold }}>{fmtKobo(r.dr)}</span> },
+  { key: 'volume', label: 'Volume NGN', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.volume)}</span> },
 ]
 
 const BRANCH_COLS: TableCol<ByBranchRow>[] = [
@@ -78,7 +78,7 @@ const BRANCH_COLS: TableCol<ByBranchRow>[] = [
   { key: 'branch_name', label: 'Branch', sortable: true },
   { key: 'active_accounts', label: 'Accounts', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtNum(r.active_accounts)}</span> },
   { key: 'count', label: 'Txns', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtNum(r.count)}</span> },
-  { key: 'volume', label: 'Volume ₦', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.volume)}</span> },
+  { key: 'volume', label: 'Volume NGN', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.volume)}</span> },
 ]
 
 // ── Upload button ─────────────────────────────────────────────────────────────
@@ -180,7 +180,7 @@ export default function FinanceEOD() {
   }
 
   function exportProductCsv(data: ByProductRow[]) {
-    const header = ['Code', 'Product', 'Txns', 'Credits ₦', 'Debits ₦', 'Volume ₦']
+    const header = ['Code', 'Product', 'Txns', 'Credits NGN', 'Debits NGN', 'Volume NGN']
     const lines = data.map(r => [
       r.product_code ?? '',
       `"${String(r.product_name ?? '').replace(/"/g, '""')}"`,
@@ -197,7 +197,7 @@ export default function FinanceEOD() {
   }
 
   function exportBranchCsv(data: ByBranchRow[]) {
-    const header = ['Code', 'Branch', 'Accounts', 'Txns', 'Volume ₦']
+    const header = ['Code', 'Branch', 'Accounts', 'Txns', 'Volume NGN']
     const lines = data.map(r => [
       r.branch_code ?? '',
       `"${String(r.branch_name ?? '').replace(/"/g, '""')}"`,

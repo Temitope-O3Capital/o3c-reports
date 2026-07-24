@@ -302,7 +302,7 @@ function ChangePasswordSection() {
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>error</span> Passwords do not match
         </div>
       )}
-      <button type="submit" disabled={loading} style={{ ...BTN_PRIMARY, opacity: loading ? 0.7 : 1, marginTop: 4 }}>
+      <button type="submit" disabled={loading} title="Cmd+Enter" style={{ ...BTN_PRIMARY, opacity: loading ? 0.7 : 1, marginTop: 4 }}>
         {loading && <Spinner size={14} color="#fff" />}
         Update Password
       </button>
@@ -832,7 +832,7 @@ function VoiceTab() {
               </div>
             </div>
 
-            <button type="submit" disabled={saving} style={{ ...BTN_PRIMARY, alignSelf: 'flex-start' }}>
+            <button type="submit" disabled={saving} title="Cmd+Enter" style={{ ...BTN_PRIMARY, alignSelf: 'flex-start' }}>
               {saving && <Spinner size={14} color="#fff" />}
               {saving ? 'Connecting…' : 'Connect Account'}
             </button>

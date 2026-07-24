@@ -56,7 +56,7 @@ const COLS: TableCol<BudgetLine>[] = [
 ]
 
 function exportBudgetCsv(rows: BudgetLine[]) {
-  const header = ['Cost Centre', 'Category', 'Budget (₦)', 'Actual (₦)', 'Committed (₦)', 'Variance (₦)', 'Period']
+  const header = ['Cost Centre', 'Category', 'Budget NGN', 'Actual NGN', 'Committed NGN', 'Variance NGN', 'Period']
   const lines = rows.map(r => [
     `"${String(r.cost_centre ?? '').replace(/"/g, '""')}"`,
     `"${String(r.category ?? '').replace(/"/g, '""')}"`,

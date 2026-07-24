@@ -47,7 +47,7 @@ function DpdBadge({ dpd }: { dpd: number }) {
 // ── Export CSV ────────────────────────────────────────────────────────────────
 
 function exportWriteoffCsv(rows: WriteoffRow[]) {
-  const header = ['CIF', 'Customer Name', 'Outstanding (₦)', 'DPD', 'Last Payment Date', 'Recovery Attempts', 'Recommended By']
+  const header = ['CIF', 'Customer Name', 'Outstanding NGN', 'DPD', 'Last Payment Date', 'Recovery Attempts', 'Recommended By']
   const lines = rows.map(r => [
     r.account_cif ?? '',
     `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
@@ -294,7 +294,7 @@ export default function WriteoffQueue() {
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="Total Write-offs" value={kpis ? fmtNum(kpis.total) : '—'} icon="delete_forever" accent={RED} loading={kpiLoading} />
-        <KpiCard label="Total Amount ₦" value={kpis ? fmtKobo(kpis.amount_kobo) : '—'} icon="account_balance" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Total Amount NGN" value={kpis ? fmtKobo(kpis.amount_kobo) : '—'} icon="account_balance" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="Recovery Rate %" value={kpis ? `${Number(kpis.recovery_rate_pct).toFixed(1)}%` : '—'} icon="trending_up" accent={GREEN} loading={kpiLoading} />
         <KpiCard label="Pending Approval" value={kpis ? fmtNum(kpis.pending) : '—'} icon="pending_actions" accent={AMBER} loading={kpiLoading} />
       </div>

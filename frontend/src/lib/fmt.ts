@@ -52,7 +52,8 @@ export function fmtDate(s: string | null | undefined, opts?: Intl.DateTimeFormat
     // Date-only strings (YYYY-MM-DD) are parsed as local midnight to avoid
     // UTC-to-local conversion shifting the date backward in west-of-UTC zones.
     const d = s.includes('T') ? new Date(s) : new Date(s.replace(/-/g, '/'))
-    return d.toLocaleDateString('en-GB', opts ?? { day: '2-digit', month: 'short', year: 'numeric' })
+    // L6: use 'en-NG' locale explicitly for all date displays
+    return d.toLocaleDateString('en-NG', opts ?? { day: '2-digit', month: 'short', year: 'numeric' })
   } catch { return s }
 }
 

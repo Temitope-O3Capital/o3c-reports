@@ -135,6 +135,7 @@ function CreateDealModal({
           <button
             form="create-deal-form" type="submit"
             disabled={saving}
+            title="Cmd+Enter"
             style={{ ...btnPrimary, opacity: saving ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: 6 }}
           >
             {saving && <Spinner size={14} color="#fff" />}

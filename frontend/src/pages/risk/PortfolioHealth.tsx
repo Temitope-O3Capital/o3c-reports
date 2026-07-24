@@ -177,7 +177,7 @@ export default function PortfolioHealth() {
   const totalBandCount = bandDist.reduce((acc, d) => acc + d.count, 0)
 
   function exportEmployersCsv(data: EmployerRow[]) {
-    const header = ['Company', 'Staff Loans', 'Book ₦', '% of Book', 'PAR30 Count']
+    const header = ['Company', 'Staff Loans', 'Book NGN', '% of Book', 'PAR30 Count']
     const lines = data.map(r => [
       `"${String(r.company ?? '').replace(/"/g, '""')}"`,
       r.staff_loans_count ?? 0,

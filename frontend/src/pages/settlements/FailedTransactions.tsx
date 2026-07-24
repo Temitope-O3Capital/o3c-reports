@@ -187,7 +187,7 @@ export default function FailedTransactions() {
 
   function handleExportCsv() {
     const toExport = checkedIds.size > 0 ? filtered.filter(r => checkedIds.has(r.id)) : filtered
-    const header = ['Txn Ref', 'Amount (₦)', 'Customer', 'Channel', 'Failure Reason', 'Failed Date', 'Retry Count']
+    const header = ['Txn Ref', 'Amount (NGN)', 'Customer', 'Channel', 'Failure Reason', 'Failed Date', 'Retry Count']
     const lines = toExport.map(r => [
       `"${String(r.txn_ref ?? '').replace(/"/g, '""')}"`,
       r.amount_kobo !== undefined ? (r.amount_kobo / 100).toFixed(2) : '',
@@ -219,7 +219,7 @@ export default function FailedTransactions() {
       render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: '#0E2841' }}>{r.txn_ref}</span>,
     },
     {
-      key: 'amount_kobo', label: 'Amount ₦', align: 'right',
+      key: 'amount_kobo', label: 'Amount NGN', align: 'right',
       render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.amount_kobo)}</span>,
     },
     {

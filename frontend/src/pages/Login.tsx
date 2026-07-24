@@ -264,6 +264,7 @@ function PrimaryBtn({
       type="submit"
       disabled={loading}
       onClick={onClick}
+      title="Cmd+Enter"
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
@@ -456,7 +457,10 @@ export default function Login({ onLogin }: LoginProps) {
   const [regErr,       setRegErr]       = useState('')
 
   const greeting = (() => {
-    const h = new Date().getHours()
+    // M12: use Intl to resolve the user's OS/browser timezone explicitly,
+    // so the greeting reflects their local time even if stored prefs aren't loaded yet.
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+    const h = parseInt(new Date().toLocaleString('en-NG', { hour: 'numeric', hour12: false, timeZone: tz }), 10)
     if (h < 12) return 'Good morning'
     if (h < 17) return 'Good afternoon'
     return 'Good evening'

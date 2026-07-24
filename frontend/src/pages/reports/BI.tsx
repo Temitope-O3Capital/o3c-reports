@@ -22,7 +22,7 @@ const MODULE_METRICS: Record<string, string[]> = {
   Collections: ['Recovery Rate', 'PTPs', 'Kept PTPs', 'Avg DPD', 'Write-offs'],
   Recovery: ['Recovered ₦', 'Success Rate', 'Field Visits', 'Legal Cases'],
   Risk: ['PAR30', 'NPL Ratio', 'Avg Eye Score', 'Declined Count'],
-  Finance: ['Revenue ₦', 'Expenses ₦', 'Net Income ₦', 'FD Volume'],
+  Finance: ['Revenue NGN', 'Expenses ₦', 'Net Income ₦', 'FD Volume'],
   Settlements: ['Settled ₦', 'Failed Count', 'NIP Exceptions'],
   HR: ['Headcount', 'Attrition Rate', 'Avg Salary ₦', 'Leave Days'],
   Compliance: ['Open Findings', 'SARs Filed', 'Watchlist Hits'],

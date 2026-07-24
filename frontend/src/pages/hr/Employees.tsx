@@ -82,6 +82,10 @@ export default function Employees() {
   const [detailTab, setDetailTab]     = useState('personal')
   const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([])
   const [loadingLeave, setLoadingLeave]   = useState(false)
+  // M3: edit mode for employee detail modal
+  const [isEditing, setIsEditing]     = useState(false)
+  const [editForm, setEditForm]       = useState<Partial<Employee>>({})
+  const [savingEdit, setSavingEdit]   = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -109,6 +113,8 @@ export default function Employees() {
   async function openDetail(emp: Employee) {
     setDetail(emp)
     setDetailTab('personal')
+    setIsEditing(false)
+    setEditForm({})
     setLeaveBalances([])
     setLoadingLeave(true)
     try {
@@ -118,6 +124,27 @@ export default function Employees() {
       setLeaveBalances(Array.isArray(lb.data) ? lb.data : [])
     } catch { /* keep what we have */ }
     finally { setLoadingLeave(false) }
+  }
+
+  async function handleEditSave() {
+    if (!detail) return
+    setSavingEdit(true)
+    try {
+      await apiPut(`/api/hr/employees/${detail.id}`, editForm)
+      toast.success('Employee updated')
+      setIsEditing(false)
+      setEditForm({})
+      // Refresh detail with updated data
+      const full = await apiFetch<{ data: Employee }>(`/api/hr/employees/${detail.id}`)
+      setDetail(full.data)
+      load()
+    } catch (e: any) { toast.error(e.message ?? 'Save failed') }
+    finally { setSavingEdit(false) }
+  }
+
+  function ef(field: keyof Employee) {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setEditForm(prev => ({ ...prev, [field]: e.target.value }))
   }
 
   async function handleCreate() {
@@ -332,16 +359,71 @@ export default function Employees() {
       />
 
       {/* Detail modal */}
-      <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? `${detail.first_name} ${detail.last_name}` : ''} width={560}>
+      <Modal open={!!detail} onClose={() => { setDetail(null); setIsEditing(false) }} title={detail ? `${detail.first_name} ${detail.last_name}` : ''} width={580}>
         {detail && (
           <div>
-            <div style={{ display: 'flex', gap: SP[2], marginBottom: SP[4] }}>
+            <div style={{ display: 'flex', gap: SP[2], marginBottom: SP[4], alignItems: 'center' }}>
               <StatusBadge status={detail.status} />
               {detail.staff_id && <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY }}>{detail.staff_id}</span>}
+              {canManage && !isEditing && (
+                <button
+                  onClick={() => { setIsEditing(true); setEditForm({ ...detail }) }}
+                  style={{ marginLeft: 'auto', ...btnPrimary, padding: '5px 12px', fontSize: TEXT.sm }}
+                >
+                  Edit
+                </button>
+              )}
+              {isEditing && (
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: SP[2] }}>
+                  <button onClick={() => { setIsEditing(false); setEditForm({}) }}
+                    style={{ padding: '5px 12px', fontSize: TEXT.sm, borderRadius: RADIUS.md, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text)', cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                  <button onClick={handleEditSave} disabled={savingEdit}
+                    style={{ ...btnPrimary, padding: '5px 12px', fontSize: TEXT.sm, opacity: savingEdit ? 0.7 : 1 }}>
+                    {savingEdit ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              )}
             </div>
-            <Tabs tabs={detailTabs} active={detailTab} onChange={setDetailTab} />
+            {!isEditing && <Tabs tabs={detailTabs} active={detailTab} onChange={setDetailTab} />}
             <div style={{ paddingTop: 16 }}>
-              {detailTab === 'personal' && (
+              {isEditing && (() => {
+                const inpS: React.CSSProperties = {
+                  padding: '7px 10px', border: '1px solid var(--border)', borderRadius: RADIUS.md,
+                  fontSize: TEXT.sm, background: 'var(--card)', color: 'var(--text)', width: '100%',
+                }
+                const row = (label: string, field: keyof Employee, type = 'text') => (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], fontSize: TEXT.sm }}>
+                    <span style={{ color: 'var(--muted)', minWidth: 150, flexShrink: 0 }}>{label}</span>
+                    <input type={type} value={String(editForm[field] ?? '')} onChange={ef(field)} style={inpS} />
+                  </div>
+                )
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+                    <div style={{ fontWeight: FW.semibold, fontSize: TEXT.sm, color: 'var(--muted)', marginBottom: 4, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>Personal</div>
+                    {row('First Name', 'first_name')}
+                    {row('Last Name', 'last_name')}
+                    {row('Date of Birth', 'date_of_birth', 'date')}
+                    {row('Gender', 'gender')}
+                    {row('Phone', 'phone')}
+                    {row('Email', 'email', 'email')}
+                    {row('Address', 'address')}
+                    {row('Emergency Contact', 'emergency_contact_name')}
+                    {row('Emergency Phone', 'emergency_contact_phone')}
+                    <div style={{ fontWeight: FW.semibold, fontSize: TEXT.sm, color: 'var(--muted)', margin: '8px 0 4px', borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>Employment</div>
+                    {row('Job Title', 'job_title')}
+                    {row('Contract Type', 'contract_type')}
+                    {row('Start Date', 'start_date', 'date')}
+                    <div style={{ fontWeight: FW.semibold, fontSize: TEXT.sm, color: 'var(--muted)', margin: '8px 0 4px', borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>Payroll</div>
+                    {row('Bank', 'bank_name')}
+                    {row('Account Number', 'account_number')}
+                    {row('Pension RSA PIN', 'pension_rsa_pin')}
+                    {row('HMO Plan', 'hmo_plan')}
+                  </div>
+                )
+              })()}
+              {!isEditing && detailTab === 'personal' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
                   {[
                     ['Date of Birth',     detail.date_of_birth ? fmtDate(detail.date_of_birth) : '—'],
@@ -359,7 +441,7 @@ export default function Employees() {
                   ))}
                 </div>
               )}
-              {detailTab === 'employment' && (
+              {!isEditing && detailTab === 'employment' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
                   {[
                     ['Staff ID',       detail.staff_id ?? '—'],
@@ -377,7 +459,7 @@ export default function Employees() {
                   ))}
                 </div>
               )}
-              {detailTab === 'payroll' && (
+              {!isEditing && detailTab === 'payroll' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
                   {[
                     ['Bank',           detail.bank_name ?? '—'],
@@ -393,7 +475,7 @@ export default function Employees() {
                   ))}
                 </div>
               )}
-              {detailTab === 'leave' && (
+              {!isEditing && detailTab === 'leave' && (
                 loadingLeave ? (
                   <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}><Spinner size={24} /></div>
                 ) : leaveBalances.length === 0 ? (

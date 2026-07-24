@@ -7,7 +7,7 @@ import { NAVY, RED, GREEN, AMBER, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from 
 import { toast } from 'sonner'
 
 function exportPostingsCsv(rows: Posting[]) {
-  const header = ['Date', 'Initiated By', 'DR Account', 'CR Account', 'Amount (₦)', 'Narrative', 'Status']
+  const header = ['Date', 'Initiated By', 'DR Account', 'CR Account', 'Amount (NGN)', 'Narrative', 'Status']
   const lines = rows.map(r => [
     r.initiated_at ?? '',
     `"${String(r.initiated_by_name ?? '').replace(/"/g, '""')}"`,
@@ -50,7 +50,7 @@ function PostingCols(onApprove: (id: number) => void, onReject: (id: number) => 
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.initiated_by_name || '—'}</span> },
     { key: 'dr_account', label: 'DR Account', render: r => <span style={{ ...NUM, fontSize: TEXT.sm }}>{r.dr_account}</span> },
     { key: 'cr_account', label: 'CR Account', render: r => <span style={{ ...NUM, fontSize: TEXT.sm }}>{r.cr_account}</span> },
-    { key: 'amount_kobo', label: 'Amount ₦', align: 'right', sortable: true,
+    { key: 'amount_kobo', label: 'Amount NGN', align: 'right', sortable: true,
       render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.amount_kobo)}</span> },
     { key: 'narrative', label: 'Narrative',
       render: r => <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240, fontSize: TEXT.sm }}>{r.narrative || '—'}</span> },
@@ -127,7 +127,7 @@ function ProposeModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
           {field('DR Account (debit)', 'dr_account')}
           {field('CR Account (credit)', 'cr_account')}
-          {field('Amount (₦)', 'amount', 'number')}
+          {field('Amount (NGN)', 'amount', 'number')}
           <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
             <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Narrative *</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"

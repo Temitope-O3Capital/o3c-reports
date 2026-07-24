@@ -379,7 +379,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
                     </td>
                   </tr>
                   <tr>
-                    <td style={{ ...TD_STYLE, fontWeight: FW.semibold }}>Total Volume ₦</td>
+                    <td style={{ ...TD_STYLE, fontWeight: FW.semibold }}>Total Volume NGN</td>
                     <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: FW.bold }}>{fmtKoboExact(n(ps?.total_volume_kobo))}</td>
                     <td style={{ ...TD_STYLE, textAlign: 'right', ...NUM, fontWeight: FW.bold }}>{fmtKoboExact(n(eod?.total_vol_kobo))}</td>
                     <td style={{ ...TD_STYLE, textAlign: 'right' }}>

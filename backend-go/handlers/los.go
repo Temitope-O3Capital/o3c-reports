@@ -126,20 +126,43 @@ func losQueue(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
 		limit := qint(r, "limit", 50, 1, 200)
-		offset := qint(r, "offset", 0, 0, 1<<30)
+		// M10: cursor-based pagination via after_id (keyset on updated_at + id).
+		// Falls back to offset-based when after_id is absent for backwards compatibility.
+		afterID := qint(r, "after_id", 0, 0, 1<<62)
 
-		// H3: join users table so assigned_officer_name is available without a second fetch.
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT la.id, la.reference, la.applicant_name, la.applicant_cif, la.product_type,
-			       la.amount_requested_kobo, la.amount_approved_kobo, la.status, la.stage,
-			       la.assigned_to_user_id, la.submitted_at, la.created_at, la.updated_at,
-			       u.full_name AS assigned_officer_name
-			FROM loan_applications la
-			LEFT JOIN o3c_users u ON u.id = la.assigned_to_user_id
-			WHERE la.assigned_to_user_id = $1
-			ORDER BY la.updated_at DESC
-			LIMIT $2 OFFSET $3`,
-			user.ID, limit, offset)
+		var rows []core.Row
+		var err error
+		if afterID > 0 {
+			// Keyset pagination: fetch records older than the cursor row.
+			rows, err = db.PGQuery(r.Context(), `
+				SELECT la.id, la.reference, la.applicant_name, la.applicant_cif, la.product_type,
+				       la.amount_requested_kobo, la.amount_approved_kobo, la.status, la.stage,
+				       la.assigned_to_user_id, la.submitted_at, la.created_at, la.updated_at,
+				       u.full_name AS assigned_officer_name
+				FROM loan_applications la
+				LEFT JOIN o3c_users u ON u.id = la.assigned_to_user_id
+				WHERE la.assigned_to_user_id = $1
+				  AND (la.updated_at, la.id) < (
+				      SELECT updated_at, id FROM loan_applications WHERE id = $2
+				  )
+				ORDER BY la.updated_at DESC, la.id DESC
+				LIMIT $3`,
+				user.ID, afterID, limit)
+		} else {
+			offset := qint(r, "offset", 0, 0, 1<<30)
+			// H3: join users table so assigned_officer_name is available without a second fetch.
+			rows, err = db.PGQuery(r.Context(), `
+				SELECT la.id, la.reference, la.applicant_name, la.applicant_cif, la.product_type,
+				       la.amount_requested_kobo, la.amount_approved_kobo, la.status, la.stage,
+				       la.assigned_to_user_id, la.submitted_at, la.created_at, la.updated_at,
+				       u.full_name AS assigned_officer_name
+				FROM loan_applications la
+				LEFT JOIN o3c_users u ON u.id = la.assigned_to_user_id
+				WHERE la.assigned_to_user_id = $1
+				ORDER BY la.updated_at DESC, la.id DESC
+				LIMIT $2 OFFSET $3`,
+				user.ID, limit, offset)
+		}
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -147,7 +170,17 @@ func losQueue(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		respond(w, rows, "pg")
+		// Include next cursor in response so frontend knows how to fetch next page.
+		var nextCursor int64
+		if len(rows) == limit {
+			nextCursor = toInt64(rows[len(rows)-1]["id"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"data":        rows,
+			"next_cursor": nextCursor,
+			"has_more":    nextCursor > 0,
+		})
 	}
 }
 
@@ -156,6 +189,8 @@ func losAll(db *core.DB) http.HandlerFunc {
 		status := qstr(r, "status")
 		stage := qstr(r, "stage")
 		limit := qint(r, "limit", 100, 1, 500)
+		// M24: cursor-based pagination via after_id; falls back to offset.
+		afterID := qint(r, "after_id", 0, 0, 1<<62)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		query := `SELECT id, reference, applicant_name, applicant_cif, product_type,
@@ -174,8 +209,16 @@ func losAll(db *core.DB) http.HandlerFunc {
 			args = append(args, stage)
 			n++
 		}
-		query += fmt.Sprintf(" ORDER BY updated_at DESC LIMIT $%d OFFSET $%d", n, n+1)
-		args = append(args, limit, offset)
+		if afterID > 0 {
+			query += fmt.Sprintf(` AND (updated_at, id) < (SELECT updated_at, id FROM loan_applications WHERE id=$%d)`, n)
+			args = append(args, afterID)
+			n++
+			query += fmt.Sprintf(" ORDER BY updated_at DESC, id DESC LIMIT $%d", n)
+			args = append(args, limit)
+		} else {
+			query += fmt.Sprintf(" ORDER BY updated_at DESC LIMIT $%d OFFSET $%d", n, n+1)
+			args = append(args, limit, offset)
+		}
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {

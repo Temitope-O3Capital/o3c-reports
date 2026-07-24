@@ -214,7 +214,7 @@ function RecordPTPTab({ assignmentId, onDone }: { assignmentId: number; onDone: 
       <ErrBanner error={err} />
       <div>
         <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
-          Promise Amount (₦)
+          Promise Amount (NGN)
         </label>
         <input
           type="number"

@@ -1,3 +1,8 @@
+// Package handlers — Mail module (~2500 lines)
+// Sections: Graph OAuth · Mailbox sync · Folders · Messages · Drafts ·
+//           Signatures · Attachments · Thread replies · SendGrid
+// See "// ── <Section>" dividers throughout.
+
 package handlers
 
 import (

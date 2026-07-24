@@ -213,7 +213,7 @@ function NewReviewModal({ onClose, onCreated }: { onClose: () => void; onCreated
 // ── Export CSV ────────────────────────────────────────────────────────────────
 
 function exportCreditLimitCsv(rows: CreditReview[]) {
-  const header = ['Review #', 'Customer', 'CIF Number', 'Card Type', 'Current Limit (₦)', 'Proposed Limit (₦)', 'Utilization %', 'Eye Score', 'Status', 'Recommended By', 'Submitted Date']
+  const header = ['Review #', 'Customer', 'CIF Number', 'Card Type', 'Current Limit NGN', 'Proposed Limit NGN', 'Utilization %', 'Eye Score', 'Status', 'Recommended By', 'Submitted Date']
   const lines = rows.map(r => [
     `"${String(r.ref ?? '').replace(/"/g, '""')}"`,
     `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,

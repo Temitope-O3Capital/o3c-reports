@@ -994,7 +994,7 @@ export default function TicketDetail() {
         footer={<ModalFooter onConfirm={handleLogPTP} label="Log Promise" disabled={!ptpAmount || !ptpDate} />}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Promise Amount (₦)</label>
+            <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Promise Amount (NGN)</label>
             <input type="number" placeholder="e.g. 50000" value={ptpAmount} onChange={e => setPtpAmount(e.target.value)} style={inputStyle} />
           </div>
           <div>

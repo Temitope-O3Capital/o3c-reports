@@ -168,7 +168,7 @@ function NewPlanModal({ open, onClose, onCreated }: {
           />
         </div>
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Total Amount ₦</label>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Total Amount NGN</label>
           <input
             type="number"
             value={amountNaira}
@@ -322,7 +322,7 @@ function PlanDetailModal({ plan, open, onClose, onUpdated }: {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'var(--th-bg)' }}>
-                {['#', 'Due Date', 'Amount ₦', 'Status', ''].map(h => (
+                {['#', 'Due Date', 'Amount NGN', 'Status', ''].map(h => (
                   <th key={h} style={{ padding: '9px 12px', textAlign: 'left', fontSize: 11.5, fontWeight: 600, color: 'var(--txt2)', borderBottom: '1px solid var(--bdr)' }}>
                     {h}
                   </th>

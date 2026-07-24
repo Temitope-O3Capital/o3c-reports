@@ -24,6 +24,7 @@ func RegisterBI(r chi.Router, db *core.DB) {
 	r.With(bi).Post("/reports",                   biCreateReport(db))
 	r.With(bi).Put("/reports/{id}",               biUpdateReport(db))
 	r.With(bi).Delete("/reports/{id}",            biDeleteReport(db))
+	r.With(bi).Post("/reports/preview",           biPreviewReport(db)) // M13: preview without saving
 	r.With(bi).Post("/reports/{id}/run",          biRunReport(db))
 	r.With(bi).Get("/reports/{id}/export",        biExportReport(db))
 	r.With(bi).Post("/reports/{id}/schedule",     biScheduleReport(db))
@@ -359,6 +360,34 @@ func biRunReport(db *core.DB) http.HandlerFunc {
 				len(rows), runRows[0]["id"])
 		}
 
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"rows": rows, "row_count": len(rows)}) //nolint:errcheck
+	}
+}
+
+// biPreviewReport runs a report definition inline without requiring a saved report ID.
+// M13: allows result preview before saving.
+func biPreviewReport(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		var def map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&def); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		if def["module"] == nil {
+			respondErr(w, 422, "module is required"); return
+		}
+		q, _, qErr := biQueryForReport(r, def)
+		if qErr != nil {
+			respondErr(w, 422, qErr.Error()); return
+		}
+		rows, err := db.PGQuery(ctx, q)
+		if err != nil {
+			respondErr(w, 500, "Query execution failed"); return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"rows": rows, "row_count": len(rows)}) //nolint:errcheck
 	}

@@ -18,15 +18,15 @@ interface ExportLog {
 // ── Dataset field map ─────────────────────────────────────────────────────────
 
 const DATASET_FIELDS: Record<string, string[]> = {
-  Loans: ['Loan ID', 'CIF', 'Customer Name', 'Product', 'Principal ₦', 'Outstanding ₦', 'DPD', 'Status', 'Disbursed Date', 'Maturity Date'],
-  Applications: ['App Ref', 'CIF', 'Applicant Name', 'Product', 'Amount Requested ₦', 'Status', 'Stage', 'Eye Score', 'Submitted Date'],
+  Loans: ['Loan ID', 'CIF', 'Customer Name', 'Product', 'Principal NGN', 'Outstanding NGN', 'DPD', 'Status', 'Disbursed Date', 'Maturity Date'],
+  Applications: ['App Ref', 'CIF', 'Applicant Name', 'Product', 'Amount Requested NGN', 'Status', 'Stage', 'Eye Score', 'Submitted Date'],
   Customers: ['CIF', 'Name', 'Phone', 'Email', 'BVN Status', 'KYC Status', 'Account Status', 'Created Date'],
-  Collections: ['CIF', 'Outstanding ₦', 'DPD', 'Agent', 'Last Contact', 'PTP Date', 'PTP Amount ₦'],
-  Payments: ['Txn Ref', 'CIF', 'Amount ₦', 'Channel', 'Status', 'Date'],
-  Transactions: ['Txn Ref', 'Account', 'Amount ₦', 'Type', 'Description', 'Date'],
-  Settlements: ['Batch Ref', 'Amount ₦', 'Count', 'Status', 'Date'],
+  Collections: ['CIF', 'Outstanding NGN', 'DPD', 'Agent', 'Last Contact', 'PTP Date', 'PTP Amount NGN'],
+  Payments: ['Txn Ref', 'CIF', 'Amount NGN', 'Channel', 'Status', 'Date'],
+  Transactions: ['Txn Ref', 'Account', 'Amount NGN', 'Type', 'Description', 'Date'],
+  Settlements: ['Batch Ref', 'Amount NGN', 'Count', 'Status', 'Date'],
   'HR Staff': ['Employee ID', 'Name', 'Department', 'Role', 'Status', 'Join Date'],
-  Cards: ['Card Ref', 'CIF', 'Card Type', 'Status', 'Limit ₦', 'Balance ₦'],
+  Cards: ['Card Ref', 'CIF', 'Card Type', 'Status', 'Limit NGN', 'Balance NGN'],
 }
 
 const DATASETS = Object.keys(DATASET_FIELDS)

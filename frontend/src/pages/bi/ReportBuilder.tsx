@@ -132,17 +132,28 @@ export default function ReportBuilder() {
   }, [id])
 
   const runPreview = useCallback(async () => {
-    if (!id) { toast.error('Save the report first, then run a preview'); return }
     setRunning(true); setError(null)
     try {
       const qs = new URLSearchParams()
       if (fromDate) qs.set('from', fromDate)
       if (toDate)   qs.set('to', toDate)
-      const res = await apiFetch<{ rows: Row[] }>(`/api/bi/reports/${id}/run?${qs}`, { method: 'POST', body: '{}' })
+      let res: { rows: Row[] } | null
+      if (id) {
+        // Saved report — run via ID endpoint
+        res = await apiFetch<{ rows: Row[] }>(`/api/bi/reports/${id}/run?${qs}`, { method: 'POST', body: '{}' })
+      } else {
+        // M13: unsaved report — preview inline without saving first
+        const payload = { module, date_range: dateRange, dimensions: [], metrics: MODULE_METRICS[module] ?? [], filters: {} }
+        res = await apiFetch<{ rows: Row[] }>(`/api/bi/reports/preview?${qs}`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
       setPreview(res?.rows ?? [])
     } catch (e: any) { setError(e.message) }
     finally { setRunning(false) }
-  }, [id, fromDate, toDate])
+  }, [id, fromDate, toDate, module, dateRange])
 
   const save = async () => {
     if (!name.trim()) { toast.error('Report name is required'); return }
@@ -269,7 +280,7 @@ export default function ReportBuilder() {
               <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>→</span>
               <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
                 style={{ ...inpStyle, padding: '5px 8px', fontSize: TEXT.sm }} />
-              <button onClick={runPreview} disabled={running || !id} style={{ ...btnPrimary, padding: '6px 14px', fontSize: TEXT.sm }}>
+              <button onClick={runPreview} disabled={running} style={{ ...btnPrimary, padding: '6px 14px', fontSize: TEXT.sm }}>
                 {running ? 'Running…' : 'Run Preview'}
               </button>
               {id && (
@@ -280,11 +291,7 @@ export default function ReportBuilder() {
               )}
             </div>
           }>
-            {!id ? (
-              <div style={{ textAlign: 'center', padding: SP[12], color: 'var(--txt3)', fontSize: TEXT.base }}>
-                Save the report first to run a preview.
-              </div>
-            ) : running ? (
+            {running ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: 64 }}><Spinner size={28} /></div>
             ) : preview ? (
               <>

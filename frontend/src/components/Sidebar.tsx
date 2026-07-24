@@ -246,6 +246,7 @@ const SECTIONS: Section[] = [
           { label: 'Policy Documents',    to: '/compliance/policies' },
           { label: 'Credit Bureau',       to: '/compliance/credit-bureau' },
           { label: 'Data Breaches',       to: '/compliance/breach-incidents' },
+          { label: 'Board Pack',          to: '/compliance/board-pack' },
         ],
       },
     ],
@@ -581,11 +582,11 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
         flexShrink: 0, overflow: 'hidden',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, overflow: 'hidden', minWidth: 0 }}>
-          {/* Mark */}
+          {/* L4: branding reads from VITE_ORG_NAME env var */}
           <img
             src="/o3-logo-transparent.svg"
             width={50} height={27}
-            alt="O3 Capital"
+            alt={import.meta.env.VITE_ORG_NAME ?? 'O3 Capital'}
             style={{ display: 'block', flexShrink: 0 }}
           />
 
@@ -596,7 +597,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 fontFamily: SORA, letterSpacing: '-0.2px', lineHeight: 1.15,
               }}>
-                O3 Capital
+                {import.meta.env.VITE_ORG_NAME ?? 'O3 Capital'}
               </div>
               <div style={{
                 fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase',
@@ -608,16 +609,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
             </div>
           )}
         </div>
-
-        {!collapsed && (
-          <span
-            className="material-symbols-rounded"
-            title="Switch workspace"
-            style={{ fontSize: 16, color: 'rgba(255,255,255,.18)', flexShrink: 0, cursor: 'pointer', marginLeft: 4 }}
-          >
-            unfold_more
-          </span>
-        )}
+        {/* L3: switch workspace button removed — no workspace picker in this deployment */}
       </div>
 
       {/* Floating collapse/expand tab */}

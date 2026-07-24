@@ -50,7 +50,7 @@ const COLS: TableCol<TxnRow>[] = [
       {r.txn_category || r.description || '—'}
     </span>
   )},
-  { key: 'amount', label: 'Amount ₦', align: 'right',
+  { key: 'amount', label: 'Amount NGN', align: 'right',
     render: r => <span style={{ ...NUM, fontWeight: FW.semibold, color: r.sign === 'CR' ? GREEN : RED }}>{fmtKobo(r.amount)}</span> },
   { key: 'balance', label: 'Balance ₦', align: 'right',
     render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{fmtKobo(r.balance)}</span> },
@@ -205,8 +205,8 @@ export default function FinanceTransactions() {
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="Total Transactions" value={kpis ? fmtNum(kpis.total_count) : '—'} icon="receipt_long" accent={NAVY} loading={kpiLoading} />
-        <KpiCard label="Total Credits ₦" value={kpis ? fmtKobo(kpis.total_credits_kobo) : '—'} icon="south_east" accent={GREEN} loading={kpiLoading} />
-        <KpiCard label="Total Debits ₦" value={kpis ? fmtKobo(kpis.total_debits_kobo) : '—'} icon="north_west" accent={RED} loading={kpiLoading} />
+        <KpiCard label="Total Credits NGN" value={kpis ? fmtKobo(kpis.total_credits_kobo) : '—'} icon="south_east" accent={GREEN} loading={kpiLoading} />
+        <KpiCard label="Total Debits NGN" value={kpis ? fmtKobo(kpis.total_debits_kobo) : '—'} icon="north_west" accent={RED} loading={kpiLoading} />
         <KpiCard label="Net Position ₦" value={kpis ? fmtKobo(kpis.net_position_kobo) : '—'} icon="account_balance_wallet" accent={GREEN} loading={kpiLoading} />
       </div>
 

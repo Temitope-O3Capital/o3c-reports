@@ -1,3 +1,10 @@
+// Package handlers — Compliance module (~2600 lines)
+// Sections: Audit Log · CBN Reports · SARs · Watch List · Audit Findings ·
+//           Checklists · Dashboard · Prudential Ratios · Bureau Export ·
+//           Bureau Submission Logs · DSAR · Retention Schedule · DPA Register ·
+//           NDPR Erasure Worker · AML Rules · Board Pack
+// See "// ── <Section>" dividers throughout.
+
 package handlers
 
 import (
@@ -90,6 +97,9 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 	// Phase 12 — KYC Expiry (C2)
 	r.With(all).Get("/kyc-expiry",               complianceListKYCExpiry(db))
 	r.With(all).Post("/kyc-expiry/{cif}/action", complianceKYCExpiryAction(db))
+
+	// M34: Board Pack — JSON data + printable HTML export
+	r.With(all).Get("/board-pack", complianceBoardPack(db))
 
 	// DSAR assignment (H6)
 	r.With(all).Post("/data-subject-requests/{id}/assign", complianceDSARAssign(db))
@@ -620,6 +630,8 @@ func complianceSAREscalate(db *core.DB) http.HandlerFunc {
 	type body struct {
 		ToStatus string `json:"to_status"`
 		Notes    string `json:"notes"`
+		// M46: populated when transitioning to submitted_to_nfiu
+		NFIURef  string `json:"nfiu_ref"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -671,11 +683,25 @@ func complianceSAREscalate(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Use optimistic concurrency: only update if current status matches what we read.
-		res, err := db.PGExec(ctx,
-			`UPDATE sars SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3`,
-			b.ToStatus, id, fromStatus)
-		if err != nil {
+		// M46: capture NFIU submission metadata when moving to submitted_to_nfiu.
+		if b.ToStatus == "submitted_to_nfiu" && b.NFIURef == "" {
+			respondErr(w, 422, "nfiu_ref is required when submitting to NFIU")
+			return
+		}
+
+		var execErr error
+		var res interface{ RowsAffected() (int64, error) }
+		if b.ToStatus == "submitted_to_nfiu" {
+			res, execErr = db.PGExec(ctx,
+				`UPDATE sars SET status=$1, nfiu_ref=$2, nfiu_submitted_at=NOW(), updated_at=NOW()
+				 WHERE id=$3 AND status=$4`,
+				b.ToStatus, b.NFIURef, id, fromStatus)
+		} else {
+			res, execErr = db.PGExec(ctx,
+				`UPDATE sars SET status=$1, updated_at=NOW() WHERE id=$2 AND status=$3`,
+				b.ToStatus, id, fromStatus)
+		}
+		if execErr != nil {
 			respondErr(w, 500, "Escalate failed")
 			return
 		}
@@ -2133,6 +2159,131 @@ func complianceAMLStats(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// ── M47: AML Engine + SAR Auto-Trigger ───────────────────────────────────────
+
+// RunAMLEngine evaluates active AML rules against yesterday's transactions and
+// creates aml_flags for any matches. For high/critical flags it auto-creates a
+// SAR draft so compliance staff don't have to manually initiate one.
+// Called from the nightly batch job.
+func RunAMLEngine(ctx context.Context, db *core.DB) error {
+	// Fetch enabled rules
+	rules, err := db.PGQuery(ctx, `
+		SELECT id, name, rule_type, threshold, period_days, severity
+		FROM aml_rules WHERE enabled = TRUE`)
+	if err != nil {
+		return err
+	}
+
+	for _, rule := range rules {
+		ruleID := toInt64(rule["id"])
+		ruleType := str(rule["rule_type"])
+		threshold := toInt64(rule["threshold"])
+		severity := str(rule["severity"])
+
+		var matches []core.Row
+
+		switch ruleType {
+		case "amount_threshold":
+			// Flag individual transactions above threshold
+			matches, _ = db.PGQuery(ctx, `
+				SELECT la.applicant_cif AS cif, la.applicant_name AS customer_name,
+				       lr.amount_kobo, lr.payment_ref AS transaction_ref
+				FROM loan_repayments lr
+				JOIN loan_applications la ON la.id = lr.loan_id
+				WHERE lr.amount_kobo >= $1
+				  AND lr.paid_at >= NOW() - INTERVAL '1 day'
+				  AND NOT EXISTS (
+				    SELECT 1 FROM aml_flags f
+				    WHERE f.cif = la.applicant_cif AND f.rule_id = $2
+				      AND f.triggered_at >= NOW() - INTERVAL '1 day'
+				  )`, threshold, ruleID)
+
+		case "velocity_daily":
+			// Flag CIFs with more than threshold transactions in rolling period_days
+			periodDays := toInt64(rule["period_days"])
+			if periodDays == 0 {
+				periodDays = 1
+			}
+			matches, _ = db.PGQuery(ctx, `
+				SELECT la.applicant_cif AS cif, la.applicant_name AS customer_name,
+				       COUNT(*) AS tx_count, SUM(lr.amount_kobo) AS amount_kobo,
+				       NULL::TEXT AS transaction_ref
+				FROM loan_repayments lr
+				JOIN loan_applications la ON la.id = lr.loan_id
+				WHERE lr.paid_at >= NOW() - ($1 || ' days')::INTERVAL
+				GROUP BY la.applicant_cif, la.applicant_name
+				HAVING COUNT(*) > $2
+				  AND NOT EXISTS (
+				    SELECT 1 FROM aml_flags f
+				    WHERE f.cif = la.applicant_cif AND f.rule_id = $3
+				      AND f.triggered_at >= NOW() - ($1 || ' days')::INTERVAL
+				  )`,
+				fmt.Sprintf("%d", periodDays), threshold, ruleID)
+		}
+
+		for _, m := range matches {
+			cif := str(m["cif"])
+			amtKobo := toInt64(m["amount_kobo"])
+			txRef := str(m["transaction_ref"])
+			customerName := str(m["customer_name"])
+
+			flagRows, err := db.PGQuery(ctx, `
+				INSERT INTO aml_flags (rule_id, cif, customer_name, amount_kobo,
+				             transaction_ref, status, triggered_at)
+				VALUES ($1,$2,$3,$4,$5,'open',NOW())
+				RETURNING id`,
+				ruleID, cif, customerName, amtKobo, txRef)
+			if err != nil || len(flagRows) == 0 {
+				slog.Error("AML: flag insert failed", "rule", rule["name"], "cif", cif, "err", err)
+				continue
+			}
+			flagID := toInt64(flagRows[0]["id"])
+
+			// Notify compliance team
+			go NotifyRole(ctx, db, "compliance_head", NotifPayload{
+				EventType: EvtAMLWatchlistHit,
+				Title:     "AML Flag: " + str(rule["name"]),
+				Body:      fmt.Sprintf("CIF %s triggered rule '%s'", cif, rule["name"]),
+				ActionURL: fmt.Sprintf("/compliance/aml-rules?flag=%d", flagID),
+			})
+
+			// M47: auto-create SAR draft for high/critical severity flags
+			if severity == "high" || severity == "critical" {
+				seqRows, _ := db.PGQuery(ctx, `SELECT nextval('sar_ref_seq') AS seq`)
+				if len(seqRows) == 0 {
+					continue
+				}
+				sarRef := fmt.Sprintf("SAR-%04d", toInt64(seqRows[0]["seq"]))
+				summary := fmt.Sprintf("Auto-triggered by AML rule '%s'. CIF: %s. Amount: ₦%.2f",
+					rule["name"], cif, float64(amtKobo)/100)
+				summaryEnc, _ := encryptValue(summary)
+				nameEnc, _ := encryptValue(customerName)
+
+				sarRows, err := db.PGQuery(ctx, `
+					INSERT INTO sars (sar_ref, subject_name_encrypted, account_number,
+					         amount_kobo, summary_encrypted, status, created_at, updated_at)
+					VALUES ($1,$2,$3,$4,$5,'draft',NOW(),NOW())
+					RETURNING id, sar_ref`,
+					sarRef, nameEnc, cif, amtKobo, summaryEnc)
+				if err != nil {
+					slog.Error("AML: auto-SAR create failed", "flag", flagID, "err", err)
+					continue
+				}
+				// Link flag to SAR and mark as escalated
+				if len(sarRows) > 0 {
+					newSARID := toInt64(sarRows[0]["id"])
+					db.PGExec(ctx, //nolint:errcheck
+						`UPDATE aml_flags SET status='escalated',
+						   notes=$1 WHERE id=$2`,
+						fmt.Sprintf("Auto-SAR created: %s (id=%d)", sarRef, newSARID), flagID)
+					slog.Info("AML: auto-SAR created", "sar_ref", sarRef, "flag", flagID)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // ── KYC Expiry (C2) ──────────────────────────────────────────────────────────
 
 // complianceListKYCExpiry returns customers whose KYC is expiring within 90 days.
@@ -2348,6 +2499,143 @@ func complianceUpdateBreachIncident(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Incident not found"); return
 		}
 		respond(w, rows[0], "")
+	}
+}
+
+// ── DSAR Assignment (H6) ─────────────────────────────────────────────────────
+
+// ── M34: Board Pack ──────────────────────────────────────────────────────────
+
+// complianceBoardPack returns the key KPIs for a board pack summary.
+// ?month=YYYY-MM selects the reporting month (defaults to previous calendar month).
+// ?format=html returns a print-optimised HTML page suitable for browser PDF export.
+func complianceBoardPack(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Parse month param — default to previous month
+		monthParam := r.URL.Query().Get("month")
+		var refTime time.Time
+		if monthParam != "" {
+			t, err := time.Parse("2006-01", monthParam)
+			if err != nil {
+				respondErr(w, 400, "month must be YYYY-MM")
+				return
+			}
+			refTime = t
+		} else {
+			refTime = time.Now().AddDate(0, -1, 0)
+		}
+		monthLabel := refTime.Format("January 2006")
+		ctx := r.Context()
+
+		type Metric struct {
+			Label string `json:"label"`
+			Value string `json:"value"`
+		}
+		var metrics []Metric
+
+		// Loan book
+		if rows, err := db.PGQuery(ctx, `
+			SELECT
+			    COUNT(*) FILTER (WHERE status NOT IN ('declined','draft')) AS total_apps,
+			    COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status='active'),0) AS book_kobo,
+			    COUNT(*) FILTER (WHERE status='active') AS active_loans,
+			    COALESCE(SUM(amount_approved_kobo) FILTER (
+			        WHERE status='active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 30),0) AS par30_kobo
+			FROM loan_applications`); err == nil && len(rows) > 0 {
+			row := rows[0]
+			bookKobo := toInt64(row["book_kobo"])
+			par30Kobo := toInt64(row["par30_kobo"])
+			par30Pct := 0.0
+			if bookKobo > 0 {
+				par30Pct = float64(par30Kobo) / float64(bookKobo) * 100
+			}
+			metrics = append(metrics,
+				Metric{"Active Loans", fmt.Sprintf("%d", toInt64(row["active_loans"]))},
+				Metric{"Loan Book (₦)", fmt.Sprintf("%.2f", float64(bookKobo)/100)},
+				Metric{"PAR30 (%)", fmt.Sprintf("%.1f%%", par30Pct)},
+				Metric{"Total Applications", fmt.Sprintf("%d", toInt64(row["total_apps"]))},
+			)
+		}
+
+		// Fixed deposits
+		if rows, err := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS fd_count,
+			       COALESCE(SUM(principal),0) AS total_principal
+			FROM fd_transactions WHERE transaction_type='inflow'`); err == nil && len(rows) > 0 {
+			row := rows[0]
+			metrics = append(metrics,
+				Metric{"FD Count", fmt.Sprintf("%d", toInt64(row["fd_count"]))},
+				Metric{"FD Book (₦)", fmt.Sprintf("%.2f", toFloat64(row["total_principal"]))},
+			)
+		}
+
+		// Collections: overdue accounts
+		if rows, err := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS dpd30 FROM loan_applications
+			WHERE status='active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 30`); err == nil && len(rows) > 0 {
+			metrics = append(metrics, Metric{"Accounts DPD>30", fmt.Sprintf("%d", toInt64(rows[0]["dpd30"]))})
+		}
+
+		// Open support tickets
+		if rows, err := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS c FROM helpdesk_tickets WHERE status NOT IN ('resolved','closed')`); err == nil && len(rows) > 0 {
+			metrics = append(metrics, Metric{"Open Support Tickets", fmt.Sprintf("%d", toInt64(rows[0]["c"]))})
+		}
+
+		// Open compliance findings
+		if rows, err := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS c FROM compliance_findings WHERE status NOT IN ('closed')`); err == nil && len(rows) > 0 {
+			metrics = append(metrics, Metric{"Open Compliance Findings", fmt.Sprintf("%d", toInt64(rows[0]["c"]))})
+		}
+
+		// Open SARs
+		if rows, err := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS c FROM sars WHERE status NOT IN ('filed','closed')`); err == nil && len(rows) > 0 {
+			metrics = append(metrics, Metric{"Pending SARs", fmt.Sprintf("%d", toInt64(rows[0]["c"]))})
+		}
+
+		if r.URL.Query().Get("format") == "html" {
+			rowsHTML := ""
+			for _, m := range metrics {
+				rowsHTML += fmt.Sprintf(
+					`<tr><td class="label">%s</td><td class="value">%s</td></tr>`,
+					m.Label, m.Value)
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprintf(w, `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>O3 Capital Board Pack — %s</title>
+<style>
+ @media print { @page { size: A4; margin: 20mm; } }
+ body { font-family: DM Sans, sans-serif; max-width: 720px; margin: 40px auto; color: #1E293B }
+ h1 { color: #0E2841; margin-bottom: 4px; font-size: 22px }
+ .subtitle { color: #64748B; font-size: 13px; margin-bottom: 24px }
+ table { width: 100%%; border-collapse: collapse }
+ th { background: #0E2841; color: white; padding: 10px 16px; text-align: left; font-size: 12px }
+ th:last-child { text-align: right }
+ td { padding: 10px 16px; border-bottom: 1px solid #E2E8F0; font-size: 14px }
+ td.value { text-align: right; font-weight: 600; font-family: DM Mono, monospace }
+ .footer { margin-top: 24px; font-size: 11px; color: #94A3B8 }
+ .print-btn { margin-bottom: 20px; padding: 8px 16px; background: #0E2841; color: white;
+              border: none; border-radius: 6px; cursor: pointer; font-size: 13px }
+ @media print { .print-btn { display: none } }
+</style></head><body>
+<button class="print-btn" onclick="window.print()">Download PDF</button>
+<h1>O3 Capital Board Pack</h1>
+<div class="subtitle">%s — Key Performance Indicators</div>
+<table>
+ <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+ <tbody>%s</tbody>
+</table>
+<div class="footer">Auto-generated by O3 Capital Workspace on %s</div>
+</body></html>`, monthLabel, monthLabel, rowsHTML, time.Now().Format("2 January 2006"))
+			return
+		}
+
+		respond(w, map[string]any{
+			"month":   monthLabel,
+			"metrics": metrics,
+		}, "")
 	}
 }
 

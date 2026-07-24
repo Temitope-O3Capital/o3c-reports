@@ -193,6 +193,7 @@ const ComplianceSOC2          = lazy(() => import('./pages/compliance/SOC2'))
 const ComplianceSOC2Detail    = lazy(() => import('./pages/compliance/SOC2ControlDetail'))
 const CompliancePentest       = lazy(() => import('./pages/compliance/PentestDashboard'))
 const CompliancePolicies      = lazy(() => import('./pages/compliance/PolicyDocuments'))
+const ComplianceBoardPack     = lazy(() => import('./pages/compliance/BoardPack'))
 const ComplianceCreditBureau  = lazy(() => import('./pages/compliance/CreditBureau'))
 const ComplianceBreach        = lazy(() => import('./pages/compliance/BreachIncidents'))
 
@@ -842,6 +843,16 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
         e.preventDefault()
         setSearchOpen(o => !o)
       }
+      // M11: Cmd+Enter / Ctrl+Enter → submit the focused form
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        const active = document.activeElement
+        const form = active?.closest('form') as HTMLFormElement | null
+        if (form) {
+          e.preventDefault()
+          const submitBtn = form.querySelector<HTMLButtonElement>('button[type="submit"]:not(:disabled)')
+          submitBtn ? submitBtn.click() : form.requestSubmit?.()
+        }
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -1018,6 +1029,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/compliance/policies"       element={<RequireAccess page="compliance_checklists" user={user}><PageErrorBoundary><CompliancePolicies /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/credit-bureau"   element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceCreditBureau /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/breach-incidents" element={<RequireAccess page="compliance_all" user={user}><PageErrorBoundary><ComplianceBreach /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/board-pack"      element={<RequireAccess page="compliance_all" user={user}><PageErrorBoundary><ComplianceBoardPack /></PageErrorBoundary></RequireAccess>} />
 
                   {/* People */}
                   <Route path="/hr"               element={<RequireAccess page="hr_employees" user={user}><Navigate to="/hr/employees" replace /></RequireAccess>} />

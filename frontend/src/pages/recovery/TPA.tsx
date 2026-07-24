@@ -324,7 +324,7 @@ function TPADetailContent({ agency }: { agency: TPAAgency }) {
 // ── Export CSV ────────────────────────────────────────────────────────────────
 
 function exportTPACsv(rows: TPAAgency[]) {
-  const header = ['Agency Name', 'Licence #', 'Contact Name', 'Contact Phone', 'Commission %', 'Accounts Assigned', 'Recovered (₦)', 'Commission Accrued (₦)', 'Active']
+  const header = ['Agency Name', 'Licence #', 'Contact Name', 'Contact Phone', 'Commission %', 'Accounts Assigned', 'Recovered NGN', 'Commission Accrued NGN', 'Active']
   const lines = rows.map(r => [
     `"${String(r.name ?? '').replace(/"/g, '""')}"`,
     r.licence_number ?? '',

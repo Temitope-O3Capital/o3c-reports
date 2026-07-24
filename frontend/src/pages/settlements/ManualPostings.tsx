@@ -219,7 +219,7 @@ function NewPostingModal({ open, onClose, onSuccess }: { open: boolean; onClose:
             </select>
           </div>
           <div>
-            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Amount ₦ (naira) *</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Amount NGN (naira) *</label>
             <input type="number" value={amountNaira} onChange={e => setAmountNaira(e.target.value)}
               placeholder="0.00" min={0} step="0.01" style={inputStyle} />
           </div>
@@ -441,7 +441,7 @@ export default function ManualPostings() {
   }
 
   function exportCsv(data: ManualPosting[]) {
-    const header = ['Ref', 'Workflow', 'Type', 'Amount (₦)', 'Account', 'Description', 'Initiated By', 'Stage', 'Date']
+    const header = ['Ref', 'Workflow', 'Type', 'Amount (NGN)', 'Account', 'Description', 'Initiated By', 'Stage', 'Date']
     const lines = data.map(r => [
       `"${String(r.ref ?? '').replace(/"/g, '""')}"`,
       `"${String(r.workflow_template_name ?? '').replace(/"/g, '""')}"`,
@@ -476,7 +476,7 @@ export default function ManualPostings() {
       render: r => <TypePill type={r.type} />,
     },
     {
-      key: 'amount_kobo', label: 'Amount ₦', align: 'right',
+      key: 'amount_kobo', label: 'Amount NGN', align: 'right',
       render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.amount_kobo)}</span>,
     },
     {

@@ -45,7 +45,7 @@ function ExcCols(onResolve: (ex: Exception) => void): TableCol<Exception>[] {
       render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.txn_ref || '—'}</span> },
     { key: 'batch_ref', label: 'Batch',
       render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.batch_ref || '—'}</span> },
-    { key: 'amount_kobo', label: 'Amount ₦', align: 'right',
+    { key: 'amount_kobo', label: 'Amount NGN', align: 'right',
       render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.amount_kobo)}</span> },
     { key: 'exception_type', label: 'Type',
       render: r => (
@@ -76,9 +76,9 @@ const BATCH_COLS: TableCol<Batch>[] = [
     render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.batch_ref || '—'}</span> },
   { key: 'txn_count', label: 'Txns', align: 'right',
     render: r => <span style={NUM}>{r.txn_count.toLocaleString()}</span> },
-  { key: 'total_credits', label: 'Credits ₦', align: 'right',
+  { key: 'total_credits', label: 'Credits NGN', align: 'right',
     render: r => <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtKobo(r.total_credits)}</span> },
-  { key: 'total_debits', label: 'Debits ₦', align: 'right',
+  { key: 'total_debits', label: 'Debits NGN', align: 'right',
     render: r => <span style={{ ...NUM, color: RED, fontWeight: FW.semibold }}>{fmtKobo(r.total_debits)}</span> },
   { key: 'exception_count', label: 'Exceptions', align: 'right',
     render: r => <span style={{ ...NUM, fontWeight: FW.semibold, color: r.exception_count > 0 ? AMBER : 'var(--txt2)' }}>{r.exception_count}</span> },
@@ -183,7 +183,7 @@ export default function NIPReconciliation() {
   const totalExcAmount = exceptions.reduce((s, e) => s + e.amount_kobo, 0)
 
   function exportExceptionsCsv(data: Exception[]) {
-    const header = ['Date', 'Txn Ref', 'Batch Ref', 'Amount ₦', 'Exception Type', 'Description', 'Status', 'Resolved By', 'Resolved At']
+    const header = ['Date', 'Txn Ref', 'Batch Ref', 'Amount NGN', 'Exception Type', 'Description', 'Status', 'Resolved By', 'Resolved At']
     const lines = data.map(r => [
       r.txn_date ?? '',
       r.txn_ref ?? '',
@@ -203,7 +203,7 @@ export default function NIPReconciliation() {
   }
 
   function exportBatchesCsv(data: Batch[]) {
-    const header = ['Date', 'Batch Ref', 'Type', 'Txns', 'Credits ₦', 'Debits ₦', 'Exceptions', 'Status']
+    const header = ['Date', 'Batch Ref', 'Type', 'Txns', 'Credits NGN', 'Debits NGN', 'Exceptions', 'Status']
     const lines = data.map(r => [
       r.batch_date ?? '',
       r.batch_ref ?? '',

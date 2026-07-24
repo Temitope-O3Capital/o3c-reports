@@ -1,3 +1,8 @@
+// Package handlers — Campaigns module (~1700 lines)
+// Sections: Config · Providers (SendGrid/WhatsApp/SMS) · Background dispatch ·
+//           Route registration · Endpoints · Telemarketing handoff · Webhooks
+// See "// ── <Section>" dividers throughout.
+
 package handlers
 
 import (
@@ -961,6 +966,20 @@ func updateCampaign(db *core.DB) http.HandlerFunc {
 func startCampaign(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
+
+		// M23: idempotency token prevents duplicate dispatches from network retries.
+		if iKey, status, replayed := checkIdempotency(r.Context(), db, w, r, "campaign.start."+id); replayed {
+			_ = iKey
+			_ = status
+			return
+		} else {
+			defer func() {
+				// Capture response for future replay — status 200, campaign started.
+				finaliseIdempotency(r.Context(), db, r, "campaign.start."+id, 200,
+					fmt.Sprintf(`{"status":"active","campaign_id":%s}`, id))
+			}()
+			_ = iKey
+		}
 
 		// Optional body: channel overrides for multi-channel campaigns
 		var opts struct {
