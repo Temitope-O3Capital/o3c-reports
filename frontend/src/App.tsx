@@ -193,6 +193,7 @@ const ComplianceSOC2          = lazy(() => import('./pages/compliance/SOC2'))
 const ComplianceSOC2Detail    = lazy(() => import('./pages/compliance/SOC2ControlDetail'))
 const CompliancePentest       = lazy(() => import('./pages/compliance/PentestDashboard'))
 const CompliancePolicies      = lazy(() => import('./pages/compliance/PolicyDocuments'))
+const ComplianceCreditBureau  = lazy(() => import('./pages/compliance/CreditBureau'))
 
 // HR
 const HREmployees    = lazy(() => import('./pages/hr/Employees'))
@@ -1008,6 +1009,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/compliance/soc2/:id"       element={<RequireAccess page="audit_trail" user={user}><PageErrorBoundary><ComplianceSOC2Detail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/pentest"        element={<RequireAccess page="audit_trail" user={user}><PageErrorBoundary><CompliancePentest /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/policies"       element={<RequireAccess page="compliance_checklists" user={user}><PageErrorBoundary><CompliancePolicies /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/credit-bureau" element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceCreditBureau /></PageErrorBoundary></RequireAccess>} />
 
                   {/* People */}
                   <Route path="/hr"               element={<RequireAccess page="hr_employees" user={user}><Navigate to="/hr/employees" replace /></RequireAccess>} />

@@ -1355,11 +1355,27 @@ func pingIntegration(db *core.DB) http.HandlerFunc {
 			}
 		}
 
+		// Fetch integration name before updating
+		nameRows, _ := db.PGQuery(r.Context(), `SELECT name FROM vendor_integrations WHERE id=$1`, id)
+		integrationName := ""
+		if len(nameRows) > 0 {
+			integrationName = str(nameRows[0]["name"])
+		}
+
 		db.PGExec(r.Context(), //nolint:errcheck
 			`UPDATE vendor_integrations
 			 SET last_ping=NOW(), last_status_code=$1, status=$2, updated_at=NOW()
 			 WHERE id=$3`,
 			statusCode, newStatus, id)
+
+		if newStatus == "down" {
+			go NotifyRoles(r.Context(), db, []string{"it_admin", "cto"}, NotifPayload{
+				EventType: EvtSystemAlert,
+				Title:     "Integration Down: " + integrationName,
+				Body:      fmt.Sprintf("Health check failed for %s (HTTP %d). Manual investigation required.", integrationName, statusCode),
+				ActionURL: "/admin/integrations",
+			})
+		}
 
 		respond(w, map[string]any{
 			"status":      newStatus,

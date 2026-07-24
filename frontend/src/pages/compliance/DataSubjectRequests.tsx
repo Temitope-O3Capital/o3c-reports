@@ -6,6 +6,18 @@ import { fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, BLUE, INTER, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
+interface DSARStats {
+  total:                 number
+  pending:               number
+  in_progress:           number
+  resolved:              number
+  rejected:              number
+  total_erasure:         number
+  erasures_processed:    number
+  erasures_pending_purge:number
+  last_purge_run:        string | null
+}
+
 interface DSAR {
   id:               number
   subject_cif:      string | null
@@ -46,6 +58,7 @@ export default function DataSubjectRequests() {
   const [dateTo,   setDateTo]   = useState(today())
   const [showNew,  setShowNew]  = useState(false)
   const [selected, setSelected] = useState<DSAR | null>(null)
+  const [stats,    setStats]    = useState<DSARStats | null>(null)
 
   const [formCIF,   setFormCIF]   = useState('')
   const [formName,  setFormName]  = useState('')
@@ -56,6 +69,7 @@ export default function DataSubjectRequests() {
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
+    apiFetch<DSARStats>('/api/compliance/dsar-stats').then(s => setStats(s ?? null)).catch(() => {})
     try {
       const p = new URLSearchParams()
       if (statusF)  p.set('status', statusF)
@@ -151,6 +165,34 @@ export default function DataSubjectRequests() {
       }
     >
       <ErrBanner error={error} onRetry={load} />
+
+      {/* NDPR Worker Status */}
+      {stats && (
+        <SectionCard title="NDPR Purge Worker" style={{ marginBottom: SP[5] }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: SP[4] }}>
+            {[
+              { label: 'Total Requests',   value: stats.total,                  color: NAVY },
+              { label: 'Pending',          value: stats.pending,                color: AMBER },
+              { label: 'Resolved',         value: stats.resolved,               color: GREEN },
+              { label: 'Erasures Total',   value: stats.total_erasure,          color: NAVY },
+              { label: 'Erasures Purged',  value: stats.erasures_processed,     color: GREEN },
+              { label: 'Awaiting Purge',   value: stats.erasures_pending_purge, color: stats.erasures_pending_purge > 0 ? AMBER : GREEN },
+            ].map(({ label, value, color }) => (
+              <div key={label} style={{ background: 'var(--surface2)', borderRadius: RADIUS.md, padding: `${SP[3]}px ${SP[4]}px` }}>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, marginBottom: 4 }}>{label}</div>
+                <div style={{ fontSize: 22, fontWeight: FW.bold, color, ...NUM }}>{value}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: SP[4], fontSize: TEXT.xs, color: 'var(--txt3)', display: 'flex', alignItems: 'center', gap: SP[2] }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>schedule</span>
+            {stats.last_purge_run
+              ? <>Last purge run: <strong style={{ color: 'var(--txt2)' }}>{fmtDatetime(stats.last_purge_run)}</strong> · Worker runs nightly at midnight</>
+              : 'No erasure records processed yet · Worker runs nightly at midnight'
+            }
+          </div>
+        </SectionCard>
+      )}
 
       {/* Filter */}
       <div style={{ display: 'flex', gap: 10, marginBottom: SP[5] }}>

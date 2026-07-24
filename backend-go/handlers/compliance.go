@@ -66,6 +66,8 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 	// Phase 12 — Regulatory
 	r.With(cbn).Get("/prudential-ratios",            compliancePrudentialRatios(db))
 	r.With(cbn).Get("/credit-bureau-export",         complianceCreditBureauExport(db))
+	r.With(cbn).Get("/bureau-submissions",           complianceBureauSubmissionList(db))
+	r.With(cbn).Post("/bureau-submissions",          complianceBureauSubmissionCreate(db))
 	r.With(all).Get("/data-subject-requests",         complianceDSARList(db))
 	r.With(all).Post("/data-subject-requests",        complianceDSARCreate(db))
 	r.With(all).Patch("/data-subject-requests/{id}", complianceDSARUpdate(db))
@@ -91,6 +93,9 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 
 	// DSAR assignment (H6)
 	r.With(all).Post("/data-subject-requests/{id}/assign", complianceDSARAssign(db))
+
+	// DSAR worker stats
+	r.With(all).Get("/dsar-stats", complianceDSARStats(db))
 
 	// P12-08/09 — SOC 2 readiness + pentest tracker
 	RegisterSOC2(r, db)
@@ -1404,7 +1409,83 @@ func complianceCreditBureauExport(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// ── Phase 12: Bureau Submission Logs ─────────────────────────────────────────
+
+func complianceBureauSubmissionList(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT id, month, bureau, submitted_by, submitted_at, file_name, row_count, notes, status
+			FROM bureau_submission_logs
+			ORDER BY submitted_at DESC
+			LIMIT 200`)
+		if err != nil {
+			respondErr(w, 500, "Query failed"); return
+		}
+		if rows == nil { rows = []core.Row{} }
+		respond(w, rows, "")
+	}
+}
+
+func complianceBureauSubmissionCreate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			Month     string `json:"month"`
+			Bureau    string `json:"bureau"`
+			FileName  string `json:"file_name"`
+			RowCount  int    `json:"row_count"`
+			Notes     string `json:"notes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid body"); return
+		}
+		if b.Month == "" { respondErr(w, 400, "month is required"); return }
+
+		user := core.UserFromCtx(r.Context())
+		submittedBy := ""
+		if user != nil { submittedBy = user.FullName }
+		if b.Bureau == "" { b.Bureau = "CRC" }
+
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO bureau_submission_logs (month, bureau, submitted_by, file_name, row_count, notes)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			RETURNING id, month, bureau, submitted_by, submitted_at, file_name, row_count, notes, status`,
+			b.Month, b.Bureau, submittedBy, b.FileName, b.RowCount, b.Notes)
+		if err != nil {
+			respondErr(w, 500, "Insert failed"); return
+		}
+		if len(rows) == 0 { respondErr(w, 500, "No row returned"); return }
+		respond(w, rows[0], "")
+	}
+}
+
 // ── Phase 12: DSAR (Data Subject Access Requests) ────────────────────────────
+
+func complianceDSARStats(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// Aggregate counts and last-processed timestamp in one query.
+		rows, err := db.PGQuery(ctx, `
+			SELECT
+			  COUNT(*)                                                          AS total,
+			  COUNT(*) FILTER (WHERE status = 'pending')                       AS pending,
+			  COUNT(*) FILTER (WHERE status = 'in_progress')                   AS in_progress,
+			  COUNT(*) FILTER (WHERE status = 'resolved')                      AS resolved,
+			  COUNT(*) FILTER (WHERE status = 'rejected')                      AS rejected,
+			  COUNT(*) FILTER (WHERE request_type = 'erasure')                 AS total_erasure,
+			  COUNT(*) FILTER (WHERE request_type = 'erasure' AND processed_at IS NOT NULL) AS erasures_processed,
+			  COUNT(*) FILTER (WHERE request_type = 'erasure' AND status = 'resolved' AND processed_at IS NULL) AS erasures_pending_purge,
+			  MAX(processed_at)                                                AS last_purge_run
+			FROM data_subject_requests`)
+		if err != nil {
+			respondErr(w, 500, "Stats query failed"); return
+		}
+		if len(rows) == 0 {
+			respond(w, map[string]any{}, ""); return
+		}
+		respond(w, rows[0], "")
+	}
+}
 
 func complianceDSARList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

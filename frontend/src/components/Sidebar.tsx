@@ -244,6 +244,7 @@ const SECTIONS: Section[] = [
           { label: 'SOC 2 Controls',      to: '/compliance/soc2' },
           { label: 'Pentest Tracker',     to: '/compliance/pentest' },
           { label: 'Policy Documents',    to: '/compliance/policies' },
+          { label: 'Credit Bureau',       to: '/compliance/credit-bureau' },
         ],
       },
     ],
