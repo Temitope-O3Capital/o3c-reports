@@ -18,6 +18,7 @@ import (
 	"github.com/o3c/reports/core"
 	"github.com/o3c/reports/handlers"
 	"github.com/o3c/reports/udara"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func main() {
@@ -45,6 +46,10 @@ func main() {
 
 	core.InitAuth(cfg.SecretKey)
 	core.InitAuthDB(db)
+
+	// 5A: OpenTelemetry — no-op when OTEL_EXPORTER_OTLP_ENDPOINT is unset.
+	shutdownOTel := core.InitOTel(context.Background(), "o3c-api")
+	defer shutdownOTel(context.Background())
 
 	// Run any pending SQL migrations before serving traffic.
 	if err := runMigrations(db); err != nil {
@@ -120,6 +125,10 @@ func main() {
 	r.Use(apiVersionRewrite)
 	// 5A: Prometheus request metrics
 	r.Use(handlers.PrometheusMiddleware)
+	// 5A: OTel HTTP tracing — injects trace-id into each request context and propagates W3C headers.
+	r.Use(func(next http.Handler) http.Handler {
+		return otelhttp.NewHandler(next, "o3c-api")
+	})
 	// Use rightmost X-Forwarded-For IP as the rate-limit key (Railway appends the real IP last).
 	r.Use(httprate.Limit(300, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
 		return rightmostIP(r), nil
