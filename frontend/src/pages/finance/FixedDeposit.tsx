@@ -2,8 +2,8 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, filterInputStyle, SearchInput, DateFilter } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, filterInputStyle, SearchInput, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtPct, today, monthStart } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -64,12 +64,38 @@ function daysColor(days: number): string {
   return GREEN
 }
 
+// ── Export helper ─────────────────────────────────────────────────────────────
+
+function exportFDRecordsCsv(data: FDRecord[]) {
+  const header = ['FD#', 'Investor', 'Currency', 'Principal NGN', 'Interest Paid NGN', 'Rate %', 'Start Date', 'Maturity Date', 'Tenor Days', 'Location', 'Officer', 'Status', 'Notes']
+  const lines = data.map(r => [
+    `FD-${String(r.id).padStart(5, '0')}`,
+    `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
+    r.currency ?? '',
+    ((r.ngn_amount || r.principal) / 100).toFixed(2),
+    (r.interest_paid / 100).toFixed(2),
+    r.rate ?? 0,
+    r.transaction_date ?? '',
+    r.maturity_date ?? '',
+    r.tenor_days ?? 0,
+    `"${String(r.location ?? '').replace(/"/g, '""')}"`,
+    `"${String(r.account_officer ?? '').replace(/"/g, '""')}"`,
+    r.transaction_type === 'inflow' ? 'Active' : 'Liquidated',
+    `"${String(r.notes ?? '').replace(/"/g, '""')}"`,
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `fixed-deposits-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 // ── Table columns ─────────────────────────────────────────────────────────────
 
 const COLS: TableCol<FDRecord>[] = [
   { key: 'id', label: 'FD#', width: 90, render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>FD-{String(r.id).padStart(5, '0')}</span> },
   { key: 'customer_name', label: 'Investor', sortable: true,
-    render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.customer_name || '—'}</span> },
+    render: r => <NameCell name={r.customer_name || '—'} sub={`FD-${String(r.id).padStart(5, '0')}`} /> },
   { key: 'principal', label: 'Amount NGN', align: 'right', sortable: true,
     render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{r.currency === 'USD' ? `$${(r.usd_amount / 100).toLocaleString()}` : fmtKobo(r.ngn_amount || r.principal)}</span> },
   { key: 'rate', label: 'Rate %', align: 'right', render: r => <span style={NUM}>{fmtPct(r.rate)}</span> },
@@ -84,6 +110,11 @@ const COLS: TableCol<FDRecord>[] = [
     const d = daysToMaturity(r.maturity_date)
     return <span style={{ ...NUM, fontWeight: FW.semibold, color: daysColor(d) }}>{d < 0 ? 'Matured' : `${d}d`}</span>
   }},
+  { key: '_actions', label: '', sortable: false, render: r => (
+    <ActionRow actions={[
+      { icon: 'download', label: 'Download', onClick: () => exportFDRecordsCsv([r]) },
+    ] satisfies RowAction[]} />
+  )},
 ]
 
 // ── New FD modal ───────────────────────────────────────────────────────────────
@@ -255,6 +286,7 @@ export default function FinanceFixedDeposit() {
   const [matFrom, setMatFrom] = useState('')
   const [matTo, setMatTo] = useState('')
   const [page, setPage] = useState(1)
+  const [sel, setSel] = useState<Set<string | number>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -301,30 +333,6 @@ export default function FinanceFixedDeposit() {
 
   function resetFilters() {
     setSearch(''); setStatusFilter('all'); setDateFrom(monthStart()); setDateTo(today()); setMatFrom(''); setMatTo('')
-  }
-
-  function exportFDRecordsCsv(data: FDRecord[]) {
-    const header = ['FD#', 'Investor', 'Currency', 'Principal NGN', 'Interest Paid NGN', 'Rate %', 'Start Date', 'Maturity Date', 'Tenor Days', 'Location', 'Officer', 'Status', 'Notes']
-    const lines = data.map(r => [
-      `FD-${String(r.id).padStart(5, '0')}`,
-      `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
-      r.currency ?? '',
-      ((r.ngn_amount || r.principal) / 100).toFixed(2),
-      (r.interest_paid / 100).toFixed(2),
-      r.rate ?? 0,
-      r.transaction_date ?? '',
-      r.maturity_date ?? '',
-      r.tenor_days ?? 0,
-      `"${String(r.location ?? '').replace(/"/g, '""')}"`,
-      `"${String(r.account_officer ?? '').replace(/"/g, '""')}"`,
-      r.transaction_type === 'inflow' ? 'Active' : 'Liquidated',
-      `"${String(r.notes ?? '').replace(/"/g, '""')}"`,
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `fixed-deposits-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
   const kpiLoading = loading && !fdKpis
@@ -520,6 +528,18 @@ export default function FinanceFixedDeposit() {
           keyFn={r => r.id}
           loading={loading}
           emptyText="No fixed deposit records found"
+          selectable
+          selectedIds={sel}
+          onSelect={setSel}
+          bulkBar={sel.size > 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{sel.size} selected</span>
+              <button onClick={() => exportFDRecordsCsv(filtered.filter(r => sel.has(r.id)))}
+                style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+                Export CSV
+              </button>
+            </div>
+          ) : undefined}
         />
 
         {/* Pagination footer */}

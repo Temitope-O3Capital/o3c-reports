@@ -221,34 +221,85 @@ export function SectionCard({ title, subtitle, badge, actions, children, padding
 // ── Status badge ──────────────────────────────────────────────────────────────
 
 const STATUS_MAP: Record<string, { bg: string; txt: string }> = {
-  active:      { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
-  approved:    { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
-  completed:   { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
-  resolved:    { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
-  won:         { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
-  kept:        { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
-  disbursed:   { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
-  issued:      { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
-  pending:     { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
-  reviewing:   { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
-  investigating: { bg: 'rgba(217,119,6,.12)',txt: '#D97706' },
-  submitted:   { bg: 'rgba(37,99,235,.12)', txt: '#2563EB' },
-  open:        { bg: 'rgba(37,99,235,.12)', txt: '#2563EB' },
-  in_progress: { bg: 'rgba(37,99,235,.12)', txt: '#2563EB' },
-  draft:       { bg: 'rgba(75,85,99,.1)',   txt: '#6B7280' },
-  inactive:    { bg: 'rgba(75,85,99,.1)',   txt: '#6B7280' },
-  closed:      { bg: 'rgba(75,85,99,.1)',   txt: '#6B7280' },
-  archived:    { bg: 'rgba(75,85,99,.1)',   txt: '#6B7280' },
-  declined:    { bg: 'rgba(192,0,0,.1)',    txt: '#C00000' },
-  failed:      { bg: 'rgba(192,0,0,.1)',    txt: '#C00000' },
-  overdue:     { bg: 'rgba(192,0,0,.1)',    txt: '#C00000' },
-  broken:      { bg: 'rgba(192,0,0,.1)',    txt: '#C00000' },
-  rejected:    { bg: 'rgba(192,0,0,.1)',    txt: '#C00000' },
-  blocked:     { bg: 'rgba(192,0,0,.1)',    txt: '#C00000' },
+  // green — positive / terminal success
+  active:           { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
+  approved:         { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
+  completed:        { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
+  resolved:         { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
+  won:              { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
+  kept:             { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
+  disbursed:        { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
+  issued:           { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
+  paid:             { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
+  matched:          { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
+  verified:         { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
+  hired:            { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
+  cleared:          { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
+  settled:          { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
+  recovered:        { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
+  // amber — in-flight / attention
+  pending:          { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
+  reviewing:        { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
+  investigating:    { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
+  qualified:        { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
+  proposal:         { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
+  negotiation:      { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
+  due_soon:         { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
+  expiring:         { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
+  partial:          { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
+  on_hold:          { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
+  deferred:         { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
+  probation:        { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
+  // blue — neutral in-progress / informational
+  submitted:        { bg: 'rgba(37,99,235,.12)',  txt: '#2563EB' },
+  open:             { bg: 'rgba(37,99,235,.12)',  txt: '#2563EB' },
+  in_progress:      { bg: 'rgba(37,99,235,.12)',  txt: '#2563EB' },
+  processing:       { bg: 'rgba(37,99,235,.12)',  txt: '#2563EB' },
+  under_review:     { bg: 'rgba(37,99,235,.12)',  txt: '#2563EB' },
+  prospect:         { bg: 'rgba(37,99,235,.12)',  txt: '#2563EB' },
+  scheduled:        { bg: 'rgba(37,99,235,.12)',  txt: '#2563EB' },
+  running:          { bg: 'rgba(37,99,235,.12)',  txt: '#2563EB' },
+  sending:          { bg: 'rgba(37,99,235,.12)',  txt: '#2563EB' },
+  // grey — neutral / terminal closed
+  draft:            { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280' },
+  inactive:         { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280' },
+  closed:           { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280' },
+  archived:         { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280' },
+  cancelled:        { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280' },
+  withdrawn:        { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280' },
+  dismissed:        { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280' },
+  lost:             { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280' },
+  written_off:      { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280' },
+  none:             { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280' },
+  // red — failed / urgent / negative
+  declined:         { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
+  failed:           { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
+  overdue:          { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
+  broken:           { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
+  rejected:         { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
+  blocked:          { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
+  expired:          { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
+  defaulted:        { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
+  written_off_bad:  { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
+  // purple — workflow / escalated
+  escalated:        { bg: 'rgba(124,58,237,.12)', txt: '#7C3AED' },
+  legal:            { bg: 'rgba(124,58,237,.12)', txt: '#7C3AED' },
+  litigation:       { bg: 'rgba(124,58,237,.12)', txt: '#7C3AED' },
+  under_litigation: { bg: 'rgba(124,58,237,.12)', txt: '#7C3AED' },
+  // card / settlement workflow statuses
+  recommended:      { bg: 'rgba(37,99,235,.12)',  txt: '#2563EB' },
+  pending_review:   { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280' },
+  provisional_credit: { bg: 'rgba(217,119,6,.12)', txt: '#D97706' },
+  filed:            { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280' },
+  dispatched:       { bg: 'rgba(14,40,65,.1)',    txt: '#0E2841' },
+  posted:           { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
+  pending_approval: { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
+  returned:         { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
+  posting:          { bg: 'rgba(37,99,235,.12)',  txt: '#2563EB' },
 }
 
 export function StatusBadge({ status, size = 'md' }: { status: string; size?: 'sm' | 'md' }) {
-  const key = status.toLowerCase().replace(/[\s-]+/g, '_')
+  const key = (status ?? '').toLowerCase().replace(/[\s-]+/g, '_')
   const s = STATUS_MAP[key] ?? { bg: 'rgba(75,85,99,.1)', txt: '#6B7280' }
   return (
     <span style={{
@@ -261,6 +312,129 @@ export function StatusBadge({ status, size = 'md' }: { status: string; size?: 's
     }}>
       {status}
     </span>
+  )
+}
+
+// ── Avatar ────────────────────────────────────────────────────────────────────
+
+const AVATAR_PALETTE = [
+  '#C00000', '#2563EB', '#16A34A', '#D97706',
+  '#7C3AED', '#0891B2', '#DB2777', '#EA580C',
+]
+
+export function avatarColor(name: string): string {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff
+  return AVATAR_PALETTE[h % AVATAR_PALETTE.length]
+}
+
+export function nameInitials(name: string): string {
+  return (name ?? '?').split(/\s+/).filter(Boolean).map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?'
+}
+
+export function Avatar({ name, size = 32 }: { name: string; size?: number }) {
+  const color = avatarColor(name)
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%',
+      background: color, color: '#fff',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: size <= 28 ? 10 : 12, fontWeight: 700, fontFamily: INTER,
+      flexShrink: 0, userSelect: 'none', letterSpacing: '0.3px',
+    }}>
+      {nameInitials(name)}
+    </div>
+  )
+}
+
+// ── NameCell ──────────────────────────────────────────────────────────────────
+
+export function NameCell({
+  name, sub, avatar = true,
+}: { name: string; sub?: string | null; avatar?: boolean }) {
+  const n = name || '—'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+      {avatar && <Avatar name={n} />}
+      <div style={{ minWidth: 0 }}>
+        <div style={{
+          fontWeight: FW.semibold, fontSize: TEXT.sm, color: 'var(--txt)',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>
+          {n}
+        </div>
+        {sub && (
+          <div style={{
+            fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 1,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {sub}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Pill ──────────────────────────────────────────────────────────────────────
+// Flexible colored pill for stage / type / category fields where StatusBadge's
+// auto-mapping doesn't apply (e.g. pipeline stages with brand-specific colors).
+
+export function Pill({ label, color, bg }: { label: string; color: string; bg: string }) {
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center',
+      fontSize: TEXT.xs, fontWeight: FW.semibold,
+      padding: '2px 10px', borderRadius: 20,
+      background: bg, color,
+      whiteSpace: 'nowrap', textTransform: 'capitalize',
+      letterSpacing: '0.1px',
+    }}>
+      {String(label).replace(/_/g, ' ')}
+    </span>
+  )
+}
+
+// ── ActionRow ─────────────────────────────────────────────────────────────────
+// Renders a row of small icon-buttons at the end of a table row.
+// Each action must call e.stopPropagation() is handled internally.
+
+export interface RowAction {
+  icon: string
+  label: string
+  onClick: () => void
+  danger?: boolean
+}
+
+export function ActionRow({ actions }: { actions: RowAction[] }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}
+      onClick={e => e.stopPropagation()}>
+      {actions.map(a => (
+        <button
+          key={a.label}
+          title={a.label}
+          onClick={e => { e.stopPropagation(); a.onClick() }}
+          style={{
+            width: 28, height: 28, borderRadius: RADIUS.sm,
+            border: 'none', background: 'transparent',
+            color: a.danger ? RED : 'var(--txt2)',
+            cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            transition: 'background 120ms',
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLElement).style.background =
+              a.danger ? 'rgba(192,0,0,.1)' : 'var(--row-hvr)'
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLElement).style.background = 'transparent'
+          }}
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 17 }}>{a.icon}</span>
+        </button>
+      ))}
+    </div>
   )
 }
 

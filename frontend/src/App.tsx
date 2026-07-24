@@ -35,6 +35,16 @@ const BIScheduled     = lazy(() => import('./pages/bi/ScheduledReports'))
 const Statements    = lazy(() => import('./pages/statements/Statements'))
 const Login    = lazy(() => import('./pages/Login'))
 const Overview = lazy(() => import('./pages/Overview'))
+
+// Executive drill-down pages
+const ExecCards       = lazy(() => import('./pages/executive/Cards'))
+const ExecFinance     = lazy(() => import('./pages/executive/Finance'))
+const ExecSales       = lazy(() => import('./pages/executive/Sales'))
+const ExecCollections = lazy(() => import('./pages/executive/Collections'))
+const ExecRisk        = lazy(() => import('./pages/executive/Risk'))
+const ExecHR          = lazy(() => import('./pages/executive/HR'))
+const ExecSettlements = lazy(() => import('./pages/executive/Settlements'))
+const Interswitch     = lazy(() => import('./pages/cards/Interswitch'))
 // C360Drawer imported directly (not lazy) so slide animation works on first open
 
 // BD
@@ -100,6 +110,14 @@ const RecoveryDebtSale = lazy(() => import('./pages/recovery/DebtSale'))
 
 // Collections Ops
 const CollOpsAgentDash = lazy(() => import('./pages/collections-ops/AgentDashboard'))
+
+// Agent dashboards
+const RecoveryAgentDash   = lazy(() => import('./pages/recovery-ops/Agent'))
+const SalesMyDashboard    = lazy(() => import('./pages/sales/MyDashboard'))
+const HelpdeskOverview    = lazy(() => import('./pages/helpdesk/Overview'))
+const HelpdeskMyDashboard = lazy(() => import('./pages/helpdesk/MyDashboard'))
+const BDMyDashboard       = lazy(() => import('./pages/bd/MyDashboard'))
+const CardsMyQueue        = lazy(() => import('./pages/cards/MyQueue'))
 
 // Helpdesk
 const HelpdeskTickets     = lazy(() => import('./pages/helpdesk/Tickets'))
@@ -893,6 +911,16 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                     MGMT.has(role) ? <Overview /> : <Navigate to={homeFor(role)} replace />
                   } />
 
+                  {/* Executive department drill-downs */}
+                  <Route path="/executive/cards"        element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecCards /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/executive/finance"      element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecFinance /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/executive/sales"        element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecSales /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/executive/collections"  element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecCollections /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/executive/risk"         element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecRisk /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/executive/hr"           element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecHR /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/executive/settlements"  element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecSettlements /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/cards/interswitch"      element={<RequireAccess page="cards" user={user}><PageErrorBoundary><Interswitch /></PageErrorBoundary></RequireAccess>} />
+
                   <Route path="/approvals" element={<PageErrorBoundary><ApprovalsPage /></PageErrorBoundary>} />
 
                   {/* Sales & BD */}
@@ -943,7 +971,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/telemarketing/dialer/agent"      element={<RequireAccess page="telemarketing" user={user}><PageErrorBoundary><DialerAgent /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/telemarketing/dialer/supervisor" element={<RequireAccess page="telemarketing_stats" user={user}><PageErrorBoundary><DialerSupervisor /></PageErrorBoundary></RequireAccess>} />
 
-                  <Route path="/helpdesk"                element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskTickets /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/helpdesk"                element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/tickets"        element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskTickets /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/new"            element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskNewTicket /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/calls"          element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskCalls /></PageErrorBoundary></RequireAccess>} />
@@ -986,6 +1014,13 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
                   {/* Collections Ops */}
                   <Route path="/collections-ops/agent" element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollOpsAgentDash /></PageErrorBoundary></RequireAccess>} />
+
+                  {/* Agent dashboards */}
+                  <Route path="/recovery-ops/agent"     element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryAgentDash /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/my-dashboard"     element={<RequireAccess page="sales" user={user}><PageErrorBoundary><SalesMyDashboard /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/helpdesk/my-dashboard"  element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskMyDashboard /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/bd/my-dashboard"        element={<RequireAccess page="bd" user={user}><PageErrorBoundary><BDMyDashboard /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/cards/my-queue"         element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsMyQueue /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Settlements */}
                   <Route path="/settlements"                          element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleOverview /></PageErrorBoundary></RequireAccess>} />

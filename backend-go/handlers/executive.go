@@ -12,7 +12,20 @@ import (
 
 func RegisterExecutive(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("executive"))
-	r.Get("/summary", executiveSummary(db))
+	r.Get("/summary",     executiveSummary(db))
+	r.Get("/cards",       execDeptStub("cards"))
+	r.Get("/finance",     execDeptStub("finance"))
+	r.Get("/sales",       execDeptStub("sales"))
+	r.Get("/collections", execDeptStub("collections"))
+	r.Get("/risk",        execDeptStub("risk"))
+	r.Get("/hr",          execDeptStub("hr"))
+	r.Get("/settlements", execDeptStub("settlements"))
+}
+
+func execDeptStub(dept string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		respond(w, map[string]any{"dept": dept, "status": "stub — connect to live data source"}, "stub")
+	}
 }
 
 // periodDates returns (currentStart, currentEnd, prevStart, prevEnd) for the given period.

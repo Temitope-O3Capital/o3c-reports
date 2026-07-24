@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Page, SectionCard, DataTable, Modal, ConfirmModal,
-  ErrBanner, btnPrimary, btnSecondary, Spinner, DateFilter,
+  ErrBanner, btnPrimary, btnSecondary, Spinner, DateFilter, NameCell, ActionRow,
 } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, apiDelete, API, getCsrfToken } from '../../lib/api'
 import { fmtNum, fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { NAVY, GREEN, RED, AMBER, SORA, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -570,12 +570,7 @@ export default function ContactLists() {
   const cols: TableCol<ContactList>[] = [
     {
       key: 'name', label: 'List',
-      render: r => (
-        <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.name}</div>
-          {r.description && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.description}</div>}
-        </div>
-      ),
+      render: r => <NameCell name={r.name} sub={r.description || `${r.member_count ?? 0} contacts`} avatar={false} />,
     },
     {
       key: 'member_count', label: 'Contacts', align: 'right',
@@ -587,35 +582,17 @@ export default function ContactLists() {
     },
     { key: 'created_by_name', label: 'Created By', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.created_by_name ?? '—'}</span> },
     { key: 'created_at', label: 'Created', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDatetime(r.created_at)}</span> },
-    {
-      key: 'id', label: '', align: 'right' as const,
-      render: (r: ContactList) => (
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button
-            onClick={e => { e.stopPropagation(); setOpenList(r) }}
-            style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px', gap: 4, display: 'flex', alignItems: 'center' }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.base }}>group</span>
-            Contacts
-          </button>
-          {canWrite && (
-            <>
-              <button
-                onClick={e => { e.stopPropagation(); openEdit(r) }}
-                style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px' }}
-              >
-                Edit
-              </button>
-              <button
-                onClick={e => { e.stopPropagation(); setDeleteTarget(r) }}
-                style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px', color: RED, borderColor: `${RED}40` }}
-              >
-                Delete
-              </button>
-            </>
-          )}
-        </div>
-      ),
+    { key: '_actions', label: '', sortable: false,
+      render: r => {
+        const actions: RowAction[] = [
+          { icon: 'group', label: 'View contacts', onClick: () => setOpenList(r) },
+          ...(canWrite ? [
+            { icon: 'edit', label: 'Edit', onClick: () => openEdit(r) },
+            { icon: 'delete', label: 'Delete', onClick: () => setDeleteTarget(r), danger: true },
+          ] : []),
+        ]
+        return <ActionRow actions={actions} />
+      },
     },
   ]
 

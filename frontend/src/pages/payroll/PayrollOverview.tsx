@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle,
-  Modal, ConfirmModal, ErrBanner, Spinner, StatusBadge, btnPrimary, DateFilter,
+  Modal, ConfirmModal, ErrBanner, Spinner, StatusBadge, btnPrimary, DateFilter, NameCell, ActionRow,
 } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
@@ -39,24 +39,6 @@ interface SummaryData {
 const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December']
 
-const STATUS_STYLE: Record<string, { color: string; bg: string; label: string }> = {
-  draft:    { color: 'var(--txt2)', bg: 'rgba(75,85,99,.1)', label: 'Draft' },
-  review:   { color: AMBER,    bg: `${AMBER}18`,             label: 'In Review' },
-  approved: { color: BLUE,     bg: `${BLUE}12`,              label: 'Approved' },
-  paid:     { color: GREEN,    bg: 'rgba(22,163,74,.12)',     label: 'Paid' },
-}
-
-function StatusPill({ status }: { status: string }) {
-  const s = STATUS_STYLE[status] ?? STATUS_STYLE.draft
-  return (
-    <span style={{
-      ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold,
-      padding: '2px 8px', borderRadius: RADIUS['2xl'], background: s.bg, color: s.color, whiteSpace: 'nowrap',
-    }}>
-      {s.label}
-    </span>
-  )
-}
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
@@ -134,15 +116,11 @@ export default function PayrollOverview() {
   const cols: TableCol<PayrollRun>[] = [
     {
       key: 'period_year', label: 'Period',
-      render: r => (
-        <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-          {MONTHS[r.period_month]} {r.period_year}
-        </span>
-      ),
+      render: r => <NameCell name={`${MONTHS[r.period_month]} ${r.period_year}`} sub={`${r.headcount} employees`} avatar={false} />,
     },
     {
       key: 'status', label: 'Status',
-      render: r => <StatusPill status={r.status} />,
+      render: r => <StatusBadge status={r.status} />,
     },
     {
       key: 'headcount', label: 'Headcount', align: 'right',
@@ -169,6 +147,14 @@ export default function PayrollOverview() {
       render: r => r.paid_at
         ? <span style={{ fontSize: TEXT.sm, color: GREEN, fontWeight: FW.semibold }}>{fmtDate(r.paid_at)}</span>
         : <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>—</span>,
+    },
+    { key: '_actions', label: '', sortable: false,
+      render: r => {
+        const actions: RowAction[] = [
+          { icon: 'open_in_new', label: 'View run', onClick: () => navigate(`/payroll/runs/${r.id}`) },
+        ]
+        return <ActionRow actions={actions} />
+      },
     },
   ]
 

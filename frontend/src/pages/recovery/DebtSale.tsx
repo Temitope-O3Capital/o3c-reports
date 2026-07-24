@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, Modal, ConfirmModal, ErrBanner, Spinner, filterInputStyle, DateFilter,
+  NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiDelete } from '../../lib/api'
@@ -168,8 +169,8 @@ function CreateModal({ open, onClose, onDone }: {
 
 function makeCols(onDelete: (id: number) => void): TableCol<DebtSale>[] {
   return [
-    { key: 'buyer_name',    label: 'Buyer',        render: r => r.buyer_name },
-    { key: 'sale_date',     label: 'Sale Date',    render: r => fmtDate(r.sale_date) },
+    { key: 'buyer_name', label: 'Buyer', render: r => <NameCell name={r.buyer_name} /> },
+    { key: 'sale_date',  label: 'Sale Date', render: r => fmtDate(r.sale_date) },
     { key: 'account_count', label: 'Accounts',     render: r => <span style={NUM}>{r.account_count.toLocaleString()}</span> },
     {
       key: 'face_value_kobo', label: 'Face Value',
@@ -192,19 +193,11 @@ function makeCols(onDelete: (id: number) => void): TableCol<DebtSale>[] {
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', maxWidth: 180, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.notes || '—'}</span>,
     },
     {
-      key: 'actions', label: '',
+      key: 'actions', label: '', width: 80,
       render: r => (
-        <button
-          onClick={() => onDelete(r.id)}
-          style={{
-            padding: '4px 10px', borderRadius: RADIUS.sm, border: `1px solid ${RED}30`,
-            background: `${RED}0A`, color: RED, fontSize: TEXT.sm, fontWeight: FW.semibold,
-            cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
-          }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>delete</span>
-          Delete
-        </button>
+        <ActionRow actions={[
+          { icon: 'delete', label: 'Delete', onClick: () => onDelete(r.id), danger: true },
+        ]} />
       ),
     },
   ]

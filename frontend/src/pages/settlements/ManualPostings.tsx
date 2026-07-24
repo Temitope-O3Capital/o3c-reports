@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, ErrBanner, FilterBar, filterInputStyle, StatusBadge, Modal, ConfirmModal, btnPrimary, DateFilter } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, FilterBar, filterInputStyle, StatusBadge, Modal, ConfirmModal, btnPrimary, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import type { TableCol, RowAction } from '../../components/UI'
 import { DataTable } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
@@ -369,6 +369,7 @@ export default function ManualPostings() {
   const [actionSaving, setActionSaving]   = useState(false)
   const [confirmApprove, setConfirmApprove] = useState<ManualPosting | null>(null)
   const [approveLoading, setApproveLoading] = useState(false)
+  const [sel, setSel] = useState<Set<string | number>>(new Set())
 
   const role = useMemo<string>(() => {
     try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}').role ?? '' } catch { return '' }
@@ -485,7 +486,7 @@ export default function ManualPostings() {
     },
     {
       key: 'description', label: 'Description',
-      render: r => <span title={r.description} style={{ fontSize: TEXT.sm, color: 'var(--txt)', display: 'block', maxWidth: 180, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.description}</span>,
+      render: r => <NameCell name={r.description || '—'} sub={r.ref} avatar={false} />,
     },
     {
       key: 'initiated_by', label: 'Raised by',
@@ -496,43 +497,25 @@ export default function ManualPostings() {
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span>,
     },
     {
-      key: 'stage', label: 'Stage', width: 140,
-      render: r => <StageStepper stage={r.stage} />,
+      key: 'stage', label: 'Stage', width: 130,
+      render: r => <StatusBadge status={r.stage} />,
     },
     {
-      key: '_actions', label: '', sortable: false, width: 180,
+      key: '_actions', label: '', sortable: false, width: 160,
       render: (r) => {
         const canApprove = r.stage === 'pending_approval' && r.approver_roles.includes(role)
         const canPost    = r.stage === 'approved'         && r.poster_roles.includes(role)
-        if (!canApprove && !canPost) return null
-
         return (
-          <div style={{ display: 'flex', gap: SP[1] }} onClick={e => e.stopPropagation()}>
-            {canApprove && (
-              <>
-                <button onClick={() => setConfirmApprove(r)}
-                  style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(22,163,74,.12)', color: GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  Approve
-                </button>
-                <button onClick={() => setRejectRow(r)}
-                  style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(192,0,0,.1)', color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
-                  Reject
-                </button>
-              </>
-            )}
-            {canPost && (
-              <>
-                <button onClick={() => setPostRow(r)}
-                  style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: 'none', background: `${NAVY}12`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
-                  Post
-                </button>
-                <button onClick={() => setReturnRow(r)}
-                  style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(217,119,6,.12)', color: AMBER, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
-                  Return
-                </button>
-              </>
-            )}
-          </div>
+          <ActionRow actions={[
+            ...(canApprove ? [
+              { icon: 'check_circle', label: 'Approve', onClick: () => setConfirmApprove(r) },
+              { icon: 'cancel', label: 'Reject', onClick: () => setRejectRow(r), danger: true as const },
+            ] : []),
+            ...(canPost ? [
+              { icon: 'post_add', label: 'Post', onClick: () => setPostRow(r) },
+              { icon: 'keyboard_return', label: 'Return', onClick: () => setReturnRow(r) },
+            ] : []),
+          ] satisfies RowAction[]} />
         )
       },
     },
@@ -601,6 +584,18 @@ export default function ManualPostings() {
           searchKeys={['ref', 'account', 'description', 'initiated_by', 'workflow_template_name', 'stage']}
           searchPlaceholder="Search ref, account, workflow…"
           pageSize={20}
+          selectable
+          selectedIds={sel}
+          onSelect={setSel}
+          bulkBar={sel.size > 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{sel.size} selected</span>
+              <button onClick={() => exportCsv(rows.filter(r => sel.has(r.id)))}
+                style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+                Export CSV
+              </button>
+            </div>
+          ) : undefined}
         />
       </SectionCard>
 

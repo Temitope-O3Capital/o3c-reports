@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, ErrBanner, Spinner, DataTable, Modal, btnPrimary, btnSecondary, DateFilter } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Spinner, DataTable, Modal, btnPrimary, btnSecondary, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, monthStart, today } from '../../lib/fmt'
@@ -114,13 +114,7 @@ export default function DataSubjectRequests() {
 
   const COLS: TableCol<DSAR>[] = [
     { key: 'id', label: 'Ref', render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY }}>DSAR-{r.id}</span> },
-    { key: 'subject_name', label: 'Subject', render: r => (
-      <div>
-        <div style={{ fontWeight: FW.semibold }}>{r.subject_name || '—'}</div>
-        {r.subject_cif && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>CIF: {r.subject_cif}</div>}
-        {r.subject_email && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.subject_email}</div>}
-      </div>
-    )},
+    { key: 'subject_name', label: 'Subject', render: r => <NameCell name={r.subject_name ?? '—'} sub={r.subject_email ?? ''} /> },
     { key: 'request_type', label: 'Type', render: r => (
       <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY }}>{TYPE_LABELS[r.request_type] ?? r.request_type}</span>
     )},
@@ -140,12 +134,20 @@ export default function DataSubjectRequests() {
       : <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontStyle: 'italic' }}>Pending erasure</span>
     },
     { key: 'assigned_to_name', label: 'Handler', render: r => <span style={{ fontSize: TEXT.sm }}>{r.assigned_to_name ?? '—'}</span> },
-    { key: 'actions', label: '', render: r => r.status !== 'resolved' && r.status !== 'rejected' ? (
-      <button onClick={() => setSelected(r)} style={{ padding: '4px 10px', fontSize: TEXT.sm, fontWeight: FW.semibold,
-        borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: 'none', color: NAVY, cursor: 'pointer', fontFamily: INTER }}>
-        Update
-      </button>
-    ) : null },
+    {
+      key: '_actions', label: '', sortable: false, width: 96,
+      render: r => (
+        <ActionRow actions={[
+          { icon: 'visibility', label: 'View', onClick: () => setSelected(r) },
+          ...(r.status !== 'in_progress' && r.status !== 'resolved' && r.status !== 'rejected'
+            ? [{ icon: 'play_arrow', label: 'Process', onClick: () => updateStatus(r.id, 'in_progress') }]
+            : []),
+          ...(r.status === 'in_progress'
+            ? [{ icon: 'check', label: 'Complete', onClick: () => updateStatus(r.id, 'resolved') }]
+            : []),
+        ]} />
+      ),
+    },
   ]
 
   const inp: React.CSSProperties = {

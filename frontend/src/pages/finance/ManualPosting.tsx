@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, StatusBadge, filterInputStyle, SearchInput, ErrBanner, Spinner, DateFilter } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { Page, SectionCard, DataTable, StatusBadge, filterInputStyle, SearchInput, ErrBanner, Spinner, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -46,27 +46,22 @@ function PostingCols(onApprove: (id: number) => void, onReject: (id: number) => 
   return [
     { key: 'initiated_at', label: 'Date', sortable: true, width: 150,
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDatetime(r.initiated_at)}</span> },
-    { key: 'initiated_by_name', label: 'Initiated by',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.initiated_by_name || '—'}</span> },
+    { key: 'narrative', label: 'Description',
+      render: r => <NameCell name={r.narrative || '—'} sub={r.initiated_by_name} avatar={false} /> },
     { key: 'dr_account', label: 'DR Account', render: r => <span style={{ ...NUM, fontSize: TEXT.sm }}>{r.dr_account}</span> },
     { key: 'cr_account', label: 'CR Account', render: r => <span style={{ ...NUM, fontSize: TEXT.sm }}>{r.cr_account}</span> },
     { key: 'amount_kobo', label: 'Amount NGN', align: 'right', sortable: true,
       render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.amount_kobo)}</span> },
-    { key: 'narrative', label: 'Narrative',
-      render: r => <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240, fontSize: TEXT.sm }}>{r.narrative || '—'}</span> },
     { key: 'status', label: 'Status', render: r => <StatusBadge status={r.status} /> },
-    { key: '_actions', label: '', render: r => r.status === 'pending' ? (
-      <div style={{ display: 'flex', gap: 6 }}>
-        <button onClick={e => { e.stopPropagation(); onApprove(r.id) }} style={{
-          padding: '4px 10px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(22,163,74,.12)',
-          color: GREEN, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
-        }}>Approve</button>
-        <button onClick={e => { e.stopPropagation(); onReject(r.id) }} style={{
-          padding: '4px 10px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(192,0,0,.08)',
-          color: RED, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
-        }}>Reject</button>
-      </div>
-    ) : null},
+    { key: '_actions', label: '', sortable: false, render: r => (
+      <ActionRow actions={[
+        ...(r.status === 'pending' ? [
+          { icon: 'check_circle', label: 'Approve', onClick: () => onApprove(r.id) },
+          { icon: 'cancel', label: 'Reject', onClick: () => onReject(r.id), danger: true },
+        ] as RowAction[] : []),
+        { icon: 'download', label: 'Download', onClick: () => exportPostingsCsv([r]) },
+      ] satisfies RowAction[]} />
+    )},
   ]
 }
 

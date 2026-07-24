@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, FilterBar, filterInputStyle, Spinner, KpiCard, DateFilter, SearchInput } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, FilterBar, filterInputStyle, Spinner, KpiCard, DateFilter, SearchInput, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
@@ -336,12 +336,10 @@ export default function RecoveryLegal() {
       label: 'Customer',
       sortable: true,
       render: r => (
-        <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>
-            {r.customer_name ?? '—'}
-          </div>
-          <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)' }}>{r.account_cif}</div>
-        </div>
+        <NameCell
+          name={r.customer_name ?? r.account_cif}
+          sub={r.account_cif}
+        />
       ),
     },
     {
@@ -466,7 +464,7 @@ export default function RecoveryLegal() {
                     {col.label}
                   </th>
                 ))}
-                <th style={{ width: 40, borderBottom: '1px solid var(--bdr)' }} />
+                <th style={{ width: 60, borderBottom: '1px solid var(--bdr)' }} />
               </tr>
             </thead>
             <tbody>
@@ -505,10 +503,11 @@ export default function RecoveryLegal() {
                           {col.render ? col.render(row, 0) : row[col.key as keyof LegalCase] as React.ReactNode}
                         </td>
                       ))}
-                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                        <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: 'var(--txt2)' }}>
-                          {expandedId === row.id ? 'expand_less' : 'expand_more'}
-                        </span>
+                      <td style={{ padding: '12px 14px' }}>
+                        <ActionRow actions={[
+                          { icon: 'add_circle', label: 'Add Milestone', onClick: () => toggleExpand(row) },
+                          { icon: expandedId === row.id ? 'expand_less' : 'expand_more', label: 'Timeline', onClick: () => toggleExpand(row) },
+                        ]} />
                       </td>
                     </tr>
                     {expandedId === row.id && (

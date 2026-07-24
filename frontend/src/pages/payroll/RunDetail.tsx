@@ -2,12 +2,12 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  ConfirmModal, ErrBanner, Spinner, btnPrimary, btnSecondary,
+  ConfirmModal, ErrBanner, Spinner, btnPrimary, StatusBadge, NameCell, ActionRow,
 } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
-import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
+import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 import type { AuthUser } from '../../hooks/useAuth'
 
@@ -119,21 +119,6 @@ interface PayrollItem {
 const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December']
 
-const STATUS_STYLE: Record<string, { color: string; bg: string; label: string }> = {
-  draft:    { color: 'var(--txt2)', bg: 'rgba(75,85,99,.1)', label: 'Draft' },
-  review:   { color: AMBER,    bg: `${AMBER}18`,          label: 'In Review' },
-  approved: { color: BLUE,     bg: `${BLUE}12`,           label: 'Approved' },
-  paid:     { color: GREEN,    bg: 'rgba(22,163,74,.12)', label: 'Paid' },
-}
-
-function StatusPill({ status }: { status: string }) {
-  const s = STATUS_STYLE[status] ?? STATUS_STYLE.draft
-  return (
-    <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: s.bg, color: s.color }}>
-      {s.label}
-    </span>
-  )
-}
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
@@ -158,14 +143,22 @@ export default function RunDetail() {
   // C6: Payslip modal state
   const [payslip, setPayslip] = useState<PayslipData | null>(null)
 
-  async function viewPayslip(item: PayrollItem, e: React.MouseEvent) {
-    e.stopPropagation() // don't trigger row click navigation
+  async function viewPayslip(item: PayrollItem) {
     try {
       const data = await apiFetch<PayslipData>(`/api/payroll/payslips/${id}/${item.employee_id}`)
       setPayslip({ ...data, employee_name: item.employee_name })
     } catch {
       toast.error('Could not load payslip')
     }
+  }
+
+  function downloadPayslipPdf(item: PayrollItem) {
+    const token = localStorage.getItem('access_token') ?? ''
+    const url = `/api/payroll/payslips/${id}/${item.employee_id}/pdf`
+    const a = document.createElement('a')
+    a.href = `${url}?token=${encodeURIComponent(token)}`
+    a.download = `payslip-${item.staff_id ?? item.employee_id}-${id}.pdf`
+    document.body.appendChild(a); a.click(); a.remove()
   }
 
   const load = useCallback(async () => {
@@ -217,12 +210,7 @@ export default function RunDetail() {
   const cols: TableCol<PayrollItem>[] = [
     {
       key: 'employee_name', label: 'Employee',
-      render: r => (
-        <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.employee_name}</div>
-          {r.staff_id && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: 'Inter, monospace' }}>{r.staff_id}</div>}
-        </div>
-      ),
+      render: r => <NameCell name={r.employee_name} sub={r.staff_id} />,
     },
     {
       key: 'department', label: 'Dept',
@@ -260,19 +248,15 @@ export default function RunDetail() {
       key: 'net_kobo', label: 'Net Pay', align: 'right',
       render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: GREEN }}>{fmtKobo(r.net_kobo)}</span>,
     },
-    // C6: Payslip download button — only shown for paid runs
-    ...(run?.status === 'paid' ? [{
-      key: 'payslip' as keyof PayrollItem,
-      label: '',
-      render: (r: PayrollItem) => (
-        <button
-          onClick={e => viewPayslip(r, e)}
-          style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px' }}
-        >
-          Payslip
-        </button>
-      ),
-    }] : []),
+    { key: '_actions', label: '', sortable: false,
+      render: r => {
+        const actions: RowAction[] = [
+          { icon: 'receipt_long', label: 'View payslip', onClick: () => viewPayslip(r) },
+          { icon: 'download', label: 'Download PDF', onClick: () => downloadPayslipPdf(r) },
+        ]
+        return <ActionRow actions={actions} />
+      },
+    },
   ]
 
   if (loading && !run) {
@@ -294,7 +278,7 @@ export default function RunDetail() {
       back={{ label: 'Payroll', to: '/payroll' }}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-          {run && <StatusPill status={run.status} />}
+          {run && <StatusBadge status={run.status} />}
           {canSubmit && (
             <button onClick={() => setSubmitOpen(true)} style={btnPrimary}>
               Submit for Approval
@@ -358,7 +342,7 @@ export default function RunDetail() {
         {/* Totals row */}
         {filtered.length > 0 && (
           <div style={{
-            display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr',
+            display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr',
             padding: '10px 16px', borderTop: '2px solid var(--bdr)',
             background: 'var(--th-bg)', fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)',
             fontFamily: 'Inter, sans-serif',
@@ -372,6 +356,7 @@ export default function RunDetail() {
             <span style={{ textAlign: 'right', color: totals.loan > 0 ? AMBER : 'var(--txt)' }}>{totals.loan > 0 ? fmtKobo(totals.loan) : '—'}</span>
             <span style={{ textAlign: 'right', color: totals.other > 0 ? AMBER : 'var(--txt)' }}>{totals.other > 0 ? fmtKobo(totals.other) : '—'}</span>
             <span style={{ textAlign: 'right', color: GREEN }}>{fmtKobo(totals.net)}</span>
+            <span />
           </div>
         )}
       </SectionCard>

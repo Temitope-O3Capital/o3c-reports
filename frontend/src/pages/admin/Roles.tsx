@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { useNavigate } from 'react-router-dom'
+import { Page, SectionCard, DataTable, ErrBanner, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
@@ -255,6 +256,7 @@ function exportRolesCsv(rows: Role[]) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AdminRoles() {
+  const navigate = useNavigate()
   const [roles,   setRoles]   = useState<Role[]>([])
   const [users,   setUsers]   = useState<{ role: string; full_name: string }[]>([])
   const [loading, setLoading] = useState(true)
@@ -291,13 +293,8 @@ export default function AdminRoles() {
   const displayed = roles
 
   const COLS: TableCol<Role>[] = [
-    { key: 'name', label: 'Role Key',
-      render: r => (
-        <div>
-          <div style={{ fontFamily: 'monospace', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.name}</div>
-          {r.label && r.label !== r.name && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.label}</div>}
-        </div>
-      ),
+    { key: 'name', label: 'Role',
+      render: r => <NameCell name={r.name} sub={r.label && r.label !== r.name ? r.label : undefined} avatar={false} />,
     },
     { key: 'user_count', label: 'Users', align: 'right',
       render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: (r.user_count ?? 0) > 0 ? NAVY : 'var(--txt3)' }}>{r.user_count ?? 0}</span> },
@@ -309,6 +306,15 @@ export default function AdminRoles() {
           {r.built_in ? 'Built-in' : 'Custom'}
         </span>
       ),
+    },
+    { key: '_actions', label: '', sortable: false,
+      render: r => {
+        const actions: RowAction[] = [
+          { icon: 'edit', label: 'Edit permissions', onClick: () => setEditing(r) },
+          { icon: 'group', label: 'View users', onClick: () => navigate('/admin/users') },
+        ]
+        return <ActionRow actions={actions} />
+      },
     },
   ]
 

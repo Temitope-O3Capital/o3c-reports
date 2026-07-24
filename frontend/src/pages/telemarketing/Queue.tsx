@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Page, ErrBanner, Spinner, ConfirmModal, TblSearch, DateFilter,
+  Page, ErrBanner, Spinner, ConfirmModal, TblSearch, DateFilter, NameCell,
 } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtDatetime, today, monthStart } from '../../lib/fmt'
@@ -740,18 +740,18 @@ export default function TelemarketingQueue() {
 
                     {/* Content */}
                     <div style={{ flex: 1, minWidth: 0, padding: '10px 12px 10px 2px' }}>
-                      {/* Row 1: name + last disposition */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                        <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                          {item.customer_name}
-                        </span>
+                      {/* Row 1+2: name + phone via NameCell, with disposition badge */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: SP[1] }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <NameCell
+                            name={item.customer_name}
+                            sub={`${item.phone}${item.cif ? ` · ${item.cif}` : ''}`}
+                            avatar={false}
+                          />
+                        </div>
                         {item.last_disposition && (
                           <DispositionPill disp={item.last_disposition} size="sm" />
                         )}
-                      </div>
-                      {/* Row 2: phone + CIF */}
-                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: SP[1], fontFamily: INTER }}>
-                        {item.phone}{item.cif ? ` · ${item.cif}` : ''}
                       </div>
                       {/* Row 3: outstanding + DPD + last called */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

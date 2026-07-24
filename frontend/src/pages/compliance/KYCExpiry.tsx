@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  ErrBanner, DateFilter,
+  ErrBanner, DateFilter, NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, RED, GREEN, AMBER } from '../../lib/design'
+import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -36,7 +37,7 @@ function DaysLeft({ days, status }: { days: number; status: string }) {
   return <span style={{ fontSize: TEXT.sm, color: GREEN }}>{days}d left</span>
 }
 
-function StatusBadge({ status }: { status: string }) {
+function KYCStatusBadge({ status }: { status: string }) {
   const expired = status === 'expired'
   const bg = expired ? `${RED}18` : `${AMBER}22`
   const color = expired ? RED : AMBER
@@ -73,14 +74,20 @@ export default function KYCExpiry() {
 
   useEffect(() => { load() }, [load])
 
+  async function handleKYCAction(cif: string, action: string) {
+    try {
+      await apiPost(`/api/compliance/kyc-expiry/${encodeURIComponent(cif)}/action`, { action })
+      toast.success(action === 'remind' ? 'Reminder sent' : 'KYC marked as renewed')
+      load()
+    } catch (e: any) {
+      toast.error(e.message ?? 'Action failed')
+    }
+  }
+
   const cols: TableCol<KYCExpiry>[] = [
     {
-      key: 'customer_name', label: 'Customer Name',
-      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.customer_name}</span>,
-    },
-    {
-      key: 'cif', label: 'CIF',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'monospace' }}>{r.cif}</span>,
+      key: 'customer_name', label: 'Customer',
+      render: r => <NameCell name={r.customer_name} sub={r.cif} />,
     },
     {
       key: 'phone', label: 'Phone',
@@ -100,7 +107,16 @@ export default function KYCExpiry() {
     },
     {
       key: 'status', label: 'Status',
-      render: r => <StatusBadge status={r.status} />,
+      render: r => <KYCStatusBadge status={r.status} />,
+    },
+    {
+      key: '_actions', label: '', sortable: false, width: 64,
+      render: r => (
+        <ActionRow actions={[
+          { icon: 'notifications', label: 'Send Reminder', onClick: () => handleKYCAction(r.cif, 'remind') },
+          { icon: 'verified', label: 'Mark Renewed', onClick: () => handleKYCAction(r.cif, 'renew') },
+        ]} />
+      ),
     },
   ]
 

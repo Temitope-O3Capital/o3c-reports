@@ -2,8 +2,8 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
-import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, Spinner } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, Spinner, NameCell, ActionRow } from '../../components/UI'
+import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtPct } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -24,8 +24,8 @@ interface BudgetLine {
 // ── Columns ───────────────────────────────────────────────────────────────────
 
 const COLS: TableCol<BudgetLine>[] = [
-  { key: 'cost_centre', label: 'Cost Centre', sortable: true },
-  { key: 'category', label: 'Category', sortable: true },
+  { key: 'cost_centre', label: 'Cost Centre', sortable: true,
+    render: r => <NameCell name={r.cost_centre || '—'} sub={r.category} avatar={false} /> },
   { key: 'budget_amount', label: 'Budget ₦', align: 'right', sortable: true,
     render: r => <span style={NUM}>{fmtKobo(r.budget_amount)}</span> },
   { key: 'actual_amount', label: 'Actual ₦', align: 'right',
@@ -53,6 +53,11 @@ const COLS: TableCol<BudgetLine>[] = [
       </div>
     )
   }},
+  { key: '_actions', label: '', sortable: false, render: r => (
+    <ActionRow actions={[
+      { icon: 'download', label: 'Download', onClick: () => exportBudgetCsv([r]) },
+    ] satisfies RowAction[]} />
+  )},
 ]
 
 function exportBudgetCsv(rows: BudgetLine[]) {
@@ -117,6 +122,7 @@ export default function FinanceBudget() {
   const [rows, setRows] = useState<BudgetLine[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [sel, setSel] = useState<Set<string | number>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
@@ -229,6 +235,18 @@ export default function FinanceBudget() {
               emptyText="No budget lines for this period"
               searchKeys={['cost_centre', 'category', 'period']}
               pageSize={20}
+              selectable
+              selectedIds={sel}
+              onSelect={setSel}
+              bulkBar={sel.size > 0 ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{sel.size} selected</span>
+                  <button onClick={() => exportBudgetCsv(filtered.filter(r => sel.has(r.id)))}
+                    style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+                    Export CSV
+                  </button>
+                </div>
+              ) : undefined}
             />
           </SectionCard>
         </>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, ErrBanner, Spinner, Modal, DataTable, DateFilter,
+  NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -77,6 +78,7 @@ export default function SalesTargets() {
   const [dateTo,   setDateTo]   = useState(today())
   const [showForm, setShowForm] = useState(false)
   const [saving,   setSaving]   = useState(false)
+  const [bulkSel,  setBulkSel]  = useState<Set<string | number>>(new Set())
 
   // form state
   const [fUserId,  setFUserId]  = useState('')
@@ -134,7 +136,7 @@ export default function SalesTargets() {
   const COLS: TableCol<Actual>[] = [
     {
       key: 'full_name', label: 'Officer',
-      render: r => <span style={{ fontWeight: FW.semibold }}>{r.full_name}</span>,
+      render: r => <NameCell name={r.full_name} />,
     },
     {
       key: 'actual_loans', label: 'Loans',
@@ -165,6 +167,12 @@ export default function SalesTargets() {
           #{(i ?? 0) + 1}
         </span>
       ),
+    },
+    {
+      key: '_actions', label: '', sortable: false,
+      render: r => <ActionRow actions={[
+        { icon: 'bar_chart', label: 'View Performance', onClick: () => {} },
+      ]} />,
     },
   ]
 
@@ -213,6 +221,12 @@ export default function SalesTargets() {
             emptyText="No targets set for this period"
             searchKeys={['full_name']}
             searchPlaceholder="Search officer…"
+            selectable
+            selectedIds={bulkSel}
+            onSelect={setBulkSel}
+            bulkBar={
+              <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
+            }
           />
         </SectionCard>
       )}

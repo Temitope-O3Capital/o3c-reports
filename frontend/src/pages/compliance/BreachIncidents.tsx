@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, Modal, ConfirmModal, StatusBadge, btnPrimary, Spinner } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, Modal, ConfirmModal, StatusBadge, btnPrimary, Spinner, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPatch } from '../../lib/api'
 import { fmtDate, today } from '../../lib/fmt'
@@ -108,17 +108,8 @@ export default function BreachIncidents() {
 
   const cols: TableCol<BreachIncident>[] = [
     {
-      key: 'ref_no', label: 'Ref',
-      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY }}>{r.ref_no}</span>,
-    },
-    {
       key: 'title', label: 'Incident',
-      render: r => (
-        <div>
-          <div style={{ fontWeight: FW.semibold, color: 'var(--txt)', fontSize: TEXT.base }}>{r.title}</div>
-          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.breach_type.replace(/_/g, ' ')}</div>
-        </div>
-      ),
+      render: r => <NameCell name={r.title} sub={r.ref_no} avatar={false} />,
     },
     {
       key: 'severity', label: 'Severity',
@@ -148,6 +139,15 @@ export default function BreachIncidents() {
     {
       key: 'assigned_name', label: 'Assigned To',
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.assigned_name ?? '—'}</span>,
+    },
+    {
+      key: '_actions', label: '', sortable: false, width: 64,
+      render: r => (
+        <ActionRow actions={[
+          { icon: 'visibility', label: 'View', onClick: () => setDetail(r) },
+          ...(!r.ndpc_notified ? [{ icon: 'notifications_active', label: 'Mark NDPC Notified', onClick: () => setConfirmNotify(r) }] : []),
+        ]} />
+      ),
     },
   ]
 

@@ -37,6 +37,11 @@ func RegisterCards(r chi.Router, db *core.DB) {
 	r.With(income).Get("/cycle-dates",   cardCycleDates(db))
 	r.With(income).Get("/cycle-data",    cardCycleData(db))
 	r.With(income).Get("/cycle-summary", cardCycleSummary(db))
+
+	// Agent queue dashboard
+	r.With(cards).Get("/my-queue", func(w http.ResponseWriter, r *http.Request) {
+		respond(w, map[string]any{"status": "stub"}, "stub")
+	})
 }
 
 func cardsKPIs(db *core.DB) http.HandlerFunc {

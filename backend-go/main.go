@@ -391,6 +391,9 @@ func main() {
 		r.Route("/api/executive", func(r chi.Router) {
 			handlers.RegisterExecutive(r, db)
 		})
+		r.Route("/api/cards/interswitch", func(r chi.Router) {
+			handlers.RegisterInterswitch(r, db)
+		})
 		r.Route("/api/call-center", func(r chi.Router) {
 			handlers.RegisterCallCenter(r, db)
 		})

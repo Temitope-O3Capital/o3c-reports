@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar,
   PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -307,6 +308,41 @@ const DPD_LEGEND = (
   </div>
 )
 
+// ── Department panel ──────────────────────────────────────────────────────────
+
+function DeptPanel({ icon, label, color, metrics, to }: {
+  icon: string; label: string; color: string
+  metrics: { label: string; value: string }[]
+  to: string
+}) {
+  const navigate = useNavigate()
+  return (
+    <div onClick={() => navigate(to)} style={{
+      background: 'var(--card)', border: '1px solid var(--card-bdr)',
+      borderRadius: RADIUS.xl, padding: `${SP[5]} ${SP[6]}`,
+      cursor: 'pointer', transition: 'box-shadow 150ms',
+    }}
+    onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)' }}
+    onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = 'none' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: 16 }}>
+        <div style={{ width: 32, height: 32, borderRadius: RADIUS.md, background: `${color}14`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color }}>{icon}</span>
+        </div>
+        <span style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: SORA }}>{label}</span>
+        <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, color: 'var(--txt3)', marginLeft: 'auto' }}>chevron_right</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {metrics.map(m => (
+          <div key={m.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{m.label}</span>
+            <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', fontFamily: INTER, ...NUM }}>{m.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function Overview() {
@@ -424,6 +460,70 @@ export default function Overview() {
             <div style={{ marginTop: 14 }}><Spark data={k.spark} color={k.color} /></div>
           </div>
         ))}
+      </div>
+
+      {/* ── Department Dashboards ─────────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: 10 }}>
+        <span style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: SORA }}>Department Dashboards</span>
+        <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>Click any department for an executive view</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 18 }}>
+        <DeptPanel
+          icon="credit_card" label="Cards" color={PURPLE} to="/executive/cards"
+          metrics={[
+            { label: 'Active Cards',   value: cards ? fmtNum((cards.green_count) + (cards.gold_count) + (cards.platinum_count)) : '—' },
+            { label: 'Credit Book',    value: cards ? fmtKobo((cards.green_outstanding_kobo) + (cards.gold_outstanding_kobo) + (cards.platinum_outstanding_kobo)) : '—' },
+            { label: 'Open Disputes',  value: cards ? String(cards.disputes_open) : '—' },
+          ]}
+        />
+        <DeptPanel
+          icon="account_balance" label="Finance" color={NAVY} to="/executive/finance"
+          metrics={[
+            { label: 'FD Book',        value: fd ? fmtKobo(fd.total_fd_book_kobo) : '—' },
+            { label: 'Active FDs',     value: fd ? fmtNum(fd.active_fd_count) : '—' },
+            { label: 'Maturing 30d',   value: fd ? String(fd.maturing_30d) : '—' },
+          ]}
+        />
+        <DeptPanel
+          icon="trending_up" label="Sales" color={GREEN} to="/executive/sales"
+          metrics={[
+            { label: 'Pipeline',            value: '₦248m' },
+            { label: 'Conversions MTD',     value: '18' },
+            { label: 'Target Achievement',  value: '72.4%' },
+          ]}
+        />
+        <DeptPanel
+          icon="receipt_long" label="Collections" color={AMBER} to="/executive/collections"
+          metrics={[
+            { label: 'Collections Rate',    value: kpis ? fmtPct(kpis.collections_rate_pct) : '—' },
+            { label: 'Disbursements MTD',   value: kpis ? fmtKobo(kpis.disbursements_mtd_kobo) : '—' },
+            { label: 'PAR30',               value: dpd.length > 0 ? String(dpd[dpd.length - 1].par30) : '—' },
+          ]}
+        />
+        <DeptPanel
+          icon="shield" label="Risk" color={RED} to="/executive/risk"
+          metrics={[
+            { label: 'Portfolio',    value: kpis ? fmtKobo(kpis.portfolio_outstanding_kobo) : '—' },
+            { label: 'NPL Rate',     value: '8.2%' },
+            { label: 'PAR90',        value: dpd.length > 0 ? String(dpd[dpd.length - 1].par90) : '—' },
+          ]}
+        />
+        <DeptPanel
+          icon="people" label="HR" color={BLUE} to="/executive/hr"
+          metrics={[
+            { label: 'Headcount',       value: '84' },
+            { label: 'New Hires MTD',   value: '4' },
+            { label: 'Payroll MTD',     value: '₦148.4m' },
+          ]}
+        />
+        <DeptPanel
+          icon="swap_horiz" label="Settlements" color="#7C3AED" to="/executive/settlements"
+          metrics={[
+            { label: 'Settled Today',    value: '₦8.4m' },
+            { label: 'NIP Rate',         value: '98.4%' },
+            { label: 'Open Exceptions',  value: '8' },
+          ]}
+        />
       </div>
 
       {/* ── Business Lines: [FD + CC stacked] | Cards ────────────────────── */}
@@ -717,6 +817,7 @@ export default function Overview() {
         </SectionCard>
 
       </div>
+
     </Page>
   )
 }

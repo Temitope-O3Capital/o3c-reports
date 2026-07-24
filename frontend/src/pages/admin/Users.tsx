@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter, ConfirmModal } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter, ConfirmModal, NameCell, ActionRow, StatusBadge, avatarColor, nameInitials } from '../../components/UI'
+import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, BLUE, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
@@ -56,22 +56,6 @@ function RoleSelect({ value, onChange, style }: { value: string; onChange: (v: s
   )
 }
 
-const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
-  active:   { bg: 'rgba(22,163,74,.1)',  txt: GREEN },
-  inactive: { bg: 'rgba(192,0,0,.1)',    txt: RED   },
-  pending:  { bg: 'rgba(234,179,8,.12)', txt: '#B45309' },
-}
-
-function StatusPill({ active, lastLogin }: { active: boolean; lastLogin?: string }) {
-  const isPending = !active && !lastLogin
-  const c = active ? STATUS_COLORS.active : isPending ? STATUS_COLORS.pending : STATUS_COLORS.inactive
-  const label = active ? 'Active' : isPending ? 'Pending' : 'Inactive'
-  return (
-    <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'], background: c.bg, color: c.txt }}>
-      {label}
-    </span>
-  )
-}
 
 function RolePill({ role }: { role: string }) {
   const colorFor = (r: string) => {
@@ -89,20 +73,6 @@ function RolePill({ role }: { role: string }) {
       {roleLabel(role)}
     </span>
   )
-}
-
-// ── User avatar ───────────────────────────────────────────────────────────────
-
-const PALETTE = [NAVY, RED, BLUE, GREEN, AMBER, '#7C3AED', '#0891B2', '#DB2777']
-
-function avatar(name: string) {
-  let h = 0
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff
-  return PALETTE[h % PALETTE.length]
-}
-
-function initials(name: string) {
-  return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
 }
 
 // ── Invite User modal ─────────────────────────────────────────────────────────
@@ -254,7 +224,7 @@ function EditUserModal({ user, onClose, onSaved }: {
     }
   }
 
-  const ac = avatar(user.full_name)
+  const ac = avatarColor(user.full_name)
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
@@ -263,7 +233,7 @@ function EditUserModal({ user, onClose, onSaved }: {
         {/* Header */}
         <div style={{ padding: `${SP[5]} ${SP[6]}`, borderBottom: '1px solid var(--bdr)', display: 'flex', gap: SP[3], alignItems: 'center' }}>
           <div style={{ width: 46, height: 46, borderRadius: '50%', background: ac, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT.lg, fontWeight: FW.bold, color: '#fff', flexShrink: 0 }}>
-            {initials(user.full_name)}
+            {nameInitials(user.full_name)}
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>{user.full_name}</div>
@@ -410,6 +380,25 @@ export default function AdminUsers() {
   useEffect(() => { load() }, [load])
   useEffect(() => { setPage(1) }, [search, roleFilter, statusFilter, deptFilter])
 
+  async function resetUserPassword(userId: number) {
+    try {
+      const res = await apiFetch<{ temporary_password: string }>(`/api/admin/users/${userId}/reset-password`, { method: 'POST' })
+      toast.success(`Temp password: ${res.temporary_password}`, { duration: 10000 })
+    } catch (e: any) {
+      toast.error(e.message)
+    }
+  }
+
+  async function deactivateUser(userId: number) {
+    try {
+      await apiFetch(`/api/admin/users/${userId}/deactivate`, { method: 'PATCH' })
+      toast.success('User deactivated')
+      load()
+    } catch (e: any) {
+      toast.error(e.message)
+    }
+  }
+
   const filtered = useMemo(() => {
     return rows.filter(u => {
       if (roleFilter && u.role !== roleFilter) return false
@@ -445,26 +434,24 @@ export default function AdminUsers() {
   }
 
   const COLS: TableCol<User>[] = [
-    { key: 'full_name', label: 'Name',
-      render: u => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-          <div style={{ width: 32, height: 32, borderRadius: '50%', background: avatar(u.full_name), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, color: '#fff', flexShrink: 0 }}>
-            {initials(u.full_name)}
-          </div>
-          <div>
-            <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{u.full_name}</div>
-            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{u.email}</div>
-          </div>
-        </div>
-      ),
-    },
+    { key: 'full_name', label: 'Name', render: u => <NameCell name={u.full_name} sub={u.email} /> },
     { key: 'role', label: 'Role', render: u => <RolePill role={u.role} /> },
     { key: 'department', label: 'Dept', render: u => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{u.department || '—'}</span> },
-    { key: 'is_active', label: 'Status', render: u => <StatusPill active={u.is_active} lastLogin={u.last_login} /> },
+    { key: 'is_active', label: 'Status', render: u => <StatusBadge status={u.is_active ? 'Active' : (!u.last_login ? 'Pending' : 'Inactive')} /> },
     { key: 'last_login', label: 'Last Login', sortable: true,
       render: u => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{u.last_login ? fmtDatetime(u.last_login) : 'Never'}</span> },
     { key: 'created_at', label: 'Created', sortable: true,
       render: u => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDate(u.created_at)}</span> },
+    { key: '_actions', label: '', sortable: false,
+      render: u => {
+        const actions: RowAction[] = [
+          { icon: 'edit', label: 'Edit', onClick: () => setEditing(u) },
+          { icon: 'lock_reset', label: 'Reset Password', onClick: () => resetUserPassword(u.id) },
+          ...(u.is_active ? [{ icon: 'person_off', label: 'Deactivate', onClick: () => deactivateUser(u.id), danger: true }] : []),
+        ]
+        return <ActionRow actions={actions} />
+      },
+    },
   ]
 
   const depts = [...new Set(rows.map(u => u.department).filter(Boolean))].sort()

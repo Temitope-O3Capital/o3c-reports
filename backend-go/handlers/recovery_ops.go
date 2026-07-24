@@ -30,6 +30,9 @@ func RegisterRecoveryOps(r chi.Router, db *core.DB) {
 	r.With(writeOff).Put("/write-off/{wid}/approve", recoveryOpsApproveWriteOff(db))
 	r.With(writeOff).Put("/write-off/{wid}/reject", recoveryOpsRejectWriteOff(db))
 	r.With(base).Get("/dashboard", recoveryOpsDashboard(db))
+	r.With(base).Get("/agent-dashboard", func(w http.ResponseWriter, r *http.Request) {
+		respond(w, map[string]any{"status": "stub"}, "stub")
+	})
 }
 
 func recoveryOpsCases(db *core.DB) http.HandlerFunc {

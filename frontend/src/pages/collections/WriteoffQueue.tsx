@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import {
   Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle,
-  ErrBanner, ConfirmModal, DateFilter,
+  ErrBanner, ConfirmModal, DateFilter, NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -166,12 +166,10 @@ export default function WriteoffQueue() {
       key: 'account_cif',
       label: 'Customer',
       render: r => (
-        <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.account_cif}</div>
-          {r.customer_name && (
-            <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 1 }}>{r.customer_name}</div>
-          )}
-        </div>
+        <NameCell
+          name={r.customer_name ?? r.account_cif}
+          sub={r.customer_name ? r.account_cif : null}
+        />
       ),
     },
     {
@@ -213,34 +211,14 @@ export default function WriteoffQueue() {
     },
     ...(canAct ? [{
       key: '_actions',
-      label: 'Actions',
+      label: '',
       sortable: false,
-      width: 240,
+      width: 80,
       render: (r: WriteoffRow) => (
-        <div style={{ display: 'flex', gap: 6 }} onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-          <button
-            onClick={() => setModal({ type: 'approve', row: r })}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 4,
-              padding: '4px 10px', borderRadius: RADIUS.md, border: 'none', cursor: 'pointer',
-              fontSize: TEXT.xs, fontWeight: FW.semibold, background: RED, color: '#fff',
-            }}
-          >
-            Approve Write-off
-          </button>
-          <button
-            onClick={() => setModal({ type: 'return', row: r })}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 4,
-              padding: '4px 10px', borderRadius: RADIUS.md, cursor: 'pointer',
-              fontSize: TEXT.xs, fontWeight: FW.medium,
-              background: 'var(--card)', color: 'var(--txt)',
-              border: '1px solid var(--bdr)',
-            }}
-          >
-            Return to Recovery
-          </button>
-        </div>
+        <ActionRow actions={[
+          { icon: 'check_circle', label: 'Approve Write-off',   onClick: () => setModal({ type: 'approve', row: r }), danger: true },
+          { icon: 'arrow_back',   label: 'Return to Recovery',  onClick: () => setModal({ type: 'return', row: r }) },
+        ]} />
       ),
     } as TableCol<WriteoffRow>] : []),
   ]

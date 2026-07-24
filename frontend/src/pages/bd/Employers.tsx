@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, Modal, Spinner, SearchInput, DateFilter } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, Modal, Spinner, SearchInput, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate, fmtNum, monthStart, today } from '../../lib/fmt'
@@ -280,19 +280,7 @@ export default function Employers() {
   const cols: TableCol<Employer>[] = [
     {
       key: 'name', label: 'Employer', sortable: true,
-      render: row => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{
-            width: 30, height: 30, borderRadius: RADIUS.full, background: NAVY, flexShrink: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: TEXT.xs, fontWeight: FW.bold, color: '#fff', fontFamily: INTER,
-          }}>{(row.name ?? '?').charAt(0).toUpperCase()}</div>
-          <div>
-            <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', fontFamily: SORA }}>{row.name}</div>
-            <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER }}>RC: {row.rc_number ?? '—'}</div>
-          </div>
-        </div>
-      ),
+      render: row => <NameCell name={row.name} sub={row.sector ?? row.contact_name ?? null} />,
     },
     {
       key: 'sector', label: 'Sector', sortable: true,
@@ -338,6 +326,14 @@ export default function Employers() {
     {
       key: 'state', label: 'State', sortable: true,
       render: row => <span style={{ color: 'var(--txt2)', fontSize: TEXT.sm }}>{row.state ?? '—'}</span>,
+    },
+    {
+      key: '_actions', label: '', sortable: false,
+      render: row => <ActionRow actions={[
+        { icon: 'visibility', label: 'View', onClick: () => setDetailRow(row) },
+        { icon: 'edit', label: 'Edit', onClick: () => {} },
+        { icon: 'person_add', label: 'Assign Lead', onClick: () => {} },
+      ]} />,
     },
   ]
 
@@ -556,11 +552,8 @@ export default function Employers() {
           onSelect={setSelected}
           bulkBar={
             <>
-              <button style={{
-                padding: '5px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
-                cursor: 'pointer', fontFamily: SORA,
-                border: 'none', background: NAVY, color: '#fff',
-              }}>Assign Sales Officer</button>
+              <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
+              <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: 'none', background: NAVY, color: '#fff', cursor: 'pointer' }}>Bulk Assign</button>
             </>
           }
         />

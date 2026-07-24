@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, Modal, ConfirmModal, Spinner, DateFilter } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, Modal, ConfirmModal, Spinner, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
 import { fmtDate, monthStart, today } from '../../lib/fmt'
@@ -21,40 +21,6 @@ interface CannedResponse {
 
 const CATEGORIES = ['Account', 'Loans', 'Cards', 'Transfers', 'App', 'General']
 
-// ── Category pill ──────────────────────────────────────────────────────────────
-
-function CatPill({ cat }: { cat: string }) {
-  return (
-    <span style={{
-      ...NUM,
-      display: 'inline-flex', alignItems: 'center',
-      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'],
-      background: 'var(--chip-bg)', color: 'var(--chip-txt)', whiteSpace: 'nowrap',
-    }}>
-      {cat}
-    </span>
-  )
-}
-
-// ── Row action button ──────────────────────────────────────────────────────────
-
-function RowBtn({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={e => { e.stopPropagation(); onClick() }}
-      title={label}
-      style={{
-        width: 28, height: 28, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)',
-        background: 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        cursor: 'pointer', color: 'var(--txt2)',
-      }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--txt2)'; (e.currentTarget as HTMLElement).style.color = 'var(--txt)' }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--input-bdr)'; (e.currentTarget as HTMLElement).style.color = 'var(--txt2)' }}
-    >
-      <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>{icon}</span>
-    </button>
-  )
-}
 
 // ── Canned form ────────────────────────────────────────────────────────────────
 
@@ -225,13 +191,8 @@ export default function Canned() {
   const cols: TableCol<CannedResponse>[] = [
     {
       key: 'title',
-      label: 'Title',
-      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.title}</span>,
-    },
-    {
-      key: 'category',
-      label: 'Category',
-      render: r => <CatPill cat={r.category} />,
+      label: 'Title / Category',
+      render: r => <NameCell name={r.title} sub={r.category} avatar={false} />,
     },
     {
       key: 'last_used_at',
@@ -251,13 +212,13 @@ export default function Canned() {
       key: '_actions',
       label: '',
       sortable: false,
-      width: 110,
+      width: 96,
       render: r => (
-        <div style={{ display: 'flex', gap: 5 }} onClick={e => e.stopPropagation()}>
-          <RowBtn icon="preview" label="Preview" onClick={() => setPreviewItem(r)} />
-          <RowBtn icon="edit" label="Edit" onClick={() => openEdit(r)} />
-          <RowBtn icon="delete" label="Delete" onClick={() => setDeleteItem(r)} />
-        </div>
+        <ActionRow actions={[
+          { icon: 'preview', label: 'Preview', onClick: () => setPreviewItem(r) },
+          { icon: 'edit', label: 'Edit', onClick: () => openEdit(r) },
+          { icon: 'delete', label: 'Delete', onClick: () => setDeleteItem(r), danger: true },
+        ]} />
       ),
     },
   ]
@@ -343,7 +304,9 @@ export default function Canned() {
         {previewItem && (
           <div>
             <div style={{ marginBottom: SP[3] }}>
-              <CatPill cat={previewItem.category} />
+              <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: 'var(--chip-bg)', color: 'var(--chip-txt)', whiteSpace: 'nowrap' }}>
+                {previewItem.category}
+              </span>
             </div>
             <div style={{
               whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: TEXT.base,

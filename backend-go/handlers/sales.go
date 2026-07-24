@@ -40,6 +40,11 @@ func RegisterSales(r chi.Router, db *core.DB) {
 	// Cohort heatmap
 	r.Get("/cohort-matrix", salesCohortMatrix(db))
 	r.Get("/cohort-detail", salesCohortDetail(db))
+
+	// Agent dashboard
+	r.Get("/my-dashboard", func(w http.ResponseWriter, r *http.Request) {
+		respond(w, map[string]any{"status": "stub"}, "stub")
+	})
 }
 
 // salesLoanKPIs returns LOS-based KPIs for the Sales Overview page.

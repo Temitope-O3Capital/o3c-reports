@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter, NameCell, StatusBadge } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtPct, monthStart, today } from '../../lib/fmt'
@@ -23,30 +23,11 @@ interface CreditReview {
   submitted_date: string
 }
 
-// ── Status config ──────────────────────────────────────────────────────────────
-
-const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
-  pending_review: { bg: 'rgba(107,114,128,.1)', txt: 'var(--chart-lbl)' },
-  recommended:    { bg: 'rgba(37,99,235,.1)',   txt: BLUE },
-  approved:       { bg: 'rgba(22,163,74,.1)',   txt: GREEN },
-  declined:       { bg: 'rgba(192,0,0,.1)',     txt: RED },
-}
-
 const STATUS_LABELS: Record<string, string> = {
   pending_review: 'Pending Review',
   recommended:    'Recommended',
   approved:       'Approved',
   declined:       'Declined',
-}
-
-function StatusPill({ status }: { status: string }) {
-  const c = STATUS_COLORS[status] ?? { bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
-  return (
-    <span style={{
-      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
-      background: c.bg, color: c.txt, whiteSpace: 'nowrap',
-    }}>{STATUS_LABELS[status] ?? status}</span>
-  )
 }
 
 function EyeScoreBar({ score }: { score: number }) {
@@ -263,10 +244,8 @@ export default function CardsCreditLimit() {
   useEffect(() => { load() }, [load])
 
   const cols: TableCol<CreditReview>[] = useMemo(() => [
-    { key: 'ref', label: 'Review #',
-      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.ref}</span> },
     { key: 'customer_name', label: 'Customer',
-      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.customer_name}</span> },
+      render: r => <NameCell name={r.customer_name} sub={r.ref} /> },
     { key: 'current_limit_kobo', label: 'Current Limit', align: 'right',
       render: r => <span style={{ ...NUM }}>{fmtKobo(Number(r.current_limit_kobo))}</span> },
     { key: 'proposed_limit_kobo', label: 'Proposed', align: 'right',
@@ -294,7 +273,7 @@ export default function CardsCreditLimit() {
       },
     },
     { key: 'eye_score', label: 'Eye Score', render: r => <EyeScoreBar score={Number(r.eye_score)} /> },
-    { key: 'status', label: 'Status', render: r => <StatusPill status={r.status} /> },
+    { key: 'status', label: 'Status', render: r => <StatusBadge status={STATUS_LABELS[r.status] ?? r.status} /> },
     { key: '_actions', label: '', render: r => <ReviewActions review={r} onReload={load} /> },
   ], [load])
 

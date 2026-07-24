@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, ErrBanner, FilterBar, filterInputStyle, Modal, ConfirmModal, DateFilter } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, FilterBar, filterInputStyle, Modal, ConfirmModal, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import type { TableCol, RowAction } from '../../components/UI'
 import { DataTable } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDatetime, fmtNum, today, monthStart } from '../../lib/fmt'
@@ -215,16 +215,12 @@ export default function FailedTransactions() {
 
   const cols: TableCol<FailedTxn>[] = [
     {
-      key: 'txn_ref', label: 'Txn Ref',
-      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: '#0E2841' }}>{r.txn_ref}</span>,
+      key: 'txn_ref', label: 'Transaction',
+      render: r => <NameCell name={r.customer_name ?? r.txn_ref} sub={r.txn_ref} avatar={false} />,
     },
     {
       key: 'amount_kobo', label: 'Amount NGN', align: 'right',
       render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.amount_kobo)}</span>,
-    },
-    {
-      key: 'customer_name', label: 'Customer',
-      render: r => <span style={{ color: 'var(--txt)' }}>{r.customer_name ?? '—'}</span>,
     },
     {
       key: 'channel', label: 'Channel',
@@ -246,32 +242,17 @@ export default function FailedTransactions() {
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDatetime(r.failed_at)}</span>,
     },
     {
-      key: 'retry_count', label: 'Retry Count', align: 'right',
+      key: 'retry_count', label: 'Retries', align: 'right',
       render: r => <span style={{ ...NUM }}>{fmtNum(r.retry_count)}</span>,
     },
     {
-      key: '_actions', label: '', sortable: false, width: 240,
+      key: '_actions', label: '', sortable: false,
       render: r => (
-        <div style={{ display: 'flex', gap: 5 }} onClick={e => e.stopPropagation()}>
-          <button
-            onClick={() => setRetryRow(r)}
-            style={{ padding: '3px 9px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
-          >
-            Retry
-          </button>
-          <button
-            onClick={() => setResolveRow(r)}
-            style={{ padding: '3px 9px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
-          >
-            Resolve Manually
-          </button>
-          <button
-            onClick={() => setEscalateRow(r)}
-            style={{ padding: '3px 9px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
-          >
-            Escalate
-          </button>
-        </div>
+        <ActionRow actions={[
+          { icon: 'refresh', label: 'Retry', onClick: () => setRetryRow(r) },
+          { icon: 'check_circle', label: 'Resolve Manually', onClick: () => setResolveRow(r) },
+          { icon: 'escalator_warning', label: 'Escalate', onClick: () => setEscalateRow(r) },
+        ] satisfies RowAction[]} />
       ),
     },
   ]

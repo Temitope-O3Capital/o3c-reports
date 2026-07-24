@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter, NameCell, ActionRow, Modal } from '../../components/UI'
+import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { NAVY, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
@@ -20,28 +20,7 @@ interface LogEntry {
 }
 
 
-// ── Columns ───────────────────────────────────────────────────────────────────
-
-const COLS: TableCol<LogEntry>[] = [
-  { key: 'ts', label: 'Time', sortable: true, width: 155,
-    render: r => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)' }}>{fmtDatetime(r.ts)}</span> },
-  { key: 'full_name', label: 'User',
-    render: r => (
-      <div>
-        <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.full_name ?? r.email ?? 'Unknown'}</div>
-        {r.role && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', textTransform: 'capitalize' }}>{r.role.replace(/_/g, ' ')}</div>}
-      </div>
-    ),
-  },
-  { key: 'page', label: 'Module',
-    render: r => <span style={{ fontSize: TEXT.sm, background: 'var(--chip-bg)', color: 'var(--chip-txt)', borderRadius: RADIUS.sm, padding: '2px 9px', fontWeight: FW.semibold }}>{r.page}</span> },
-  { key: 'action', label: 'Action',
-    render: r => <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.action}</span> },
-  { key: 'detail', label: 'Detail',
-    render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.detail || '—'}</span> },
-  { key: 'ip', label: 'IP', width: 120,
-    render: r => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.ip || '—'}</span> },
-]
+// ── Columns are defined inside the component (need access to setViewEntry) ────
 
 // ── Export ────────────────────────────────────────────────────────────────────
 
@@ -67,14 +46,15 @@ function exportAuditLogCsv(rows: LogEntry[]) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AdminAuditLog() {
-  const [rows,    setRows]    = useState<LogEntry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState<string | null>(null)
-  const [search,  setSearch]  = useState('')
+  const [rows,      setRows]      = useState<LogEntry[]>([])
+  const [loading,   setLoading]   = useState(true)
+  const [error,     setError]     = useState<string | null>(null)
+  const [search,    setSearch]    = useState('')
   const [pageFilter, setPageFilter] = useState('')
-  const [limit, setLimit]     = useState(200)
-  const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo,   setDateTo]   = useState(today())
+  const [limit,     setLimit]     = useState(200)
+  const [dateFrom,  setDateFrom]  = useState(monthStart())
+  const [dateTo,    setDateTo]    = useState(today())
+  const [viewEntry, setViewEntry] = useState<LogEntry | null>(null)
 
   const load = useCallback(async (lim = limit) => {
     setLoading(true)
@@ -90,6 +70,29 @@ export default function AdminAuditLog() {
   }, [limit, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+
+  const cols: TableCol<LogEntry>[] = [
+    { key: 'ts', label: 'Time', sortable: true, width: 155,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)' }}>{fmtDatetime(r.ts)}</span> },
+    { key: 'full_name', label: 'User',
+      render: r => <NameCell name={r.full_name ?? r.email ?? 'Unknown'} sub={r.role ? r.role.replace(/_/g, ' ') : undefined} /> },
+    { key: 'page', label: 'Module',
+      render: r => <span style={{ fontSize: TEXT.sm, background: 'var(--chip-bg)', color: 'var(--chip-txt)', borderRadius: RADIUS.sm, padding: '2px 9px', fontWeight: FW.semibold }}>{r.page}</span> },
+    { key: 'action', label: 'Action',
+      render: r => <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.action}</span> },
+    { key: 'detail', label: 'Detail',
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.detail || '—'}</span> },
+    { key: 'ip', label: 'IP', width: 120,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.ip || '—'}</span> },
+    { key: '_actions', label: '', sortable: false,
+      render: r => {
+        const actions: RowAction[] = [
+          { icon: 'open_in_new', label: 'View details', onClick: () => setViewEntry(r) },
+        ]
+        return <ActionRow actions={actions} />
+      },
+    },
+  ]
 
   const pages = [...new Set(rows.map(r => r.page))].sort()
 
@@ -149,8 +152,29 @@ export default function AdminAuditLog() {
           </span>
         </div>
 
-        <DataTable cols={COLS} rows={displayed} keyFn={r => r.id} loading={loading} emptyText="No activity found" pageSize={20} />
+        <DataTable cols={cols} rows={displayed} keyFn={r => r.id} loading={loading} emptyText="No activity found" pageSize={20} />
       </SectionCard>
+
+      <Modal open={!!viewEntry} onClose={() => setViewEntry(null)} title="Audit Entry" width={480}>
+        {viewEntry && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {[
+              { label: 'Time',   value: fmtDatetime(viewEntry.ts) },
+              { label: 'User',   value: viewEntry.full_name ?? viewEntry.email ?? '—' },
+              { label: 'Role',   value: viewEntry.role ?? '—' },
+              { label: 'Module', value: viewEntry.page },
+              { label: 'Action', value: viewEntry.action },
+              { label: 'Detail', value: viewEntry.detail || '—' },
+              { label: 'IP',     value: viewEntry.ip || '—' },
+            ].map(({ label, value }) => (
+              <div key={label} style={{ display: 'flex', gap: 12 }}>
+                <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', minWidth: 64, flexShrink: 0 }}>{label}</span>
+                <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.medium, wordBreak: 'break-all' }}>{value}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
     </Page>
   )
 }

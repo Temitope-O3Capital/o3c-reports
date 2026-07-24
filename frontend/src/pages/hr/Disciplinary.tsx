@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
   Modal, ErrBanner, Spinner, StatusBadge, btnPrimary, DateFilter,
+  NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
@@ -15,6 +16,7 @@ import type { AuthUser } from '../../hooks/useAuth'
 interface DisciplinaryCase {
   id: number
   employee_name: string
+  staff_id?: string
   case_type: string
   incident_date: string
   outcome?: string
@@ -156,7 +158,7 @@ export default function Disciplinary() {
   const cols: TableCol<DisciplinaryCase>[] = [
     {
       key: 'employee_name', label: 'Employee',
-      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.employee_name}</span>,
+      render: r => <NameCell name={r.employee_name} sub={r.staff_id ?? null} />,
     },
     {
       key: 'case_type', label: 'Type',
@@ -177,6 +179,12 @@ export default function Disciplinary() {
     {
       key: 'status', label: 'Status',
       render: r => <StatusBadge status={r.status} size="sm" />,
+    },
+    {
+      key: 'id', label: '', sortable: false,
+      render: r => <ActionRow actions={[
+        { icon: 'visibility', label: 'View', onClick: () => openDetail(r) },
+      ]} />,
     },
   ]
 

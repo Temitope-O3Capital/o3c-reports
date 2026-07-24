@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
   Modal, ConfirmModal, ErrBanner, Spinner, Tabs, btnPrimary, DateFilter,
+  NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
@@ -189,16 +190,8 @@ export default function Findings() {
 
   const cols: TableCol<Finding>[] = [
     {
-      key: 'finding_ref', label: 'Ref#',
-      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY }}>{r.finding_ref}</span>,
-    },
-    {
       key: 'description', label: 'Finding',
-      render: r => (
-        <span style={{ fontSize: TEXT.base, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300, display: 'block' }}>
-          {r.description}
-        </span>
-      ),
+      render: r => <NameCell name={r.description} sub={r.finding_ref} avatar={false} />,
     },
     {
       key: 'severity', label: 'Severity',
@@ -206,7 +199,7 @@ export default function Findings() {
     },
     {
       key: 'status', label: 'Status',
-      render: r => <StatusPill status={r.status} />,
+      render: r => <StatusBadge status={r.status} />,
     },
     {
       key: 'assigned_to_name', label: 'Owner',
@@ -225,6 +218,16 @@ export default function Findings() {
           </div>
         ) : <span style={{ color: 'var(--txt3)' }}>—</span>
       },
+    },
+    {
+      key: '_actions', label: '', sortable: false, width: 96,
+      render: r => (
+        <ActionRow actions={[
+          { icon: 'visibility', label: 'View', onClick: () => openDetail(r) },
+          { icon: 'rate_review', label: 'Update Status', onClick: () => openDetail(r) },
+          { icon: 'check_circle', label: 'Close Finding', onClick: () => setCloseEntry(r), danger: r.status !== 'closed' },
+        ]} />
+      ),
     },
   ]
 

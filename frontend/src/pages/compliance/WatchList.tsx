@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
   Modal, ConfirmModal, ErrBanner, Spinner, btnPrimary, DateFilter,
+  NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
@@ -124,8 +125,8 @@ export default function Watchlist() {
 
   const cols: TableCol<WatchEntry>[] = [
     {
-      key: 'entity_name', label: 'Name',
-      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.entity_name}</span>,
+      key: 'entity_name', label: 'Entity',
+      render: r => <NameCell name={r.entity_name} sub={r.entity_type ?? r.source} />,
     },
     {
       key: 'entity_type', label: 'Type',
@@ -148,21 +149,15 @@ export default function Watchlist() {
     },
     {
       key: 'is_active', label: 'Status',
-      render: r => <StatusDot isActive={r.is_active} />,
+      render: r => <StatusBadge status={r.is_active ? 'active' : 'inactive'} />,
     },
     {
-      key: 'id', label: '',
+      key: '_actions', label: '', sortable: false, width: 64,
       render: r => (
-        <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
-          {r.is_active && (
-            <button
-              onClick={() => setDeactivateEntry(r)}
-              style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: '1.5px solid rgba(220,38,38,.3)', background: 'transparent', color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
-            >
-              Deactivate
-            </button>
-          )}
-        </div>
+        <ActionRow actions={[
+          { icon: 'visibility', label: 'View', onClick: () => {} },
+          ...(r.is_active ? [{ icon: 'remove_circle', label: 'Remove', onClick: () => setDeactivateEntry(r), danger: true }] : []),
+        ]} />
       ),
     },
   ]

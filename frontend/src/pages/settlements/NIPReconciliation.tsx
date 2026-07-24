@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, StatusBadge, FilterBar, filterInputStyle, DateFilter } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, StatusBadge, FilterBar, filterInputStyle, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -41,8 +41,8 @@ function ExcCols(onResolve: (ex: Exception) => void): TableCol<Exception>[] {
   return [
     { key: 'txn_date', label: 'Date', width: 100,
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.txn_date)}</span> },
-    { key: 'txn_ref', label: 'Ref',
-      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.txn_ref || '—'}</span> },
+    { key: 'txn_ref', label: 'Reference',
+      render: r => <NameCell name={r.txn_ref || '—'} sub={r.description} avatar={false} /> },
     { key: 'batch_ref', label: 'Batch',
       render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.batch_ref || '—'}</span> },
     { key: 'amount_kobo', label: 'Amount NGN', align: 'right',
@@ -54,16 +54,15 @@ function ExcCols(onResolve: (ex: Exception) => void): TableCol<Exception>[] {
           {r.exception_type.replace(/_/g, ' ')}
         </span>
       )},
-    { key: 'description', label: 'Description',
-      render: r => <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240, fontSize: TEXT.sm }}>{r.description || '—'}</span> },
     { key: 'status', label: 'Status', render: r => <StatusBadge status={r.status} /> },
-    { key: '_actions', label: '', render: r => r.status === 'open' ? (
-      <button onClick={e => { e.stopPropagation(); onResolve(r) }}
-        style={{ padding: '4px 10px', borderRadius: RADIUS.sm, border: 'none', background: 'rgba(22,163,74,.1)',
-          color: GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
-        Resolve
-      </button>
-    ) : null },
+    { key: '_actions', label: '', sortable: false, render: r => (
+      <ActionRow actions={[
+        ...(r.status === 'open' ? [
+          { icon: 'check_circle', label: 'Resolve', onClick: () => onResolve(r) },
+        ] : []),
+        { icon: 'download', label: 'Download', onClick: () => {} },
+      ] satisfies RowAction[]} />
+    )},
   ]
 }
 
@@ -72,8 +71,8 @@ function ExcCols(onResolve: (ex: Exception) => void): TableCol<Exception>[] {
 const BATCH_COLS: TableCol<Batch>[] = [
   { key: 'batch_date', label: 'Date', width: 110,
     render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.batch_date)}</span> },
-  { key: 'batch_ref', label: 'Ref',
-    render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.batch_ref || '—'}</span> },
+  { key: 'batch_ref', label: 'Batch',
+    render: r => <NameCell name={r.batch_ref || '—'} sub={r.batch_type} avatar={false} /> },
   { key: 'txn_count', label: 'Txns', align: 'right',
     render: r => <span style={NUM}>{r.txn_count.toLocaleString()}</span> },
   { key: 'total_credits', label: 'Credits NGN', align: 'right',

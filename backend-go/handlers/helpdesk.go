@@ -251,6 +251,11 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 		r.Post("/call-scripts", hdCreateCallScript(db))
 		r.Put("/call-scripts/{id}", hdUpdateCallScript(db))
 		r.Delete("/call-scripts/{id}", hdDeleteCallScript(db))
+
+		// Agent dashboard
+		r.Get("/my-dashboard", func(w http.ResponseWriter, r *http.Request) {
+			respond(w, map[string]any{"status": "stub"}, "stub")
+		})
 	})
 }
 

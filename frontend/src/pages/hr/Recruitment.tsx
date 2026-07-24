@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, ErrBanner, Spinner, Modal, DataTable, DateFilter,
+  NameCell, ActionRow, FilterBar, filterInputStyle, Pill,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -46,14 +47,13 @@ const STAGE_COLOR: Record<string, string> = {
   applied: '#6B7280', screened: BLUE, interview: AMBER,
   offer: NAVY, hired: GREEN, rejected: RED,
 }
+const JOB_TYPE_COLOR: Record<string, string> = {
+  full_time: NAVY, contract: BLUE, intern: AMBER,
+}
 
-function Pill({ value, colorMap }: { value: string; colorMap: Record<string, string> }) {
-  const c = colorMap[value] ?? 'var(--chart-lbl)'
-  return (
-    <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.lg, background: `${c}18`, color: c, textTransform: 'capitalize' }}>
-      {value.replace(/_/g, ' ')}
-    </span>
-  )
+function pillProps(val: string, colorMap: Record<string, string>): { color: string; bg: string } {
+  const c = colorMap[val] ?? '#6B7280'
+  return { color: c, bg: `${c}18` }
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -62,15 +62,17 @@ export default function Recruitment() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const [jobs,       setJobs]       = useState<Job[]>([])
-  const [applicants, setApplicants] = useState<Applicant[]>([])
-  const [loading,    setLoading]    = useState(true)
-  const [error,      setError]      = useState<string | null>(null)
-  const [activeJob,  setActiveJob]  = useState<Job | null>(null)
-  const [showNewJob, setShowNewJob] = useState(false)
-  const [showNewApp, setShowNewApp] = useState(false)
-  const [saving,     setSaving]     = useState(false)
-  const [stagingId,  setStagingId]  = useState<number | null>(null)
+  const [jobs,         setJobs]         = useState<Job[]>([])
+  const [applicants,   setApplicants]   = useState<Applicant[]>([])
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState<string | null>(null)
+  const [activeJob,    setActiveJob]    = useState<Job | null>(null)
+  const [showNewJob,   setShowNewJob]   = useState(false)
+  const [showNewApp,   setShowNewApp]   = useState(false)
+  const [saving,       setSaving]       = useState(false)
+  const [stagingId,    setStagingId]    = useState<number | null>(null)
+  const [statusFilter, setStatusFilter] = useState('')
+  const [sel,          setSel]          = useState<Set<string | number>>(new Set())
 
   // Job form
   const [jTitle, setJTitle] = useState('')
@@ -141,27 +143,25 @@ export default function Recruitment() {
   const STAGES = ['applied','screened','interview','offer','hired','rejected']
 
   const JOB_COLS: TableCol<Job>[] = [
-    { key: 'title',           label: 'Role',       render: r => <span style={{ fontWeight: FW.semibold }}>{r.title}</span> },
-    { key: 'department',      label: 'Dept',       render: r => r.department },
-    { key: 'job_type',        label: 'Type',       render: r => <Pill value={r.job_type} colorMap={{ full_time: NAVY, contract: BLUE, intern: AMBER }} /> },
-    { key: 'status',          label: 'Status',     render: r => <Pill value={r.status} colorMap={JOB_STATUS} /> },
+    { key: 'title',           label: 'Role',       render: r => <NameCell avatar={false} name={r.title} sub={r.department} /> },
+    { key: 'job_type',        label: 'Type',       render: r => <Pill label={r.job_type} {...pillProps(r.job_type, JOB_TYPE_COLOR)} /> },
+    { key: 'status',          label: 'Status',     render: r => <Pill label={r.status} {...pillProps(r.status, JOB_STATUS)} /> },
     { key: 'applicant_count', label: 'Applicants', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{r.applicant_count}</span> },
     { key: 'target_date',     label: 'Target',     render: r => r.target_date ? fmtDate(r.target_date) : '—' },
-    { key: 'id',              label: '',           render: r => (
-      <button onClick={() => setActiveJob(r === activeJob ? null : r)}
-        style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: 'none', background: r === activeJob ? NAVY : `${NAVY}12`, color: r === activeJob ? '#fff' : NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
-        {r === activeJob ? 'All' : 'View'}
-      </button>
+    { key: 'id',              label: '', sortable: false, render: r => (
+      <ActionRow actions={[
+        { icon: r === activeJob ? 'visibility_off' : 'visibility', label: r === activeJob ? 'Show All' : 'View Applicants', onClick: () => setActiveJob(r === activeJob ? null : r) },
+      ]} />
     )},
   ]
 
   const APP_COLS: TableCol<Applicant>[] = [
-    { key: 'full_name', label: 'Applicant', render: r => <span style={{ fontWeight: FW.semibold }}>{r.full_name}</span> },
+    { key: 'full_name', label: 'Applicant', render: r => <NameCell name={r.full_name} sub={r.email} /> },
     { key: 'job_title', label: 'Role',      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.job_title}</span> },
     { key: 'source',    label: 'Source',    render: r => <span style={{ fontSize: TEXT.sm }}>{r.source}</span> },
-    { key: 'stage',     label: 'Stage',     render: r => <Pill value={r.stage} colorMap={STAGE_COLOR} /> },
+    { key: 'stage',     label: 'Stage',     render: r => <Pill label={r.stage} {...pillProps(r.stage, STAGE_COLOR)} /> },
     { key: 'interview_date', label: 'Interview', render: r => r.interview_date ? fmtDate(r.interview_date) : '—' },
-    { key: 'id',        label: '',          render: r => (
+    { key: 'id',        label: '', sortable: false, render: r => (
       <select
         value={r.stage}
         disabled={stagingId === r.id}
@@ -192,6 +192,16 @@ export default function Recruitment() {
     >
       <ErrBanner error={error} onRetry={load} />
 
+      <FilterBar onReset={() => setStatusFilter('')}>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
+          <option value="">All Job Statuses</option>
+          <option value="open">Open</option>
+          <option value="paused">Paused</option>
+          <option value="closed">Closed</option>
+          <option value="filled">Filled</option>
+        </select>
+      </FilterBar>
+
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[5] }}>
         {[
@@ -210,8 +220,10 @@ export default function Recruitment() {
       {loading ? <div style={{ display:'flex', justifyContent:'center', padding: 60 }}><Spinner size={32} /></div> : (
         <>
           <SectionCard title="Job Openings" badge={jobs.length}>
-            <DataTable cols={JOB_COLS} rows={jobs} keyFn={r => r.id} emptyText="No job postings"
-              searchKeys={['title', 'department', 'status']} searchPlaceholder="Search jobs…" />
+            <DataTable cols={JOB_COLS}
+              rows={statusFilter ? jobs.filter(j => j.status === statusFilter) : jobs}
+              keyFn={r => r.id} emptyText="No job postings"
+              searchKeys={['title', 'status']} searchPlaceholder="Search jobs…" />
           </SectionCard>
 
           <SectionCard
@@ -225,7 +237,15 @@ export default function Recruitment() {
             )}
           >
             <DataTable cols={APP_COLS} rows={displayedApplicants} keyFn={r => r.id} emptyText="No applicants yet"
-              searchKeys={['full_name', 'job_title', 'source', 'stage']} searchPlaceholder="Search applicants…" />
+              searchKeys={['full_name', 'job_title', 'source', 'stage']} searchPlaceholder="Search applicants…"
+              selectable selectedIds={sel} onSelect={setSel}
+              bulkBar={
+                <button onClick={() => setSel(new Set())}
+                  style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer', fontSize: TEXT.sm }}>
+                  Clear selection
+                </button>
+              }
+            />
           </SectionCard>
         </>
       )}

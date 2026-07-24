@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, ErrBanner, Sk, FilterBar, filterInputStyle, DateFilter } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, Sk, FilterBar, filterInputStyle, DateFilter, NameCell } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -245,7 +245,7 @@ export default function CardsBilling() {
                     onMouseLeave={e => { if (!expanded) e.currentTarget.style.background = '' }}
                     onClick={() => toggleExpand(key)}
                   >
-                    <td style={{ padding: '10px 14px', fontWeight: FW.medium, color: 'var(--txt)' }}>{row.product_name}</td>
+                    <td style={{ padding: '10px 14px' }}><NameCell name={row.product_name} sub={row.product_code} avatar={false} /></td>
                     <td style={{ padding: '10px 14px' }}><CatPill category={row.category} /></td>
                     <td style={{ padding: '10px 14px', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(cycleStart(row.cycle_date))}</td>
                     <td style={{ padding: '10px 14px', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(row.cycle_date)}</td>

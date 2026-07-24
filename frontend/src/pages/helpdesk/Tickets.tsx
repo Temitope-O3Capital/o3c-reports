@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { StatusBadge, Modal, Spinner, ErrBanner, TblSearch, DateFilter } from '../../components/UI'
+import { StatusBadge, Modal, Spinner, ErrBanner, TblSearch, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { RED, AMBER, BLUE, NAVY, GREEN, PURPLE, MONO, SORA, FW, RADIUS, SP, TEXT } from '../../lib/design'
@@ -108,13 +108,16 @@ const PRIORITY_CHIPS = [
 // ── Compact ticket row (left panel) ──────────────────────────────────────────
 
 function TicketRow({
-  ticket, isSelected, isChecked, onSelect, onCheck,
+  ticket, isSelected, isChecked, onSelect, onCheck, onViewFull, onAssign, onClose,
 }: {
   ticket: Ticket
   isSelected: boolean
   isChecked: boolean
   onSelect: () => void
   onCheck: (e: React.MouseEvent) => void
+  onViewFull: () => void
+  onAssign: () => void
+  onClose: () => void
 }) {
   const slaMs = ticket.sla_due_at && !ticket.sla_breached
     ? new Date(ticket.sla_due_at).getTime() - Date.now() : -1
@@ -142,9 +145,6 @@ function TicketRow({
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', fontFamily: MONO }}>
-              {ticketDisplayRef(ticket)}
-            </span>
             <PriorityDot priority={ticket.priority} />
             {slaWarnLabel && (
               <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '1px 4px', borderRadius: 3, background: `${AMBER}15`, color: AMBER }}>
@@ -165,16 +165,21 @@ function TicketRow({
         }}>
           {ticket.subject}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 3 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 4 }}>
           <TypePill type={ticket.ticket_type} />
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 6 }}>
-          <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {ticket.customer_name ?? '—'}
-          </span>
-          <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', flexShrink: 0 }}>
-            {fmtDatetime(ticket.last_message_at || ticket.created_at)}
-          </span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+          <NameCell name={ticket.customer_name ?? '—'} sub={ticket.ticket_ref ?? ticket.subject} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>
+              {fmtDatetime(ticket.last_message_at || ticket.created_at)}
+            </span>
+            <ActionRow actions={[
+              { icon: 'visibility', label: 'View', onClick: onViewFull },
+              { icon: 'person_add', label: 'Assign', onClick: onAssign },
+              { icon: 'close', label: 'Close', onClick: onClose },
+            ]} />
+          </div>
         </div>
       </div>
     </div>
@@ -568,6 +573,15 @@ export default function Tickets() {
     finally { setActionLoading(false) }
   }
 
+  async function handleClose(id: number) {
+    try {
+      await apiPost('/api/helpdesk/tickets/bulk-close', { ticket_ids: [id] })
+      toast.success('Ticket closed')
+      if (selectedId === id) setSelectedId(null)
+      load()
+    } catch (e: any) { toast.error(e.message ?? 'Failed to close ticket') }
+  }
+
   async function handleBulkReassign() {
     if (!reassignTarget || checkedIds.size === 0) return
     setActionLoading(true)
@@ -734,6 +748,9 @@ export default function Tickets() {
                 isChecked={checkedIds.has(ticket.id)}
                 onSelect={() => setSelectedId(ticket.id)}
                 onCheck={e => toggleCheck(ticket.id, e)}
+                onViewFull={() => navigate(`/helpdesk/${ticket.id}`)}
+                onAssign={() => { setCheckedIds(new Set([ticket.id])); setReassignOpen(true) }}
+                onClose={() => handleClose(ticket.id)}
               />
             ))}
           </div>

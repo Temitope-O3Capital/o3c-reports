@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   Page, SectionCard, DataTable, Modal, ErrBanner, btnPrimary, btnSecondary, filterInputStyle, Spinner, DateFilter,
+  NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -246,6 +247,9 @@ export default function CRMPipeline() {
   const [dateTo,   setDateTo]   = useState(today())
   const dragDealId  = useRef<number | null>(null)
   const [dragOverStage, setDragOverStage] = useState<number | null>(null)
+  const [editing,     setEditing]     = useState<Deal | null>(null)
+  const [activity,    setActivity]    = useState<Deal | null>(null)
+  const [bulkSel,     setBulkSel]     = useState<Set<string | number>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -276,18 +280,11 @@ export default function CRMPipeline() {
   const tableCols: TableCol<Deal>[] = [
     {
       key: 'title', label: 'Deal',
-      render: r => (
-        <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.title}</div>
-          {(r.first_name || r.last_name) && (
-            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.first_name} {r.last_name}</div>
-          )}
-        </div>
-      ),
+      render: r => <NameCell name={r.title} sub={`${r.first_name ?? ''} ${r.last_name ?? ''}`.trim() || null} />,
     },
     {
       key: 'stage_name', label: 'Stage',
-      render: r => <StagePill name={r.stage_name ?? '—'} color={r.stage_color} is_won={r.is_won} is_lost={r.is_lost} />,
+      render: r => <StatusBadge status={r.stage_name ?? '—'} />,
     },
     {
       key: 'expected_value', label: 'Est. Value', align: 'right',
@@ -305,6 +302,14 @@ export default function CRMPipeline() {
     {
       key: 'updated_at', label: 'Last Activity',
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDatetime(r.updated_at)}</span>,
+    },
+    {
+      key: '_actions', label: '', sortable: false,
+      render: r => <ActionRow actions={[
+        { icon: 'visibility', label: 'View', onClick: () => setSelected(r) },
+        { icon: 'edit', label: 'Edit Stage', onClick: () => setEditing(r) },
+        { icon: 'add_call', label: 'Log Activity', onClick: () => setActivity(r) },
+      ]} />,
     },
   ]
 
@@ -353,6 +358,15 @@ export default function CRMPipeline() {
             skeletonRows={loading ? 8 : 0}
             searchKeys={['title', 'first_name', 'last_name', 'stage_name']}
             searchPlaceholder="Search deals…"
+            selectable
+            selectedIds={bulkSel}
+            onSelect={setBulkSel}
+            bulkBar={
+              <>
+                <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
+                <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Bulk Assign</button>
+              </>
+            }
           />
         </SectionCard>
       ) : (

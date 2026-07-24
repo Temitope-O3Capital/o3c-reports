@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import {
   Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle,
   ErrBanner, ConfirmModal, btnSecondary, DateFilter,
+  NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPut } from '../../lib/api'
@@ -28,27 +29,6 @@ interface PTPane {
   status: string
   agent_name: string | null
   created_at: string
-}
-
-// ── Status pill ───────────────────────────────────────────────────────────────
-
-const PTP_STATUS: Record<string, { bg: string; txt: string }> = {
-  Pending: { bg: `${AMBER}1F`, txt: AMBER },
-  Kept:    { bg: `${GREEN}1F`, txt: GREEN },
-  Broken:  { bg: `${RED}1A`,   txt: RED   },
-}
-
-function PtpPill({ status }: { status: string }) {
-  const s = PTP_STATUS[status] ?? { bg: 'rgba(75,85,99,.1)', txt: '#6B7280' }
-  return (
-    <span style={{
-      ...NUM, display: 'inline-flex', alignItems: 'center',
-      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px',
-      borderRadius: RADIUS['2xl'], background: s.bg, color: s.txt, whiteSpace: 'nowrap',
-    }}>
-      {status}
-    </span>
-  )
 }
 
 // ── Export CSV ────────────────────────────────────────────────────────────────
@@ -138,23 +118,15 @@ export default function CollectionsPromises() {
     }
   }
 
-  function openAction(row: PTPane, type: 'kept' | 'broken', e: React.MouseEvent) {
-    e.stopPropagation()
-    setActionRow(row)
-    setActionType(type)
-  }
-
   const cols: TableCol<PTPane>[] = [
     {
       key: 'account_cif',
       label: 'Customer',
       render: r => (
-        <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.account_cif}</div>
-          {r.customer_name && (
-            <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 1 }}>{r.customer_name}</div>
-          )}
-        </div>
+        <NameCell
+          name={r.customer_name ?? r.account_cif}
+          sub={r.customer_name ? r.account_cif : null}
+        />
       ),
     },
     {
@@ -179,7 +151,7 @@ export default function CollectionsPromises() {
     {
       key: 'status',
       label: 'Status',
-      render: r => <PtpPill status={r.status} />,
+      render: r => <StatusBadge status={r.status} />,
     },
     {
       key: 'agent_name',
@@ -195,32 +167,12 @@ export default function CollectionsPromises() {
       key: '_actions',
       label: '',
       sortable: false,
-      width: 200,
+      width: 90,
       render: r => r.status !== 'Pending' ? null : (
-        <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
-          <button
-            onClick={e => openAction(r, 'kept', e)}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 4,
-              padding: '4px 10px', borderRadius: RADIUS.md, border: 'none', cursor: 'pointer',
-              fontSize: TEXT.xs, fontWeight: FW.semibold,
-              background: `${GREEN}1F`, color: GREEN,
-            }}
-          >
-            Mark Kept
-          </button>
-          <button
-            onClick={e => openAction(r, 'broken', e)}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 4,
-              padding: '4px 10px', borderRadius: RADIUS.md, border: 'none', cursor: 'pointer',
-              fontSize: TEXT.xs, fontWeight: FW.semibold,
-              background: `${RED}1A`, color: RED,
-            }}
-          >
-            Mark Broken
-          </button>
-        </div>
+        <ActionRow actions={[
+          { icon: 'check_circle', label: 'Mark Kept',   onClick: () => { setActionRow(r); setActionType('kept') } },
+          { icon: 'cancel',       label: 'Mark Broken', onClick: () => { setActionRow(r); setActionType('broken') }, danger: true },
+        ]} />
       ),
     },
   ]

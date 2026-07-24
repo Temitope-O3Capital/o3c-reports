@@ -28,6 +28,11 @@ func RegisterBusinessDev(r chi.Router, db *core.DB) {
 
 	r.Get("/stats", bdStats(db))
 	r.Get("/pipeline-kpis", bdPipelineKPIs(db))
+
+	// Agent dashboard
+	r.Get("/my-dashboard", func(w http.ResponseWriter, r *http.Request) {
+		respond(w, map[string]any{"status": "stub"}, "stub")
+	})
 }
 
 func bdListEmployers(db *core.DB) http.HandlerFunc {

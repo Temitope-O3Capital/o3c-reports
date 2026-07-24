@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, FilterBar, Tabs, ConfirmModal, ErrBanner, Spinner, Modal,
-  filterInputStyle, DateFilter,
+  filterInputStyle, DateFilter, NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
@@ -795,13 +795,15 @@ export default function RecoveryCases() {
                       style={{ marginTop: 3, cursor: 'pointer', accentColor: RED, flexShrink: 0 }}
                     />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
-                        <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {rc.case_ref ?? rc.account_cif}
-                        </span>
-                        <StatusPill status={rc.status} />
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
+                        <NameCell
+                          name={rc.case_ref ?? rc.account_cif}
+                          sub={rc.case_ref ? rc.account_cif : null}
+                          avatar={false}
+                        />
+                        <StatusBadge status={rc.status} />
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                         <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
                           {fmtKobo(net)}
                         </span>
@@ -809,9 +811,13 @@ export default function RecoveryCases() {
                           <span style={{ ...NUM, fontSize: TEXT['2xs'], color: AMBER }}>⚖ {rc.legal_stage}</span>
                         )}
                       </div>
-                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
-                        {rc.agent_name ?? <span style={{ color: RED }}>Unassigned</span>} · {rc.account_cif}
+                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 4 }}>
+                        {rc.agent_name ?? <span style={{ color: RED }}>Unassigned</span>}
                       </div>
+                      <ActionRow actions={[
+                        { icon: 'visibility', label: 'View Case',    onClick: () => setSelected(rc) },
+                        { icon: 'person_add', label: 'Assign Agent', onClick: () => setSelected(rc) },
+                      ]} />
                     </div>
                   </div>
                 )

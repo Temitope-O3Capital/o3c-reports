@@ -6,7 +6,7 @@ import {
 } from 'recharts'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  ErrBanner, DateFilter, Modal, Spinner, KpiCard,
+  ErrBanner, DateFilter, Modal, Spinner, KpiCard, NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -374,39 +374,14 @@ export default function Calls() {
 
   const cols: TableCol<CallLog>[] = [
     {
-      key: 'direction',
-      label: '',
-      width: 32,
-      render: r => (
-        <span className="material-symbols-rounded" style={{
-          fontSize: TEXT.xl,
-          color: r.direction === 'Inbound' ? BLUE : PURPLE,
-        }}>
-          {r.direction === 'Inbound' ? 'call_received' : 'call_made'}
-        </span>
-      ),
-    },
-    {
       key: 'agent_name',
       label: 'Agent',
-      render: r => (
-        <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.agent_name}</div>
-          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 1 }}>{r.direction}</div>
-        </div>
-      ),
+      render: r => <NameCell name={r.agent_name} sub={r.direction} avatar={false} />,
     },
     {
       key: 'customer_name',
-      label: 'Customer',
-      render: r => (
-        <div>
-          <div style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: r.customer_name ? 500 : 400 }}>
-            {r.customer_name ?? <span style={{ color: 'var(--txt3)' }}>Unknown</span>}
-          </div>
-          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 1, fontFamily: 'monospace' }}>{r.phone}</div>
-        </div>
-      ),
+      label: 'Caller',
+      render: r => <NameCell name={r.customer_name ?? 'Unknown Caller'} sub={r.phone} />,
     },
     {
       key: 'duration_seconds',
@@ -450,6 +425,18 @@ export default function Calls() {
           {r.notes}
         </span>
       ) : <span style={{ color: 'var(--txt3)', fontSize: TEXT.sm }}>—</span>,
+    },
+    {
+      key: '_actions',
+      label: '',
+      sortable: false,
+      width: 64,
+      render: r => (
+        <ActionRow actions={[
+          { icon: 'play_circle', label: 'View Recording', onClick: () => toast.info('No recording available for this call') },
+          { icon: 'add_comment', label: 'Create Ticket', onClick: () => navigate(`/helpdesk/tickets`) },
+        ]} />
+      ),
     },
   ]
 

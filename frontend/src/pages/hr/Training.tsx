@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
   Modal, ErrBanner, Spinner, StatusBadge, btnPrimary, DateFilter,
+  NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -72,6 +73,7 @@ export default function Training() {
 
   const [detail, setDetail]         = useState<Training | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
+  const [sel, setSel]               = useState<Set<string | number>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -131,7 +133,7 @@ export default function Training() {
   const cols: TableCol<Training>[] = [
     {
       key: 'title', label: 'Training',
-      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.title}</span>,
+      render: r => <NameCell avatar={false} name={r.title} sub={r.facilitator ?? null} />,
     },
     {
       key: 'training_type', label: 'Type',
@@ -144,16 +146,18 @@ export default function Training() {
       ) : <span style={{ color: 'var(--txt3)' }}>TBD</span>,
     },
     {
-      key: 'facilitator', label: 'Facilitator',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.facilitator ?? '—'}</span>,
-    },
-    {
       key: 'max_attendees', label: 'Max Attendees', align: 'right',
       render: r => <span style={NUM}>{r.max_attendees ?? 0}</span>,
     },
     {
       key: 'status', label: 'Status',
       render: r => <StatusBadge status={r.status} size="sm" />,
+    },
+    {
+      key: 'id', label: '', sortable: false,
+      render: r => <ActionRow actions={[
+        { icon: 'visibility', label: 'View', onClick: () => openDetail(r) },
+      ]} />,
     },
   ]
 
@@ -198,7 +202,17 @@ export default function Training() {
           searchKeys={['title', 'training_type', 'facilitator', 'status']}
           searchPlaceholder="Search training…"
           pageSize={20}
-
+          selectable
+          selectedIds={sel}
+          onSelect={setSel}
+          bulkBar={
+            <button
+              onClick={() => exportTrainingCsv(trainings.filter(t => sel.has(t.id)))}
+              style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer', fontSize: TEXT.sm }}
+            >
+              Export CSV
+            </button>
+          }
         />
       </SectionCard>
 

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter, NameCell, StatusBadge } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, monthStart, today } from '../../lib/fmt'
@@ -19,25 +19,13 @@ interface IssuanceRequest {
   days_pending: number
 }
 
-// ── Status config ──────────────────────────────────────────────────────────────
-
-const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
-  pending:    { bg: 'rgba(217,119,6,.12)',  txt: AMBER },
-  approved:   { bg: 'rgba(22,163,74,.1)',   txt: GREEN },
-  rejected:   { bg: 'rgba(192,0,0,.1)',     txt: RED },
-  processing: { bg: 'rgba(37,99,235,.1)',   txt: BLUE },
-  dispatched: { bg: 'rgba(14,40,65,.1)',    txt: NAVY },
-}
-
-function StatusPill({ status }: { status: string }) {
-  const c = STATUS_COLORS[status] ?? { bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
-  return (
-    <span style={{
-      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
-      background: c.bg, color: c.txt, whiteSpace: 'nowrap', textTransform: 'capitalize',
-    }}>{status}</span>
-  )
-}
+const STATUS_COLORS = {
+  pending:    AMBER,
+  approved:   GREEN,
+  rejected:   RED,
+  processing: BLUE,
+  dispatched: NAVY,
+} as const
 
 // ── Action buttons per status ─────────────────────────────────────────────────
 
@@ -217,13 +205,11 @@ export default function CardsIssuance() {
   useEffect(() => { load() }, [load])
 
   const cols: TableCol<IssuanceRequest>[] = useMemo(() => [
-    { key: 'ref', label: 'Request #',
-      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.ref}</span> },
     { key: 'customer_name', label: 'Customer',
-      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.customer_name}</span> },
+      render: r => <NameCell name={r.customer_name} sub={r.ref} /> },
     { key: 'card_type', label: 'Card Type',
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.card_type}</span> },
-    { key: 'status', label: 'Status', render: r => <StatusPill status={r.status} /> },
+    { key: 'status', label: 'Status', render: r => <StatusBadge status={r.status} /> },
     { key: 'submitted_date', label: 'Submitted', sortable: true,
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.submitted_date)}</span> },
     { key: 'days_pending', label: 'Days', align: 'right',

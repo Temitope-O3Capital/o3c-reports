@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, SearchInput, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, SearchInput, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDatetime } from '../../lib/fmt'
@@ -135,6 +135,7 @@ export default function LOSQueue() {
   const [nextCursor, setNextCursor] = useState<number | null>(null)
   const [hasMore,    setHasMore]    = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [bulkSel,    setBulkSel]    = useState<Set<string | number>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -232,12 +233,7 @@ export default function LOSQueue() {
     },
     {
       key: 'applicant_name', label: 'Applicant',
-      render: r => (
-        <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)', fontFamily: SORA }}>{r.applicant_name}</div>
-          {r.reference && <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER }}>{r.reference}</div>}
-        </div>
-      ),
+      render: r => <NameCell name={r.applicant_name} sub={r.reference ?? null} />,
     },
     { key: 'product_type', label: 'Product', render: r => <ProductPill product={r.product_type} /> },
     {
@@ -261,6 +257,13 @@ export default function LOSQueue() {
     {
       key: 'updated_at', label: 'Last Updated',
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDatetime(r.updated_at)}</span>,
+    },
+    {
+      key: '_actions', label: '', sortable: false,
+      render: r => <ActionRow actions={[
+        { icon: 'open_in_new', label: 'View Application', onClick: () => navigate(`/sales/applications/${r.id}`) },
+        { icon: 'person_add', label: 'Assign Reviewer', onClick: () => {} },
+      ]} />,
     },
   ]
 
@@ -500,6 +503,15 @@ export default function LOSQueue() {
           skeletonRows={8}
           onRowClick={r => navigate(`/sales/applications/${r.id}`)}
           emptyText="No applications found"
+          selectable
+          selectedIds={bulkSel}
+          onSelect={setBulkSel}
+          bulkBar={
+            <>
+              <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
+              <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Bulk Assign</button>
+            </>
+          }
         />
 
         {/* Pagination footer */}

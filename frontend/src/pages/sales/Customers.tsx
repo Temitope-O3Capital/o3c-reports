@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  ErrBanner, Spinner, KpiCard, DateFilter,
+  ErrBanner, Spinner, KpiCard, DateFilter, NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -91,6 +91,7 @@ export default function CRMContacts() {
   const [assigneeFilter, setAssigneeFilter] = useState('')
 
   const [c360Open, setC360Open] = useState(false)
+  const [bulkSel,  setBulkSel]  = useState<Set<string | number>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -152,14 +153,7 @@ export default function CRMContacts() {
     },
     {
       key: 'first_name', label: 'Name',
-      render: r => (
-        <div onClick={() => navigate(`/sales/customers/${r.id}`)} style={{ cursor: 'pointer' }}>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: NAVY }}>
-            {r.first_name} {r.last_name}
-          </div>
-          {r.email && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.email}</div>}
-        </div>
-      ),
+      render: r => <NameCell name={`${r.first_name} ${r.last_name}`.trim()} sub={r.email ?? null} />,
     },
     {
       key: 'phone', label: 'Phone',
@@ -167,10 +161,18 @@ export default function CRMContacts() {
     },
     { key: 'source',        label: 'Source',  render: r => <SourcePill source={r.source} /> },
     { key: 'assigned_name', label: 'Officer', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.assigned_name ?? '—'}</span> },
-    { key: 'status',        label: 'Status',  render: r => <StatusPill status={r.status} /> },
+    { key: 'status',        label: 'Status',  render: r => <StatusBadge status={r.status ?? '—'} /> },
     {
       key: 'updated_at', label: 'Last Activity',
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDatetime(r.updated_at)}</span>,
+    },
+    {
+      key: '_actions', label: '', sortable: false,
+      render: r => <ActionRow actions={[
+        { icon: 'visibility', label: 'View', onClick: () => navigate(`/sales/customers/${r.id}`) },
+        { icon: 'edit', label: 'Edit', onClick: () => {} },
+        { icon: 'archive', label: 'Archive', onClick: () => {} },
+      ]} />,
     },
   ]
 
@@ -221,6 +223,15 @@ export default function CRMContacts() {
           searchKeys={['first_name', 'last_name', 'email', 'phone']}
           searchPlaceholder="Search contacts…"
           pageSize={20}
+          selectable
+          selectedIds={bulkSel}
+          onSelect={setBulkSel}
+          bulkBar={
+            <>
+              <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
+              <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Bulk Assign</button>
+            </>
+          }
         />
       </SectionCard>
 

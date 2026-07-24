@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, filterInputStyle, SearchInput, ErrBanner, Spinner, DateFilter } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { Page, SectionCard, DataTable, filterInputStyle, SearchInput, ErrBanner, Spinner, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, today, monthStart } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -29,17 +29,35 @@ const CATEGORIES = [
   'Professional Fees', 'Regulatory', 'Travel & Logistics', 'Other',
 ]
 
+// ── Export helper ─────────────────────────────────────────────────────────────
+
+function exportCostsCsv(data: CostEntry[]) {
+  const header = ['Date', 'Department', 'Category', 'Description', 'Actual NGN', 'Budget NGN', 'Recorded By']
+  const lines = data.map(r => [
+    r.entry_date ?? '',
+    r.department ?? '',
+    r.category ?? '',
+    `"${String(r.description ?? '').replace(/"/g, '""')}"`,
+    (r.amount_kobo / 100).toFixed(2),
+    (r.budget_amount_kobo / 100).toFixed(2),
+    `"${String(r.recorded_by_name ?? '').replace(/"/g, '""')}"`,
+  ].join(','))
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = `cost-tracking-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
+
 // ── Columns ───────────────────────────────────────────────────────────────────
 
 const COLS: TableCol<CostEntry>[] = [
   { key: 'entry_date', label: 'Date', sortable: true, width: 110,
     render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.entry_date)}</span> },
-  { key: 'department', label: 'Department', sortable: true,
-    render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.department}</span> },
+  { key: 'description', label: 'Description',
+    render: r => <NameCell name={r.description || '—'} sub={r.department} avatar={false} /> },
   { key: 'category', label: 'Category',
     render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.category}</span> },
-  { key: 'description', label: 'Description',
-    render: r => <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240, fontSize: TEXT.sm }}>{r.description}</span> },
   { key: 'amount_kobo', label: 'Actual ₦', align: 'right', sortable: true,
     render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.amount_kobo)}</span> },
   { key: 'budget_amount_kobo', label: 'Budget ₦', align: 'right',
@@ -50,6 +68,11 @@ const COLS: TableCol<CostEntry>[] = [
   }},
   { key: 'recorded_by_name', label: 'Recorded by',
     render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.recorded_by_name || '—'}</span> },
+  { key: '_actions', label: '', sortable: false, render: r => (
+    <ActionRow actions={[
+      { icon: 'download', label: 'Download', onClick: () => exportCostsCsv([r]) },
+    ] satisfies RowAction[]} />
+  )},
 ]
 
 // ── New entry modal ────────────────────────────────────────────────────────────
@@ -157,6 +180,7 @@ export default function FinanceCostTracking() {
   const [dateTo,   setDateTo]   = useState(today())
   const [filterOpen, setFilterOpen] = useState(false)
   const [showNew, setShowNew] = useState(false)
+  const [sel, setSel] = useState<Set<string | number>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
@@ -193,24 +217,6 @@ export default function FinanceCostTracking() {
   const variance    = totalBudget - totalActual
 
   function resetFilters() { setSearch(''); setDeptFilter(''); setCatFilter('') }
-
-  function exportCostsCsv(data: CostEntry[]) {
-    const header = ['Date', 'Department', 'Category', 'Description', 'Actual NGN', 'Budget NGN', 'Recorded By']
-    const lines = data.map(r => [
-      r.entry_date ?? '',
-      r.department ?? '',
-      r.category ?? '',
-      `"${String(r.description ?? '').replace(/"/g, '""')}"`,
-      (r.amount_kobo / 100).toFixed(2),
-      (r.budget_amount_kobo / 100).toFixed(2),
-      `"${String(r.recorded_by_name ?? '').replace(/"/g, '""')}"`,
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `cost-tracking-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   return (
     <Page
@@ -386,6 +392,18 @@ export default function FinanceCostTracking() {
               keyFn={r => r.id}
               emptyText="No cost entries yet — click 'Add Entry' to record costs"
               pageSize={20}
+              selectable
+              selectedIds={sel}
+              onSelect={setSel}
+              bulkBar={sel.size > 0 ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{sel.size} selected</span>
+                  <button onClick={() => exportCostsCsv(filtered.filter(r => sel.has(r.id)))}
+                    style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+                    Export CSV
+                  </button>
+                </div>
+              ) : undefined}
             />
 
           </SectionCard>

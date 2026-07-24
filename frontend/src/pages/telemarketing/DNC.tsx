@@ -2,8 +2,9 @@ import { useEffect, useState, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable,
   ErrBanner, Modal, ConfirmModal, btnPrimary, btnDanger, DateFilter, KpiCard,
+  NameCell, ActionRow,
 } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
 import { INTER, NAVY, NUM, GREEN, AMBER, RED, FW, RADIUS, SP, TEXT } from '../../lib/design'
@@ -136,24 +137,17 @@ export default function TelemarketingDNC() {
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
+  function confirmRemoveSingle(r: DNCEntry) {
+    setSelectedIds(new Set([r.id]))
+    setRemoveConfirm(true)
+  }
+
   const cols: TableCol<DNCEntry>[] = [
     {
       key: 'phone',
       label: 'Phone',
       sortable: true,
-      render: r => (
-        <span style={{ fontFamily: INTER, fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>
-          {r.phone}
-        </span>
-      ),
-    },
-    {
-      key: 'reason',
-      label: 'Reason',
-      sortable: true,
-      render: r => (
-        <span style={{ fontSize: TEXT.base, color: 'var(--txt)' }}>{r.reason || '—'}</span>
-      ),
+      render: r => <NameCell name={r.phone} sub={r.reason ?? 'DNC'} avatar={false} />,
     },
     {
       key: 'added_by',
@@ -170,6 +164,15 @@ export default function TelemarketingDNC() {
       render: r => (
         <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.added_at)}</span>
       ),
+    },
+    { key: '_actions', label: '', sortable: false,
+      render: r => {
+        const actions: RowAction[] = [
+          { icon: 'info', label: 'View reason', onClick: () => toast.info(r.reason || 'No reason provided') },
+          { icon: 'remove_circle', label: 'Remove', onClick: () => confirmRemoveSingle(r), danger: true },
+        ]
+        return <ActionRow actions={actions} />
+      },
     },
   ]
 

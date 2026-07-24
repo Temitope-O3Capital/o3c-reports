@@ -10,7 +10,7 @@ const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(naviga
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface SubItem { label: string; to: string; badge?: number }
+interface SubItem { label: string; to: string; badge?: number; vis?: string[] }
 interface NavItem {
   icon:   string
   label:  string
@@ -28,7 +28,7 @@ const SECTIONS: Section[] = [
   {
     key: 'root',
     items: [
-      { icon: 'space_dashboard', label: 'Overview',       to: '/',   vis: 'all' },
+      { icon: 'space_dashboard', label: 'Overview', to: '/', vis: 'all' },
       { icon: 'person',          label: 'My Dashboard',   to: '/me', vis: 'all' },
     ],
   },
@@ -40,10 +40,10 @@ const SECTIONS: Section[] = [
         icon: 'corporate_fare', label: 'Business Dev', to: '/bd',
         vis: ['sales_officer','sales_head','head_sales','bd_officer','bd_head'],
         subs: [
+          { label: 'My Dashboard',      to: '/bd/my-dashboard', vis: ['bd_officer'] },
           { label: 'All Leads',         to: '/bd/leads' },
           { label: 'My Pipeline',       to: '/bd/pipeline' },
           { label: 'Employer Register', to: '/bd/employers' },
-          { label: 'BD Analytics',      to: '/bd/analytics' },
         ],
       },
       {
@@ -69,10 +69,10 @@ const SECTIONS: Section[] = [
         ],
       },
       {
-        icon: 'trending_up', label: 'Sales', to: '/sales',
+        icon: 'trending_up', label: 'Sales', to: '/sales/overview',
         vis: ['sales_officer','sales_head','head_sales'],
         subs: [
-          { label: 'Overview',         to: '/sales/overview' },
+          { label: 'My Dashboard',     to: '/sales/my-dashboard', vis: ['sales_officer'] },
           { label: 'Cohort Analysis',  to: '/sales/cohort' },
           { label: 'Targets',          to: '/sales/targets' },
           { label: 'Reports',          to: '/sales/reports' },
@@ -95,34 +95,26 @@ const SECTIONS: Section[] = [
     header: 'Contact Centre',
     items: [
       {
-        icon: 'call', label: 'Telemarketing', to: '/telemarketing',
-        vis: ['telemarketing_agent','telemarketing_head'],
+        icon: 'headset_mic', label: 'Contact Centre', to: '/helpdesk',
+        vis: ['call_center_agent','call_center_head','telemarketing_agent','telemarketing_head'],
         subs: [
-          { label: 'Outbound Queue',    to: '/telemarketing/queue' },
-          { label: 'Marketing Leads',   to: '/telemarketing/leads' },
-          { label: 'DNC List',          to: '/telemarketing/dnc' },
-          { label: 'Performance',       to: '/telemarketing/performance' },
-          { label: 'Dialer Campaigns',  to: '/telemarketing/dialer' },
-          { label: 'Dialer Agent View', to: '/telemarketing/dialer/agent' },
-          { label: 'Dialer Supervisor', to: '/telemarketing/dialer/supervisor' },
-        ],
-      },
-      {
-        icon: 'support_agent', label: 'Customer Service', to: '/helpdesk',
-        vis: [
-          'call_center_agent','call_center_head',
-          'telemarketing_agent','telemarketing_head',
-          'sales_officer','sales_head','bd_officer','bd_head',
-          'compliance_officer',
-        ],
-        subs: [
-          { label: 'All Tickets',      to: '/helpdesk/tickets' },
+          // agent dashboards — each role sees only their own
+          { label: 'My Dashboard',     to: '/helpdesk/my-dashboard',      vis: ['call_center_agent'] },
+          { label: 'My Dashboard',     to: '/telemarketing/dialer/agent',  vis: ['telemarketing_agent'] },
+          // shared operational tools (both teams)
+          { label: 'Ticket Queue',     to: '/helpdesk/tickets' },
           { label: 'Call Log',         to: '/helpdesk/calls' },
-          { label: 'Supervisor',       to: '/helpdesk/supervisor' },
-          { label: 'Analytics',        to: '/helpdesk/stats' },
+          { label: 'Outbound Queue',   to: '/telemarketing/queue' },
+          { label: 'Marketing Leads',  to: '/telemarketing/leads' },
+          { label: 'DNC List',         to: '/telemarketing/dnc' },
+          // leadership — supervisor manages day-to-day for both teams
+          { label: 'Dialer Campaigns', to: '/telemarketing/dialer',       vis: ['call_center_head','telemarketing_head'] },
+          { label: 'Performance',      to: '/telemarketing/performance',  vis: ['call_center_head','telemarketing_head'] },
+          { label: 'Supervisor View',  to: '/helpdesk/supervisor',        vis: ['telemarketing_head'] },
+          { label: 'CBN Report',       to: '/helpdesk/cbn-report',        vis: ['call_center_head'] },
+          // shared resources
           { label: 'Knowledge Base',   to: '/helpdesk/knowledge-base' },
           { label: 'Canned Responses', to: '/helpdesk/canned' },
-          { label: 'CBN Report',       to: '/helpdesk/cbn-report' },
         ],
       },
     ],
@@ -135,12 +127,13 @@ const SECTIONS: Section[] = [
         icon: 'credit_card', label: 'Card Operations', to: '/cards',
         vis: ['cards_ops_officer','cards_ops_head','risk_officer','risk_head'],
         subs: [
-          { label: 'Overview',            to: '/cards' },
+          { label: 'My Queue',            to: '/cards/my-queue', vis: ['cards_ops_officer'] },
           { label: 'Cardholder Mgmt',     to: '/cards/management' },
           { label: 'Issuance Queue',      to: '/cards/issuance' },
           { label: 'Disputes',            to: '/cards/disputes' },
           { label: 'Credit Limit Review', to: '/cards/credit-limit' },
           { label: 'Billing Cycles',      to: '/cards/billing' },
+          { label: 'Interswitch',         to: '/cards/interswitch' },
         ],
       },
     ],
@@ -164,19 +157,18 @@ const SECTIONS: Section[] = [
         icon: 'collections_bookmark', label: 'Collections', to: '/collections',
         vis: ['collections_agent','collections_head','head_collections'],
         subs: [
-          { label: 'Overview',        to: '/collections' },
           { label: 'Agent Queue',     to: '/collections/queue' },
           { label: 'Promises to Pay', to: '/collections/promises' },
           { label: 'Repayment Plans', to: '/collections/repayment-plans' },
           { label: 'Write-off Queue', to: '/collections/writeoffs' },
-          { label: 'My Dashboard',    to: '/collections-ops/agent' },
+          { label: 'My Dashboard',    to: '/collections-ops/agent', vis: ['collections_agent'] },
         ],
       },
       {
         icon: 'gavel', label: 'Recovery', to: '/recovery',
         vis: ['recovery_agent','recovery_head','head_recovery'],
         subs: [
-          { label: 'Overview',       to: '/recovery' },
+          { label: 'My Dashboard',   to: '/recovery-ops/agent', vis: ['recovery_agent'] },
           { label: 'Cases',          to: '/recovery/cases' },
           { label: 'Legal Tracker',  to: '/recovery/legal' },
           { label: 'TPA Management', to: '/recovery/tpa' },
@@ -193,7 +185,6 @@ const SECTIONS: Section[] = [
         icon: 'account_balance', label: 'Finance', to: '/finance',
         vis: ['finance_officer','finance_head','head_of_reconciliation'],
         subs: [
-          { label: 'Overview',          to: '/finance' },
           { label: 'Transactions',      to: '/finance/transactions' },
           { label: 'Income',            to: '/finance/income' },
           { label: 'Fixed Deposits',    to: '/finance/fixed-deposit' },
@@ -211,7 +202,6 @@ const SECTIONS: Section[] = [
         icon: 'compare_arrows', label: 'Settlements', to: '/settlements',
         vis: ['settlement_officer','finance_head','head_of_reconciliation'],
         subs: [
-          { label: 'Overview',                 to: '/settlements' },
           { label: 'Batches',                  to: '/settlements/batches' },
           { label: 'NIP Reconciliation',       to: '/settlements/nip' },
           { label: 'NIP Batch Exceptions',     to: '/settlements/nip-recon' },
@@ -326,6 +316,12 @@ function canSee(vis: NavItem['vis'], role: string): boolean {
   return (vis as string[]).includes(role)
 }
 
+// Sub-items with vis are agent-only — MGMT deliberately excluded
+function canSeeSub(vis: string[] | undefined, role: string): boolean {
+  if (!vis) return true
+  return vis.includes(role)
+}
+
 function visibleSections(role: string): Section[] {
   return SECTIONS
     .map(s => ({ ...s, items: s.items.filter(item => canSee(item.vis, role)) }))
@@ -380,12 +376,13 @@ function NavBadge({ n, hot }: { n: number; hot?: boolean }) {
 // ── Nav row ───────────────────────────────────────────────────────────────────
 
 function NavRow({
-  item, isActive, hasActiveSub, collapsed, open, onToggle,
+  item, isActive, hasActiveSub, collapsed, open, onToggle, role,
 }: {
   item: NavItem; isActive: boolean; hasActiveSub: boolean
-  collapsed: boolean; open: boolean; onToggle: () => void
+  collapsed: boolean; open: boolean; onToggle: () => void; role: string
 }) {
-  const hasSubs     = !!item.subs?.length
+  const visibleSubs = item.subs?.filter(s => canSeeSub(s.vis, role)) ?? []
+  const hasSubs     = visibleSubs.length > 0
   const highlighted = isActive || hasActiveSub
   const { pathname } = useLocation()
 
@@ -421,18 +418,6 @@ function NavRow({
           {item.badge != null && item.badge > 0 && (
             <NavBadge n={item.badge} hot={item.hot} />
           )}
-          {hasSubs && (
-            <span style={{
-              fontSize: 9, opacity: 0.5, flexShrink: 0,
-              marginLeft: item.badge != null && item.badge > 0 ? 6 : 'auto',
-              display: 'inline-block',
-              transform: open ? 'rotate(90deg)' : 'none',
-              transition: 'transform .15s',
-              lineHeight: 1,
-            }}>
-              ▶
-            </span>
-          )}
         </>
       )}
     </>
@@ -448,21 +433,33 @@ function NavRow({
   if (hasSubs) {
     return (
       <div>
-        <div
-          style={rowStyle}
-          onClick={onToggle}
-          onMouseEnter={e => handleHover(e.currentTarget as HTMLElement, true)}
-          onMouseLeave={e => handleHover(e.currentTarget as HTMLElement, false)}
-        >
-          {content}
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <Link
+            to={item.to}
+            onClick={() => { if (!open) onToggle() }}
+            style={{ ...rowStyle, flex: 1, paddingRight: collapsed ? undefined : 4 }}
+            onMouseEnter={e => handleHover(e.currentTarget as HTMLElement, true)}
+            onMouseLeave={e => handleHover(e.currentTarget as HTMLElement, false)}
+          >
+            {Ico
+              ? <Ico size={16} style={{ flexShrink: 0, opacity: 0.85 }} />
+              : <span className="material-symbols-rounded" style={{ fontSize: 16, flexShrink: 0, opacity: 0.85 }}>{item.icon}</span>
+            }
+            {!collapsed && (
+              <>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>
+                {item.badge != null && item.badge > 0 && <NavBadge n={item.badge} hot={item.hot} />}
+              </>
+            )}
+          </Link>
         </div>
         {!collapsed && (
           <div style={{
             overflow: 'hidden',
-            maxHeight: open ? `${item.subs!.length * 34}px` : 0,
+            maxHeight: open ? `${visibleSubs.length * 34}px` : 0,
             transition: 'max-height .18s ease',
           }}>
-            {item.subs!.map(sub => (
+            {visibleSubs.map(sub => (
               <SubLink key={sub.to} sub={sub} active={pathname === sub.to} />
             ))}
           </div>
@@ -693,6 +690,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
               <NavRow
                 key={item.to}
                 item={item}
+                role={user.role as string}
                 isActive={item.to === '/' ? pathname === '/' : item.subs?.length ? pathname === item.to : pathname.startsWith(item.to)}
                 hasActiveSub={item.subs?.some(s => s.to !== '/' && pathname.startsWith(s.to)) ?? false}
                 collapsed={collapsed}

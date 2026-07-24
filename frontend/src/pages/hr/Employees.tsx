@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
   Modal, ConfirmModal, ErrBanner, Spinner, Tabs, StatusBadge, btnPrimary, DateFilter,
+  NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
@@ -197,12 +198,8 @@ export default function Employees() {
 
   const cols: TableCol<Employee>[] = [
     {
-      key: 'staff_id', label: 'Staff ID',
-      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY }}>{r.staff_id ?? '—'}</span>,
-    },
-    {
       key: 'first_name', label: 'Name',
-      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.first_name} {r.last_name}</span>,
+      render: r => <NameCell name={`${r.first_name} ${r.last_name}`} sub={r.staff_id ?? null} />,
     },
     {
       key: 'department', label: 'Department',
@@ -223,6 +220,12 @@ export default function Employees() {
     {
       key: 'status', label: 'Status',
       render: r => <StatusBadge status={r.status} size="sm" />,
+    },
+    {
+      key: 'id', label: '', sortable: false,
+      render: r => <ActionRow actions={[
+        { icon: 'visibility', label: 'View', onClick: () => openDetail(r) },
+      ]} />,
     },
   ]
 

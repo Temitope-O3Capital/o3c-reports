@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
   Modal, ConfirmModal, ErrBanner, Spinner, btnPrimary, DateFilter,
+  NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
@@ -143,11 +144,7 @@ export default function RegulatoryCalendar() {
   const cols: TableCol<CBNReport>[] = [
     {
       key: 'report_name', label: 'Requirement',
-      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.report_name}</span>,
-    },
-    {
-      key: 'regulatory_body', label: 'Regulatory Body',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.regulatory_body}</span>,
+      render: r => <NameCell name={r.report_name} sub={r.regulatory_body} avatar={false} />,
     },
     {
       key: 'due_date', label: 'Due Date',
@@ -166,15 +163,13 @@ export default function RegulatoryCalendar() {
       render: r => <StatusPill status={r.status} due={r.due_date} />,
     },
     {
-      key: 'id', label: '',
-      render: r => r.status === 'pending' ? (
-        <button
-          onClick={e => { e.stopPropagation(); setDoneEntry(r) }}
-          style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${GREEN}40`, background: 'transparent', color: GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
-        >
-          Mark Done
-        </button>
-      ) : null,
+      key: '_actions', label: '', sortable: false, width: 64,
+      render: r => (
+        <ActionRow actions={[
+          ...(r.status === 'pending' ? [{ icon: 'check_circle', label: 'Mark Done', onClick: () => setDoneEntry(r) }] : []),
+          { icon: 'edit_calendar', label: 'Edit Deadline', onClick: () => toast.info('Edit deadline coming soon') },
+        ]} />
+      ),
     },
   ]
 

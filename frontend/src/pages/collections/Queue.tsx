@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, FilterBar, Tabs, ConfirmModal, ErrBanner, Spinner, Modal,
-  filterInputStyle, DateFilter, SearchInput,
+  filterInputStyle, DateFilter, SearchInput, NameCell, ActionRow,
 } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
@@ -845,13 +845,11 @@ export default function CollectionsQueue() {
                       style={{ marginTop: 3, cursor: 'pointer', accentColor: RED, flexShrink: 0 }}
                     />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
-                        <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          CIF: {item.account_cif}
-                        </span>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
+                        <NameCell name={item.account_cif} sub={item.agent_name ?? null} avatar={false} />
                         <DpdBadge bucket={item.dpd_bucket} />
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                         <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
                           {fmtKobo(item.outstanding_kobo)}
                         </span>
@@ -859,11 +857,11 @@ export default function CollectionsQueue() {
                           {item.last_contact_at ? `Contact: ${fmtDate(item.last_contact_at)}` : 'No contact yet'}
                         </span>
                       </div>
-                      {item.agent_name && (
-                        <div style={{ fontSize: 11, color: 'var(--txt2)', marginTop: 2 }}>
-                          Agent: {item.agent_name}
-                        </div>
-                      )}
+                      <ActionRow actions={[
+                        { icon: 'phone',       label: 'Call',       onClick: () => setSelected(item) },
+                        { icon: 'handshake',   label: 'Record PTP', onClick: () => setSelected(item) },
+                        { icon: 'visibility',  label: 'View',       onClick: () => setSelected(item) },
+                      ]} />
                     </div>
                   </div>
                 )

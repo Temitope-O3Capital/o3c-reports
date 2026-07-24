@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
   Modal, ErrBanner, Spinner, btnPrimary, KpiCard, DateFilter,
+  NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
@@ -41,12 +42,6 @@ const PRIORITY_DOT: Record<string, string> = {
   urgent: RED, high: AMBER, medium: BLUE, low: '#6B7280',
 }
 
-const STATUS_STYLE: Record<string, { color: string; bg: string }> = {
-  open:      { color: BLUE,     bg: `${BLUE}12` },
-  done:      { color: GREEN,    bg: 'rgba(22,163,74,.12)' },
-  cancelled: { color: '#6B7280', bg: 'rgba(75,85,99,.1)' },
-}
-
 function PriorityDot({ priority }: { priority: string }) {
   const color = PRIORITY_DOT[priority.toLowerCase()] ?? '#6B7280'
   return (
@@ -57,13 +52,6 @@ function PriorityDot({ priority }: { priority: string }) {
   )
 }
 
-function StatusPill({ status, overdue }: { status: string; overdue?: boolean }) {
-  if (overdue && status === 'open') {
-    return <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: `2px ${SP[2]}`, borderRadius: RADIUS['2xl'], background: `${RED}12`, color: RED }}>Overdue</span>
-  }
-  const s = STATUS_STYLE[status.toLowerCase()] ?? STATUS_STYLE.open
-  return <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: `2px ${SP[2]}`, borderRadius: RADIUS['2xl'], background: s.bg, color: s.color }}>{status.charAt(0).toUpperCase() + status.slice(1)}</span>
-}
 
 const BLANK = { title: '', contact_id: '', due_date: '', priority: 'medium', assigned_to: '', description: '' }
 
@@ -180,6 +168,14 @@ export default function CRMTasks() {
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
+  async function deleteTask(id: number) {
+    try {
+      await apiFetch(`/api/crm/tasks/${id}`, { method: 'DELETE' })
+      setTasks(ts => ts.filter(t => t.id !== id))
+      toast.success('Task deleted')
+    } catch (ex: any) { toast.error(ex.message) }
+  }
+
   async function handleEdit() {
     if (!editing) return
     setEditSaving(true)
@@ -195,16 +191,13 @@ export default function CRMTasks() {
     finally { setEditSaving(false) }
   }
 
-  const bulkBar = selected.size > 0 ? (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{selected.size} selected</span>
-      <button onClick={batchComplete} disabled={completing}
-        style={{ ...btnPrimary, background: GREEN, padding: '5px 14px', fontSize: TEXT.sm, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        {completing && <Spinner size={13} color="#fff" />}
-        Mark Done
-      </button>
-    </div>
-  ) : null
+  const bulkBar = (
+    <button onClick={batchComplete} disabled={completing}
+      style={{ ...btnPrimary, background: GREEN, padding: '5px 14px', fontSize: TEXT.sm, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      {completing && <Spinner size={13} color="#fff" />}
+      Mark Done
+    </button>
+  )
 
   const cols: TableCol<Task>[] = [
     {
@@ -219,7 +212,7 @@ export default function CRMTasks() {
     {
       key: 'first_name', label: 'Related',
       render: r => (r.first_name || r.last_name)
-        ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.first_name} {r.last_name}</span>
+        ? <NameCell name={`${r.first_name ?? ''} ${r.last_name ?? ''}`.trim()} avatar={false} />
         : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
     {
@@ -229,22 +222,15 @@ export default function CRMTasks() {
         : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
     { key: 'priority', label: 'Priority', render: r => <PriorityDot priority={r.priority} /> },
-    { key: 'status',   label: 'Status',   render: r => <StatusPill status={r.status} overdue={r.is_overdue} /> },
+    { key: 'status', label: 'Status', render: r => <StatusBadge status={r.is_overdue && r.status !== 'done' ? 'overdue' : r.status} /> },
     { key: 'assigned_name', label: 'Owner', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.assigned_name ?? '—'}</span> },
     {
-      key: 'id', label: '',
-      render: r => r.status !== 'done' ? (
-        <div style={{ display: 'flex', gap: 5 }} onClick={e => e.stopPropagation()}>
-          <button onClick={() => markDone(r.id)}
-            style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${GREEN}40`, background: 'transparent', color: GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
-            Done
-          </button>
-          <button onClick={() => { setEditing(r); setEditForm({ title: r.title, contact_id: String(r.contact_id ?? ''), due_date: r.due_date ?? '', priority: r.priority, assigned_to: String(r.assigned_to ?? ''), description: r.description ?? '' }) }}
-            style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
-            Edit
-          </button>
-        </div>
-      ) : null,
+      key: '_actions', label: '', sortable: false,
+      render: r => <ActionRow actions={[
+        { icon: 'edit', label: 'Edit', onClick: () => { setEditing(r); setEditForm({ title: r.title, contact_id: String(r.contact_id ?? ''), due_date: r.due_date ?? '', priority: r.priority, assigned_to: String(r.assigned_to ?? ''), description: r.description ?? '' }) } },
+        { icon: 'check_circle', label: 'Complete', onClick: () => markDone(r.id) },
+        { icon: 'delete', label: 'Delete', danger: true, onClick: () => deleteTask(r.id) },
+      ]} />,
     },
   ]
 

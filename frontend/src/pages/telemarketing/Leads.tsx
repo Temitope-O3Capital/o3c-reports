@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Page, ErrBanner, Spinner, TblSearch, filterInputStyle, ConfirmModal, DateFilter,
+  Page, ErrBanner, Spinner, TblSearch, filterInputStyle, ConfirmModal, DateFilter, NameCell,
 } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, monthStart, today } from '../../lib/fmt'
@@ -492,15 +492,12 @@ export default function TelemarketingLeads() {
 
                   {/* Content */}
                   <div style={{ flex: 1, minWidth: 0, padding: '10px 12px 10px 2px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 }}>
-                      <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, marginRight: 6 }}>
-                        {lead.customer_name}
-                      </span>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 3 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <NameCell name={lead.customer_name} sub={lead.customer_phone ?? undefined} avatar={false} />
+                      </div>
                       <StatusPill status={lead.status} />
                     </div>
-                    {lead.customer_phone && (
-                      <div style={{ fontSize: TEXT.sm, color: NAVY, fontWeight: FW.medium, marginBottom: 3, fontFamily: INTER }}>{lead.customer_phone}</div>
-                    )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       {lead.campaign_name && (
                         <span style={{ fontSize: TEXT['2xs'], color: PURPLE }}>{lead.campaign_name}</span>

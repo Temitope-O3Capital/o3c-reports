@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
   Modal, ErrBanner, btnPrimary, btnSecondary, KpiCard, DateFilter,
+  NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtNum, fmtDatetime, fmtPct, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -52,23 +53,6 @@ function TypePill({ type }: { type: string }) {
   )
 }
 
-const STATUS_META: Record<string, { color: string; label: string }> = {
-  draft:     { color: '#6B7280', label: 'Draft' },
-  scheduled: { color: AMBER,    label: 'Scheduled' },
-  active:    { color: GREEN,    label: 'Active' },
-  paused:    { color: AMBER,    label: 'Paused' },
-  completed: { color: NAVY,     label: 'Completed' },
-  cancelled: { color: RED,      label: 'Cancelled' },
-}
-
-function StatusPill({ status }: { status: string }) {
-  const m = STATUS_META[status] ?? { color: '#6B7280', label: status }
-  return (
-    <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${m.color}14`, color: m.color }}>
-      {m.label}
-    </span>
-  )
-}
 
 function sentCount(c: Campaign): number {
   return Number(c.emails_sent ?? 0) + Number(c.sms_sent ?? 0)
@@ -209,15 +193,10 @@ export default function CampaignsList() {
   const cols: TableCol<Campaign>[] = [
     {
       key: 'name', label: 'Campaign',
-      render: r => (
-        <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.name}</div>
-          {r.list_name && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.list_name}</div>}
-        </div>
-      ),
+      render: r => <NameCell name={r.name} sub={r.list_name} avatar={false} />,
     },
     { key: 'type',   label: 'Type',   render: r => <TypePill type={r.type} /> },
-    { key: 'status', label: 'Status', render: r => <StatusPill status={r.status} /> },
+    { key: 'status', label: 'Status', render: r => <StatusBadge status={r.status} /> },
     {
       key: 'total_contacts', label: 'Audience', align: 'right',
       render: r => <span style={NUM}>{fmtNum(Number(r.total_contacts ?? 0))}</span>,
@@ -255,43 +234,26 @@ export default function CampaignsList() {
         ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDatetime(r.scheduled_at)}</span>
         : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
-    ...(canWrite ? [{
-      key: 'id', label: 'Actions', align: 'right' as const,
-      render: (r: Campaign) => (
-        <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-          {(r.status === 'draft' || r.status === 'scheduled') && (
-            <button onClick={e => { e.stopPropagation(); navigate(`/campaigns/${r.id}/report`) }}
-              style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px' }}>
-              Edit
-            </button>
-          )}
-          {(r.status === 'draft' || r.status === 'scheduled') && (
-            <button onClick={e => { e.stopPropagation(); doAction(r.id, 'start') }}
-              style={{ ...btnPrimary, fontSize: TEXT.xs, padding: '3px 10px', background: GREEN, borderColor: GREEN }}>
-              Start
-            </button>
-          )}
-          {r.status === 'active' && (
-            <button onClick={e => { e.stopPropagation(); doAction(r.id, 'pause') }}
-              style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px' }}>
-              Pause
-            </button>
-          )}
-          {r.status === 'paused' && (
-            <button onClick={e => { e.stopPropagation(); doAction(r.id, 'start') }}
-              style={{ ...btnPrimary, fontSize: TEXT.xs, padding: '3px 10px', background: GREEN, borderColor: GREEN }}>
-              Resume
-            </button>
-          )}
-          {r.status !== 'cancelled' && r.status !== 'completed' && (
-            <button onClick={e => { e.stopPropagation(); doAction(r.id, 'cancel') }}
-              style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px', color: RED, borderColor: `${RED}40` }}>
-              Cancel
-            </button>
-          )}
-        </div>
-      ),
-    }] : []),
+    { key: '_actions', label: '', sortable: false,
+      render: r => {
+        const actions: RowAction[] = [
+          { icon: 'open_in_new', label: 'View report', onClick: () => navigate(`/campaigns/${r.id}/report`) },
+          ...((canWrite && (r.status === 'draft' || r.status === 'scheduled'))
+            ? [{ icon: 'play_arrow', label: 'Start', onClick: () => doAction(r.id, 'start') }]
+            : []),
+          ...((canWrite && r.status === 'active')
+            ? [{ icon: 'pause', label: 'Pause', onClick: () => doAction(r.id, 'pause') }]
+            : []),
+          ...((canWrite && r.status === 'paused')
+            ? [{ icon: 'play_arrow', label: 'Resume', onClick: () => doAction(r.id, 'start') }]
+            : []),
+          ...((canWrite && r.status !== 'cancelled' && r.status !== 'completed')
+            ? [{ icon: 'cancel', label: 'Cancel', onClick: () => doAction(r.id, 'cancel'), danger: true }]
+            : []),
+        ]
+        return <ActionRow actions={actions} />
+      },
+    },
   ]
 
   return (

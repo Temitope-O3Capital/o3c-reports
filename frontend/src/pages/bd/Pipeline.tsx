@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Modal, filterInputStyle, SearchInput, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Modal, filterInputStyle, SearchInput, DateFilter, NameCell, ActionRow, StatusBadge } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, API, getCsrfToken } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, today, monthStart } from '../../lib/fmt'
@@ -172,7 +172,9 @@ export default function BDPipeline() {
   const [newOpen,    setNewOpen]    = useState(false)
   const [newForm,    setNewForm]    = useState(EMPTY_LEAD)
   const [saving,     setSaving]     = useState(false)
-  const [detailLead, setDetailLead] = useState<Lead | null>(null)
+  const [detailLead,   setDetailLead]   = useState<Lead | null>(null)
+  const [editingLead,  setEditingLead]  = useState<Lead | null>(null)
+  const [activityLead, setActivityLead] = useState<Lead | null>(null)
   const [newTab,     setNewTab]     = useState<'manual' | 'csv'>('manual')
   const [csvFile,    setCsvFile]    = useState<File | null>(null)
   const [csvPreview, setCsvPreview] = useState<{ valid: number; invalid: number; errors: string[] } | null>(null)
@@ -348,39 +350,12 @@ export default function BDPipeline() {
       key: 'company_name', label: 'Lead', sortable: true,
       render: row => {
         const et = row.entity_type ?? 'company'
-        const primaryName =
-          et === 'company' ? (row.company_name ?? row.title ?? '—')
-          : (row.contact_name ?? row.title ?? '—')
-        const subName =
-          et === 'individual_at_company' ? (row.company_name ?? row.employer_name)
-          : et === 'company' ? row.contact_name
-          : null
-        const color = STAGE_COLORS[row.stage] ?? '#6B7280'
-        const icon = ENTITY_ICONS[et as EntityType] ?? 'business'
-        return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{
-              width: 30, height: 30, borderRadius: et === 'company' ? RADIUS.md : RADIUS.full, background: color, flexShrink: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: '#fff',
-            }}>
-              {et === 'company'
-                ? <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, fontFamily: INTER }}>{primaryName.charAt(0).toUpperCase()}</span>
-                : <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{icon}</span>
-              }
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', lineHeight: 1.3, fontFamily: SORA }}>{primaryName}</span>
-              </div>
-              {subName && (
-                <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER }}>
-                  {et === 'individual_at_company' ? `@ ${subName}` : subName}
-                </div>
-              )}
-            </div>
-          </div>
-        )
+        const primaryName = et === 'company' ? (row.company_name ?? row.title ?? '—') : (row.contact_name ?? row.title ?? '—')
+        const sub = et === 'individual_at_company'
+          ? (row.company_name ? `@ ${row.company_name}` : row.employer_name ?? null)
+          : et === 'company' ? (row.contact_name ?? null)
+          : (row.contact_email ?? null)
+        return <NameCell name={primaryName} sub={sub} />
       },
     },
     {
@@ -414,7 +389,7 @@ export default function BDPipeline() {
     },
     {
       key: 'stage', label: 'Stage', sortable: true,
-      render: row => <StagePill stage={row.stage} />,
+      render: row => <StatusBadge status={row.stage} />,
     },
     {
       key: 'potential_value_kobo', label: 'Est. Value', sortable: true, align: 'right',
@@ -422,33 +397,11 @@ export default function BDPipeline() {
     },
     {
       key: '_actions', label: '', sortable: false,
-      render: () => (
-        <div style={{ display: 'flex', gap: 5 }} onClick={e => e.stopPropagation()}>
-          {(['call', 'mail', 'swap_horiz'] as const).map(ic => (
-            <button
-              key={ic}
-              style={{
-                width: 28, height: 28, borderRadius: RADIUS.md,
-                border: '1.5px solid var(--input-bdr)', background: 'transparent',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', color: 'var(--txt2)',
-              }}
-              onMouseEnter={e => {
-                const el = e.currentTarget
-                el.style.borderColor = ic === 'swap_horiz' ? RED : 'var(--txt2)'
-                el.style.color = ic === 'swap_horiz' ? RED : 'var(--txt)'
-              }}
-              onMouseLeave={e => {
-                const el = e.currentTarget
-                el.style.borderColor = 'var(--input-bdr)'
-                el.style.color = 'var(--txt2)'
-              }}
-            >
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>{ic}</span>
-            </button>
-          ))}
-        </div>
-      ),
+      render: row => <ActionRow actions={[
+        { icon: 'visibility', label: 'View', onClick: () => setDetailLead(row) },
+        { icon: 'edit', label: 'Edit Stage', onClick: () => setEditingLead(row) },
+        { icon: 'add_call', label: 'Log Activity', onClick: () => setActivityLead(row) },
+      ]} />,
     },
   ]
 

@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
-  Modal, ConfirmModal, ErrBanner, btnPrimary, btnSecondary, DateFilter,
+  Modal, ConfirmModal, ErrBanner, btnPrimary, btnSecondary, DateFilter, NameCell, ActionRow,
 } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
-import { apiFetch, apiDelete } from '../../lib/api'
+import type { TableCol, RowAction } from '../../components/UI'
+import { apiFetch, apiPost, apiDelete } from '../../lib/api'
+import { toast } from 'sonner'
 import { fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { NAVY, BLUE, PURPLE, GREEN, NUM, INTER, TEXT, FW, RADIUS } from '../../lib/design'
 import { blocksToHtml, type Block } from '../../components/EmailBlockEditor'
@@ -87,6 +88,22 @@ export default function CampaignTemplates() {
     catch (ex: any) { setErr(ex.message) }
   }
 
+  async function duplicate(r: Template) {
+    try {
+      await apiPost('/api/message-templates', {
+        name: `${r.name} (copy)`,
+        channel: r.channel,
+        category: r.category,
+        sms_body: r.sms_body,
+        email_subject: r.email_subject,
+        email_body_html: r.email_body_html,
+        email_blocks: r.email_blocks,
+      })
+      toast.success('Template duplicated')
+      load()
+    } catch (ex: any) { toast.error(ex.message) }
+  }
+
   function exportCsv(data: Template[]) {
     const hdr = ['Name', 'Channel', 'Category', 'Created By', 'Created At']
     const rows = data.map(r => [
@@ -102,36 +119,24 @@ export default function CampaignTemplates() {
   const cols: TableCol<Template>[] = [
     {
       key: 'name', label: 'Template',
-      render: r => (
-        <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.name}</div>
-          {r.email_subject && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Subject: {r.email_subject}</div>}
-          {r.sms_body && !r.email_subject && (
-            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300 }}>
-              {r.sms_body}
-            </div>
-          )}
-        </div>
-      ),
+      render: r => <NameCell name={r.name} sub={r.email_subject ?? (r.sms_body ? r.sms_body.slice(0, 60) : undefined)} avatar={false} />,
     },
     { key: 'channel',  label: 'Channel',  render: r => <ChannelPill  channel={r.channel} /> },
     { key: 'category', label: 'Category', render: r => <CategoryPill category={r.category} /> },
     { key: 'created_by_name', label: 'Created By', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.created_by_name ?? '—'}</span> },
     { key: 'created_at', label: 'Created', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDatetime(r.created_at)}</span> },
-    {
-      key: 'id', label: '', align: 'right',
-      render: r => (
-        <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-          <button onClick={e => { e.stopPropagation(); setPreview(r) }}
-            style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px' }}>Preview</button>
-          {canWrite && <>
-            <button onClick={e => { e.stopPropagation(); navigate(`/campaigns/templates/${r.id}/edit`) }}
-              style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px' }}>Edit</button>
-            <button onClick={e => { e.stopPropagation(); setDeleteTarget(r) }}
-              style={{ ...btnSecondary, fontSize: TEXT.xs, padding: '3px 10px', color: '#EF4444', borderColor: '#EF444440' }}>Delete</button>
-          </>}
-        </div>
-      ),
+    { key: '_actions', label: '', sortable: false,
+      render: r => {
+        const actions: RowAction[] = [
+          { icon: 'preview', label: 'Preview', onClick: () => setPreview(r) },
+          ...(canWrite ? [
+            { icon: 'edit', label: 'Edit', onClick: () => navigate(`/campaigns/templates/${r.id}/edit`) },
+            { icon: 'content_copy', label: 'Duplicate', onClick: () => duplicate(r) },
+            { icon: 'delete', label: 'Delete', onClick: () => setDeleteTarget(r), danger: true },
+          ] : []),
+        ]
+        return <ActionRow actions={actions} />
+      },
     },
   ]
 

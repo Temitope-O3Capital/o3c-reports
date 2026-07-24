@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, StatusBadge, filterInputStyle, SearchInput, ErrBanner, Spinner } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { Page, SectionCard, DataTable, StatusBadge, filterInputStyle, SearchInput, ErrBanner, Spinner, NameCell, ActionRow } from '../../components/UI'
+import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { NAVY, GREEN, AMBER, RED, BLUE, PURPLE, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
@@ -130,10 +130,7 @@ function makeCols(onEdit: (a: GLAccount) => void): TableCol<GLAccount>[] { retur
     <span style={{ ...NUM, fontWeight: FW.bold, paddingLeft: r.parent_code ? SP[5] : 0 }}>{r.code}</span>
   )},
   { key: 'name', label: 'Account Name', sortable: true, render: r => (
-    <span style={{ paddingLeft: r.parent_code ? SP[5] : 0, fontWeight: r.parent_code ? FW.normal : FW.semibold }}>
-      {!r.parent_code && <span className="material-symbols-rounded" style={{ fontSize: TEXT.base, marginRight: 6, verticalAlign: 'middle', color: 'var(--txt2)' }}>folder</span>}
-      {r.name}
-    </span>
+    <NameCell name={r.name} sub={r.code} avatar={false} />
   )},
   { key: 'class', label: 'Class', render: r => (
     <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'],
@@ -151,10 +148,10 @@ function makeCols(onEdit: (a: GLAccount) => void): TableCol<GLAccount>[] { retur
   { key: 'currency', label: 'CCY', align: 'center' },
   { key: 'profit_centre', label: 'Profit Centre', render: r => r.profit_centre ?? '—' },
   { key: 'is_active', label: 'Status', render: r => <StatusBadge status={r.is_active ? 'Active' : 'Inactive'} /> },
-  { key: 'id', label: '', align: 'center', render: r => (
-    <button onClick={() => onEdit(r)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', padding: SP[1], borderRadius: RADIUS.sm, display: 'flex', alignItems: 'center' }}>
-      <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>edit</span>
-    </button>
+  { key: '_actions', label: '', align: 'center', sortable: false, render: r => (
+    <ActionRow actions={[
+      { icon: 'edit', label: 'Edit', onClick: () => onEdit(r) },
+    ] satisfies RowAction[]} />
   )},
 ]}
 
@@ -242,6 +239,7 @@ export default function FinanceChartOfAccounts() {
   const [showAdd, setShowAdd] = useState(false)
   const [editAccount, setEditAccount] = useState<GLAccount | null>(null)
   const [filterOpen, setFilterOpen] = useState(false)
+  const [sel, setSel] = useState<Set<string | number>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
@@ -434,6 +432,14 @@ export default function FinanceChartOfAccounts() {
             keyFn={r => r.id}
             emptyText="No accounts match your filter"
             pageSize={20}
+            selectable
+            selectedIds={sel}
+            onSelect={setSel}
+            bulkBar={
+              <button onClick={() => exportAccountsCsv(filtered.filter(r => sel.has(r.id)))} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+                Export CSV
+              </button>
+            }
           />
 
         </SectionCard>

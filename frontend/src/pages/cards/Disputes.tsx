@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter, NameCell, StatusBadge } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
@@ -21,7 +21,13 @@ interface Dispute {
   days_open: number
 }
 
-// ── Status flow: Filed → Investigating → Provisional Credit → Resolved ────────
+const STATUS_LABELS: Record<string, string> = {
+  filed:              'Filed',
+  investigating:      'Investigating',
+  provisional_credit: 'Provisional Credit',
+  resolved:           'Resolved',
+  declined:           'Declined',
+}
 
 const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
   filed:               { bg: 'rgba(107,114,128,.1)', txt: 'var(--chart-lbl)' },
@@ -31,27 +37,9 @@ const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
   declined:            { bg: 'rgba(192,0,0,.1)',     txt: RED },
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  filed:              'Filed',
-  investigating:      'Investigating',
-  provisional_credit: 'Provisional Credit',
-  resolved:           'Resolved',
-  declined:           'Declined',
-}
-
 const DISPUTE_TYPES = ['Unauthorised Transaction', 'Double Charge', 'Wrong Amount', 'Merchant Dispute', 'ATM Dispute', 'Card Not Present']
 
 const STATUS_FLOW = ['filed', 'investigating', 'provisional_credit', 'resolved']
-
-function StatusPill({ status }: { status: string }) {
-  const c = STATUS_COLORS[status] ?? { bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
-  return (
-    <span style={{
-      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
-      background: c.bg, color: c.txt, whiteSpace: 'nowrap',
-    }}>{STATUS_LABELS[status] ?? status}</span>
-  )
-}
 
 // ── Advance button ────────────────────────────────────────────────────────────
 
@@ -225,15 +213,13 @@ export default function CardsDisputes() {
   useEffect(() => { load() }, [load])
 
   const cols: TableCol<Dispute>[] = useMemo(() => [
-    { key: 'ref', label: 'Dispute #',
-      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.ref}</span> },
     { key: 'customer_name', label: 'Customer',
-      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.customer_name}</span> },
+      render: r => <NameCell name={r.customer_name} sub={r.ref} /> },
     { key: 'amount_kobo', label: 'Amount', align: 'right',
       render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.amount_kobo)}</span> },
     { key: 'dispute_type', label: 'Type',
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.dispute_type}</span> },
-    { key: 'status', label: 'Status', render: r => <StatusPill status={r.status} /> },
+    { key: 'status', label: 'Status', render: r => <StatusBadge status={STATUS_LABELS[r.status] ?? r.status} /> },
     { key: 'filed_date', label: 'Filed', sortable: true,
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.filed_date)}</span> },
     { key: 'days_open', label: 'Days Open', align: 'right',

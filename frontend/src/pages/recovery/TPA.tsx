@@ -4,7 +4,7 @@ import {
 } from 'recharts'
 import {
   Page, SectionCard, DataTable, Modal, ConfirmModal, ErrBanner, Tabs,
-  filterInputStyle, btnPrimary, DateFilter,
+  filterInputStyle, btnPrimary, DateFilter, NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
@@ -447,18 +447,7 @@ export default function RecoveryTPA() {
       key: 'name',
       label: 'Agency Name',
       sortable: true,
-      render: r => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-          <div style={{
-            width: 28, height: 28, borderRadius: '50%', background: NAVY,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: TEXT['2xs'], fontWeight: FW.bold, color: '#fff', fontFamily: INTER, flexShrink: 0,
-          }}>
-            {r.name.slice(0, 2).toUpperCase()}
-          </div>
-          <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.name}</span>
-        </div>
-      ),
+      render: r => <NameCell name={r.name} />,
     },
     {
       key: 'licence_number',
@@ -511,30 +500,11 @@ export default function RecoveryTPA() {
       sortable: false,
       width: 100,
       render: r => (
-        <div style={{ display: 'flex', gap: 5 }} onClick={e => e.stopPropagation()}>
-          <button
-            onClick={() => setEditAgency(r)}
-            style={{
-              width: 28, height: 28, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)',
-              background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer', color: 'var(--txt2)',
-            }}
-            title="Edit"
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>edit</span>
-          </button>
-          <button
-            onClick={() => setDeactivateTarget(r)}
-            style={{
-              width: 28, height: 28, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)',
-              background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer', color: RED,
-            }}
-            title="Deactivate"
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>block</span>
-          </button>
-        </div>
+        <ActionRow actions={[
+          { icon: 'visibility', label: 'View',       onClick: () => setDetailAgency(r) },
+          { icon: 'edit',       label: 'Edit',       onClick: () => setEditAgency(r) },
+          { icon: 'block',      label: 'Deactivate', onClick: () => setDeactivateTarget(r), danger: true },
+        ]} />
       ),
     },
   ]

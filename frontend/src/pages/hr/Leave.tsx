@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, FilterBar, filterInputStyle,
   Modal, ConfirmModal, ErrBanner, Spinner, StatusBadge, btnPrimary, DateFilter,
+  NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
@@ -16,6 +17,7 @@ interface Leave {
   id: number
   employee_name: string
   employee_id: number
+  staff_id?: string
   leave_type: string
   start_date: string
   end_date: string
@@ -71,7 +73,6 @@ export default function Leave() {
   const [rejectReason, setRejectReason] = useState('')
   const [rejecting, setRejecting]       = useState(false)
 
-  const [approving, setApproving] = useState<number | null>(null)
 
   const [sel, setSel] = useState<Set<string | number>>(new Set())
 
@@ -107,13 +108,11 @@ export default function Leave() {
   }
 
   async function handleApprove(id: number) {
-    setApproving(id)
     try {
       await apiPut(`/api/hr/leave/${id}/approve`, {})
       toast.success('Leave approved')
       load()
     } catch (e: any) { toast.error(e.message) }
-    finally { setApproving(null) }
   }
 
   async function handleReject() {
@@ -167,7 +166,7 @@ export default function Leave() {
   const cols: TableCol<Leave>[] = [
     {
       key: 'employee_name', label: 'Employee',
-      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.employee_name}</span>,
+      render: r => <NameCell name={r.employee_name} sub={r.staff_id ?? null} />,
     },
     {
       key: 'leave_type', label: 'Type',
@@ -194,23 +193,12 @@ export default function Leave() {
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDate(r.applied_at)}</span>,
     },
     ...(canApprove ? [{
-      key: 'id' as const, label: '',
+      key: 'id' as const, label: '', sortable: false,
       render: (r: Leave) => r.status === 'pending' ? (
-        <div style={{ display: 'flex', gap: 5 }} onClick={e => e.stopPropagation()}>
-          <button
-            onClick={() => handleApprove(r.id)}
-            disabled={approving === r.id}
-            style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${GREEN}40`, background: 'transparent', color: GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
-          >
-            {approving === r.id ? '…' : 'Approve'}
-          </button>
-          <button
-            onClick={() => { setRejectEntry(r); setRejectReason('') }}
-            style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: '1.5px solid rgba(192,0,0,.3)', background: 'transparent', color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
-          >
-            Decline
-          </button>
-        </div>
+        <ActionRow actions={[
+          { icon: 'check_circle', label: 'Approve', onClick: () => handleApprove(r.id) },
+          { icon: 'cancel', label: 'Decline', onClick: () => { setRejectEntry(r); setRejectReason('') }, danger: true },
+        ]} />
       ) : null,
     }] : []),
   ]

@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import {
   Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle,
   ErrBanner, Modal, Spinner, StatusBadge, btnPrimary, DateFilter,
+  NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
@@ -429,12 +430,10 @@ export default function RepaymentPlans() {
       key: 'account_cif',
       label: 'Customer',
       render: r => (
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.account_cif}</div>
-          {r.customer_name && (
-            <div style={{ fontSize: 11, color: 'var(--txt2)', marginTop: 1 }}>{r.customer_name}</div>
-          )}
-        </div>
+        <NameCell
+          name={r.customer_name ?? r.account_cif}
+          sub={r.customer_name ? r.account_cif : null}
+        />
       ),
     },
     {
@@ -481,7 +480,18 @@ export default function RepaymentPlans() {
     {
       key: 'status',
       label: 'Status',
-      render: r => <PlanPill status={r.status} />,
+      render: r => <StatusBadge status={r.status} />,
+    },
+    {
+      key: '_actions',
+      label: '',
+      sortable: false,
+      width: 50,
+      render: r => (
+        <ActionRow actions={[
+          { icon: 'visibility', label: 'View Plan', onClick: () => setDetailPlan(r) },
+        ]} />
+      ),
     },
   ]
 
