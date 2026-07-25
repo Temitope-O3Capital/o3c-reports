@@ -1,9 +1,9 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell,
   PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, DateFilter, FilterBar, filterInputStyle, SearchInput, NameCell } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtPct, fmtNum, monthStart, today } from '../../lib/fmt'
@@ -96,7 +96,7 @@ function Tip({ active, payload, label, fmt }: {
 const EMPLOYER_COLS: TableCol<EmployerRow>[] = [
   {
     key: 'company', label: 'Company',
-    render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.company}</span>,
+    render: r => <NameCell name={r.company} sub={null} />,
   },
   {
     key: 'staff_loans_count', label: 'Staff Loans', align: 'right',
@@ -146,6 +146,7 @@ export default function PortfolioHealth() {
   const [error,     setError]     = useState<string | null>(null)
   const [dateFrom,  setDateFrom]  = useState(monthStart())
   const [dateTo,    setDateTo]    = useState(today())
+  const [empSearch, setEmpSearch] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -175,6 +176,12 @@ export default function PortfolioHealth() {
 
   const kpiLoading = loading && !kpis
   const totalBandCount = bandDist.reduce((acc, d) => acc + d.count, 0)
+  const filteredEmployers = useMemo(() =>
+    empSearch
+      ? employers.filter(r => r.company.toLowerCase().includes(empSearch.toLowerCase()))
+      : employers,
+    [employers, empSearch],
+  )
 
   function exportEmployersCsv(data: EmployerRow[]) {
     const header = ['Company', 'Staff Loans', 'Book NGN', '% of Book', 'PAR30 Count']
@@ -350,21 +357,24 @@ export default function PortfolioHealth() {
       {/* Top employers table */}
       <SectionCard
         title="Top Employers by Exposure"
-        badge={employers.length}
+        badge={filteredEmployers.length}
         subtitle="Sorted by book value — flag concentrations above 10%"
         padding={false}
         style={{ marginTop: SP[4] }}
-        actions={<button onClick={() => exportEmployersCsv(employers)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}
+        actions={<button onClick={() => exportEmployersCsv(filteredEmployers)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}
       >
+        <div style={{ padding: '12px 18px 0' }}>
+          <FilterBar onReset={() => setEmpSearch('')}>
+            <SearchInput value={empSearch} onChange={setEmpSearch} onClear={() => setEmpSearch('')} />
+          </FilterBar>
+        </div>
         <DataTable
           cols={EMPLOYER_COLS}
-          rows={employers}
+          rows={filteredEmployers}
           keyFn={(r, i) => r.company ?? i}
           loading={loading}
           skeletonRows={8}
           emptyText="No employer data found"
-          searchKeys={['company']}
-          searchPlaceholder="Search employers…"
           pageSize={20}
         />
       </SectionCard>

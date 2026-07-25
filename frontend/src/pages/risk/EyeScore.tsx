@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter, SearchInput, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtPct, fmtNum, today, monthStart } from '../../lib/fmt'
@@ -67,6 +67,7 @@ export default function EyeScore() {
   const [dateTo,   setDateTo]   = useState(today())
   const [product,  setProduct]  = useState('')
   const [band,     setBand]     = useState('')
+  const [search,   setSearch]   = useState('')
 
   const abortRef = useRef<AbortController | null>(null)
 
@@ -78,8 +79,9 @@ export default function EyeScore() {
     if (dateTo)   p.set('date_to', dateTo)
     if (product)  p.set('product', product)
     if (band)     p.set('band', band)
+    if (search)   p.set('search', search)
     return p.toString()
-  }, [dateFrom, dateTo, product, band])
+  }, [dateFrom, dateTo, product, band, search])
 
   const load = useCallback(async (off = 0) => {
     abortRef.current?.abort()
@@ -108,7 +110,7 @@ export default function EyeScore() {
   useEffect(() => { load(0) }, [load])
 
   function resetFilters() {
-    setDateFrom(monthStart()); setDateTo(today()); setProduct(''); setBand('')
+    setDateFrom(monthStart()); setDateTo(today()); setProduct(''); setBand(''); setSearch('')
   }
 
   const pages       = Math.ceil(total / PAGE_SIZE)
@@ -117,17 +119,8 @@ export default function EyeScore() {
 
   const cols: TableCol<EyeScoreRow>[] = [
     {
-      key: 'application_id', label: 'App #', width: 100,
-      render: r => <span style={{ ...NUM, fontSize: 12.5, fontWeight: 600, color: NAVY }}>APP-{r.application_id}</span>,
-    },
-    {
       key: 'applicant_name', label: 'Applicant',
-      render: r => (
-        <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.applicant_name}</div>
-          <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{r.product_type}</div>
-        </div>
-      ),
+      render: r => <NameCell name={r.applicant_name} sub={`APP-${r.application_id}`} />,
     },
     {
       key: 'score', label: 'Score', align: 'right', sortable: true,
@@ -160,6 +153,12 @@ export default function EyeScore() {
     {
       key: 'scored_at', label: 'Date', sortable: true,
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.scored_at)}</span>,
+    },
+    {
+      key: '_actions', label: '',
+      render: r => <ActionRow actions={[
+        { icon: 'visibility', label: 'View Score', onClick: () => window.open(`/risk/eye-score/${r.id}`, '_self') },
+      ]} />,
     },
   ]
 
@@ -211,6 +210,7 @@ export default function EyeScore() {
       <SectionCard title="Score Requests" badge={total} padding={false}>
         <div style={{ padding: '12px 18px 0' }}>
           <FilterBar onReset={resetFilters}>
+            <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
             <select value={product} onChange={e => setProduct(e.target.value)} style={filterInputStyle}>
               <option value="">All products</option>
               <option value="Salary Loan">Salary Loan</option>
@@ -238,8 +238,6 @@ export default function EyeScore() {
           loading={loading}
           skeletonRows={8}
           emptyText="No score requests found"
-          searchKeys={['applicant_name', 'band']}
-          searchPlaceholder="Search by applicant name or score band…"
         />
 
         {pages > 1 && (

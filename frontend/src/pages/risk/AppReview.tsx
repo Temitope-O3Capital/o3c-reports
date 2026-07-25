@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter, SearchInput, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiExport } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtPct, fmtNum, today, monthStart } from '../../lib/fmt'
@@ -84,6 +84,7 @@ export default function RiskAppReview() {
   const [stage,    setStage]    = useState('')
   const [product,  setProduct]  = useState('')
   const [band,     setBand]     = useState('')
+  const [search,   setSearch]   = useState('')
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
   const [selected, setSelected] = useState<Set<string | number>>(new Set())
@@ -97,10 +98,11 @@ export default function RiskAppReview() {
     if (stage)    p.set('stage', stage)
     if (product)  p.set('product', product)
     if (band)     p.set('band', band)
+    if (search)   p.set('search', search)
     if (dateFrom) p.set('date_from', dateFrom)
     if (dateTo)   p.set('date_to', dateTo)
     return p.toString()
-  }, [stage, product, band, dateFrom, dateTo])
+  }, [stage, product, band, search, dateFrom, dateTo])
 
   const load = useCallback(async (off = 0) => {
     abortRef.current?.abort()
@@ -129,7 +131,7 @@ export default function RiskAppReview() {
   useEffect(() => { load(0) }, [load])
 
   function resetFilters() {
-    setStage(''); setProduct(''); setBand('')
+    setStage(''); setProduct(''); setBand(''); setSearch('')
     setDateFrom(monthStart()); setDateTo(today())
   }
 
@@ -138,17 +140,8 @@ export default function RiskAppReview() {
 
   const cols: TableCol<RiskApp>[] = [
     {
-      key: 'reference', label: 'App #', width: 110,
-      render: r => <span style={{ ...NUM, fontSize: 12.5, fontWeight: 600, color: NAVY }}>{r.reference}</span>,
-    },
-    {
       key: 'applicant_name', label: 'Applicant',
-      render: r => (
-        <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{r.applicant_name}</div>
-          {r.employer_name && <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{r.employer_name}</div>}
-        </div>
-      ),
+      render: r => <NameCell name={r.applicant_name} sub={r.reference} />,
     },
     {
       key: 'eye_score', label: 'Eye Score', align: 'right', sortable: true,
@@ -185,6 +178,12 @@ export default function RiskAppReview() {
     {
       key: 'submitted_at', label: 'Submitted', sortable: true,
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.submitted_at)}</span>,
+    },
+    {
+      key: '_actions', label: '',
+      render: r => <ActionRow actions={[
+        { icon: 'visibility', label: 'View Application', onClick: () => navigate(`/sales/applications/${r.id}`) },
+      ]} />,
     },
   ]
 
@@ -233,6 +232,7 @@ export default function RiskAppReview() {
       <SectionCard title="Applications" badge={total} padding={false}>
         <div style={{ padding: '12px 18px 0' }}>
           <FilterBar onReset={resetFilters}>
+            <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
             <select value={stage} onChange={e => setStage(e.target.value)} style={filterInputStyle}>
               <option value="">All stages</option>
               <option value="Risk Review">Risk Review</option>
@@ -271,8 +271,6 @@ export default function RiskAppReview() {
           onSelect={setSelected}
           bulkBar={bulkBar}
           emptyText="No applications found"
-          searchKeys={['applicant_name', 'product_type', 'risk_band']}
-          searchPlaceholder="Search by applicant, product, band…"
         />
 
         {pages > 1 && (
