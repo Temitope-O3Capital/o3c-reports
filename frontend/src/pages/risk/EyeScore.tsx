@@ -213,9 +213,11 @@ export default function EyeScore() {
             <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
             <select value={product} onChange={e => setProduct(e.target.value)} style={filterInputStyle}>
               <option value="">All products</option>
-              <option value="Salary Loan">Salary Loan</option>
+              <option value="Payday Loan">Payday Loan</option>
+              <option value="Salary Advance">Salary Advance</option>
               <option value="Business Loan">Business Loan</option>
-              <option value="Personal Loan">Personal Loan</option>
+              <option value="Education Loan">Education Loan</option>
+              <option value="Auto Loan">Auto Loan</option>
             </select>
             <select value={band} onChange={e => setBand(e.target.value)} style={filterInputStyle}>
               <option value="">All bands</option>

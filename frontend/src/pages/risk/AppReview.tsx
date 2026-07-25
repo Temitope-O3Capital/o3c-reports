@@ -235,15 +235,17 @@ export default function RiskAppReview() {
             <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
             <select value={stage} onChange={e => setStage(e.target.value)} style={filterInputStyle}>
               <option value="">All stages</option>
-              <option value="Risk Review">Risk Review</option>
-              <option value="Pending Committee">Pending Committee</option>
-              <option value="Referred">Referred</option>
+              <option value="risk_review">Risk Review</option>
+              <option value="risk_head_review">Risk Head Review</option>
+              <option value="pending_committee">Pending Committee</option>
             </select>
             <select value={product} onChange={e => setProduct(e.target.value)} style={filterInputStyle}>
               <option value="">All products</option>
-              <option value="Salary Loan">Salary Loan</option>
+              <option value="Payday Loan">Payday Loan</option>
+              <option value="Salary Advance">Salary Advance</option>
               <option value="Business Loan">Business Loan</option>
-              <option value="Personal Loan">Personal Loan</option>
+              <option value="Education Loan">Education Loan</option>
+              <option value="Auto Loan">Auto Loan</option>
             </select>
             <select value={band} onChange={e => setBand(e.target.value)} style={filterInputStyle}>
               <option value="">All bands</option>
