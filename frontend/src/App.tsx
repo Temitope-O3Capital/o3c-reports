@@ -168,6 +168,7 @@ const FinancePnL          = lazy(() => import('./pages/finance/PnL'))
 const FinanceManualPost   = lazy(() => import('./pages/finance/ManualPosting'))
 const FinanceCoA          = lazy(() => import('./pages/finance/ChartOfAccounts'))
 const FinanceFDMaturity   = lazy(() => import('./pages/finance/FDMaturity'))
+const FinanceFDAccrual    = lazy(() => import('./pages/finance/FDAccrual'))
 const FinanceCosts        = lazy(() => import('./pages/finance/CostTracking'))
 const FinanceFXRates      = lazy(() => import('./pages/finance/FXRates'))
 const FinanceBudget       = lazy(() => import('./pages/finance/Budget'))
@@ -1051,6 +1052,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/finance/manual-postings"    element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceManualPost /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/gl-accounts"        element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceCoA /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/fd-maturity"        element={<RequireAccess page="fixed_deposit" user={user}><PageErrorBoundary><FinanceFDMaturity /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/fd-accrual"         element={<RequireAccess page="fixed_deposit" user={user}><PageErrorBoundary><FinanceFDAccrual /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/costs"              element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceCosts /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/budget"             element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceBudget /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/fx-rates"           element={<RequireAccess page="fx_rates" user={user}><PageErrorBoundary><FinanceFXRates /></PageErrorBoundary></RequireAccess>} />

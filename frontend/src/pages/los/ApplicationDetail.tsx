@@ -1,9 +1,9 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Page, SectionCard, Tabs, Modal, ConfirmModal, Spinner, Sk,
 } from '../../components/UI'
-import { apiFetch, apiPut, apiPost } from '../../lib/api'
+import { apiFetch, apiPut, apiPost, apiDelete } from '../../lib/api'
 import { fmtKobo, fmtDatetime, fmtDate } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
@@ -379,43 +379,158 @@ function SummaryTab({ app }: { app: Application }) {
 // ── Documents tab ─────────────────────────────────────────────────────────────
 
 const DOC_SLOTS = [
-  { label: 'Government-Issued ID',      icon: 'badge' },
-  { label: 'Latest Payslip',            icon: 'receipt_long' },
-  { label: 'Bank Statement (6 months)', icon: 'account_balance' },
-  { label: 'Employment Offer Letter',   icon: 'description' },
+  { key: 'government_id',      label: 'Government-Issued ID',      icon: 'badge' },
+  { key: 'payslip',            label: 'Latest Payslip',            icon: 'receipt_long' },
+  { key: 'bank_statement',     label: 'Bank Statement (6 months)', icon: 'account_balance' },
+  { key: 'offer_letter',       label: 'Employment Offer Letter',   icon: 'description' },
 ]
 
-function DocumentsTab() {
+interface LosDoc {
+  id:               number
+  application_id:   number
+  doc_type:         string
+  file_name:        string
+  file_url:         string
+  file_size_bytes:  number
+  created_at:       string
+  uploaded_by_name: string | null
+}
+
+function DocumentsTab({ appId }: { appId: number }) {
+  const [docs,       setDocs]       = useState<LosDoc[]>([])
+  const [uploading,  setUploading]  = useState<Record<string, boolean>>({})
+  const [deleting,   setDeleting]   = useState<Record<number, boolean>>({})
+  const fileRefs = useRef<Record<string, HTMLInputElement | null>>({})
+
+  const loadDocs = useCallback(async () => {
+    try {
+      const res = await apiFetch<{ data: LosDoc[] }>(`/api/los/applications/${appId}/documents`)
+      setDocs(Array.isArray(res.data) ? res.data : [])
+    } catch {
+      // silently ignore — tab can still be used
+    }
+  }, [appId])
+
+  useEffect(() => { loadDocs() }, [loadDocs])
+
+  async function handleUpload(docType: string, file: File) {
+    setUploading(u => ({ ...u, [docType]: true }))
+    try {
+      const token = localStorage.getItem('o3c_token') ?? ''
+      const form = new FormData()
+      form.append('file', file)
+      form.append('doc_type', docType)
+      const res = await fetch(`/api/los/applications/${appId}/documents`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Upload failed' }))
+        throw new Error(err.error ?? 'Upload failed')
+      }
+      await loadDocs()
+    } catch (e: any) {
+      alert(e.message ?? 'Upload failed')
+    } finally {
+      setUploading(u => ({ ...u, [docType]: false }))
+      const ref = fileRefs.current[docType]
+      if (ref) ref.value = ''
+    }
+  }
+
+  async function handleDelete(doc: LosDoc) {
+    if (!confirm(`Delete "${doc.file_name}"?`)) return
+    setDeleting(d => ({ ...d, [doc.id]: true }))
+    try {
+      await apiDelete(`/api/los/documents/${doc.id}`)
+      setDocs(ds => ds.filter(d => d.id !== doc.id))
+    } catch (e: any) {
+      alert(e.message ?? 'Delete failed')
+    } finally {
+      setDeleting(d => ({ ...d, [doc.id]: false }))
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {DOC_SLOTS.map(slot => (
-        <div key={slot.label} style={{
-          display: 'flex', alignItems: 'center', gap: 14,
-          padding: '14px 16px', borderRadius: 10,
-          border: '1px solid var(--bdr)', background: 'var(--card)',
-        }}>
-          <div style={{
-            width: 36, height: 36, borderRadius: 9,
-            background: 'var(--chip-bg)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+      {DOC_SLOTS.map(slot => {
+        const uploaded = docs.filter(d => d.doc_type === slot.key)
+        const isUploading = uploading[slot.key]
+
+        return (
+          <div key={slot.key} style={{
+            borderRadius: 10, border: '1px solid var(--bdr)', background: 'var(--card)', overflow: 'hidden',
           }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--txt2)' }}>
-              {slot.icon}
-            </span>
+            {/* Slot header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px' }}>
+              <div style={{
+                width: 34, height: 34, borderRadius: 9, background: 'var(--chip-bg)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--txt2)' }}>{slot.icon}</span>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{slot.label}</div>
+                <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 1 }}>
+                  {uploaded.length === 0 ? 'No file uploaded' : `${uploaded.length} file${uploaded.length > 1 ? 's' : ''}`}
+                </div>
+              </div>
+              <span style={{
+                fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+                background: uploaded.length > 0 ? 'rgba(22,163,74,.12)' : 'rgba(217,119,6,.12)',
+                color: uploaded.length > 0 ? GREEN : AMBER,
+              }}>
+                {uploaded.length > 0 ? 'Uploaded' : 'Pending'}
+              </span>
+            </div>
+
+            {/* Uploaded files */}
+            {uploaded.map(doc => (
+              <div key={doc.id} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 16px', borderTop: '1px solid var(--bdr)',
+                background: 'var(--canvas)',
+              }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 16, color: GREEN }}>check_circle</span>
+                <span style={{ flex: 1, fontSize: 12.5, color: 'var(--txt)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {doc.file_name}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--txt3)', whiteSpace: 'nowrap' }}>
+                  {(doc.file_size_bytes / 1024).toFixed(0)} KB
+                </span>
+                <a href={doc.file_url} target="_blank" rel="noreferrer"
+                  style={{ fontSize: 11.5, color: NAVY, fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                  View
+                </a>
+                <button
+                  onClick={() => handleDelete(doc)}
+                  disabled={deleting[doc.id]}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: RED, padding: 2 }}
+                >
+                  <span className="material-symbols-rounded" style={{ fontSize: 16 }}>delete</span>
+                </button>
+              </div>
+            ))}
+
+            {/* Upload row */}
+            <div style={{ padding: '8px 16px', borderTop: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                ref={el => { fileRefs.current[slot.key] = el }}
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                style={{ flex: 1, fontSize: 12 }}
+                onChange={e => {
+                  const f = e.target.files?.[0]
+                  if (f) handleUpload(slot.key, f)
+                }}
+                disabled={isUploading}
+              />
+              {isUploading && <Spinner size={14} />}
+            </div>
           </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{slot.label}</div>
-            <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 2 }}>No file uploaded</div>
-          </div>
-          <span style={{
-            fontSize: 11.5, fontWeight: 600,
-            padding: '2px 8px', borderRadius: 20,
-            background: 'rgba(217,119,6,.12)', color: AMBER,
-          }}>
-            Pending
-          </span>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -950,7 +1065,7 @@ export default function ApplicationDetail() {
           {activeTab === 'verification'      && <VerificationTab app={app} />}
           {activeTab === 'credit_assessment' && <CreditAssessmentTab app={app} onRefresh={load} />}
           {activeTab === 'bank_details'      && <BankDetailsTab />}
-          {activeTab === 'documents'         && <DocumentsTab />}
+          {activeTab === 'documents'         && <DocumentsTab appId={app.id} />}
           {activeTab === 'approval_chain'    && <ApprovalChainTab app={app} events={events} />}
           {activeTab === 'timeline'          && <TimelineTab events={events} />}
         </div>

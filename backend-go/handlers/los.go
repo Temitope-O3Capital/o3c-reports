@@ -5,8 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -33,6 +37,9 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	r.With(base).Post("/{id}/notes", losAddNote(db))
 	r.With(base).Get("/{id}/events", losGetEvents(db))
 	r.With(base).Put("/{id}/credit-assessment", losSaveCreditAssessment(db))
+	r.With(base).Get("/{id}/documents", losGetDocuments(db))
+	r.With(base).Post("/{id}/documents", losUploadDocument(db))
+	r.With(base).Delete("/documents/{doc_id}", losDeleteDocument(db))
 }
 
 // allowedTransitions maps from_stage → []to_stage
@@ -895,5 +902,142 @@ func losStageToStatus(stage string) string {
 		return "active"
 	default:
 		return "pending"
+	}
+}
+
+// ── LOS Document Upload ────────────────────────────────────────────────────────
+
+func losGetDocuments(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		appID, err := losParseID(r)
+		if err != nil {
+			respondErr(w, 400, "invalid application id"); return
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT d.id, d.application_id, d.doc_type, d.file_name, d.file_url,
+			       d.file_size_bytes, d.created_at,
+			       u.full_name AS uploaded_by_name
+			FROM los_documents d
+			LEFT JOIN o3c_users u ON u.id = d.uploaded_by
+			WHERE d.application_id = $1
+			ORDER BY d.created_at ASC`, appID)
+		if err != nil {
+			respondErr(w, 500, "query failed: "+err.Error()); return
+		}
+		jsonRows(w, rows)
+	}
+}
+
+func losUploadDocument(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		appID, err := losParseID(r)
+		if err != nil {
+			respondErr(w, 400, "invalid application id"); return
+		}
+		user := core.UserFromCtx(r.Context())
+
+		if err := r.ParseMultipartForm(20 << 20); err != nil {
+			respondErr(w, 400, "failed to parse form"); return
+		}
+		docType := r.FormValue("doc_type")
+		if docType == "" {
+			respondErr(w, 400, "doc_type is required"); return
+		}
+
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			respondErr(w, 400, "field 'file' is required"); return
+		}
+		defer file.Close()
+
+		data, err := io.ReadAll(file)
+		if err != nil {
+			respondErr(w, 500, "failed to read file"); return
+		}
+
+		contentType := header.Header.Get("Content-Type")
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+
+		filename := strings.ReplaceAll(header.Filename, " ", "_")
+		uid := fmt.Sprintf("%d", time.Now().UnixNano())
+
+		accountID := os.Getenv("R2_ACCOUNT_ID")
+		bucketName := os.Getenv("R2_BUCKET_NAME")
+		accessKey := os.Getenv("R2_ACCESS_KEY_ID")
+		secretKey := os.Getenv("R2_SECRET_ACCESS_KEY")
+		r2Configured := accountID != "" && bucketName != "" && accessKey != "" && secretKey != ""
+
+		var fileURL, storageKey string
+
+		if r2Configured {
+			storageKey = fmt.Sprintf("los-documents/%d/%s/%s", appID, uid, filename)
+			endpoint := fmt.Sprintf("https://%s.r2.cloudflarestorage.com/%s/%s",
+				accountID, bucketName, storageKey)
+			if err := r2Put(endpoint, accessKey, secretKey, accountID, bucketName, storageKey, contentType, data); err != nil {
+				slog.Warn("losUploadDocument: R2 upload failed", "err", err)
+				respondErr(w, 502, "file upload failed: "+err.Error()); return
+			}
+			publicBase := strings.TrimRight(os.Getenv("R2_PUBLIC_BASE_URL"), "/")
+			if publicBase != "" {
+				fileURL = publicBase + "/" + storageKey
+			} else {
+				fileURL = endpoint
+			}
+		} else {
+			// Local fallback
+			dir := fmt.Sprintf("/tmp/los-documents/%d/%s", appID, uid)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				respondErr(w, 500, "storage error"); return
+			}
+			dest := fmt.Sprintf("%s/%s", dir, filename)
+			if err := os.WriteFile(dest, data, 0644); err != nil {
+				respondErr(w, 500, "write error"); return
+			}
+			storageKey = dest
+			fileURL = fmt.Sprintf("/api/los/documents/file/%d/%s/%s", appID, uid, filename)
+		}
+
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO los_documents
+			    (application_id, doc_type, file_name, file_url, storage_key, file_size_bytes, uploaded_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			RETURNING id, application_id, doc_type, file_name, file_url, file_size_bytes, created_at`,
+			appID, docType, filename, fileURL, storageKey, len(data), user.ID)
+		if err != nil {
+			respondErr(w, 500, "db insert failed: "+err.Error()); return
+		}
+		if len(rows) == 0 {
+			respondErr(w, 500, "insert returned no rows"); return
+		}
+		respond(w, rows[0], "json")
+	}
+}
+
+func losDeleteDocument(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		docID, err := strconv.ParseInt(chi.URLParam(r, "doc_id"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "invalid doc id"); return
+		}
+		user := core.UserFromCtx(r.Context())
+
+		// Allow deleting own uploads or if user has los_all permission.
+		rows, err := db.PGQuery(r.Context(),
+			`SELECT id, uploaded_by FROM los_documents WHERE id = $1`, docID)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "document not found"); return
+		}
+		uploadedBy := toInt64(rows[0]["uploaded_by"])
+		if uploadedBy != user.ID && !user.HasPage("los_all") {
+			respondErr(w, 403, "cannot delete another user's upload"); return
+		}
+
+		if _, err := db.PGExec(r.Context(),
+			`DELETE FROM los_documents WHERE id = $1`, docID); err != nil {
+			respondErr(w, 500, "delete failed: "+err.Error()); return
+		}
+		w.WriteHeader(204)
 	}
 }

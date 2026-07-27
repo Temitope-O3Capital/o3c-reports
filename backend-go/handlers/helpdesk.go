@@ -22,14 +22,17 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/mail"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -1461,6 +1464,22 @@ func hdCSATSubmit(db *core.DB) http.HandlerFunc {
 func hdInboundEmail(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+
+		// Read raw body first so we can verify the HMAC before consuming the multipart stream.
+		rawBody, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(rawBody))
+
+		if verifyKey := os.Getenv("SENDGRID_WEBHOOK_VERIFICATION_KEY"); verifyKey != "" {
+			ts := r.Header.Get("X-Twilio-Email-Event-Webhook-Timestamp")
+			sig := r.Header.Get("X-Twilio-Email-Event-Webhook-Signature")
+			if !verifyInboundWebhookHMAC(verifyKey, ts, sig, rawBody) {
+				w.WriteHeader(401)
+				return
+			}
+		} else {
+			slog.Warn("hdInboundEmail: SENDGRID_WEBHOOK_VERIFICATION_KEY not set; webhook is unauthenticated")
+		}
+
 		r.ParseMultipartForm(10 << 20) //nolint:errcheck
 
 		from := hdFormVal(r, r.MultipartForm, "from")
@@ -1570,6 +1589,18 @@ func hdInboundEmail(db *core.DB) http.HandlerFunc {
 func hdInboundSMS(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+
+		// Verify shared secret when configured.
+		secret := coalesce(os.Getenv("HELPDESK_SMS_WEBHOOK_SECRET"), os.Getenv("SMS_WEBHOOK_SECRET"))
+		if secret != "" {
+			if !checkWebhookToken(r, secret) {
+				w.WriteHeader(401)
+				return
+			}
+		} else {
+			slog.Warn("hdInboundSMS: no webhook secret configured; request proceeding unauthenticated")
+		}
+
 		var data map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
 			w.WriteHeader(200)

@@ -213,35 +213,25 @@ func main() {
 		r.Get("/api/docs/spec", handlers.APISpec())
 	})
 
+	// PG-backed rate limiter for auth endpoints — survives pod restarts.
+	pgRL := newPGLimitCounter(db)
+	ipKey := httprate.WithKeyFuncs(func(r *http.Request) (string, error) { return rightmostIP(r), nil })
+
 	// Mount auth routes (token is public, me/change-password require auth)
 	r.Route("/api/auth", func(r chi.Router) {
-		r.With(httprate.Limit(5, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
-			return rightmostIP(r), nil
-		}))).Post("/token", loginPublic(db))
-		r.With(httprate.Limit(10, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
-			return rightmostIP(r), nil
-		}))).Post("/bootstrap", handlers.BootstrapHandler(db))
-		r.With(httprate.Limit(5, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
-			return rightmostIP(r), nil
-		}))).Post("/register", handlers.RegisterHandler(db))
-		r.With(httprate.Limit(10, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
-			return rightmostIP(r), nil
-		}))).Post("/refresh", RefreshPublic(db))
-		r.With(httprate.Limit(5, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
-			return rightmostIP(r), nil
-		}))).Post("/forgot-password", handlers.ForgotPasswordHandler(db))
+		r.With(httprate.Limit(5, time.Minute, ipKey, httprate.WithLimitCounter(pgRL))).Post("/token", loginPublic(db))
+		r.With(httprate.Limit(10, time.Minute, ipKey)).Post("/bootstrap", handlers.BootstrapHandler(db))
+		r.With(httprate.Limit(5, time.Minute, ipKey)).Post("/register", handlers.RegisterHandler(db))
+		r.With(httprate.Limit(10, time.Minute, ipKey)).Post("/refresh", RefreshPublic(db))
+		r.With(httprate.Limit(5, time.Minute, ipKey, httprate.WithLimitCounter(pgRL))).Post("/forgot-password", handlers.ForgotPasswordHandler(db))
 		if cfg.EnableResetAdmin {
 			r.Post("/reset-admin", handlers.ResetAdminHandler(db, cfg.ResetAdminSecret))
 		}
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
 			r.Get("/me", mePublic())
-			r.With(httprate.Limit(3, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
-				return rightmostIP(r), nil
-			}))).Post("/change-password", changePasswordPublic(db))
-			r.With(httprate.Limit(3, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
-				return rightmostIP(r), nil
-			}))).Post("/force-change-password", forceChangePasswordPublic(db))
+			r.With(httprate.Limit(3, time.Minute, ipKey)).Post("/change-password", changePasswordPublic(db))
+			r.With(httprate.Limit(3, time.Minute, ipKey)).Post("/force-change-password", forceChangePasswordPublic(db))
 			r.Post("/logout", logoutHandler())
 			r.Route("/totp", func(r chi.Router) {
 				handlers.RegisterMFA(r, db)
@@ -250,9 +240,7 @@ func main() {
 	})
 
 	// TOTP MFA challenge (public — called after password step, before full auth token)
-	r.With(httprate.Limit(10, time.Minute, httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
-		return rightmostIP(r), nil
-	}))).Post("/api/auth/totp/challenge", MFAChallengePublic(db))
+	r.With(httprate.Limit(10, time.Minute, ipKey, httprate.WithLimitCounter(pgRL))).Post("/api/auth/totp/challenge", MFAChallengePublic(db))
 
 	// Public FX rates — customer-facing mobile app (no JWT)
 	r.Get("/api/public/fx-rates", handlers.FXRatesLatest(db))

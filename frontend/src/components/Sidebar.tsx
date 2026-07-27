@@ -186,6 +186,7 @@ const SECTIONS: Section[] = [
           { label: 'Income',            to: '/finance/income' },
           { label: 'Fixed Deposits',    to: '/finance/fixed-deposit' },
           { label: 'FD Maturity',       to: '/finance/fd-maturity' },
+          { label: 'FD Accrual',        to: '/finance/fd-accrual' },
           { label: 'EOD / EOB',         to: '/finance/eod' },
           { label: 'P&L',               to: '/finance/pnl' },
           { label: 'Manual Postings',   to: '/finance/manual-postings' },
