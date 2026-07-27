@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import {
   Page, SectionCard, DataTable, ErrBanner, Spinner, Modal,
@@ -400,7 +400,6 @@ export default function WriteoffRequests() {
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState<string | null>(null)
   const [statusTab, setStatusTab]   = useState<StatusFilter>('pending')
-  const [search, setSearch]         = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [reviewing, setReviewing]   = useState<WriteoffRequest | null>(null)
 
@@ -422,16 +421,6 @@ export default function WriteoffRequests() {
   }, [statusTab])
 
   useEffect(() => { load() }, [load])
-
-  const displayed = useMemo(() => {
-    if (!search.trim()) return rows
-    const q = search.toLowerCase()
-    return rows.filter(r =>
-      [r.account_cif, r.writeoff_type, r.reason, r.requested_by_name].some(
-        v => v != null && String(v).toLowerCase().includes(q)
-      )
-    )
-  }, [rows, search])
 
   const STATUS_TABS: { key: StatusFilter; label: string }[] = [
     { key: 'pending',  label: 'Pending' },
@@ -516,7 +505,7 @@ export default function WriteoffRequests() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="" badge={displayed.length} padding={false}>
+      <SectionCard title="" badge={rows.length} padding={false}>
         {/* Status tabs */}
         <div style={{ display: 'flex', gap: 2, padding: '8px 16px', borderBottom: '1px solid var(--bdr)' }}>
           {STATUS_TABS.map(t => (
@@ -537,8 +526,9 @@ export default function WriteoffRequests() {
         </div>
 
         <DataTable
+          key={statusTab}
           cols={cols}
-          rows={displayed}
+          rows={rows}
           keyFn={r => r.id}
           loading={loading}
           skeletonRows={6}

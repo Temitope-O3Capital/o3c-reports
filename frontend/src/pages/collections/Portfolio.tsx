@@ -257,6 +257,7 @@ export default function CollectionsPortfolio() {
               e.stopPropagation()
               const entry = watchlist.find(w => w.account_cif === r.applicant_cif)
               if (entry) { setModal({ type: 'resolve', entry }); setRvStatus('resolved'); setRvNotes('') }
+              else { toast.error('Watchlist entry not found — try refreshing') }
             }}
             style={{
               padding: '4px 10px', borderRadius: RADIUS.sm, cursor: 'pointer',
@@ -455,6 +456,8 @@ export default function CollectionsPortfolio() {
             loading={loading}
             skeletonRows={5}
             pageSize={20}
+            searchKeys={['account_cif', 'scenario', 'notes', 'flagged_by_name']}
+            searchPlaceholder="Search CIF, scenario, notes…"
             emptyText="No accounts on watchlist"
           />
         )}

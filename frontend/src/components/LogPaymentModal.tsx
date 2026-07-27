@@ -52,7 +52,7 @@ export function LogPaymentModal({ open, onClose, title, endpoint, onSuccess }: P
         channel,
         reference: reference.trim() || null,
       })
-      toast.success('Payment logged')
+      toast.success('Payment submitted — pending collections approval')
       reset()
       onSuccess()
     } catch (e: any) {

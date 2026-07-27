@@ -269,12 +269,8 @@ function EscalateTab({ assignmentId, onDone }: { assignmentId: number; onDone: (
     setSaving(true)
     setErr(null)
     try {
-      // Log a contact with escalation outcome — backend logs the action
-      await apiPost(`/api/collections-ops/${assignmentId}/contact`, {
-        contact_type: 'escalation',
-        outcome: 'Escalated to Recovery',
-        notes: reason,
-      })
+      const res = await apiPost<{ case_ref: string }>(`/api/collections-ops/${assignmentId}/send-to-recovery`, { notes: reason })
+      toast.success(`Recovery case ${res?.case_ref ?? ''} created`)
       setReason('')
       setConfirm(false)
       onDone()
@@ -840,6 +836,7 @@ export default function CollectionsQueue() {
       ])
       setAgents(usersRes.data ?? [])
       setItems(queueRes.data ?? [])
+      setSelected(prev => prev ? (queueRes.data ?? []).find(r => r.id === prev.id) ?? null : null)
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load queue')
     } finally {

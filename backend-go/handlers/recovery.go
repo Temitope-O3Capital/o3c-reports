@@ -564,7 +564,22 @@ func recoveryCreateDebtSale(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "sale_price_kobo cannot exceed face_value_kobo")
 			return
 		}
-		rows, err := db.PGQuery(r.Context(), `
+		user := core.UserFromCtx(r.Context())
+		ctx := r.Context()
+
+		tx, txErr := db.PG.BeginTx(ctx, nil)
+		if txErr != nil {
+			respondErr(w, 500, "Transaction start failed")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		var saleID int64
+		var buyerName, saleDate, notes string
+		var accountCount int
+		var faceValueKobo, salePriceKobo, recoveryPostSaleKobo int64
+		var createdAt any
+		if err := tx.QueryRowContext(ctx, `
 			INSERT INTO debt_sales
 			    (buyer_name, sale_date, account_count, face_value_kobo,
 			     sale_price_kobo, recovery_post_sale_kobo, notes)
@@ -574,21 +589,18 @@ func recoveryCreateDebtSale(db *core.DB) http.HandlerFunc {
 			          notes, created_at`,
 			body.BuyerName, body.SaleDate, body.AccountCount,
 			body.FaceValueKobo, body.SalePriceKobo, body.RecoveryPostSaleKobo,
-			nullStr(body.Notes))
-		if err != nil {
+			nullStr(body.Notes)).Scan(
+			&saleID, &buyerName, &saleDate, &accountCount,
+			&faceValueKobo, &salePriceKobo, &recoveryPostSaleKobo,
+			&notes, &createdAt,
+		); err != nil {
 			respondErr(w, 500, "Insert failed")
 			return
 		}
-		if len(rows) == 0 {
-			respondErr(w, 500, "No row returned")
-			return
-		}
 
-		// M3: Post GL entry — debit Cash (sale proceeds in), credit Loan Receivable.
-		user := core.UserFromCtx(r.Context())
-		saleID := toInt64(rows[0]["id"])
+		// Post GL entry atomically with the insert: Dr Cash / Cr Loan Receivable.
 		if body.SalePriceKobo > 0 {
-			if glErr := postJournal(r.Context(), db, glEntry{
+			if glErr := postJournalTx(ctx, tx, glEntry{
 				Date:          time.Now(),
 				Description:   fmt.Sprintf("Debt sale to %s", body.BuyerName),
 				Reference:     fmt.Sprintf("DS-%d", saleID),
@@ -600,17 +612,30 @@ func recoveryCreateDebtSale(db *core.DB) http.HandlerFunc {
 				PostedBy:      user.ID,
 			}); glErr != nil {
 				slog.Error("GL journal post failed for debt sale", "id", saleID, "err", glErr)
+				respondErr(w, 500, "GL entry failed")
+				return
 			}
 		}
 
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed")
+			return
+		}
+
+		row := core.Row{
+			"id": saleID, "buyer_name": buyerName, "sale_date": saleDate,
+			"account_count": accountCount, "face_value_kobo": faceValueKobo,
+			"sale_price_kobo": salePriceKobo, "recovery_post_sale_kobo": recoveryPostSaleKobo,
+			"notes": notes, "created_at": createdAt,
+		}
 		go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
 			EventType: EvtRecoveryDebtSale,
 			Title:     "Debt Sale Recorded",
 			Body:      fmt.Sprintf("Debt sale to %s has been recorded (face value: %d kobo)", body.BuyerName, body.FaceValueKobo),
 			ActionURL: "/recovery/debt-sales",
-			EntityRef: fmt.Sprintf("debt_sale:%v", rows[0]["id"]),
+			EntityRef: fmt.Sprintf("debt_sale:%d", saleID),
 		})
-		respond(w, rows[0], "pg")
+		respond(w, row, "pg")
 	}
 }
 

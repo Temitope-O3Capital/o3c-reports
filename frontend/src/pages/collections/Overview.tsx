@@ -181,7 +181,7 @@ export default function CollectionsOverview() {
         <KpiCard
           label="PAR30 Total"
           value={fmtKobo(kpis?.par30_kobo)}
-          sub="1–30 days past due"
+          sub="31+ days past due"
           icon="warning_amber"
           accent={AMBER}
           loading={kpiLoading}
@@ -189,7 +189,7 @@ export default function CollectionsOverview() {
         <KpiCard
           label="PAR90 Total"
           value={fmtKobo(kpis?.par90_kobo)}
-          sub="91–360 days past due"
+          sub="90+ days past due"
           icon="error_outline"
           accent={RED}
           loading={kpiLoading}
@@ -248,17 +248,14 @@ export default function CollectionsOverview() {
                 <Area
                   type="monotone" dataKey="par30_kobo" name="PAR30"
                   stroke={AMBER} strokeWidth={2} fill="url(#par30Grad)"
-                  stackId="par"
                 />
                 <Area
                   type="monotone" dataKey="par60_kobo" name="PAR60"
                   stroke={RED} strokeWidth={2} fill="url(#par60Grad)"
-                  stackId="par"
                 />
                 <Area
                   type="monotone" dataKey="par90_kobo" name="PAR90"
                   stroke={DARKRED} strokeWidth={2} fill="url(#par90Grad)"
-                  stackId="par"
                 />
               </AreaChart>
             </ResponsiveContainer>

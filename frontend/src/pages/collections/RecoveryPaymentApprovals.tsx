@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import {
   Page, SectionCard, DataTable, ErrBanner, Spinner, Modal,
@@ -166,7 +166,6 @@ export default function RecoveryPaymentApprovals() {
   const [rows, setRows]         = useState<PendingPayment[]>([])
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState<string | null>(null)
-  const [search, setSearch]     = useState('')
   const [reviewing, setReviewing] = useState<PendingPayment | null>(null)
 
   const load = useCallback(async () => {
@@ -182,16 +181,6 @@ export default function RecoveryPaymentApprovals() {
   }, [])
 
   useEffect(() => { load() }, [load])
-
-  const displayed = useMemo(() => {
-    if (!search.trim()) return rows
-    const q = search.toLowerCase()
-    return rows.filter(r =>
-      [r.account_cif, r.channel, r.reference, r.posted_by_name].some(
-        v => v != null && String(v).toLowerCase().includes(q)
-      )
-    )
-  }, [rows, search])
 
   const totalPendingKobo = rows.reduce((s, r) => s + r.amount_kobo, 0)
 
@@ -274,10 +263,10 @@ export default function RecoveryPaymentApprovals() {
         </p>
       </div>
 
-      <SectionCard title="Pending Approvals" badge={displayed.length} padding={false}>
+      <SectionCard title="Pending Approvals" badge={rows.length} padding={false}>
         <DataTable
           cols={cols}
-          rows={displayed}
+          rows={rows}
           keyFn={r => r.id}
           loading={loading}
           skeletonRows={6}

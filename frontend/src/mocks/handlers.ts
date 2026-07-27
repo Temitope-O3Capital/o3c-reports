@@ -329,7 +329,7 @@ const COLLECTIONS = [
   http.get(u('/api/collections-ops/queue'), () => wd(
     Array.from({ length: 20 }, (_, i) => ({
       id: i+1, account_cif: `CIF${String(i+100000).padStart(7,'0')}`,
-      agent_name: pick([name(), null]), dpd_bucket: pick(['1-30','31-60','61-90','90+']),
+      agent_name: pick([name(), null]), dpd_bucket: pick(['1-30','31-60','61-90','91-180','181-360','360+']),
       outstanding_kobo: rng(10,100)*1_000_000_00, current_stage: pick(['initial_call','follow_up','escalated',null]),
       notes: null, last_contact_at: pick([isoDate(rng(1,14)), null]),
       assignment_date: isoDate(rng(7,90)),
@@ -340,7 +340,7 @@ const COLLECTIONS = [
       id: i+1, account_cif: `CIF${String(i+100000).padStart(7,'0')}`,
       customer_name: name(), outstanding_kobo: rng(50,500)*100_000,
       promise_amount_kobo: rng(5,50)*100_000, promise_date: dateStr(rng(-5,14)),
-      status: pick(['pending','kept','broken']), agent_name: name(), created_at: isoDate(rng(1,10)),
+      status: pick(['Pending','Kept','Broken']), agent_name: name(), created_at: isoDate(rng(1,10)),
     }))
   )),
   http.get(u('/api/collections-ops/repayment-plans'), () => wd(
@@ -362,18 +362,19 @@ const COLLECTIONS = [
   http.get(u('/api/collections-ops/repayment-plans/:id/instalments'), () => wd(
     Array.from({ length: 12 }, (_, i) => ({
       id: i+1, instalment_number: i+1, due_date: dateStr(-(i*30)), amount_kobo: 50_000_00,
-      status: i < 3 ? 'paid' : 'due',
+      status: i < 3 ? 'Paid' : i === 3 ? 'Missed' : 'Scheduled',
     }))
   )),
   http.get(u('/api/collections-ops/writeoffs'), () => wd(
     Array.from({ length: 10 }, (_, i) => ({
       id: i+1, account_cif: `CIF${String(i+100000).padStart(7,'0')}`, customer_name: name(),
-      outstanding_kobo: rng(20,200)*1_000_000_00, dpd: rng(90,365),
+      outstanding_kobo: rng(20,200)*1_000_000_00, dpd: rng(90,900),
       last_payment_date: pick([dateStr(rng(30,180)), null]),
       recovery_attempts: rng(2,15),
       recommended_by: name(),
     }))
   )),
+  http.post(u('/api/collections-ops/repayment-plans'), () => ok({ id: rng(100, 999) })),
   http.post(u('/api/collections-ops/writeoffs/bulk-approve'), () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/collections-ops/promises'), () => ok({ id: 99 })),
   http.put(u('/api/collections-ops/promises/:id'),        () => new HttpResponse(null, { status: 204 })),
@@ -384,6 +385,65 @@ const COLLECTIONS = [
   http.get(u('/api/collections/promise-kpis'), () => wd({ total: 247, kept: 138, broken: 64, amount_promised_kobo: 8_420_000_000_00 })),
   http.get(u('/api/collections/repayment-kpis'), () => wd({ active: 86, on_track: 61, behind: 25, monthly_due_kobo: 1_240_000_000_00 })),
   http.get(u('/api/collections/writeoff-kpis'), () => wd({ total: 42, amount_kobo: 3_200_000_000_00, recovery_rate_pct: 18.4, pending: 8 })),
+  // Portfolio page
+  http.get(u('/api/collections/portfolio'), () => wd(
+    Array.from({ length: 30 }, (_, i) => {
+      const dpd_lower = pick([0, 1, 15, 32, 45, 61, 78, 91, 120, 150])
+      const bucket = dpd_lower === 0 ? null : dpd_lower < 31 ? '1-30' : dpd_lower < 61 ? '31-60' : dpd_lower < 91 ? '61-90' : dpd_lower < 181 ? '91-180' : '181-360'
+      const has_wl = i % 5 === 0
+      return {
+        loan_id: i + 1,
+        applicant_cif: `CIF${String(i + 100000).padStart(7, '0')}`,
+        loan_status: pick(['active', 'delinquent', 'in_recovery']),
+        dpd_bucket: bucket,
+        dpd_lower,
+        outstanding_kobo: rng(5, 150) * 1_000_000_00,
+        current_stage: pick(['initial_call', 'follow_up', 'escalated', null]),
+        agent_name: pick([name(), null]),
+        watchlist_id: has_wl ? rng(1, 50) : null,
+        watchlist_scenario: has_wl ? pick(['unreachable', 'legal_threat', 'dispute', 'employer_terminated']) : null,
+      }
+    })
+  )),
+  http.get(u('/api/collections/watchlist'), () => wd(
+    Array.from({ length: 6 }, (_, i) => ({
+      id: i + 1,
+      account_cif: `CIF${String(i + 100000).padStart(7, '0')}`,
+      scenario: pick(['unreachable', 'legal_threat', 'dispute', 'employer_terminated', 'property_risk']),
+      notes: i % 2 === 0 ? 'Multiple contact attempts failed' : null,
+      dpd_at_flag: rng(30, 90),
+      outstanding_kobo: rng(10, 80) * 1_000_000_00,
+      status: 'active',
+      created_at: isoDate(rng(7, 60)),
+      flagged_by_name: name(),
+      resolved_at: null,
+      resolution_notes: null,
+    }))
+  )),
+  http.post(u('/api/collections/watchlist'), () => ok({ id: rng(100, 999) })),
+  http.put(u('/api/collections/watchlist/:id/resolve'), () => new HttpResponse(null, { status: 204 })),
+  // Write-off requests
+  http.get(u('/api/collections-ops/writeoff-requests'), () => wd(
+    Array.from({ length: 8 }, (_, i) => ({
+      id: i + 1,
+      account_cif: `CIF${String(i + 100000).padStart(7, '0')}`,
+      writeoff_type: pick(['full', 'partial_amount', 'percentage', 'principal_only']),
+      reason: pick(['bad_debt', 'deceased', 'fraud', 'natural_disaster', 'regulatory', 'other']),
+      reason_notes: i % 3 === 0 ? 'Customer confirmed deceased by family member' : null,
+      amount_kobo: i % 4 === 1 ? rng(5, 50) * 1_000_000_00 : null,
+      percentage: i % 4 === 2 ? rng(20, 80) : null,
+      outstanding_kobo: rng(10, 200) * 1_000_000_00,
+      status: pick(['pending', 'approved', 'rejected']),
+      review_notes: i < 3 ? null : 'Reviewed and approved per policy',
+      reviewed_at: i < 3 ? null : isoDate(rng(1, 7)),
+      created_at: isoDate(rng(1, 30)),
+      requested_by_name: name(),
+      reviewed_by_name: i < 3 ? null : name(),
+    }))
+  )),
+  http.post(u('/api/collections-ops/writeoff-requests'), () => ok({ id: rng(100, 999) })),
+  http.put(u('/api/collections-ops/writeoff-requests/:id/approve'), () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/collections-ops/writeoff-requests/:id/reject'),  () => new HttpResponse(null, { status: 204 })),
 ]
 
 // ── Recovery ──────────────────────────────────────────────────────────────────
@@ -403,7 +463,10 @@ const RECOVERY = [
     { channel:'TPA',          amount_kobo: 7_400_000_00,  pct: 15 },
   ])),
   http.get(u('/api/recovery/by-agent'), () => wd(
-    Array.from({ length: 8 }, () => ({ agent_name: name(), recovered_kobo: rng(5,40)*1_000_000_00, cases: rng(5,30) }))
+    Array.from({ length: 8 }, () => ({
+      agent_name: name(), recovered_kobo: rng(5,40)*1_000_000_00,
+      case_count: rng(5,30), success_rate_pct: rng(20,80),
+    }))
   )),
   http.get(u('/api/recovery/tpa-agencies'), () => wd(
     Array.from({ length: 6 }, (_, i) => ({
@@ -464,15 +527,15 @@ const RECOVERY = [
   })),
   http.get(u('/api/recovery/debt-sales'), () => ok(
     Array.from({ length: 8 }, (_, i) => ({
-      id: i+1, sale_ref: `DS-2026-${String(i+100).padStart(4,'0')}`,
-      buyer: pick(['AXA Mansard Debt Fund','Cardinal Stone Partners','FBN Capital','Meristem Wealth']),
-      portfolio_size: rng(50,300),
+      id: i+1,
+      buyer_name: pick(['AXA Mansard Debt Fund','Cardinal Stone Partners','FBN Capital','Meristem Wealth']),
+      sale_date: dateStr(rng(10, 180)),
+      account_count: rng(15, 200),
       face_value_kobo: rng(100,500)*1_000_000_00,
       sale_price_kobo: rng(10,40)*1_000_000_00,
-      recovery_rate_pct: rng(8,32),
-      status: pick(['negotiating','agreed','completed','cancelled']),
-      agreed_date: i < 4 ? dateStr(rng(0,30)) : null,
-      completed_date: i < 2 ? dateStr(rng(1,60)) : null,
+      recovery_post_sale_kobo: rng(0,15)*1_000_000_00,
+      notes: i % 3 === 0 ? 'Negotiated below market rate due to portfolio age' : '',
+      created_at: isoDate(rng(10, 180)),
     }))
   )),
   // recovery-ops cases
@@ -515,6 +578,23 @@ const RECOVERY = [
   http.put(u('/api/recovery-ops/cases/:id'), () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/recovery-ops/cases/:id/notes'), () => ok({ id: 1 })),
   http.post(u('/api/recovery-ops/cases/bulk-assign'), () => new HttpResponse(null, { status: 204 })),
+  // Pending payment approvals (RecoveryPaymentApprovals page)
+  http.get(u('/api/recovery-ops/payments/pending'), () => wd(
+    Array.from({ length: 8 }, (_, i) => ({
+      id: i + 1,
+      case_id: rng(1, 20),
+      account_cif: `CIF${String(i + 100000).padStart(7, '0')}`,
+      amount_kobo: rng(5, 100) * 1_000_000_00,
+      payment_date: dateStr(rng(0, 7)),
+      channel: pick(['bank_transfer', 'pos', 'cash', 'mobile_money']),
+      reference: i % 2 === 0 ? `TRF/2026${String(rng(10000, 99999))}` : null,
+      status: 'pending',
+      created_at: isoDate(rng(0, 5)),
+      posted_by_name: name(),
+    }))
+  )),
+  http.put(u('/api/recovery-ops/payments/:id/approve'), () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/recovery-ops/payments/:id/reject'),  () => new HttpResponse(null, { status: 204 })),
 ]
 
 // ── Cards ─────────────────────────────────────────────────────────────────────
@@ -3110,9 +3190,30 @@ const GAP_FILL = [
   http.post(u('/api/campaigns/:id/push-to-telemarketing'), () => ok({ queued: rng(80, 400) })),
 
   // ── Collections-ops — per-case actions ───────────────────────────────────────
-  http.post(u('/api/collections-ops/:id/send-to-recovery'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/collections-ops/:id/send-to-recovery'), () => ok({ case_ref: `RC-2026-${String(rng(100,999)).padStart(4,'0')}` })),
   http.post(u('/api/collections-ops/:id/contact'),          () => ok({ id: rng(100, 999) })),
   http.post(u('/api/collections-ops/:id/promise'),          () => ok({ id: rng(100, 999) })),
+  http.post(u('/api/collections-ops/:id/payment'),          () => ok({ id: rng(100, 999) })),
+  http.get(u('/api/collections-ops/:id/contacts'), () => wd(
+    Array.from({ length: 5 }, (_, i) => ({
+      id: i+1,
+      contact_type: pick(['call','sms','email','visit']),
+      outcome: pick(['reached','not_reached','ptp','broken_ptp']),
+      notes: i % 2 === 0 ? 'Promised to pay by end of week' : null,
+      created_at: isoDate(rng(1,14)),
+      agent_name: name(),
+    }))
+  )),
+  http.get(u('/api/collections-ops/:id/payments'), () => wd(
+    Array.from({ length: 3 }, (_, i) => ({
+      id: i+1,
+      amount_kobo: rng(5,50)*100_000,
+      payment_date: dateStr(rng(1,30)),
+      payment_method: pick(['bank_transfer','pos','cash',null]),
+      reference: i % 2 === 0 ? `TRF/2026${String(rng(1000,9999))}` : null,
+      received_by_name: name(),
+    }))
+  )),
   http.post(u('/api/collections-ops/writeoffs/:id/approve'),          () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/collections-ops/writeoffs/:id/return-recovery'),  () => new HttpResponse(null, { status: 204 })),
 
@@ -3217,8 +3318,8 @@ const GAP_FILL = [
   http.put(u('/api/admin/modules/:key'), () => new HttpResponse(null, { status: 204 })),
 
   // ── Collections-ops — individual assign + repayment instalment ───────────────
-  http.post(u('/api/collections-ops/:id/assign'),                          () => new HttpResponse(null, { status: 204 })),
-  http.post(u('/api/collections-ops/repayment-plans/instalments/:id/paid'), () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/collections-ops/:id/assign'),                          () => new HttpResponse(null, { status: 204 })),
+  http.put(u('/api/collections-ops/repayment-plans/instalments/:id/paid'), () => new HttpResponse(null, { status: 204 })),
 
   // ── Compliance — close finding + deactivate watchlist ────────────────────────
   http.post(u('/api/compliance/findings/:id/close'),          () => new HttpResponse(null, { status: 204 })),

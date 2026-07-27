@@ -34,9 +34,7 @@ func RegisterRecoveryOps(r chi.Router, db *core.DB) {
 	r.With(base).Put("/payments/{pid}/approve", recoveryOpsApprovePayment(db))
 	r.With(base).Put("/payments/{pid}/reject", recoveryOpsRejectPayment(db))
 	r.With(base).Get("/dashboard", recoveryOpsDashboard(db))
-	r.With(base).Get("/agent-dashboard", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, map[string]any{"status": "stub"}, "stub")
-	})
+	r.With(base).Get("/agent-dashboard", recoveryOpsAgentDashboard(db))
 }
 
 func recoveryOpsCases(db *core.DB) http.HandlerFunc {
@@ -140,7 +138,7 @@ func recoveryOpsCaseDetail(db *core.DB) http.HandlerFunc {
 		}
 
 		payments, _ := db.PGQuery(ctx, `
-			SELECT * FROM recovery_payments WHERE case_id = $1 ORDER BY payment_date DESC`, id)
+			SELECT * FROM recovery_payments WHERE case_id = $1 AND status = 'approved' ORDER BY payment_date DESC`, id)
 		proceedings, _ := db.PGQuery(ctx, `
 			SELECT * FROM legal_proceedings WHERE case_id = $1 ORDER BY filing_date DESC`, id)
 		visits, _ := db.PGQuery(ctx, `
@@ -334,7 +332,7 @@ func recoveryOpsApprovePayment(db *core.DB) http.HandlerFunc {
 
 		// Fetch the pending payment
 		pmtRows, err := db.PGQuery(ctx,
-			`SELECT id, case_id, amount_kobo, status FROM recovery_payments WHERE id = $1`, pid)
+			`SELECT id, case_id, amount_kobo, status, posted_by FROM recovery_payments WHERE id = $1`, pid)
 		if err != nil || len(pmtRows) == 0 {
 			respondErr(w, 404, "Payment not found")
 			return
@@ -342,6 +340,12 @@ func recoveryOpsApprovePayment(db *core.DB) http.HandlerFunc {
 		pmt := pmtRows[0]
 		if pmt["status"] != "pending" {
 			respondErr(w, 422, "Payment already processed")
+			return
+		}
+		// Self-approval prevention
+		postedBy, _ := pmt["posted_by"].(int64)
+		if postedBy == user.ID {
+			respondErr(w, 403, "Cannot approve a payment you submitted")
 			return
 		}
 		caseID, _ := pmt["case_id"].(int64)
@@ -696,50 +700,56 @@ func recoveryOpsApproveWriteOff(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Conditional UPDATE: only advances if status still matches what we read (prevents double-approval race).
-		updated, err := db.PGQuery(ctx,
+		// Wrap the status UPDATE (and any final-approval side-effects) in a transaction
+		// so the status never changes without the GL entry being posted.
+		tx, txErr := db.PG.BeginTx(ctx, nil)
+		if txErr != nil {
+			respondErr(w, 500, "Transaction failed")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		var updatedID int64
+		updateErr := tx.QueryRowContext(ctx,
 			fmt.Sprintf(`UPDATE recovery_write_off_approvals
 				SET status = $1, %s = $2, updated_at = NOW()
 				WHERE id = $3 AND status = $4 RETURNING id`, prog.roleCol),
-			prog.next, user.ID, wid, currentStatus)
-		if err != nil {
-			respondErr(w, 500, "Approval failed")
-			return
-		}
-		if len(updated) == 0 {
+			prog.next, user.ID, wid, currentStatus).Scan(&updatedID)
+		if updateErr == sql.ErrNoRows {
 			respondErr(w, 409, "Write-off status changed concurrently — please refresh and try again")
 			return
 		}
+		if updateErr != nil {
+			respondErr(w, 500, "Approval failed")
+			return
+		}
 
-		// If fully approved, stamp the write-off amount on the case and post GL entry.
+		// If fully approved, update the case and post GL entry inside the same transaction.
 		if prog.next == "approved" {
-			tx, txErr := db.PG.BeginTx(ctx, nil)
-			if txErr == nil {
-				defer tx.Rollback() //nolint:errcheck
-				tx.ExecContext(ctx, `
-					UPDATE recovery_cases rc
-					SET write_off_amount_kobo = wa.amount_kobo, status = 'closed', closed_at = NOW(), updated_at = NOW()
-					FROM recovery_write_off_approvals wa
-					WHERE wa.id = $1 AND rc.id = wa.case_id`,
-					wid) //nolint:errcheck
-				postJournalTx(ctx, tx, glEntry{ //nolint:errcheck
-					Date:          time.Now(),
-					Description:   fmt.Sprintf("Loan write-off approved — request %d", wid),
-					Reference:     fmt.Sprintf("WO-%d", wid),
-					DebitAccount:  "6001", // Loan Loss Expense
-					CreditAccount: "1100", // Loan Receivable
-					AmountKobo:    writeOffKobo,
-					SourceType:    "recovery_write_off",
-					SourceID:      wid,
-					PostedBy:      user.ID,
-				})
-				// C4: propagate Commit error — discarding it could silently leave the
-				// case unclosed and the GL entry unposted.
-				if commitErr := tx.Commit(); commitErr != nil {
-					respondErr(w, 500, "Write-off commit failed — please retry")
-					return
-				}
-			}
+			tx.ExecContext(ctx, `
+				UPDATE recovery_cases rc
+				SET write_off_amount_kobo = wa.amount_kobo,
+				    outstanding_kobo      = GREATEST(0, rc.outstanding_kobo - wa.amount_kobo),
+				    status = 'closed', closed_at = NOW(), updated_at = NOW()
+				FROM recovery_write_off_approvals wa
+				WHERE wa.id = $1 AND rc.id = wa.case_id`,
+				wid) //nolint:errcheck
+			postJournalTx(ctx, tx, glEntry{ //nolint:errcheck
+				Date:          time.Now(),
+				Description:   fmt.Sprintf("Loan write-off approved — request %d", wid),
+				Reference:     fmt.Sprintf("WO-%d", wid),
+				DebitAccount:  "5200", // Loan Loss Provision
+				CreditAccount: "1100", // Loan Receivable
+				AmountKobo:    writeOffKobo,
+				SourceType:    "recovery_write_off",
+				SourceID:      wid,
+				PostedBy:      user.ID,
+			})
+		}
+
+		if commitErr := tx.Commit(); commitErr != nil {
+			respondErr(w, 500, "Write-off commit failed — please retry")
+			return
 		}
 
 		respondOK(w, fmt.Sprintf("Write-off advanced to '%s'", prog.next))
@@ -806,5 +816,82 @@ func recoveryOpsDashboard(db *core.DB) http.HandlerFunc {
 		}
 
 		respond(w, result, "pg")
+	}
+}
+
+func recoveryOpsAgentDashboard(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+
+		var assignedCases, closedMTD, callsMTD int
+		var collectedMTD int64
+
+		db.PG.QueryRowContext(ctx, `SELECT COUNT(*) FROM recovery_cases WHERE assigned_agent_id = $1 AND status = 'open'`, user.ID).Scan(&assignedCases)             //nolint:errcheck
+		db.PG.QueryRowContext(ctx, `SELECT COUNT(*) FROM recovery_cases WHERE assigned_agent_id = $1 AND status = 'closed' AND DATE_TRUNC('month', closed_at) = DATE_TRUNC('month', CURRENT_DATE)`, user.ID).Scan(&closedMTD) //nolint:errcheck
+		db.PG.QueryRowContext(ctx, `SELECT COUNT(*) FROM recovery_field_visits WHERE agent_user_id = $1 AND DATE_TRUNC('month', visit_date::date) = DATE_TRUNC('month', CURRENT_DATE)`, user.ID).Scan(&callsMTD)             //nolint:errcheck
+		db.PG.QueryRowContext(ctx, `SELECT COALESCE(SUM(rp.amount_kobo),0) FROM recovery_payments rp JOIN recovery_cases rc ON rc.id = rp.case_id WHERE rc.assigned_agent_id = $1 AND rp.status = 'approved' AND DATE_TRUNC('month', rp.payment_date::date) = DATE_TRUNC('month', CURRENT_DATE)`, user.ID).Scan(&collectedMTD) //nolint:errcheck
+
+		caseRows, _ := db.PGQuery(ctx, `
+			SELECT
+				rc.id, rc.case_ref,
+				COALESCE((SELECT ca.customer_name FROM collection_assignments ca
+				          WHERE ca.account_cif = rc.account_cif
+				          ORDER BY ca.updated_at DESC LIMIT 1), rc.account_cif) AS debtor_name,
+				rc.outstanding_kobo,
+				CAST(REGEXP_REPLACE(COALESCE(rc.dpd_at_handoff,'0'),'\D','','g') AS INT) AS dpd,
+				'' AS next_action, NULL::date AS next_action_date,
+				rc.status
+			FROM recovery_cases rc
+			WHERE rc.assigned_agent_id = $1 AND rc.status = 'open'
+			ORDER BY rc.outstanding_kobo DESC
+			LIMIT 50`, user.ID)
+
+		visitRows, _ := db.PGQuery(ctx, `
+			SELECT
+				v.id, rc.case_ref,
+				COALESCE((SELECT ca.customer_name FROM collection_assignments ca
+				          WHERE ca.account_cif = rc.account_cif
+				          ORDER BY ca.updated_at DESC LIMIT 1), rc.account_cif) AS debtor_name,
+				v.outcome, v.visit_date AS visited_at,
+				COALESCE(v.amount_promised_kobo, 0) AS amount_promised_kobo
+			FROM recovery_field_visits v
+			JOIN recovery_cases rc ON rc.id = v.case_id
+			WHERE v.agent_user_id = $1
+			ORDER BY v.created_at DESC
+			LIMIT 10`, user.ID)
+
+		trendRows, _ := db.PGQuery(ctx, `
+			SELECT
+				TO_CHAR(gs, 'Mon YYYY') AS month,
+				COALESCE(SUM(rp.amount_kobo) FILTER (WHERE rp.status = 'approved'), 0) AS collected,
+				COUNT(DISTINCT v.id)                                                    AS calls
+			FROM GENERATE_SERIES(
+				DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months',
+				DATE_TRUNC('month', CURRENT_DATE),
+				'1 month'
+			) AS gs
+			LEFT JOIN recovery_payments rp
+				ON DATE_TRUNC('month', rp.payment_date::date) = gs
+				AND rp.case_id IN (SELECT id FROM recovery_cases WHERE assigned_agent_id = $1)
+			LEFT JOIN recovery_field_visits v
+				ON DATE_TRUNC('month', v.visit_date::date) = gs
+				AND v.agent_user_id = $1
+			GROUP BY gs
+			ORDER BY gs`, user.ID)
+
+		if caseRows == nil  { caseRows  = []core.Row{} }
+		if visitRows == nil { visitRows = []core.Row{} }
+		if trendRows == nil { trendRows = []core.Row{} }
+
+		respond(w, core.Row{
+			"assigned_cases":            assignedCases,
+			"cases_closed_mtd":          closedMTD,
+			"calls_made_mtd":            callsMTD,
+			"amount_collected_mtd_kobo": collectedMTD,
+			"cases":                     caseRows,
+			"recent_visits":             visitRows,
+			"monthly_trend":             trendRows,
+		}, "pg")
 	}
 }

@@ -75,7 +75,7 @@ func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
 			        WHERE cc.cif_number = ca.account_cif) AS last_contact_at
 			FROM collection_assignments ca
 			LEFT JOIN o3c_users u ON ca.agent_user_id = u.id
-			WHERE 1=1`
+			WHERE ca.status = 'active'`
 		args := []any{}
 		n := 1
 
@@ -435,12 +435,21 @@ func collectionsOpsHonourPromise(db *core.DB) http.HandlerFunc {
 		}
 
 		user := core.UserFromCtx(r.Context())
-		// Scope to promises logged by this agent or by someone the user manages.
-		res, err := db.PGQuery(r.Context(), `
-			UPDATE collection_promises
-			SET is_kept = TRUE, actual_date = CURRENT_DATE
-			WHERE id = $1 AND agent_user_id = $2
-			RETURNING id`, pid, user.ID)
+		var res []core.Row
+		if user.HasPage("collections_assign") {
+			// Supervisors can honour any agent's promise.
+			res, err = db.PGQuery(r.Context(), `
+				UPDATE collection_promises
+				SET is_kept = TRUE, actual_date = CURRENT_DATE
+				WHERE id = $1
+				RETURNING id`, pid)
+		} else {
+			res, err = db.PGQuery(r.Context(), `
+				UPDATE collection_promises
+				SET is_kept = TRUE, actual_date = CURRENT_DATE
+				WHERE id = $1 AND agent_user_id = $2
+				RETURNING id`, pid, user.ID)
+		}
 		if err != nil {
 			respondErr(w, 500, "Update failed")
 			return
@@ -461,9 +470,21 @@ func collectionsOpsBrokenPromise(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		user := core.UserFromCtx(r.Context())
+
 		pRows, _ := db.PGQuery(r.Context(),
 			`SELECT agent_user_id, cif_number, promised_amount_kobo, promised_date
 			 FROM collection_promises WHERE id=$1`, pid)
+		if len(pRows) == 0 {
+			respondErr(w, 404, "Promise not found")
+			return
+		}
+		if !user.HasPage("collections_assign") {
+			if toInt64(pRows[0]["agent_user_id"]) != user.ID {
+				respondErr(w, 403, "Promise does not belong to you")
+				return
+			}
+		}
 
 		_, err = db.PGExec(r.Context(), `
 			UPDATE collection_promises
@@ -624,8 +645,8 @@ func collectionsOpsDashboard(db *core.DB) http.HandlerFunc {
 				WHERE created_at::date = CURRENT_DATE`},
 			{"target_kobo", `
 				SELECT COALESCE(SUM(target_amount_kobo), 0) AS val
-				FROM collection_targets
-				WHERE target_date = CURRENT_DATE`},
+				FROM collections_daily_kpi
+				WHERE kpi_date = CURRENT_DATE`},
 			// PTP Kept Rate: promises resolved this month that were honoured / total resolved
 			{"ptp_kept_rate_pct", `
 				SELECT CASE WHEN COUNT(*) = 0 THEN 0
@@ -634,20 +655,20 @@ func collectionsOpsDashboard(db *core.DB) http.HandlerFunc {
 				FROM collection_promises
 				WHERE is_kept IS NOT NULL
 				  AND DATE_TRUNC('month', actual_date) = DATE_TRUNC('month', CURRENT_DATE)`},
-			// Contact Rate: contacts logged today / total assigned accounts
+			// Contact Rate: contacts logged today / total assigned active accounts
 			{"contact_rate_pct", `
-				SELECT CASE WHEN (SELECT COUNT(*) FROM collection_assignments) = 0 THEN 0
-				            ELSE ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM collection_assignments), 1)
+				SELECT CASE WHEN (SELECT COUNT(*) FROM collection_assignments WHERE status = 'active') = 0 THEN 0
+				            ELSE ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM collection_assignments WHERE status = 'active'), 1)
 				       END AS val
 				FROM collection_contacts
 				WHERE created_at::date = CURRENT_DATE`},
-			// Cure Rate: accounts that moved from DPD>0 to DPD=0 this month
+			// Cure Rate: active accounts currently at DPD 0 / total active accounts
 			{"cure_rate_pct", `
 				SELECT CASE WHEN COUNT(*) = 0 THEN 0
-				            ELSE ROUND(100.0 * SUM(CASE WHEN dpd_bucket = '0' THEN 1 ELSE 0 END) / COUNT(*), 1)
+				            ELSE ROUND(100.0 * COUNT(*) FILTER (WHERE dpd_bucket = '0') / COUNT(*), 1)
 				       END AS val
 				FROM collection_assignments
-				WHERE updated_at >= DATE_TRUNC('month', CURRENT_DATE)`},
+				WHERE status = 'active'`},
 		}
 
 		result := map[string]any{}
@@ -694,7 +715,7 @@ func collectionsOpsSendToRecovery(db *core.DB) http.HandlerFunc {
 		}
 		dpd := str(a["dpd_bucket"])
 
-		// Generate case ref
+		// Generate case ref (NEXTVAL is non-transactional by design)
 		refRows, refErr := db.PGQuery(ctx, `SELECT LPAD(NEXTVAL('sar_ref_seq')::TEXT,6,'0') AS ref`)
 		if refErr != nil || len(refRows) == 0 {
 			respondErr(w, 500, "Failed to generate case reference")
@@ -702,21 +723,35 @@ func collectionsOpsSendToRecovery(db *core.DB) http.HandlerFunc {
 		}
 		caseRef := "RC-" + str(refRows[0]["ref"])
 
-		caseRows, err := db.PGQuery(ctx,
+		tx, txErr := db.PG.BeginTx(ctx, nil)
+		if txErr != nil {
+			respondErr(w, 500, "Failed to start transaction")
+			return
+		}
+
+		var caseID any
+		if err = tx.QueryRowContext(ctx,
 			`INSERT INTO recovery_cases
 			   (case_ref, cif_number, account_cif, outstanding_kobo, source_assignment_id, dpd_at_handoff, status, opened_at, created_at, updated_at)
 			 VALUES ($1,$2,$2,$3,$4,$5,'open',NOW(),NOW(),NOW())
 			 RETURNING id`,
-			caseRef, accountCIF, outstanding, id, dpd)
-		if err != nil {
+			caseRef, accountCIF, outstanding, id, dpd).Scan(&caseID); err != nil {
+			tx.Rollback() //nolint:errcheck
 			respondErr(w, 500, "Failed to create recovery case")
 			return
 		}
-		caseID := caseRows[0]["id"]
 
-		// Close the collection assignment
-		db.PGExec(ctx, //nolint:errcheck
-			`UPDATE collection_assignments SET status='sent_to_recovery', updated_at=NOW() WHERE id=$1`, id)
+		// Close the collection assignment atomically with case creation
+		if _, err = tx.ExecContext(ctx,
+			`UPDATE collection_assignments SET status='sent_to_recovery', updated_at=NOW() WHERE id=$1`, id); err != nil {
+			tx.Rollback() //nolint:errcheck
+			respondErr(w, 500, "Failed to update assignment")
+			return
+		}
+		if err = tx.Commit(); err != nil {
+			respondErr(w, 500, "Failed to commit")
+			return
+		}
 
 		// Notify collections head
 		sendNotification(ctx, db, user.ID, "sent_to_recovery", //nolint:errcheck
@@ -749,21 +784,33 @@ func collectionsOpsAgentDashboard(db *core.DB) http.HandlerFunc {
 		}
 
 		agents, err := db.PGQuery(ctx, fmt.Sprintf(`
+			WITH contacts_today AS (
+				SELECT agent_user_id, COUNT(*) AS cnt
+				FROM collection_contacts
+				WHERE created_at::date = CURRENT_DATE
+				GROUP BY agent_user_id
+			),
+			ptps_today AS (
+				SELECT agent_user_id,
+				       COUNT(*) FILTER (WHERE promised_date = CURRENT_DATE)                  AS cnt,
+				       COUNT(*) FILTER (WHERE is_kept = TRUE AND actual_date = CURRENT_DATE) AS honoured
+				FROM collection_promises
+				GROUP BY agent_user_id
+			)
 			SELECT
 				u.id,
 				u.full_name,
-				COUNT(ca.id)                                                          AS assigned,
-				COUNT(cc.id) FILTER (WHERE cc.created_at::date = CURRENT_DATE)       AS contacts_today,
-				COUNT(cp.id) FILTER (WHERE cp.created_at::date = CURRENT_DATE)       AS ptps_today,
-				COUNT(cp.id) FILTER (WHERE cp.is_kept = TRUE
-					AND cp.actual_date::date = CURRENT_DATE)                          AS ptps_honoured_today,
-				COALESCE(SUM(ca.outstanding_kobo), 0)                                AS portfolio_kobo
+				COUNT(ca.id)                          AS assigned,
+				COALESCE(ct.cnt, 0)                   AS contacts_today,
+				COALESCE(pt.cnt, 0)                   AS ptps_today,
+				COALESCE(pt.honoured, 0)              AS ptps_honoured_today,
+				COALESCE(SUM(ca.outstanding_kobo), 0) AS portfolio_kobo
 			FROM o3c_users u
 			LEFT JOIN collection_assignments ca ON ca.agent_user_id = u.id AND ca.status = 'active'
-			LEFT JOIN collection_contacts   cc ON cc.agent_user_id = u.id
-			LEFT JOIN collection_promises   cp ON cp.agent_user_id = u.id
+			LEFT JOIN contacts_today ct ON ct.agent_user_id = u.id
+			LEFT JOIN ptps_today     pt ON pt.agent_user_id = u.id
 			%s
-			GROUP BY u.id, u.full_name
+			GROUP BY u.id, u.full_name, ct.cnt, pt.cnt, pt.honoured
 			ORDER BY contacts_today DESC, assigned DESC`, agentFilter), args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed"); return
@@ -1015,18 +1062,19 @@ func collectionsOpsMarkPaid(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Plan update failed"); return
 		}
 
-		// Post GL entry: Dr Cash (collections received) / Cr Loans_Receivable.
+		// Post GL entry: Dr Cash (1001) / Cr Loan Receivable (1100).
 		if amountKobo > 0 {
+			iidInt, _ := strconv.ParseInt(iid, 10, 64)
 			ref := fmt.Sprintf("RP-INST-%s", iid)
 			if glErr := postJournalTx(ctx, tx, glEntry{
 				Date:          time.Now(),
 				Description:   fmt.Sprintf("Repayment plan instalment paid - CIF %s", accountCIF),
 				Reference:     ref,
-				DebitAccount:  "cash",
-				CreditAccount: "loans_receivable",
+				DebitAccount:  "1001", // Cash/Bank
+				CreditAccount: "1100", // Loan Receivable
 				AmountKobo:    amountKobo,
 				SourceType:    "repayment_instalment",
-				SourceID:      toInt64(instRows[0]["plan_id"]),
+				SourceID:      iidInt,
 				PostedBy:      user.ID,
 			}); glErr != nil {
 				tx.Rollback() //nolint:errcheck
@@ -1139,12 +1187,15 @@ func collectionsOpsListWriteoffs(db *core.DB) http.HandlerFunc {
 			SELECT
 				wo.id,
 				rc.account_cif,
-				NULL::text                                    AS customer_name,
+				(SELECT ca.customer_name FROM collection_assignments ca
+				 WHERE ca.account_cif = rc.account_cif
+				 ORDER BY ca.updated_at DESC LIMIT 1)         AS customer_name,
 				rc.outstanding_kobo,
 				CAST(REGEXP_REPLACE(COALESCE(rc.dpd_at_handoff,'0'),'\D','','g') AS INT)
 				                                              AS dpd,
-				NULL::date                                    AS last_payment_date,
-				(SELECT COUNT(*) FROM recovery_visits rv WHERE rv.case_id = rc.id)
+				(SELECT MAX(rp.payment_date) FROM recovery_payments rp
+				 WHERE rp.case_id = rc.id AND rp.status = 'approved') AS last_payment_date,
+				(SELECT COUNT(*) FROM recovery_field_visits rfv WHERE rfv.case_id = rc.id)
 				                                              AS recovery_attempts,
 				req.full_name                                 AS recommended_by
 			FROM recovery_write_off_approvals wo
@@ -1208,44 +1259,41 @@ func collectionsOpsApproveWriteoff(db *core.DB) http.HandlerFunc {
 		if txErr != nil {
 			respondErr(w, 500, "Transaction failed"); return
 		}
+		defer tx.Rollback() //nolint:errcheck
 
-		// Lock the row and fetch amount for GL entry.
-		rows, err := db.PGQuery(ctx,
-			`SELECT status, amount_kobo, case_id FROM recovery_write_off_approvals WHERE id=$1`, id)
-		if err != nil || len(rows) == 0 {
-			tx.Rollback() //nolint:errcheck
+		// Lock the row inside the transaction to prevent concurrent approval (TOCTOU).
+		var woStatus string
+		var amountKobo, caseID int64
+		if err = tx.QueryRowContext(ctx,
+			`SELECT status, amount_kobo, case_id FROM recovery_write_off_approvals WHERE id=$1 FOR UPDATE`,
+			id).Scan(&woStatus, &amountKobo, &caseID); err != nil {
 			respondErr(w, 404, "Write-off not found"); return
 		}
-		if str(rows[0]["status"]) != "pending" {
-			tx.Rollback() //nolint:errcheck
+		if woStatus != "pending" {
 			respondErr(w, 422, "Write-off already processed"); return
 		}
-		amountKobo := toInt64(rows[0]["amount_kobo"])
-		caseID := toInt64(rows[0]["case_id"])
 
 		if _, err = tx.ExecContext(ctx,
 			`UPDATE recovery_write_off_approvals
 			 SET status='approved', approved_by=$1, approved_at=NOW()
 			 WHERE id=$2`,
 			user.ID, id); err != nil {
-			tx.Rollback() //nolint:errcheck
 			respondErr(w, 500, "Approve failed"); return
 		}
 
-		// Post GL entry: Dr Bad_Debt_Expense / Cr Loans_Receivable.
+		// Post GL entry: Dr Loan Loss Provision (5200) / Cr Loan Receivable (1100).
 		if amountKobo > 0 {
 			if glErr := postJournalTx(ctx, tx, glEntry{
 				Date:          time.Now(),
 				Description:   fmt.Sprintf("Loan write-off approved — case #%d", caseID),
 				Reference:     fmt.Sprintf("WO-%d", id),
-				DebitAccount:  "bad_debt_expense",
-				CreditAccount: "loans_receivable",
+				DebitAccount:  "5200", // Loan Loss Provision
+				CreditAccount: "1100", // Loan Receivable
 				AmountKobo:    amountKobo,
 				SourceType:    "write_off_approval",
 				SourceID:      id,
 				PostedBy:      user.ID,
 			}); glErr != nil {
-				tx.Rollback() //nolint:errcheck
 				respondErr(w, 500, "GL entry failed"); return
 			}
 		}
@@ -1279,12 +1327,25 @@ func collectionsOpsReturnWriteoff(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Write-off not found"); return
 		}
 
-		// Reject the write-off and reopen the recovery case
-		db.PGExec(ctx, //nolint:errcheck
-			`UPDATE recovery_write_off_approvals SET status='rejected' WHERE id=$1`, id)
-		db.PGExec(ctx, //nolint:errcheck
+		// Reject the write-off and reopen the recovery case atomically.
+		tx, txErr := db.PG.BeginTx(ctx, nil)
+		if txErr != nil {
+			respondErr(w, 500, "Transaction failed"); return
+		}
+		if _, txErr = tx.ExecContext(ctx,
+			`UPDATE recovery_write_off_approvals SET status='rejected' WHERE id=$1`, id); txErr != nil {
+			tx.Rollback() //nolint:errcheck
+			respondErr(w, 500, "Return failed"); return
+		}
+		if _, txErr = tx.ExecContext(ctx,
 			`UPDATE recovery_cases SET status='open', updated_at=NOW() WHERE id=$1`,
-			caseRows[0]["case_id"])
+			caseRows[0]["case_id"]); txErr != nil {
+			tx.Rollback() //nolint:errcheck
+			respondErr(w, 500, "Return failed"); return
+		}
+		if txErr = tx.Commit(); txErr != nil {
+			respondErr(w, 500, "Commit failed"); return
+		}
 
 		respondOK(w, "Returned to recovery")
 	}
@@ -1347,8 +1408,8 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 				Date:          time.Now(),
 				Description:   fmt.Sprintf("Loan write-off approved — case #%d", caseID),
 				Reference:     fmt.Sprintf("WO-%d", woID),
-				DebitAccount:  "bad_debt_expense",
-				CreditAccount: "loans_receivable",
+				DebitAccount:  "5200", // Loan Loss Provision
+				CreditAccount: "1100", // Loan Receivable
 				AmountKobo:    amountKobo,
 				SourceType:    "write_off_approval",
 				SourceID:      woID,
@@ -1400,6 +1461,16 @@ func collectionsOpsCreateWriteoffRequest(db *core.DB) http.HandlerFunc {
 		}
 		if !validTypes[b.WriteoffType] {
 			respondErr(w, 422, "invalid writeoff_type"); return
+		}
+		switch b.WriteoffType {
+		case "partial_amount", "principal_only", "interest_only":
+			if b.AmountKobo <= 0 {
+				respondErr(w, 422, "amount_kobo must be greater than zero for this writeoff_type"); return
+			}
+		case "percentage":
+			if b.Percentage <= 0 || b.Percentage > 100 {
+				respondErr(w, 422, "percentage must be between 0 and 100"); return
+			}
 		}
 		user := core.UserFromCtx(r.Context())
 

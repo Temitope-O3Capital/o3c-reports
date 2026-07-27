@@ -182,7 +182,7 @@ export default function RecoveryAgentDashboard() {
           cols={caseCols}
           rows={displayedCases}
           keyFn={r => r.id}
-          onRowClick={r => navigate(`/recovery-ops/cases/${r.id}`)}
+          onRowClick={() => navigate('/recovery-ops/cases')}
           pageSize={10}
           emptyText="No cases assigned"
         />

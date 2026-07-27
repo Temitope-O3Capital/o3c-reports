@@ -1015,7 +1015,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/collections/writeoffs"            element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsWriteoffs /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/portfolio"            element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPortfolio /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/writeoff-requests"    element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsWoRequests /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/collections/recovery-approvals"   element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsRecoveryPmts /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/recovery-approvals"   element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><CollectionsRecoveryPmts /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Recovery */}
                   <Route path="/recovery"            element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryOverview /></PageErrorBoundary></RequireAccess>} />

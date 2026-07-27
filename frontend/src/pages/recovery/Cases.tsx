@@ -667,6 +667,7 @@ export default function RecoveryCases() {
         apiFetch<{ data: AgentUser[] }>('/api/admin/users'),
       ])
       setCases(casesRes.data ?? [])
+      setSelected(prev => prev ? (casesRes.data ?? []).find(r => r.id === prev.id) ?? null : null)
       setAgents(usersRes.data ?? [])
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load cases')

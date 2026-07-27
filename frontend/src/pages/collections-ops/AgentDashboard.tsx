@@ -51,7 +51,7 @@ const OUTCOMES = [
 
 function dpdColour(bucket: string | null): string {
   if (!bucket) return GREEN
-  if (bucket.startsWith('91') || bucket === '90+') return '#7F1D1D'
+  if (bucket === '91-180' || bucket === '181-360' || bucket === '360+' || bucket === '90+') return '#7F1D1D'
   if (bucket.startsWith('61')) return RED
   if (bucket.startsWith('31')) return '#EA580C'
   if (bucket.startsWith('1'))  return AMBER

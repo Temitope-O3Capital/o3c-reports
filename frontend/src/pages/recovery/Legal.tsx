@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, Fragment } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, filterInputStyle, Spinner, KpiCard, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { FilterGroupDef } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -490,9 +490,8 @@ export default function RecoveryLegal() {
                 </tr>
               ) : (
                 filtered.map(row => (
-                  <>
+                  <Fragment key={row.id}>
                     <tr
-                      key={row.id}
                       onClick={() => toggleExpand(row)}
                       style={{ cursor: 'pointer', borderBottom: '1px solid var(--bdr)' }}
                       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
@@ -530,7 +529,7 @@ export default function RecoveryLegal() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))
               )}
             </tbody>

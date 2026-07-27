@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -496,13 +497,16 @@ func collectionsPortfolioAccounts(db *core.DB) http.HandlerFunc {
 			    COALESCE(ca.outstanding_kobo, la.disbursement_amount_kobo, 0) AS outstanding_kobo,
 			    ca.current_stage,
 			    u.full_name                                          AS agent_name,
-			    (SELECT cw.id FROM collections_watchlist cw
-			     WHERE cw.account_cif = la.applicant_cif AND cw.status = 'active' LIMIT 1) AS watchlist_id,
-			    (SELECT cw.scenario FROM collections_watchlist cw
-			     WHERE cw.account_cif = la.applicant_cif AND cw.status = 'active' LIMIT 1) AS watchlist_scenario
+			    cw.id                                                AS watchlist_id,
+			    cw.scenario                                          AS watchlist_scenario
 			FROM loan_applications la
 			LEFT JOIN collection_assignments ca ON ca.account_cif = la.applicant_cif
 			LEFT JOIN o3c_users u ON u.id = ca.agent_user_id
+			LEFT JOIN LATERAL (
+			    SELECT id, scenario FROM collections_watchlist
+			    WHERE account_cif = la.applicant_cif AND status = 'active'
+			    LIMIT 1
+			) cw ON TRUE
 			WHERE la.status IN ('active','booked')`
 		args := []any{}
 		n := 1
@@ -696,7 +700,7 @@ func collectionsBatchPayment(db *core.DB) http.HandlerFunc {
 				failed++
 				continue
 			}
-			amtKobo := int64(amtNaira * 100)
+			amtKobo := int64(math.Round(amtNaira * 100))
 
 			loanRows, qErr := db.PGQuery(ctx, `
 				SELECT id FROM loan_applications WHERE applicant_cif = $1 AND status IN ('active','booked')
