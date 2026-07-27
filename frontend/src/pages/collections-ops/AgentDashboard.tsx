@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, Spinner, Modal, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
+import { LogPaymentModal } from '../../components/LogPaymentModal'
+import { BatchPaymentModal } from '../../components/BatchPaymentModal'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -85,6 +87,12 @@ export default function AgentDashboard() {
   const [outcome,      setOutcome]      = useState('reached')
   const [notes,        setNotes]        = useState('')
   const [logging,      setLogging]      = useState(false)
+
+  // Log-payment modal
+  const [payRow, setPayRow] = useState<QueueRow | null>(null)
+
+  // Batch payment upload
+  const [batchOpen, setBatchOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
@@ -182,12 +190,20 @@ export default function AgentDashboard() {
     {
       key: 'id', label: '',
       render: r => (
-        <button
-          onClick={() => { setLogRow(r); setContactType('call'); setOutcome('reached'); setNotes('') }}
-          style={{ padding: '4px 11px', borderRadius: RADIUS.sm, border: `1.5px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
-        >
-          Log Contact
-        </button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            onClick={e => { e.stopPropagation(); setLogRow(r); setContactType('call'); setOutcome('reached'); setNotes('') }}
+            style={{ padding: '4px 11px', borderRadius: RADIUS.sm, border: `1.5px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
+          >
+            Log Contact
+          </button>
+          <button
+            onClick={e => { e.stopPropagation(); setPayRow(r) }}
+            style={{ padding: '4px 11px', borderRadius: RADIUS.sm, border: `1.5px solid ${GREEN}40`, background: `${GREEN}0A`, color: GREEN, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
+          >
+            Log Payment
+          </button>
+        </div>
       ),
     },
   ]
@@ -203,7 +219,21 @@ export default function AgentDashboard() {
       title="Collections Agent Dashboard"
       subtitle="Agent performance and account queue"
       actions={
-        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            onClick={() => setBatchOpen(true)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: '6px',
+              border: `1.5px solid ${GREEN}40`, background: `${GREEN}0A`,
+              color: GREEN, fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>upload_file</span>
+            Batch Upload
+          </button>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />
@@ -248,6 +278,21 @@ export default function AgentDashboard() {
           searchPlaceholder="Search CIF, agent, DPD…"
         />
       </SectionCard>
+
+      <BatchPaymentModal
+        open={batchOpen}
+        onClose={() => setBatchOpen(false)}
+        onSuccess={() => { setBatchOpen(false); load() }}
+      />
+
+      {/* Log Payment modal */}
+      <LogPaymentModal
+        open={!!payRow}
+        onClose={() => setPayRow(null)}
+        title={`Log Payment — ${payRow?.account_cif ?? ''}`}
+        endpoint={payRow ? `/api/collections-ops/${payRow.id}/payment` : ''}
+        onSuccess={() => { setPayRow(null); load() }}
+      />
 
       {/* Log Contact modal */}
       <Modal

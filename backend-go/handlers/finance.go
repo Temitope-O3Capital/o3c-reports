@@ -168,9 +168,15 @@ func finPostingsList(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 		if status != "" {
-			where += fmt.Sprintf(" AND status=$%d", n)
-			args = append(args, status)
-			n++
+			parts := strings.Split(status, ",")
+			phs := make([]string, len(parts))
+			for i, p := range parts { phs[i] = fmt.Sprintf("$%d", n+i); args = append(args, strings.TrimSpace(p)) }
+			n += len(parts)
+			if len(parts) == 1 {
+				where += fmt.Sprintf(" AND status=%s", phs[0])
+			} else {
+				where += fmt.Sprintf(" AND status IN (%s)", strings.Join(phs, ","))
+			}
 		}
 		if dateFrom != "" {
 			where += fmt.Sprintf(" AND initiated_at::date >= $%d::date", n); args = append(args, dateFrom); n++
@@ -653,10 +659,26 @@ func finCostsList(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 		if dept != "" {
-			where += fmt.Sprintf(" AND department=$%d", n); args = append(args, dept); n++
+			parts := strings.Split(dept, ",")
+			phs := make([]string, len(parts))
+			for i, p := range parts { phs[i] = fmt.Sprintf("$%d", n+i); args = append(args, strings.TrimSpace(p)) }
+			n += len(parts)
+			if len(parts) == 1 {
+				where += fmt.Sprintf(" AND department=%s", phs[0])
+			} else {
+				where += fmt.Sprintf(" AND department IN (%s)", strings.Join(phs, ","))
+			}
 		}
 		if cat != "" {
-			where += fmt.Sprintf(" AND category=$%d", n); args = append(args, cat); n++
+			parts := strings.Split(cat, ",")
+			phs := make([]string, len(parts))
+			for i, p := range parts { phs[i] = fmt.Sprintf("$%d", n+i); args = append(args, strings.TrimSpace(p)) }
+			n += len(parts)
+			if len(parts) == 1 {
+				where += fmt.Sprintf(" AND category=%s", phs[0])
+			} else {
+				where += fmt.Sprintf(" AND category IN (%s)", strings.Join(phs, ","))
+			}
 		}
 		if dateFrom != "" {
 			where += fmt.Sprintf(" AND entry_date >= $%d::date", n); args = append(args, dateFrom); n++
@@ -1113,7 +1135,15 @@ func finIncomeFeeTypes(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 		if feeType != "" {
-			where += fmt.Sprintf(" AND fee_type=$%d", n); args = append(args, feeType); n++
+			parts := strings.Split(feeType, ",")
+			phs := make([]string, len(parts))
+			for i, p := range parts { phs[i] = fmt.Sprintf("$%d", n+i); args = append(args, strings.TrimSpace(p)) }
+			n += len(parts)
+			if len(parts) == 1 {
+				where += fmt.Sprintf(" AND fee_type=%s", phs[0])
+			} else {
+				where += fmt.Sprintf(" AND fee_type IN (%s)", strings.Join(phs, ","))
+			}
 		}
 		if dateFrom != "" {
 			where += fmt.Sprintf(" AND fee_date>=$%d::date", n); args = append(args, dateFrom); n++

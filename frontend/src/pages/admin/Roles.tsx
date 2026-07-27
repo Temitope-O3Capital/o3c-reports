@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, DataTable, ErrBanner, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import { Page, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { monthStart, today } from '../../lib/fmt'
@@ -290,7 +290,13 @@ export default function AdminRoles() {
 
   useEffect(() => { load() }, [load])
 
-  const displayed = roles
+  const [roleSearch, setRoleSearch] = useState('')
+
+  const displayed = useMemo(() =>
+    roleSearch
+      ? roles.filter(r => r.name.toLowerCase().includes(roleSearch.toLowerCase()) || (r.label ?? '').toLowerCase().includes(roleSearch.toLowerCase()))
+      : roles
+  , [roles, roleSearch])
 
   const COLS: TableCol<Role>[] = [
     { key: 'name', label: 'Role',
@@ -338,7 +344,16 @@ export default function AdminRoles() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="All Roles" badge={roles.length} padding={false} actions={<button onClick={() => exportRolesCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="All Roles" badge={displayed.length} padding={false} actions={<button onClick={() => exportRolesCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+        <ExpandableFilterBar
+          search={roleSearch}
+          onSearch={setRoleSearch}
+          groups={[]}
+          onReset={() => setRoleSearch('')}
+          resultCount={displayed.length}
+          totalCount={roles.length}
+          placeholder="Search roles…"
+        />
         <DataTable
           cols={COLS}
           rows={displayed}
@@ -346,8 +361,6 @@ export default function AdminRoles() {
           loading={loading}
           emptyText="No roles found"
           onRowClick={r => setEditing(r)}
-          searchKeys={['name', 'label']}
-          searchPlaceholder="Search roles…"
           pageSize={20}
         />
       </SectionCard>

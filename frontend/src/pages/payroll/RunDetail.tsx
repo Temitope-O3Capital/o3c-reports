@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, SectionCard, DataTable, ExpandableFilterBar,
   ConfirmModal, ErrBanner, Spinner, btnPrimary, StatusBadge, NameCell, ActionRow,
 } from '../../components/UI'
-import type { TableCol, RowAction } from '../../components/UI'
+import type { TableCol, RowAction, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, NUM } from '../../lib/design'
@@ -132,13 +132,15 @@ export default function RunDetail() {
   const [items, setItems] = useState<PayrollItem[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
-  const [deptFilter, setDeptFilter] = useState('')
-
   // Action states
   const [submitOpen, setSubmitOpen] = useState(false)
   const [approveOpen, setApproveOpen] = useState(false)
   const [payOpen, setPayOpen] = useState(false)
   const [actioning, setActioning] = useState(false)
+
+  // Dept filter
+  const [fDepts, setFDepts] = useState(new Set<string>())
+  const [itemSearch, setItemSearch] = useState('')
 
   // C6: Payslip modal state
   const [payslip, setPayslip] = useState<PayslipData | null>(null)
@@ -194,7 +196,14 @@ export default function RunDetail() {
 
   // Filter by department
   const depts = [...new Set(items.map(i => i.department ?? '').filter(Boolean))]
-  const filtered = deptFilter ? items.filter(i => i.department === deptFilter) : items
+  const filtered = useMemo(() => items.filter(i => {
+    if (fDepts.size && !fDepts.has(i.department ?? '')) return false
+    if (itemSearch) {
+      const q = itemSearch.toLowerCase()
+      return (i.employee_name ?? '').toLowerCase().includes(q) || (i.staff_id ?? '').toLowerCase().includes(q) || (i.department ?? '').toLowerCase().includes(q)
+    }
+    return true
+  }), [items, fDepts, itemSearch])
 
   // Totals row (filtered)
   const totals = filtered.reduce((acc, i) => ({
@@ -319,17 +328,19 @@ export default function RunDetail() {
       <SectionCard
         title="Payroll Items"
         badge={filtered.length}
-        subtitle={deptFilter ? `Showing ${deptFilter} only` : 'All departments'}
         padding={false}
-        actions={
-          <FilterBar onReset={() => setDeptFilter('')}>
-            <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={filterInputStyle}>
-              <option value="">All Departments</option>
-              {depts.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </FilterBar>
-        }
       >
+        <ExpandableFilterBar
+          search={itemSearch}
+          onSearch={setItemSearch}
+          groups={[
+            { key: 'dept', label: 'Department', options: depts.map(d => ({ value: d })), selected: fDepts, onChange: setFDepts },
+          ] as FilterGroupDef[]}
+          onReset={() => { setItemSearch(''); setFDepts(new Set()) }}
+          resultCount={filtered.length}
+          totalCount={items.length}
+          placeholder="Search employees…"
+        />
         <DataTable<PayrollItem>
           cols={cols}
           rows={filtered}

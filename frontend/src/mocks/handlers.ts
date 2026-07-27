@@ -332,6 +332,7 @@ const COLLECTIONS = [
       agent_name: pick([name(), null]), dpd_bucket: pick(['1-30','31-60','61-90','90+']),
       outstanding_kobo: rng(10,100)*1_000_000_00, current_stage: pick(['initial_call','follow_up','escalated',null]),
       notes: null, last_contact_at: pick([isoDate(rng(1,14)), null]),
+      assignment_date: isoDate(rng(7,90)),
     }))
   )),
   http.get(u('/api/collections-ops/promises'), () => wd(
@@ -339,29 +340,38 @@ const COLLECTIONS = [
       id: i+1, account_cif: `CIF${String(i+100000).padStart(7,'0')}`,
       customer_name: name(), outstanding_kobo: rng(50,500)*100_000,
       promise_amount_kobo: rng(5,50)*100_000, promise_date: dateStr(rng(-5,14)),
-      status: pick(['pending','kept','broken']), officer_name: name(), created_at: isoDate(rng(1,10)),
+      status: pick(['pending','kept','broken']), agent_name: name(), created_at: isoDate(rng(1,10)),
     }))
   )),
   http.get(u('/api/collections-ops/repayment-plans'), () => wd(
-    Array.from({ length: 15 }, (_, i) => ({
-      id: i+1, account_cif: `CIF${String(i+100000).padStart(7,'0')}`, customer_name: name(),
-      plan_ref: `RP-2026-${i+100}`, installment_kobo: rng(10,100)*100_000,
-      frequency: pick(['monthly','weekly','bi_weekly']), status: pick(['active','completed','defaulted']),
-      start_date: dateStr(rng(1,90)), next_payment_date: dateStr(rng(-5,30)),
-      installments_paid: rng(0,12), total_installments: 12,
-    }))
+    Array.from({ length: 15 }, (_, i) => {
+      const instalment_count = 12
+      const paid_count = rng(0, instalment_count)
+      const instalment_kobo = rng(10,100)*100_000
+      return {
+        id: i+1, account_cif: `CIF${String(i+100000).padStart(7,'0')}`, customer_name: name(),
+        total_kobo: instalment_kobo * instalment_count,
+        paid_kobo:  instalment_kobo * paid_count,
+        instalment_count, paid_count,
+        status: pick(['Active','Completed','Defaulted']),
+        next_payment_date: dateStr(rng(-5,30)),
+        agent_name: name(),
+      }
+    })
   )),
   http.get(u('/api/collections-ops/repayment-plans/:id/instalments'), () => wd(
     Array.from({ length: 12 }, (_, i) => ({
-      id: i+1, due_date: dateStr(-(i*30)), amount_kobo: 50_000_00,
-      status: i < 3 ? 'paid' : 'due', paid_at: i < 3 ? isoDate(i*30) : null,
+      id: i+1, instalment_number: i+1, due_date: dateStr(-(i*30)), amount_kobo: 50_000_00,
+      status: i < 3 ? 'paid' : 'due',
     }))
   )),
   http.get(u('/api/collections-ops/writeoffs'), () => wd(
     Array.from({ length: 10 }, (_, i) => ({
       id: i+1, account_cif: `CIF${String(i+100000).padStart(7,'0')}`, customer_name: name(),
       outstanding_kobo: rng(20,200)*1_000_000_00, dpd: rng(90,365),
-      status: pick(['pending','approved','rejected']), requested_by: name(), requested_at: isoDate(rng(1,14)),
+      last_payment_date: pick([dateStr(rng(30,180)), null]),
+      recovery_attempts: rng(2,15),
+      recommended_by: name(),
     }))
   )),
   http.post(u('/api/collections-ops/writeoffs/bulk-approve'), () => new HttpResponse(null, { status: 204 })),
@@ -397,25 +407,58 @@ const RECOVERY = [
   )),
   http.get(u('/api/recovery/tpa-agencies'), () => wd(
     Array.from({ length: 6 }, (_, i) => ({
-      id: i+1, name: pick(['DebtBusters NG','Swift Recovery','Eagle Collections','Apex Debt']),
-      status: 'active', cases_assigned: rng(10,40), recovered_kobo: rng(5,30)*1_000_000_00,
-      commission_pct: pick([8,10,12,15]), contact_name: name(), phone: `080${rng(10000000,99999999)}`,
+      id: i+1,
+      name: ['DebtBusters NG','Swift Recovery Ltd','Eagle Collections','Apex Debt Management','First Recovery Partners','Capital Collections'][i],
+      licence_number: `CBN/TPA/${String(2024000 + i * 117).padStart(7,'0')}`,
+      address: `${rng(1,80)} Broad Street, Lagos Island`,
+      commission_pct: pick([8,10,12,15]),
+      contact_name: name(),
+      contact_phone: `080${rng(10000000,99999999)}`,
+      accounts_assigned: rng(10,40),
+      recovered_kobo: rng(5,30)*1_000_000_00,
+      commission_accrued_kobo: rng(1,8)*1_000_000_00,
+      active: i < 5,
     }))
   )),
   http.post(u('/api/recovery/tpa-agencies'), () => ok({ id: 99 })),
   http.put(u('/api/recovery/tpa-agencies/:id'), () => new HttpResponse(null, { status: 204 })),
-  http.get(u('/api/recovery/tpa-agencies/:id/accounts'),    () => wd([])),
-  http.get(u('/api/recovery/tpa-agencies/:id/performance'), () => wd({ recovered_kobo: 12_000_000_00, cases: 18, rate_pct: 42 })),
-  http.get(u('/api/recovery/legal'), () => wd(
-    Array.from({ length: 8 }, (_, i) => ({
-      id: i+1, case_ref: `LE-2026-${i+100}`, customer_name: name(),
-      outstanding_kobo: rng(50,500)*1_000_000_00, account_cif: `CIF${i+100000}`,
-      court: pick(['Lagos High Court','FCT High Court']),
-      status: pick(['pending','active','judgment','closed']),
-      lawyer: name(), hearing_date: dateStr(rng(-30,60)), filed_date: dateStr(rng(30,180)),
+  http.get(u('/api/recovery/tpa-agencies/:id/accounts'), () => wd(
+    Array.from({ length: 10 }, (_, i) => ({
+      account_cif: `CIF${String(i+100000).padStart(7,'0')}`,
+      outstanding_kobo: rng(5,80)*1_000_000_00,
+      stage: pick(['initial_contact','field_visit','negotiation','promise_to_pay']),
+      days_assigned: rng(7,90),
     }))
   )),
-  http.get(u('/api/recovery/cases/:id/legal-milestones'), () => wd([])),
+  http.get(u('/api/recovery/tpa-agencies/:id/performance'), () => wd({
+    total_recovered_kobo: 18_400_000_00,
+    success_rate_pct: 42.6,
+    monthly: ['Jan','Feb','Mar','Apr','May','Jun'].map((m, i) => ({
+      month: m, amount_kobo: rng(2,8)*1_000_000_00,
+    })),
+  })),
+  http.get(u('/api/recovery/legal'), () => wd(
+    Array.from({ length: 8 }, (_, i) => ({
+      id: i+1,
+      case_id: rng(100,999),
+      account_cif: `CIF${String(i+100000).padStart(7,'0')}`,
+      customer_name: name(),
+      outstanding_kobo: rng(50,500)*1_000_000_00,
+      current_milestone: pick(['Demand Letter','Pre-Litigation','Court Filing','Hearing','Judgment','Enforcement']),
+      solicitor: name(),
+      next_court_date: dateStr(rng(-30,60)),
+      days_in_legal: rng(30,360),
+    }))
+  )),
+  http.get(u('/api/recovery/cases/:id/legal-milestones'), () => wd(
+    Array.from({ length: 4 }, (_, i) => ({
+      id: i+1,
+      milestone_type: ['Demand Letter','Pre-Litigation','Court Filing','Hearing'][i],
+      milestone_date: dateStr(-(i * 30)),
+      notes: i === 0 ? 'Demand letter sent via registered post' : i === 1 ? 'Pre-litigation meeting scheduled' : null,
+      completed: i < 2,
+    }))
+  )),
   http.get(u('/api/recovery/legal-kpis'), () => wd({
     total_cases: 38, active: 24, won: 7, total_debt_recovered_kobo: 142_500_000_00,
   })),
@@ -439,15 +482,34 @@ const RECOVERY = [
       account_cif: `CIF${String(i+100000).padStart(7,'0')}`,
       assigned_agent_id: rng(1,8), agent_name: name(),
       legal_stage: pick(['initial_call','field_visit','legal',null]),
-      outstanding_kobo: rng(10,100)*1_000_000_00, recovered_kobo: rng(0,20)*1_000_000_00,
-      dpd: rng(90,400), last_contact_at: pick([isoDate(rng(0,14)), null]),
+      outstanding_kobo: rng(10,100)*1_000_000_00,
+      recovered_kobo: rng(0,20)*1_000_000_00,
+      write_off_amount_kobo: 0,
       status: pick(['active','closed','legal']),
+      opened_at: isoDate(rng(30,180)),
+      updated_at: isoDate(rng(0,14)),
     }))
   )),
-  http.get(u('/api/recovery-ops/cases/:id'), () => ok({
-    id: 1, case_ref: 'RC-2026-0001', account_cif: 'CIF1000001', agent_name: name(),
-    outstanding_kobo: 25_000_000_00, recovered_kobo: 4_000_000_00, dpd: 120,
-    notes: [], visits: [], calls: [],
+  http.get(u('/api/recovery-ops/cases/:id'), () => wd({
+    case: {
+      id: 1, case_ref: 'RC-2026-0001', account_cif: 'CIF1000001',
+      assigned_agent_id: 2, agent_name: 'Chidi Okeke',
+      legal_stage: 'field_visit', outstanding_kobo: 25_000_000_00,
+      recovered_kobo: 4_000_000_00, write_off_amount_kobo: 0,
+      status: 'active', opened_at: isoDate(90), updated_at: isoDate(2),
+    },
+    payments: [
+      { id: 1, amount_kobo: 2_000_000_00, payment_date: dateStr(30), channel: 'bank_transfer', reference: 'TRF/20260524/001' },
+      { id: 2, amount_kobo: 2_000_000_00, payment_date: dateStr(10), channel: 'pos', reference: null },
+    ],
+    visits: [
+      { id: 1, visit_date: dateStr(20), visit_type: 'field_visit', outcome: 'Promise to pay ₦2m by end of month', notes: 'Debtor was present — agreed to instalment plan', agent_name: 'Chidi Okeke' },
+      { id: 2, visit_date: dateStr(5),  visit_type: 'phone_call',  outcome: 'Reached — confirmed payment plan', agent_name: 'Chidi Okeke' },
+    ],
+    proceedings: [
+      { id: 1, proceeding_type: 'Demand Letter', court_name: null, filing_date: dateStr(60), status: 'sent' },
+    ],
+    write_off_approval: null,
   })),
   http.post(u('/api/recovery-ops/cases'), () => ok({ id: 99 })),
   http.put(u('/api/recovery-ops/cases/:id'), () => new HttpResponse(null, { status: 204 })),
@@ -1318,44 +1380,65 @@ const HELPDESK = [
 
 // ── BD ────────────────────────────────────────────────────────────────────────
 
+const BD_EMPLOYER_NAMES = ['Shell Nigeria','MTN Nigeria','Dangote Group','First Bank','NNPC Ltd','Unilever Nigeria','Guinness Nigeria','NB Plc','Nestle Nigeria','GTBank','Zenith Bank','Flour Mills Nigeria','PZ Cussons','Lafarge Africa','Julius Berger']
 const BD_EMPLOYERS = Array.from({ length: 20 }, (_, i) => ({
-  id: i+1, name: pick(['Shell Nigeria','MTN','Dangote','First Bank','NNPC','Unilever','Guinness','NB Plc']),
-  sector: pick(['Oil & Gas','Telecoms','FMCG','Banking','Manufacturing']),
-  staff_count: rng(50,5000), active_loans: rng(10,200),
+  id: i+1,
+  name: BD_EMPLOYER_NAMES[i % BD_EMPLOYER_NAMES.length],
+  rc_number: `RC${(100000 + i * 7231).toString()}`,
+  sector: pick(['Oil & Gas','Telecoms','FMCG','Banking','Manufacturing','Construction']),
+  staff_count: rng(50,5000),
+  active_loans: rng(10,200),
   loan_book_kobo: rng(20,400)*1_000_000_00,
   mou_status: pick(['signed','pending','expired','none']),
-  mou_signed_date: dateStr(rng(60,365)), mou_expiry_date: dateStr(rng(-30,180)),
-  contact_name: name(), contact_email: `bd${i}@employer.ng`, state: pick(STATES),
+  mou_signed_date: dateStr(rng(60,365)),
+  mou_expiry_date: dateStr(rng(-30,180)),
+  contact_name: name(),
+  contact_email: `bd${i}@employer.ng`,
+  contact_phone: `080${rng(10000000,99999999)}`,
+  address: `${rng(1,200)} Broad Street, Lagos Island`,
+  state: pick(STATES),
   joined_date: dateStr(rng(100,900)),
+  created_at: isoDate(rng(100,900)),
 }))
 
+const BD_LEAD_COMPANIES = ['Flour Mills Nigeria','Nestle Nigeria','7-Up Bottling','Cadbury Nigeria','PZ Cussons','TOTAL Energies','Dangote Cement','GTBank Staff','Zenith Bank Staff','UBA Employees','Access Bank','MTN Staff']
 const BD_LEADS = Array.from({ length: 20 }, (_, i) => ({
   id: i+1,
-  company_name: pick(['Flour Mills Nigeria','Nestle Nigeria','7-Up Bottling','Cadbury Nigeria','PZ Cussons','TOTAL Energies']),
-  contact_name: name(), contact_phone: `080${rng(10000000,99999999)}`,
-  sector: pick(['FMCG','Manufacturing','Healthcare','Education','Logistics']),
+  title: pick(['Salary Earner Loan Scheme','Corporate Payroll Finance','Working Capital Credit','Asset Finance Deal','SME Business Loan']),
+  entity_type: pick(['company','individual_at_company','individual']),
+  company_name: BD_LEAD_COMPANIES[i % BD_LEAD_COMPANIES.length],
+  employer_name: BD_EMPLOYER_NAMES[i % BD_EMPLOYER_NAMES.length],
+  contact_name: name(),
+  contact_phone: `080${rng(10000000,99999999)}`,
+  contact_email: `lead${i}@company.ng`,
+  sector: pick(['FMCG','Manufacturing','Healthcare','Education','Logistics','Banking']),
   lead_type: pick(['corporate','sme','government']),
-  stage: pick(['prospecting','presentation','proposal','negotiation','won','lost']),
-  employee_count: rng(50,2000), potential_value_kobo: rng(50,500)*1_000_000_00,
-  assigned_name: name(), updated_at: isoDate(rng(0,14)), created_at: isoDate(rng(1,60)),
+  stage: pick(['prospect','qualified','proposal','negotiation','won','lost']),
+  lead_score: rng(40,95),
+  employee_count: rng(50,2000),
+  potential_value_kobo: rng(50,500)*1_000_000_00,
+  assigned_name: name(),
+  notes: i % 3 === 0 ? 'Follow-up scheduled for end of month' : null,
+  updated_at: isoDate(rng(0,14)),
+  created_at: isoDate(rng(1,180)),
 }))
 
 const BD = [
-  http.get(u('/api/bd/stats'), () => ok({
+  http.get(u('/api/bd/stats'), () => wd({
     pipeline: [
-      { stage:'prospecting',  count: 42, total_value_kobo: 420_000_000_00 },
-      { stage:'presentation', count: 28, total_value_kobo: 280_000_000_00 },
-      { stage:'proposal',     count: 18, total_value_kobo: 180_000_000_00 },
-      { stage:'negotiation',  count: 9,  total_value_kobo: 90_000_000_00 },
-      { stage:'won',          count: 14, total_value_kobo: 140_000_000_00 },
-      { stage:'lost',         count: 6,  total_value_kobo: 60_000_000_00 },
+      { stage:'prospect',    count: 42, total_value_kobo: 420_000_000_00 },
+      { stage:'qualified',   count: 28, total_value_kobo: 280_000_000_00 },
+      { stage:'proposal',    count: 18, total_value_kobo: 180_000_000_00 },
+      { stage:'negotiation', count: 9,  total_value_kobo: 90_000_000_00 },
+      { stage:'won',         count: 14, total_value_kobo: 140_000_000_00 },
+      { stage:'lost',        count: 6,  total_value_kobo: 60_000_000_00 },
     ],
     employers: { active: 84, mou_signed: 61, mou_expiring: 8 },
   })),
-  http.get(u('/api/bd/employers'), () => ok(BD_EMPLOYERS)),
+  http.get(u('/api/bd/employers'), () => wd(BD_EMPLOYERS)),
   http.post(u('/api/bd/employers'), () => ok({ id: 99 })),
   http.put(u('/api/bd/employers/:id'), () => new HttpResponse(null, { status: 204 })),
-  http.get(u('/api/bd/leads'), () => ok(BD_LEADS)),
+  http.get(u('/api/bd/leads'), () => wd(BD_LEADS)),
   http.post(u('/api/bd/leads'), () => ok({ id: 99 })),
   http.put(u('/api/bd/leads/:id'), () => new HttpResponse(null, { status: 204 })),
   http.get(u('/api/bd/pipeline-kpis'), () => wd({ total_leads: 117, this_month: 24, conversion_rate_pct: 11.97, avg_deal_kobo: 148_000_000_00 })),
@@ -2269,19 +2352,17 @@ const ADMIN_EXTRA = [
 // ── Collections-ops — Agent Dashboard ────────────────────────────────────────
 
 const COLLECTIONS_EXTRA = [
-  http.get(u('/api/collections-ops/agent-dashboard'), () => ok({
-    agent_name: 'Temitope Posi',
-    queue_count: 24, ptps_due_today: 8, broken_ptps: 3, calls_today: 12, calls_target: 30,
-    dpd_distribution: [
-      { band:'1-30', count: 8 }, { band:'31-60', count: 7 },
-      { band:'61-90', count: 5 }, { band:'90+', count: 4 },
-    ],
-    my_accounts: Array.from({ length: 12 }, (_, i) => ({
-      id: i+1, customer_name: name(), phone: `080${rng(10000000,99999999)}`,
-      outstanding_kobo: rng(10,100)*1_000_000_00, dpd: rng(1,120),
-      last_contact: pick([isoDate(rng(1,14)), null]), next_action: pick(['Follow-up call','Send reminder','Escalate', null]),
-    })),
-  })),
+  http.get(u('/api/collections-ops/agent-dashboard'), () => wd(
+    Array.from({ length: 10 }, (_, i) => ({
+      id: i+1,
+      full_name: name(),
+      assigned: rng(15,60),
+      contacts_today: rng(0,20),
+      ptps_today: rng(0,8),
+      ptps_honoured_today: rng(0,5),
+      portfolio_kobo: rng(20,120)*1_000_000_00,
+    }))
+  )),
   http.post(u('/api/collections-ops/log-call'), () => new HttpResponse(null, { status: 204 })),
 ]
 
@@ -2705,35 +2786,96 @@ const CONTACTS_EXTRA = [
   // CRM contact 360 — used by existing ContactDetail page
   http.get(u('/api/crm/contacts/:id/360'), ({ params }) => {
     const n = name()
+    const [fn, ln] = n.split(' ')
     return ok({
-      id: Number(params.id), name: n, full_name: n,
-      phone: `080${rng(10000000,99999999)}`,
-      email: `${n.toLowerCase().replace(' ','.')}@example.ng`,
-      status: pick(['prospect','qualified','customer']),
-      assigned_to: name(),
-      company: pick(['MTN Nigeria','Dangote Group','Shell Nigeria','FirstBank',null]),
-      created_at: isoDate(rng(30,180)),
-      notes: pick(['Interested in salary loan product', 'Already has an active loan', null]),
-      deals: Array.from({ length: rng(0,2) }, (_, i) => ({
-        id: i+1, title: `${pick(['Salary Loan','Business Loan'])} — ${n}`,
-        stage: pick(['Prospecting','Proposal','Negotiation']),
-        expected_value_kobo: rng(20,150)*1_000_000_00,
-        expected_close: dateStr(-rng(1,30)),
+      contact: {
+        id: Number(params.id),
+        first_name: fn ?? 'Adaeze',
+        last_name:  ln ?? 'Okonkwo',
+        phone:  `080${rng(10000000, 99999999)}`,
+        email:  `${(fn ?? 'a').toLowerCase()}.${(ln ?? 'o').toLowerCase()}@example.ng`,
+        state:  pick(['Lagos','Abuja','Rivers','Kano','Ogun']),
+        city:   pick(['Victoria Island','Garki','Port Harcourt','Kano City','Sagamu']),
+        address: pick(['12 Broad Street', '4 Adetokunbo Ademola', '8 Rumuola Road', null]),
+        gender:       pick(['male','female']),
+        occupation:   pick(['Civil Servant','Banker','Teacher','Entrepreneur','Engineer']),
+        employer:     pick(['MTN Nigeria','Dangote Group','Shell Nigeria','FirstBank','NNPC',null]),
+        income_range: pick(['100k–250k','250k–500k','500k–1M','1M+']),
+        id_type:      pick(['NIN','BVN','Passport','Drivers License']),
+        source:       pick(['referral','walk-in','bd_campaign','online']),
+        cif_number:   rng(1,2) === 1 ? `000${rng(10000,99999)}` : null,
+        status:       pick(['prospect','qualified','customer','inactive']),
+        tags:         pick(['salary_earner','repeat_customer','high_value',null]),
+        notes:        pick(['Interested in salary loan product','Already has an active loan','Needs follow-up on docs',null]),
+        assigned_name:   name(),
+        created_by_name: name(),
+        created_at: isoDate(rng(30, 365)),
+        updated_at: isoDate(rng(0, 14)),
+      },
+      deals: Array.from({ length: rng(1, 3) }, (_, i) => ({
+        id: i + 1,
+        title:  `${pick(['Salary Advance','Business Loan','Credit Card','Overdraft Facility'])} — ${fn}`,
+        value_kobo:  rng(5, 150) * 1_000_000_00,
+        probability: pick([20, 40, 60, 75, 90]),
+        stage_name:  pick(['Prospecting','Proposal Sent','Negotiation','Won']),
+        stage_color: pick(['#6B7280','#3B82F6','#F59E0B','#22C55E']),
+        assigned_name: name(),
+        expected_close_date: dateStr(rng(-10, 30)),
+        status: pick(['open','won','lost']),
+        updated_at: isoDate(rng(0, 14)),
       })),
-      activities: Array.from({ length: 4 }, (_, i) => ({
-        id: i+1, type: pick(['call','email','meeting','note']),
-        note: pick(['Follow-up call completed','Email sent with loan details','Meeting scheduled','KYC docs requested']),
-        created_at: isoDate(rng(1,30)), user: name(),
+      activities: Array.from({ length: rng(3, 6) }, (_, i) => ({
+        id: i + 1,
+        type:    pick(['call','email','meeting','note','sms']),
+        subject: pick(['Follow-up call','Loan offer email','Product presentation','KYC reminder','Welcome call']),
+        body:    pick(['Discussed loan terms','Sent offer letter','Met at HQ to review documents','Requested NIN and BVN','Introduced salary loan product']),
+        outcome: pick(['interested','not_interested','needs_follow_up','converted',null]),
+        completed: i < 3,
+        duration_mins: pick([5, 10, 20, 30, null]),
+        next_follow_up: i === 0 ? dateStr(rng(1, 14)) : null,
+        agent_name: name(),
+        created_at: isoDate(rng(i, i + 15)),
       })),
-      tasks: Array.from({ length: rng(1,3) }, (_, i) => ({
-        id: i+1, title: pick(['Send loan offer','Follow up on docs','Schedule site visit']),
-        due_date: dateStr(-rng(1,7)),
-        status: pick(['pending','completed']),
-        assigned_to: name(),
+      tasks: Array.from({ length: rng(1, 3) }, (_, i) => ({
+        id: i + 1,
+        title:    pick(['Send loan offer letter','Follow up on submitted docs','Schedule credit assessment','Book site visit','Confirm employment details']),
+        due_date: dateStr(rng(-2, 14)),
+        priority: pick(['low','normal','high','urgent']),
+        status:   pick(['pending','in_progress','completed']),
+        assigned_name: name(),
       })),
     })
   }),
   http.post(u('/api/crm/activities'), () => new HttpResponse(null, { status: 204 })),
+
+  // CRM accounts (My Accounts page)
+  http.get(u('/api/crm/accounts'), () => ok({
+    data: Array.from({ length: 30 }, (_, i) => {
+      const fn = pick(['Emeka','Fatima','Adunola','Taiwo','Ngozi','Blessing','Kemi','Chidi','Amina','David','Tunde','Yetunde','Musa','Grace','Solomon'])
+      const ln = pick(['Obi','Musa','Bello','Ade','Eze','Okafor','Mensah','Okeke','Abubakar','Johnson','Nwachukwu','Adeyemi','Ojo','Ibrahim','Okonkwo'])
+      const dpd = [0,0,0,0,0,0,5,15,31,62,91,0,0,3,45,0,0,7,0,0,0,0,8,0,0,90,35,0,0,2][i]
+      return {
+        id: i + 1,
+        first_name: fn, last_name: ln,
+        phone:  `080${rng(10000000, 99999999)}`,
+        email:  `${fn.toLowerCase()}.${ln.toLowerCase()}@example.ng`,
+        cif_number:   `000${String(27000 + i).padStart(5, '0')}`,
+        source:       pick(['referral','bd_campaign','walk-in','online']),
+        source_type:  pick(['bd_assigned','direct','campaign']),
+        employer_name: pick(['Shell Nigeria','MTN','Dangote','First Bank','NNPC','Unilever',null]),
+        account_manager_id:   (i % 5) + 10,
+        account_manager_name: ['Adebayo Okon','Funmi Adesanya','Emeka Eze','Tolu Bello','Ngozi Okafor'][i % 5],
+        updated_at:   isoDate(rng(0, 14)),
+        created_at:   isoDate(rng(30, 365)),
+        loan_count:   rng(1, 5),
+        active_loans: rng(0, 2),
+        outstanding_kobo: rng(5, 80) * 1_000_000_00,
+        max_dpd:      dpd,
+        open_deals:   rng(0, 3),
+        activity_count: rng(2, 20),
+      }
+    }),
+  })),
 ]
 
 // ── Campaigns — missing endpoints ────────────────────────────────────────────
@@ -3214,6 +3356,698 @@ const CATCH_ALL = [
 
 // ── Export ────────────────────────────────────────────────────────────────────
 
+// ── Gap-fill: 20 endpoints missing from original handlers ─────────────────────
+
+const MOCK_GAPS = [
+
+  // Auth edge cases
+  http.post(u('/api/auth/totp/challenge'), () => wd({ challenge_id: 'chal_mock_001', expires_in: 300 })),
+  http.post(u('/api/auth/register'), async ({ request }) => {
+    const b = await request.json() as Record<string, unknown>
+    return wd({ id: 'usr_mock_new', email: b.email ?? 'user@example.com', message: 'Registration pending approval' })
+  }),
+
+  // Settings — DELETE zoho-voice
+  http.delete(u('/api/settings/zoho-voice'), () => wd({ message: 'Zoho Voice disconnected' })),
+
+  // BD — leads bulk import
+  http.post(u('/api/bd/leads/import'), () => wd({ imported: 42, skipped: 3, errors: [] })),
+
+  // BD — assignments
+  http.get(u('/api/bd/assignments'), () => ok(
+    Array.from({ length: 18 }, (_, i) => ({
+      id: i + 1,
+      employer_id: (i % 10) + 1,
+      employer_name: ['Shell Nigeria','MTN','Dangote','First Bank','NNPC','Unilever','Guinness','NB Plc','Nestle Nigeria','Flour Mills'][i % 10],
+      bd_officer_id: (i % 5) + 10,
+      bd_officer_name: ['Adebayo Okon','Funmi Adesanya','Emeka Eze','Tolu Bello','Ngozi Okafor'][i % 5],
+      sales_agent_id: (i % 6) + 20,
+      sales_agent_name: ['Chidi Okeke','Amina Bello','Kemi Ade','Taiwo Ojo','David Mensah','Fatima Musa'][i % 6],
+      assignment_type: i % 3 === 0 ? 'specific_staff' : 'full_company',
+      status: ['assigned','in_progress','in_progress','converted','assigned','lost','in_progress','assigned','converted','in_progress','assigned','in_progress','converted','assigned','in_progress','lost','assigned','in_progress'][i],
+      staff_count_at_assignment: rng(50, 3000),
+      notes: i % 4 === 0 ? 'Follow up scheduled for end of month' : null,
+      assigned_at: isoDate(rng(10, 120)),
+      updated_at: isoDate(rng(0, 10)),
+      contacts_total: rng(20, 300),
+      contacts_converted: rng(5, 80),
+      deals_open: rng(1, 12),
+    }))
+  )),
+  http.patch(u('/api/bd/assignments/:id'), () => new HttpResponse(null, { status: 204 })),
+
+  // BD — employer staff drill-down
+  http.get(u('/api/bd/employers/:id/staff'), () => ok(
+    Array.from({ length: 12 }, (_, i) => ({
+      id: i + 1,
+      employer_id: 1,
+      full_name: name(),
+      job_title: pick(['Analyst','Manager','Engineer','Accountant','Officer','Coordinator']),
+      department: ['Finance','HR','Operations','Sales','Technology','Legal'][i % 6],
+      phone: `080${rng(10000000, 99999999)}`,
+      email: `staff${i}@employer.ng`,
+      created_at: isoDate(rng(10, 180)),
+    }))
+  )),
+  http.post(u('/api/bd/employers/:id/staff'), () => ok({
+    id: rng(100, 999), employer_id: 1, full_name: 'New Staff',
+    job_title: null, department: null, phone: null, email: null,
+    created_at: new Date().toISOString(),
+  })),
+  http.delete(u('/api/bd/employers/:id/staff/:staff_id'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/bd/employers/:id/staff/import'), () => ok({ imported: rng(20, 200), skipped: rng(0, 5) })),
+  http.post(u('/api/bd/employers/:id/assign'), () => ok({
+    assignment_id: rng(10, 99),
+    contacts_created: rng(10, 150),
+    staff_count: rng(20, 300),
+  })),
+  http.get(u('/api/bd/assignments/:id'), ({ params }) => wd({
+    assignment: {
+      id: Number(params.id),
+      employer_id: 1, employer_name: 'Shell Nigeria',
+      bd_officer_id: 10, sales_agent_id: 20,
+      sales_agent_name: 'Adebayo Okon',
+      assignment_type: 'full_company',
+      status: 'in_progress',
+      staff_count_at_assignment: 342,
+      notes: 'Priority employer — follow up weekly',
+      assigned_at: isoDate(30),
+    },
+    contacts: Array.from({ length: 8 }, (_, i) => {
+      const fn = pick(['Emeka','Fatima','Taiwo','Ngozi','Kemi'])
+      const ln = pick(['Obi','Musa','Ade','Eze','Okafor'])
+      return {
+        id: i + 1, first_name: fn, last_name: ln,
+        phone: `080${rng(10000000, 99999999)}`,
+        email: `${fn.toLowerCase()}@employer.ng`,
+        status: pick(['lead','qualified','customer']),
+        assigned_name: 'Adebayo Okon',
+        open_deals: rng(0, 2),
+      }
+    }),
+  })),
+
+  // Compliance — board pack
+  http.get(u('/api/compliance/board-pack'), () => wd({
+    month: '2025-06',
+    sections: [
+      { title: 'Executive Summary',      status: 'ready',   pages: 4  },
+      { title: 'Portfolio Health',       status: 'ready',   pages: 8  },
+      { title: 'Collections Report',     status: 'ready',   pages: 6  },
+      { title: 'Regulatory Compliance',  status: 'draft',   pages: 5  },
+      { title: 'Risk Dashboard',         status: 'ready',   pages: 7  },
+      { title: 'HR & People Analytics',  status: 'pending', pages: 3  },
+    ],
+    generated_at: new Date().toISOString(),
+    download_url: '#',
+  })),
+
+  // Compliance — bureau submissions
+  http.get(u('/api/compliance/bureau-submissions'), () => wd([
+    { id: 1, bureau: 'CRC',   period: 'Jun 2025', submitted_at: '2025-07-01T09:00:00Z', status: 'accepted',  records: 2_841, errors: 0   },
+    { id: 2, bureau: 'CRC',   period: 'May 2025', submitted_at: '2025-06-01T08:30:00Z', status: 'accepted',  records: 2_718, errors: 0   },
+    { id: 3, bureau: 'FIRSTCENTRAL', period: 'Jun 2025', submitted_at: '2025-07-01T10:15:00Z', status: 'pending', records: 2_841, errors: 12 },
+    { id: 4, bureau: 'FIRSTCENTRAL', period: 'May 2025', submitted_at: '2025-06-01T09:00:00Z', status: 'accepted', records: 2_718, errors: 0 },
+  ])),
+
+  // Compliance — credit bureau CSV export (returns blob)
+  http.get(u('/api/compliance/credit-bureau-export'), () =>
+    new Response('bureau_ref,customer_cif,product,outstanding_kobo,dpd,status\nBUR-001,00027554,CREDIT_CARD,3478433538,0,PERFORMING\n', {
+      headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="bureau-export.csv"' },
+    })
+  ),
+
+  // Compliance — breach incidents
+  http.get(u('/api/compliance/breach-incidents'), () => wd([
+    { id: 1, title: 'Suspected phishing attempt — staff email', severity: 'low',    status: 'closed',      reported_at: '2025-05-14T10:22:00Z', affected_count: 0, root_cause: 'Phishing link not clicked; isolated by IT', remediation: 'Refreshed security awareness training' },
+    { id: 2, title: 'Unauthorised login attempt — admin portal', severity: 'medium', status: 'resolved',   reported_at: '2025-06-02T14:05:00Z', affected_count: 0, root_cause: 'Credential stuffing from known botnet IPs', remediation: 'IP block + forced MFA reset for all admin accounts' },
+    { id: 3, title: 'CRC submission file misrouted', severity: 'medium', status: 'investigating', reported_at: '2025-07-10T09:00:00Z', affected_count: 18, root_cause: 'Pending investigation', remediation: 'Pending' },
+  ])),
+
+  // Compliance — DSAR stats
+  http.get(u('/api/compliance/dsar-stats'), () => wd({
+    total: 47, open: 8, overdue: 2, avg_resolution_days: 12.4,
+    by_type: [
+      { type: 'Access Request',     count: 28 },
+      { type: 'Erasure Request',    count: 11 },
+      { type: 'Rectification',      count: 5  },
+      { type: 'Portability',        count: 3  },
+    ],
+  })),
+
+  // Compliance — DSAR PATCH (update status)
+  http.patch(u('/api/compliance/data-subject-requests/:id'), async ({ request }) => {
+    const b = await request.json() as Record<string, unknown>
+    return wd({ id: 1, status: b.status ?? 'in_progress', updated_at: new Date().toISOString() })
+  }),
+
+  // Compliance — AML rules DELETE
+  http.delete(u('/api/compliance/aml-rules/:id'), () => wd({ message: 'Rule deleted' })),
+
+  // Compliance — SOC2 export (CSV)
+  http.get(u('/api/compliance/soc2/export'), () =>
+    new Response('control_id,title,status,last_tested,evidence_count\nCC6.1,Logical Access Controls,implemented,2025-06-30,12\nCC7.1,System Operations,implemented,2025-06-15,8\n', {
+      headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="soc2-controls.csv"' },
+    })
+  ),
+
+  // Compliance — pentest findings POST (add finding to engagement)
+  http.post(u('/api/compliance/pentests/:id/findings'), async ({ request }) => {
+    const b = await request.json() as Record<string, unknown>
+    return wd({ id: Math.floor(Math.random() * 9000) + 1000, ...b, created_at: new Date().toISOString() })
+  }),
+
+  // Admin — integrations PATCH (update) + DELETE
+  http.patch(u('/api/admin/integrations/:id'), async ({ request }) => {
+    const b = await request.json() as Record<string, unknown>
+    return wd({ id: 1, ...b, updated_at: new Date().toISOString() })
+  }),
+  http.delete(u('/api/admin/integrations/:id'), () => wd({ message: 'Integration removed' })),
+
+  // Helpdesk — CSAT public survey (no auth, raw token in URL)
+  http.get(u('/api/helpdesk/csat/:token'), () => wd({
+    token: 'mock_token',
+    ticket_ref: 'TKT-2025-0042',
+    agent_name: 'Adunola Bello',
+    resolved_at: '2025-07-20T14:30:00Z',
+    already_submitted: false,
+  })),
+  http.post(u('/api/helpdesk/csat/:token'), () => wd({ message: 'Thank you for your feedback' })),
+
+  // Finance — EOD transactions CSV export
+  http.get(u('/api/eod/transactions/export'), () =>
+    new Response('date,product,channel,amount_kobo,count\n2025-07-20,CREDIT_CARD,POS,184200000,312\n2025-07-20,PREPAID,ATM,42000000,87\n', {
+      headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="eod-transactions.csv"' },
+    })
+  ),
+
+  // BI / Report Builder — preview run
+  http.post(u('/api/bi/reports/preview'), () => wd({
+    rows: [
+      { month: 'Jan 2025', revenue_kobo: 2_840_000_000, cost_kobo: 1_520_000_000, net_kobo: 1_320_000_000 },
+      { month: 'Feb 2025', revenue_kobo: 3_120_000_000, cost_kobo: 1_640_000_000, net_kobo: 1_480_000_000 },
+      { month: 'Mar 2025', revenue_kobo: 2_980_000_000, cost_kobo: 1_580_000_000, net_kobo: 1_400_000_000 },
+    ],
+    columns: ['month', 'revenue_kobo', 'cost_kobo', 'net_kobo'],
+    row_count: 3,
+  })),
+
+  // CC Statements — render HTML (returns HTML string)
+  http.get(u('/api/cc-statements/:id/render'), () =>
+    new Response('<html><body><h1>CC Statement</h1><p>Mock rendered statement for demo.</p></body></html>', {
+      headers: { 'Content-Type': 'text/html' },
+    })
+  ),
+]
+
+// ── Executive department drill-down endpoints ─────────────────────────────────
+
+const EXECUTIVE_DEPT = [
+  http.get(u('/api/executive/cards'), () => wd({
+    total_cards: 1842, active_cards: 1654, activation_rate_pct: 89.8,
+    credit_book_kobo: 2_184_500_000, prepaid_ngn_balance_kobo: 847_200_000, prepaid_usd_balance_cents: 124_800,
+    disputes_open: 12, disputes_resolved_mtd: 48,
+    txn_volume_kobo: 477_189_230_00, txn_count: 28_419, txn_change_pct: 8.4,
+    channel_mix: [
+      { channel: 'ATM',      volume_kobo: 820_400_000,    count: 1_640  },
+      { channel: 'POS',      volume_kobo: 8_475_560_859,  count: 5_318  },
+      { channel: 'WEB',      volume_kobo: 23_693_391_624, count: 12_047 },
+      { channel: 'TRANSFER', volume_kobo: 82_243_507_903, count: 9_414  },
+    ],
+    monthly_trend: ['Jan','Feb','Mar','Apr','May','Jun'].map((m,i) => ({
+      month: m,
+      atm:      [168_500_000, 172_200_000, 115_400_000, 125_200_000, 123_300_000, 115_800_000][i],
+      pos:      [2_094_254_691, 1_142_586_698, 1_435_062_160, 1_164_520_084, 1_141_592_869, 1_497_544_357][i],
+      web:      [5_507_397_656, 4_336_613_728, 2_825_917_248, 3_775_154_082, 3_923_585_065, 3_324_723_845][i],
+      transfer: [5_515_403_000, 6_371_468_692, 8_441_525_120, 9_533_611_655, 42_530_445_160, 9_851_054_276][i],
+    })),
+    top_merchants: [
+      { name: 'QUICKTELLER BILL', volume_kobo: 4_218_400_000, count: 3_241 },
+      { name: 'TRANSFERBANK',     volume_kobo: 3_947_200_000, count: 2_187 },
+      { name: 'GTBank ATM',       volume_kobo: 1_824_500_000, count: 1_543 },
+      { name: 'TISCO PLAZA ATM1', volume_kobo: 1_204_700_000, count: 987  },
+      { name: 'OANDO AWOLOWO',    volume_kobo: 874_300_000,   count: 654  },
+    ],
+  })),
+
+  http.get(u('/api/executive/finance'), () => wd({
+    total_revenue_kobo: 184_500_000_00, revenue_change_pct: 12.4,
+    total_cost_kobo: 98_200_000_00, cost_change_pct: 6.8,
+    net_income_kobo: 86_300_000_00, net_margin_pct: 46.8,
+    fd_book_kobo: 2_840_000_000_00, fd_count: 247, fd_maturing_30d: 18,
+    settlement_balance_kobo: 124_800_000_00, paystack_wallet_kobo: 48_200_000_00,
+    monthly_pnl: ['Jan','Feb','Mar','Apr','May','Jun'].map((m,i) => ({
+      month: m,
+      revenue: [2_840_000_000, 3_120_000_000, 2_980_000_000, 3_240_000_000, 3_480_000_000, 3_140_000_000][i],
+      cost:    [1_520_000_000, 1_640_000_000, 1_580_000_000, 1_720_000_000, 1_840_000_000, 1_660_000_000][i],
+      net:     [1_320_000_000, 1_480_000_000, 1_400_000_000, 1_520_000_000, 1_640_000_000, 1_480_000_000][i],
+    })),
+    revenue_breakdown: [
+      { source: 'Interest Income', amount_kobo: 98_400_000_00 },
+      { source: 'Card Fees',       amount_kobo: 42_100_000_00 },
+      { source: 'FD Interest',     amount_kobo: 28_700_000_00 },
+      { source: 'FX Revenue',      amount_kobo: 15_300_000_00 },
+    ],
+  })),
+
+  http.get(u('/api/executive/sales'), () => wd({
+    pipeline_value_kobo: 847_200_000_00, pipeline_count: 124,
+    conversions_mtd: 18, conversion_rate_pct: 14.5,
+    calls_made_mtd: 312, meetings_held_mtd: 87,
+    targets_achieved_pct: 72.4,
+    monthly_trend: ['Jan','Feb','Mar','Apr','May','Jun'].map((m,i) => ({
+      month: m,
+      calls:       [48,52,61,55,72,87][i],
+      conversions: [8,11,14,12,16,18][i],
+      value_kobo:  [124_000_000_00,148_000_000_00,184_000_000_00,162_000_000_00,218_000_000_00,247_000_000_00][i],
+    })),
+    top_performers: [
+      { name: 'Adebayo Osei',     conversions: 7,  value_kobo: 84_200_000_00 },
+      { name: 'Fatima Musa',      conversions: 5,  value_kobo: 61_400_000_00 },
+      { name: 'Chukwuemeka Eze',  conversions: 4,  value_kobo: 52_800_000_00 },
+      { name: 'Ngozi Okafor',     conversions: 3,  value_kobo: 38_100_000_00 },
+    ],
+    pipeline_stages: [
+      { stage: 'Prospect',  count: 58, value_kobo: 124_000_000_00 },
+      { stage: 'Engaged',   count: 34, value_kobo: 284_000_000_00 },
+      { stage: 'Proposal',  count: 22, value_kobo: 318_000_000_00 },
+      { stage: 'Won',       count: 10, value_kobo: 121_200_000_00 },
+    ],
+  })),
+
+  http.get(u('/api/executive/collections'), () => wd({
+    collected_mtd_kobo: 184_720_000_00, collected_change_pct: 9.2,
+    collection_rate_pct: 87.4, promise_rate_pct: 64.2,
+    par30_count: 142, par60_count: 87, par90_count: 54,
+    par30_value_kobo: 284_000_000_00, par60_value_kobo: 148_000_000_00, par90_value_kobo: 98_400_000_00,
+    writeoff_mtd_kobo: 12_400_000_00, recovery_rate_pct: 72.8,
+    monthly_trend: ['Jan','Feb','Mar','Apr','May','Jun'].map((m,i) => ({
+      month: m,
+      collected: [162_000_000_00, 174_000_000_00, 158_000_000_00, 186_000_000_00, 194_000_000_00, 184_720_000_00][i],
+      target:    [180_000_000_00, 180_000_000_00, 180_000_000_00, 180_000_000_00, 180_000_000_00, 180_000_000_00][i],
+      rate:      [90.0, 96.7, 87.8, 103.3, 107.8, 102.6][i],
+    })),
+    dpd_breakdown: [
+      { bucket: 'Current',  count: 2841, value_kobo: 4_218_400_000_00 },
+      { bucket: '1–30d',    count: 142,  value_kobo: 284_000_000_00 },
+      { bucket: '31–60d',   count: 87,   value_kobo: 148_000_000_00 },
+      { bucket: '61–90d',   count: 54,   value_kobo: 98_400_000_00 },
+      { bucket: '90d+',     count: 38,   value_kobo: 74_200_000_00 },
+    ],
+    top_agents: [
+      { name: 'Adunola Bello',    collected_kobo: 28_400_000_00, count: 142 },
+      { name: 'Emeka Okafor',     collected_kobo: 24_100_000_00, count: 121 },
+      { name: 'Blessing Adeyemi', collected_kobo: 21_800_000_00, count: 109 },
+      { name: 'Taiwo Afolabi',    collected_kobo: 18_700_000_00, count: 94  },
+    ],
+  })),
+
+  http.get(u('/api/executive/risk'), () => wd({
+    portfolio_outstanding_kobo: 4_218_400_000_00, npl_rate_pct: 8.2,
+    concentration_top10_pct: 34.7, avg_loan_size_kobo: 148_400_000,
+    new_accounts_mtd: 47, churn_rate_pct: 2.4,
+    dpd_trend: ['Jan','Feb','Mar','Apr','May','Jun'].map((m,i) => ({
+      month: m,
+      par30: [128,134,142,138,147,142][i],
+      par60: [84,88,91,86,90,87][i],
+      par90: [52,56,58,53,57,54][i],
+    })),
+    product_concentration: [
+      { product: 'Credit Card',     outstanding_kobo: 2_184_500_000_00, count: 847 },
+      { product: 'Business Loan',   outstanding_kobo: 1_248_000_000_00, count: 312 },
+      { product: 'Salary Advance',  outstanding_kobo: 524_000_000_00,   count: 618 },
+      { product: 'Mortgage',        outstanding_kobo: 261_900_000_00,   count: 65  },
+    ],
+    vintage_performance: [
+      { vintage: 'Q1 2024', par30_rate: 4.2, par90_rate: 1.8 },
+      { vintage: 'Q2 2024', par30_rate: 5.1, par90_rate: 2.4 },
+      { vintage: 'Q3 2024', par30_rate: 6.8, par90_rate: 3.1 },
+      { vintage: 'Q4 2024', par30_rate: 7.4, par90_rate: 2.9 },
+      { vintage: 'Q1 2025', par30_rate: 8.2, par90_rate: 1.4 },
+    ],
+  })),
+
+  http.get(u('/api/executive/hr'), () => wd({
+    headcount: 84, headcount_change: 3,
+    new_hires_mtd: 4, departures_mtd: 1, attrition_rate_pct: 14.3,
+    leaves_pending: 7, leaves_active: 12,
+    payroll_cost_kobo: 148_400_000_00, payroll_change_pct: 4.2,
+    dept_breakdown: [
+      { dept: 'Cards Operations', count: 18 },
+      { dept: 'Collections',      count: 14 },
+      { dept: 'Sales & BD',       count: 12 },
+      { dept: 'Technology',       count: 11 },
+      { dept: 'Finance',          count: 8  },
+      { dept: 'Risk',             count: 7  },
+      { dept: 'Compliance',       count: 6  },
+      { dept: 'HR & Admin',       count: 5  },
+      { dept: 'Customer Service', count: 3  },
+    ],
+    headcount_trend: ['Jan','Feb','Mar','Apr','May','Jun'].map((m,i) => ({
+      month: m, count: [78,79,80,81,82,84][i],
+    })),
+  })),
+
+  http.get(u('/api/executive/settlements'), () => wd({
+    paystack_wallet_kobo: 48_200_000_00, nip_success_rate_pct: 98.4,
+    settled_today_kobo: 8_420_000_00, pending_kobo: 1_240_000_00,
+    failed_count: 14, recon_rate_pct: 97.8,
+    open_exceptions: 8, exception_value_kobo: 384_000_00,
+    channel_volumes: [
+      { channel: 'Paystack',    volume_kobo: 82_400_000_00,  count: 1_847, success_rate_pct: 99.2 },
+      { channel: 'NIP/NIBSS',   volume_kobo: 147_800_000_00, count: 4_218, success_rate_pct: 98.4 },
+      { channel: 'Interswitch', volume_kobo: 214_600_000_00, count: 8_412, success_rate_pct: 97.1 },
+    ],
+    daily_trend: Array.from({ length: 14 }, (_, i) => ({
+      date: `Jul ${i + 9}`,
+      settled: Math.round(6_000_000_00 + Math.random() * 4_000_000_00),
+      failed:  Math.round(100_000_00  + Math.random() * 300_000_00),
+    })),
+  })),
+
+  // Real H1 2026 figures sourced from the half-year transaction report
+  // MTD = Jul 1-24 (24/30 of Jun); L30d ≈ Jun; L90d ≈ Q2; YTD = full H1 2026
+  http.get(u('/api/cards/interswitch/summary'), ({ request }) => {
+    const period = new URL(request.url).searchParams.get('period') ?? 'mtd'
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun']
+    // Monthly channel volumes in kobo (real H1 2026 data)
+    const MO: { atm: number; pos: number; web: number; transfer: number }[] = [
+      { atm: 168_500_000, pos: 2_094_254_691, web: 5_507_397_656, transfer: 5_515_403_000 }, // Jan
+      { atm: 172_200_000, pos: 1_142_586_698, web: 4_336_613_728, transfer: 6_371_468_692 }, // Feb
+      { atm: 115_400_000, pos: 1_435_062_160, web: 2_825_917_248, transfer: 8_441_525_120 }, // Mar
+      { atm: 125_200_000, pos: 1_164_520_084, web: 3_775_154_082, transfer: 9_533_611_655 }, // Apr
+      { atm: 123_300_000, pos: 1_141_592_869, web: 3_923_585_065, transfer: 42_530_445_160 }, // May (large transfer spike)
+      { atm: 115_800_000, pos: 1_497_544_357, web: 3_324_723_845, transfer: 9_851_054_276 }, // Jun
+    ]
+    // Pick range based on period
+    const range = period === 'ytd' ? MO
+      : period === 'l90d' ? MO.slice(3)           // Q2 (Apr-Jun)
+      : period === 'l30d' ? MO.slice(5)            // Jun
+      : [{ atm: Math.round(MO[5].atm * 24/30), pos: Math.round(MO[5].pos * 24/30), web: Math.round(MO[5].web * 24/30), transfer: Math.round(MO[5].transfer * 24/30) }] // MTD Jul
+
+    const atm      = range.reduce((s, m) => s + m.atm,      0)
+    const pos      = range.reduce((s, m) => s + m.pos,      0)
+    const web      = range.reduce((s, m) => s + m.web,      0)
+    const transfer = range.reduce((s, m) => s + m.transfer, 0)
+    const total    = atm + pos + web + transfer
+
+    // Transaction count estimates (avg txn size: ATM ₦5k, POS ₦5k, WEB ₦10k, Transfer ₦50k)
+    const atmCt  = Math.round(atm      / 500_000)
+    const posCt  = Math.round(pos      / 500_000)
+    const webCt  = Math.round(web      / 1_000_000)
+    const trCt   = Math.round(transfer / 5_000_000)
+    const totalCt = atmCt + posCt + webCt + trCt
+
+    // Daily trend: use the selected months (or days if MTD)
+    const daily_trend = period === 'mtd'
+      ? Array.from({ length: 24 }, (_, i) => ({
+          date: `Jul ${i + 1}`,
+          atm:      Math.round(MO[5].atm      / 30 * (0.85 + Math.random() * 0.3)),
+          pos:      Math.round(MO[5].pos      / 30 * (0.85 + Math.random() * 0.3)),
+          web:      Math.round(MO[5].web      / 30 * (0.85 + Math.random() * 0.3)),
+          transfer: Math.round(MO[5].transfer / 30 * (0.85 + Math.random() * 0.3)),
+        }))
+      : (period === 'l30d' ? [MO[5]] : range).map((m, i) => ({
+          date: period === 'ytd' ? MONTHS[i] : period === 'l90d' ? MONTHS[3 + i] : MONTHS[5],
+          atm: m.atm, pos: m.pos, web: m.web, transfer: m.transfer,
+        }))
+
+    return wd({
+      report_date: period === 'ytd' ? '2026-06-30' : period === 'l30d' ? '2026-06-30' : '2026-07-24',
+      total_volume_kobo: total, total_count: totalCt,
+      channel_breakdown: [
+        { channel: 'ATM',      volume_kobo: atm,      count: atmCt, pct: parseFloat((atm / total * 100).toFixed(2)) },
+        { channel: 'POS',      volume_kobo: pos,      count: posCt, pct: parseFloat((pos / total * 100).toFixed(2)) },
+        { channel: 'WEB',      volume_kobo: web,      count: webCt, pct: parseFloat((web / total * 100).toFixed(2)) },
+        { channel: 'TRANSFER', volume_kobo: transfer, count: trCt,  pct: parseFloat((transfer / total * 100).toFixed(2)) },
+      ],
+      product_breakdown: [
+        { product: 'Classic (100)',  volume_kobo: Math.round(total * 0.42), count: Math.round(totalCt * 0.55) },
+        { product: 'Prestige (110)', volume_kobo: Math.round(total * 0.22), count: Math.round(totalCt * 0.14) },
+        { product: 'PREP (205)',     volume_kobo: Math.round(total * 0.20), count: Math.round(totalCt * 0.20) },
+        { product: 'Platinum (105)', volume_kobo: Math.round(total * 0.08), count: Math.round(totalCt * 0.04) },
+        { product: 'Business (160)', volume_kobo: Math.round(total * 0.05), count: Math.round(totalCt * 0.03) },
+        { product: 'Amex Naira (001)',volume_kobo: Math.round(total * 0.03),count: Math.round(totalCt * 0.04) },
+      ],
+      txn_type_breakdown: [
+        { type: 'Utility Payment',  count: Math.round(totalCt * 0.62), volume_kobo: Math.round(total * 0.55) },
+        { type: 'Web Transfer Out', count: Math.round(totalCt * 0.13), volume_kobo: Math.round(total * 0.28) },
+        { type: 'Purchase',         count: Math.round(totalCt * 0.14), volume_kobo: Math.round(total * 0.10) },
+        { type: 'Cash Advance',     count: Math.round(totalCt * 0.05), volume_kobo: Math.round(total * 0.04) },
+        { type: 'Cash Payment',     count: Math.round(totalCt * 0.05), volume_kobo: Math.round(total * 0.02) },
+        { type: 'Cash Advance Fee', count: Math.round(totalCt * 0.01), volume_kobo: Math.round(total * 0.001) },
+      ],
+      daily_trend,
+      top_merchants: [
+        { name: 'QUICKTELLERBILL',          volume_kobo: Math.round(total * 0.34), count: Math.round(totalCt * 0.20) },
+        { name: 'PALMPAY LIMITED',          volume_kobo: Math.round(total * 0.12), count: Math.round(totalCt * 0.14) },
+        { name: 'OPAY DIGITAL SERVICES',   volume_kobo: Math.round(total * 0.09), count: Math.round(totalCt * 0.11) },
+        { name: 'LUX (VFD)',               volume_kobo: Math.round(total * 0.06), count: Math.round(totalCt * 0.04) },
+        { name: 'MONIEPOINT POS',          volume_kobo: Math.round(total * 0.05), count: Math.round(totalCt * 0.08) },
+        { name: 'KUDA BANK TRANSFER',      volume_kobo: Math.round(total * 0.04), count: Math.round(totalCt * 0.05) },
+        { name: 'GTBank ATM',              volume_kobo: Math.round(total * 0.03), count: Math.round(totalCt * 0.06) },
+        { name: 'TISCO PLAZA ATM1',        volume_kobo: Math.round(total * 0.02), count: Math.round(totalCt * 0.04) },
+        { name: '3LINE CARD MANAGEMENT',   volume_kobo: Math.round(total * 0.02), count: Math.round(totalCt * 0.03) },
+        { name: 'PAYFORCE POS',            volume_kobo: Math.round(total * 0.01), count: Math.round(totalCt * 0.05) },
+      ],
+    })
+  }),
+
+  // Half-year report — real H1 2026 figures from the transaction report
+  http.get(u('/api/cards/interswitch/half-year'), () => wd({
+    period: 'H1 2026', generated_at: '2026-07-01',
+    months: [
+      { month: 'January',  atm: 168_500_000,   pos: 2_094_254_691,  web: 5_507_397_656,  transfer: 5_515_403_000,  total: 13_285_555_347 },
+      { month: 'February', atm: 172_200_000,   pos: 1_142_586_698,  web: 4_336_613_728,  transfer: 6_371_468_692,  total: 12_022_869_118 },
+      { month: 'March',    atm: 115_400_000,   pos: 1_435_062_160,  web: 2_825_917_248,  transfer: 8_441_525_120,  total: 12_817_904_528 },
+      { month: 'April',    atm: 125_200_000,   pos: 1_164_520_084,  web: 3_775_154_082,  transfer: 9_533_611_655,  total: 14_598_485_821 },
+      { month: 'May',      atm: 123_300_000,   pos: 1_141_592_869,  web: 3_923_585_065,  transfer: 42_530_445_160, total: 47_718_923_094 },
+      { month: 'June',     atm: 115_800_000,   pos: 1_497_544_357,  web: 3_324_723_845,  transfer: 9_851_054_276,  total: 14_789_122_478 },
+    ],
+    totals: {
+      atm: 820_400_000, pos: 8_475_560_859, web: 23_693_391_624, transfer: 82_243_507_903, total: 115_232_860_386,
+      atm_pct: 0.71, pos_pct: 7.36, web_pct: 20.56, transfer_pct: 71.37,
+      atm_avg: 136_733_333, pos_avg: 1_412_593_477, web_avg: 3_948_898_604, transfer_avg: 13_707_251_317,
+    },
+  })),
+
+  // EODTXN import endpoint
+  http.post(u('/api/cards/interswitch/import'), async ({ request }) => {
+    const form = await request.formData()
+    const files = form.getAll('files')
+    const fileCount = files.length || 1
+    return wd({
+      files_processed: fileCount,
+      transactions_imported: Math.round(74 * fileCount),
+      total_volume_kobo: Math.round(1_985_223_25 * fileCount),
+      branches: [
+        { branch: '0001 - Default Branch', txn_count: Math.round(33 * fileCount), volume_kobo: Math.round(6_106_901 * fileCount) },
+        { branch: '4009 - Sales Agency',   txn_count: Math.round(41 * fileCount), volume_kobo: Math.round(192_415_424 * fileCount) },
+      ],
+      products: [
+        { product: 'Classic (100)',   txn_count: Math.round(41 * fileCount) },
+        { product: 'PREP (205)',      txn_count: Math.round(15 * fileCount) },
+        { product: 'Prestige (110)', txn_count: Math.round(10 * fileCount) },
+        { product: 'Platinum (105)', txn_count: Math.round(3 * fileCount)  },
+        { product: 'Business (160)', txn_count: Math.round(2 * fileCount)  },
+        { product: 'Amex Naira (001)',txn_count: Math.round(2 * fileCount) },
+        { product: 'BB Classic (120)',txn_count: Math.round(1 * fileCount) },
+      ],
+      errors: [],
+    })
+  }),
+
+  // Recovery agent dashboard
+  http.get(u('/api/recovery-ops/agent-dashboard'), () => wd({
+    assigned_cases: 24, cases_closed_mtd: 8, calls_made_mtd: 142, amount_collected_mtd_kobo: 18_400_000_00,
+    cases: Array.from({ length: 12 }, (_, i) => ({
+      id: i + 1, case_ref: `REC-2025-${String(i + 1).padStart(4, '0')}`,
+      debtor_name: ['Chukwuemeka Obi','Fatima Bello','Adewale Johnson','Ngozi Eze','Emeka Nwosu','Blessing Adeyemi','Taiwo Okafor','Amina Garba','David Mensah','Chioma Eze','Ola Adeyemi','Kemi Balogun'][i],
+      outstanding_kobo: Math.round(200_000_00 + Math.random() * 5_000_000_00),
+      dpd: [0, 15, 32, 65, 91, 120, 45, 78, 22, 95, 38, 180][i],
+      next_action: ['Call debtor', 'Field visit', 'Demand letter', 'Legal referral', 'Promise follow-up', 'Payment plan review'][i % 6],
+      next_action_date: new Date(Date.now() + (i - 3) * 86_400_000).toISOString(),
+      status: ['active', 'promise', 'legal', 'ptp', 'active', 'promise'][i % 6],
+    })),
+    recent_visits: Array.from({ length: 6 }, (_, i) => ({
+      id: i + 1, case_ref: `REC-2025-${String(i + 1).padStart(4, '0')}`,
+      debtor_name: ['Chukwuemeka Obi','Fatima Bello','Adewale Johnson','Ngozi Eze','Emeka Nwosu','Blessing Adeyemi'][i],
+      outcome: ['Promise to pay', 'Not at home', 'Partial payment', 'Dispute raised', 'Promise to pay', 'Referred to legal'][i],
+      visited_at: new Date(Date.now() - i * 86_400_000).toISOString(),
+      amount_promised_kobo: [500_000_00, 0, 150_000_00, 0, 250_000_00, 0][i],
+    })),
+    monthly_trend: ['Jan','Feb','Mar','Apr','May','Jun'].map((m, i) => ({
+      month: m,
+      collected: [12_000_000_00, 14_200_000_00, 11_800_000_00, 16_400_000_00, 15_200_000_00, 18_400_000_00][i],
+      calls: [98, 112, 104, 128, 118, 142][i],
+    })),
+  })),
+
+  // Sales agent dashboard
+  http.get(u('/api/sales/my-dashboard'), () => wd({
+    my_leads: 42, won_mtd: 6, conversion_rate_pct: 14.3,
+    target_kobo: 50_000_000_00, achieved_kobo: 38_400_000_00, target_pct: 76.8,
+    pipeline: [
+      { stage: 'Prospect',    count: 14, value_kobo: 8_400_000_00  },
+      { stage: 'Qualified',   count: 11, value_kobo: 14_200_000_00 },
+      { stage: 'Proposal',    count: 9,  value_kobo: 18_400_000_00 },
+      { stage: 'Negotiation', count: 5,  value_kobo: 22_100_000_00 },
+      { stage: 'Won',         count: 3,  value_kobo: 38_400_000_00 },
+    ],
+    recent_leads: Array.from({ length: 10 }, (_, i) => ({
+      id: i + 1,
+      company_name: ['Dangote Industries','Access Bank Staff','GTBank Employees','UBA Staff','Zenith Bank','First Bank','Stanbic IBTC','FCMB Staff','Sterling Bank','Fidelity Bank'][i],
+      contact_name: ['Emeka Obi','Fatima Musa','Adunola Bello','Taiwo Ade','Ngozi Eze','Blessing Obi','Kemi Ade','Chidi Okafor','Amina Bello','David Mensah'][i],
+      stage: ['prospect','qualified','proposal','negotiation','won','prospect','qualified','proposal','won','prospect'][i],
+      potential_value_kobo: Math.round(2_000_000_00 + Math.random() * 20_000_000_00),
+      updated_at: new Date(Date.now() - i * 86_400_000 * 2).toISOString(),
+      lead_score: Math.round(40 + Math.random() * 55),
+    })),
+    monthly_trend: ['Jan','Feb','Mar','Apr','May','Jun'].map((m, i) => ({
+      month: m, leads: [6,8,7,9,10,42][i], won: [1,2,1,2,3,6][i],
+    })),
+  })),
+
+  // Helpdesk agent dashboard
+  http.get(u('/api/helpdesk/my-dashboard'), () => wd({
+    open_tickets: 18, resolved_today: 7, avg_handle_time_mins: 12.4, csat_score: 4.6,
+    sla_compliance_pct: 94.2, escalations: 2,
+    my_tickets: Array.from({ length: 12 }, (_, i) => ({
+      id: i + 1,
+      ticket_ref: `TKT-2025-${String(1000 + i).padStart(4, '0')}`,
+      subject: ['Card PIN reset','Transaction dispute','Balance enquiry','Card blocked','Statement request','Credit limit query','Transfer failed','Card delivery status','Account verification','Mobile app issue','Payment not reflecting','Card expiry'][i],
+      customer_name: ['Emeka Obi','Fatima Musa','Adunola Bello','Taiwo Ade','Ngozi Eze','Blessing Obi','Kemi Ade','Chidi Okafor','Amina Bello','David Mensah','Ola Adeyemi','Chioma Eze'][i],
+      priority: ['high','medium','low','high','medium','low','high','medium','low','medium','high','low'][i],
+      status: ['open','open','in_progress','open','in_progress','resolved','open','in_progress','open','open','escalated','in_progress'][i],
+      created_at: new Date(Date.now() - i * 3_600_000 * 4).toISOString(),
+      sla_breach_at: i < 4 ? new Date(Date.now() + (i + 1) * 3_600_000).toISOString() : null,
+    })),
+    csat_trend: Array.from({ length: 14 }, (_, i) => ({
+      date: new Date(Date.now() - (13 - i) * 86_400_000).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+      score: +(3.8 + Math.random() * 1.2).toFixed(1),
+    })),
+    handle_time_by_type: [
+      { type: 'Card Issues',      avg_mins: 8.2  },
+      { type: 'Transactions',     avg_mins: 14.7 },
+      { type: 'Account Queries',  avg_mins: 6.1  },
+      { type: 'Disputes',         avg_mins: 22.4 },
+      { type: 'Statements',       avg_mins: 4.8  },
+    ],
+  })),
+
+  // BD — my dashboard (BD officer view)
+  http.get(u('/api/bd/my-dashboard'), () => ok({
+    my_dashboard: {
+      kpis: {
+        employers_managed: 12, mou_signed: 9, mou_expiring_soon: 2,
+        staff_referred_mtd: 48, staff_referred_lm: 61,
+        conversions_mtd: 7,  conversions_lm: 11,
+        calls_made_mtd: 87,  calls_lm: 94,
+        meetings_mtd: 14,    meetings_lm: 18,
+      },
+      funnel_all: { staff_referred: 340, crm_contacts: 284, applications: 116, converted: 78 },
+      funnel_mtd: { staff_referred: 48,  crm_contacts: 39,  applications: 14,  converted: 7  },
+      urgency: {
+        mou_expiring: [
+          { id: 3, name: 'GTBank', sector: 'Banking', mou_expiry: dateStr(12), days_to_expiry: 12, contact_name: 'Tayo Bello', contact_email: 'tayo.bello@gtbank.ng' },
+          { id: 7, name: 'Unilever Nigeria', sector: 'FMCG', mou_expiry: dateStr(28), days_to_expiry: 28, contact_name: 'Ngozi Eze', contact_email: 'ngozi.eze@unilever.ng' },
+        ],
+        stale_assignments: [
+          { id: 5, employer_name: 'Flour Mills Nigeria', staff_count_at_assignment: 820, assigned_at: isoDate(45), days_stale: 45, sales_agent_name: 'Kemi Ade', sales_agent_email: 'kemi.ade@o3capital.ng' },
+        ],
+        dormant: [
+          { id: 11, name: 'NB Plc', sector: 'FMCG', mou_date: dateStr(180), days_since_signed: 180, contact_name: 'Chidi Okafor', contact_email: 'chidi.okafor@nbplc.ng' },
+        ],
+      },
+      employers: Array.from({ length: 8 }, (_, i) => ({
+        id: i + 1,
+        name: ['Dangote Group','Access Bank','GTBank','UBA','Zenith Bank','First Bank','Unilever Nigeria','Shell Nigeria'][i],
+        sector: ['Manufacturing','Banking','Banking','Banking','Banking','Banking','FMCG','Oil & Gas'][i],
+        staff_count: [12000, 4800, 6200, 9100, 7400, 11000, 3200, 2500][i],
+        mou_status: ['signed','signed','pending','signed','expired','pending','signed','signed'][i],
+        mou_expiry: [dateStr(180), dateStr(90), null, dateStr(270), dateStr(-30), null, dateStr(60), dateStr(365)][i],
+        assignments_count: rng(1, 8),
+        staff_referred: rng(10, 200),
+        contacts_created: rng(8, 160),
+        converted: rng(2, 40),
+      })),
+      recent_assignments: Array.from({ length: 6 }, (_, i) => ({
+        id: i + 1,
+        employer_name: ['Dangote Group','Access Bank','GTBank','UBA','Zenith Bank','Flour Mills'][i],
+        assignment_type: i % 2 === 0 ? 'full_company' : 'specific_staff',
+        status: ['in_progress','converted','assigned','in_progress','lost','in_progress'][i],
+        staff_count_at_assignment: rng(50, 2000),
+        assigned_at: isoDate(rng(5, 90)),
+        sales_agent_name: ['Chidi Okeke','Amina Bello','Kemi Ade','Taiwo Ojo','David Mensah','Fatima Musa'][i],
+        contacts_created: rng(5, 120),
+        converted: rng(0, 30),
+      })),
+    },
+  })),
+
+  // BD — single employer detail (for employer drawer)
+  http.get(u('/api/bd/employers/:id'), ({ params }) => ok({
+    employer: {
+      id: Number(params.id),
+      name: pick(['Shell Nigeria','MTN Nigeria','Dangote Group','First Bank','NNPC Ltd','Unilever Nigeria']),
+      sector: pick(['Oil & Gas','Telecoms','Manufacturing','Banking','FMCG']),
+      staff_count: rng(500, 12000),
+      monthly_payroll_kobo: rng(200, 1200) * 1_000_000_00,
+      credit_limit_kobo: rng(100, 500) * 1_000_000_00,
+      mou_status: pick(['signed','pending','expired']),
+      mou_date: dateStr(rng(90, 400)),
+      mou_expiry: dateStr(rng(-30, 300)),
+      contact_name: name(),
+      contact_phone: `080${rng(10000000,99999999)}`,
+      contact_email: `bd@employer.ng`,
+      address: `${rng(1, 200)} Marina Street, Lagos Island, Lagos`,
+      notes: 'Priority partnership — large eligible staff base with strong payroll history.',
+      is_active: true,
+    },
+    outcomes: {
+      total_assignments: rng(3, 12),
+      total_staff_referred: rng(50, 500),
+      total_crm_contacts: rng(40, 400),
+      total_converted: rng(10, 100),
+    },
+    recent_assignments: Array.from({ length: 4 }, (_, i) => ({
+      id: i + 1,
+      assignment_type: i % 2 === 0 ? 'full_company' : 'specific_staff',
+      status: ['in_progress','converted','assigned','lost'][i],
+      staff_count_at_assignment: rng(50, 800),
+      assigned_at: isoDate(rng(10, 120)),
+      sales_agent_name: ['Chidi Okeke','Amina Bello','Kemi Ade','Taiwo Ojo'][i],
+      contacts_created: rng(10, 150),
+      converted: rng(2, 40),
+    })),
+  })),
+
+  // Cards ops agent queue
+  http.get(u('/api/cards/my-queue'), () => wd({
+    issuance_assigned: 14, disputes_assigned: 8, processed_today: 11, avg_processing_time_hrs: 3.2,
+    issuance_queue: Array.from({ length: 10 }, (_, i) => ({
+      id: i + 1,
+      request_ref: `ISS-2025-${String(1000 + i).padStart(4, '0')}`,
+      customer_name: ['Emeka Obi','Fatima Musa','Adunola Bello','Taiwo Ade','Ngozi Eze','Blessing Obi','Kemi Ade','Chidi Okafor','Amina Bello','David Mensah'][i],
+      cif: `000${String(27000 + i).padStart(5, '0')}`,
+      card_type: ['Credit — Green','Credit — Gold','Prepaid NGN','Prepaid USD','Credit — Platinum','Credit — Green','Prepaid NGN','Credit — Gold','Credit — Green','Prepaid USD'][i],
+      requested_at: new Date(Date.now() - i * 3_600_000 * 6).toISOString(),
+      status: ['pending','in_review','approved','pending','in_review','pending','approved','pending','in_review','pending'][i],
+      priority: ['normal','high','normal','urgent','normal','high','normal','normal','urgent','normal'][i],
+    })),
+    disputes_queue: Array.from({ length: 7 }, (_, i) => ({
+      id: i + 1,
+      dispute_ref: `DIS-2025-${String(500 + i).padStart(4, '0')}`,
+      customer_name: ['Emeka Obi','Fatima Musa','Adunola Bello','Taiwo Ade','Ngozi Eze','Blessing Obi','Kemi Ade'][i],
+      cif: `000${String(27000 + i).padStart(5, '0')}`,
+      amount_kobo: Math.round(50_000_00 + Math.random() * 500_000_00),
+      dispute_type: ['Unauthorized transaction','Merchant dispute','ATM withdrawal','POS double charge','Web fraud','Card skimming','Subscription charge'][i],
+      raised_at: new Date(Date.now() - i * 86_400_000).toISOString(),
+      status: ['open','investigating','open','pending_merchant','open','escalated','open'][i],
+    })),
+  })),
+]
+
 export const handlers = [
   ...AUTH,
   ...NOTIF_APPROVALS,
@@ -3252,5 +4086,7 @@ export const handlers = [
   ...CAMPAIGNS_DETAIL,
   ...CONTACT_LISTS_DETAIL,
   ...GAP_FILL,
+  ...EXECUTIVE_DEPT,
+  ...MOCK_GAPS,
   ...CATCH_ALL,
 ]

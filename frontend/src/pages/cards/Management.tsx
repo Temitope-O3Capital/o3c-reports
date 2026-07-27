@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, DataTable, ErrBanner, SearchInput, Modal, DateFilter } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, Modal, DateFilter } from '../../components/UI'
+import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -274,10 +274,9 @@ export default function CardsManagement() {
 
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
-  const [filterOpen,   setFilterOpen]   = useState(false)
-  const [search,       setSearch]       = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
-  const [productFilter, setProductFilter] = useState('')
+  const [search,    setSearch]    = useState('')
+  const [fStatuses, setFStatuses] = useState(new Set<string>())
+  const [fProducts, setFProducts] = useState(new Set<string>())
   const [page, setPage] = useState(1)
 
   const load = useCallback(async (pg = 1) => {
@@ -287,8 +286,8 @@ export default function CardsManagement() {
       const p = new URLSearchParams()
       p.set('limit',  String(PAGE_SIZE))
       p.set('offset', String((pg - 1) * PAGE_SIZE))
-      if (statusFilter)  p.set('status',    statusFilter)
-      if (productFilter) p.set('card_type', productFilter)
+      if (fStatuses.size)  p.set('status',    [...fStatuses].join(','))
+      if (fProducts.size)  p.set('card_type', [...fProducts].join(','))
       p.set('from', dateFrom)
       p.set('to',   dateTo)
       const res = await apiFetch<ListResp>(`/api/cards/cardholders?${p}`)
@@ -300,7 +299,7 @@ export default function CardsManagement() {
     } finally {
       setLoading(false)
     }
-  }, [statusFilter, productFilter, dateFrom, dateTo])
+  }, [fStatuses, fProducts, dateFrom, dateTo])
 
   useEffect(() => { load(1) }, [load])
 
@@ -314,18 +313,6 @@ export default function CardsManagement() {
   const showStart  = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
   const showEnd    = Math.min(page * PAGE_SIZE, total)
 
-  const activeFilterCount = (statusFilter ? 1 : 0) + (productFilter ? 1 : 0)
-
-  function apply() {
-    setFilterOpen(false)
-    load(1)
-  }
-
-  function clearFilters() {
-    setStatusFilter('')
-    setProductFilter('')
-  }
-
   return (
     <Page title="Cardholder Management" subtitle="View and manage all issued cards" actions={
       <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
@@ -335,107 +322,31 @@ export default function CardsManagement() {
 
       <SectionCard title="Cardholders" badge={total} padding={false} actions={<button onClick={() => exportCardholdersCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
 
-        {/* Toolbar */}
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 10, alignItems: 'center' }}>
-          <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
-          <button
-            onClick={() => setFilterOpen(o => !o)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 9,
-              border: `1.5px solid ${filterOpen || activeFilterCount > 0 ? NAVY : 'var(--input-bdr)'}`,
-              background: filterOpen ? `${NAVY}10` : 'transparent',
-              color: filterOpen || activeFilterCount > 0 ? NAVY : 'var(--txt2)',
-              fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER,
-            }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>tune</span>
-            Filters
-            {activeFilterCount > 0 && (
-              <span style={{ background: NAVY, color: '#fff', borderRadius: 10, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '1px 6px', lineHeight: '16px' }}>
-                {activeFilterCount}
-              </span>
-            )}
-          </button>
-          <span style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
-            {total.toLocaleString()} total
-          </span>
-        </div>
-
-        {/* Filter panel */}
-        {filterOpen && (
-          <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--bdr)', background: '#F0F4FF' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
-
-              {/* Status */}
-              <div>
-                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Status</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: TEXT.sm }}>
-                    <input type="radio" checked={statusFilter === ''} onChange={() => setStatusFilter('')} /> All statuses
-                  </label>
-                  {STATUSES.map(s => (
-                    <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: TEXT.sm }}>
-                      <input type="radio" checked={statusFilter === s} onChange={() => setStatusFilter(s)} />
-                      <span style={{ color: STATUS_COLORS[s]?.txt ?? 'var(--txt)' }}>{s}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* Product */}
-              <div>
-                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Product</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: TEXT.sm }}>
-                    <input type="radio" checked={productFilter === ''} onChange={() => setProductFilter('')} /> All products
-                  </label>
-                  {PRODUCTS.map(p => (
-                    <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: TEXT.sm }}>
-                      <input type="radio" checked={productFilter === p} onChange={() => setProductFilter(p)} />
-                      {p}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* Apply */}
-              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 8 }}>
-                <button onClick={apply} style={{
-                  padding: '9px 0', borderRadius: RADIUS.lg, border: 'none', background: NAVY, color: '#fff',
-                  fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
-                }}>Apply Filters</button>
-                {activeFilterCount > 0 && (
-                  <button onClick={() => { clearFilters(); setFilterOpen(false) }} style={{
-                    padding: '7px 0', borderRadius: RADIUS.lg, border: '1.5px solid var(--bdr)', background: 'transparent',
-                    color: 'var(--txt2)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER,
-                  }}>Clear All</button>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Active chips */}
-        {activeFilterCount > 0 && (
-          <div style={{ padding: '8px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {statusFilter && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, background: `${NAVY}12`, color: NAVY, borderRadius: RADIUS['2xl'], padding: '3px 10px', fontSize: TEXT.xs, fontWeight: FW.semibold }}>
-                Status: {statusFilter}
-                <button onClick={() => { setStatusFilter(''); load(1) }} style={{ border: 'none', background: 'none', cursor: 'pointer', color: NAVY, display: 'flex', padding: 0 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 13 }}>close</span>
-                </button>
-              </span>
-            )}
-            {productFilter && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, background: `${NAVY}12`, color: NAVY, borderRadius: RADIUS['2xl'], padding: '3px 10px', fontSize: TEXT.xs, fontWeight: FW.semibold }}>
-                Product: {productFilter}
-                <button onClick={() => { setProductFilter(''); load(1) }} style={{ border: 'none', background: 'none', cursor: 'pointer', color: NAVY, display: 'flex', padding: 0 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 13 }}>close</span>
-                </button>
-              </span>
-            )}
-          </div>
-        )}
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[
+            {
+              key: 'status',
+              label: 'Status',
+              options: STATUSES.map(s => ({ value: s, label: s, color: STATUS_COLORS[s]?.txt })),
+              selected: fStatuses,
+              onChange: setFStatuses,
+            },
+            {
+              key: 'product',
+              label: 'Product',
+              options: PRODUCTS.map(p => ({ value: p })),
+              selected: fProducts,
+              onChange: setFProducts,
+            },
+          ] as FilterGroupDef[]}
+          onReset={() => { setSearch(''); setFStatuses(new Set()); setFProducts(new Set()) }}
+          onApply={() => load(1)}
+          resultCount={total}
+          totalCount={total}
+          placeholder="Search cardholders…"
+        />
 
         <DataTable cols={makeCols(() => load(page), navigate)} rows={displayed} keyFn={r => r.cif_number} loading={loading} emptyText="No cardholders found" />
 

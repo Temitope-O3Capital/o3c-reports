@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, SectionCard, DataTable, ExpandableFilterBar,
   Modal, ConfirmModal, ErrBanner, Spinner, Tabs, StatusBadge, btnPrimary, DateFilter,
   NameCell, ActionRow,
 } from '../../components/UI'
@@ -67,9 +67,11 @@ export default function Employees() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const [deptFilter, setDeptFilter]     = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
-  const [gradeFilter, setGradeFilter]   = useState('')
+  const [search, setSearch]       = useState('')
+  const [fDept, setFDept]         = useState(new Set<string>())
+  const [fStatus, setFStatus]     = useState(new Set<string>())
+  const [fContract, setFContract] = useState(new Set<string>())
+  const [fGender, setFGender]     = useState(new Set<string>())
 
   const [addOpen, setAddOpen]         = useState(false)
   const [form, setForm]               = useState<Partial<Employee>>(BLANK)
@@ -92,9 +94,6 @@ export default function Employees() {
     setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
-      if (deptFilter)   p.set('department_id', deptFilter)
-      if (statusFilter) p.set('status', statusFilter)
-      if (gradeFilter)  p.set('grade_level_id', gradeFilter)
       p.set('from', dateFrom)
       p.set('to', dateTo)
       const [emps, ds, gs] = await Promise.all([
@@ -107,7 +106,7 @@ export default function Employees() {
       setGrades(Array.isArray(gs.data) ? gs.data : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [deptFilter, statusFilter, gradeFilter, dateFrom, dateTo])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -196,6 +195,22 @@ export default function Employees() {
     fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
   }
 
+  const uniqueDepts     = useMemo(() => [...new Set(employees.map(e => e.department).filter(Boolean))] as string[], [employees])
+  const uniqueContracts = useMemo(() => [...new Set(employees.map(e => e.contract_type).filter(Boolean))] as string[], [employees])
+  const uniqueGenders   = useMemo(() => [...new Set(employees.map(e => e.gender).filter(Boolean))] as string[], [employees])
+
+  const filtered = useMemo(() => employees.filter(e => {
+    if (fDept.size && !fDept.has(e.department ?? '')) return false
+    if (fStatus.size && !fStatus.has(e.status)) return false
+    if (fContract.size && !fContract.has(e.contract_type ?? '')) return false
+    if (fGender.size && !fGender.has(e.gender ?? '')) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (![e.first_name, e.last_name, e.email, e.department, e.job_title, e.status, e.staff_id].some(f => f?.toLowerCase().includes(q))) return false
+    }
+    return true
+  }), [employees, fDept, fStatus, fContract, fGender, search])
+
   const cols: TableCol<Employee>[] = [
     {
       key: 'first_name', label: 'Name',
@@ -254,33 +269,46 @@ export default function Employees() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <FilterBar onReset={() => { setDeptFilter(''); setStatusFilter(''); setGradeFilter('') }}>
-        <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Departments</option>
-          {depts.map(d => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
-        </select>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Statuses</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-          <option value="suspended">Suspended</option>
-        </select>
-        <select value={gradeFilter} onChange={e => setGradeFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Grades</option>
-          {grades.map(g => <option key={g.id} value={String(g.id)}>{g.name}</option>)}
-        </select>
-      </FilterBar>
-
       <SectionCard title="Employees" badge={employees.length} padding={false} actions={<button onClick={() => exportEmployeesCsv(employees)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+        <ExpandableFilterBar
+          search={search} onSearch={setSearch}
+          groups={[
+            {
+              key: 'department', label: 'Department',
+              options: uniqueDepts.map(d => ({ value: d, count: employees.filter(e => e.department === d).length })),
+              selected: fDept, onChange: (next: Set<string>) => setFDept(next),
+            },
+            {
+              key: 'status', label: 'Status',
+              options: [
+                { value: 'active',    label: 'Active',    color: GREEN,     count: employees.filter(e => e.status === 'active').length },
+                { value: 'inactive',  label: 'Inactive',  color: '#6B7280', count: employees.filter(e => e.status === 'inactive').length },
+                { value: 'suspended', label: 'Suspended', color: '#C00000', count: employees.filter(e => e.status === 'suspended').length },
+              ],
+              selected: fStatus, onChange: (next: Set<string>) => setFStatus(next),
+            },
+            {
+              key: 'contract', label: 'Employment Type',
+              options: uniqueContracts.map(c => ({ value: c, count: employees.filter(e => e.contract_type === c).length })),
+              selected: fContract, onChange: (next: Set<string>) => setFContract(next),
+            },
+            {
+              key: 'gender', label: 'Gender',
+              options: uniqueGenders.map(g => ({ value: g, count: employees.filter(e => e.gender === g).length })),
+              selected: fGender, onChange: (next: Set<string>) => setFGender(next),
+            },
+          ]}
+          onReset={() => { setSearch(''); setFDept(new Set()); setFStatus(new Set()); setFContract(new Set()); setFGender(new Set()) }}
+          resultCount={filtered.length} totalCount={employees.length}
+          placeholder="Search employees…"
+        />
         <DataTable<Employee>
           cols={cols}
-          rows={employees}
+          rows={filtered}
           keyFn={r => r.id}
           onRowClick={openDetail}
           emptyText="No employees found."
           skeletonRows={loading ? 8 : 0}
-          searchKeys={['first_name', 'last_name', 'email', 'department', 'job_title', 'status', 'staff_id']}
-          searchPlaceholder="Search employees…"
           pageSize={20}
 
           selectable

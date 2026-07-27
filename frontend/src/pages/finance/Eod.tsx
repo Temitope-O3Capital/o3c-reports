@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, FilterBar, filterInputStyle, DateFilter } from '../../components/UI'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, filterInputStyle, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, getCsrfToken } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, fmtDatetime, today, monthStart } from '../../lib/fmt'
@@ -137,6 +137,9 @@ export default function FinanceEOD() {
   const [error, setError] = useState<string | null>(null)
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo] = useState(today())
+  const [uploadSearch,  setUploadSearch]  = useState('')
+  const [productSearch, setProductSearch] = useState('')
+  const [branchSearch,  setBranchSearch]  = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -161,6 +164,24 @@ export default function FinanceEOD() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+
+  const filteredUploads = useMemo(() => {
+    if (!uploadSearch) return uploads
+    const q = uploadSearch.toLowerCase()
+    return uploads.filter(r => r.filename.toLowerCase().includes(q) || (r.loaded_by_name || '').toLowerCase().includes(q))
+  }, [uploads, uploadSearch])
+
+  const filteredProducts = useMemo(() => {
+    if (!productSearch) return byProduct
+    const q = productSearch.toLowerCase()
+    return byProduct.filter(r => (r.product_code || '').toLowerCase().includes(q) || (r.product_name || '').toLowerCase().includes(q))
+  }, [byProduct, productSearch])
+
+  const filteredBranches = useMemo(() => {
+    if (!branchSearch) return byBranch
+    const q = branchSearch.toLowerCase()
+    return byBranch.filter(r => (r.branch_code || '').toLowerCase().includes(q) || (r.branch_name || '').toLowerCase().includes(q))
+  }, [byBranch, branchSearch])
 
   function exportUploadsCsv(data: EODUpload[]) {
     const header = ['Date', 'Filename', 'Rows', 'Uploaded By', 'Loaded At', 'Status']
@@ -216,7 +237,13 @@ export default function FinanceEOD() {
     <Page
       title="EOD / EOB"
       subtitle={summary ? `${fmtNum(summary.active_accounts)} accounts · ${fmtNum(summary.txn_count)} transactions · ${summary.days_covered} days` : undefined}
-      actions={<UploadButton onUploaded={load} />}
+      actions={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
+          <UploadButton onUploaded={load} />
+        </div>
+      }
     >
       <ErrBanner error={error} onRetry={load} />
 
@@ -228,12 +255,6 @@ export default function FinanceEOD() {
         <KpiCard label="Net Movement" value={fmtKobo(summary?.net_movement ?? 0)} icon="trending_up"
           accent={(summary?.net_movement ?? 0) >= 0 ? GREEN : RED} loading={loading} />
       </div>
-
-      {/* Date filter */}
-      <FilterBar onReset={() => { setDateFrom(monthStart()); setDateTo(today()) }}>
-        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
-        <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
-      </FilterBar>
 
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--bdr)', marginBottom: SP[4] }}>
@@ -254,19 +275,26 @@ export default function FinanceEOD() {
 
       {tab === 'uploads' && (
         <SectionCard padding={false} actions={
-          <button onClick={() => exportUploadsCsv(uploads)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+          <button onClick={() => exportUploadsCsv(filteredUploads)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
             Export CSV
           </button>
         }>
+          <ExpandableFilterBar
+            search={uploadSearch}
+            onSearch={setUploadSearch}
+            groups={[]}
+            onReset={() => setUploadSearch('')}
+            resultCount={filteredUploads.length}
+            totalCount={uploads.length}
+            placeholder="Search filename, uploader…"
+          />
           <DataTable
             cols={UPLOAD_COLS}
-            rows={uploads}
+            rows={filteredUploads}
             keyFn={r => r.id}
             loading={loading}
             emptyText="No EOD files uploaded yet"
-            searchKeys={['filename', 'loaded_by_name', 'status']}
-            searchPlaceholder="Search filename, uploader…"
             pageSize={20}
           />
         </SectionCard>
@@ -274,19 +302,26 @@ export default function FinanceEOD() {
 
       {tab === 'product' && (
         <SectionCard padding={false} actions={
-          <button onClick={() => exportProductCsv(byProduct)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+          <button onClick={() => exportProductCsv(filteredProducts)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
             Export CSV
           </button>
         }>
+          <ExpandableFilterBar
+            search={productSearch}
+            onSearch={setProductSearch}
+            groups={[]}
+            onReset={() => setProductSearch('')}
+            resultCount={filteredProducts.length}
+            totalCount={byProduct.length}
+            placeholder="Search product…"
+          />
           <DataTable
             cols={PRODUCT_COLS}
-            rows={byProduct}
+            rows={filteredProducts}
             keyFn={(r, i) => r.product_code ?? i}
             loading={loading}
             emptyText="No product breakdown available"
-            searchKeys={['product_code', 'product_name']}
-            searchPlaceholder="Search product…"
             pageSize={20}
           />
         </SectionCard>
@@ -294,19 +329,26 @@ export default function FinanceEOD() {
 
       {tab === 'branch' && (
         <SectionCard padding={false} actions={
-          <button onClick={() => exportBranchCsv(byBranch)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
+          <button onClick={() => exportBranchCsv(filteredBranches)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
             Export CSV
           </button>
         }>
+          <ExpandableFilterBar
+            search={branchSearch}
+            onSearch={setBranchSearch}
+            groups={[]}
+            onReset={() => setBranchSearch('')}
+            resultCount={filteredBranches.length}
+            totalCount={byBranch.length}
+            placeholder="Search branch…"
+          />
           <DataTable
             cols={BRANCH_COLS}
-            rows={byBranch}
+            rows={filteredBranches}
             keyFn={(r, i) => r.branch_code ?? i}
             loading={loading}
             emptyText="No branch breakdown available"
-            searchKeys={['branch_code', 'branch_name']}
-            searchPlaceholder="Search branch…"
             pageSize={20}
           />
         </SectionCard>

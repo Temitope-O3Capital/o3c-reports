@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, SectionCard, DataTable, ExpandableFilterBar,
   Modal, ConfirmModal, ErrBanner, btnPrimary, btnSecondary, DateFilter, NameCell, ActionRow,
 } from '../../components/UI'
-import type { TableCol, RowAction } from '../../components/UI'
+import type { TableCol, RowAction, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost, apiDelete } from '../../lib/api'
 import { toast } from 'sonner'
 import { fmtDatetime, monthStart, today } from '../../lib/fmt'
@@ -59,8 +59,9 @@ export default function CampaignTemplates() {
   const [templates, setTemplates] = useState<Template[]>([])
   const [loading, setLoading]     = useState(true)
   const [err, setErr]             = useState<string | null>(null)
-  const [channelFilter, setChannelFilter]   = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('')
+  const [search,      setSearch]      = useState('')
+  const [fChannels,   setFChannels]   = useState(new Set<string>())
+  const [fCategories, setFCategories] = useState(new Set<string>())
   const [deleteTarget, setDeleteTarget] = useState<Template | null>(null)
   const [preview, setPreview]     = useState<Template | null>(null)
   const [dateFrom, setDateFrom]   = useState(monthStart())
@@ -70,17 +71,23 @@ export default function CampaignTemplates() {
     setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
-      if (channelFilter)  p.set('channel',  channelFilter)
-      if (categoryFilter) p.set('category', categoryFilter)
-      if (dateFrom)       p.set('from',     dateFrom)
-      if (dateTo)         p.set('to',       dateTo)
+      if (fChannels.size)   p.set('channel',  [...fChannels].join(','))
+      if (fCategories.size) p.set('category', [...fCategories].join(','))
+      if (dateFrom)         p.set('from',     dateFrom)
+      if (dateTo)           p.set('to',       dateTo)
       const res = await apiFetch<Template[]>(`/api/message-templates?${p}`)
       setTemplates(Array.isArray(res) ? res : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [channelFilter, categoryFilter, dateFrom, dateTo])
+  }, [fChannels, fCategories, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+
+  const displayed = useMemo(() =>
+    search
+      ? templates.filter(t => t.name.toLowerCase().includes(search.toLowerCase()) || (t.created_by_name ?? '').toLowerCase().includes(search.toLowerCase()))
+      : templates
+  , [templates, search])
 
   async function doDelete() {
     if (!deleteTarget) return
@@ -158,26 +165,35 @@ export default function CampaignTemplates() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <FilterBar onReset={() => { setChannelFilter(''); setCategoryFilter('') }}>
-        <select value={channelFilter} onChange={e => setChannelFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Channels</option>
-          <option value="email">Email</option>
-          <option value="sms">SMS</option>
-        </select>
-        <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Categories</option>
-          <option value="marketing">Marketing</option>
-          <option value="collections">Collections</option>
-          <option value="onboarding">Onboarding</option>
-          <option value="repayment_reminder">Repayment Reminder</option>
-          <option value="general">General</option>
-        </select>
-      </FilterBar>
-
-      <SectionCard title="Templates" badge={templates.length} padding={false} actions={<button onClick={() => exportCsv(templates)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Templates" badge={displayed.length} padding={false} actions={<button onClick={() => exportCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[
+            {
+              key: 'channel',
+              label: 'Channel',
+              options: Object.entries(CHANNEL_COLOR).map(([v, color]) => ({ value: v, label: v.toUpperCase(), color })),
+              selected: fChannels,
+              onChange: setFChannels,
+            },
+            {
+              key: 'category',
+              label: 'Category',
+              options: Object.entries(CATEGORY_COLOR).map(([v, color]) => ({ value: v, label: v.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()), color })),
+              selected: fCategories,
+              onChange: setFCategories,
+            },
+          ] as FilterGroupDef[]}
+          onReset={() => { setSearch(''); setFChannels(new Set()); setFCategories(new Set()) }}
+          onApply={load}
+          resultCount={displayed.length}
+          totalCount={templates.length}
+          placeholder="Search templates…"
+        />
         <DataTable<Template>
           cols={cols}
-          rows={templates}
+          rows={displayed}
           keyFn={r => r.id}
           emptyText={
             canWrite
@@ -185,8 +201,6 @@ export default function CampaignTemplates() {
               : 'No templates have been created yet.'
           }
           skeletonRows={loading ? 6 : 0}
-          searchKeys={['name', 'channel', 'category', 'created_by_name']}
-          searchPlaceholder="Search templates…"
           pageSize={20}
         />
       </SectionCard>

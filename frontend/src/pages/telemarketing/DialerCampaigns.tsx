@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Page, SectionCard, DataTable, ErrBanner, Spinner,
+  Page, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, Spinner,
   Modal, ConfirmModal, DateFilter,
 } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, API, getCsrfToken } from '../../lib/api'
 import { fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, FW, RADIUS, SP, TEXT } from '../../lib/design'
@@ -165,6 +165,8 @@ export default function DialerCampaigns() {
   const [error, setError] = useState<string | null>(null)
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
+  const [dialerSearch,   setDialerSearch]   = useState('')
+  const [dialerStatuses, setDialerStatuses] = useState(new Set<string>())
 
   const [newOpen, setNewOpen] = useState(false)
   const [editCamp, setEditCamp] = useState<Campaign | null>(null)
@@ -192,6 +194,12 @@ export default function DialerCampaigns() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+
+  const displayedCampaigns = useMemo(() => campaigns.filter(c => {
+    if (dialerStatuses.size && !dialerStatuses.has(c.status)) return false
+    if (dialerSearch && !c.name.toLowerCase().includes(dialerSearch.toLowerCase())) return false
+    return true
+  }), [campaigns, dialerStatuses, dialerSearch])
 
   async function loadStats(id: number) {
     try {
@@ -354,8 +362,25 @@ export default function DialerCampaigns() {
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}><Spinner size={28} /></div>
       ) : (
-        <SectionCard title="All Campaigns">
-          <DataTable cols={cols} rows={campaigns} keyFn={r => r.id} emptyText="No campaigns yet. Create one to start auto-dialing." searchKeys={['name', 'status']} />
+        <SectionCard title="All Campaigns" padding={false}>
+          <ExpandableFilterBar
+            search={dialerSearch}
+            onSearch={setDialerSearch}
+            groups={[
+              {
+                key: 'status',
+                label: 'Status',
+                options: Object.entries(STATUS_COLOUR).map(([v, c]) => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1), color: c.txt })),
+                selected: dialerStatuses,
+                onChange: setDialerStatuses,
+              },
+            ] as FilterGroupDef[]}
+            onReset={() => { setDialerSearch(''); setDialerStatuses(new Set()) }}
+            resultCount={displayedCampaigns.length}
+            totalCount={campaigns.length}
+            placeholder="Search campaigns…"
+          />
+          <DataTable cols={cols} rows={displayedCampaigns} keyFn={r => r.id} emptyText="No campaigns yet. Create one to start auto-dialing." />
 
           {/* Inline stats panels */}
           {Object.entries(statsMap).map(([idStr, stats]) => {

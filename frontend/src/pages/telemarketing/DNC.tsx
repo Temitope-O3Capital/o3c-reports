@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
-  Page, SectionCard, DataTable,
+  Page, SectionCard, DataTable, ExpandableFilterBar,
   ErrBanner, Modal, ConfirmModal, btnPrimary, btnDanger, DateFilter, KpiCard,
   NameCell, ActionRow,
 } from '../../components/UI'
@@ -45,6 +45,8 @@ export default function TelemarketingDNC() {
   const [dateTo, setDateTo] = useState(today())
   const [kpis, setKpis] = useState<DncKPIs | null>(null)
   const [kpiLoading, setKpiLoading] = useState(true)
+
+  const [dncSearch, setDncSearch] = useState('')
 
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set())
@@ -137,6 +139,12 @@ export default function TelemarketingDNC() {
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
+  const displayedDnc = useMemo(() =>
+    dncSearch
+      ? rows.filter(r => r.phone.includes(dncSearch) || (r.reason ?? '').toLowerCase().includes(dncSearch.toLowerCase()) || (r.added_by ?? '').toLowerCase().includes(dncSearch.toLowerCase()))
+      : rows
+  , [rows, dncSearch])
+
   function confirmRemoveSingle(r: DNCEntry) {
     setSelectedIds(new Set([r.id]))
     setRemoveConfirm(true)
@@ -227,10 +235,19 @@ export default function TelemarketingDNC() {
         <KpiCard label="Bulk Removes" value={kpis ? fmtNum(kpis.bulk_removes) : '—'} icon="remove_circle" accent={RED} loading={kpiLoading} />
       </div>
 
-      <SectionCard title="DNC Entries" badge={rows.length} padding={false} actions={<button onClick={() => exportDncCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="DNC Entries" badge={displayedDnc.length} padding={false} actions={<button onClick={() => exportDncCsv(displayedDnc)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+        <ExpandableFilterBar
+          search={dncSearch}
+          onSearch={setDncSearch}
+          groups={[]}
+          onReset={() => setDncSearch('')}
+          resultCount={displayedDnc.length}
+          totalCount={rows.length}
+          placeholder="Search phone, reason…"
+        />
         <DataTable
           cols={cols}
-          rows={rows}
+          rows={displayedDnc}
           keyFn={r => r.id}
           loading={loading}
           emptyText="No DNC entries found"
@@ -239,8 +256,6 @@ export default function TelemarketingDNC() {
           onSelect={setSelectedIds}
           bulkBar={bulkBar}
           skeletonRows={8}
-          searchKeys={['phone', 'reason', 'added_by']}
-          searchPlaceholder="Search phone, reason…"
           pageSize={20}
         />
       </SectionCard>

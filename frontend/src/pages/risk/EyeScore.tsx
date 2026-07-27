@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter, SearchInput, NameCell, ActionRow } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtPct, fmtNum, today, monthStart } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, GREEN, AMBER, RED, INTER, NUM } from '../../lib/design'
@@ -63,11 +63,11 @@ export default function EyeScore() {
   const [offset,   setOffset]   = useState(0)
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState<string | null>(null)
-  const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo,   setDateTo]   = useState(today())
-  const [product,  setProduct]  = useState('')
-  const [band,     setBand]     = useState('')
-  const [search,   setSearch]   = useState('')
+  const [dateFrom,  setDateFrom]  = useState(monthStart())
+  const [dateTo,    setDateTo]    = useState(today())
+  const [fProducts, setFProducts] = useState(new Set<string>())
+  const [fBands,    setFBands]    = useState(new Set<string>())
+  const [search,    setSearch]    = useState('')
 
   const abortRef = useRef<AbortController | null>(null)
 
@@ -75,13 +75,13 @@ export default function EyeScore() {
     const p = new URLSearchParams()
     p.set('limit', String(PAGE_SIZE))
     p.set('offset', String(off))
-    if (dateFrom) p.set('date_from', dateFrom)
-    if (dateTo)   p.set('date_to', dateTo)
-    if (product)  p.set('product', product)
-    if (band)     p.set('band', band)
-    if (search)   p.set('search', search)
+    if (dateFrom)       p.set('date_from', dateFrom)
+    if (dateTo)         p.set('date_to', dateTo)
+    if (fProducts.size) p.set('product', [...fProducts].join(','))
+    if (fBands.size)    p.set('band',    [...fBands].join(','))
+    if (search)         p.set('search', search)
     return p.toString()
-  }, [dateFrom, dateTo, product, band, search])
+  }, [dateFrom, dateTo, fProducts, fBands, search])
 
   const load = useCallback(async (off = 0) => {
     abortRef.current?.abort()
@@ -110,7 +110,8 @@ export default function EyeScore() {
   useEffect(() => { load(0) }, [load])
 
   function resetFilters() {
-    setDateFrom(monthStart()); setDateTo(today()); setProduct(''); setBand(''); setSearch('')
+    setDateFrom(monthStart()); setDateTo(today())
+    setFProducts(new Set()); setFBands(new Set()); setSearch('')
   }
 
   const pages       = Math.ceil(total / PAGE_SIZE)
@@ -208,30 +209,41 @@ export default function EyeScore() {
       </div>
 
       <SectionCard title="Score Requests" badge={total} padding={false}>
-        <div style={{ padding: '12px 18px 0' }}>
-          <FilterBar onReset={resetFilters}>
-            <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
-            <select value={product} onChange={e => setProduct(e.target.value)} style={filterInputStyle}>
-              <option value="">All products</option>
-              <option value="Payday Loan">Payday Loan</option>
-              <option value="Salary Advance">Salary Advance</option>
-              <option value="Business Loan">Business Loan</option>
-              <option value="Education Loan">Education Loan</option>
-              <option value="Auto Loan">Auto Loan</option>
-            </select>
-            <select value={band} onChange={e => setBand(e.target.value)} style={filterInputStyle}>
-              <option value="">All bands</option>
-              <option value="Prime">Prime</option>
-              <option value="Near-Prime">Near-Prime</option>
-              <option value="Sub-Prime">Sub-Prime</option>
-              <option value="High-Risk">High-Risk</option>
-            </select>
-            <button
-              onClick={() => load(0)}
-              style={{ height: 32, padding: '0 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
-            >Apply</button>
-          </FilterBar>
-        </div>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[
+            {
+              key: 'product',
+              label: 'Product',
+              options: [
+                { value: 'Payday Loan' },
+                { value: 'Salary Advance' },
+                { value: 'Business Loan' },
+                { value: 'Education Loan' },
+                { value: 'Auto Loan' },
+              ],
+              selected: fProducts,
+              onChange: setFProducts,
+            } as FilterGroupDef,
+            {
+              key: 'band',
+              label: 'Band',
+              options: [
+                { value: 'Prime',       color: '#16A34A' },
+                { value: 'Near-Prime',  color: '#2563EB' },
+                { value: 'Sub-Prime',   color: '#D97706' },
+                { value: 'High-Risk',   color: '#C00000' },
+              ],
+              selected: fBands,
+              onChange: setFBands,
+            } as FilterGroupDef,
+          ]}
+          onReset={resetFilters}
+          onApply={() => load(0)}
+          resultCount={total}
+          totalCount={total}
+        />
 
         <DataTable
           cols={cols}

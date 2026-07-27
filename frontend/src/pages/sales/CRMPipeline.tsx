@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   Page, SectionCard, DataTable, Modal, ErrBanner, btnPrimary, btnSecondary, filterInputStyle, Spinner, DateFilter,
-  NameCell, ActionRow, StatusBadge,
+  NameCell, ActionRow, StatusBadge, ExpandableFilterBar,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -250,6 +250,9 @@ export default function CRMPipeline() {
   const [editing,     setEditing]     = useState<Deal | null>(null)
   const [activity,    setActivity]    = useState<Deal | null>(null)
   const [bulkSel,     setBulkSel]     = useState<Set<string | number>>(new Set())
+  const [search,      setSearch]      = useState('')
+  const [fStages,     setFStages]     = useState<Set<string>>(new Set())
+  const [fAssignees,  setFAssignees]  = useState<Set<string>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -315,6 +318,23 @@ export default function CRMPipeline() {
 
   const stages = (pipeline?.stages ?? []).slice().sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
 
+  const uniqueAssignees = useMemo(
+    () => [...new Set(allDeals.map(d => d.assigned_name).filter(Boolean))] as string[],
+    [allDeals],
+  )
+
+  const filteredDeals = useMemo(() => allDeals.filter(d => {
+    if (fStages.size && (d.stage_name == null || !fStages.has(d.stage_name))) return false
+    if (fAssignees.size && (d.assigned_name == null || !fAssignees.has(d.assigned_name))) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (!(d.title?.toLowerCase().includes(q) || d.first_name?.toLowerCase().includes(q) || d.last_name?.toLowerCase().includes(q) || d.stage_name?.toLowerCase().includes(q))) return false
+    }
+    return true
+  }), [allDeals, fStages, fAssignees, search])
+
+  function resetFilters() { setSearch(''); setFStages(new Set()); setFAssignees(new Set()) }
+
   return (
     <Page
       title="CRM Pipeline"
@@ -349,15 +369,45 @@ export default function CRMPipeline() {
 
       {view === 'table' ? (
         <SectionCard title="All Deals" badge={allDeals.length} padding={false}>
+            <ExpandableFilterBar
+            search={search}
+            onSearch={setSearch}
+            groups={[
+              {
+                key: 'stage',
+                label: 'Stage',
+                options: stages.map(s => ({
+                  value: s.name,
+                  label: s.name,
+                  color: s.is_won ? GREEN : s.is_lost ? '#6B7280' : (s.color || NAVY),
+                  count: allDeals.filter(d => d.stage_name === s.name).length,
+                })),
+                selected: fStages,
+                onChange: setFStages,
+              },
+              {
+                key: 'assignee',
+                label: 'Assignee',
+                options: uniqueAssignees.map(name => ({
+                  value: name,
+                  avatarName: name,
+                  count: allDeals.filter(d => d.assigned_name === name).length,
+                })),
+                selected: fAssignees,
+                onChange: setFAssignees,
+              },
+            ]}
+            onReset={resetFilters}
+            resultCount={filteredDeals.length}
+            totalCount={allDeals.length}
+          />
           <DataTable<Deal>
             cols={tableCols}
-            rows={allDeals}
+            rows={filteredDeals}
             keyFn={r => r.id}
             onRowClick={r => setSelected(r)}
             emptyText="No deals found."
             skeletonRows={loading ? 8 : 0}
-            searchKeys={['title', 'first_name', 'last_name', 'stage_name']}
-            searchPlaceholder="Search deals…"
             selectable
             selectedIds={bulkSel}
             onSelect={setBulkSel}

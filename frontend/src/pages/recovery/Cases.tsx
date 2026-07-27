@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Page, FilterBar, Tabs, ConfirmModal, ErrBanner, Spinner, Modal,
+  Page, ExpandableFilterBar, Tabs, ConfirmModal, ErrBanner, Spinner, Modal,
   filterInputStyle, DateFilter, NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
+import type { FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { RED, NAVY, GREEN, AMBER, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -629,12 +630,11 @@ function ReassignModal({ open, onClose, selectedIds, agents, onDone }: {
 
 // ── Filter options ────────────────────────────────────────────────────────────
 
-const STATUS_OPTIONS = [
-  { label: 'All Statuses', value: '' },
-  { label: 'Active',       value: 'active' },
-  { label: 'Legal',        value: 'legal' },
-  { label: 'Closed',       value: 'closed' },
-  { label: 'Written Off',  value: 'written_off' },
+const CASE_STATUS_OPTIONS = [
+  { value: 'active',      label: 'Active',      color: BLUE },
+  { value: 'legal',       label: 'Legal',       color: RED },
+  { value: 'closed',      label: 'Closed' },
+  { value: 'written_off', label: 'Written Off' },
 ]
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -648,18 +648,19 @@ export default function RecoveryCases() {
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
   const [reassignOpen, setReassignOpen] = useState(false)
 
-  const [statusFilter, setStatusFilter] = useState('')
-  const [searchQ,      setSearchQ]      = useState('')
-  const [dateFrom,     setDateFrom]     = useState(monthStart())
-  const [dateTo,       setDateTo]       = useState(today())
+  const [fStatus,  setFStatus]  = useState(new Set<string>())
+  const [search,   setSearch]   = useState('')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
+
+  const fStatusKey = [...fStatus].sort().join(',')
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     const params = new URLSearchParams({ limit: '100' })
-    if (statusFilter) params.set('status', statusFilter)
-    if (searchQ.trim()) params.set('q', searchQ.trim())
-    if (dateFrom) params.set('from', dateFrom)
-    if (dateTo)   params.set('to',   dateTo)
+    if (fStatusKey) params.set('status', fStatusKey)
+    if (dateFrom)   params.set('from', dateFrom)
+    if (dateTo)     params.set('to',   dateTo)
     try {
       const [casesRes, usersRes] = await Promise.all([
         apiFetch<{ data: RecoveryCase[] }>(`/api/recovery-ops/cases?${params}`),
@@ -670,9 +671,34 @@ export default function RecoveryCases() {
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load cases')
     } finally { setLoading(false) }
-  }, [statusFilter, searchQ, dateFrom, dateTo])
+  }, [fStatusKey, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+
+  const displayed = useMemo(() => {
+    if (!search.trim()) return cases
+    const q = search.toLowerCase()
+    return cases.filter(rc =>
+      [rc.case_ref, rc.account_cif, rc.agent_name].some(v =>
+        v != null && String(v).toLowerCase().includes(q)
+      )
+    )
+  }, [cases, search])
+
+  const groups: FilterGroupDef[] = [
+    {
+      key: 'status',
+      label: 'STATUS',
+      options: CASE_STATUS_OPTIONS.map(o => ({
+        ...o,
+        count: cases.filter(rc => rc.status === o.value).length,
+      })),
+      selected: fStatus,
+      onChange: setFStatus,
+    },
+  ]
+
+  function resetFilters() { setFStatus(new Set()); setSearch('') }
 
   function toggleCheck(id: number, e: React.MouseEvent) {
     e.stopPropagation()
@@ -704,26 +730,16 @@ export default function RecoveryCases() {
           background: 'var(--card)', flexShrink: 0,
         }}>
           {/* Filter bar */}
-          <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)' }}>Cases</span>
-              <span style={{
-                ...NUM, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '1px 7px',
-                borderRadius: RADIUS['2xl'], background: 'rgba(14,40,65,.08)', color: NAVY,
-              }}>{cases.length}</span>
-            </div>
-            <FilterBar onReset={() => { setStatusFilter(''); setSearchQ('') }}>
-              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-                style={{ ...filterInputStyle, flex: 1 }}>
-                {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </FilterBar>
-            <input
-              value={searchQ} onChange={e => setSearchQ(e.target.value)}
-              placeholder="Search by CIF…"
-              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', marginTop: 6 }}
-            />
-          </div>
+          <ExpandableFilterBar
+            search={search}
+            onSearch={setSearch}
+            groups={groups}
+            onReset={resetFilters}
+            onApply={load}
+            resultCount={displayed.length}
+            totalCount={cases.length}
+            placeholder="Search CIF, case ref, agent…"
+          />
 
           {/* Batch bar */}
           {checkedIds.size > 0 && (
@@ -767,12 +783,12 @@ export default function RecoveryCases() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10, color: 'var(--txt2)', fontSize: TEXT.base }}>
                 <Spinner size={16} color={NAVY} /> Loading…
               </div>
-            ) : cases.length === 0 ? (
+            ) : displayed.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--txt2)', fontSize: TEXT.base }}>
                 No cases match the current filters.
               </div>
             ) : (
-              cases.map(rc => {
+              displayed.map(rc => {
                 const isSelected = selected?.id === rc.id
                 const isChecked  = checkedIds.has(rc.id)
                 const net = rc.outstanding_kobo - rc.recovered_kobo

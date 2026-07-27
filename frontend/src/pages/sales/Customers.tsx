@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, lazy, Suspense, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, SectionCard, DataTable, ExpandableFilterBar,
   ErrBanner, Spinner, KpiCard, DateFilter, NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -22,6 +22,8 @@ interface Contact {
   cif_number?: string
   status?: string
   source?: string
+  source_type?: 'bd_assigned' | 'self_sourced'
+  employer_name?: string
   assigned_name?: string
   updated_at: string
   deal_count?: number
@@ -86,9 +88,11 @@ export default function CRMContacts() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const [statusFilter, setStatusFilter]     = useState('')
-  const [sourceFilter, setSourceFilter]     = useState('')
-  const [assigneeFilter, setAssigneeFilter] = useState('')
+  const [search,        setSearch]        = useState('')
+  const [fStatuses,     setFStatuses]     = useState<Set<string>>(new Set())
+  const [fSources,      setFSources]      = useState<Set<string>>(new Set())
+  const [fAssignees,    setFAssignees]    = useState<Set<string>>(new Set())
+  const [fSourceTypes,  setFSourceTypes]  = useState<Set<string>>(new Set())
 
   const [c360Open, setC360Open] = useState(false)
   const [bulkSel,  setBulkSel]  = useState<Set<string | number>>(new Set())
@@ -96,12 +100,10 @@ export default function CRMContacts() {
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const p = new URLSearchParams({ limit: '200' })
-      if (statusFilter)   p.set('status',      statusFilter)
-      if (sourceFilter)   p.set('source',       sourceFilter)
-      if (assigneeFilter) p.set('assigned_to',  assigneeFilter)
-      if (dateFrom)       p.set('from',          dateFrom)
-      if (dateTo)         p.set('to',            dateTo)
+      // Leads page only shows pre-conversion contacts; customers live in My Accounts.
+      const p = new URLSearchParams({ limit: '500', exclude_status: 'customer' })
+      if (dateFrom) p.set('from', dateFrom)
+      if (dateTo)   p.set('to',   dateTo)
 
       const [res, us] = await Promise.all([
         apiFetch<{ data: Contact[]; total: number }>(`/api/crm/contacts?${p}`),
@@ -112,9 +114,34 @@ export default function CRMContacts() {
       setUsers(Array.isArray(us) ? us : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [statusFilter, sourceFilter, assigneeFilter, dateFrom, dateTo])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+
+  const uniqueAssigneeNames = useMemo(
+    () => [...new Set(contacts.map(c => c.assigned_name).filter(Boolean))] as string[],
+    [contacts],
+  )
+
+  const filteredContacts = useMemo(() => contacts.filter(c => {
+    if (fStatuses.size && (c.status == null || !fStatuses.has(c.status.toLowerCase()))) return false
+    if (fSources.size && (c.source == null || !fSources.has(c.source.toLowerCase()))) return false
+    if (fAssignees.size && (c.assigned_name == null || !fAssignees.has(c.assigned_name))) return false
+    if (fSourceTypes.size && !fSourceTypes.has(c.source_type ?? 'self_sourced')) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (!(
+        c.first_name?.toLowerCase().includes(q) ||
+        c.last_name?.toLowerCase().includes(q) ||
+        c.email?.toLowerCase().includes(q) ||
+        c.phone?.includes(q) ||
+        c.employer_name?.toLowerCase().includes(q)
+      )) return false
+    }
+    return true
+  }), [contacts, fStatuses, fSources, fAssignees, fSourceTypes, search])
+
+  function resetFilters() { setSearch(''); setFStatuses(new Set()); setFSources(new Set()); setFAssignees(new Set()); setFSourceTypes(new Set()) }
 
   useEffect(() => {
     setKpiLoading(true)
@@ -146,14 +173,27 @@ export default function CRMContacts() {
 
   const cols: TableCol<Contact>[] = [
     {
-      key: 'cif_number', label: 'CIF',
-      render: r => r.cif_number
-        ? <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.cif_number}</span>
-        : <span style={{ color: 'var(--txt3)' }}>—</span>,
-    },
-    {
       key: 'first_name', label: 'Name',
-      render: r => <NameCell name={`${r.first_name} ${r.last_name}`.trim()} sub={r.email ?? null} />,
+      render: r => (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+          <NameCell name={`${r.first_name} ${r.last_name}`.trim()} sub={r.employer_name ?? r.email ?? null} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0, marginTop: 2 }}>
+            {r.source_type === 'bd_assigned' && (
+              <span style={{
+                fontSize: 10, fontWeight: FW.bold, padding: '1px 5px',
+                borderRadius: RADIUS.sm, background: `${PURPLE}18`, color: PURPLE, letterSpacing: '0.04em',
+              }}>BD</span>
+            )}
+            {r.cif_number && (
+              <span style={{
+                fontSize: 10, fontWeight: FW.bold, padding: '1px 5px',
+                borderRadius: RADIUS.sm, background: 'var(--th-bg)', color: 'var(--txt3)',
+                fontFamily: 'monospace', letterSpacing: '0.02em',
+              }}>{r.cif_number}</span>
+            )}
+          </div>
+        </div>
+      ),
     },
     {
       key: 'phone', label: 'Phone',
@@ -177,7 +217,7 @@ export default function CRMContacts() {
   ]
 
   return (
-    <Page title="CRM Contacts" subtitle={`${fmtNum(total)} total contacts`}
+    <Page title="Leads" subtitle={`${fmtNum(total)} leads & prospects`}
       actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
     >
       <ErrBanner error={err} onRetry={load} />
@@ -190,38 +230,65 @@ export default function CRMContacts() {
         <KpiCard label="Conversion Rate" value={kpis ? `${kpis.conversion_rate_pct.toFixed(1)}%` : '—'} icon="trending_up" accent={AMBER} loading={kpiLoading} />
       </div>
 
-      <FilterBar onReset={() => { setStatusFilter(''); setSourceFilter(''); setAssigneeFilter('') }}>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Statuses</option>
-          <option value="lead">Lead</option>
-          <option value="prospect">Prospect</option>
-          <option value="customer">Customer</option>
-          <option value="inactive">Inactive</option>
-        </select>
-        <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Sources</option>
-          <option value="referral">Referral</option>
-          <option value="walk_in">Walk-in</option>
-          <option value="campaign">Campaign</option>
-          <option value="digital">Digital</option>
-          <option value="corporate">Corporate</option>
-        </select>
-        <select value={assigneeFilter} onChange={e => setAssigneeFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Officers</option>
-          {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
-        </select>
-      </FilterBar>
-
-      <SectionCard title="Contacts" badge={contacts.length} padding={false} actions={<button onClick={() => exportContactsCsv(contacts)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Leads & Prospects" badge={contacts.length} padding={false} actions={<button onClick={() => exportContactsCsv(filteredContacts)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          placeholder="Search contacts…"
+          groups={[
+            {
+              key: 'status',
+              label: 'Status',
+              options: [
+                { value: 'lead',     label: 'Lead',     color: BLUE },
+                { value: 'prospect', label: 'Prospect', color: AMBER },
+                { value: 'inactive', label: 'Inactive', color: '#6B7280' },
+              ],
+              selected: fStatuses,
+              onChange: setFStatuses,
+            },
+            {
+              key: 'source',
+              label: 'Source',
+              options: [
+                { value: 'referral',  label: 'Referral',  color: GREEN },
+                { value: 'campaign',  label: 'Campaign',  color: AMBER },
+                { value: 'digital',   label: 'Digital',   color: BLUE },
+                { value: 'corporate', label: 'Corporate', color: PURPLE },
+                { value: 'walk_in',   label: 'Walk-in',   color: NAVY },
+              ],
+              selected: fSources,
+              onChange: setFSources,
+            },
+            {
+              key: 'assignee',
+              label: 'Officer',
+              options: uniqueAssigneeNames.map(name => ({ value: name, avatarName: name })),
+              selected: fAssignees,
+              onChange: setFAssignees,
+            },
+            {
+              key: 'source_type',
+              label: 'Lead Source',
+              options: [
+                { value: 'self_sourced', label: 'Self-Sourced', color: NAVY,   count: contacts.filter(c => (c.source_type ?? 'self_sourced') === 'self_sourced').length },
+                { value: 'bd_assigned',  label: 'BD Assigned',  color: PURPLE, count: contacts.filter(c => c.source_type === 'bd_assigned').length },
+              ],
+              selected: fSourceTypes,
+              onChange: setFSourceTypes,
+            },
+          ]}
+          onReset={resetFilters}
+          resultCount={filteredContacts.length}
+          totalCount={contacts.length}
+        />
         <DataTable<Contact>
           cols={cols}
-          rows={contacts}
+          rows={filteredContacts}
           keyFn={r => r.id}
           onRowClick={() => setC360Open(true)}
           emptyText="No contacts found."
           skeletonRows={loading ? 8 : 0}
-          searchKeys={['first_name', 'last_name', 'email', 'phone']}
-          searchPlaceholder="Search contacts…"
           pageSize={20}
           selectable
           selectedIds={bulkSel}

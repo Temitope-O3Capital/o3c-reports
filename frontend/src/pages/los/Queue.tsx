@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, SearchInput, DateFilter, NameCell, ActionRow } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, DateFilter, NameCell, ActionRow, ExpandableFilterBar } from '../../components/UI'
+import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDatetime } from '../../lib/fmt'
-import { RED, AMBER, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { RED, AMBER, NAVY, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 interface LoanApp {
   id: number
@@ -123,7 +123,6 @@ export default function LOSQueue() {
   const [loading,    setLoading]    = useState(true)
   const [err,        setErr]        = useState<string | null>(null)
   const [search,     setSearch]     = useState('')
-  const [filterOpen, setFilterOpen] = useState(false)
   const [fStages,    setFStages]    = useState<Set<string>>(new Set())
   const [fProducts,  setFProducts]  = useState<Set<string>>(new Set())
   const [fStatuses,  setFStatuses]  = useState<Set<string>>(new Set())
@@ -187,7 +186,45 @@ export default function LOSQueue() {
   const officers = useMemo(() => [...new Set(dateFiltered.map(r => r.assigned_officer_name).filter((n): n is string => !!n))].sort(), [dateFiltered])
   const statuses = useMemo(() => [...new Set(dateFiltered.map(r => r.status).filter(Boolean))].sort(), [dateFiltered])
 
-  const activeFilterCount = fStages.size + fProducts.size + fStatuses.size + fOfficers.size
+  const groups: FilterGroupDef[] = [
+    {
+      key: 'stage', label: 'Stage',
+      options: STAGES.map(s => ({
+        value: s,
+        label: s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        count: dateFiltered.filter(r => r.stage === s).length,
+        color: STAGE_COLORS[s]?.txt,
+      })),
+      selected: fStages, onChange: setFStages,
+    },
+    {
+      key: 'status', label: 'Status',
+      options: statuses.map(s => ({
+        value: s,
+        label: s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        count: dateFiltered.filter(r => r.status === s).length,
+      })),
+      selected: fStatuses, onChange: setFStatuses,
+    },
+    {
+      key: 'product', label: 'Product',
+      options: products.map(p => ({
+        value: p,
+        label: p.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        count: dateFiltered.filter(r => r.product_type === p).length,
+      })),
+      selected: fProducts, onChange: setFProducts,
+    },
+    {
+      key: 'officer', label: 'Officer',
+      options: officers.map(o => ({
+        value: o,
+        label: o,
+        count: dateFiltered.filter(r => r.assigned_officer_name === o).length,
+      })),
+      selected: fOfficers, onChange: setFOfficers,
+    },
+  ]
 
   const filtered = useMemo(() => dateFiltered.filter(r => {
     if (fStages.size   && !fStages.has(r.stage))                        return false
@@ -311,189 +348,15 @@ export default function LOSQueue() {
         }
       >
 
-        {/* Filter bar */}
-        <div style={{
-          padding: '12px 18px',
-          borderBottom: filterOpen ? 'none' : '1px solid var(--bdr)',
-          display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-        }}>
-          <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
-
-          <button
-            onClick={() => setFilterOpen(o => !o)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
-              border: `1.5px solid ${activeFilterCount > 0 ? RED : 'var(--input-bdr)'}`,
-              background: 'transparent',
-              color: activeFilterCount > 0 ? RED : 'var(--txt2)',
-              cursor: 'pointer', fontFamily: SORA, position: 'relative',
-            }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>tune</span>
-            Filters
-            {activeFilterCount > 0 && (
-              <span style={{
-                position: 'absolute', top: -6, right: -6,
-                width: 16, height: 16, borderRadius: '50%',
-                background: RED, color: '#fff',
-                fontSize: 9, fontWeight: FW.bold, fontFamily: INTER,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>{activeFilterCount}</span>
-            )}
-          </button>
-
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
-              {filtered.length} of {rows.length}
-            </span>
-          </div>
-        </div>
-
-        {/* Expandable filter panel */}
-        {filterOpen && (
-          <div style={{ borderBottom: '1px solid var(--bdr)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', padding: '20px 20px 0' }}>
-
-              {/* Stage */}
-              <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>STAGE</div>
-                <div style={{ maxHeight: 180, overflowY: 'auto' }}>
-                  {STAGES.map(s => {
-                    const sc = STAGE_COLORS[s]
-                    const count = dateFiltered.filter(r => r.stage === s).length
-                    const label = s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-                    return (
-                      <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={fStages.has(s)} onChange={() => setFStages(toggleSet(fStages, s))}
-                          style={{ accentColor: sc?.txt ?? NAVY, width: 14, height: 14, cursor: 'pointer' }} />
-                        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: sc?.bg ?? 'var(--chip-bg)', color: sc?.txt ?? 'var(--chip-txt)' }}>{label}</span>
-                        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
-                      </label>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {/* Status */}
-              <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>STATUS</div>
-                <div style={{ maxHeight: 180, overflowY: 'auto' }}>
-                  {statuses.map(s => {
-                    const count = dateFiltered.filter(r => r.status === s).length
-                    const label = s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-                    return (
-                      <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={fStatuses.has(s)} onChange={() => setFStatuses(toggleSet(fStatuses, s))}
-                          style={{ accentColor: NAVY, width: 14, height: 14, cursor: 'pointer' }} />
-                        <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER }}>{label}</span>
-                        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
-                      </label>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {/* Product */}
-              <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>PRODUCT</div>
-                <div style={{ maxHeight: 180, overflowY: 'auto' }}>
-                  {products.map(p => {
-                    const count = dateFiltered.filter(r => r.product_type === p).length
-                    const label = p.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-                    return (
-                      <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={fProducts.has(p)} onChange={() => setFProducts(toggleSet(fProducts, p))}
-                          style={{ accentColor: BLUE, width: 14, height: 14, cursor: 'pointer' }} />
-                        <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA }}>{label}</span>
-                        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
-                      </label>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {/* Officer */}
-              <div style={{ paddingLeft: 20 }}>
-                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>OFFICER</div>
-                <div style={{ maxHeight: 180, overflowY: 'auto' }}>
-                  {officers.length === 0
-                    ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No assignments yet</span>
-                    : officers.map(o => {
-                      const count = dateFiltered.filter(r => r.assigned_officer_name === o).length
-                      return (
-                        <label key={o} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
-                          <input type="checkbox" checked={fOfficers.has(o)} onChange={() => setFOfficers(toggleSet(fOfficers, o))}
-                            style={{ accentColor: NAVY, width: 14, height: 14, cursor: 'pointer' }} />
-                          <span style={{ fontSize: 12, color: 'var(--txt)', fontFamily: INTER, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o}</span>
-                          <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER, flexShrink: 0 }}>{count}</span>
-                        </label>
-                      )
-                    })
-                  }
-                </div>
-              </div>
-
-            </div>
-
-            <div style={{
-              padding: '14px 20px', borderTop: '1px solid var(--bdr)', marginTop: 16,
-              display: 'flex', alignItems: 'center', gap: 12,
-            }}>
-              <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: SORA }}>
-                {activeFilterCount === 0
-                  ? `No filters applied — showing all ${rows.length} applications`
-                  : `${activeFilterCount} filter${activeFilterCount !== 1 ? 's' : ''} active`}
-              </span>
-              <button onClick={resetFilters} style={{
-                padding: '5px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
-                border: '1.5px solid var(--input-bdr)', background: 'transparent',
-                color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA,
-              }}>Reset</button>
-              <button onClick={() => setFilterOpen(false)} style={{
-                marginLeft: 'auto', padding: '5px 16px', borderRadius: RADIUS.md,
-                fontSize: TEXT.sm, fontWeight: FW.semibold,
-                border: 'none', background: RED, color: '#fff',
-                cursor: 'pointer', fontFamily: SORA,
-              }}>Done · {filtered.length} results</button>
-            </div>
-          </div>
-        )}
-
-        {/* Active chips */}
-        {!filterOpen && activeFilterCount > 0 && (
-          <div style={{
-            padding: '8px 18px', borderBottom: '1px solid var(--bdr)',
-            display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
-          }}>
-            {[...fStages].map(s => {
-              const sc = STAGE_COLORS[s]
-              const label = s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-              return (
-                <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: sc?.bg ?? 'var(--chip-bg)', color: sc?.txt ?? 'var(--chip-txt)' }}>
-                  {label}<span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFStages(toggleSet(fStages, s))}>close</span>
-                </span>
-              )
-            })}
-            {[...fProducts].map(p => (
-              <span key={p} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: 'rgba(37,99,235,.10)', color: BLUE }}>
-                {p}<span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFProducts(toggleSet(fProducts, p))}>close</span>
-              </span>
-            ))}
-            {[...fStatuses].map(s => (
-              <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
-                {s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
-                <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFStatuses(toggleSet(fStatuses, s))}>close</span>
-              </span>
-            ))}
-            {[...fOfficers].map(o => (
-              <span key={o} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: `${AMBER}18`, color: AMBER }}>
-                {o}<span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFOfficers(toggleSet(fOfficers, o))}>close</span>
-              </span>
-            ))}
-            <button onClick={resetFilters} style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', padding: 0, fontFamily: SORA }}>Clear all</button>
-          </div>
-        )}
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={groups}
+          onReset={resetFilters}
+          resultCount={filtered.length}
+          totalCount={rows.length}
+          placeholder="Search by name or reference…"
+        />
 
         <DataTable
           cols={cols}

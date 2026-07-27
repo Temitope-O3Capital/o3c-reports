@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, KpiCard, DataTable, ErrBanner, Spinner } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Page, SectionCard, KpiCard, DataTable, ErrBanner, Spinner, ExpandableFilterBar } from '../../components/UI'
+import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, BLUE, RED, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
@@ -55,6 +55,15 @@ export default function CardsMyQueue() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Issuance filters
+  const [iSearch,     setISearch]     = useState('')
+  const [iPriorities, setIPriorities] = useState(new Set<string>())
+  const [iStatuses,   setIStatuses]   = useState(new Set<string>())
+
+  // Dispute filters
+  const [dSearch,  setDSearch]  = useState('')
+  const [dStatuses, setDStatuses] = useState(new Set<string>())
+
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
@@ -65,6 +74,25 @@ export default function CardsMyQueue() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const issuanceQueue = useMemo(() => (data?.issuance_queue ?? []).filter(r => {
+    if (iPriorities.size && !iPriorities.has(r.priority?.toLowerCase())) return false
+    if (iStatuses.size && !iStatuses.has(r.status?.toLowerCase())) return false
+    if (iSearch) {
+      const q = iSearch.toLowerCase()
+      return r.customer_name.toLowerCase().includes(q) || r.request_ref.toLowerCase().includes(q) || r.card_type.toLowerCase().includes(q)
+    }
+    return true
+  }), [data, iPriorities, iStatuses, iSearch])
+
+  const disputesQueue = useMemo(() => (data?.disputes_queue ?? []).filter(r => {
+    if (dStatuses.size && !dStatuses.has(r.status?.toLowerCase())) return false
+    if (dSearch) {
+      const q = dSearch.toLowerCase()
+      return r.customer_name.toLowerCase().includes(q) || r.dispute_ref.toLowerCase().includes(q) || r.dispute_type.toLowerCase().includes(q)
+    }
+    return true
+  }), [data, dStatuses, dSearch])
 
   if (loading) return (
     <Page title="My Card Queue" back={{ label: 'Card Operations', to: '/cards' }}>
@@ -117,26 +145,63 @@ export default function CardsMyQueue() {
       </div>
 
       {/* Issuance queue */}
-      <SectionCard title="Issuance Queue" badge={data.issuance_queue.length} style={{ marginBottom: 14 }}>
+      <SectionCard title="Issuance Queue" badge={issuanceQueue.length} style={{ marginBottom: 14 }} padding={false}>
+        <ExpandableFilterBar
+          search={iSearch}
+          onSearch={setISearch}
+          groups={[
+            {
+              key: 'priority',
+              label: 'Priority',
+              options: Object.entries(PRIORITY_COLOR).map(([v, color]) => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1), color })),
+              selected: iPriorities,
+              onChange: setIPriorities,
+            },
+            {
+              key: 'status',
+              label: 'Status',
+              options: ['pending', 'approved', 'processing', 'dispatched', 'completed'].map(v => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1) })),
+              selected: iStatuses,
+              onChange: setIStatuses,
+            },
+          ] as FilterGroupDef[]}
+          onReset={() => { setISearch(''); setIPriorities(new Set()); setIStatuses(new Set()) }}
+          resultCount={issuanceQueue.length}
+          totalCount={data.issuance_queue.length}
+          placeholder="Search issuance requests…"
+        />
         <DataTable
           cols={issuanceCols}
-          rows={data.issuance_queue}
+          rows={issuanceQueue}
           keyFn={r => r.id}
-          searchKeys={['request_ref', 'customer_name', 'cif', 'card_type', 'status', 'priority']}
-          searchPlaceholder="Search issuance requests…"
           pageSize={10}
           emptyText="No issuance requests assigned"
         />
       </SectionCard>
 
       {/* Disputes queue */}
-      <SectionCard title="Disputes Queue" badge={data.disputes_queue.length}>
+      <SectionCard title="Disputes Queue" badge={disputesQueue.length} padding={false}>
+        <ExpandableFilterBar
+          search={dSearch}
+          onSearch={setDSearch}
+          groups={[
+            {
+              key: 'status',
+              label: 'Status',
+              options: ['filed', 'investigating', 'provisional_credit', 'resolved', 'declined'].map(v => ({ value: v, label: v.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) })),
+              selected: dStatuses,
+              onChange: setDStatuses,
+            },
+          ] as FilterGroupDef[]}
+          onReset={() => { setDSearch(''); setDStatuses(new Set()) }}
+          resultCount={disputesQueue.length}
+          totalCount={data.disputes_queue.length}
+          placeholder="Search disputes…"
+        />
         <DataTable
           cols={disputeCols}
-          rows={data.disputes_queue}
+          rows={disputesQueue}
           keyFn={r => r.id}
-          searchKeys={['dispute_ref', 'customer_name', 'cif', 'dispute_type', 'status']}
-          searchPlaceholder="Search disputes…"
           pageSize={10}
           emptyText="No disputes assigned"
         />

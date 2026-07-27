@@ -5,10 +5,10 @@ import {
   PieChart, Pie, Cell, Legend,
 } from 'recharts'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, SectionCard, DataTable, ExpandableFilterBar,
   ErrBanner, DateFilter, Modal, Spinner, KpiCard, NameCell, ActionRow,
 } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, today, monthStart } from '../../lib/fmt'
 import { NAVY, BLUE, PURPLE, GREEN, RED, AMBER, NUM, SORA, FW, RADIUS, SP, TEXT } from '../../lib/design'
@@ -264,8 +264,8 @@ export default function Calls() {
   const [error, setError]   = useState<string | null>(null)
   // Filters
   const [agentFilter, setAgentFilter] = useState('')
-  const [dirFilter,   setDirFilter]   = useState('')
-  const [outcome,     setOutcome]     = useState('')
+  const [fDirs,       setFDirs]       = useState(new Set<string>())
+  const [fOutcomes,   setFOutcomes]   = useState(new Set<string>())
   const [dateFrom,    setDateFrom]    = useState(monthStart())
   const [dateTo,      setDateTo]      = useState(today())
 
@@ -284,13 +284,13 @@ export default function Calls() {
   const buildQS = useCallback(() => {
     const p = new URLSearchParams()
     if (agentFilter) p.set('agent', agentFilter)
-    if (dirFilter)   p.set('direction', dirFilter)
-    if (outcome)     p.set('outcome', outcome)
+    if (fDirs.size)     p.set('direction', [...fDirs].join(','))
+    if (fOutcomes.size) p.set('outcome', [...fOutcomes].join(','))
     p.set('date_from', dateFrom)
     p.set('date_to', dateTo)
     p.set('limit', '200')
     return p.toString()
-  }, [agentFilter, dirFilter, outcome, dateFrom, dateTo])
+  }, [agentFilter, fDirs, fOutcomes, dateFrom, dateTo])
 
   const load = useCallback(async () => {
     abortRef.current?.abort()
@@ -456,6 +456,7 @@ export default function Calls() {
       subtitle="All inbound and outbound calls across agents"
       actions={
         <div style={{ display: 'flex', gap: SP[2] }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
           <button onClick={exportCsv}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
@@ -499,34 +500,34 @@ export default function Calls() {
 
       {/* Table */}
       <SectionCard padding={false} badge={rows.length}>
-        <div style={{ padding: '12px 16px 0' }}>
-          <FilterBar onReset={() => { setAgentFilter(''); setDirFilter(''); setOutcome(''); setDateFrom(monthStart()); setDateTo(today()) }}>
-            <input
-              placeholder="Agent name…"
-              value={agentFilter}
-              onChange={e => setAgentFilter(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && load()}
-              style={{ ...filterInputStyle, minWidth: 150 }}
-            />
-            <select value={dirFilter} onChange={e => setDirFilter(e.target.value)} style={filterInputStyle}>
-              <option value="">All Directions</option>
-              <option value="Inbound">Inbound</option>
-              <option value="Outbound">Outbound</option>
-            </select>
-            <select value={outcome} onChange={e => setOutcome(e.target.value)} style={filterInputStyle}>
-              <option value="">All Outcomes</option>
-              <option value="completed">Completed</option>
-              <option value="missed">Missed</option>
-              <option value="transferred">Transferred</option>
-              <option value="escalated">Escalated</option>
-            </select>
-            <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
-            <button onClick={load}
-              style={{ height: 32, padding: '0 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
-              Apply
-            </button>
-          </FilterBar>
-        </div>
+        <ExpandableFilterBar
+          search={agentFilter}
+          onSearch={setAgentFilter}
+          groups={[
+            {
+              key: 'direction',
+              label: 'Direction',
+              options: [
+                { value: 'Inbound', color: BLUE },
+                { value: 'Outbound', color: PURPLE },
+              ],
+              selected: fDirs,
+              onChange: setFDirs,
+            },
+            {
+              key: 'outcome',
+              label: 'Outcome',
+              options: Object.entries(OUTCOME_CFG).map(([v, c]) => ({ value: v, label: c.label, color: c.txt })),
+              selected: fOutcomes,
+              onChange: setFOutcomes,
+            },
+          ] as FilterGroupDef[]}
+          onReset={() => { setAgentFilter(''); setFDirs(new Set()); setFOutcomes(new Set()) }}
+          onApply={load}
+          resultCount={rows.length}
+          totalCount={rows.length}
+          placeholder="Search by agent name…"
+        />
 
         <DataTable<CallLog>
           cols={cols}
@@ -534,8 +535,6 @@ export default function Calls() {
           keyFn={r => r.id}
           loading={loading}
           emptyText="No call records found for the selected filters"
-          searchKeys={['agent_name', 'customer_name', 'outcome', 'phone']}
-          searchPlaceholder="Search agent, customer, phone…"
           pageSize={25}
         />
       </SectionCard>

@@ -1,10 +1,10 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
 import {
-  Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar,
   ErrBanner, ConfirmModal, DateFilter, NameCell, ActionRow,
 } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
 import { RED, DARKRED, GREEN, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -86,10 +86,10 @@ export default function WriteoffQueue() {
   const [error, setError]       = useState<string | null>(null)
 
   // Filters
-  const [dpdRange, setDpdRange] = useState('')
-  const [q, setQ]               = useState('')
-  const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo, setDateTo]     = useState(today())
+  const [fDpdRange, setFDpdRange] = useState(new Set<string>())
+  const [search, setSearch]       = useState('')
+  const [dateFrom, setDateFrom]   = useState(monthStart())
+  const [dateTo, setDateTo]       = useState(today())
 
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set())
@@ -101,14 +101,15 @@ export default function WriteoffQueue() {
   const user     = getUser()
   const canAct   = user.role === 'collections_head' || user.role === 'admin'
 
+  const fDpdRangeKey = [...fDpdRange].join(',')
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     const p = new URLSearchParams({ limit: '100' })
-    if (dpdRange) p.set('dpd_range', dpdRange)
-    if (q.trim()) p.set('q', q.trim())
-    if (dateFrom) p.set('date_from', dateFrom)
-    if (dateTo)   p.set('date_to', dateTo)
+    if (fDpdRangeKey) p.set('dpd_range', fDpdRangeKey)
+    if (dateFrom)     p.set('date_from', dateFrom)
+    if (dateTo)       p.set('date_to', dateTo)
     try {
       const [res, kpiRes] = await Promise.all([
         apiFetch<{ data: WriteoffRow[] }>(`/api/collections-ops/writeoffs?${p}`),
@@ -122,9 +123,35 @@ export default function WriteoffQueue() {
     } finally {
       setLoading(false)
     }
-  }, [dpdRange, q, dateFrom, dateTo])
+  }, [fDpdRangeKey, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+
+  const displayed = useMemo(() => {
+    if (!search.trim()) return rows
+    const q = search.toLowerCase()
+    return rows.filter(r =>
+      [r.account_cif, r.customer_name, r.recommended_by].some(
+        v => v != null && String(v).toLowerCase().includes(q)
+      )
+    )
+  }, [rows, search])
+
+  const groups: FilterGroupDef[] = [
+    {
+      key: 'dpd_range',
+      label: 'DPD RANGE',
+      options: [
+        { value: '181-360', label: '181–360 days', count: rows.filter(r => r.dpd >= 181 && r.dpd <= 360).length },
+        { value: '361-720', label: '361–720 days', count: rows.filter(r => r.dpd >= 361 && r.dpd <= 720).length },
+        { value: '720+',    label: '720+ days',    count: rows.filter(r => r.dpd > 720).length },
+      ],
+      selected: fDpdRange,
+      onChange: setFDpdRange,
+    },
+  ]
+
+  function resetFilters() { setFDpdRange(new Set()); setSearch('') }
 
   async function doApprove(id: number) {
     await apiPost(`/api/collections-ops/writeoffs/${id}/approve`, {})
@@ -289,32 +316,19 @@ export default function WriteoffQueue() {
       </SectionCard>
 
       <SectionCard title="Write-off Queue" badge={rows.length} padding={false} actions={<button onClick={() => exportWriteoffCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
-        <div style={{ padding: '12px 16px 0' }}>
-          <FilterBar onReset={() => { setDpdRange(''); setQ('') }}>
-            <select value={dpdRange} onChange={e => setDpdRange(e.target.value)} style={filterInputStyle}>
-              <option value="">All DPD</option>
-              <option value="181-360">181–360 days</option>
-              <option value="361-720">361–720 days</option>
-              <option value="720+">720+ days</option>
-            </select>
-            <input
-              placeholder="Search by CIF or agent…"
-              value={q}
-              onChange={e => setQ(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && load()}
-              style={{ ...filterInputStyle, minWidth: 200 }}
-            />
-            <button
-              onClick={() => load()}
-              style={{ height: 32, padding: '0 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
-            >
-              Apply
-            </button>
-          </FilterBar>
-        </div>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={groups}
+          onReset={resetFilters}
+          onApply={load}
+          resultCount={displayed.length}
+          totalCount={rows.length}
+          placeholder="Search CIF, name, recommended by…"
+        />
         <DataTable
           cols={cols}
-          rows={rows}
+          rows={displayed}
           keyFn={r => r.id}
           loading={loading}
           pageSize={20}
@@ -324,8 +338,6 @@ export default function WriteoffQueue() {
           bulkBar={bulkBar}
           emptyText="No accounts in write-off queue"
           skeletonRows={8}
-          searchKeys={['account_cif', 'customer_name', 'recommended_by']}
-          searchPlaceholder="Search CIF, name, recommended by…"
         />
       </SectionCard>
 

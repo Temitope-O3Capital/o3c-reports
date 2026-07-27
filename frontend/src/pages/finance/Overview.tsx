@@ -201,7 +201,7 @@ export default function FinanceOverview() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[5] }}>
         <KpiCard label="Interest Income MTD" value={fmtKobo(interestIncomeMTD)} icon="trending_up" accent={GREEN} loading={loading} />
         <KpiCard label="FD Outstanding" value={fmtKobo(fdOutstanding)} icon="savings" accent={BLUE} loading={loading} />
-        <KpiCard label="Total Loan Book" value={fmtKobo(totalVolume)} icon="account_balance_wallet" accent={NAVY} loading={loading} />
+        <KpiCard label="Total Portfolio" value={fmtKobo(totalVolume)} icon="account_balance_wallet" accent={NAVY} loading={loading} />
         <KpiCard label="Net Liquidity" value={fmtKobo(netLiquidity)} icon="water_drop"
           accent={netLiquidity >= 0 ? GREEN : RED} loading={loading} />
       </div>

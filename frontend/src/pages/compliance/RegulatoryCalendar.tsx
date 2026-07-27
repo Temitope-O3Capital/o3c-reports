@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, SectionCard, DataTable, ExpandableFilterBar,
   Modal, ConfirmModal, ErrBanner, Spinner, btnPrimary, DateFilter,
   NameCell, ActionRow,
 } from '../../components/UI'
@@ -59,13 +59,15 @@ function StatusPill({ status, due }: { status: string; due: string }) {
 const BLANK = { report_name: '', regulatory_body: '', due_date: '', notes: '' }
 
 export default function RegulatoryCalendar() {
-  const [items, setItems] = useState<CBNReport[]>([])
+  const [rawItems, setRawItems] = useState<CBNReport[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState('')
-  const [horizonFilter, setHorizonFilter] = useState('')
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo] = useState(today())
+
+  const [search, setSearch]       = useState('')
+  const [fStatus, setFStatus]     = useState(new Set<string>())
+  const [fHorizon, setFHorizon]   = useState(new Set<string>())
 
   const [addOpen, setAddOpen] = useState(false)
   const [form, setForm] = useState(BLANK)
@@ -80,28 +82,44 @@ export default function RegulatoryCalendar() {
       if (dateFrom) p.set('from', dateFrom)
       if (dateTo)   p.set('to', dateTo)
       const data = await apiFetch<CBNReport[]>(`/api/compliance/cbn-reports?${p}`)
-      let rows = Array.isArray(data) ? data : []
-      // Client-side horizon filter
-      if (horizonFilter) {
-        const days = Number(horizonFilter)
-        const limit = Date.now() + days * 86_400_000
-        rows = rows.filter(r => new Date(r.due_date).getTime() <= limit)
-      }
-      if (statusFilter) {
-        rows = rows.filter(r => {
-          if (statusFilter === 'overdue') return daysRemaining(r.due_date) < 0 && r.status === 'pending'
-          if (statusFilter === 'done') return r.status === 'submitted' || r.status === 'signed_off'
-          return r.status === 'pending'
-        })
-      }
-      // Sort by due date asc
+      const rows = Array.isArray(data) ? data : []
       rows.sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
-      setItems(rows)
+      setRawItems(rows)
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [statusFilter, horizonFilter, dateFrom, dateTo])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+
+  const uniqueRegulators = useMemo(() => [...new Set(rawItems.map(r => r.regulatory_body).filter(Boolean))] as string[], [rawItems])
+
+  const items = useMemo(() => rawItems.filter(r => {
+    if (fStatus.size) {
+      const isOverdue = daysRemaining(r.due_date) < 0 && r.status === 'pending'
+      const isDone = r.status === 'submitted' || r.status === 'signed_off'
+      const isUpcoming = r.status === 'pending' && !isOverdue
+      const matches = [...fStatus].some(s => {
+        if (s === 'overdue') return isOverdue
+        if (s === 'done') return isDone
+        if (s === 'upcoming') return isUpcoming
+        return false
+      })
+      if (!matches) return false
+    }
+    if (fHorizon.size) {
+      const matches = [...fHorizon].some(h => {
+        const days = Number(h)
+        const limit = Date.now() + days * 86_400_000
+        return new Date(r.due_date).getTime() <= limit
+      })
+      if (!matches) return false
+    }
+    if (search) {
+      const q = search.toLowerCase()
+      if (![r.report_name, r.regulatory_body, r.owner_name].some(f => f?.toLowerCase().includes(q))) return false
+    }
+    return true
+  }), [rawItems, fStatus, fHorizon, search])
 
   async function handleAdd() {
     if (!form.report_name || !form.due_date) { toast.error('Report name and due date are required'); return }
@@ -189,35 +207,44 @@ export default function RegulatoryCalendar() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <FilterBar onReset={() => { setStatusFilter(''); setHorizonFilter('') }}>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Statuses</option>
-          <option value="upcoming">Upcoming</option>
-          <option value="overdue">Overdue</option>
-          <option value="done">Done</option>
-        </select>
-        <select value={horizonFilter} onChange={e => setHorizonFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Horizons</option>
-          <option value="30">Next 30 days</option>
-          <option value="60">Next 60 days</option>
-          <option value="90">Next 90 days</option>
-        </select>
-      </FilterBar>
-
-      <SectionCard title="Regulatory Requirements" badge={items.length} padding={false} actions={
+      <SectionCard title="Regulatory Requirements" badge={rawItems.length} padding={false} actions={
         <button onClick={() => exportCalendarCsv(items)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
           <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
           Export CSV
         </button>
       }>
+        <ExpandableFilterBar
+          search={search} onSearch={setSearch}
+          groups={[
+            {
+              key: 'status', label: 'Status',
+              options: [
+                { value: 'upcoming', label: 'Upcoming', color: AMBER, count: rawItems.filter(r => r.status === 'pending' && daysRemaining(r.due_date) >= 0).length },
+                { value: 'overdue',  label: 'Overdue',  color: RED,   count: rawItems.filter(r => r.status === 'pending' && daysRemaining(r.due_date) < 0).length },
+                { value: 'done',     label: 'Done',     color: GREEN, count: rawItems.filter(r => r.status === 'submitted' || r.status === 'signed_off').length },
+              ],
+              selected: fStatus, onChange: (next: Set<string>) => setFStatus(next),
+            },
+            {
+              key: 'horizon', label: 'Horizon',
+              options: [
+                { value: '30', label: 'Next 30 days', count: rawItems.filter(r => daysRemaining(r.due_date) >= 0 && daysRemaining(r.due_date) <= 30).length },
+                { value: '60', label: 'Next 60 days', count: rawItems.filter(r => daysRemaining(r.due_date) >= 0 && daysRemaining(r.due_date) <= 60).length },
+                { value: '90', label: 'Next 90 days', count: rawItems.filter(r => daysRemaining(r.due_date) >= 0 && daysRemaining(r.due_date) <= 90).length },
+              ],
+              selected: fHorizon, onChange: (next: Set<string>) => setFHorizon(next),
+            },
+          ]}
+          onReset={() => { setSearch(''); setFStatus(new Set()); setFHorizon(new Set()) }}
+          resultCount={items.length} totalCount={rawItems.length}
+          placeholder="Search requirements…"
+        />
         <DataTable<CBNReport>
           cols={cols}
           rows={items}
           keyFn={r => r.id}
           emptyText="No regulatory requirements found for the selected filters."
           skeletonRows={loading ? 5 : 0}
-          searchKeys={['report_name', 'regulatory_body', 'owner_name']}
-          searchPlaceholder="Search requirements…"
           pageSize={20}
         />
       </SectionCard>

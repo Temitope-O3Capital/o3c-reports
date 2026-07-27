@@ -1,10 +1,10 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
 import {
   Page, SectionCard, DataTable, Modal, ConfirmModal, ErrBanner, Tabs,
-  filterInputStyle, btnPrimary, DateFilter, NameCell, ActionRow,
+  ExpandableFilterBar, filterInputStyle, btnPrimary, DateFilter, NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
@@ -367,6 +367,7 @@ export default function RecoveryTPA() {
   const [deactivateTarget, setDeactivateTarget] = useState<TPAAgency | null>(null)
   const [deactivateSaving, setDeactivateSaving] = useState(false)
 
+  const [search,   setSearch]   = useState('')
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
@@ -384,6 +385,16 @@ export default function RecoveryTPA() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+
+  const displayed = useMemo(() => {
+    if (!search.trim()) return agencies
+    const q = search.toLowerCase()
+    return agencies.filter(r =>
+      [r.name, r.licence_number, r.contact_name, r.contact_phone].some(
+        v => v != null && String(v).toLowerCase().includes(q)
+      )
+    )
+  }, [agencies, search])
 
   async function handleRegister(data: AgencyFormData) {
     setRegisterSaving(true); setRegisterErr(null)
@@ -526,16 +537,23 @@ export default function RecoveryTPA() {
       <ErrBanner error={err} onRetry={load} />
 
       <SectionCard title="Registered Agencies" badge={agencies.length} padding={false} actions={<button onClick={() => exportTPACsv(agencies)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[]}
+          onReset={() => setSearch('')}
+          resultCount={displayed.length}
+          totalCount={agencies.length}
+          placeholder="Search agency, licence, contact…"
+        />
         <DataTable
           cols={cols}
-          rows={agencies}
+          rows={displayed}
           keyFn={r => r.id}
           loading={loading}
           skeletonRows={6}
           emptyText="No TPA agencies registered"
           onRowClick={r => setDetailAgency(r)}
-          searchKeys={['name', 'licence_number', 'contact_name', 'contact_phone']}
-          searchPlaceholder="Search by agency name, licence, contact…"
           pageSize={20}
         />
       </SectionCard>

@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -36,10 +38,20 @@ func RegisterCollectionsOps(r chi.Router, db *core.DB) {
 	r.With(base).Get("/repayment-plans/{pid}/instalments", collectionsOpsListInstalments(db))
 	r.With(base).Put("/repayment-plans/instalments/{iid}/paid", collectionsOpsMarkPaid(db))
 
+	r.With(base).Post("/{id}/payment", collectionsOpsLogPayment(db))
+	r.With(base).Get("/{id}/contacts", collectionsOpsGetContacts(db))
+	r.With(base).Get("/{id}/payments", collectionsOpsGetPayments(db))
+
 	r.With(base).Get("/writeoffs", collectionsOpsListWriteoffs(db))
 	r.With(head).Post("/writeoffs/{id}/approve", collectionsOpsApproveWriteoff(db))
 	r.With(head).Post("/writeoffs/{id}/return-recovery", collectionsOpsReturnWriteoff(db))
 	r.With(head).Post("/writeoffs/bulk-approve", collectionsOpsBulkApproveWriteoff(db))
+
+	// Collections-initiated write-off requests
+	r.With(base).Post("/writeoff-requests", collectionsOpsCreateWriteoffRequest(db))
+	r.With(base).Get("/writeoff-requests", collectionsOpsListWriteoffRequests(db))
+	r.With(head).Put("/writeoff-requests/{id}/approve", collectionsOpsApproveWriteoffRequest(db))
+	r.With(head).Put("/writeoff-requests/{id}/reject", collectionsOpsRejectWriteoffRequest(db))
 }
 
 func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
@@ -80,9 +92,14 @@ func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		if bucket != "" {
-			query += fmt.Sprintf(" AND ca.dpd_bucket = $%d", n)
-			args = append(args, bucket)
-			n++
+			vals := strings.Split(bucket, ",")
+			placeholders := make([]string, len(vals))
+			for i, v := range vals {
+				placeholders[i] = fmt.Sprintf("$%d", n)
+				args = append(args, strings.TrimSpace(v))
+				n++
+			}
+			query += " AND ca.dpd_bucket IN (" + strings.Join(placeholders, ",") + ")"
 		}
 		if agentID != "" {
 			query += fmt.Sprintf(" AND ca.agent_user_id = $%d", n)
@@ -172,6 +189,154 @@ func collectionsOpsAssign(db *core.DB) http.HandlerFunc {
 			"collection_assignment", id)
 
 		respondOK(w, "Assigned successfully")
+	}
+}
+
+func collectionsOpsGetContacts(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		assRows, err := db.PGQuery(r.Context(), `SELECT account_cif FROM collection_assignments WHERE id=$1`, id)
+		if err != nil || len(assRows) == 0 {
+			respondErr(w, 404, "Assignment not found")
+			return
+		}
+		cif := str(assRows[0]["account_cif"])
+
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT cc.id, cc.contact_type, cc.outcome, cc.notes, cc.created_at,
+			       u.full_name AS agent_name
+			FROM collection_contacts cc
+			LEFT JOIN o3c_users u ON u.id = cc.agent_user_id
+			WHERE cc.cif_number = $1
+			ORDER BY cc.created_at DESC
+			LIMIT 20`, cif)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+func collectionsOpsGetPayments(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		assRows, err := db.PGQuery(r.Context(), `SELECT account_cif FROM collection_assignments WHERE id=$1`, id)
+		if err != nil || len(assRows) == 0 {
+			respondErr(w, 404, "Assignment not found")
+			return
+		}
+		cif := str(assRows[0]["account_cif"])
+
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT lr.id, lr.amount_kobo, lr.payment_date, lr.payment_method, lr.reference, lr.created_at,
+			       u.full_name AS received_by_name
+			FROM loan_repayments lr
+			JOIN loan_applications la ON la.id = lr.application_id
+			LEFT JOIN o3c_users u ON u.id = lr.received_by
+			WHERE la.applicant_cif = $1
+			ORDER BY lr.payment_date DESC
+			LIMIT 20`, cif)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+func collectionsOpsLogPayment(db *core.DB) http.HandlerFunc {
+	type body struct {
+		AmountKobo  int64  `json:"amount_kobo"`
+		PaymentDate string `json:"payment_date"`
+		Channel     string `json:"channel"`
+		Reference   string `json:"reference"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Invalid assignment ID")
+			return
+		}
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.AmountKobo <= 0 || b.PaymentDate == "" || b.Channel == "" {
+			respondErr(w, 422, "amount_kobo, payment_date and channel are required")
+			return
+		}
+
+		user := core.UserFromCtx(r.Context())
+		ctx := r.Context()
+
+		// Resolve CIF from the assignment.
+		assRows, err := db.PGQuery(ctx, `SELECT account_cif FROM collection_assignments WHERE id=$1`, id)
+		if err != nil || len(assRows) == 0 {
+			respondErr(w, 404, "Assignment not found")
+			return
+		}
+		cif := str(assRows[0]["account_cif"])
+
+		// Find the most-recently booked active loan for this CIF.
+		loanRows, err := db.PGQuery(ctx,
+			`SELECT id FROM loan_applications
+			 WHERE applicant_cif=$1 AND status IN ('active','booked')
+			 ORDER BY created_at DESC LIMIT 1`, cif)
+		if err != nil || len(loanRows) == 0 {
+			respondErr(w, 404, "No active loan found for CIF "+cif)
+			return
+		}
+		loanID := toInt64(loanRows[0]["id"])
+
+		tx, err := db.PG.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+		if err != nil {
+			respondErr(w, 500, "Transaction start failed")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		var payID int64
+		err = tx.QueryRowContext(ctx,
+			`INSERT INTO loan_repayments
+			 (application_id, amount_kobo, payment_date, payment_method, reference, received_by)
+			 VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+			loanID, b.AmountKobo, b.PaymentDate, b.Channel, b.Reference, user.ID,
+		).Scan(&payID)
+		if err != nil {
+			respondErr(w, 500, "Payment log failed")
+			return
+		}
+
+		if glErr := postJournalTx(ctx, tx, glEntry{
+			Date:          time.Now(),
+			Description:   fmt.Sprintf("Collections payment received — CIF %s", cif),
+			Reference:     fmt.Sprintf("COL-PAY-%d", payID),
+			DebitAccount:  "1001",
+			CreditAccount: "1100",
+			AmountKobo:    b.AmountKobo,
+			SourceType:    "collections_payment",
+			SourceID:      payID,
+			PostedBy:      user.ID,
+		}); glErr != nil {
+			respondErr(w, 500, "GL journal failed")
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed")
+			return
+		}
+
+		slog.Info("collections payment logged", "pay_id", payID, "cif", cif, "amount_kobo", b.AmountKobo, "by", user.ID)
+		respond(w, map[string]any{"id": payID, "amount_kobo": b.AmountKobo}, "json")
 	}
 }
 
@@ -638,8 +803,14 @@ func collectionsOpsListPlans(db *core.DB) http.HandlerFunc {
 			args = append(args, user.ID); n++
 		}
 		if status != "" {
-			query += fmt.Sprintf(" AND rp.status = $%d", n)
-			args = append(args, status); n++
+			vals := strings.Split(status, ",")
+			placeholders := make([]string, len(vals))
+			for i, v := range vals {
+				placeholders[i] = fmt.Sprintf("$%d", n)
+				args = append(args, strings.TrimSpace(v))
+				n++
+			}
+			query += " AND rp.status IN (" + strings.Join(placeholders, ",") + ")"
 		}
 		if q != "" {
 			query += fmt.Sprintf(" AND (rp.account_cif ILIKE $%d OR rp.customer_name ILIKE $%d)", n, n)
@@ -918,13 +1089,20 @@ func collectionsOpsListPromises(db *core.DB) http.HandlerFunc {
 			args = append(args, dateTo); n++
 		}
 		if status != "" {
-			switch status {
-			case "Pending":
-				query += " AND cp.is_kept IS NULL"
-			case "Kept":
-				query += " AND cp.is_kept = TRUE"
-			case "Broken":
-				query += " AND cp.is_kept = FALSE"
+			vals := strings.Split(status, ",")
+			parts := make([]string, 0, len(vals))
+			for _, v := range vals {
+				switch strings.TrimSpace(v) {
+				case "Pending":
+					parts = append(parts, "cp.is_kept IS NULL")
+				case "Kept":
+					parts = append(parts, "cp.is_kept = TRUE")
+				case "Broken":
+					parts = append(parts, "cp.is_kept = FALSE")
+				}
+			}
+			if len(parts) > 0 {
+				query += " AND (" + strings.Join(parts, " OR ") + ")"
 			}
 		}
 		if q != "" {
@@ -985,13 +1163,21 @@ func collectionsOpsListWriteoffs(db *core.DB) http.HandlerFunc {
 			args = append(args, dateTo); n++
 		}
 		if dpdRange != "" {
-			switch dpdRange {
-			case "181-360":
-				query += " AND CAST(REGEXP_REPLACE(COALESCE(rc.dpd_at_handoff,'0'),'\\D','','g') AS INT) BETWEEN 181 AND 360"
-			case "361-720":
-				query += " AND CAST(REGEXP_REPLACE(COALESCE(rc.dpd_at_handoff,'0'),'\\D','','g') AS INT) BETWEEN 361 AND 720"
-			case "720+":
-				query += " AND CAST(REGEXP_REPLACE(COALESCE(rc.dpd_at_handoff,'0'),'\\D','','g') AS INT) > 720"
+			vals := strings.Split(dpdRange, ",")
+			parts := make([]string, 0, len(vals))
+			dpd := "CAST(REGEXP_REPLACE(COALESCE(rc.dpd_at_handoff,'0'),'\\D','','g') AS INT)"
+			for _, v := range vals {
+				switch strings.TrimSpace(v) {
+				case "181-360":
+					parts = append(parts, dpd+" BETWEEN 181 AND 360")
+				case "361-720":
+					parts = append(parts, dpd+" BETWEEN 361 AND 720")
+				case "720+":
+					parts = append(parts, dpd+" > 720")
+				}
+			}
+			if len(parts) > 0 {
+				query += " AND (" + strings.Join(parts, " OR ") + ")"
 			}
 		}
 
@@ -1185,5 +1371,203 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 			ActionURL: "/collections/writeoff-queue",
 		})
 		respond(w, map[string]any{"approved": count}, "json")
+	}
+}
+
+/* ── Collections-initiated write-off requests ────────────────────────────── */
+
+func collectionsOpsCreateWriteoffRequest(db *core.DB) http.HandlerFunc {
+	type body struct {
+		AccountCIF      string  `json:"account_cif"`
+		WriteoffType    string  `json:"writeoff_type"`  // full|partial_amount|percentage|principal_only|interest_only
+		Reason          string  `json:"reason"`         // bad_debt|deceased|fraud|natural_disaster|regulatory|other
+		ReasonNotes     string  `json:"reason_notes"`
+		AmountKobo      int64   `json:"amount_kobo"`    // for partial_amount
+		Percentage      float64 `json:"percentage"`     // for percentage
+		OutstandingKobo int64   `json:"outstanding_kobo"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		if b.AccountCIF == "" || b.WriteoffType == "" || b.Reason == "" {
+			respondErr(w, 422, "account_cif, writeoff_type and reason are required"); return
+		}
+		validTypes := map[string]bool{
+			"full": true, "partial_amount": true, "percentage": true,
+			"principal_only": true, "interest_only": true,
+		}
+		if !validTypes[b.WriteoffType] {
+			respondErr(w, 422, "invalid writeoff_type"); return
+		}
+		user := core.UserFromCtx(r.Context())
+
+		// Find loan for CIF
+		loanRows, _ := db.PGQuery(r.Context(), `
+			SELECT id FROM loan_applications WHERE applicant_cif = $1 AND status IN ('active','booked')
+			ORDER BY created_at DESC LIMIT 1`, b.AccountCIF)
+		var loanID *int64
+		if len(loanRows) > 0 {
+			if v, ok := loanRows[0]["id"].(int64); ok {
+				loanID = &v
+			}
+		}
+
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO collections_writeoff_requests
+			    (account_cif, loan_application_id, requested_by, writeoff_type, reason, reason_notes,
+			     amount_kobo, percentage, outstanding_kobo, status, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', NOW())
+			RETURNING id, account_cif, writeoff_type, reason, status, created_at`,
+			b.AccountCIF, loanID, user.ID, b.WriteoffType, b.Reason, b.ReasonNotes,
+			b.AmountKobo, b.Percentage, b.OutstandingKobo)
+		if err != nil {
+			respondErr(w, 500, "Insert failed"); return
+		}
+		respond(w, rows[0], "pg")
+	}
+}
+
+func collectionsOpsListWriteoffRequests(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		status := qstr(r, "status")
+		if status == "" {
+			status = "pending"
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+			    wr.id, wr.account_cif, wr.writeoff_type, wr.reason, wr.reason_notes,
+			    wr.amount_kobo, wr.percentage, wr.outstanding_kobo, wr.status,
+			    wr.review_notes, wr.reviewed_at, wr.created_at,
+			    req.full_name AS requested_by_name,
+			    rev.full_name AS reviewed_by_name
+			FROM collections_writeoff_requests wr
+			LEFT JOIN o3c_users req ON req.id = wr.requested_by
+			LEFT JOIN o3c_users rev ON rev.id = wr.reviewed_by
+			WHERE wr.status = $1
+			ORDER BY wr.created_at DESC
+			LIMIT 200`, status)
+		if err != nil {
+			respondErr(w, 500, "Query failed"); return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+func collectionsOpsApproveWriteoffRequest(db *core.DB) http.HandlerFunc {
+	type body struct {
+		ReviewNotes string `json:"review_notes"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Invalid ID"); return
+		}
+		var b body
+		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
+
+		user := core.UserFromCtx(r.Context())
+		ctx := r.Context()
+
+		// Fetch the request
+		wrRows, err := db.PGQuery(ctx, `
+			SELECT id, account_cif, loan_application_id, writeoff_type,
+			       amount_kobo, percentage, outstanding_kobo, status
+			FROM collections_writeoff_requests WHERE id = $1`, id)
+		if err != nil || len(wrRows) == 0 {
+			respondErr(w, 404, "Request not found"); return
+		}
+		wr := wrRows[0]
+		if wr["status"] != "pending" {
+			respondErr(w, 422, "Request already reviewed"); return
+		}
+
+		// Determine write-off amount in kobo
+		writeoffType, _ := wr["writeoff_type"].(string)
+		outstandingKobo, _ := wr["outstanding_kobo"].(int64)
+		amtKobo, _ := wr["amount_kobo"].(int64)
+		pct, _ := wr["percentage"].(float64)
+
+		var glAmountKobo int64
+		switch writeoffType {
+		case "full":
+			glAmountKobo = outstandingKobo
+		case "partial_amount":
+			glAmountKobo = amtKobo
+		case "percentage":
+			glAmountKobo = int64(float64(outstandingKobo) * pct / 100.0)
+		case "principal_only", "interest_only":
+			// Use stored amount_kobo which caller should set to the principal/interest portion
+			glAmountKobo = amtKobo
+		default:
+			glAmountKobo = outstandingKobo
+		}
+
+		tx, err := db.PG.BeginTx(ctx, nil)
+		if err != nil {
+			respondErr(w, 500, "Transaction start failed"); return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		// Mark request approved
+		_, err = tx.ExecContext(ctx, `
+			UPDATE collections_writeoff_requests
+			SET status = 'approved', reviewed_by = $1, reviewed_at = NOW(), review_notes = $2
+			WHERE id = $3`,
+			user.ID, b.ReviewNotes, id)
+		if err != nil {
+			respondErr(w, 500, "Update failed"); return
+		}
+
+		// Post GL entry (Dr Loan Loss Provision / Cr Loan Receivable)
+		if glAmountKobo > 0 {
+			if glErr := postJournalTx(ctx, tx, glEntry{
+				Date:          time.Now(),
+				Description:   fmt.Sprintf("Collections write-off approved — CIF %s (%s)", wr["account_cif"], writeoffType),
+				Reference:     fmt.Sprintf("COL-WO-%d", id),
+				DebitAccount:  "5200", // Loan Loss Provision / Bad Debt Expense
+				CreditAccount: "1100", // Loan Receivable
+				AmountKobo:    glAmountKobo,
+				SourceType:    "collections_writeoff",
+				SourceID:      id,
+				PostedBy:      user.ID,
+			}); glErr != nil {
+				respondErr(w, 500, "GL post failed"); return
+			}
+		}
+
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed"); return
+		}
+		respond(w, map[string]any{"id": id, "status": "approved", "gl_amount_kobo": glAmountKobo}, "json")
+	}
+}
+
+func collectionsOpsRejectWriteoffRequest(db *core.DB) http.HandlerFunc {
+	type body struct {
+		ReviewNotes string `json:"review_notes"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Invalid ID"); return
+		}
+		var b body
+		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
+		user := core.UserFromCtx(r.Context())
+		rows, err := db.PGQuery(r.Context(), `
+			UPDATE collections_writeoff_requests
+			SET status = 'rejected', reviewed_by = $1, reviewed_at = NOW(), review_notes = $2
+			WHERE id = $3 AND status = 'pending'
+			RETURNING id, status`,
+			user.ID, b.ReviewNotes, id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Request not found or already reviewed"); return
+		}
+		respond(w, rows[0], "pg")
 	}
 }

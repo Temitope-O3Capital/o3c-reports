@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import {
   ResponsiveContainer, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, DataTable, filterInputStyle, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar, filterInputStyle, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, monthStart, today } from '../../lib/fmt'
@@ -84,6 +84,7 @@ export default function FinancePnL() {
   const [dateTo,   setDateTo]   = useState(today())
   const [data,     setData]     = useState<PnLData | null>(null)
   const [loading,  setLoading]  = useState(false)
+  const [search,   setSearch]   = useState('')
 
   function handlePeriod(p: string) {
     setPeriod(p)
@@ -102,10 +103,15 @@ export default function FinancePnL() {
       .finally(() => setLoading(false))
   }, [dateFrom, dateTo, product])
 
-  const lines   = data?.lines          ?? []
-  const totRev  = data?.total_revenue  ?? 0
-  const totCost = data?.total_cost     ?? 0
-  const netInc  = data?.net_income     ?? 0
+  const allLines = data?.lines          ?? []
+  const totRev   = data?.total_revenue  ?? 0
+  const totCost  = data?.total_cost     ?? 0
+  const netInc   = data?.net_income     ?? 0
+  const lines    = useMemo(() => {
+    if (!search) return allLines
+    const q = search.toLowerCase()
+    return allLines.filter(l => l.product.toLowerCase().includes(q))
+  }, [allLines, search])
 
   function exportPnlCsv(data: ProductLine[]) {
     const header = ['Product', 'Revenue NGN', 'Cost NGN', 'Net NGN']
@@ -199,18 +205,26 @@ export default function FinancePnL() {
       </div>
 
       {/* Product breakdown table */}
-      <SectionCard title="P&L by Product" subtitle="Revenue, cost and net per product" padding={false} actions={lines.length > 0 ? (
+      <SectionCard title="P&L by Product" subtitle="Revenue, cost and net per product" padding={false} actions={allLines.length > 0 ? (
         <button onClick={() => exportPnlCsv(lines)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
           Export CSV
         </button>
       ) : undefined}>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[]}
+          onReset={() => setSearch('')}
+          resultCount={lines.length}
+          totalCount={allLines.length}
+          placeholder="Search product…"
+        />
         <DataTable
           cols={LINE_COLS}
           rows={lines}
           keyFn={r => r.product}
           emptyText={loading ? 'Loading…' : 'No P&L data available for this period'}
-          searchKeys={['product']}
           pageSize={20}
         />
       </SectionCard>

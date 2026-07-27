@@ -17,7 +17,20 @@ func RegisterBusinessDev(r chi.Router, db *core.DB) {
 
 	r.Get("/employers", bdListEmployers(db))
 	r.Post("/employers", bdCreateEmployer(db))
+	r.Get("/employers/{id}", bdGetEmployer(db))
 	r.Put("/employers/{id}", bdUpdateEmployer(db))
+
+	// Staff roster
+	r.Get("/employers/{id}/staff", bdListStaff(db))
+	r.Post("/employers/{id}/staff", bdAddStaff(db))
+	r.Post("/employers/{id}/staff/import", bdImportStaff(db))
+	r.Delete("/employers/{id}/staff/{staff_id}", bdDeleteStaff(db))
+
+	// BD → Sales assignment
+	r.Post("/employers/{id}/assign", bdAssignToSales(db))
+	r.Get("/assignments", bdListAssignments(db))
+	r.Get("/assignments/{id}", bdGetAssignment(db))
+	r.Patch("/assignments/{id}", bdUpdateAssignment(db))
 
 	r.Get("/leads", bdListLeads(db))
 	r.Post("/leads", bdCreateLead(db))
@@ -30,9 +43,7 @@ func RegisterBusinessDev(r chi.Router, db *core.DB) {
 	r.Get("/pipeline-kpis", bdPipelineKPIs(db))
 
 	// Agent dashboard
-	r.Get("/my-dashboard", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, map[string]any{"status": "stub"}, "stub")
-	})
+	r.Get("/my-dashboard", bdMyDashboard(db))
 }
 
 func bdListEmployers(db *core.DB) http.HandlerFunc {
@@ -222,6 +233,59 @@ func bdUpdateEmployer(db *core.DB) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+func bdGetEmployer(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+
+		empRows, err := db.PGQuery(r.Context(),
+			`SELECT id, name, sector, staff_count,
+			        monthly_payroll_kobo, credit_limit_kobo,
+			        mou_status, mou_date, mou_expiry,
+			        contact_name, contact_phone, contact_email,
+			        address, notes, is_active, created_at, updated_at
+			 FROM employers WHERE id=$1`, id)
+		if err != nil || len(empRows) == 0 {
+			respondErr(w, 404, "Employer not found")
+			return
+		}
+
+		outRows, _ := db.PGQuery(r.Context(),
+			`SELECT
+			     COUNT(ba.id)                                              AS total_assignments,
+			     COALESCE(SUM(ba.staff_count_at_assignment), 0)           AS total_staff_referred,
+			     COUNT(cc.id)                                              AS total_crm_contacts,
+			     COUNT(CASE WHEN ba.status='converted' THEN 1 END)        AS total_converted
+			 FROM bd_assignments ba
+			 LEFT JOIN crm_contacts cc ON cc.bd_assignment_id = ba.id
+			 WHERE ba.employer_id=$1`, id)
+
+		asgRows, _ := db.PGQuery(r.Context(),
+			`SELECT ba.id, ba.assignment_type, ba.status,
+			        ba.staff_count_at_assignment, ba.assigned_at,
+			        u.full_name AS sales_agent_name,
+			        COUNT(cc.id)                                        AS contacts_created,
+			        COUNT(CASE WHEN ba.status='converted' THEN 1 END)   AS converted
+			 FROM bd_assignments ba
+			 LEFT JOIN o3c_users u ON u.id = ba.assigned_to
+			 LEFT JOIN crm_contacts cc ON cc.bd_assignment_id = ba.id
+			 WHERE ba.employer_id=$1
+			 GROUP BY ba.id, u.full_name
+			 ORDER BY ba.assigned_at DESC
+			 LIMIT 5`, id)
+
+		w.Header().Set("Content-Type", "application/json")
+		outcomes := map[string]any{}
+		if len(outRows) > 0 {
+			outcomes = outRows[0]
+		}
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"employer":           empRows[0],
+			"outcomes":           outcomes,
+			"recent_assignments": asgRows,
+		})
 	}
 }
 
@@ -608,3 +672,526 @@ func bdImportLeads(db *core.DB) http.HandlerFunc {
 		})
 	}
 }
+
+// ── Staff roster ──────────────────────────────────────────────────────────────
+
+func bdListStaff(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		employerID := chi.URLParam(r, "id")
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT id, employer_id, full_name, job_title, department, phone, email, created_at
+			FROM employer_staff
+			WHERE employer_id = $1
+			ORDER BY full_name`, employerID)
+		if err != nil {
+			respondErr(w, 500, err.Error()); return
+		}
+		respond(w, rows, "staff")
+	}
+}
+
+func bdAddStaff(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		employerID := chi.URLParam(r, "id")
+		var b struct {
+			FullName   string  `json:"full_name"`
+			JobTitle   *string `json:"job_title"`
+			Department *string `json:"department"`
+			Phone      *string `json:"phone"`
+			Email      *string `json:"email"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "invalid JSON"); return
+		}
+		if b.FullName == "" {
+			respondErr(w, 422, "full_name is required"); return
+		}
+		userID := core.UserFromCtx(r.Context()).ID
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO employer_staff (employer_id, full_name, job_title, department, phone, email, created_by)
+			VALUES ($1,$2,$3,$4,$5,$6,$7)
+			RETURNING id, employer_id, full_name, job_title, department, phone, email, created_at`,
+			employerID, b.FullName, b.JobTitle, b.Department, b.Phone, b.Email, userID)
+		if err != nil {
+			respondErr(w, 500, err.Error()); return
+		}
+		if len(rows) == 0 {
+			respondErr(w, 500, "insert returned no row"); return
+		}
+		// Keep employer.staff_count in sync
+		db.PGExec(r.Context(), `UPDATE employers SET staff_count = (SELECT COUNT(*) FROM employer_staff WHERE employer_id=$1) WHERE id=$1`, employerID) //nolint:errcheck
+		respond(w, rows[0], "staff")
+	}
+}
+
+func bdImportStaff(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		employerID := chi.URLParam(r, "id")
+		if err := r.ParseMultipartForm(4 << 20); err != nil {
+			respondErr(w, 400, "multipart parse error"); return
+		}
+		f, _, err := r.FormFile("file")
+		if err != nil {
+			respondErr(w, 400, "file field required"); return
+		}
+		defer f.Close()
+
+		userID := core.UserFromCtx(r.Context()).ID
+		rdr := csv.NewReader(f)
+		rdr.TrimLeadingSpace = true
+		records, err := rdr.ReadAll()
+		if err != nil {
+			respondErr(w, 400, "CSV parse error: "+err.Error()); return
+		}
+
+		imported, skipped := 0, 0
+		ctx := r.Context()
+		for i, rec := range records {
+			if i == 0 { continue } // skip header
+			col := func(idx int) string {
+				if idx < len(rec) { return strings.TrimSpace(rec[idx]) }
+				return ""
+			}
+			fullName := col(0)
+			if fullName == "" { skipped++; continue }
+			jobTitle := col(1); dept := col(2); phone := col(3); email := col(4)
+			_, dbErr := db.PGExec(ctx, `
+				INSERT INTO employer_staff (employer_id, full_name, job_title, department, phone, email, created_by)
+				VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+				employerID, fullName, nullStr(jobTitle), nullStr(dept), nullStr(phone), nullStr(email), userID)
+			if dbErr != nil { skipped++ } else { imported++ }
+		}
+		db.PGExec(ctx, `UPDATE employers SET staff_count = (SELECT COUNT(*) FROM employer_staff WHERE employer_id=$1) WHERE id=$1`, employerID) //nolint:errcheck
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"imported": imported, "skipped": skipped}) //nolint:errcheck
+	}
+}
+
+func bdDeleteStaff(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		employerID := chi.URLParam(r, "id")
+		staffID := chi.URLParam(r, "staff_id")
+		_, err := db.PGExec(r.Context(), `DELETE FROM employer_staff WHERE id=$1 AND employer_id=$2`, staffID, employerID)
+		if err != nil {
+			respondErr(w, 500, err.Error()); return
+		}
+		db.PGExec(r.Context(), `UPDATE employers SET staff_count = (SELECT COUNT(*) FROM employer_staff WHERE employer_id=$1) WHERE id=$1`, employerID) //nolint:errcheck
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// ── BD → Sales assignment ─────────────────────────────────────────────────────
+
+func bdAssignToSales(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		employerID := chi.URLParam(r, "id")
+		var b struct {
+			SalesAgentID   int64   `json:"sales_agent_id"`
+			AssignmentType string  `json:"assignment_type"` // full_company | specific_staff
+			StaffIDs       []int64 `json:"staff_ids"`       // only for specific_staff
+			Notes          *string `json:"notes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "invalid JSON"); return
+		}
+		if b.SalesAgentID == 0 {
+			respondErr(w, 422, "sales_agent_id is required"); return
+		}
+		if b.AssignmentType != "full_company" && b.AssignmentType != "specific_staff" {
+			respondErr(w, 422, "assignment_type must be full_company or specific_staff"); return
+		}
+		if b.AssignmentType == "specific_staff" && len(b.StaffIDs) == 0 {
+			respondErr(w, 422, "staff_ids required for specific_staff assignment"); return
+		}
+
+		bdOfficerID := core.UserFromCtx(r.Context()).ID
+		ctx := r.Context()
+
+		// Count staff being assigned
+		var staffCount int
+		if b.AssignmentType == "full_company" {
+			rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM employer_staff WHERE employer_id=$1`, employerID)
+			if len(rows) > 0 {
+				staffCount = int(toInt64(rows[0]["n"]))
+			}
+		} else {
+			staffCount = len(b.StaffIDs)
+		}
+
+		// Create assignment record
+		aRows, err := db.PGQuery(ctx, `
+			INSERT INTO bd_assignments (employer_id, bd_officer_id, sales_agent_id, assignment_type, staff_count_at_assignment, notes)
+			VALUES ($1,$2,$3,$4,$5,$6)
+			RETURNING id`,
+			employerID, bdOfficerID, b.SalesAgentID, b.AssignmentType, staffCount, b.Notes)
+		if err != nil {
+			respondErr(w, 500, err.Error()); return
+		}
+		assignmentID := toInt64(aRows[0]["id"])
+
+		// Determine which staff to create CRM contacts for
+		var staffRows []map[string]any
+		if b.AssignmentType == "full_company" {
+			staffRows, _ = db.PGQuery(ctx, `SELECT id, full_name, phone, email FROM employer_staff WHERE employer_id=$1`, employerID)
+		} else {
+			// Build IN clause
+			placeholders := make([]string, len(b.StaffIDs))
+			args := []any{employerID}
+			for i, sid := range b.StaffIDs {
+				placeholders[i] = fmt.Sprintf("$%d", i+2)
+				args = append(args, sid)
+				db.PGExec(ctx, `INSERT INTO bd_assignment_staff (assignment_id, staff_id) VALUES ($1,$2)`, assignmentID, sid) //nolint:errcheck
+			}
+			staffRows, _ = db.PGQuery(ctx, fmt.Sprintf(`
+				SELECT id, full_name, phone, email FROM employer_staff
+				WHERE employer_id=$1 AND id IN (%s)`, strings.Join(placeholders, ",")), args...)
+		}
+
+		// Bulk-create CRM contacts for assigned staff
+		contactsCreated := 0
+		for _, s := range staffRows {
+			name := str(s["full_name"])
+			parts := strings.SplitN(name, " ", 2)
+			firstName := parts[0]; lastName := ""
+			if len(parts) > 1 { lastName = parts[1] }
+			_, cErr := db.PGExec(ctx, `
+				INSERT INTO crm_contacts
+					(first_name, last_name, phone, email, source, source_type, bd_assignment_id, employer_id, assigned_to, status, created_by)
+				VALUES ($1,$2,$3,$4,'bd_assigned','bd_assigned',$5,$6,$7,'lead',$8)
+				ON CONFLICT DO NOTHING`,
+				firstName, lastName, s["phone"], s["email"],
+				assignmentID, employerID, b.SalesAgentID, bdOfficerID)
+			if cErr == nil { contactsCreated++ }
+		}
+
+		respond(w, map[string]any{
+			"assignment_id":    assignmentID,
+			"contacts_created": contactsCreated,
+			"staff_count":      staffCount,
+		}, "assignment")
+	}
+}
+
+func bdListAssignments(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		bdOfficerID := core.UserFromCtx(r.Context()).ID
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+				a.id, a.employer_id, e.name AS employer_name,
+				a.bd_officer_id, a.sales_agent_id,
+				u.full_name AS sales_agent_name,
+				a.assignment_type, a.status,
+				a.staff_count_at_assignment, a.notes, a.assigned_at,
+				COUNT(DISTINCT c.id)                                       AS contacts_total,
+				COUNT(DISTINCT c.id) FILTER (WHERE c.status = 'customer') AS contacts_converted,
+				COUNT(DISTINCT d.id) FILTER (WHERE d.id IS NOT NULL)       AS deals_open
+			FROM bd_assignments a
+			JOIN employers     e ON e.id = a.employer_id
+			JOIN o3c_users     u ON u.id = a.sales_agent_id
+			LEFT JOIN crm_contacts c ON c.bd_assignment_id = a.id
+			LEFT JOIN crm_deals    d ON d.contact_id = c.id AND (d.is_won IS NULL OR d.is_won = false) AND (d.is_lost IS NULL OR d.is_lost = false)
+			WHERE a.bd_officer_id = $1
+			GROUP BY a.id, e.name, u.full_name
+			ORDER BY a.assigned_at DESC`, bdOfficerID)
+		if err != nil {
+			respondErr(w, 500, err.Error()); return
+		}
+		respond(w, rows, "assignments")
+	}
+}
+
+func bdGetAssignment(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		aRows, err := db.PGQuery(r.Context(), `
+			SELECT a.*, e.name AS employer_name, u.full_name AS sales_agent_name
+			FROM bd_assignments a
+			JOIN employers e ON e.id = a.employer_id
+			JOIN o3c_users u ON u.id = a.sales_agent_id
+			WHERE a.id = $1`, id)
+		if err != nil || len(aRows) == 0 {
+			respondErr(w, 404, "assignment not found"); return
+		}
+		contacts, _ := db.PGQuery(r.Context(), `
+			SELECT c.id, c.first_name, c.last_name, c.phone, c.email, c.status,
+			       u.full_name AS assigned_name,
+			       COUNT(d.id) AS open_deals
+			FROM crm_contacts c
+			LEFT JOIN o3c_users u ON u.id = c.assigned_to
+			LEFT JOIN crm_deals d ON d.contact_id = c.id AND (d.is_won IS NULL OR d.is_won=false) AND (d.is_lost IS NULL OR d.is_lost=false)
+			WHERE c.bd_assignment_id = $1
+			GROUP BY c.id, u.full_name
+			ORDER BY c.first_name`, id)
+		respond(w, map[string]any{
+			"assignment": aRows[0],
+			"contacts":   contacts,
+		}, "assignment_detail")
+	}
+}
+
+func bdUpdateAssignment(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var b struct {
+			Status *string `json:"status"`
+			Notes  *string `json:"notes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "invalid JSON"); return
+		}
+		q := "UPDATE bd_assignments SET updated_at=NOW()"
+		args := []any{}
+		n := 1
+		add := func(col string, v any) { q += fmt.Sprintf(", %s=$%d", col, n); args = append(args, v); n++ }
+		if b.Status != nil { add("status", *b.Status) }
+		if b.Notes != nil  { add("notes", *b.Notes) }
+		q += fmt.Sprintf(" WHERE id=$%d", n)
+		args = append(args, id)
+		if _, err := db.PGExec(r.Context(), q, args...); err != nil {
+			respondErr(w, 500, err.Error()); return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func bdMyDashboard(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+
+		// ── Employer-level KPIs ───────────────────────────────────────────────
+		empRows, _ := db.PGQuery(ctx, `
+			SELECT
+			  COUNT(DISTINCT e.id)                                              AS employers_managed,
+			  COUNT(DISTINCT e.id) FILTER (WHERE e.mou_status = 'signed')      AS mou_signed,
+			  COUNT(DISTINCT e.id) FILTER (
+			      WHERE e.mou_status = 'signed'
+			      AND e.mou_expiry BETWEEN CURRENT_DATE AND CURRENT_DATE + 30
+			  )                                                                 AS mou_expiring_soon
+			FROM employers e
+			WHERE EXISTS (
+			    SELECT 1 FROM bd_leads l WHERE l.employer_id = e.id AND l.assigned_to = $1
+			) OR EXISTS (
+			    SELECT 1 FROM bd_assignments a WHERE a.employer_id = e.id AND a.bd_officer_id = $1
+			)`, user.ID)
+
+		// ── Assignment outcome KPIs (MTD + last-month for comparison) ─────────
+		asgRows, _ := db.PGQuery(ctx, `
+			SELECT
+			  -- MTD
+			  COALESCE(SUM(a.staff_count_at_assignment) FILTER (
+			      WHERE a.assigned_at >= date_trunc('month', CURRENT_DATE)
+			  ), 0)                                                             AS staff_referred_mtd,
+			  COUNT(DISTINCT c.id) FILTER (
+			      WHERE c.status = 'customer'
+			      AND c.updated_at >= date_trunc('month', CURRENT_DATE)
+			  )                                                                 AS conversions_mtd,
+			  -- Last month (for % change arrows)
+			  COALESCE(SUM(a.staff_count_at_assignment) FILTER (
+			      WHERE a.assigned_at >= date_trunc('month', CURRENT_DATE - INTERVAL '1 month')
+			      AND   a.assigned_at <  date_trunc('month', CURRENT_DATE)
+			  ), 0)                                                             AS staff_referred_lm,
+			  COUNT(DISTINCT c.id) FILTER (
+			      WHERE c.status = 'customer'
+			      AND c.updated_at >= date_trunc('month', CURRENT_DATE - INTERVAL '1 month')
+			      AND c.updated_at <  date_trunc('month', CURRENT_DATE)
+			  )                                                                 AS conversions_lm,
+			  -- All-time totals (funnel)
+			  COALESCE(SUM(a.staff_count_at_assignment), 0)                    AS total_staff_referred,
+			  COUNT(DISTINCT c.id)                                             AS total_crm_contacts,
+			  COUNT(DISTINCT c.id) FILTER (WHERE c.status = 'customer')       AS total_converted,
+			  -- MTD totals (funnel MTD view)
+			  COUNT(DISTINCT c.id) FILTER (
+			      WHERE c.created_at >= date_trunc('month', CURRENT_DATE)
+			  )                                                                 AS mtd_crm_contacts,
+			  COUNT(DISTINCT c.id) FILTER (
+			      WHERE c.status = 'customer'
+			      AND c.updated_at >= date_trunc('month', CURRENT_DATE)
+			  )                                                                 AS mtd_converted
+			FROM bd_assignments a
+			LEFT JOIN crm_contacts c ON c.bd_assignment_id = a.id
+			WHERE a.bd_officer_id = $1`, user.ID)
+
+		// ── Activity KPIs (MTD + last-month) ─────────────────────────────────
+		actRows, _ := db.PGQuery(ctx, `
+			SELECT
+			  COUNT(*) FILTER (
+			      WHERE activity_type = 'call'
+			      AND created_at >= date_trunc('month', CURRENT_DATE)
+			  )                AS calls_made_mtd,
+			  COUNT(*) FILTER (
+			      WHERE activity_type = 'meeting'
+			      AND created_at >= date_trunc('month', CURRENT_DATE)
+			  )                AS meetings_mtd,
+			  COUNT(*) FILTER (
+			      WHERE activity_type = 'call'
+			      AND created_at >= date_trunc('month', CURRENT_DATE - INTERVAL '1 month')
+			      AND created_at <  date_trunc('month', CURRENT_DATE)
+			  )                AS calls_lm,
+			  COUNT(*) FILTER (
+			      WHERE activity_type = 'meeting'
+			      AND created_at >= date_trunc('month', CURRENT_DATE - INTERVAL '1 month')
+			      AND created_at <  date_trunc('month', CURRENT_DATE)
+			  )                AS meetings_lm
+			FROM bd_activities
+			WHERE agent_id = $1`, user.ID)
+
+		// ── Funnel: applications (all-time + MTD) ─────────────────────────────
+		funnelRows, _ := db.PGQuery(ctx, `
+			SELECT
+			  COUNT(DISTINCT la.id) AS applications,
+			  COUNT(DISTINCT la.id) FILTER (
+			      WHERE la.created_at >= date_trunc('month', CURRENT_DATE)
+			  )                     AS mtd_applications
+			FROM bd_assignments a
+			JOIN crm_contacts c ON c.bd_assignment_id = a.id
+			JOIN loan_applications la ON la.applicant_cif = c.cif_number
+			WHERE a.bd_officer_id = $1 AND c.cif_number IS NOT NULL`, user.ID)
+
+		// ── Urgency 1: MOUs expiring within 30 days (with contact for email) ──
+		mouExpiring, _ := db.PGQuery(ctx, `
+			SELECT e.id, e.name, e.sector,
+			       e.mou_expiry::text,
+			       e.contact_name, e.contact_email,
+			       (e.mou_expiry - CURRENT_DATE) AS days_to_expiry
+			FROM employers e
+			WHERE e.mou_status = 'signed'
+			  AND e.mou_expiry BETWEEN CURRENT_DATE AND CURRENT_DATE + 30
+			  AND (
+			      EXISTS (SELECT 1 FROM bd_leads l WHERE l.employer_id = e.id AND l.assigned_to = $1)
+			      OR EXISTS (SELECT 1 FROM bd_assignments a WHERE a.employer_id = e.id AND a.bd_officer_id = $1)
+			  )
+			ORDER BY e.mou_expiry ASC`, user.ID)
+
+		// ── Urgency 2: Assignments with 0 CRM contacts after 7 days ──────────
+		stale, _ := db.PGQuery(ctx, `
+			SELECT a.id, e.name AS employer_name,
+			       a.staff_count_at_assignment, a.assigned_at::text,
+			       (CURRENT_DATE - a.assigned_at::date) AS days_stale,
+			       u.full_name AS sales_agent_name,
+			       u.email     AS sales_agent_email
+			FROM bd_assignments a
+			JOIN employers e ON e.id = a.employer_id
+			JOIN o3c_users u ON u.id = a.sales_agent_id
+			WHERE a.bd_officer_id = $1
+			  AND a.status NOT IN ('converted','lost')
+			  AND a.assigned_at < NOW() - INTERVAL '7 days'
+			  AND NOT EXISTS (SELECT 1 FROM crm_contacts c WHERE c.bd_assignment_id = a.id)
+			ORDER BY a.assigned_at ASC`, user.ID)
+
+		// ── Urgency 3: Dormant partnerships — MOU signed 14+ days, never assigned ──
+		dormant, _ := db.PGQuery(ctx, `
+			SELECT e.id, e.name, e.sector,
+			       e.mou_date::text,
+			       e.contact_name, e.contact_email,
+			       (CURRENT_DATE - e.mou_date) AS days_since_signed
+			FROM employers e
+			WHERE e.mou_status = 'signed'
+			  AND e.mou_date IS NOT NULL
+			  AND e.mou_date < CURRENT_DATE - INTERVAL '14 days'
+			  AND EXISTS (
+			      SELECT 1 FROM bd_leads l WHERE l.employer_id = e.id AND l.assigned_to = $1
+			  )
+			  AND NOT EXISTS (
+			      SELECT 1 FROM bd_assignments a WHERE a.employer_id = e.id AND a.bd_officer_id = $1
+			  )
+			ORDER BY e.mou_date ASC
+			LIMIT 5`, user.ID)
+
+		// ── My Employers with outcomes ────────────────────────────────────────
+		employers, _ := db.PGQuery(ctx, `
+			SELECT e.id, e.name, e.sector, e.staff_count,
+			       e.mou_status, e.mou_expiry::text,
+			       COUNT(DISTINCT a.id)                                        AS assignments_count,
+			       COALESCE(SUM(a.staff_count_at_assignment), 0)              AS staff_referred,
+			       COUNT(DISTINCT c.id)                                       AS contacts_created,
+			       COUNT(DISTINCT c.id) FILTER (WHERE c.status = 'customer') AS converted
+			FROM employers e
+			LEFT JOIN bd_assignments a ON a.employer_id = e.id AND a.bd_officer_id = $1
+			LEFT JOIN crm_contacts c ON c.bd_assignment_id = a.id
+			WHERE EXISTS (
+			    SELECT 1 FROM bd_leads l WHERE l.employer_id = e.id AND l.assigned_to = $1
+			) OR EXISTS (
+			    SELECT 1 FROM bd_assignments a2 WHERE a2.employer_id = e.id AND a2.bd_officer_id = $1
+			)
+			GROUP BY e.id
+			ORDER BY e.updated_at DESC
+			LIMIT 20`, user.ID)
+
+		// ── Recent assignments ────────────────────────────────────────────────
+		recentAssignments, _ := db.PGQuery(ctx, `
+			SELECT a.id, e.name AS employer_name, a.assignment_type, a.status,
+			       a.staff_count_at_assignment, a.assigned_at::text,
+			       u.full_name AS sales_agent_name,
+			       COUNT(DISTINCT c.id)                                        AS contacts_created,
+			       COUNT(DISTINCT c.id) FILTER (WHERE c.status = 'customer')  AS converted
+			FROM bd_assignments a
+			JOIN employers e ON e.id = a.employer_id
+			JOIN o3c_users u ON u.id = a.sales_agent_id
+			LEFT JOIN crm_contacts c ON c.bd_assignment_id = a.id
+			WHERE a.bd_officer_id = $1
+			GROUP BY a.id, e.name, u.full_name
+			ORDER BY a.assigned_at DESC
+			LIMIT 10`, user.ID)
+
+		// ── Defaults ─────────────────────────────────────────────────────────
+		empKPI := map[string]any{"employers_managed": 0, "mou_signed": 0, "mou_expiring_soon": 0}
+		if len(empRows) > 0 { empKPI = empRows[0] }
+
+		asgKPI := map[string]any{
+			"staff_referred_mtd": 0, "conversions_mtd": 0,
+			"staff_referred_lm": 0, "conversions_lm": 0,
+			"total_staff_referred": 0, "total_crm_contacts": 0, "total_converted": 0,
+			"mtd_crm_contacts": 0, "mtd_converted": 0,
+		}
+		if len(asgRows) > 0 { asgKPI = asgRows[0] }
+
+		actKPI := map[string]any{"calls_made_mtd": 0, "meetings_mtd": 0, "calls_lm": 0, "meetings_lm": 0}
+		if len(actRows) > 0 { actKPI = actRows[0] }
+
+		funnelRow := map[string]any{"applications": 0, "mtd_applications": 0}
+		if len(funnelRows) > 0 { funnelRow = funnelRows[0] }
+
+		if mouExpiring == nil       { mouExpiring = []map[string]any{} }
+		if stale == nil             { stale = []map[string]any{} }
+		if dormant == nil           { dormant = []map[string]any{} }
+		if employers == nil         { employers = []map[string]any{} }
+		if recentAssignments == nil { recentAssignments = []map[string]any{} }
+
+		respond(w, map[string]any{
+			"kpis": map[string]any{
+				"employers_managed":  empKPI["employers_managed"],
+				"mou_signed":         empKPI["mou_signed"],
+				"mou_expiring_soon":  empKPI["mou_expiring_soon"],
+				"staff_referred_mtd": asgKPI["staff_referred_mtd"],
+				"staff_referred_lm":  asgKPI["staff_referred_lm"],
+				"conversions_mtd":    asgKPI["conversions_mtd"],
+				"conversions_lm":     asgKPI["conversions_lm"],
+				"calls_made_mtd":     actKPI["calls_made_mtd"],
+				"calls_lm":           actKPI["calls_lm"],
+				"meetings_mtd":       actKPI["meetings_mtd"],
+				"meetings_lm":        actKPI["meetings_lm"],
+			},
+			"funnel_all": map[string]any{
+				"staff_referred": asgKPI["total_staff_referred"],
+				"crm_contacts":   asgKPI["total_crm_contacts"],
+				"applications":   funnelRow["applications"],
+				"converted":      asgKPI["total_converted"],
+			},
+			"funnel_mtd": map[string]any{
+				"staff_referred": asgKPI["staff_referred_mtd"],
+				"crm_contacts":   asgKPI["mtd_crm_contacts"],
+				"applications":   funnelRow["mtd_applications"],
+				"converted":      asgKPI["mtd_converted"],
+			},
+			"urgency": map[string]any{
+				"mou_expiring":      mouExpiring,
+				"stale_assignments": stale,
+				"dormant":           dormant,
+			},
+			"employers":          employers,
+			"recent_assignments": recentAssignments,
+		}, "my_dashboard")
+	}
+}
+

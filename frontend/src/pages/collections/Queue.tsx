@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Page, FilterBar, Tabs, ConfirmModal, ErrBanner, Spinner, Modal,
-  filterInputStyle, DateFilter, SearchInput, NameCell, ActionRow,
+  Page, ExpandableFilterBar, Tabs, ConfirmModal, ErrBanner, Spinner, Modal,
+  filterInputStyle, DateFilter, NameCell, ActionRow,
 } from '../../components/UI'
+import type { FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { GREEN, AMBER, RED, DARKRED, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -31,6 +32,16 @@ interface ContactEntry {
   outcome: string
   notes: string | null
   created_at: string
+  agent_name: string | null
+}
+
+interface PaymentEntry {
+  id: number
+  amount_kobo: number
+  payment_date: string
+  payment_method: string | null
+  reference: string | null
+  received_by_name: string | null
 }
 
 // ── DPD colour ────────────────────────────────────────────────────────────────
@@ -358,6 +369,146 @@ function AssignAgentTab({ assignmentId, agents, onDone }: {
   )
 }
 
+// ── Log Payment tab ───────────────────────────────────────────────────────────
+
+const PAYMENT_CHANNELS = [
+  { value: 'bank_transfer', label: 'Bank Transfer' },
+  { value: 'cash',          label: 'Cash' },
+  { value: 'pos',           label: 'POS' },
+  { value: 'mobile_money',  label: 'Mobile Money' },
+  { value: 'cheque',        label: 'Cheque' },
+]
+
+function LogPaymentTab({ assignmentId, onDone }: { assignmentId: number; onDone: () => void }) {
+  const [amountNaira, setAmountNaira] = useState('')
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10))
+  const [channel,     setChannel]     = useState('bank_transfer')
+  const [reference,   setReference]   = useState('')
+  const [saving,      setSaving]      = useState(false)
+  const [err,         setErr]         = useState<string | null>(null)
+
+  async function submit() {
+    const naira = parseFloat(amountNaira)
+    if (!naira || naira <= 0 || !paymentDate) return
+    setSaving(true); setErr(null)
+    try {
+      await apiPost(`/api/collections-ops/${assignmentId}/payment`, {
+        amount_kobo:  Math.round(naira * 100),
+        payment_date: paymentDate,
+        channel,
+        reference: reference.trim() || null,
+      })
+      toast.success('Payment logged')
+      setAmountNaira(''); setReference('')
+      setPaymentDate(new Date().toISOString().slice(0, 10))
+      onDone()
+    } catch (e: any) {
+      setErr(e.message ?? 'Failed to log payment')
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <ErrBanner error={err} />
+      <div>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Amount (₦)</label>
+        <input
+          type="number" min="0" step="0.01" placeholder="0.00"
+          value={amountNaira} onChange={e => setAmountNaira(e.target.value)}
+          style={{ ...fieldStyle, height: 36, fontSize: TEXT.lg, fontWeight: FW.bold }}
+          autoFocus
+        />
+      </div>
+      <div>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Payment Date</label>
+        <input
+          type="date"
+          value={paymentDate}
+          max={new Date().toISOString().slice(0, 10)}
+          onChange={e => setPaymentDate(e.target.value)}
+          style={{ ...fieldStyle, height: 36 }}
+        />
+      </div>
+      <div>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Channel</label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {PAYMENT_CHANNELS.map(c => (
+            <button key={c.value} onClick={() => setChannel(c.value)}
+              style={{
+                padding: '4px 11px', borderRadius: RADIUS.md, fontSize: TEXT.xs,
+                fontWeight: FW.semibold, cursor: 'pointer',
+                border: `1.5px solid ${channel === c.value ? NAVY : 'var(--bdr)'}`,
+                background: channel === c.value ? NAVY : 'var(--card)',
+                color: channel === c.value ? '#fff' : 'var(--txt)',
+              }}
+            >{c.label}</button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+          Reference <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span>
+        </label>
+        <input
+          type="text" placeholder="e.g. TRF-2025-00123"
+          value={reference} onChange={e => setReference(e.target.value)}
+          style={{ ...fieldStyle, height: 36 }}
+        />
+      </div>
+      <button
+        onClick={submit}
+        disabled={saving || !amountNaira || parseFloat(amountNaira) <= 0 || !paymentDate}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          padding: '7px 14px', borderRadius: RADIUS.md, border: 'none',
+          background: GREEN, color: '#fff',
+          fontSize: TEXT.base, fontWeight: FW.semibold,
+          cursor: saving || !amountNaira ? 'not-allowed' : 'pointer',
+          opacity: saving || !amountNaira ? 0.6 : 1,
+        }}
+      >
+        {saving && <Spinner size={13} color="#fff" />}
+        Log Payment
+      </button>
+    </div>
+  )
+}
+
+// ── Payment history section ───────────────────────────────────────────────────
+
+function PaymentHistory({ payments, loading }: { payments: PaymentEntry[]; loading: boolean }) {
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: '12px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>
+        <Spinner size={14} color={GREEN} /> Loading payments…
+      </div>
+    )
+  }
+  if (!payments.length) {
+    return <div style={{ fontSize: TEXT.base, color: 'var(--txt3)', padding: '8px 0' }}>No payments recorded.</div>
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {payments.map(p => (
+        <div key={p.id} style={{
+          padding: '10px 12px', borderRadius: 8,
+          border: `1px solid ${GREEN}30`, background: `${GREEN}06`,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+            <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: GREEN, ...NUM }}>{fmtKobo(p.amount_kobo)}</span>
+            <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: 'var(--font-mono)' }}>{fmtDate(p.payment_date)}</span>
+          </div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', display: 'flex', gap: 8 }}>
+            <span style={{ textTransform: 'capitalize' }}>{(p.payment_method ?? 'unknown').replace(/_/g, ' ')}</span>
+            {p.reference && <span>· Ref: {p.reference}</span>}
+            {p.received_by_name && <span>· {p.received_by_name}</span>}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Contact history section ───────────────────────────────────────────────────
 
 function ContactHistory({ contacts, loading }: { contacts: ContactEntry[]; loading: boolean }) {
@@ -382,8 +533,9 @@ function ContactHistory({ contacts, loading }: { contacts: ContactEntry[]; loadi
             <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{c.outcome}</span>
             <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{fmtDate(c.created_at)}</span>
           </div>
-          <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', textTransform: 'capitalize' }}>
-            {c.contact_type}
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', textTransform: 'capitalize', display: 'flex', gap: 6 }}>
+            <span>{c.contact_type}</span>
+            {c.agent_name && <span>· {c.agent_name}</span>}
           </div>
           {c.notes && (
             <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', marginTop: 4, lineHeight: 1.5 }}>{c.notes}</div>
@@ -397,9 +549,10 @@ function ContactHistory({ contacts, loading }: { contacts: ContactEntry[]; loadi
 // ── Right panel: account detail ───────────────────────────────────────────────
 
 const ACTION_TABS = [
-  { key: 'call',    label: 'Log Call' },
-  { key: 'ptp',     label: 'Record PTP' },
-  { key: 'assign',  label: 'Assign Agent' },
+  { key: 'call',     label: 'Log Call' },
+  { key: 'ptp',      label: 'Record PTP' },
+  { key: 'payment',  label: 'Log Payment' },
+  { key: 'assign',   label: 'Assign Agent' },
   { key: 'escalate', label: 'Escalate' },
 ]
 
@@ -457,24 +610,33 @@ function DetailPanel({
   onAction: () => void
 }) {
   const navigate = useNavigate()
-  const [tab, setTab] = useState('call')
-  const [contacts, setContacts] = useState<ContactEntry[]>([])
+  const [tab,             setTab]             = useState('call')
+  const [contacts,        setContacts]        = useState<ContactEntry[]>([])
   const [contactsLoading, setContactsLoading] = useState(true)
+  const [payments,        setPayments]        = useState<PaymentEntry[]>([])
+  const [paymentsLoading, setPaymentsLoading] = useState(true)
 
-  useEffect(() => {
+  const loadHistory = useCallback(async (id: number) => {
     setContactsLoading(true)
-    // Fetch recent contacts for this CIF — using queue filtered by same id
-    // Backend doesn't expose a dedicated contact history endpoint, so we proxy
-    // through a targeted queue fetch and note last_contact_at from the assignment.
-    // For contact log entries we use the contact endpoint's implicit history.
-    // We'll show a placeholder list derived from available assignment data.
-    // If the API exposes a /contacts endpoint in future, swap this call.
-    setContacts([])
-    setContactsLoading(false)
-  }, [assignment.id])
+    setPaymentsLoading(true)
+    try {
+      const [cRes, pRes] = await Promise.all([
+        apiFetch<{ data: ContactEntry[] }>(`/api/collections-ops/${id}/contacts`),
+        apiFetch<{ data: PaymentEntry[] }>(`/api/collections-ops/${id}/payments`),
+      ])
+      setContacts(Array.isArray(cRes.data) ? cRes.data : [])
+      setPayments(Array.isArray(pRes.data) ? pRes.data : [])
+    } catch {
+      setContacts([]); setPayments([])
+    } finally {
+      setContactsLoading(false); setPaymentsLoading(false)
+    }
+  }, [])
 
-  function refreshContacts() {
-    // Re-triggered after logging a new contact — same pattern as above
+  useEffect(() => { loadHistory(assignment.id) }, [assignment.id, loadHistory])
+
+  function refreshHistory() {
+    loadHistory(assignment.id)
     onAction()
   }
 
@@ -528,6 +690,16 @@ function DetailPanel({
         )}
       </div>
 
+      {/* Payment history */}
+      {payments.length > 0 && (
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)' }}>
+          <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+            Payment History
+          </div>
+          <PaymentHistory payments={payments} loading={paymentsLoading} />
+        </div>
+      )}
+
       {/* Contact history */}
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)' }}>
         <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
@@ -542,10 +714,11 @@ function DetailPanel({
           Actions
         </div>
         <Tabs tabs={ACTION_TABS} active={tab} onChange={setTab} />
-        {tab === 'call'     && <LogCallTab      assignmentId={assignment.id} onDone={refreshContacts} />}
-        {tab === 'ptp'      && <RecordPTPTab    assignmentId={assignment.id} onDone={refreshContacts} />}
-        {tab === 'assign'   && <AssignAgentTab  assignmentId={assignment.id} agents={agents} onDone={refreshContacts} />}
-        {tab === 'escalate' && <EscalateTab     assignmentId={assignment.id} onDone={refreshContacts} />}
+        {tab === 'call'     && <LogCallTab     assignmentId={assignment.id} onDone={refreshHistory} />}
+        {tab === 'ptp'      && <RecordPTPTab   assignmentId={assignment.id} onDone={refreshHistory} />}
+        {tab === 'payment'  && <LogPaymentTab  assignmentId={assignment.id} onDone={refreshHistory} />}
+        {tab === 'assign'   && <AssignAgentTab assignmentId={assignment.id} agents={agents} onDone={refreshHistory} />}
+        {tab === 'escalate' && <EscalateTab    assignmentId={assignment.id} onDone={refreshHistory} />}
         <SendToRecoveryButton assignment={assignment} onDone={onAction} />
       </div>
     </div>
@@ -629,8 +802,8 @@ function ReassignModal({ open, onClose, selectedIds, agents, onDone }: {
 
 // ── Left panel: queue list ────────────────────────────────────────────────────
 
-const DPD_OPTIONS = ['All', '0', '1-30', '31-60', '61-90', '91-180', '181-360']
-const CONTACT_OPTIONS = ['Any', 'Today', 'This week', 'This month']
+const DPD_VALUES    = ['0', '1-30', '31-60', '61-90', '91-180', '181-360']
+const CONTACT_VALUES = ['Today', 'This week', 'This month']
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -644,19 +817,19 @@ export default function CollectionsQueue() {
   const [reassignOpen, setReassignOpen] = useState(false)
 
   // Filters
-  const [dpdFilter,     setDpdFilter]     = useState('All')
-  const [contactFilter, setContactFilter] = useState('Any')
-  const [agentFilter,   setAgentFilter]   = useState('')
-  const [dateFrom,      setDateFrom]      = useState(monthStart())
-  const [dateTo,        setDateTo]        = useState(today())
-  const [search,        setSearch]        = useState('')
+  const [fDpd,     setFDpd]     = useState(new Set<string>())
+  const [fContact, setFContact] = useState(new Set<string>())
+  const [search,   setSearch]   = useState('')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(today())
+
+  const fDpdKey = [...fDpd].sort().join(',')
 
   const load = useCallback(async () => {
     setLoading(true)
     setErr(null)
     const params = new URLSearchParams({ limit: '100' })
-    if (dpdFilter !== 'All') params.set('dpd_bucket', dpdFilter)
-    if (agentFilter.trim()) params.set('q', agentFilter.trim())
+    if (fDpdKey)  params.set('dpd_bucket', fDpdKey)
     if (dateFrom) params.set('from', dateFrom)
     if (dateTo)   params.set('to', dateTo)
 
@@ -665,48 +838,72 @@ export default function CollectionsQueue() {
         apiFetch<{ data: Assignment[] }>(`/api/collections-ops/queue?${params}`),
         apiFetch<{ data: AgentUser[] }>('/api/admin/users'),
       ])
-      let rows = queueRes.data ?? []
       setAgents(usersRes.data ?? [])
-
-      // Client-side contact recency filter
-      if (contactFilter !== 'Any') {
-        const now = new Date()
-        const startOf = (unit: 'day' | 'week' | 'month') => {
-          const d = new Date(now)
-          if (unit === 'day')   d.setHours(0, 0, 0, 0)
-          if (unit === 'week')  { d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - d.getDay()) }
-          if (unit === 'month') { d.setHours(0, 0, 0, 0); d.setDate(1) }
-          return d
-        }
-        const cutoff =
-          contactFilter === 'Today'      ? startOf('day') :
-          contactFilter === 'This week'  ? startOf('week') :
-          startOf('month')
-
-        rows = rows.filter(r =>
-          r.last_contact_at && new Date(r.last_contact_at) >= cutoff
-        )
-      }
-
-      setItems(rows)
+      setItems(queueRes.data ?? [])
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load queue')
     } finally {
       setLoading(false)
     }
-  }, [dpdFilter, contactFilter, agentFilter, dateFrom, dateTo])
+  }, [fDpdKey, dateFrom, dateTo])
 
   const displayed = useMemo(() => {
-    if (!search.trim()) return items
-    const q = search.toLowerCase()
-    return items.filter(item =>
-      ['account_cif', 'dpd_bucket', 'agent_name'].some(k =>
-        String((item as any)[k] ?? '').toLowerCase().includes(q)
+    let result = items
+
+    // Client-side contact recency filter
+    if (fContact.size) {
+      const now = new Date()
+      const startOf = (unit: 'day' | 'week' | 'month') => {
+        const d = new Date(now)
+        if (unit === 'day')   d.setHours(0, 0, 0, 0)
+        if (unit === 'week')  { d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - d.getDay()) }
+        if (unit === 'month') { d.setHours(0, 0, 0, 0); d.setDate(1) }
+        return d
+      }
+      result = result.filter(r => {
+        if (!r.last_contact_at) return false
+        const cd = new Date(r.last_contact_at)
+        return (
+          (fContact.has('Today')      && cd >= startOf('day'))   ||
+          (fContact.has('This week')  && cd >= startOf('week'))  ||
+          (fContact.has('This month') && cd >= startOf('month'))
+        )
+      })
+    }
+
+    // Client-side text search
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      result = result.filter(item =>
+        ['account_cif', 'dpd_bucket', 'agent_name'].some(k =>
+          String((item as any)[k] ?? '').toLowerCase().includes(q)
+        )
       )
-    )
-  }, [items, search])
+    }
+
+    return result
+  }, [items, fContact, search])
 
   useEffect(() => { load() }, [load])
+
+  const groups: FilterGroupDef[] = [
+    {
+      key: 'dpd',
+      label: 'DPD BUCKET',
+      options: DPD_VALUES.map(v => ({ value: v, label: `DPD ${v}` })),
+      selected: fDpd,
+      onChange: setFDpd,
+    },
+    {
+      key: 'contact',
+      label: 'LAST CONTACT',
+      options: CONTACT_VALUES.map(v => ({ value: v })),
+      selected: fContact,
+      onChange: setFContact,
+    },
+  ]
+
+  function resetFilters() { setFDpd(new Set()); setFContact(new Set()); setSearch('') }
 
   function toggleCheck(id: number, e: React.MouseEvent) {
     e.stopPropagation()
@@ -739,36 +936,16 @@ export default function CollectionsQueue() {
           flexShrink: 0,
         }}>
           {/* Filters */}
-          <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
-            <FilterBar onReset={() => { setDpdFilter('All'); setContactFilter('Any'); setAgentFilter('') }}>
-              <select
-                value={dpdFilter}
-                onChange={e => setDpdFilter(e.target.value)}
-                style={{ ...filterInputStyle, flex: 1 }}
-              >
-                {DPD_OPTIONS.map(o => <option key={o} value={o}>{o === 'All' ? 'All DPD' : `DPD ${o}`}</option>)}
-              </select>
-              <select
-                value={contactFilter}
-                onChange={e => setContactFilter(e.target.value)}
-                style={{ ...filterInputStyle, flex: 1 }}
-              >
-                {CONTACT_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-              </select>
-            </FilterBar>
-            <input
-              value={agentFilter}
-              onChange={e => setAgentFilter(e.target.value)}
-              placeholder="Filter by agent…"
-              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }}
-            />
-            <SearchInput
-              value={search}
-              onChange={setSearch}
-              placeholder="Search CIF, DPD, agent…"
-              style={{ width: '100%', boxSizing: 'border-box', marginTop: 6 }}
-            />
-          </div>
+          <ExpandableFilterBar
+            search={search}
+            onSearch={setSearch}
+            groups={groups}
+            onReset={resetFilters}
+            onApply={load}
+            resultCount={displayed.length}
+            totalCount={items.length}
+            placeholder="Search CIF, DPD, agent…"
+          />
 
           {/* Batch bar */}
           {checkedIds.size > 0 && (

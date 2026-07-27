@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, SectionCard, DataTable, ExpandableFilterBar,
   Modal, ConfirmModal, ErrBanner, Spinner, btnPrimary, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -132,6 +132,11 @@ export default function AMLRules() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo] = useState(today())
 
+  const [search, setSearch]         = useState('')
+  const [fActive, setFActive]       = useState(new Set<string>())
+  const [fRuleType, setFRuleType]   = useState(new Set<string>())
+  const [fAction, setFAction]       = useState(new Set<string>())
+
   const [modalOpen, setModalOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<AMLRule | null>(null)
   const [form, setForm] = useState<RuleForm>(BLANK_FORM)
@@ -210,6 +215,17 @@ export default function AMLRules() {
     finally { setDeleting(false) }
   }
 
+  const filtered = useMemo(() => rules.filter(r => {
+    if (fActive.size && !fActive.has(r.active ? 'active' : 'inactive')) return false
+    if (fRuleType.size && !fRuleType.has(r.rule_type)) return false
+    if (fAction.size && !fAction.has(r.action)) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (![r.name, r.rule_type, r.action].some(f => f?.toLowerCase().includes(q))) return false
+    }
+    return true
+  }), [rules, fActive, fRuleType, fAction, search])
+
   const cols: TableCol<AMLRule>[] = [
     {
       key: 'name', label: 'Rule Name',
@@ -283,14 +299,38 @@ export default function AMLRules() {
       <ErrBanner error={err} onRetry={load} />
 
       <SectionCard title="Rules" badge={rules.length} padding={false}>
+        <ExpandableFilterBar
+          search={search} onSearch={setSearch}
+          groups={[
+            {
+              key: 'active', label: 'Status',
+              options: [
+                { value: 'active',   label: 'Active',   color: '#16A34A', count: rules.filter(r => r.active).length },
+                { value: 'inactive', label: 'Inactive', color: '#6B7280', count: rules.filter(r => !r.active).length },
+              ],
+              selected: fActive, onChange: (next: Set<string>) => setFActive(next),
+            },
+            {
+              key: 'type', label: 'Rule Type',
+              options: Object.entries(RULE_TYPE_LABEL).map(([v, l]) => ({ value: v, label: l, count: rules.filter(r => r.rule_type === v).length })),
+              selected: fRuleType, onChange: (next: Set<string>) => setFRuleType(next),
+            },
+            {
+              key: 'action', label: 'Action',
+              options: ['flag', 'block', 'escalate'].map(a => ({ value: a, label: a.charAt(0).toUpperCase() + a.slice(1), color: ACTION_STYLE[a]?.color, count: rules.filter(r => r.action === a).length })),
+              selected: fAction, onChange: (next: Set<string>) => setFAction(next),
+            },
+          ]}
+          onReset={() => { setSearch(''); setFActive(new Set()); setFRuleType(new Set()); setFAction(new Set()) }}
+          resultCount={filtered.length} totalCount={rules.length}
+          placeholder="Search rules…"
+        />
         <DataTable<AMLRule>
           cols={cols}
-          rows={rules}
+          rows={filtered}
           keyFn={r => r.id}
           emptyText="No AML rules configured. Create one to start monitoring transactions."
           skeletonRows={loading ? 5 : 0}
-          searchKeys={['name', 'rule_type', 'action']}
-          searchPlaceholder="Search rules…"
           pageSize={20}
         />
       </SectionCard>

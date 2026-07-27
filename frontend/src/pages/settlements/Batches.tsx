@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, KpiCard, SectionCard, ErrBanner, FilterBar, filterInputStyle, StatusBadge, DateFilter, SearchInput, NameCell, ActionRow } from '../../components/UI'
+import { Page, KpiCard, SectionCard, ErrBanner, ExpandableFilterBar, StatusBadge, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtDatetime, fmtNum, today, monthStart } from '../../lib/fmt'
 import { GREEN, RED, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -92,7 +92,7 @@ export default function SettlementBatches() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [statusFilter, setStatusFilter] = useState('')
+  const [fStatuses, setFStatuses] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState('')
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo] = useState(today())
@@ -106,7 +106,7 @@ export default function SettlementBatches() {
     setError(null)
     try {
       const p = new URLSearchParams()
-      if (statusFilter) p.set('status', statusFilter)
+      if (fStatuses.size) p.set('status', [...fStatuses].join(','))
       p.set('date_from', dateFrom)
       p.set('date_to', dateTo)
       p.set('limit', '100')
@@ -126,7 +126,7 @@ export default function SettlementBatches() {
     } finally {
       setLoading(false)
     }
-  }, [statusFilter, dateFrom, dateTo])
+  }, [fStatuses, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -156,7 +156,7 @@ export default function SettlementBatches() {
   }, [rows, search])
 
   function handleReset() {
-    setStatusFilter('')
+    setFStatuses(new Set())
     setSearch('')
     setDateFrom(monthStart())
     setDateTo(today())
@@ -165,7 +165,11 @@ export default function SettlementBatches() {
   const kpiLoading = loading && !kpis
 
   return (
-    <Page title="Settlement Batches" subtitle="Review and track settlement batch activity">
+    <Page
+      title="Settlement Batches"
+      subtitle="Review and track settlement batch activity"
+      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
+    >
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip */}
@@ -177,19 +181,25 @@ export default function SettlementBatches() {
       </div>
 
       <SectionCard title="Batches" badge={filteredRows.length} padding={false}>
-        <div style={{ padding: '12px 16px 0' }}>
-          <FilterBar onReset={handleReset}>
-            <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
-              <option value="">All statuses</option>
-              <option value="Pending">Pending</option>
-              <option value="Settled">Settled</option>
-              <option value="Failed">Failed</option>
-            </select>
-            <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
-            <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
-          </FilterBar>
-        </div>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[{
+            key: 'status', label: 'Status',
+            options: [
+              { value: 'Pending', label: 'Pending', color: AMBER },
+              { value: 'Settled', label: 'Settled', color: GREEN },
+              { value: 'Failed',  label: 'Failed',  color: RED   },
+            ],
+            selected: fStatuses,
+            onChange: setFStatuses,
+          }]}
+          onReset={handleReset}
+          onApply={load}
+          resultCount={filteredRows.length}
+          totalCount={rows.length}
+          placeholder="Search batch ref, status…"
+        />
 
         {loading ? (
           <div style={{ padding: 24, textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>Loading…</div>

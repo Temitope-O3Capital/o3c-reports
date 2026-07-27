@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Page, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtNum, monthStart, today } from '../../lib/fmt'
@@ -127,6 +127,7 @@ export default function AdminMailHealth() {
   const [error,         setError]         = useState<string | null>(null)
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
+  const [supSearch, setSupSearch] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -148,6 +149,12 @@ export default function AdminMailHealth() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+
+  const displayedSups = useMemo(() =>
+    supSearch
+      ? suppressions.filter(s => s.email.includes(supSearch) || (s.source ?? '').toLowerCase().includes(supSearch.toLowerCase()) || (s.reason ?? '').toLowerCase().includes(supSearch.toLowerCase()))
+      : suppressions
+  , [suppressions, supSearch])
 
   return (
     <Page back={{ label: 'Admin', to: '/admin' }} title="Mail Health" subtitle="SendGrid delivery metrics, deliverability, and suppressions"
@@ -196,14 +203,22 @@ export default function AdminMailHealth() {
       </div>
 
       {/* Suppressions */}
-      <SectionCard title="Suppressions" badge={suppressions.length} padding={false}>
+      <SectionCard title="Suppressions" badge={displayedSups.length} padding={false}>
+        <ExpandableFilterBar
+          search={supSearch}
+          onSearch={setSupSearch}
+          groups={[]}
+          onReset={() => setSupSearch('')}
+          resultCount={displayedSups.length}
+          totalCount={suppressions.length}
+          placeholder="Search email, source, reason…"
+        />
         <DataTable
           cols={SUP_COLS}
-          rows={suppressions}
+          rows={displayedSups}
           keyFn={r => r.email}
           loading={loading}
           emptyText="No suppressions found"
-          searchKeys={['email', 'source', 'reason']}
         />
       </SectionCard>
     </Page>

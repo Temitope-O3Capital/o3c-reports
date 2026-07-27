@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter } from '../../components/UI'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { Page, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiExport } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
@@ -21,45 +21,51 @@ interface AuditLog {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function AuditTrail() {
-  const [logs, setLogs] = useState<AuditLog[]>([])
-  const [total, setTotal] = useState(0)
+  const [allLogs, setAllLogs] = useState<AuditLog[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
 
-  // Filters
-  const [moduleFilter, setModuleFilter] = useState('')
-  const [actionFilter, setActionFilter] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
-  const [page, setPage] = useState(1)
-  const PAGE_SIZE = 50
+
+  const [search, setSearch]         = useState('')
+  const [fModule, setFModule]       = useState(new Set<string>())
+  const [fAction, setFAction]       = useState(new Set<string>())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
-      if (moduleFilter) p.set('entity_type', moduleFilter)
-      if (actionFilter) p.set('action', actionFilter)
       if (from) p.set('date_from', from)
       if (to)   p.set('date_to', to)
-      p.set('limit', String(PAGE_SIZE))
-      p.set('offset', String((page - 1) * PAGE_SIZE))
+      p.set('limit', '500')
+      p.set('offset', '0')
       const res = await apiFetch<{ data: { logs: AuditLog[]; total: number } }>(`/api/compliance/audit-log?${p}`)
-      setLogs(res.data?.logs ?? [])
-      setTotal(res.data?.total ?? 0)
+      setAllLogs(res.data?.logs ?? [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [moduleFilter, actionFilter, from, to, page])
+  }, [from, to])
 
   useEffect(() => { load() }, [load])
+
+  const uniqueModules = useMemo(() => [...new Set(allLogs.map(l => l.entity_type).filter(Boolean))] as string[], [allLogs])
+  const uniqueActions = useMemo(() => [...new Set(allLogs.map(l => l.action).filter(Boolean))] as string[], [allLogs])
+
+  const logs = useMemo(() => allLogs.filter(l => {
+    if (fModule.size && !fModule.has(l.entity_type)) return false
+    if (fAction.size && !fAction.has(l.action)) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (![l.actor_name, l.action, l.entity_type].some(f => f?.toLowerCase().includes(q))) return false
+    }
+    return true
+  }), [allLogs, fModule, fAction, search])
 
   async function handleExport() {
     setExporting(true)
     try {
       const p = new URLSearchParams()
-      if (moduleFilter) p.set('entity_type', moduleFilter)
-      if (actionFilter) p.set('action', actionFilter)
       if (from) p.set('date_from', from)
       if (to)   p.set('date_to', to)
       await apiExport(`/api/compliance/audit-log/export?${p}`, 'audit-trail.csv')
@@ -108,68 +114,58 @@ export default function AuditTrail() {
     },
   ]
 
-  const totalPages = Math.ceil(total / PAGE_SIZE)
-
   return (
     <Page
       title="Audit Trail"
       subtitle="Read-only log of all system actions"
       actions={
-        <button
-          onClick={handleExport}
-          disabled={exporting}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer', opacity: exporting ? 0.7 : 1 }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>download</span>
-          Export CSV
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer', opacity: exporting ? 0.7 : 1 }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>download</span>
+            Export CSV
+          </button>
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <FilterBar onReset={() => { setModuleFilter(''); setActionFilter(''); setFrom(''); setTo(''); setPage(1) }}>
-        <input placeholder="Entity type…" value={moduleFilter} onChange={e => { setModuleFilter(e.target.value); setPage(1) }}
-          style={{ ...filterInputStyle, width: 140 }} />
-        <input placeholder="Action…" value={actionFilter} onChange={e => { setActionFilter(e.target.value); setPage(1) }}
-          style={{ ...filterInputStyle, width: 140 }} />
-        <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); setPage(1) }} />
-      </FilterBar>
-
       <SectionCard
         title="Audit Log"
-        badge={total}
+        badge={allLogs.length}
         subtitle="Sorted by most recent · Read only"
         padding={false}
       >
+        <ExpandableFilterBar
+          search={search} onSearch={setSearch}
+          groups={[
+            {
+              key: 'module', label: 'Entity Type',
+              options: uniqueModules.map(m => ({ value: m, count: allLogs.filter(l => l.entity_type === m).length })),
+              selected: fModule, onChange: (next: Set<string>) => setFModule(next),
+            },
+            {
+              key: 'action', label: 'Action',
+              options: uniqueActions.map(a => ({ value: a, count: allLogs.filter(l => l.action === a).length })),
+              selected: fAction, onChange: (next: Set<string>) => setFAction(next),
+            },
+          ]}
+          onReset={() => { setSearch(''); setFModule(new Set()); setFAction(new Set()) }}
+          resultCount={logs.length} totalCount={allLogs.length}
+          placeholder="Search by user, action or entity…"
+        />
         <DataTable<AuditLog>
           cols={cols}
           rows={logs}
           keyFn={r => r.id}
           emptyText="No audit log entries found."
           skeletonRows={loading ? 10 : 0}
-          searchKeys={['actor_name', 'action', 'entity_type']}
-          searchPlaceholder="Search by user, action or entity…"
+          pageSize={50}
         />
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: SP[2], padding: '12px 0', borderTop: '1px solid var(--bdr)' }}>
-            <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page === 1}
-              style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: page === 1 ? 'not-allowed' : 'pointer', opacity: page === 1 ? 0.4 : 1 }}
-            >
-              ←
-            </button>
-            <span style={{ fontSize: TEXT.base, color: 'var(--txt2)' }}>Page {page} of {totalPages}</span>
-            <button
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-              style={{ padding: '5px 12px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: page === totalPages ? 'not-allowed' : 'pointer', opacity: page === totalPages ? 0.4 : 1 }}
-            >
-              →
-            </button>
-          </div>
-        )}
       </SectionCard>
     </Page>
   )

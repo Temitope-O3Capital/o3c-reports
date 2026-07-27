@@ -1,11 +1,11 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
 import {
-  Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar,
   ErrBanner, Modal, Spinner, StatusBadge, btnPrimary, DateFilter,
   NameCell, ActionRow,
 } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtNum, n, today, monthStart } from '../../lib/fmt'
 import { BLUE, GREEN, RED, NAVY, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -385,8 +385,8 @@ export default function RepaymentPlans() {
   const [error, setError]       = useState<string | null>(null)
 
   // Filters
-  const [status, setStatus]     = useState('')
-  const [q, setQ]               = useState('')
+  const [fStatus, setFStatus]   = useState(new Set<string>())
+  const [search, setSearch]     = useState('')
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo]     = useState(today())
 
@@ -394,14 +394,15 @@ export default function RepaymentPlans() {
   const [showNewPlan, setShowNewPlan]   = useState(false)
   const [detailPlan, setDetailPlan]     = useState<PlanRow | null>(null)
 
+  const fStatusKey = [...fStatus].join(',')
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     const p = new URLSearchParams({ limit: '100' })
-    if (status)   p.set('status', status)
-    if (q.trim()) p.set('q', q.trim())
-    if (dateFrom) p.set('date_from', dateFrom)
-    if (dateTo)   p.set('date_to', dateTo)
+    if (fStatusKey) p.set('status', fStatusKey)
+    if (dateFrom)   p.set('date_from', dateFrom)
+    if (dateTo)     p.set('date_to', dateTo)
     try {
       const [res, kpiRes] = await Promise.all([
         apiFetch<{ data: PlanRow[] }>(`/api/collections-ops/repayment-plans?${p}`),
@@ -421,9 +422,35 @@ export default function RepaymentPlans() {
     } finally {
       setLoading(false)
     }
-  }, [status, q, dateFrom, dateTo])
+  }, [fStatusKey, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+
+  const displayed = useMemo(() => {
+    if (!search.trim()) return rows
+    const q = search.toLowerCase()
+    return rows.filter(r =>
+      [r.account_cif, r.customer_name, r.status, r.agent_name].some(
+        v => v != null && String(v).toLowerCase().includes(q)
+      )
+    )
+  }, [rows, search])
+
+  const groups: FilterGroupDef[] = [
+    {
+      key: 'status',
+      label: 'STATUS',
+      options: [
+        { value: 'Active',    color: BLUE,  count: rows.filter(r => r.status === 'Active').length },
+        { value: 'Completed', color: GREEN, count: rows.filter(r => r.status === 'Completed').length },
+        { value: 'Defaulted', color: RED,   count: rows.filter(r => r.status === 'Defaulted').length },
+      ],
+      selected: fStatus,
+      onChange: setFStatus,
+    },
+  ]
+
+  function resetFilters() { setFStatus(new Set()); setSearch('') }
 
   const cols: TableCol<PlanRow>[] = [
     {
@@ -522,39 +549,24 @@ export default function RepaymentPlans() {
       </div>
 
       <SectionCard title="Plans" badge={rows.length} padding={false}>
-        <div style={{ padding: '12px 16px 0' }}>
-          <FilterBar onReset={() => { setStatus(''); setQ('') }}>
-            <select value={status} onChange={e => setStatus(e.target.value)} style={filterInputStyle}>
-              <option value="">All Statuses</option>
-              <option value="Active">Active</option>
-              <option value="Completed">Completed</option>
-              <option value="Defaulted">Defaulted</option>
-            </select>
-            <input
-              placeholder="Search by CIF or agent…"
-              value={q}
-              onChange={e => setQ(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && load()}
-              style={{ ...filterInputStyle, minWidth: 200 }}
-            />
-            <button
-              onClick={() => load()}
-              style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
-            >
-              Apply
-            </button>
-          </FilterBar>
-        </div>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={groups}
+          onReset={resetFilters}
+          onApply={load}
+          resultCount={displayed.length}
+          totalCount={rows.length}
+          placeholder="Search CIF, name, status…"
+        />
         <DataTable
           cols={cols}
-          rows={rows}
+          rows={displayed}
           keyFn={r => r.id}
           loading={loading}
           onRowClick={r => setDetailPlan(r)}
           emptyText="No repayment plans found"
           skeletonRows={8}
-          searchKeys={['account_cif', 'customer_name', 'status']}
-          searchPlaceholder="Search CIF, name, status…"
         />
       </SectionCard>
 

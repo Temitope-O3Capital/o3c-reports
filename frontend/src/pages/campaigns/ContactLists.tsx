@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
-  Page, SectionCard, DataTable, Modal, ConfirmModal,
+  Page, SectionCard, DataTable, ExpandableFilterBar, Modal, ConfirmModal,
   ErrBanner, btnPrimary, btnSecondary, Spinner, DateFilter, NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
@@ -501,6 +501,7 @@ export default function ContactLists() {
   const [openList,     setOpenList]     = useState<ContactList | null>(null)
   const [dateFrom,     setDateFrom]     = useState(monthStart())
   const [dateTo,       setDateTo]       = useState(today())
+  const [listSearch,   setListSearch]   = useState('')
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -565,6 +566,12 @@ export default function ContactLists() {
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
+  const displayedLists = useMemo(() =>
+    listSearch
+      ? lists.filter(l => l.name.toLowerCase().includes(listSearch.toLowerCase()) || (l.description ?? '').toLowerCase().includes(listSearch.toLowerCase()))
+      : lists
+  , [lists, listSearch])
+
   const totalMembers = lists.reduce((s, l) => s + Number(l.member_count ?? 0), 0)
 
   const cols: TableCol<ContactList>[] = [
@@ -616,11 +623,11 @@ export default function ContactLists() {
 
       <SectionCard
         title="All Lists"
-        badge={lists.length}
+        badge={displayedLists.length}
         padding={false}
         actions={
           <button
-            onClick={() => exportListsCsv(lists)}
+            onClick={() => exportListsCsv(displayedLists)}
             style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}
           >
             <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
@@ -628,14 +635,21 @@ export default function ContactLists() {
           </button>
         }
       >
+        <ExpandableFilterBar
+          search={listSearch}
+          onSearch={setListSearch}
+          groups={[]}
+          onReset={() => setListSearch('')}
+          resultCount={displayedLists.length}
+          totalCount={lists.length}
+          placeholder="Search lists…"
+        />
         <DataTable<ContactList>
           cols={cols}
-          rows={lists}
+          rows={displayedLists}
           keyFn={r => r.id}
           emptyText="No contact lists yet. Create your first list."
           skeletonRows={loading ? 5 : 0}
-          searchKeys={['name', 'description', 'created_by_name']}
-          searchPlaceholder="Search lists…"
           pageSize={20}
           onRowClick={r => setOpenList(r)}
         />

@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, SectionCard, DataTable, ExpandableFilterBar,
   Modal, ErrBanner, Spinner, StatusBadge, btnPrimary, DateFilter,
   NameCell, ActionRow,
 } from '../../components/UI'
@@ -77,8 +77,9 @@ export default function Disciplinary() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const [typeFilter, setTypeFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [search, setSearch]   = useState('')
+  const [fType, setFType]     = useState(new Set<string>())
+  const [fStatus, setFStatus] = useState(new Set<string>())
 
   const [newOpen, setNewOpen] = useState(false)
   const [form, setForm]       = useState(BLANK)
@@ -91,15 +92,13 @@ export default function Disciplinary() {
     setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
-      if (typeFilter)   p.set('case_type', typeFilter)
-      if (statusFilter) p.set('status', statusFilter)
       p.set('from', dateFrom)
       p.set('to', dateTo)
       const res = await apiFetch<{ data: DisciplinaryCase[] }>(`/api/hr/disciplinary?${p}`)
       setCases(Array.isArray(res.data) ? res.data : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [typeFilter, statusFilter, dateFrom, dateTo])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -191,6 +190,16 @@ export default function Disciplinary() {
   const CASE_TYPES = ['Warning', 'Query', 'Suspension', 'Counseling', 'Termination']
   const OUTCOMES   = ['resolved', 'dismissed', 'escalated', 'terminated']
 
+  const filtered = useMemo(() => cases.filter(r => {
+    if (fType.size && !fType.has(r.case_type)) return false
+    if (fStatus.size && !fStatus.has(r.status)) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (![r.employee_name, r.case_type, r.outcome, r.status, r.issued_by_name].some(f => f?.toLowerCase().includes(q))) return false
+    }
+    return true
+  }), [cases, fType, fStatus, search])
+
   return (
     <Page
       title="Disciplinary"
@@ -209,28 +218,35 @@ export default function Disciplinary() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <FilterBar onReset={() => { setTypeFilter(''); setStatusFilter('') }}>
-        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Types</option>
-          {CASE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Statuses</option>
-          <option value="open">Open</option>
-          <option value="closed">Closed</option>
-        </select>
-      </FilterBar>
-
       <SectionCard title="Cases" badge={cases.length} padding={false} actions={<button onClick={() => exportDisciplinaryCsv(cases)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+        <ExpandableFilterBar
+          search={search} onSearch={setSearch}
+          groups={[
+            {
+              key: 'type', label: 'Case Type',
+              options: CASE_TYPES.map(t => ({ value: t, color: TYPE_COLORS[t]?.color, count: cases.filter(r => r.case_type === t).length })),
+              selected: fType, onChange: (next: Set<string>) => setFType(next),
+            },
+            {
+              key: 'status', label: 'Status',
+              options: [
+                { value: 'open',   label: 'Open',   color: '#C00000', count: cases.filter(r => r.status === 'open').length },
+                { value: 'closed', label: 'Closed', color: GREEN,     count: cases.filter(r => r.status === 'closed').length },
+              ],
+              selected: fStatus, onChange: (next: Set<string>) => setFStatus(next),
+            },
+          ]}
+          onReset={() => { setSearch(''); setFType(new Set()); setFStatus(new Set()) }}
+          resultCount={filtered.length} totalCount={cases.length}
+          placeholder="Search cases…"
+        />
         <DataTable<DisciplinaryCase>
           cols={cols}
-          rows={cases}
+          rows={filtered}
           keyFn={r => r.id}
           onRowClick={openDetail}
           emptyText="No disciplinary cases found."
           skeletonRows={loading ? 5 : 0}
-          searchKeys={['employee_name', 'case_type', 'outcome', 'status', 'issued_by_name']}
-          searchPlaceholder="Search cases…"
           pageSize={20}
 
           selectable

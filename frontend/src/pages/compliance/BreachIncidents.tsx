@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, Modal, ConfirmModal, StatusBadge, btnPrimary, Spinner, NameCell, ActionRow } from '../../components/UI'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { Page, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, Modal, ConfirmModal, StatusBadge, btnPrimary, Spinner, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPatch } from '../../lib/api'
 import { fmtDate, today } from '../../lib/fmt'
@@ -57,6 +57,10 @@ export default function BreachIncidents() {
     title: '', description: '', breach_type: 'unauthorized_access',
     severity: 'medium', affected_records: '', data_categories: '',
   })
+
+  const [search, setSearch]   = useState('')
+  const [fSev, setFSev]       = useState(new Set<string>())
+  const [fStatus, setFStatus] = useState(new Set<string>())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -151,6 +155,16 @@ export default function BreachIncidents() {
     },
   ]
 
+  const filtered = useMemo(() => items.filter(r => {
+    if (fSev.size && !fSev.has(r.severity)) return false
+    if (fStatus.size && !fStatus.has(r.status)) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (![r.title, r.ref_no, r.breach_type, r.status].some(f => f?.toLowerCase().includes(q))) return false
+    }
+    return true
+  }), [items, fSev, fStatus, search])
+
   const open = items.filter(i => !['closed', 'remediated'].includes(i.status)).length
   const overdue = items.filter(i => !i.ndpc_notified && new Date(i.notify_deadline_at) < new Date()).length
 
@@ -181,14 +195,31 @@ export default function BreachIncidents() {
       </div>
 
       <SectionCard title="Incidents" badge={items.length} padding={false}>
+        <ExpandableFilterBar
+          search={search} onSearch={setSearch}
+          groups={[
+            {
+              key: 'severity', label: 'Severity',
+              options: ['low', 'medium', 'high', 'critical'].map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1), color: SEV_COLOR[s], count: items.filter(r => r.severity === s).length })),
+              selected: fSev, onChange: (next: Set<string>) => setFSev(next),
+            },
+            {
+              key: 'status', label: 'Status',
+              options: [...new Set(items.map(r => r.status))].map(s => ({ value: s, count: items.filter(r => r.status === s).length })),
+              selected: fStatus, onChange: (next: Set<string>) => setFStatus(next),
+            },
+          ]}
+          onReset={() => { setSearch(''); setFSev(new Set()); setFStatus(new Set()) }}
+          resultCount={filtered.length} totalCount={items.length}
+          placeholder="Search incidents…"
+        />
         <DataTable<BreachIncident>
           cols={cols}
-          rows={items}
+          rows={filtered}
           keyFn={r => r.id}
           emptyText={loading ? '' : 'No breach incidents recorded.'}
           skeletonRows={loading ? 5 : 0}
           onRowClick={setDetail}
-          searchKeys={['title', 'ref_no', 'breach_type', 'status']}
         />
       </SectionCard>
 

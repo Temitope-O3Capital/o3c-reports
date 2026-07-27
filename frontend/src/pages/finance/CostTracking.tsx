@@ -1,9 +1,9 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, filterInputStyle, SearchInput, ErrBanner, Spinner, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import { Page, SectionCard, DataTable, filterInputStyle, ExpandableFilterBar, ErrBanner, Spinner, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, today, monthStart } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -174,11 +174,10 @@ export default function FinanceCostTracking() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [deptFilter, setDeptFilter] = useState('')
-  const [catFilter, setCatFilter] = useState('')
+  const [fDepts, setFDepts] = useState<Set<string>>(new Set())
+  const [fCats,  setFCats]  = useState<Set<string>>(new Set())
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
-  const [filterOpen, setFilterOpen] = useState(false)
   const [showNew, setShowNew] = useState(false)
   const [sel, setSel] = useState<Set<string | number>>(new Set())
 
@@ -186,8 +185,8 @@ export default function FinanceCostTracking() {
     setLoading(true); setError(null)
     try {
       const params = new URLSearchParams()
-      if (deptFilter) params.set('department', deptFilter)
-      if (catFilter) params.set('category', catFilter)
+      if (fDepts.size) params.set('department', [...fDepts].join(','))
+      if (fCats.size)  params.set('category',   [...fCats].join(','))
       params.set('limit', '500')
       params.set('date_from', dateFrom)
       params.set('date_to', dateTo)
@@ -198,11 +197,9 @@ export default function FinanceCostTracking() {
     } finally {
       setLoading(false)
     }
-  }, [deptFilter, catFilter, dateFrom, dateTo])
+  }, [fDepts, fCats, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-
-  const activeFilterCount = (deptFilter ? 1 : 0) + (catFilter ? 1 : 0)
 
   const filtered = useMemo(() => rows.filter(r => {
     if (search) {
@@ -216,7 +213,7 @@ export default function FinanceCostTracking() {
   const totalBudget = filtered.reduce((s, r) => s + r.budget_amount_kobo, 0)
   const variance    = totalBudget - totalActual
 
-  function resetFilters() { setSearch(''); setDeptFilter(''); setCatFilter('') }
+  function resetFilters() { setSearch(''); setFDepts(new Set()); setFCats(new Set()) }
 
   return (
     <Page
@@ -265,126 +262,29 @@ export default function FinanceCostTracking() {
             </button>
           }>
 
-            {/* Filter bar */}
-            <div style={{
-              padding: '12px 18px',
-              borderBottom: filterOpen ? 'none' : '1px solid var(--bdr)',
-              display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap',
-            }}>
-              <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
-
-              <button
-                onClick={() => setFilterOpen(o => !o)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '6px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
-                  border: `1.5px solid ${activeFilterCount > 0 ? RED : 'var(--input-bdr)'}`,
-                  background: 'transparent',
-                  color: activeFilterCount > 0 ? RED : 'var(--txt2)',
-                  cursor: 'pointer', fontFamily: SORA, position: 'relative',
-                }}
-              >
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>tune</span>
-                Filters
-                {activeFilterCount > 0 && (
-                  <span style={{
-                    position: 'absolute', top: -6, right: -6,
-                    width: 16, height: 16, borderRadius: '50%',
-                    background: RED, color: '#fff',
-                    fontSize: 9, fontWeight: FW.bold, fontFamily: INTER,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>{activeFilterCount}</span>
-                )}
-              </button>
-
-              <div style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
-                {filtered.length} of {rows.length}
-              </div>
-            </div>
-
-            {/* Expandable filter panel */}
-            {filterOpen && (
-              <div style={{ borderBottom: '1px solid var(--bdr)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '20px 20px 0' }}>
-
-                  {/* Department */}
-                  <div style={{ paddingRight: SP[5], borderRight: '1px solid var(--bdr)' }}>
-                    <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>DEPARTMENT</div>
-                    {DEPARTMENTS.map(d => {
-                      const count = rows.filter(r => r.department === d).length
-                      return (
-                        <label key={d} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
-                          <input type="checkbox" checked={deptFilter === d} onChange={() => setDeptFilter(deptFilter === d ? '' : d)}
-                            style={{ accentColor: NAVY, width: 14, height: 14, cursor: 'pointer' }} />
-                          <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA }}>{d}</span>
-                          <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
-                        </label>
-                      )
-                    })}
-                  </div>
-
-                  {/* Category */}
-                  <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
-                    <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>CATEGORY</div>
-                    {CATEGORIES.map(c => {
-                      const count = rows.filter(r => r.category === c).length
-                      return (
-                        <label key={c} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
-                          <input type="checkbox" checked={catFilter === c} onChange={() => setCatFilter(catFilter === c ? '' : c)}
-                            style={{ accentColor: AMBER, width: 14, height: 14, cursor: 'pointer' }} />
-                          <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA }}>{c}</span>
-                          <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
-                        </label>
-                      )
-                    })}
-                  </div>
-
-                  <div style={{ paddingLeft: SP[5] }} />
-
-                </div>
-
-                <div style={{
-                  padding: '14px 20px', borderTop: '1px solid var(--bdr)', marginTop: 16,
-                  display: 'flex', alignItems: 'center', gap: SP[3],
-                }}>
-                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: SORA }}>
-                    {activeFilterCount === 0
-                      ? `No filters — showing all ${rows.length} entries`
-                      : `${activeFilterCount} filter${activeFilterCount !== 1 ? 's' : ''} active`}
-                  </span>
-                  <button onClick={resetFilters} style={{
-                    padding: '5px 12px', borderRadius: 7, fontSize: TEXT.sm, fontWeight: FW.semibold,
-                    border: '1.5px solid var(--input-bdr)', background: 'transparent',
-                    color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA,
-                  }}>Reset</button>
-                  <button onClick={() => setFilterOpen(false)} style={{
-                    marginLeft: 'auto', padding: '5px 16px', borderRadius: 7,
-                    fontSize: TEXT.sm, fontWeight: FW.semibold, border: 'none', background: RED, color: '#fff',
-                    cursor: 'pointer', fontFamily: SORA,
-                  }}>Apply · {filtered.length} results</button>
-                </div>
-              </div>
-            )}
-
-            {/* Active chips */}
-            {!filterOpen && activeFilterCount > 0 && (
-              <div style={{
-                padding: '8px 18px', borderBottom: '1px solid var(--bdr)',
-                display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
-              }}>
-                {deptFilter && (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: SP[1], padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: `${NAVY}12`, color: NAVY }}>
-                    {deptFilter}<span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setDeptFilter('')}>close</span>
-                  </span>
-                )}
-                {catFilter && (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: SP[1], padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: `${AMBER}18`, color: AMBER }}>
-                    {catFilter}<span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setCatFilter('')}>close</span>
-                  </span>
-                )}
-                <button onClick={resetFilters} style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', padding: 0, fontFamily: SORA }}>Clear all</button>
-              </div>
-            )}
+            <ExpandableFilterBar
+              search={search}
+              onSearch={setSearch}
+              groups={[
+                {
+                  key: 'dept', label: 'Department',
+                  options: DEPARTMENTS.map(d => ({ value: d, label: d })),
+                  selected: fDepts,
+                  onChange: setFDepts,
+                },
+                {
+                  key: 'cat', label: 'Category',
+                  options: CATEGORIES.map(c => ({ value: c, label: c })),
+                  selected: fCats,
+                  onChange: setFCats,
+                },
+              ]}
+              onReset={resetFilters}
+              onApply={() => load()}
+              resultCount={filtered.length}
+              totalCount={rows.length}
+              placeholder="Search description, department…"
+            />
 
             <DataTable
               cols={COLS}

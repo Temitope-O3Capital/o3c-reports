@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, SectionCard, DataTable, ExpandableFilterBar,
   Modal, ErrBanner, Spinner, btnPrimary, KpiCard, DateFilter,
   NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
@@ -71,9 +71,9 @@ export default function CRMTasks() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo]     = useState(today())
 
-  const [statusFilter,   setStatusFilter]   = useState('')
-  const [priorityFilter, setPriorityFilter] = useState('')
-  const [overdueFilter,  setOverdueFilter]  = useState(false)
+  const [search,       setSearch]       = useState('')
+  const [fStatuses,    setFStatuses]    = useState<Set<string>>(new Set())
+  const [fPriorities,  setFPriorities]  = useState<Set<string>>(new Set())
 
   const [kpis, setKpis]         = useState<TaskKPIs | null>(null)
   const [kpiLoading, setKpiLoading] = useState(true)
@@ -92,21 +92,32 @@ export default function CRMTasks() {
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const p = new URLSearchParams()
-      if (statusFilter)   p.set('status',   statusFilter)
-      if (priorityFilter) p.set('priority', priorityFilter)
-      if (overdueFilter)  p.set('overdue',  'true')
       const [ts, us] = await Promise.all([
-        apiFetch<Task[]>(`/api/crm/tasks?${p}`),
+        apiFetch<Task[]>('/api/crm/tasks'),
         apiFetch<CRMUser[]>('/api/crm/users'),
       ])
       setTasks(Array.isArray(ts) ? ts : [])
       setUsers(Array.isArray(us) ? us : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [statusFilter, priorityFilter, overdueFilter])
+  }, [])
 
   useEffect(() => { load() }, [load])
+
+  const filteredTasks = useMemo(() => tasks.filter(t => {
+    if (fStatuses.size) {
+      const effectiveStatus = t.is_overdue && t.status !== 'done' ? 'overdue' : t.status
+      if (!fStatuses.has(effectiveStatus)) return false
+    }
+    if (fPriorities.size && !fPriorities.has(t.priority)) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (!(t.title?.toLowerCase().includes(q) || t.assigned_name?.toLowerCase().includes(q))) return false
+    }
+    return true
+  }), [tasks, fStatuses, fPriorities, search])
+
+  function resetFilters() { setSearch(''); setFStatuses(new Set()); setFPriorities(new Set()) }
 
   useEffect(() => {
     setKpiLoading(true)
@@ -250,13 +261,6 @@ export default function CRMTasks() {
       {/* Page-level filters */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-          style={{ height: 32, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, padding: '0 10px', cursor: 'pointer' }}>
-          <option value="">All Statuses</option>
-          <option value="open">Open</option>
-          <option value="done">Done</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
       </div>
 
       {/* KPI cards */}
@@ -267,24 +271,44 @@ export default function CRMTasks() {
         <KpiCard label="Completed This Month" value={kpis ? fmtNum(kpis.completed_this_month) : '—'} icon="check_circle" accent={GREEN} loading={kpiLoading} />
       </div>
 
-      <FilterBar onReset={() => { setStatusFilter(''); setPriorityFilter(''); setOverdueFilter(false) }}>
-        <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Priorities</option>
-          <option value="urgent">Urgent</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-        </select>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: TEXT.base, color: 'var(--txt2)', cursor: 'pointer' }}>
-          <input type="checkbox" checked={overdueFilter} onChange={e => setOverdueFilter(e.target.checked)} />
-          Overdue only
-        </label>
-      </FilterBar>
-
-      <SectionCard title="Tasks" badge={tasks.length} padding={false} actions={<button onClick={() => exportTasksCsv(tasks)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Tasks" badge={tasks.length} padding={false} actions={<button onClick={() => exportTasksCsv(filteredTasks)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          placeholder="Search tasks…"
+          groups={[
+            {
+              key: 'status',
+              label: 'Status',
+              options: [
+                { value: 'open',      label: 'Open',      color: BLUE },
+                { value: 'done',      label: 'Done',      color: GREEN },
+                { value: 'overdue',   label: 'Overdue',   color: RED },
+                { value: 'cancelled', label: 'Cancelled', color: '#6B7280' },
+              ],
+              selected: fStatuses,
+              onChange: setFStatuses,
+            },
+            {
+              key: 'priority',
+              label: 'Priority',
+              options: [
+                { value: 'urgent', label: 'Urgent', color: RED },
+                { value: 'high',   label: 'High',   color: AMBER },
+                { value: 'medium', label: 'Medium', color: BLUE },
+                { value: 'low',    label: 'Low',    color: '#6B7280' },
+              ],
+              selected: fPriorities,
+              onChange: setFPriorities,
+            },
+          ]}
+          onReset={resetFilters}
+          resultCount={filteredTasks.length}
+          totalCount={tasks.length}
+        />
         <DataTable<Task>
           cols={cols}
-          rows={tasks}
+          rows={filteredTasks}
           keyFn={r => r.id}
           selectable
           selectedIds={selected}
@@ -292,8 +316,6 @@ export default function CRMTasks() {
           bulkBar={bulkBar}
           emptyText="No tasks found."
           skeletonRows={loading ? 6 : 0}
-          searchKeys={['title', 'status', 'priority', 'assigned_name']}
-          searchPlaceholder="Search tasks…"
           pageSize={20}
         />
       </SectionCard>

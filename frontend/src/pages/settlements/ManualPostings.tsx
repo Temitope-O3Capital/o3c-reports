@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, ErrBanner, FilterBar, filterInputStyle, StatusBadge, Modal, ConfirmModal, btnPrimary, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, ExpandableFilterBar, StatusBadge, Modal, ConfirmModal, btnPrimary, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { DataTable } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
@@ -355,7 +355,7 @@ export default function ManualPostings() {
   const [rows, setRows]           = useState<ManualPosting[]>([])
   const [loading, setLoading]     = useState(true)
   const [error, setError]         = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState('')
+  const [fStages, setFStages]             = useState<Set<string>>(new Set())
   const [initiatorSearch, setInitiatorSearch] = useState('')
   const [dateFrom, setDateFrom]   = useState(monthStart())
   const [dateTo, setDateTo]       = useState(today())
@@ -380,7 +380,7 @@ export default function ManualPostings() {
     setError(null)
     try {
       const p = new URLSearchParams()
-      if (statusFilter)     p.set('stage', statusFilter)
+      if (fStages.size)     p.set('stage', [...fStages].join(','))
       if (initiatorSearch)  p.set('q', initiatorSearch)
       p.set('date_from', dateFrom)
       p.set('date_to', dateTo)
@@ -392,7 +392,7 @@ export default function ManualPostings() {
     } finally {
       setLoading(false)
     }
-  }, [statusFilter, initiatorSearch, dateFrom, dateTo])
+  }, [fStages, initiatorSearch, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -542,12 +542,15 @@ export default function ManualPostings() {
       title="Manual Postings"
       subtitle="Three-stage approval workflow for ledger corrections — raise, approve, post"
       actions={
-        isSettlementOfficer ? (
-          <button onClick={() => setNewOpen(true)} style={btnPrimary}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
-            New Posting
-          </button>
-        ) : undefined
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          {isSettlementOfficer && (
+            <button onClick={() => setNewOpen(true)} style={btnPrimary}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
+              New Posting
+            </button>
+          )}
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />
@@ -563,26 +566,27 @@ export default function ManualPostings() {
       )}
 
       <SectionCard title="Manual Postings" badge={rows.length} padding={false} actions={<button onClick={() => exportCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
-        <div style={{ padding: '12px 16px 0' }}>
-          <FilterBar onReset={() => { setStatusFilter(''); setInitiatorSearch(''); setDateFrom(monthStart()); setDateTo(today()) }}>
-            <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
-              {STAGE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            <input type="text" value={initiatorSearch} onChange={e => setInitiatorSearch(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && load()}
-              placeholder="Search initiator…" style={{ ...filterInputStyle, minWidth: 160 }} />
-            <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
-          </FilterBar>
-        </div>
+        <ExpandableFilterBar
+          search={initiatorSearch}
+          onSearch={setInitiatorSearch}
+          groups={[{
+            key: 'stage', label: 'Stage',
+            options: STAGE_OPTIONS.filter(o => o.value).map(o => ({ value: o.value, label: o.label })),
+            selected: fStages,
+            onChange: setFStages,
+          }]}
+          onReset={() => { setFStages(new Set()); setInitiatorSearch('') }}
+          onApply={load}
+          resultCount={rows.length}
+          totalCount={rows.length}
+          placeholder="Search initiator, ref…"
+        />
         <DataTable
           cols={cols}
           rows={rows}
           keyFn={r => r.id}
           loading={loading}
           emptyText="No manual postings found"
-          searchKeys={['ref', 'account', 'description', 'initiated_by', 'workflow_template_name', 'stage']}
-          searchPlaceholder="Search ref, account, workflow…"
           pageSize={20}
           selectable
           selectedIds={sel}

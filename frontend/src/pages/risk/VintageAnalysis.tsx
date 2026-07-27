@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
-import { Page, SectionCard, FilterBar, filterInputStyle, ErrBanner, Sk, DateFilter } from '../../components/UI'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { Page, SectionCard, ExpandableFilterBar, ErrBanner, Sk, DateFilter } from '../../components/UI'
+import type { FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtPct, fmtNum, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, INTER, NUM } from '../../lib/design'
@@ -103,19 +104,20 @@ export default function VintageAnalysis() {
   const [kpis,     setKpis]    = useState<VintageKPIs | null>(null)
   const [loading,  setLoading] = useState(true)
   const [error,    setError]   = useState<string | null>(null)
-  const [product,  setProduct] = useState('')
-  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [fProducts, setFProducts] = useState(new Set<string>())
+  const [search,    setSearch]    = useState('')
+  const [dateFrom,  setDateFrom]  = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
   const abortRef = useRef<AbortController | null>(null)
 
   const buildQS = useCallback(() => {
     const p = new URLSearchParams()
-    if (product)  p.set('product', product)
-    if (dateFrom) p.set('from', dateFrom)
-    if (dateTo)   p.set('to', dateTo)
+    if (fProducts.size) p.set('product', [...fProducts].join(','))
+    if (dateFrom)       p.set('from', dateFrom)
+    if (dateTo)         p.set('to', dateTo)
     return p.toString()
-  }, [product, dateFrom, dateTo])
+  }, [fProducts, dateFrom, dateTo])
 
   const load = useCallback(async () => {
     abortRef.current?.abort()
@@ -142,6 +144,11 @@ export default function VintageAnalysis() {
   useEffect(() => { load() }, [load])
 
   const kpiLoading = loading && !kpis
+
+  const filteredRows = useMemo(() =>
+    search ? rows.filter(r => r.booking_month.toLowerCase().includes(search.toLowerCase())) : rows,
+    [rows, search],
+  )
 
   const avg6m  = kpis?.avg_par30_6m  !== null && kpis?.avg_par30_6m  !== undefined ? fmtPct(kpis.avg_par30_6m,  1) : 'N/A'
   const avg12m = kpis?.avg_par30_12m !== null && kpis?.avg_par30_12m !== undefined ? fmtPct(kpis.avg_par30_12m, 1) : 'N/A'
@@ -211,22 +218,28 @@ export default function VintageAnalysis() {
         />
       </div>
 
-      <SectionCard title="Vintage Cohort Matrix" badge={rows.length} padding={false}>
-        {/* FilterBar lives inside the card, above the table */}
-        <div style={{ padding: '12px 18px 0' }}>
-          <FilterBar onReset={() => setProduct('')}>
-            <select value={product} onChange={e => setProduct(e.target.value)} style={filterInputStyle}>
-              <option value="">All products</option>
-              <option value="Salary Loan">Salary Loan</option>
-              <option value="Business Loan">Business Loan</option>
-              <option value="Personal Loan">Personal Loan</option>
-            </select>
-            <button
-              onClick={load}
-              style={{ height: 32, padding: '0 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
-            >Apply</button>
-          </FilterBar>
-        </div>
+      <SectionCard title="Vintage Cohort Matrix" badge={filteredRows.length} padding={false}>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[
+            {
+              key: 'product',
+              label: 'Product',
+              options: [
+                { value: 'Salary Loan' },
+                { value: 'Business Loan' },
+                { value: 'Personal Loan' },
+              ],
+              selected: fProducts,
+              onChange: setFProducts,
+            } as FilterGroupDef,
+          ]}
+          onReset={() => { setFProducts(new Set()); setSearch('') }}
+          onApply={load}
+          resultCount={filteredRows.length}
+          totalCount={rows.length}
+        />
 
         {/* Custom table — cells need per-value backgrounds */}
         <div style={{ overflowX: 'auto' }}>
@@ -256,14 +269,14 @@ export default function VintageAnalysis() {
             <tbody>
               {loading ? (
                 <SkeletonRows count={8} />
-              ) : rows.length === 0 ? (
+              ) : filteredRows.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13, borderBottom: '1px solid var(--bdr)' }}>
                     No vintage data found
                   </td>
                 </tr>
               ) : (
-                rows.map((row, idx) => (
+                filteredRows.map((row, idx) => (
                   <tr
                     key={row.booking_month}
                     style={{ background: idx % 2 === 0 ? 'transparent' : 'transparent' }}

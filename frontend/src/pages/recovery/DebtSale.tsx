@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, DataTable, Modal, ConfirmModal, ErrBanner, Spinner, filterInputStyle, DateFilter,
-  NameCell, ActionRow,
+  ExpandableFilterBar, NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiDelete } from '../../lib/api'
@@ -212,6 +212,7 @@ export default function DebtSales() {
   const [createOpen,  setCreateOpen]  = useState(false)
   const [deleteId,    setDeleteId]    = useState<number | null>(null)
   const [deleting,    setDeleting]    = useState(false)
+  const [search,      setSearch]      = useState('')
   const [dateFrom,    setDateFrom]    = useState(monthStart())
   const [dateTo,      setDateTo]      = useState(today())
 
@@ -227,6 +228,14 @@ export default function DebtSales() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+
+  const displayed = useMemo(() => {
+    if (!search.trim()) return sales
+    const q = search.toLowerCase()
+    return sales.filter(r =>
+      [r.buyer_name, r.notes].some(v => v != null && String(v).toLowerCase().includes(q))
+    )
+  }, [sales, search])
 
   async function confirmDelete() {
     if (deleteId == null) return
@@ -292,22 +301,29 @@ export default function DebtSales() {
       {err && <ErrBanner error={err} onRetry={load} />}
 
       {/* Table */}
-      {loading ? (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 10, color: 'var(--txt2)', fontSize: TEXT.md }}>
-          <Spinner size={18} color={NAVY} /> Loading…
-        </div>
-      ) : (
-        <SectionCard>
+      <SectionCard padding={false}>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[]}
+          onReset={() => setSearch('')}
+          resultCount={displayed.length}
+          totalCount={sales.length}
+          placeholder="Search by buyer name or notes…"
+        />
+        {loading ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 10, color: 'var(--txt2)', fontSize: TEXT.md }}>
+            <Spinner size={18} color={NAVY} /> Loading…
+          </div>
+        ) : (
           <DataTable<DebtSale>
             cols={cols}
-            rows={sales}
+            rows={displayed}
             keyFn={r => r.id}
             emptyText="No debt sales recorded yet."
-            searchKeys={['buyer_name', 'notes']}
-            searchPlaceholder="Search by buyer name or notes…"
           />
-        </SectionCard>
-      )}
+        )}
+      </SectionCard>
 
       <CreateModal
         open={createOpen}

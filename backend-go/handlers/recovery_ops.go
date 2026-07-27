@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -29,6 +30,9 @@ func RegisterRecoveryOps(r chi.Router, db *core.DB) {
 	r.With(base).Post("/cases/{id}/write-off", recoveryOpsWriteOff(db))
 	r.With(writeOff).Put("/write-off/{wid}/approve", recoveryOpsApproveWriteOff(db))
 	r.With(writeOff).Put("/write-off/{wid}/reject", recoveryOpsRejectWriteOff(db))
+	r.With(base).Get("/payments/pending", recoveryOpsPendingPayments(db))
+	r.With(base).Put("/payments/{pid}/approve", recoveryOpsApprovePayment(db))
+	r.With(base).Put("/payments/{pid}/reject", recoveryOpsRejectPayment(db))
 	r.With(base).Get("/dashboard", recoveryOpsDashboard(db))
 	r.With(base).Get("/agent-dashboard", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, map[string]any{"status": "stub"}, "stub")
@@ -66,9 +70,14 @@ func recoveryOpsCases(db *core.DB) http.HandlerFunc {
 		}
 
 		if status != "" {
-			query += fmt.Sprintf(" AND rc.status = $%d", n)
-			args = append(args, status)
-			n++
+			vals := strings.Split(status, ",")
+			placeholders := make([]string, len(vals))
+			for i, v := range vals {
+				placeholders[i] = fmt.Sprintf("$%d", n)
+				args = append(args, strings.TrimSpace(v))
+				n++
+			}
+			query += " AND rc.status IN (" + strings.Join(placeholders, ",") + ")"
 		}
 		if legalStage != "" {
 			query += fmt.Sprintf(" AND rc.legal_stage = $%d", n)
@@ -256,43 +265,18 @@ func recoveryOpsPayment(db *core.DB) http.HandlerFunc {
 		}
 		defer tx.Rollback() //nolint:errcheck
 
+		// Recovery payments are logged as pending — a collections officer must approve
+		// before the GL is posted and the case recovered_kobo is updated.
 		var payID int64
 		var payDate, payChannel, payRef, createdAt any
 		err = tx.QueryRowContext(ctx, `
-			INSERT INTO recovery_payments (case_id, amount_kobo, payment_date, channel, reference, posted_by, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, NOW())
+			INSERT INTO recovery_payments (case_id, amount_kobo, payment_date, channel, reference, posted_by, status, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW())
 			RETURNING id, amount_kobo, payment_date, channel, reference, created_at`,
 			id, b.AmountKobo, b.PaymentDate, b.Channel, b.Reference, user.ID,
 		).Scan(&payID, &b.AmountKobo, &payDate, &payChannel, &payRef, &createdAt)
 		if err != nil {
 			respondErr(w, 500, "Log payment failed")
-			return
-		}
-
-		_, err = tx.ExecContext(ctx, `
-			UPDATE recovery_cases
-			SET recovered_kobo = COALESCE(recovered_kobo, 0) + $1,
-			    total_recovered_kobo = COALESCE(total_recovered_kobo, 0) + $1,
-			    updated_at = NOW()
-			WHERE id = $2`,
-			b.AmountKobo, id)
-		if err != nil {
-			respondErr(w, 500, "Update recovered total failed")
-			return
-		}
-
-		if err := postJournalTx(ctx, tx, glEntry{
-			Date:          time.Now(),
-			Description:   fmt.Sprintf("Recovery payment received — case %d", id),
-			Reference:     fmt.Sprintf("RCOV-PAY-%d", payID),
-			DebitAccount:  "1001", // Cash/Bank Clearing
-			CreditAccount: "1100", // Loan Receivable
-			AmountKobo:    b.AmountKobo,
-			SourceType:    "recovery_payment",
-			SourceID:      payID,
-			PostedBy:      user.ID,
-		}); err != nil {
-			respondErr(w, 500, "GL journal post failed")
 			return
 		}
 
@@ -302,13 +286,143 @@ func recoveryOpsPayment(db *core.DB) http.HandlerFunc {
 		}
 
 		respond(w, core.Row{
-			"id":          payID,
-			"amount_kobo": b.AmountKobo,
+			"id":           payID,
+			"amount_kobo":  b.AmountKobo,
 			"payment_date": payDate,
-			"channel":     payChannel,
-			"reference":   payRef,
-			"created_at":  createdAt,
+			"channel":      payChannel,
+			"reference":    payRef,
+			"status":       "pending",
+			"created_at":   createdAt,
 		}, "pg")
+	}
+}
+
+func recoveryOpsPendingPayments(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+			    rp.id, rp.case_id, rc.account_cif,
+			    rp.amount_kobo, rp.payment_date, rp.channel, rp.reference,
+			    rp.status, rp.created_at,
+			    u.full_name AS posted_by_name
+			FROM recovery_payments rp
+			JOIN recovery_cases rc ON rc.id = rp.case_id
+			LEFT JOIN o3c_users u ON u.id = rp.posted_by
+			WHERE rp.status = 'pending'
+			ORDER BY rp.created_at ASC
+			LIMIT 200`)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+func recoveryOpsApprovePayment(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pid, err := strconv.ParseInt(chi.URLParam(r, "pid"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Invalid payment ID")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		ctx := r.Context()
+
+		// Fetch the pending payment
+		pmtRows, err := db.PGQuery(ctx,
+			`SELECT id, case_id, amount_kobo, status FROM recovery_payments WHERE id = $1`, pid)
+		if err != nil || len(pmtRows) == 0 {
+			respondErr(w, 404, "Payment not found")
+			return
+		}
+		pmt := pmtRows[0]
+		if pmt["status"] != "pending" {
+			respondErr(w, 422, "Payment already processed")
+			return
+		}
+		caseID, _ := pmt["case_id"].(int64)
+		amtKobo, _ := pmt["amount_kobo"].(int64)
+
+		tx, err := db.PG.BeginTx(ctx, nil)
+		if err != nil {
+			respondErr(w, 500, "Transaction start failed")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		_, err = tx.ExecContext(ctx, `
+			UPDATE recovery_payments
+			SET status = 'approved', approved_by = $1, approved_at = NOW()
+			WHERE id = $2`,
+			user.ID, pid)
+		if err != nil {
+			respondErr(w, 500, "Update failed")
+			return
+		}
+
+		_, err = tx.ExecContext(ctx, `
+			UPDATE recovery_cases
+			SET recovered_kobo = COALESCE(recovered_kobo, 0) + $1,
+			    total_recovered_kobo = COALESCE(total_recovered_kobo, 0) + $1,
+			    updated_at = NOW()
+			WHERE id = $2`,
+			amtKobo, caseID)
+		if err != nil {
+			respondErr(w, 500, "Update case totals failed")
+			return
+		}
+
+		if glErr := postJournalTx(ctx, tx, glEntry{
+			Date:          time.Now(),
+			Description:   fmt.Sprintf("Recovery payment approved — payment %d", pid),
+			Reference:     fmt.Sprintf("RCOV-PAY-%d", pid),
+			DebitAccount:  "1001",
+			CreditAccount: "1100",
+			AmountKobo:    amtKobo,
+			SourceType:    "recovery_payment",
+			SourceID:      pid,
+			PostedBy:      user.ID,
+		}); glErr != nil {
+			respondErr(w, 500, "GL post failed")
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed")
+			return
+		}
+		respond(w, map[string]any{"id": pid, "status": "approved"}, "json")
+	}
+}
+
+func recoveryOpsRejectPayment(db *core.DB) http.HandlerFunc {
+	type body struct {
+		RejectionReason string `json:"rejection_reason"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		pid, err := strconv.ParseInt(chi.URLParam(r, "pid"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Invalid payment ID")
+			return
+		}
+		var b body
+		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
+		user := core.UserFromCtx(r.Context())
+		rows, err := db.PGQuery(r.Context(), `
+			UPDATE recovery_payments
+			SET status = 'rejected', approved_by = $1, approved_at = NOW(), rejection_reason = $2
+			WHERE id = $3 AND status = 'pending'
+			RETURNING id, status`,
+			user.ID, b.RejectionReason, pid)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Payment not found or already processed")
+			return
+		}
+		respond(w, rows[0], "pg")
 	}
 }
 

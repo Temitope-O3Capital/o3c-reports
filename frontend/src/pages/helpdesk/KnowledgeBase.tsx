@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { Page, FilterBar, filterInputStyle, ErrBanner, Modal, ConfirmModal, Spinner } from '../../components/UI'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { Page, ExpandableFilterBar, ErrBanner, Modal, ConfirmModal, Spinner } from '../../components/UI'
+import type { FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDate } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
@@ -179,9 +180,9 @@ export default function KnowledgeBase() {
   const [error, setError] = useState<string | null>(null)
 
   // Filters
-  const [categoryFilter, setCategoryFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
-  const [searchQ, setSearchQ] = useState('')
+  const [fCategories, setFCategories] = useState(new Set<string>())
+  const [fStatuses, setFStatuses] = useState(new Set<string>())
+  const [search, setSearch] = useState('')
 
   // Expanded article id
   const [expandedId, setExpandedId] = useState<number | null>(null)
@@ -196,40 +197,31 @@ export default function KnowledgeBase() {
   const [saving, setSaving] = useState(false)
   const [archiving, setArchiving] = useState(false)
 
-  // Debounce ref for search
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [debouncedQ, setDebouncedQ] = useState('')
-
-  useEffect(() => {
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
-    searchTimerRef.current = setTimeout(() => setDebouncedQ(searchQ), 300)
-    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }
-  }, [searchQ])
-
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const p = new URLSearchParams()
-      if (categoryFilter) p.set('category', categoryFilter)
-      // status filter is applied client-side — backend does not support it
-      const data = await apiFetch<KBArticle[]>(`/api/helpdesk/kb?${p.toString()}`)
+      const data = await apiFetch<KBArticle[]>('/api/helpdesk/kb')
       setArticles(Array.isArray(data) ? data : [])
     } catch (e: any) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [categoryFilter])
+  }, [])
 
   useEffect(() => { load() }, [load])
 
-  // Client-side filtering (search + status)
-  const filtered = articles.filter(a => {
-    if (debouncedQ && !a.title.toLowerCase().includes(debouncedQ.toLowerCase()) && !a.body.toLowerCase().includes(debouncedQ.toLowerCase())) return false
-    if (statusFilter && a.status.toLowerCase() !== statusFilter.toLowerCase()) return false
+  // Client-side filtering
+  const filtered = useMemo(() => articles.filter(a => {
+    if (fCategories.size && !fCategories.has(a.category)) return false
+    if (fStatuses.size && !fStatuses.has(a.status)) return false
+    if (search) {
+      const q = search.toLowerCase()
+      return a.title.toLowerCase().includes(q) || a.body.toLowerCase().includes(q)
+    }
     return true
-  })
+  }), [articles, fCategories, fStatuses, search])
 
   // New article
   function openNew() {
@@ -375,28 +367,30 @@ export default function KnowledgeBase() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      {/* Filters */}
-      <FilterBar onReset={() => { setCategoryFilter(''); setStatusFilter('') }}>
-        <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Categories</option>
-          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Statuses</option>
-          {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-      </FilterBar>
-
-      {/* Search bar */}
-      <div style={{ position: 'relative', marginBottom: 14 }}>
-        <span className="material-symbols-rounded" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: TEXT.lg, color: 'var(--txt3)', pointerEvents: 'none' }}>search</span>
-        <input
-          placeholder="Search articles…"
-          value={searchQ}
-          onChange={e => setSearchQ(e.target.value)}
-          style={{ ...filterInputStyle, width: '100%', paddingLeft: 34, height: 36, boxSizing: 'border-box' }}
-        />
-      </div>
+      <ExpandableFilterBar
+        search={search}
+        onSearch={setSearch}
+        groups={[
+          {
+            key: 'category',
+            label: 'Category',
+            options: CATEGORIES.map(c => ({ value: c })),
+            selected: fCategories,
+            onChange: setFCategories,
+          },
+          {
+            key: 'status',
+            label: 'Status',
+            options: STATUSES.map(s => ({ value: s, label: s, color: STATUS_STYLE[s.toLowerCase()]?.txt })),
+            selected: fStatuses,
+            onChange: setFStatuses,
+          },
+        ] as FilterGroupDef[]}
+        onReset={() => { setSearch(''); setFCategories(new Set()); setFStatuses(new Set()) }}
+        resultCount={filtered.length}
+        totalCount={articles.length}
+        placeholder="Search articles…"
+      />
 
       {/* Article list */}
       {loading ? (

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter, SearchInput, NameCell, ActionRow } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiExport } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtPct, fmtNum, today, monthStart } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, GREEN, AMBER, RED, INTER, NUM } from '../../lib/design'
@@ -81,10 +81,10 @@ export default function RiskAppReview() {
   const [offset,   setOffset]   = useState(0)
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState<string | null>(null)
-  const [stage,    setStage]    = useState('')
-  const [product,  setProduct]  = useState('')
-  const [band,     setBand]     = useState('')
-  const [search,   setSearch]   = useState('')
+  const [fStages,   setFStages]   = useState(new Set<string>())
+  const [fProducts, setFProducts] = useState(new Set<string>())
+  const [fBands,    setFBands]    = useState(new Set<string>())
+  const [search,    setSearch]    = useState('')
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
   const [selected, setSelected] = useState<Set<string | number>>(new Set())
@@ -95,14 +95,14 @@ export default function RiskAppReview() {
     const p = new URLSearchParams()
     p.set('limit', String(PAGE_SIZE))
     p.set('offset', String(off))
-    if (stage)    p.set('stage', stage)
-    if (product)  p.set('product', product)
-    if (band)     p.set('band', band)
-    if (search)   p.set('search', search)
-    if (dateFrom) p.set('date_from', dateFrom)
-    if (dateTo)   p.set('date_to', dateTo)
+    if (fStages.size)   p.set('stage',   [...fStages].join(','))
+    if (fProducts.size) p.set('product', [...fProducts].join(','))
+    if (fBands.size)    p.set('band',    [...fBands].join(','))
+    if (search)         p.set('search', search)
+    if (dateFrom)       p.set('date_from', dateFrom)
+    if (dateTo)         p.set('date_to', dateTo)
     return p.toString()
-  }, [stage, product, band, search, dateFrom, dateTo])
+  }, [fStages, fProducts, fBands, search, dateFrom, dateTo])
 
   const load = useCallback(async (off = 0) => {
     abortRef.current?.abort()
@@ -131,7 +131,7 @@ export default function RiskAppReview() {
   useEffect(() => { load(0) }, [load])
 
   function resetFilters() {
-    setStage(''); setProduct(''); setBand(''); setSearch('')
+    setFStages(new Set()); setFProducts(new Set()); setFBands(new Set()); setSearch('')
     setDateFrom(monthStart()); setDateTo(today())
   }
 
@@ -230,36 +230,52 @@ export default function RiskAppReview() {
       </div>
 
       <SectionCard title="Applications" badge={total} padding={false}>
-        <div style={{ padding: '12px 18px 0' }}>
-          <FilterBar onReset={resetFilters}>
-            <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
-            <select value={stage} onChange={e => setStage(e.target.value)} style={filterInputStyle}>
-              <option value="">All stages</option>
-              <option value="risk_review">Risk Review</option>
-              <option value="risk_head_review">Risk Head Review</option>
-              <option value="pending_committee">Pending Committee</option>
-            </select>
-            <select value={product} onChange={e => setProduct(e.target.value)} style={filterInputStyle}>
-              <option value="">All products</option>
-              <option value="Payday Loan">Payday Loan</option>
-              <option value="Salary Advance">Salary Advance</option>
-              <option value="Business Loan">Business Loan</option>
-              <option value="Education Loan">Education Loan</option>
-              <option value="Auto Loan">Auto Loan</option>
-            </select>
-            <select value={band} onChange={e => setBand(e.target.value)} style={filterInputStyle}>
-              <option value="">All bands</option>
-              <option value="Prime">Prime</option>
-              <option value="Near-Prime">Near-Prime</option>
-              <option value="Sub-Prime">Sub-Prime</option>
-              <option value="High-Risk">High-Risk</option>
-            </select>
-            <button
-              onClick={() => load(0)}
-              style={{ height: 32, padding: '0 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
-            >Apply</button>
-          </FilterBar>
-        </div>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[
+            {
+              key: 'stage',
+              label: 'Stage',
+              options: [
+                { value: 'risk_review',       label: 'Risk Review',       color: AMBER },
+                { value: 'risk_head_review',  label: 'Risk Head Review',  color: '#2563EB' },
+                { value: 'pending_committee', label: 'Pending Committee', color: NAVY },
+              ],
+              selected: fStages,
+              onChange: setFStages,
+            } as FilterGroupDef,
+            {
+              key: 'product',
+              label: 'Product',
+              options: [
+                { value: 'Payday Loan' },
+                { value: 'Salary Advance' },
+                { value: 'Business Loan' },
+                { value: 'Education Loan' },
+                { value: 'Auto Loan' },
+              ],
+              selected: fProducts,
+              onChange: setFProducts,
+            } as FilterGroupDef,
+            {
+              key: 'band',
+              label: 'Band',
+              options: [
+                { value: 'Prime',       color: '#16A34A' },
+                { value: 'Near-Prime',  color: '#2563EB' },
+                { value: 'Sub-Prime',   color: '#D97706' },
+                { value: 'High-Risk',   color: '#C00000' },
+              ],
+              selected: fBands,
+              onChange: setFBands,
+            } as FilterGroupDef,
+          ]}
+          onReset={resetFilters}
+          onApply={() => load(0)}
+          resultCount={total}
+          totalCount={total}
+        />
 
         <DataTable
           cols={cols}

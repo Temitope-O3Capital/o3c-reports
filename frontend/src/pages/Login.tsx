@@ -397,7 +397,7 @@ function BrandPanel() {
 
         {/* Tagline */}
         <p style={{ marginTop: 32, color: 'rgba(255,255,255,0.35)', fontSize: TEXT.md, lineHeight: 1.8, maxWidth: 260, letterSpacing: '-0.05px' }}>
-          The nerve centre of O3 Capital — loans, cards, collections, compliance, and everything in between.
+          The nerve centre of O3 Capital — loans, cards, fixed deposits, prepaid cards, collections, compliance, and everything in between.
         </p>
 
         {/* Stats */}

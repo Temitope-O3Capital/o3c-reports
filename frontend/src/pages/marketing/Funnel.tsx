@@ -124,7 +124,7 @@ export default function Funnel() {
   ] : []
 
   return (
-    <Page title="Acquisition Funnel" subtitle="End-to-end conversion from campaign to active loan">
+    <Page title="Acquisition Funnel" subtitle="End-to-end conversion from campaign to active product">
       <ErrBanner error={error} onRetry={load} />
 
       {loading ? (

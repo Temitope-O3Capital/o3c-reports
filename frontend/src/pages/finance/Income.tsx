@@ -3,7 +3,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, CartesianGrid, Tooltip, Legend, LabelList,
 } from 'recharts'
 import {
-  Page, SectionCard, DataTable, ErrBanner, Sk, Tabs, FilterBar, filterInputStyle, KpiCard, DateFilter,
+  Page, SectionCard, DataTable, ErrBanner, Sk, Tabs, ExpandableFilterBar, filterInputStyle, KpiCard, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -243,7 +243,8 @@ export default function FinanceIncome() {
   const [chart, setChart]           = useState<ChartRow[]>([])
   const [loans, setLoans]           = useState<LoanRow[]>([])
   const [feeData, setFeeData]       = useState<FeeTypeResponse | null>(null)
-  const [feeTypeFilter, setFeeTypeFilter] = useState('')
+  const [loanSearch,    setLoanSearch]    = useState('')
+  const [fFeeTypes,     setFFeeTypes]     = useState<Set<string>>(new Set())
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState<string | null>(null)
   const [dateFrom, setDateFrom]     = useState(monthStart())
@@ -286,11 +287,11 @@ export default function FinanceIncome() {
 
   const loadFees = useCallback(() => {
     const params = new URLSearchParams({ date_from: dateFrom, date_to: dateTo })
-    if (feeTypeFilter) params.set('fee_type', feeTypeFilter)
+    if (fFeeTypes.size) params.set('fee_type', [...fFeeTypes].join(','))
     apiFetch<{ data: FeeTypeResponse }>(`/api/finance/income/fee-types?${params}`)
       .then(d => setFeeData(d.data ?? null))
       .catch(() => {})
-  }, [feeTypeFilter, dateFrom, dateTo])
+  }, [fFeeTypes, dateFrom, dateTo])
 
   useEffect(() => { if (tab === 'loans') loadLoans() }, [tab, loadLoans])
   useEffect(() => { if (tab === 'fees') loadFees() }, [tab, loadFees])
@@ -318,12 +319,22 @@ export default function FinanceIncome() {
       })),
     [ngnRows])
 
+  const filteredLoans = useMemo(() => {
+    if (!loanSearch) return loans
+    const q = loanSearch.toLowerCase()
+    return loans.filter(r =>
+      (r.loan_ref ?? '').toLowerCase().includes(q) ||
+      (r.applicant_name ?? '').toLowerCase().includes(q) ||
+      (r.product ?? '').toLowerCase().includes(q)
+    )
+  }, [loans, loanSearch])
+
   const s = summary
 
   return (
     <Page
       title="Income Statement"
-      subtitle="Cards · Loans · Fees"
+      subtitle="Cards · Loans · FDs · Fees"
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
@@ -602,13 +613,20 @@ export default function FinanceIncome() {
               Export CSV
             </button>
           ) : undefined}>
+            <ExpandableFilterBar
+              search={loanSearch}
+              onSearch={setLoanSearch}
+              groups={[]}
+              onReset={() => setLoanSearch('')}
+              resultCount={filteredLoans.length}
+              totalCount={loans.length}
+              placeholder="Search borrower, ref, product…"
+            />
             <DataTable
               cols={LOAN_COLS}
-              rows={loans}
+              rows={filteredLoans}
               keyFn={r => r.id}
               emptyText="No disbursed loans yet. Interest income will appear here once loans are active."
-              searchKeys={['loan_ref', 'applicant_name', 'product', 'maturity_status']}
-              searchPlaceholder="Search by borrower, ref, product…"
               pageSize={20}
             />
           </SectionCard>
@@ -624,11 +642,11 @@ export default function FinanceIncome() {
               const color = FEE_COLORS[ft]
               return (
                 <div key={ft}
-                  onClick={() => setFeeTypeFilter(feeTypeFilter === ft ? '' : ft)}
+                  onClick={() => setFFeeTypes(s => { const n = new Set(s); n.has(ft) ? n.delete(ft) : n.add(ft); return n })}
                   style={{
-                    background: 'var(--card)', border: `1px solid ${feeTypeFilter === ft ? color : 'var(--bdr)'}`,
+                    background: 'var(--card)', border: `1px solid ${fFeeTypes.has(ft) ? color : 'var(--bdr)'}`,
                     borderRadius: RADIUS.lg, padding: '14px 16px', cursor: 'pointer',
-                    boxShadow: feeTypeFilter === ft ? `0 0 0 2px ${color}33` : 'none',
+                    boxShadow: fFeeTypes.has(ft) ? `0 0 0 2px ${color}33` : 'none',
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP[1] }}>
@@ -650,26 +668,47 @@ export default function FinanceIncome() {
             })}
           </div>
 
-          <FilterBar>
-            <select
-              value={feeTypeFilter}
-              onChange={e => setFeeTypeFilter(e.target.value)}
-              style={{ ...filterInputStyle, minWidth: 180 }}
-            >
-              <option value="">All fee types</option>
-              {FEE_TYPES.map(ft => <option key={ft} value={ft}>{FEE_LABELS[ft]}</option>)}
-            </select>
-          </FilterBar>
-
           {!feeData?.detail?.length ? (
-            <SectionCard>
-              <EmptyState
-                icon="loyalty"
-                message="Fee type income will appear here once a fee-type report is connected. The fee_income table is ready to receive data."
+            <SectionCard padding={false}>
+              <ExpandableFilterBar
+                search=""
+                onSearch={() => {}}
+                groups={[{
+                  key: 'fee_type', label: 'Fee Type',
+                  options: FEE_TYPES.map(ft => ({ value: ft, label: FEE_LABELS[ft], color: FEE_COLORS[ft] })),
+                  selected: fFeeTypes,
+                  onChange: setFFeeTypes,
+                }]}
+                onReset={() => setFFeeTypes(new Set())}
+                onApply={loadFees}
+                resultCount={0}
+                totalCount={0}
+                placeholder=""
               />
+              <div style={{ padding: '0 24px 24px' }}>
+                <EmptyState
+                  icon="loyalty"
+                  message="Fee type income will appear here once a fee-type report is connected. The fee_income table is ready to receive data."
+                />
+              </div>
             </SectionCard>
           ) : (
             <SectionCard padding={false}>
+              <ExpandableFilterBar
+                search=""
+                onSearch={() => {}}
+                groups={[{
+                  key: 'fee_type', label: 'Fee Type',
+                  options: FEE_TYPES.map(ft => ({ value: ft, label: FEE_LABELS[ft], color: FEE_COLORS[ft] })),
+                  selected: fFeeTypes,
+                  onChange: setFFeeTypes,
+                }]}
+                onReset={() => setFFeeTypes(new Set())}
+                onApply={loadFees}
+                resultCount={feeData?.detail?.length ?? 0}
+                totalCount={feeData?.detail?.length ?? 0}
+                placeholder=""
+              />
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
                 <thead>
                   <tr style={{ background: 'var(--th-bg)' }}>

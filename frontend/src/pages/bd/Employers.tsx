@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, Modal, Spinner, SearchInput, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, Modal, Spinner, ExpandableFilterBar, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch, apiPost } from '../../lib/api'
+import { apiFetch, apiPost, apiDelete } from '../../lib/api'
 import { fmtDate, fmtNum, monthStart, today } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
@@ -12,6 +12,16 @@ interface Employer {
   staff_count: number; active_loans: number; contact_name: string
   contact_email: string; contact_phone: string; address: string
   state: string; created_at: string
+}
+
+interface StaffMember {
+  id: number; employer_id: number; full_name: string
+  job_title: string | null; department: string | null
+  phone: string | null; email: string | null; created_at: string
+}
+
+interface SalesAgent {
+  id: number; full_name: string; role: string; email: string
 }
 
 const MOU_COLORS: Record<string, string> = {
@@ -179,29 +189,359 @@ function EmployerDetailModal({ employer, onClose }: { employer: Employer; onClos
   )
 }
 
+// ── Staff Roster modal ────────────────────────────────────────────────────────
+
+const EMPTY_STAFF = { full_name: '', job_title: '', department: '', phone: '', email: '' }
+
+function StaffRosterModal({
+  employer, onClose, onAssign,
+}: {
+  employer: Employer
+  onClose: () => void
+  onAssign: (staff: StaffMember[]) => void
+}) {
+  const [staff, setStaff]   = useState<StaffMember[]>([])
+  const [loading, setLoading] = useState(true)
+  const [form, setForm]     = useState(EMPTY_STAFF)
+  const [adding, setAdding]  = useState(false)
+  const [deleting, setDeleting] = useState<number | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await apiFetch<StaffMember[]>(`/api/bd/employers/${employer.id}/staff`)
+      setStaff(data ?? [])
+    } finally {
+      setLoading(false)
+    }
+  }, [employer.id])
+
+  useEffect(() => { load() }, [load])
+
+  const set = (k: keyof typeof EMPTY_STAFF) =>
+    (e: React.ChangeEvent<HTMLInputElement>) => setForm(f => ({ ...f, [k]: e.target.value }))
+
+  async function addStaff() {
+    if (!form.full_name.trim()) { toast.error('Full name is required'); return }
+    setAdding(true)
+    try {
+      await apiPost(`/api/bd/employers/${employer.id}/staff`, {
+        full_name: form.full_name.trim(),
+        job_title: form.job_title.trim() || null,
+        department: form.department.trim() || null,
+        phone: form.phone.trim() || null,
+        email: form.email.trim() || null,
+      })
+      toast.success('Staff member added')
+      setForm(EMPTY_STAFF)
+      load()
+    } catch (e: any) {
+      toast.error(e.message ?? 'Failed to add staff member')
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  async function removeStaff(id: number) {
+    setDeleting(id)
+    try {
+      await apiDelete(`/api/bd/employers/${employer.id}/staff/${id}`)
+      toast.success('Staff member removed')
+      setStaff(prev => prev.filter(s => s.id !== id))
+    } catch (e: any) {
+      toast.error(e.message ?? 'Failed to remove staff')
+    } finally {
+      setDeleting(null)
+    }
+  }
+
+  const SF = ({ label, k, type = 'text' }: { label: string; k: keyof typeof EMPTY_STAFF; type?: string }) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>{label}</label>
+      <input type={type} value={form[k]} onChange={set(k)} style={{ ...IS, height: 32 }} />
+    </div>
+  )
+
+  return (
+    <Modal
+      open
+      title={`Staff Roster — ${employer.name}`}
+      width={640}
+      onClose={onClose}
+      footer={
+        <>
+          <button onClick={onClose} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Close</button>
+          <button
+            onClick={() => onAssign(staff)}
+            disabled={staff.length === 0}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: staff.length === 0 ? 'not-allowed' : 'pointer', opacity: staff.length === 0 ? 0.5 : 1 }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>person_add</span>
+            Assign to Sales
+          </button>
+        </>
+      }
+    >
+      {/* Add staff form */}
+      <div style={{ padding: '10px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.lg, border: '1px solid var(--bdr)', marginBottom: 14 }}>
+        <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 8 }}>Add Staff Member</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+          <div style={{ gridColumn: '1/-1' }}><SF label="Full Name *" k="full_name" /></div>
+          <SF label="Job Title" k="job_title" />
+          <SF label="Department" k="department" />
+          <SF label="Phone" k="phone" type="tel" />
+          <SF label="Email" k="email" type="email" />
+          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+            <button
+              onClick={addStaff}
+              disabled={adding}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', height: 32, borderRadius: RADIUS.md, border: 'none', background: GREEN, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: adding ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}
+            >
+              {adding ? <Spinner size={12} color="#fff" /> : <span className="material-symbols-rounded" style={{ fontSize: 14 }}>add</span>}
+              Add
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Staff list */}
+      {loading ? (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}><Spinner size={22} /></div>
+      ) : staff.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 24, color: 'var(--txt3)', fontSize: TEXT.sm }}>No staff added yet</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          {staff.map((s, i) => (
+            <div key={s.id} style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '10px 4px',
+              borderBottom: i < staff.length - 1 ? '1px solid var(--bdr)' : 'none',
+            }}>
+              <div style={{ width: 34, height: 34, borderRadius: '50%', background: `${NAVY}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 18, color: NAVY }}>person</span>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{s.full_name}</div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+                  {[s.job_title, s.department].filter(Boolean).join(' · ')}
+                </div>
+              </div>
+              {s.phone && <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{s.phone}</span>}
+              <button
+                onClick={() => removeStaff(s.id)}
+                disabled={deleting === s.id}
+                style={{ padding: '4px 6px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: RED, cursor: deleting === s.id ? 'wait' : 'pointer' }}
+              >
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>delete</span>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ marginTop: 10, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+        {staff.length} staff member{staff.length !== 1 ? 's' : ''} · You can assign the full company without a complete roster
+      </div>
+    </Modal>
+  )
+}
+
+// ── Assign to Sales modal ─────────────────────────────────────────────────────
+
+function AssignToSalesModal({
+  employer, staff, onClose, onDone,
+}: {
+  employer: Employer
+  staff: StaffMember[]
+  onClose: () => void
+  onDone: () => void
+}) {
+  const [agents, setAgents]             = useState<SalesAgent[]>([])
+  const [agentId, setAgentId]           = useState<string>('')
+  const [assignType, setAssignType]     = useState<'full_company' | 'specific_staff'>('full_company')
+  const [selectedStaff, setSelectedStaff] = useState<Set<number>>(new Set())
+  const [notes, setNotes]               = useState('')
+  const [saving, setSaving]             = useState(false)
+
+  useEffect(() => {
+    apiFetch<SalesAgent[]>('/api/admin/users?limit=200')
+      .then(r => setAgents((r ?? []).filter(u => u.role === 'sales_officer' || u.role === 'sales_head')))
+      .catch(() => {})
+  }, [])
+
+  function toggleStaff(id: number) {
+    setSelectedStaff(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  async function submit() {
+    if (!agentId) { toast.error('Select a Sales Agent'); return }
+    if (assignType === 'specific_staff' && selectedStaff.size === 0) {
+      toast.error('Select at least one staff member'); return
+    }
+    setSaving(true)
+    try {
+      await apiPost(`/api/bd/employers/${employer.id}/assign`, {
+        sales_agent_id: Number(agentId),
+        assignment_type: assignType,
+        staff_ids: assignType === 'specific_staff' ? [...selectedStaff] : [],
+        notes: notes.trim() || null,
+      })
+      toast.success('Assigned to Sales successfully')
+      onDone()
+    } catch (e: any) {
+      toast.error(e.message ?? 'Failed to assign')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal
+      open
+      title={`Assign to Sales — ${employer.name}`}
+      width={520}
+      onClose={onClose}
+      footer={
+        <>
+          <button onClick={onClose} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+          <button
+            onClick={submit}
+            disabled={saving}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}
+          >
+            {saving && <Spinner size={14} color="#fff" />}
+            Assign
+          </button>
+        </>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* Sales Agent */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Sales Agent *</label>
+          <select
+            value={agentId}
+            onChange={e => setAgentId(e.target.value)}
+            style={{ ...IS, height: 36 }}
+          >
+            <option value="">Select agent…</option>
+            {agents.map(a => (
+              <option key={a.id} value={String(a.id)}>{a.full_name}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Assignment type */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Assignment Type</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {(['full_company', 'specific_staff'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setAssignType(t)}
+                style={{
+                  flex: 1, padding: '8px 10px', borderRadius: RADIUS.md, cursor: 'pointer',
+                  border: `2px solid ${assignType === t ? NAVY : 'var(--bdr)'}`,
+                  background: assignType === t ? `${NAVY}10` : 'var(--card)',
+                  color: assignType === t ? NAVY : 'var(--txt2)',
+                  fontSize: TEXT.sm, fontWeight: FW.semibold, textAlign: 'left',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                <span className="material-symbols-rounded" style={{ fontSize: 16 }}>
+                  {t === 'full_company' ? 'corporate_fare' : 'group'}
+                </span>
+                {t === 'full_company' ? 'Full Company' : 'Specific Staff'}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+            {assignType === 'full_company'
+              ? `All current and future staff of ${employer.name} will be assigned to this agent.`
+              : 'Choose specific staff members to assign. More can be added later.'}
+          </div>
+        </div>
+
+        {/* Staff checklist (specific_staff only) */}
+        {assignType === 'specific_staff' && (
+          <div style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, overflow: 'hidden' }}>
+            {staff.length === 0 ? (
+              <div style={{ padding: 14, fontSize: TEXT.sm, color: 'var(--txt3)', textAlign: 'center' }}>
+                No staff on roster yet — add them via Staff Roster first
+              </div>
+            ) : (
+              staff.map((s, i) => (
+                <label
+                  key={s.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px',
+                    borderBottom: i < staff.length - 1 ? '1px solid var(--bdr)' : 'none',
+                    cursor: 'pointer', background: selectedStaff.has(s.id) ? `${NAVY}08` : 'transparent',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedStaff.has(s.id)}
+                    onChange={() => toggleStaff(s.id)}
+                    style={{ accentColor: NAVY }}
+                  />
+                  <div>
+                    <div style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt)' }}>{s.full_name}</div>
+                    {(s.job_title || s.department) && (
+                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+                        {[s.job_title, s.department].filter(Boolean).join(' · ')}
+                      </div>
+                    )}
+                  </div>
+                </label>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* Notes */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Notes</label>
+          <textarea
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            rows={3}
+            placeholder="Optional context for the Sales Agent…"
+            style={{ ...IS, height: 'auto', resize: 'vertical', padding: '8px 10px' }}
+          />
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 const PER_PAGE = 25
 
 export default function Employers() {
   const [employers,  setEmployers]  = useState<Employer[]>([])
   const [loading,    setLoading]    = useState(true)
   const [err,        setErr]        = useState<string | null>(null)
-  const [search,     setSearch]     = useState('')
-  const [filterOpen, setFilterOpen] = useState(false)
-  const [fSectors,   setFSectors]   = useState<Set<string>>(new Set())
-  const [fMOU,       setFMOU]       = useState<Set<string>>(new Set())
-  const [fStates,    setFStates]    = useState<Set<string>>(new Set())
+  const [search,   setSearch]   = useState('')
+  const [fSectors, setFSectors] = useState<Set<string>>(new Set())
+  const [fMOU,     setFMOU]     = useState<Set<string>>(new Set())
+  const [fStates,  setFStates]  = useState<Set<string>>(new Set())
   const [page,       setPage]       = useState(1)
   const [selected,   setSelected]   = useState<Set<string | number>>(new Set())
-  const [showAdd,    setShowAdd]    = useState(false)
-  const [detailRow,  setDetailRow]  = useState<Employer | null>(null)
+  const [showAdd,      setShowAdd]      = useState(false)
+  const [detailRow,    setDetailRow]    = useState<Employer | null>(null)
+  const [staffModal,   setStaffModal]   = useState<Employer | null>(null)
+  const [assignModal,  setAssignModal]  = useState<{ employer: Employer; staff: StaffMember[] } | null>(null)
   const [dateFrom,   setDateFrom]   = useState(monthStart())
   const [dateTo,     setDateTo]     = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const data = await apiFetch<Employer[]>(`/api/bd/employers?from=${dateFrom}&to=${dateTo}`)
-      setEmployers(data ?? [])
+      const res = await apiFetch<{ data: Employer[] }>(`/api/bd/employers?from=${dateFrom}&to=${dateTo}`)
+      setEmployers(res?.data ?? [])
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load employers')
     } finally {
@@ -214,7 +554,6 @@ export default function Employers() {
   const uniqueSectors = useMemo(() => [...new Set(employers.map(e => e.sector).filter(Boolean))].sort() as string[], [employers])
   const uniqueStates  = useMemo(() => [...new Set(employers.map(e => e.state).filter(Boolean))].sort() as string[], [employers])
 
-  const activeFilterCount = fSectors.size + fMOU.size + fStates.size
 
   const filtered = useMemo(() => employers.filter(e => {
     if (fSectors.size && !fSectors.has(e.sector)) return false
@@ -243,12 +582,6 @@ export default function Employers() {
   const showEnd    = Math.min(safePage * PER_PAGE, filtered.length)
 
   useEffect(() => { setPage(1) }, [search, fSectors, fMOU, fStates])
-
-  function toggleSet<T>(set: Set<T>, value: T): Set<T> {
-    const next = new Set(set)
-    next.has(value) ? next.delete(value) : next.add(value)
-    return next
-  }
 
   function resetFilters() {
     setSearch(''); setFSectors(new Set()); setFMOU(new Set()); setFStates(new Set())
@@ -330,9 +663,9 @@ export default function Employers() {
     {
       key: '_actions', label: '', sortable: false,
       render: row => <ActionRow actions={[
-        { icon: 'visibility', label: 'View', onClick: () => setDetailRow(row) },
-        { icon: 'edit', label: 'Edit', onClick: () => {} },
-        { icon: 'person_add', label: 'Assign Lead', onClick: () => {} },
+        { icon: 'visibility',  label: 'View',          onClick: () => setDetailRow(row) },
+        { icon: 'group',       label: 'Staff Roster',  onClick: () => setStaffModal(row) },
+        { icon: 'person_add',  label: 'Assign to Sales', onClick: () => setAssignModal({ employer: row, staff: [] }) },
       ]} />,
     },
   ]
@@ -385,159 +718,46 @@ export default function Employers() {
 
       <SectionCard title="Employers" badge={employers.length} padding={false} actions={<button onClick={() => exportEmployersCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
 
-        {/* Filter bar */}
-        <div style={{
-          padding: '12px 18px',
-          borderBottom: filterOpen ? 'none' : '1px solid var(--bdr)',
-          display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-        }}>
-          <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
-
-          <button
-            onClick={() => setFilterOpen(o => !o)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: `6px ${SP[3]}`, borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
-              border: `1.5px solid ${activeFilterCount > 0 ? RED : 'var(--input-bdr)'}`,
-              background: 'transparent',
-              color: activeFilterCount > 0 ? RED : 'var(--txt2)',
-              cursor: 'pointer', fontFamily: SORA, position: 'relative',
-            }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>tune</span>
-            Filters
-            {activeFilterCount > 0 && (
-              <span style={{
-                position: 'absolute', top: -6, right: -6,
-                width: 16, height: 16, borderRadius: RADIUS.full,
-                background: RED, color: '#fff',
-                fontSize: TEXT['2xs'], fontWeight: FW.bold, fontFamily: INTER,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>{activeFilterCount}</span>
-            )}
-          </button>
-
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
-              {filtered.length} of {employers.length}
-            </span>
-          </div>
-        </div>
-
-        {/* Expandable filter panel */}
-        {filterOpen && (
-          <div style={{ borderBottom: '1px solid var(--bdr)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '20px 20px 0' }}>
-
-              {/* Sector */}
-              <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>SECTOR</div>
-                {uniqueSectors.length === 0 ? (
-                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No sectors recorded</span>
-                ) : uniqueSectors.map(s => {
-                  const count = employers.filter(e => e.sector === s).length
-                  return (
-                    <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={fSectors.has(s)} onChange={() => setFSectors(toggleSet(fSectors, s))}
-                        style={{ accentColor: NAVY, width: 14, height: 14, cursor: 'pointer' }} />
-                      <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA }}>{s}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
-                    </label>
-                  )
-                })}
-              </div>
-
-              {/* MOU Status */}
-              <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>MOU STATUS</div>
-                {MOU_STATUSES.map(s => {
-                  const c = MOU_COLORS[s]
-                  const count = employers.filter(e => (e.mou_status?.toLowerCase() || 'none') === s).length
-                  return (
-                    <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={fMOU.has(s)} onChange={() => setFMOU(toggleSet(fMOU, s))}
-                        style={{ accentColor: c, width: 14, height: 14, cursor: 'pointer' }} />
-                      <span style={{
-                        fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
-                        background: `${c}18`, color: c, textTransform: 'capitalize',
-                      }}>{s}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
-                    </label>
-                  )
-                })}
-              </div>
-
-              {/* State */}
-              <div style={{ paddingLeft: 20 }}>
-                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER }}>STATE</div>
-                {uniqueStates.length === 0 ? (
-                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No states recorded</span>
-                ) : uniqueStates.map(s => {
-                  const count = employers.filter(e => e.state === s).length
-                  return (
-                    <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={fStates.has(s)} onChange={() => setFStates(toggleSet(fStates, s))}
-                        style={{ accentColor: RED, width: 14, height: 14, cursor: 'pointer' }} />
-                      <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA }}>{s}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
-                    </label>
-                  )
-                })}
-              </div>
-
-            </div>
-
-            <div style={{
-              padding: '14px 20px', borderTop: '1px solid var(--bdr)', marginTop: 16,
-              display: 'flex', alignItems: 'center', gap: 12,
-            }}>
-              <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: SORA }}>
-                {activeFilterCount === 0
-                  ? `No filters applied — showing all ${employers.length} employers`
-                  : `${activeFilterCount} filter${activeFilterCount !== 1 ? 's' : ''} active`}
-              </span>
-              <button onClick={resetFilters} style={{
-                padding: '5px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
-                border: '1.5px solid var(--input-bdr)', background: 'transparent',
-                color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA,
-              }}>Reset</button>
-              <button onClick={() => setFilterOpen(false)} style={{
-                marginLeft: 'auto', padding: '5px 16px', borderRadius: RADIUS.md,
-                fontSize: TEXT.sm, fontWeight: FW.semibold,
-                border: 'none', background: RED, color: '#fff',
-                cursor: 'pointer', fontFamily: SORA,
-              }}>Apply · {filtered.length} results</button>
-            </div>
-          </div>
-        )}
-
-        {/* Active chips */}
-        {!filterOpen && activeFilterCount > 0 && (
-          <div style={{
-            padding: '8px 18px', borderBottom: '1px solid var(--bdr)',
-            display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
-          }}>
-            {[...fSectors].map(s => (
-              <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: `${NAVY}12`, color: NAVY }}>
-                {s}<span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFSectors(toggleSet(fSectors, s))}>close</span>
-              </span>
-            ))}
-            {[...fMOU].map(s => {
-              const c = MOU_COLORS[s]
-              return (
-                <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: `${c}18`, color: c, textTransform: 'capitalize' }}>
-                  {s}<span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFMOU(toggleSet(fMOU, s))}>close</span>
-                </span>
-              )
-            })}
-            {[...fStates].map(s => (
-              <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
-                {s}<span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFStates(toggleSet(fStates, s))}>close</span>
-              </span>
-            ))}
-            <button onClick={resetFilters} style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', padding: 0, fontFamily: SORA }}>Clear all</button>
-          </div>
-        )}
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[
+            {
+              key: 'sector',
+              label: 'Sector',
+              options: uniqueSectors.map(s => ({
+                value: s,
+                count: employers.filter(e => e.sector === s).length,
+              })),
+              selected: fSectors,
+              onChange: setFSectors,
+            },
+            {
+              key: 'mou',
+              label: 'MOU Status',
+              options: MOU_STATUSES.map(s => ({
+                value: s,
+                color: MOU_COLORS[s],
+                count: employers.filter(e => (e.mou_status?.toLowerCase() || 'none') === s).length,
+              })),
+              selected: fMOU,
+              onChange: setFMOU,
+            },
+            {
+              key: 'state',
+              label: 'State',
+              options: uniqueStates.map(s => ({
+                value: s,
+                count: employers.filter(e => e.state === s).length,
+              })),
+              selected: fStates,
+              onChange: setFStates,
+            },
+          ]}
+          onReset={resetFilters}
+          resultCount={filtered.length}
+          totalCount={employers.length}
+        />
 
         <DataTable<Employer>
           cols={cols}
@@ -597,6 +817,26 @@ export default function Employers() {
         <EmployerDetailModal
           employer={detailRow}
           onClose={() => setDetailRow(null)}
+        />
+      )}
+
+      {staffModal && (
+        <StaffRosterModal
+          employer={staffModal}
+          onClose={() => setStaffModal(null)}
+          onAssign={staff => {
+            setAssignModal({ employer: staffModal, staff })
+            setStaffModal(null)
+          }}
+        />
+      )}
+
+      {assignModal && (
+        <AssignToSalesModal
+          employer={assignModal.employer}
+          staff={assignModal.staff}
+          onClose={() => setAssignModal(null)}
+          onDone={() => { setAssignModal(null); load() }}
         />
       )}
     </Page>

@@ -4,7 +4,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from 'recharts'
 import {
-  Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle, SearchInput, ErrBanner, DateFilter,
+  Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, DateFilter,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -236,26 +236,11 @@ export default function TelemarketingPerformance() {
     <Page
       title="Telemarketing Performance"
       subtitle="Agent performance, call volumes, and conversion analytics"
+      actions={
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
+      }
     >
       <ErrBanner error={err} onRetry={load} />
-
-      {/* Filters */}
-      <FilterBar onReset={() => { setAgent(''); setDateFrom(monthStart()); setDateTo(today()) }}>
-        <SearchInput
-          placeholder="Agent name…"
-          value={agent}
-          onChange={setAgent}
-          onSearch={load}
-          style={{ minWidth: 180 }}
-        />
-        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
-        <button
-          onClick={() => load()}
-          style={{ height: 32, padding: '0 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
-        >
-          Apply
-        </button>
-      </FilterBar>
 
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
@@ -369,6 +354,16 @@ export default function TelemarketingPerformance() {
         padding={false}
         actions={<button onClick={() => exportAgentPerfCsv(agents)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}
       >
+        <ExpandableFilterBar
+          search={agent}
+          onSearch={setAgent}
+          groups={[]}
+          onReset={() => setAgent('')}
+          onApply={load}
+          resultCount={agents.length}
+          totalCount={agents.length}
+          placeholder="Search by agent name…"
+        />
         <DataTable
           cols={AGENT_COLS}
           rows={agents}
@@ -376,8 +371,6 @@ export default function TelemarketingPerformance() {
           loading={loading}
           skeletonRows={8}
           emptyText="No agent data found"
-          searchKeys={['agent_name']}
-          searchPlaceholder="Search agents…"
           pageSize={20}
         />
       </SectionCard>

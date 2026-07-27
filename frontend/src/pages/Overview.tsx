@@ -699,7 +699,7 @@ export default function Overview() {
       {/* ── Charts: Disbursements + Product Mix ───────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: SP[3], marginBottom: 14 }}>
 
-        <SectionCard title="Monthly Disbursements" subtitle="Loan payouts per month">
+        <SectionCard title="Monthly Disbursements" subtitle="Loan & FD payouts per month">
           <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={monthly} margin={{ top: 4, right: 8, bottom: 14, left: 8 }}>
               <defs>

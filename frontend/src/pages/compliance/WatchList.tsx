@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, SectionCard, DataTable, ExpandableFilterBar,
   Modal, ConfirmModal, ErrBanner, Spinner, btnPrimary, DateFilter,
   NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
@@ -57,10 +57,11 @@ export default function Watchlist() {
   const [entries, setEntries] = useState<WatchEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
-  const [typeFilter, setTypeFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo] = useState(today())
+  const [search, setSearch]   = useState('')
+  const [fType, setFType]     = useState(new Set<string>())
+  const [fStatus, setFStatus] = useState(new Set<string>())
 
   const [addOpen, setAddOpen] = useState(false)
   const [form, setForm] = useState(BLANK)
@@ -72,15 +73,13 @@ export default function Watchlist() {
     setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
-      if (typeFilter)   p.set('entity_type', typeFilter)
-      if (statusFilter) p.set('is_active', statusFilter)
       if (dateFrom) p.set('from', dateFrom)
       if (dateTo)   p.set('to', dateTo)
       const data = await apiFetch<WatchEntry[]>(`/api/compliance/watch-list?${p}`)
       setEntries(Array.isArray(data) ? data : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [typeFilter, statusFilter, dateFrom, dateTo])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -122,6 +121,16 @@ export default function Watchlist() {
     a.download = `watchlist-${new Date().toISOString().slice(0, 10)}.csv`
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
+
+  const filtered = useMemo(() => entries.filter(r => {
+    if (fType.size && !fType.has(r.entity_type)) return false
+    if (fStatus.size && !fStatus.has(r.is_active ? 'active' : 'inactive')) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (![r.entity_name, r.entity_type, r.source].some(f => f?.toLowerCase().includes(q))) return false
+    }
+    return true
+  }), [entries, fType, fStatus, search])
 
   const cols: TableCol<WatchEntry>[] = [
     {
@@ -178,34 +187,39 @@ export default function Watchlist() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <FilterBar onReset={() => { setTypeFilter(''); setStatusFilter('') }}>
-        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Types</option>
-          <option value="PEP">PEP</option>
-          <option value="Sanction">Sanction</option>
-          <option value="Internal">Internal</option>
-        </select>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Statuses</option>
-          <option value="true">Active</option>
-          <option value="false">Inactive</option>
-        </select>
-      </FilterBar>
-
       <SectionCard title="Watchlist Entries" badge={entries.length} padding={false} actions={
         <button onClick={() => exportWatchlistCsv(entries)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
           <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
           Export CSV
         </button>
       }>
+        <ExpandableFilterBar
+          search={search} onSearch={setSearch}
+          groups={[
+            {
+              key: 'type', label: 'List Type',
+              options: ['PEP', 'Sanction', 'Internal'].map(t => ({ value: t, color: TYPE_STYLE[t]?.color, count: entries.filter(r => r.entity_type === t).length })),
+              selected: fType, onChange: (next: Set<string>) => setFType(next),
+            },
+            {
+              key: 'status', label: 'Status',
+              options: [
+                { value: 'active',   label: 'Active',   color: GREEN,     count: entries.filter(r => r.is_active).length },
+                { value: 'inactive', label: 'Inactive', color: '#6B7280', count: entries.filter(r => !r.is_active).length },
+              ],
+              selected: fStatus, onChange: (next: Set<string>) => setFStatus(next),
+            },
+          ]}
+          onReset={() => { setSearch(''); setFType(new Set()); setFStatus(new Set()) }}
+          resultCount={filtered.length} totalCount={entries.length}
+          placeholder="Search entries…"
+        />
         <DataTable<WatchEntry>
           cols={cols}
-          rows={entries}
+          rows={filtered}
           keyFn={r => r.id}
           emptyText="No watchlist entries found."
           skeletonRows={loading ? 6 : 0}
-          searchKeys={['entity_name', 'entity_type', 'source']}
-          searchPlaceholder="Search entries…"
           pageSize={20}
         />
       </SectionCard>

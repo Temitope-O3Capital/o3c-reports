@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, Modal, ConfirmModal, Spinner, DateFilter, NameCell, ActionRow } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { Page, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, Modal, ConfirmModal, Spinner, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
 import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
@@ -83,6 +83,8 @@ export default function Canned() {
 
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
+  const [search,       setSearch]       = useState('')
+  const [fCategories,  setFCategories]  = useState(new Set<string>())
 
   // Modals
   const [newOpen, setNewOpen] = useState(false)
@@ -173,6 +175,15 @@ export default function Canned() {
     }
   }
 
+  const displayed = useMemo(() => rows.filter(r => {
+    if (fCategories.size && !fCategories.has(r.category)) return false
+    if (search) {
+      const q = search.toLowerCase()
+      return r.title.toLowerCase().includes(q) || r.category.toLowerCase().includes(q) || r.created_by.toLowerCase().includes(q)
+    }
+    return true
+  }), [rows, fCategories, search])
+
   function exportCannedCsv(data: CannedResponse[]) {
     const header = ['Title', 'Category', 'Created By', 'Last Used']
     const lines = data.map(r => [
@@ -258,17 +269,31 @@ export default function Canned() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard padding={false} badge={rows.length} actions={<button onClick={() => exportCannedCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard padding={false} badge={displayed.length} actions={<button onClick={() => exportCannedCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[
+            {
+              key: 'category',
+              label: 'Category',
+              options: CATEGORIES.map(c => ({ value: c })),
+              selected: fCategories,
+              onChange: setFCategories,
+            },
+          ] as FilterGroupDef[]}
+          onReset={() => { setSearch(''); setFCategories(new Set()) }}
+          resultCount={displayed.length}
+          totalCount={rows.length}
+          placeholder="Search responses…"
+        />
         <DataTable<CannedResponse>
           cols={cols}
-          rows={rows}
+          rows={displayed}
           keyFn={r => r.id}
           loading={loading}
           emptyText="No canned responses yet"
-          searchKeys={['title', 'category', 'created_by']}
-          searchPlaceholder="Search responses…"
           pageSize={20}
-
         />
       </SectionCard>
 

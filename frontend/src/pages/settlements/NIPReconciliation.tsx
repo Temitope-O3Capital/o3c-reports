@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, StatusBadge, FilterBar, filterInputStyle, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Page, SectionCard, DataTable, ErrBanner, StatusBadge, ExpandableFilterBar, filterInputStyle, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, today } from '../../lib/fmt'
@@ -154,7 +154,9 @@ export default function NIPReconciliation() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<'exceptions' | 'batches'>('exceptions')
-  const [statusFilter, setStatusFilter] = useState('open')
+  const [fStatuses, setFStatuses] = useState<Set<string>>(new Set(['open']))
+  const [excSearch,   setExcSearch]   = useState('')
+  const [batchSearch, setBatchSearch] = useState('')
   const [date, setDate] = useState(today())
   const [resolving, setResolving] = useState<Exception | null>(null)
 
@@ -164,7 +166,7 @@ export default function NIPReconciliation() {
     try {
       const qs = new URLSearchParams()
       if (date) qs.set('date', date)
-      if (statusFilter) qs.set('status', statusFilter)
+      if (fStatuses.size) qs.set('status', [...fStatuses].join(','))
       const res = await apiFetch<{ batches: Batch[]; exceptions: Exception[] }>(`/api/settlements/nip-recon?${qs}`)
       setBatches(res?.batches ?? [])
       setExceptions(res?.exceptions ?? [])
@@ -173,11 +175,31 @@ export default function NIPReconciliation() {
     } finally {
       setLoading(false)
     }
-  }, [date, statusFilter])
+  }, [date, fStatuses])
 
   useEffect(() => { load() }, [load])
 
   const excCols = ExcCols(setResolving)
+
+  const filteredExc = useMemo(() => {
+    if (!excSearch) return exceptions
+    const q = excSearch.toLowerCase()
+    return exceptions.filter(r =>
+      (r.txn_ref ?? '').toLowerCase().includes(q) ||
+      (r.batch_ref ?? '').toLowerCase().includes(q) ||
+      (r.exception_type ?? '').toLowerCase().includes(q)
+    )
+  }, [exceptions, excSearch])
+
+  const filteredBatches = useMemo(() => {
+    if (!batchSearch) return batches
+    const q = batchSearch.toLowerCase()
+    return batches.filter(r =>
+      (r.batch_ref ?? '').toLowerCase().includes(q) ||
+      (r.batch_type ?? '').toLowerCase().includes(q)
+    )
+  }, [batches, batchSearch])
+
   const openCount = exceptions.filter(e => e.status === 'open').length
   const totalExcAmount = exceptions.reduce((s, e) => s + e.amount_kobo, 0)
 
@@ -224,6 +246,7 @@ export default function NIPReconciliation() {
     <Page
       title="NIP Reconciliation"
       subtitle="Daily NIP inflows vs core banking credits — flag and resolve exceptions"
+      actions={<DateFilter from={date} to={date} onChange={(f, _t) => setDate(f)} align="right" />}
     >
       <ErrBanner error={error} onRetry={load} />
 
@@ -242,17 +265,6 @@ export default function NIPReconciliation() {
           <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)' }}>{batches.length}</div>
         </div>
       </div>
-
-      {/* Filters */}
-      <FilterBar onReset={() => { setStatusFilter('open'); setDate(today()) }}>
-        <DateFilter from={date} to={date} onChange={(f, _t) => setDate(f)} />
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
-          <option value="open">Open exceptions</option>
-          <option value="resolved">Resolved</option>
-          <option value="">All</option>
-        </select>
-        <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
-      </FilterBar>
 
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--bdr)', marginBottom: SP[4] }}>
@@ -273,14 +285,30 @@ export default function NIPReconciliation() {
 
       {tab === 'exceptions' && (
         <SectionCard padding={false} actions={<button onClick={() => exportExceptionsCsv(exceptions)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+          <ExpandableFilterBar
+            search={excSearch}
+            onSearch={setExcSearch}
+            groups={[{
+              key: 'status', label: 'Status',
+              options: [
+                { value: 'open',     label: 'Open',     color: AMBER },
+                { value: 'resolved', label: 'Resolved', color: GREEN },
+              ],
+              selected: fStatuses,
+              onChange: setFStatuses,
+            }]}
+            onReset={() => { setFStatuses(new Set(['open'])); setExcSearch('') }}
+            onApply={load}
+            resultCount={filteredExc.length}
+            totalCount={exceptions.length}
+            placeholder="Search ref, type…"
+          />
           <DataTable
             cols={excCols}
-            rows={exceptions}
+            rows={filteredExc}
             keyFn={r => r.id}
             loading={loading}
             emptyText="No exceptions for this date/filter"
-            searchKeys={['txn_ref', 'batch_ref', 'exception_type', 'status']}
-            searchPlaceholder="Search ref, type, status…"
             pageSize={20}
           />
         </SectionCard>
@@ -288,14 +316,30 @@ export default function NIPReconciliation() {
 
       {tab === 'batches' && (
         <SectionCard padding={false} actions={<button onClick={() => exportBatchesCsv(batches)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+          <ExpandableFilterBar
+            search={batchSearch}
+            onSearch={setBatchSearch}
+            groups={[{
+              key: 'status', label: 'Status',
+              options: [
+                { value: 'open',     label: 'Open',     color: AMBER },
+                { value: 'resolved', label: 'Resolved', color: GREEN },
+              ],
+              selected: fStatuses,
+              onChange: setFStatuses,
+            }]}
+            onReset={() => { setFStatuses(new Set(['open'])); setBatchSearch('') }}
+            onApply={load}
+            resultCount={filteredBatches.length}
+            totalCount={batches.length}
+            placeholder="Search batch ref, type…"
+          />
           <DataTable
             cols={BATCH_COLS}
-            rows={batches}
+            rows={filteredBatches}
             keyFn={r => r.id}
             loading={loading}
             emptyText="No batches found"
-            searchKeys={['batch_ref', 'batch_type', 'status']}
-            searchPlaceholder="Search ref, type, status…"
             pageSize={20}
           />
         </SectionCard>

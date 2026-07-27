@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, filterInputStyle, SearchInput, DateFilter } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, filterInputStyle, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtPct, today, monthStart } from '../../lib/fmt'
@@ -316,16 +316,15 @@ export default function FinanceFDMaturity() {
         </button>
       }>
 
-        {/* Search bar */}
-        <div style={{
-          padding: '12px 18px', borderBottom: '1px solid var(--bdr)',
-          display: 'flex', alignItems: 'center', gap: SP[2],
-        }}>
-          <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
-          <div style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
-            {displayed.length} of {rows.length}
-          </div>
-        </div>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[]}
+          onReset={() => setSearch('')}
+          resultCount={displayed.length}
+          totalCount={rows.length}
+          placeholder="Search investor, officer, location…"
+        />
 
         <DataTable
           cols={makeCols(load)}

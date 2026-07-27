@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, ErrBanner, FilterBar, filterInputStyle, Modal, ConfirmModal, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, ExpandableFilterBar, Modal, ConfirmModal, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { DataTable } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -106,11 +106,10 @@ export default function FailedTransactions() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [reasonFilter, setReasonFilter] = useState('')
+  const [fReasons, setFReasons] = useState<Set<string>>(new Set())
+  const [search,   setSearch]   = useState('')
   const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo, setDateTo] = useState(today())
-  const [minNaira, setMinNaira] = useState('')
-  const [maxNaira, setMaxNaira] = useState('')
+  const [dateTo,   setDateTo]   = useState(today())
 
   const [checkedIds, setCheckedIds] = useState<Set<string | number>>(new Set())
 
@@ -124,7 +123,7 @@ export default function FailedTransactions() {
     setError(null)
     try {
       const p = new URLSearchParams()
-      if (reasonFilter) p.set('reason', reasonFilter)
+      if (fReasons.size) p.set('reason', [...fReasons].join(','))
       p.set('date_from', dateFrom)
       p.set('date_to', dateTo)
       p.set('limit', '100')
@@ -139,19 +138,20 @@ export default function FailedTransactions() {
     } finally {
       setLoading(false)
     }
-  }, [reasonFilter, dateFrom, dateTo])
+  }, [fReasons, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
   const filtered = useMemo(() => {
-    const minKobo = minNaira ? Number(minNaira) * 100 : null
-    const maxKobo = maxNaira ? Number(maxNaira) * 100 : null
-    return rows.filter(r => {
-      if (minKobo !== null && r.amount_kobo < minKobo) return false
-      if (maxKobo !== null && r.amount_kobo > maxKobo) return false
-      return true
-    })
-  }, [rows, minNaira, maxNaira])
+    if (!search) return rows
+    const q = search.toLowerCase()
+    return rows.filter(r =>
+      (r.txn_ref ?? '').toLowerCase().includes(q) ||
+      (r.customer_name ?? '').toLowerCase().includes(q) ||
+      (r.channel ?? '').toLowerCase().includes(q) ||
+      (r.failure_reason ?? '').toLowerCase().includes(q)
+    )
+  }, [rows, search])
 
   async function handleRetry() {
     if (!retryRow) return
@@ -258,35 +258,29 @@ export default function FailedTransactions() {
   ]
 
   return (
-    <Page title="Failed Transactions" subtitle="Investigate and action failed settlement transactions">
+    <Page
+      title="Failed Transactions"
+      subtitle="Investigate and action failed settlement transactions"
+      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
+    >
       <ErrBanner error={error} onRetry={load} />
 
       <SectionCard title="Failed Transactions" badge={filtered.length} padding={false} actions={<button onClick={handleExportCsv} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
-        <div style={{ padding: '12px 16px 0' }}>
-          <FilterBar onReset={() => { setReasonFilter(''); setDateFrom(monthStart()); setDateTo(today()); setMinNaira(''); setMaxNaira('') }}>
-            <select value={reasonFilter} onChange={e => setReasonFilter(e.target.value)} style={filterInputStyle}>
-              {REASON_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
-            <input
-              type="number"
-              placeholder="Min ₦ (naira)"
-              value={minNaira}
-              onChange={e => setMinNaira(e.target.value)}
-              style={{ ...filterInputStyle, minWidth: 110 }}
-              min={0}
-            />
-            <input
-              type="number"
-              placeholder="Max ₦ (naira)"
-              value={maxNaira}
-              onChange={e => setMaxNaira(e.target.value)}
-              style={{ ...filterInputStyle, minWidth: 110 }}
-              min={0}
-            />
-            <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
-          </FilterBar>
-        </div>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[{
+            key: 'reason', label: 'Failure Reason',
+            options: REASON_OPTIONS.filter(o => o.value).map(o => ({ value: o.value, label: o.label })),
+            selected: fReasons,
+            onChange: setFReasons,
+          }]}
+          onReset={() => { setFReasons(new Set()); setSearch('') }}
+          onApply={load}
+          resultCount={filtered.length}
+          totalCount={rows.length}
+          placeholder="Search ref, customer, channel…"
+        />
         <DataTable
           cols={cols}
           rows={filtered}
@@ -294,8 +288,6 @@ export default function FailedTransactions() {
           loading={loading}
           emptyText="No failed transactions found"
           pageSize={20}
-          searchKeys={['txn_ref', 'customer_name', 'channel', 'failure_reason']}
-          searchPlaceholder="Search ref, customer, channel…"
           selectable
           selectedIds={checkedIds}
           onSelect={setCheckedIds}

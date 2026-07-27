@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, ErrBanner, Spinner, Modal, DataTable, DateFilter,
-  NameCell, ActionRow, FilterBar, filterInputStyle, Pill,
+  NameCell, ActionRow, ExpandableFilterBar, Pill,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -71,8 +71,14 @@ export default function Recruitment() {
   const [showNewApp,   setShowNewApp]   = useState(false)
   const [saving,       setSaving]       = useState(false)
   const [stagingId,    setStagingId]    = useState<number | null>(null)
-  const [statusFilter, setStatusFilter] = useState('')
   const [sel,          setSel]          = useState<Set<string | number>>(new Set())
+
+  const [searchJobs, setSearchJobs]     = useState('')
+  const [fJobStatus, setFJobStatus]     = useState(new Set<string>())
+  const [fJobType, setFJobType]         = useState(new Set<string>())
+  const [searchApps, setSearchApps]     = useState('')
+  const [fStage, setFStage]             = useState(new Set<string>())
+  const [fSource, setFSource]           = useState(new Set<string>())
 
   // Job form
   const [jTitle, setJTitle] = useState('')
@@ -101,9 +107,34 @@ export default function Recruitment() {
 
   useEffect(() => { load() }, [load])
 
-  const displayedApplicants = activeJob
-    ? applicants.filter(a => a.job_id === activeJob.id)
-    : applicants
+  const uniqueSources = useMemo(() => [...new Set(applicants.map(a => a.source).filter(Boolean))] as string[], [applicants])
+
+  const filteredJobs = useMemo(() => {
+    const base = jobs
+    return base.filter(j => {
+      if (fJobStatus.size && !fJobStatus.has(j.status)) return false
+      if (fJobType.size && !fJobType.has(j.job_type)) return false
+      if (searchJobs) {
+        const q = searchJobs.toLowerCase()
+        if (![j.title, j.status, j.department].some(f => f?.toLowerCase().includes(q))) return false
+      }
+      return true
+    })
+  }, [jobs, fJobStatus, fJobType, searchJobs])
+
+  const baseApplicants = activeJob ? applicants.filter(a => a.job_id === activeJob.id) : applicants
+
+  const filteredApplicants = useMemo(() => baseApplicants.filter(a => {
+    if (fStage.size && !fStage.has(a.stage)) return false
+    if (fSource.size && !fSource.has(a.source)) return false
+    if (searchApps) {
+      const q = searchApps.toLowerCase()
+      if (![a.full_name, a.job_title, a.source, a.stage].some(f => f?.toLowerCase().includes(q))) return false
+    }
+    return true
+  }), [baseApplicants, fStage, fSource, searchApps])
+
+  const displayedApplicants = filteredApplicants
 
   async function createJob() {
     setSaving(true)
@@ -192,16 +223,6 @@ export default function Recruitment() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <FilterBar onReset={() => setStatusFilter('')}>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Job Statuses</option>
-          <option value="open">Open</option>
-          <option value="paused">Paused</option>
-          <option value="closed">Closed</option>
-          <option value="filled">Filled</option>
-        </select>
-      </FilterBar>
-
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[5] }}>
         {[
@@ -219,16 +240,34 @@ export default function Recruitment() {
 
       {loading ? <div style={{ display:'flex', justifyContent:'center', padding: 60 }}><Spinner size={32} /></div> : (
         <>
-          <SectionCard title="Job Openings" badge={jobs.length}>
+          <SectionCard title="Job Openings" badge={jobs.length} padding={false}>
+            <ExpandableFilterBar
+              search={searchJobs} onSearch={setSearchJobs}
+              groups={[
+                {
+                  key: 'status', label: 'Status',
+                  options: Object.entries(JOB_STATUS).map(([v, c]) => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1), color: c, count: jobs.filter(j => j.status === v).length })),
+                  selected: fJobStatus, onChange: (next: Set<string>) => setFJobStatus(next),
+                },
+                {
+                  key: 'type', label: 'Job Type',
+                  options: Object.entries(JOB_TYPE_COLOR).map(([v, c]) => ({ value: v, label: v.replace('_', ' '), color: c, count: jobs.filter(j => j.job_type === v).length })),
+                  selected: fJobType, onChange: (next: Set<string>) => setFJobType(next),
+                },
+              ]}
+              onReset={() => { setSearchJobs(''); setFJobStatus(new Set()); setFJobType(new Set()) }}
+              resultCount={filteredJobs.length} totalCount={jobs.length}
+              placeholder="Search jobs…"
+            />
             <DataTable cols={JOB_COLS}
-              rows={statusFilter ? jobs.filter(j => j.status === statusFilter) : jobs}
-              keyFn={r => r.id} emptyText="No job postings"
-              searchKeys={['title', 'status']} searchPlaceholder="Search jobs…" />
+              rows={filteredJobs}
+              keyFn={r => r.id} emptyText="No job postings" />
           </SectionCard>
 
           <SectionCard
             title={activeJob ? `Applicants — ${activeJob.title}` : 'All Applicants'}
-            badge={displayedApplicants.length}
+            badge={baseApplicants.length}
+            padding={false}
             actions={activeJob && (
               <button onClick={() => setShowNewApp(true)}
                 style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: 'none', background: `${NAVY}12`, color: NAVY, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
@@ -236,8 +275,25 @@ export default function Recruitment() {
               </button>
             )}
           >
+            <ExpandableFilterBar
+              search={searchApps} onSearch={setSearchApps}
+              groups={[
+                {
+                  key: 'stage', label: 'Stage',
+                  options: Object.entries(STAGE_COLOR).map(([v, c]) => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1), color: c, count: baseApplicants.filter(a => a.stage === v).length })),
+                  selected: fStage, onChange: (next: Set<string>) => setFStage(next),
+                },
+                {
+                  key: 'source', label: 'Source',
+                  options: uniqueSources.map(s => ({ value: s, count: baseApplicants.filter(a => a.source === s).length })),
+                  selected: fSource, onChange: (next: Set<string>) => setFSource(next),
+                },
+              ]}
+              onReset={() => { setSearchApps(''); setFStage(new Set()); setFSource(new Set()) }}
+              resultCount={displayedApplicants.length} totalCount={baseApplicants.length}
+              placeholder="Search applicants…"
+            />
             <DataTable cols={APP_COLS} rows={displayedApplicants} keyFn={r => r.id} emptyText="No applicants yet"
-              searchKeys={['full_name', 'job_title', 'source', 'stage']} searchPlaceholder="Search applicants…"
               selectable selectedIds={sel} onSelect={setSel}
               bulkBar={
                 <button onClick={() => setSel(new Set())}

@@ -29,7 +29,6 @@ const SECTIONS: Section[] = [
     key: 'root',
     items: [
       { icon: 'space_dashboard', label: 'Overview', to: '/', vis: 'all' },
-      { icon: 'person',          label: 'My Dashboard',   to: '/me', vis: 'all' },
     ],
   },
   {
@@ -40,10 +39,12 @@ const SECTIONS: Section[] = [
         icon: 'corporate_fare', label: 'Business Dev', to: '/bd',
         vis: ['sales_officer','sales_head','head_sales','bd_officer','bd_head'],
         subs: [
-          { label: 'My Dashboard',      to: '/bd/my-dashboard', vis: ['bd_officer'] },
+          { label: 'My Dashboard',      to: '/bd/my-dashboard',  vis: ['bd_officer'] },
           { label: 'All Leads',         to: '/bd/leads' },
           { label: 'My Pipeline',       to: '/bd/pipeline' },
           { label: 'Employer Register', to: '/bd/employers' },
+          { label: 'Assignments',       to: '/bd/assignments',   vis: ['bd_officer','bd_head'] },
+          { label: 'Analytics',         to: '/bd/analytics',     vis: ['bd_head','sales_head','head_sales'] },
         ],
       },
       {
@@ -69,23 +70,18 @@ const SECTIONS: Section[] = [
         ],
       },
       {
-        icon: 'trending_up', label: 'Sales', to: '/sales/overview',
+        icon: 'trending_up', label: 'Sales & CRM', to: '/sales/overview',
         vis: ['sales_officer','sales_head','head_sales'],
         subs: [
-          { label: 'My Dashboard',     to: '/sales/my-dashboard', vis: ['sales_officer'] },
+          { label: 'My Dashboard',     to: '/sales/my-dashboard',  vis: ['sales_officer'] },
+          { label: 'My Accounts',      to: '/sales/accounts' },
+          { label: 'Leads',            to: '/sales/customers' },
+          { label: 'Pipeline',         to: '/sales/crm' },
+          { label: 'Tasks',            to: '/sales/tasks' },
           { label: 'Cohort Analysis',  to: '/sales/cohort' },
           { label: 'Targets',          to: '/sales/targets' },
           { label: 'Reports',          to: '/sales/reports' },
           { label: 'All Applications', to: '/sales/applications' },
-        ],
-      },
-      {
-        icon: 'contacts', label: 'CRM', to: '/sales/crm',
-        vis: ['sales_officer','sales_head','head_sales','bd_officer','bd_head'],
-        subs: [
-          { label: 'Contacts', to: '/sales/customers' },
-          { label: 'Pipeline', to: '/sales/crm' },
-          { label: 'Tasks',    to: '/sales/tasks' },
         ],
       },
     ],
@@ -133,7 +129,6 @@ const SECTIONS: Section[] = [
           { label: 'Disputes',            to: '/cards/disputes' },
           { label: 'Credit Limit Review', to: '/cards/credit-limit' },
           { label: 'Billing Cycles',      to: '/cards/billing' },
-          { label: 'Interswitch',         to: '/cards/interswitch' },
         ],
       },
     ],
@@ -157,11 +152,14 @@ const SECTIONS: Section[] = [
         icon: 'collections_bookmark', label: 'Collections', to: '/collections',
         vis: ['collections_agent','collections_head','head_collections'],
         subs: [
-          { label: 'Agent Queue',     to: '/collections/queue' },
-          { label: 'Promises to Pay', to: '/collections/promises' },
-          { label: 'Repayment Plans', to: '/collections/repayment-plans' },
-          { label: 'Write-off Queue', to: '/collections/writeoffs' },
-          { label: 'My Dashboard',    to: '/collections-ops/agent', vis: ['collections_agent'] },
+          { label: 'Portfolio',            to: '/collections/portfolio' },
+          { label: 'Agent Queue',          to: '/collections/queue' },
+          { label: 'Promises to Pay',      to: '/collections/promises' },
+          { label: 'Repayment Plans',      to: '/collections/repayment-plans' },
+          { label: 'Write-off Queue',      to: '/collections/writeoffs' },
+          { label: 'Write-off Requests',   to: '/collections/writeoff-requests' },
+          { label: 'Recovery Approvals',   to: '/collections/recovery-approvals' },
+          { label: 'My Dashboard',         to: '/collections-ops/agent', vis: ['collections_agent'] },
         ],
       },
       {
@@ -171,7 +169,6 @@ const SECTIONS: Section[] = [
           { label: 'My Dashboard',   to: '/recovery-ops/agent', vis: ['recovery_agent'] },
           { label: 'Cases',          to: '/recovery/cases' },
           { label: 'Legal Tracker',  to: '/recovery/legal' },
-          { label: 'TPA Management', to: '/recovery/tpa' },
           { label: 'Debt Sales',     to: '/recovery/debt-sales' },
         ],
       },
@@ -208,6 +205,9 @@ const SECTIONS: Section[] = [
           { label: 'Processor Reconciliation', to: '/settlements/reconciliation' },
           { label: 'Failed Transactions',      to: '/settlements/failed' },
           { label: 'Manual Postings',          to: '/settlements/manual-postings' },
+          { label: 'Interswitch',              to: '/settlements/interswitch' },
+          { label: 'Transaction Report',       to: '/settlements/interswitch/half-year' },
+          { label: 'Import EODTXN',            to: '/settlements/interswitch/import', vis: ['cards_ops_head'] },
         ],
       },
     ],
@@ -316,9 +316,9 @@ function canSee(vis: NavItem['vis'], role: string): boolean {
   return (vis as string[]).includes(role)
 }
 
-// Sub-items with vis are agent-only — MGMT deliberately excluded
 function canSeeSub(vis: string[] | undefined, role: string): boolean {
   if (!vis) return true
+  if (MGMT.has(role)) return true
   return vis.includes(role)
 }
 

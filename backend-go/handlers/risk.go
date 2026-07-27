@@ -102,25 +102,39 @@ func riskApplications(db *core.DB) http.HandlerFunc {
 	}
 }
 
+func multiIn(sb *strings.Builder, args *[]any, n *int, col, val string) {
+	vals := strings.Split(val, ",")
+	for i := range vals {
+		vals[i] = strings.TrimSpace(vals[i])
+	}
+	if len(vals) == 1 {
+		sb.WriteString(fmt.Sprintf(" AND %s = $%d", col, *n))
+		*args = append(*args, vals[0])
+		*n++
+	} else {
+		ph := make([]string, len(vals))
+		for i := range vals {
+			ph[i] = fmt.Sprintf("$%d", *n+i)
+			*args = append(*args, vals[i])
+		}
+		*n += len(vals)
+		sb.WriteString(" AND " + col + " IN (" + strings.Join(ph, ",") + ")")
+	}
+}
+
 func riskAppWhere(stage, product, band, dateFrom, dateTo string) (string, []any) {
 	var sb strings.Builder
 	var args []any
 	n := 1
 
 	if stage != "" {
-		sb.WriteString(fmt.Sprintf(" AND stage = $%d", n))
-		args = append(args, stage)
-		n++
+		multiIn(&sb, &args, &n, "stage", stage)
 	}
 	if product != "" {
-		sb.WriteString(fmt.Sprintf(" AND COALESCE(product_type, loan_type) = $%d", n))
-		args = append(args, product)
-		n++
+		multiIn(&sb, &args, &n, "COALESCE(product_type, loan_type)", product)
 	}
 	if band != "" {
-		sb.WriteString(fmt.Sprintf(" AND eye_rating = $%d", n))
-		args = append(args, band)
-		n++
+		multiIn(&sb, &args, &n, "eye_rating", band)
 	}
 	if dateFrom != "" && dateTo != "" {
 		sb.WriteString(fmt.Sprintf(" AND submitted_at::date BETWEEN $%d AND $%d", n, n+1))
@@ -453,9 +467,7 @@ func riskVintage(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 		if product != "" {
-			extraClauses.WriteString(fmt.Sprintf(" AND COALESCE(product_type, loan_type) = $%d", n))
-			args = append(args, product)
-			n++
+			multiIn(&extraClauses, &args, &n, "COALESCE(product_type, loan_type)", product)
 		}
 		if from != "" {
 			extraClauses.WriteString(fmt.Sprintf(" AND COALESCE(disbursed_at, created_at)::date >= $%d", n))
@@ -522,9 +534,7 @@ func riskVintageKPIs(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 		if product != "" {
-			extraClauses.WriteString(fmt.Sprintf(" AND COALESCE(product_type, loan_type) = $%d", n))
-			args = append(args, product)
-			n++
+			multiIn(&extraClauses, &args, &n, "COALESCE(product_type, loan_type)", product)
 		}
 		if from != "" {
 			extraClauses.WriteString(fmt.Sprintf(" AND COALESCE(disbursed_at, created_at)::date >= $%d", n))
@@ -603,14 +613,10 @@ func riskEyeScores(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		if product != "" {
-			wbuf.WriteString(fmt.Sprintf(" AND COALESCE(product_type, loan_type) = $%d", n))
-			args = append(args, product)
-			n++
+			multiIn(&wbuf, &args, &n, "COALESCE(product_type, loan_type)", product)
 		}
 		if band != "" {
-			wbuf.WriteString(fmt.Sprintf(" AND eye_rating = $%d", n))
-			args = append(args, band)
-			n++
+			multiIn(&wbuf, &args, &n, "eye_rating", band)
 		}
 
 		where := wbuf.String()

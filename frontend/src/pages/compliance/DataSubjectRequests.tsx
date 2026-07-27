@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, ErrBanner, Spinner, DataTable, Modal, btnPrimary, btnSecondary, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { Page, SectionCard, ErrBanner, Spinner, DataTable, ExpandableFilterBar, Modal, btnPrimary, btnSecondary, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, monthStart, today } from '../../lib/fmt'
@@ -53,9 +53,11 @@ export default function DataSubjectRequests() {
   const [items,    setItems]    = useState<DSAR[]>([])
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState<string | null>(null)
-  const [statusF,  setStatusF]  = useState('')
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
+  const [search, setSearch]     = useState('')
+  const [fType, setFType]       = useState(new Set<string>())
+  const [fStatus, setFStatus]   = useState(new Set<string>())
   const [showNew,  setShowNew]  = useState(false)
   const [selected, setSelected] = useState<DSAR | null>(null)
   const [stats,    setStats]    = useState<DSARStats | null>(null)
@@ -72,14 +74,13 @@ export default function DataSubjectRequests() {
     apiFetch<DSARStats>('/api/compliance/dsar-stats').then(s => setStats(s ?? null)).catch(() => {})
     try {
       const p = new URLSearchParams()
-      if (statusF)  p.set('status', statusF)
       if (dateFrom) p.set('from', dateFrom)
       if (dateTo)   p.set('to', dateTo)
       const res = await apiFetch<DSAR[]>(`/api/compliance/data-subject-requests?${p}`)
       setItems(res ?? [])
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
-  }, [statusF, dateFrom, dateTo])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -111,6 +112,16 @@ export default function DataSubjectRequests() {
       load()
     } catch (e: any) { toast.error(e.message) }
   }
+
+  const filtered = useMemo(() => items.filter(r => {
+    if (fType.size && !fType.has(r.request_type)) return false
+    if (fStatus.size && !fStatus.has(r.status)) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (![r.subject_name, r.request_type, r.status].some(f => f?.toLowerCase().includes(q))) return false
+    }
+    return true
+  }), [items, fType, fStatus, search])
 
   const COLS: TableCol<DSAR>[] = [
     { key: 'id', label: 'Ref', render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY }}>DSAR-{r.id}</span> },
@@ -196,25 +207,34 @@ export default function DataSubjectRequests() {
         </SectionCard>
       )}
 
-      {/* Filter */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: SP[5] }}>
-        <select value={statusF} onChange={e => setStatusF(e.target.value)}
-          style={{ ...inp, width: 160 }}>
-          <option value="">All statuses</option>
-          <option value="pending">Pending</option>
-          <option value="in_progress">In Progress</option>
-          <option value="resolved">Resolved</option>
-          <option value="rejected">Rejected</option>
-        </select>
-      </div>
-
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner size={32} /></div>
       ) : (
-        <SectionCard title="Data Subject Requests" badge={items.length}>
-          <DataTable cols={COLS} rows={items} keyFn={r => r.id} emptyText="No data subject requests recorded"
-            searchKeys={['subject_name', 'request_type', 'status']}
-            searchPlaceholder="Search by name, type or status…" />
+        <SectionCard title="Data Subject Requests" badge={items.length} padding={false}>
+          <ExpandableFilterBar
+            search={search} onSearch={setSearch}
+            groups={[
+              {
+                key: 'type', label: 'Request Type',
+                options: Object.entries(TYPE_LABELS).map(([v, l]) => ({ value: v, label: l, count: items.filter(r => r.request_type === v).length })),
+                selected: fType, onChange: (next: Set<string>) => setFType(next),
+              },
+              {
+                key: 'status', label: 'Status',
+                options: [
+                  { value: 'pending',     label: 'Pending',     color: AMBER, count: items.filter(r => r.status === 'pending').length },
+                  { value: 'in_progress', label: 'In Progress', color: BLUE,  count: items.filter(r => r.status === 'in_progress').length },
+                  { value: 'resolved',    label: 'Resolved',    color: GREEN, count: items.filter(r => r.status === 'resolved').length },
+                  { value: 'rejected',    label: 'Rejected',    color: RED,   count: items.filter(r => r.status === 'rejected').length },
+                ],
+                selected: fStatus, onChange: (next: Set<string>) => setFStatus(next),
+              },
+            ]}
+            onReset={() => { setSearch(''); setFType(new Set()); setFStatus(new Set()) }}
+            resultCount={filtered.length} totalCount={items.length}
+            placeholder="Search by name, type or status…"
+          />
+          <DataTable cols={COLS} rows={filtered} keyFn={r => r.id} emptyText="No data subject requests recorded" />
         </SectionCard>
       )}
 

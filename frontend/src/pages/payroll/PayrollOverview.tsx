@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar, filterInputStyle,
   Modal, ConfirmModal, ErrBanner, Spinner, StatusBadge, btnPrimary, DateFilter, NameCell, ActionRow,
 } from '../../components/UI'
-import type { TableCol, RowAction } from '../../components/UI'
+import type { TableCol, RowAction, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, GREEN, AMBER, BLUE, NUM } from '../../lib/design'
@@ -87,6 +87,18 @@ export default function PayrollOverview() {
 
   const runs = data?.runs ?? []
   const latest = runs[0]
+
+  const [runSearch, setRunSearch] = useState('')
+  const [fStatuses, setFStatuses] = useState(new Set<string>())
+
+  const displayed = useMemo(() => runs.filter(r => {
+    if (fStatuses.size && !fStatuses.has(r.status)) return false
+    if (runSearch) {
+      const q = runSearch.toLowerCase()
+      return (r.created_by_name ?? '').toLowerCase().includes(q) || r.status.toLowerCase().includes(q)
+    }
+    return true
+  }), [runs, fStatuses, runSearch])
 
   function exportRunsCsv(rows: PayrollRun[]) {
     const header = ['Period', 'Status', 'Headcount', 'Gross', 'Net Pay', 'PAYE', 'Pension', 'Created', 'Paid']
@@ -184,16 +196,25 @@ export default function PayrollOverview() {
         <KpiCard label="PAYE Deducted (Latest)" value={latest ? fmtKobo(latest.total_paye_kobo) : '—'} icon="receipt_long"   accent={AMBER} loading={loading} />
       </div>
 
-      <SectionCard title="Payroll Run History" badge={runs.length} padding={false}>
+      <SectionCard title="Payroll Run History" badge={displayed.length} padding={false}>
+        <ExpandableFilterBar
+          search={runSearch}
+          onSearch={setRunSearch}
+          groups={[
+            { key: 'status', label: 'Status', options: ['draft', 'review', 'approved', 'paid', 'cancelled'].map(v => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1) })), selected: fStatuses, onChange: setFStatuses },
+          ] as FilterGroupDef[]}
+          onReset={() => { setRunSearch(''); setFStatuses(new Set()) }}
+          resultCount={displayed.length}
+          totalCount={runs.length}
+          placeholder="Search payroll runs…"
+        />
         <DataTable<PayrollRun>
           cols={cols}
-          rows={runs}
+          rows={displayed}
           keyFn={r => r.id}
           onRowClick={r => navigate(`/payroll/runs/${r.id}`)}
           emptyText="No payroll runs yet. Create the first run to get started."
           skeletonRows={loading ? 6 : 0}
-          searchKeys={['status', 'created_by_name']}
-          searchPlaceholder="Search payroll runs…"
         />
       </SectionCard>
 

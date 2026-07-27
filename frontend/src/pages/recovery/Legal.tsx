@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, FilterBar, filterInputStyle, Spinner, KpiCard, DateFilter, SearchInput, NameCell, ActionRow } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, filterInputStyle, Spinner, KpiCard, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import type { FilterGroupDef } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
@@ -253,22 +254,22 @@ export default function RecoveryLegal() {
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [expandedData, setExpandedData] = useState<Record<number, Milestone[] | 'loading'>>({})
 
-  const [milestoneFilter, setMilestoneFilter] = useState('')
-  const [solicitorFilter, setSolicitorFilter] = useState('')
-  const [dateFrom,        setDateFrom]        = useState(monthStart())
-  const [dateTo,          setDateTo]          = useState(today())
-  const [search,          setSearch]          = useState('')
+  const [fMilestones, setFMilestones] = useState(new Set<string>())
+  const [search,      setSearch]      = useState('')
+  const [dateFrom,    setDateFrom]    = useState(monthStart())
+  const [dateTo,      setDateTo]      = useState(today())
 
   const [kpis, setKpis]         = useState<LegalKPIs | null>(null)
   const [kpiLoading, setKpiLoading] = useState(true)
 
+  const fMilestonesKey = [...fMilestones].join(',')
+
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     const params = new URLSearchParams({ limit: '100' })
-    if (milestoneFilter) params.set('milestone', milestoneFilter)
-    if (solicitorFilter.trim()) params.set('q', solicitorFilter.trim())
-    if (dateFrom) params.set('from', dateFrom)
-    if (dateTo)   params.set('to',   dateTo)
+    if (fMilestonesKey) params.set('milestone', fMilestonesKey)
+    if (dateFrom)       params.set('from', dateFrom)
+    if (dateTo)         params.set('to',   dateTo)
     try {
       const res = await apiFetch<{ data: LegalCase[] }>(`/api/recovery/legal?${params}`)
       setRows(res.data ?? [])
@@ -277,7 +278,7 @@ export default function RecoveryLegal() {
     } finally {
       setLoading(false)
     }
-  }, [milestoneFilter, solicitorFilter, dateFrom, dateTo])
+  }, [fMilestonesKey, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -320,11 +321,27 @@ export default function RecoveryLegal() {
 
   const todayStr = today()
 
+  const groups: FilterGroupDef[] = [
+    {
+      key: 'milestone',
+      label: 'MILESTONE',
+      options: MILESTONE_ORDER.map(m => ({
+        value: m,
+        color: MILESTONE_COLORS[m]?.hex,
+        count: rows.filter(r => r.current_milestone === m).length,
+      })),
+      selected: fMilestones,
+      onChange: setFMilestones,
+    },
+  ]
+
+  function resetFilters() { setFMilestones(new Set()); setSearch('') }
+
   const filtered = useMemo(() => {
-    if (!search) return rows
+    if (!search.trim()) return rows
     const q = search.toLowerCase()
     return rows.filter(r =>
-      [r.customer_name, r.current_milestone, r.solicitor].some(v =>
+      [r.customer_name, r.current_milestone, r.solicitor, r.account_cif].some(v =>
         String(v ?? '').toLowerCase().includes(q)
       )
     )
@@ -411,30 +428,6 @@ export default function RecoveryLegal() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      {/* Page-level filter */}
-      <FilterBar onReset={() => { setMilestoneFilter(''); setSolicitorFilter(''); setSearch('') }}>
-        <select value={milestoneFilter} onChange={e => setMilestoneFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Milestones</option>
-          {MILESTONE_ORDER.map(m => <option key={m} value={m}>{m}</option>)}
-        </select>
-        <input
-          value={solicitorFilter}
-          onChange={e => setSolicitorFilter(e.target.value)}
-          placeholder="Search solicitor…"
-          style={{ ...filterInputStyle, minWidth: 200 }}
-        />
-        <button onClick={() => load()} style={{
-          height: 32, padding: '0 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
-          background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
-        }}>Apply</button>
-      </FilterBar>
-      <SearchInput
-        value={search}
-        onChange={setSearch}
-        placeholder="Search by name, milestone, court…"
-        style={{ marginBottom: 12, maxWidth: 340 }}
-      />
-
       {/* KPI cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: SP[5] }}>
         <KpiCard label="Total Cases" value={kpis ? fmtNum(kpis.total_cases) : '—'} icon="gavel" accent={NAVY} loading={kpiLoading} />
@@ -448,6 +441,16 @@ export default function RecoveryLegal() {
         badge={filtered.length}
         padding={false}
       >
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={groups}
+          onReset={resetFilters}
+          onApply={load}
+          resultCount={filtered.length}
+          totalCount={rows.length}
+          placeholder="Search name, solicitor, CIF…"
+        />
         {/* Table with inline expand */}
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>

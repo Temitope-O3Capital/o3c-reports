@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, ErrBanner, FilterBar, filterInputStyle, StatusBadge, Modal, DateFilter } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, ExpandableFilterBar, filterInputStyle, StatusBadge, Modal, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { DataTable } from '../../components/UI'
 import { apiFetch, apiPut, apiPost } from '../../lib/api'
@@ -225,7 +225,8 @@ export default function NIPReconciliation() {
   const [error, setError] = useState<string | null>(null)
 
   const [dateFilter, setDateFilter] = useState(today())
-  const [statusFilter, setStatusFilter] = useState('')
+  const [fStatuses, setFStatuses] = useState<Set<string>>(new Set())
+  const [search, setSearch] = useState('')
 
   const [checkedIds, setCheckedIds] = useState<Set<string | number>>(new Set())
   const [resolveRow, setResolveRow] = useState<NIPRow | null>(null)
@@ -236,7 +237,7 @@ export default function NIPReconciliation() {
     try {
       const p = new URLSearchParams()
       if (dateFilter) p.set('date', dateFilter)
-      if (statusFilter) p.set('status', statusFilter)
+      if (fStatuses.size) p.set('status', [...fStatuses].join(','))
       p.set('limit', '100')
       const res = await apiFetch<{ data: NIPRow[] }>(`/api/settlements/nip?${p.toString()}`)
       setRows(res.data ?? [])
@@ -246,19 +247,26 @@ export default function NIPReconciliation() {
     } finally {
       setLoading(false)
     }
-  }, [dateFilter, statusFilter])
+  }, [dateFilter, fStatuses])
 
   useEffect(() => { load() }, [load])
 
   // Sort: Exception → Unmatched → Matched, then value_date desc within groups
   const sorted = useMemo(() => {
-    return [...rows].sort((a, b) => {
+    const base = search
+      ? rows.filter(r =>
+          (r.nip_ref ?? '').toLowerCase().includes(search.toLowerCase()) ||
+          (r.customer_name ?? '').toLowerCase().includes(search.toLowerCase()) ||
+          r.match_status.toLowerCase().includes(search.toLowerCase())
+        )
+      : rows
+    return [...base].sort((a, b) => {
       const wa = matchWeight(a.match_status)
       const wb = matchWeight(b.match_status)
       if (wa !== wb) return wa - wb
       return new Date(b.value_date).getTime() - new Date(a.value_date).getTime()
     })
-  }, [rows])
+  }, [rows, search])
 
   function handleExportExceptions() {
     const header = ['NIP Ref', 'Amount NGN', 'Value Date', 'Customer', 'Core Banking Credited', 'Match Status', 'Exception Type']
@@ -353,24 +361,35 @@ export default function NIPReconciliation() {
   ) : undefined
 
   return (
-    <Page title="NIP Reconciliation" subtitle="Match and resolve NIP settlement entries against core banking credits">
+    <Page
+      title="NIP Reconciliation"
+      subtitle="Match and resolve NIP settlement entries against core banking credits"
+      actions={<DateFilter from={dateFilter} to={dateFilter} onChange={(f) => setDateFilter(f)} align="right" />}
+    >
       <ErrBanner error={error} onRetry={load} />
 
       <NipKpis rows={rows} />
 
       <SectionCard title="NIP Entries" badge={sorted.length} padding={false} actions={<button onClick={handleExportExceptions} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
-        <div style={{ padding: '12px 16px 0' }}>
-          <FilterBar onReset={() => { setDateFilter(today()); setStatusFilter('') }}>
-            <DateFilter from={dateFilter} to={dateFilter} onChange={(f) => setDateFilter(f)} />
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
-              <option value="">All statuses</option>
-              <option value="Matched">Matched</option>
-              <option value="Unmatched">Unmatched</option>
-              <option value="Exception">Exception</option>
-            </select>
-            <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
-          </FilterBar>
-        </div>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[{
+            key: 'status', label: 'Status',
+            options: [
+              { value: 'Matched',   label: 'Matched',   color: GREEN },
+              { value: 'Unmatched', label: 'Unmatched', color: AMBER },
+              { value: 'Exception', label: 'Exception', color: RED   },
+            ],
+            selected: fStatuses,
+            onChange: setFStatuses,
+          }]}
+          onReset={() => { setFStatuses(new Set()); setSearch('') }}
+          onApply={load}
+          resultCount={sorted.length}
+          totalCount={rows.length}
+          placeholder="Search ref, customer, status…"
+        />
         <DataTable
           cols={cols}
           rows={sorted}
@@ -381,8 +400,6 @@ export default function NIPReconciliation() {
           selectedIds={checkedIds}
           onSelect={setCheckedIds}
           bulkBar={bulkBar}
-          searchKeys={['nip_ref', 'customer_name', 'match_status', 'exception_type']}
-          searchPlaceholder="Search ref, customer, status…"
           pageSize={20}
         />
       </SectionCard>

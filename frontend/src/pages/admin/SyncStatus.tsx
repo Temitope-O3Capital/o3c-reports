@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Page, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, DateFilter } from '../../components/UI'
+import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtNum, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, NUM, INTER, TEXT, FW, RADIUS, SP } from '../../lib/design'
@@ -86,6 +86,12 @@ export default function AdminSyncStatus() {
 
   useEffect(() => { load() }, [load])
 
+  const [fStatuses, setFStatuses] = useState(new Set<string>())
+
+  const displayedRows = useMemo(() =>
+    fStatuses.size ? rows.filter(r => fStatuses.has(r.status)) : rows
+  , [rows, fStatuses])
+
   async function triggerSync() {
     try {
       await apiFetch('/api/settings/sync-status', {
@@ -139,8 +145,19 @@ export default function AdminSyncStatus() {
         ))}
       </div>
 
-      <SectionCard title="Run History" badge={rows.length} padding={false}>
-        <DataTable cols={COLS} rows={rows} keyFn={r => r.id} loading={loading} emptyText="No sync runs recorded" searchKeys={['status']} />
+      <SectionCard title="Run History" badge={displayedRows.length} padding={false}>
+        <ExpandableFilterBar
+          search=""
+          onSearch={() => {}}
+          groups={[
+            { key: 'status', label: 'Status', options: Object.keys(STATUS_COLORS).map(v => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1), color: STATUS_COLORS[v].txt })), selected: fStatuses, onChange: setFStatuses },
+          ] as FilterGroupDef[]}
+          onReset={() => setFStatuses(new Set())}
+          resultCount={displayedRows.length}
+          totalCount={rows.length}
+          placeholder="Filter by status…"
+        />
+        <DataTable cols={COLS} rows={displayedRows} keyFn={r => r.id} loading={loading} emptyText="No sync runs recorded" />
       </SectionCard>
     </Page>
   )

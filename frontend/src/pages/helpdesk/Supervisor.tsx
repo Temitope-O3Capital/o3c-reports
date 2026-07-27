@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, DataTable, Spinner, ErrBanner, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, Spinner, ErrBanner, DateFilter, ExpandableFilterBar } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtNum, monthStart, today } from '../../lib/fmt'
@@ -274,9 +274,16 @@ export default function Supervisor() {
     },
   ]
 
+  const [agentSearch, setAgentSearch] = useState('')
+
   const supervisorAgents = supervisor?.agents ?? []
   const recentBreaches   = supervisor?.recent_breaches ?? []
-  const statsAgents: AgentStat[] = stats?.agents ?? []
+  const allStatsAgents: AgentStat[] = stats?.agents ?? []
+  const statsAgents = useMemo(() =>
+    agentSearch
+      ? allStatsAgents.filter(a => a.agent_name.toLowerCase().includes(agentSearch.toLowerCase()))
+      : allStatsAgents
+  , [allStatsAgents, agentSearch])
 
   if (loading) {
     return (
@@ -371,14 +378,21 @@ export default function Supervisor() {
 
       {/* Agent performance table */}
       <SectionCard title="Agent Performance Today" padding={false}>
+        <ExpandableFilterBar
+          search={agentSearch}
+          onSearch={setAgentSearch}
+          groups={[]}
+          onReset={() => setAgentSearch('')}
+          resultCount={statsAgents.length}
+          totalCount={allStatsAgents.length}
+          placeholder="Search agent…"
+        />
         <DataTable<AgentStat>
           cols={agentPerfCols}
           rows={statsAgents}
           keyFn={r => r.agent_name}
           emptyText="No agent performance data available."
           skeletonRows={4}
-          searchKeys={['agent_name']}
-          searchPlaceholder="Search agent…"
         />
       </SectionCard>
 

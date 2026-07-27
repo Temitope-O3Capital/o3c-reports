@@ -85,6 +85,7 @@ func fdCreateTransaction(db *core.DB) http.HandlerFunc {
 		var b struct {
 			TransactionDate string   `json:"transaction_date"`
 			CustomerName    string   `json:"customer_name"`
+			CIFNumber       string   `json:"cif_number"`
 			TransactionType string   `json:"transaction_type"` // inflow only; liquidations go to /liquidate
 			Principal       *int64   `json:"principal"`
 			InterestPaid    *int64   `json:"interest_paid"`
@@ -94,6 +95,7 @@ func fdCreateTransaction(db *core.DB) http.HandlerFunc {
 			Currency        string   `json:"currency"`
 			Location        string   `json:"location"`
 			AccountOfficer  string   `json:"account_officer"`
+			SalesOfficerID  *int64   `json:"sales_officer_id"`
 			MaturityDate    string   `json:"maturity_date"`
 			TenorDays       *int     `json:"tenor_days"`
 			Rate            *float64 `json:"rate"`
@@ -122,15 +124,15 @@ func fdCreateTransaction(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO fd_transactions
-			    (transaction_date, customer_name, transaction_type, principal, interest_paid,
+			    (transaction_date, customer_name, cif_number, transaction_type, principal, interest_paid,
 			     gross_amount, usd_amount, ngn_amount, currency, location,
-			     account_officer, maturity_date, tenor_days, rate, notes, created_by)
+			     account_officer, sales_officer_id, maturity_date, tenor_days, rate, notes, created_by)
 			VALUES
-			    ($1::date,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::date,$13,$14,$15,$16)
+			    ($1::date,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::date,$15,$16,$17,$18)
 			RETURNING *`,
-			b.TransactionDate, b.CustomerName, b.TransactionType,
+			b.TransactionDate, b.CustomerName, ns(b.CIFNumber), b.TransactionType,
 			b.Principal, b.InterestPaid, b.GrossAmount, b.USDAmount, b.NGNAmount,
-			b.Currency, ns(b.Location), ns(b.AccountOfficer),
+			b.Currency, ns(b.Location), ns(b.AccountOfficer), b.SalesOfficerID,
 			ns(b.MaturityDate), b.TenorDays, b.Rate, ns(b.Notes), user.ID)
 		if err != nil {
 			respondErr(w, 500, "Create failed: "+err.Error()); return
@@ -155,9 +157,9 @@ func fdGetTransaction(db *core.DB) http.HandlerFunc {
 
 func fdUpdateTransaction(db *core.DB) http.HandlerFunc {
 	allowed := []string{
-		"transaction_date", "customer_name", "transaction_type", "principal",
+		"transaction_date", "customer_name", "cif_number", "transaction_type", "principal",
 		"interest_paid", "gross_amount", "usd_amount", "ngn_amount", "currency",
-		"location", "account_officer", "maturity_date", "tenor_days", "rate", "notes",
+		"location", "account_officer", "sales_officer_id", "maturity_date", "tenor_days", "rate", "notes",
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")

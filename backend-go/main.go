@@ -99,6 +99,10 @@ func main() {
 	// Birthday worker — fires daily at 08:00.
 	go handlers.ScheduleBirthdayWorker(db)
 
+	// Account alert worker — fires daily at 08:00 to notify Sales AMs about
+	// upcoming loan repayments, past-due loans, and FD maturities.
+	go handlers.ScheduleAccountAlerts(db)
+
 	// NDPR erasure worker — processes approved erasure DSARs daily at midnight.
 	go handlers.StartNDPRErasureWorker(db)
 

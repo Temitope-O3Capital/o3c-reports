@@ -106,7 +106,7 @@ export default function Attribution() {
   ]
 
   return (
-    <Page title="Campaign Attribution" subtitle="Track campaign impact on loan origination">
+    <Page title="Campaign Attribution" subtitle="Track campaign impact on product origination">
       <ErrBanner error={error} onRetry={load} />
 
       <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />

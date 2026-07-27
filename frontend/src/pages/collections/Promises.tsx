@@ -1,11 +1,11 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
 import {
-  Page, KpiCard, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar,
   ErrBanner, ConfirmModal, btnSecondary, DateFilter,
   NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPut } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
 import { AMBER, GREEN, RED, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -61,10 +61,10 @@ export default function CollectionsPromises() {
   const [error, setError]     = useState<string | null>(null)
 
   // Filters
-  const [status, setStatus]     = useState('')
+  const [fStatus, setFStatus]   = useState(new Set<string>())
+  const [search, setSearch]     = useState('')
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo]     = useState(today())
-  const [q, setQ]               = useState('')
 
   // Action state
   const [actionRow, setActionRow]   = useState<PTPane | null>(null)
@@ -74,14 +74,15 @@ export default function CollectionsPromises() {
   // Selection for batch export
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set())
 
+  const fStatusKey = [...fStatus].join(',')
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     const p = new URLSearchParams({ limit: '100' })
-    if (status)   p.set('status', status)
-    if (dateFrom) p.set('date_from', dateFrom)
-    if (dateTo)   p.set('date_to', dateTo)
-    if (q.trim()) p.set('q', q.trim())
+    if (fStatusKey) p.set('status', fStatusKey)
+    if (dateFrom)   p.set('date_from', dateFrom)
+    if (dateTo)     p.set('date_to', dateTo)
     try {
       const [res, kpiRes] = await Promise.all([
         apiFetch<{ data: PTPane[] }>(`/api/collections-ops/promises?${p}`),
@@ -98,9 +99,35 @@ export default function CollectionsPromises() {
     } finally {
       setLoading(false)
     }
-  }, [status, dateFrom, dateTo, q])
+  }, [fStatusKey, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+
+  const displayed = useMemo(() => {
+    if (!search.trim()) return rows
+    const q = search.toLowerCase()
+    return rows.filter(r =>
+      [r.account_cif, r.customer_name, r.agent_name, r.promise_date].some(
+        v => v != null && String(v).toLowerCase().includes(q)
+      )
+    )
+  }, [rows, search])
+
+  const groups: FilterGroupDef[] = [
+    {
+      key: 'status',
+      label: 'STATUS',
+      options: [
+        { value: 'Pending', color: AMBER, count: rows.filter(r => r.status === 'Pending').length },
+        { value: 'Kept',    color: GREEN, count: rows.filter(r => r.status === 'Kept').length },
+        { value: 'Broken',  color: RED,   count: rows.filter(r => r.status === 'Broken').length },
+      ],
+      selected: fStatus,
+      onChange: setFStatus,
+    },
+  ]
+
+  function resetFilters() { setFStatus(new Set()); setSearch('') }
 
   async function doAction() {
     if (!actionRow || !actionType) return
@@ -215,32 +242,19 @@ export default function CollectionsPromises() {
       </div>
 
       <SectionCard title="Promises" badge={rows.length} padding={false} actions={<button onClick={() => exportPromisesCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
-        <div style={{ padding: '12px 16px 0' }}>
-          <FilterBar onReset={() => { setStatus(''); setDateFrom(monthStart()); setDateTo(today()); setQ('') }}>
-            <select value={status} onChange={e => setStatus(e.target.value)} style={filterInputStyle}>
-              <option value="">All Statuses</option>
-              <option value="Pending">Pending</option>
-              <option value="Kept">Kept</option>
-              <option value="Broken">Broken</option>
-            </select>
-            <input
-              placeholder="Search agent…"
-              value={q}
-              onChange={e => setQ(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && load()}
-              style={{ ...filterInputStyle, minWidth: 180 }}
-            />
-            <button
-              onClick={() => load()}
-              style={{ height: 32, padding: '0 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
-            >
-              Apply
-            </button>
-          </FilterBar>
-        </div>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={groups}
+          onReset={resetFilters}
+          onApply={load}
+          resultCount={displayed.length}
+          totalCount={rows.length}
+          placeholder="Search CIF, name, agent…"
+        />
         <DataTable
           cols={cols}
-          rows={rows}
+          rows={displayed}
           keyFn={r => r.id}
           loading={loading}
           pageSize={20}
@@ -250,8 +264,6 @@ export default function CollectionsPromises() {
           bulkBar={bulkBar}
           emptyText="No promises found"
           skeletonRows={8}
-          searchKeys={['account_cif', 'customer_name', 'agent_name', 'promise_date']}
-          searchPlaceholder="Search CIF, name, agent, date…"
           rowStyle={r => {
             const s = r.status
             if (s === 'Kept')   return { background: `${GREEN}0C` }

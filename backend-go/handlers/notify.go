@@ -73,6 +73,14 @@ const (
 
 	// Payroll events
 	EvtPayrollPaid = "payroll_paid"
+
+	// Sales account-manager portfolio alerts (daily worker)
+	EvtLoanRepaymentDueSoon  = "loan_repayment_due_soon"  // 7 days before next_due_date
+	EvtLoanRepaymentDue3Days = "loan_repayment_due_3days" // 3 days before next_due_date
+	EvtLoanRepaymentDueToday = "loan_repayment_due_today" // on the due date
+	EvtLoanPastDue           = "loan_past_due"            // DPD > 0 (daily)
+	EvtFDMaturing3Days       = "fd_maturing_3days"        // 3 days before maturity_date
+	EvtFDMaturingToday       = "fd_maturing_today"        // maturity_date = today
 )
 
 // NotifPayload carries everything needed to dispatch a notification.

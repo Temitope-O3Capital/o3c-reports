@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -26,11 +27,6 @@ func RegisterRecovery(r chi.Router, db *core.DB) {
 	r.Get("/legal-kpis", recoveryLegalKPIs(db))
 	r.Get("/cases/{id}/legal-milestones", recoveryLegalMilestones(db))
 	r.Post("/cases/{id}/legal-milestone", recoveryAddLegalMilestone(db))
-	r.Get("/tpa-agencies", recoveryTPAAgencies(db))
-	r.Post("/tpa-agencies", recoveryCreateTPAAgency(db))
-	r.Put("/tpa-agencies/{id}", recoveryUpdateTPAAgency(db))
-	r.Get("/tpa-agencies/{id}/accounts", recoveryTPAAgencyAccounts(db))
-	r.Get("/tpa-agencies/{id}/performance", recoveryTPAAgencyPerformance(db))
 	r.Get("/debt-sales", recoveryDebtSales(db))
 	r.Post("/debt-sales", recoveryCreateDebtSale(db))
 	r.Delete("/debt-sales/{id}", recoveryDeleteDebtSale(db))
@@ -333,20 +329,37 @@ func recoveryByAgent(db *core.DB) http.HandlerFunc {
 // recoveryLegal lists recovery cases that have entered the legal stage.
 func recoveryLegal(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		limit := qint(r, "limit", 200, 1, 1000)
-		from  := qstr(r, "from")
-		to    := qstr(r, "to")
-		var dateWhere string
+		limit     := qint(r, "limit", 200, 1, 1000)
+		from      := qstr(r, "from")
+		to        := qstr(r, "to")
+		milestone := qstr(r, "milestone")
+		q         := qstr(r, "q")
+		var extraWhere string
 		var args []any
 		n := 1
 		if from != "" {
-			dateWhere += fmt.Sprintf(" AND rc.opened_at::date >= $%d", n)
+			extraWhere += fmt.Sprintf(" AND rc.opened_at::date >= $%d", n)
 			args = append(args, from)
 			n++
 		}
 		if to != "" {
-			dateWhere += fmt.Sprintf(" AND rc.opened_at::date <= $%d", n)
+			extraWhere += fmt.Sprintf(" AND rc.opened_at::date <= $%d", n)
 			args = append(args, to)
+			n++
+		}
+		if milestone != "" {
+			vals := strings.Split(milestone, ",")
+			placeholders := make([]string, len(vals))
+			for i, v := range vals {
+				placeholders[i] = fmt.Sprintf("$%d", n)
+				args = append(args, strings.TrimSpace(v))
+				n++
+			}
+			extraWhere += " AND rc.legal_stage IN (" + strings.Join(placeholders, ",") + ")"
+		}
+		if q != "" {
+			extraWhere += fmt.Sprintf(" AND (rc.account_cif ILIKE $%d OR lp.court_name ILIKE $%d)", n, n)
+			args = append(args, "%"+q+"%")
 			n++
 		}
 		args = append(args, limit)
@@ -369,7 +382,7 @@ func recoveryLegal(db *core.DB) http.HandlerFunc {
 			) lp ON true
 			WHERE rc.legal_stage IS NOT NULL%s
 			ORDER BY rc.updated_at DESC
-			LIMIT $%d`, dateWhere, n), args...)
+			LIMIT $%d`, extraWhere, n), args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -485,205 +498,6 @@ func recoveryAddLegalMilestone(db *core.DB) http.HandlerFunc {
 			EntityRef: fmt.Sprintf("recovery_case:%d", id),
 		})
 		respond(w, rows[0], "pg")
-	}
-}
-
-// ── TPA (Third-Party Agency) endpoints ───────────────────────────────────────
-// The tpa_agencies table may not exist yet. PGQuery handles missing tables by
-// returning empty rows, so GETs degrade gracefully. For mutations, an error from
-// a missing table is caught and surfaced as a 422 with a clear message.
-
-func recoveryTPAAgencies(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		from := qstr(r, "from")
-		to   := qstr(r, "to")
-		var rcWhere string
-		var args []any
-		n := 1
-		if from != "" {
-			rcWhere += fmt.Sprintf(" AND rc.opened_at::date >= $%d", n)
-			args = append(args, from)
-			n++
-		}
-		if to != "" {
-			rcWhere += fmt.Sprintf(" AND rc.opened_at::date <= $%d", n)
-			args = append(args, to)
-			n++
-		}
-		_ = n
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT
-			    ta.id,
-			    ta.name,
-			    ta.licence_number,
-			    ta.contact_name,
-			    ta.contact_phone,
-			    ta.commission_pct,
-			    COUNT(rc.id) AS accounts_assigned,
-			    COALESCE(SUM(rc.recovered_kobo), 0) AS recovered_kobo,
-			    ROUND(COALESCE(SUM(rc.recovered_kobo), 0) * ta.commission_pct / 100.0) AS commission_accrued_kobo,
-			    ta.active
-			FROM tpa_agencies ta
-			LEFT JOIN recovery_cases rc ON rc.tpa_agency_id = ta.id AND 1=1`+rcWhere+`
-			GROUP BY ta.id, ta.name, ta.licence_number, ta.contact_name,
-			         ta.contact_phone, ta.commission_pct, ta.active
-			ORDER BY ta.name`, args...)
-		if err != nil {
-			respondErr(w, 500, "Query failed")
-			return
-		}
-		if rows == nil {
-			rows = []core.Row{}
-		}
-		respond(w, rows, "pg")
-	}
-}
-
-func recoveryCreateTPAAgency(db *core.DB) http.HandlerFunc {
-	type body struct {
-		Name          string  `json:"name"`
-		LicenceNumber string  `json:"licence_number"`
-		Address       string  `json:"address"`
-		CommissionPct float64 `json:"commission_pct"`
-		ContactName   string  `json:"contact_name"`
-		ContactPhone  string  `json:"contact_phone"`
-	}
-	return func(w http.ResponseWriter, r *http.Request) {
-		var b body
-		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON")
-			return
-		}
-		if b.Name == "" {
-			respondErr(w, 422, "name is required")
-			return
-		}
-		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO tpa_agencies
-			    (name, licence_number, address, commission_pct, contact_name, contact_phone, active, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, true, NOW())
-			RETURNING id, name, licence_number, contact_name, contact_phone, commission_pct, active`,
-			b.Name, b.LicenceNumber, b.Address, b.CommissionPct, b.ContactName, b.ContactPhone)
-		if err != nil {
-			respondErr(w, 500, "Insert failed")
-			return
-		}
-		if len(rows) == 0 {
-			respondErr(w, 422, "tpa_agencies table not provisioned — run migration to enable TPA tracking")
-			return
-		}
-		respond(w, rows[0], "pg")
-	}
-}
-
-func recoveryUpdateTPAAgency(db *core.DB) http.HandlerFunc {
-	type body struct {
-		Name          string  `json:"name"`
-		LicenceNumber string  `json:"licence_number"`
-		Address       string  `json:"address"`
-		CommissionPct float64 `json:"commission_pct"`
-		ContactName   string  `json:"contact_name"`
-		ContactPhone  string  `json:"contact_phone"`
-		Active        *bool   `json:"active"`
-	}
-	return func(w http.ResponseWriter, r *http.Request) {
-		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-		if err != nil {
-			respondErr(w, 400, "Invalid agency ID")
-			return
-		}
-		var b body
-		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON")
-			return
-		}
-		active := true
-		if b.Active != nil {
-			active = *b.Active
-		}
-		rows, err := db.PGQuery(r.Context(), `
-			UPDATE tpa_agencies
-			SET name = $1, licence_number = $2, address = $3, commission_pct = $4,
-			    contact_name = $5, contact_phone = $6, active = $7, updated_at = NOW()
-			WHERE id = $8
-			RETURNING id, name, licence_number, contact_name, contact_phone, commission_pct, active`,
-			b.Name, b.LicenceNumber, b.Address, b.CommissionPct, b.ContactName, b.ContactPhone, active, id)
-		if err != nil {
-			respondErr(w, 500, "Update failed")
-			return
-		}
-		if len(rows) == 0 {
-			respondErr(w, 404, "Agency not found or tpa_agencies table not provisioned")
-			return
-		}
-		respond(w, rows[0], "pg")
-	}
-}
-
-func recoveryTPAAgencyAccounts(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-		if err != nil {
-			respondErr(w, 400, "Invalid agency ID")
-			return
-		}
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT
-			    rc.account_cif,
-			    rc.outstanding_kobo,
-			    rc.status
-			FROM recovery_cases rc
-			WHERE rc.tpa_agency_id = $1
-			ORDER BY rc.outstanding_kobo DESC`, id)
-		if err != nil {
-			respondErr(w, 500, "Query failed")
-			return
-		}
-		if rows == nil {
-			rows = []core.Row{}
-		}
-		respond(w, rows, "pg")
-	}
-}
-
-func recoveryTPAAgencyPerformance(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-		if err != nil {
-			respondErr(w, 400, "Invalid agency ID")
-			return
-		}
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT
-			    COUNT(rc.id) AS cases_assigned,
-			    COALESCE(SUM(rc.recovered_kobo), 0) AS recovered_kobo,
-			    ROUND(
-			        100.0
-			            * COUNT(*) FILTER (WHERE rc.status = 'closed')
-			            / NULLIF(COUNT(*), 0),
-			        1
-			    ) AS success_rate_pct,
-			    ROUND(
-			        COALESCE(SUM(rc.recovered_kobo), 0)
-			            * MAX(ta.commission_pct) / 100.0
-			    ) AS commission_accrued_kobo
-			FROM recovery_cases rc
-			JOIN tpa_agencies ta ON ta.id = rc.tpa_agency_id
-			WHERE rc.tpa_agency_id = $1`, id)
-		if err != nil {
-			respondErr(w, 500, "Query failed")
-			return
-		}
-		perf := core.Row{
-			"cases_assigned":        0,
-			"recovered_kobo":        0,
-			"success_rate_pct":      0.0,
-			"commission_accrued_kobo": 0,
-		}
-		if len(rows) > 0 {
-			perf = rows[0]
-		}
-		respond(w, perf, "pg")
 	}
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter, NameCell, StatusBadge } from '../../components/UI'
-import type { TableCol } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, DateFilter, NameCell, StatusBadge } from '../../components/UI'
+import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -191,8 +191,9 @@ export default function CardsDisputes() {
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
   const [showNew, setShowNew] = useState(false)
-  const [search,  setSearch]  = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [search,       setSearch]       = useState('')
+  const [fStatuses,    setFStatuses]    = useState(new Set<string>())
+  const [fDisputeTypes, setFDisputeTypes] = useState(new Set<string>())
   const [sel, setSel] = useState<Set<string | number>>(new Set())
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
@@ -233,13 +234,14 @@ export default function CardsDisputes() {
   ], [load])
 
   const displayed = useMemo(() => rows.filter(r => {
-    if (statusFilter && r.status !== statusFilter) return false
+    if (fStatuses.size && !fStatuses.has(r.status)) return false
+    if (fDisputeTypes.size && !fDisputeTypes.has(r.dispute_type)) return false
     if (search) {
       const q = search.toLowerCase()
       return r.customer_name.toLowerCase().includes(q) || r.ref.toLowerCase().includes(q)
     }
     return true
-  }), [rows, search, statusFilter])
+  }), [rows, search, fStatuses, fDisputeTypes])
 
   const openCount   = rows.filter(d => d.status !== 'resolved' && d.status !== 'declined').length
   const totalAmount = rows.reduce((s, d) => s + Number(d.amount_kobo), 0)
@@ -281,17 +283,30 @@ export default function CardsDisputes() {
       </div>
 
       <SectionCard title="All Disputes" badge={displayed.length} padding={false} actions={<button onClick={() => exportDisputesCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: 10, alignItems: 'center' }}>
-          <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
-          <select
-            value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-            style={{ padding: '7px 12px', borderRadius: RADIUS.lg, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}
-          >
-            <option value="">All statuses</option>
-            {Object.keys(STATUS_LABELS).map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-          </select>
-          <span style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{displayed.length} disputes</span>
-        </div>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[
+            {
+              key: 'status',
+              label: 'Status',
+              options: Object.entries(STATUS_COLORS).map(([v, c]) => ({ value: v, label: STATUS_LABELS[v] ?? v, color: c.txt })),
+              selected: fStatuses,
+              onChange: setFStatuses,
+            },
+            {
+              key: 'dispute_type',
+              label: 'Type',
+              options: DISPUTE_TYPES.map(v => ({ value: v })),
+              selected: fDisputeTypes,
+              onChange: setFDisputeTypes,
+            },
+          ] as FilterGroupDef[]}
+          onReset={() => { setSearch(''); setFStatuses(new Set()); setFDisputeTypes(new Set()) }}
+          resultCount={displayed.length}
+          totalCount={rows.length}
+          placeholder="Search disputes…"
+        />
         <DataTable
           cols={cols}
           rows={displayed}

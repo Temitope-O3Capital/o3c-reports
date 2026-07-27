@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
-import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, Spinner, NameCell, ActionRow } from '../../components/UI'
+import { Page, SectionCard, DataTable, ExpandableFilterBar, filterInputStyle, ErrBanner, Spinner, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtPct } from '../../lib/fmt'
@@ -117,7 +117,8 @@ function BudgetTooltip({ active, payload, label }: any) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function FinanceBudget() {
-  const [centreFilter, setCentreFilter] = useState('')
+  const [fCentres, setFCentres] = useState<Set<string>>(new Set())
+  const [search, setSearch] = useState('')
   const [period, setPeriod] = useState('2026-07')
   const [rows, setRows] = useState<BudgetLine[]>([])
   const [loading, setLoading] = useState(false)
@@ -139,7 +140,14 @@ export default function FinanceBudget() {
   useEffect(() => { load() }, [load])
 
   const centres = [...new Set(rows.map(l => l.cost_centre))]
-  const filtered = rows.filter(l => !centreFilter || l.cost_centre === centreFilter)
+  const filtered = useMemo(() => rows.filter(l => {
+    if (fCentres.size > 0 && !fCentres.has(l.cost_centre)) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (!l.cost_centre.toLowerCase().includes(q) && !l.category.toLowerCase().includes(q)) return false
+    }
+    return true
+  }), [rows, fCentres, search])
 
   // Aggregate for chart
   const chartData = centres.map(c => {
@@ -214,26 +222,31 @@ export default function FinanceBudget() {
             </ResponsiveContainer>
           </SectionCard>
 
-          {/* Filter + table */}
-          <FilterBar onReset={() => setCentreFilter('')}>
-            <select value={centreFilter} onChange={e => setCentreFilter(e.target.value)} style={filterInputStyle}>
-              <option value="">All cost centres</option>
-              {centres.map(c => <option key={c}>{c}</option>)}
-            </select>
-          </FilterBar>
-
           <SectionCard padding={false} actions={
             <button onClick={() => exportBudgetCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
               <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
               Export CSV
             </button>
           }>
+            <ExpandableFilterBar
+              search={search}
+              onSearch={setSearch}
+              groups={[{
+                key: 'centre', label: 'Cost Centre',
+                options: centres.map(c => ({ value: c, label: c })),
+                selected: fCentres,
+                onChange: setFCentres,
+              }]}
+              onReset={() => { setFCentres(new Set()); setSearch('') }}
+              resultCount={filtered.length}
+              totalCount={rows.length}
+              placeholder="Search cost centre, category…"
+            />
             <DataTable
               cols={COLS}
               rows={filtered}
               keyFn={r => r.id}
               emptyText="No budget lines for this period"
-              searchKeys={['cost_centre', 'category', 'period']}
               pageSize={20}
               selectable
               selectedIds={sel}

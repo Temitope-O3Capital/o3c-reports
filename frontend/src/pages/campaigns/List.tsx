@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, SectionCard, DataTable, ExpandableFilterBar, filterInputStyle,
   Modal, ErrBanner, btnPrimary, btnSecondary, KpiCard, DateFilter,
   NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
-import type { TableCol, RowAction } from '../../components/UI'
+import type { TableCol, RowAction, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtNum, fmtDatetime, fmtPct, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -86,8 +86,9 @@ export default function CampaignsList() {
   const [hasMore, setHasMore]     = useState(false)
   const [page, setPage]           = useState(1)
   const [err, setErr]             = useState<string | null>(null)
-  const [typeFilter, setTypeFilter]     = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [search,    setSearch]    = useState('')
+  const [fTypes,    setFTypes]    = useState(new Set<string>())
+  const [fStatuses, setFStatuses] = useState(new Set<string>())
   const [showCreate, setShowCreate] = useState(false)
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
@@ -99,10 +100,10 @@ export default function CampaignsList() {
     setLoading(true); setErr(null); setPage(1)
     try {
       const p = new URLSearchParams({ limit: '50', offset: '0' })
-      if (typeFilter)   p.set('type',   typeFilter)
-      if (statusFilter) p.set('status', statusFilter)
-      if (dateFrom)     p.set('from',   dateFrom)
-      if (dateTo)       p.set('to',     dateTo)
+      if (fTypes.size)    p.set('type',   [...fTypes].join(','))
+      if (fStatuses.size) p.set('status', [...fStatuses].join(','))
+      if (dateFrom)       p.set('from',   dateFrom)
+      if (dateTo)         p.set('to',     dateTo)
       const [res, ls] = await Promise.all([
         apiFetch<{ total: number; campaigns: Campaign[] }>(`/api/campaigns?${p}`),
         apiFetch<ContactList[] | { data: ContactList[] }>('/api/contact-lists?limit=200'),
@@ -115,17 +116,17 @@ export default function CampaignsList() {
       setLists(Array.isArray(lsArr) ? lsArr : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [typeFilter, statusFilter, dateFrom, dateTo])
+  }, [fTypes, fStatuses, dateFrom, dateTo])
 
   async function loadMore() {
     setLoadingMore(true)
     try {
       const nextPage = page + 1
       const p = new URLSearchParams({ limit: '50', offset: String((nextPage - 1) * 50) })
-      if (typeFilter)   p.set('type',   typeFilter)
-      if (statusFilter) p.set('status', statusFilter)
-      if (dateFrom)     p.set('from',   dateFrom)
-      if (dateTo)       p.set('to',     dateTo)
+      if (fTypes.size)    p.set('type',   [...fTypes].join(','))
+      if (fStatuses.size) p.set('status', [...fStatuses].join(','))
+      if (dateFrom)       p.set('from',   dateFrom)
+      if (dateTo)         p.set('to',     dateTo)
       const res = await apiFetch<{ total: number; campaigns: Campaign[] }>(`/api/campaigns?${p}`)
       const newCampaigns = Array.isArray(res?.campaigns) ? res.campaigns : []
       setCampaigns(prev => [...prev, ...newCampaigns])
@@ -163,6 +164,10 @@ export default function CampaignsList() {
     } catch (ex: any) { setActionErr(ex.message) }
     finally { setSaving(false) }
   }
+
+  const displayed = useMemo(() =>
+    search ? campaigns.filter(c => c.name.toLowerCase().includes(search.toLowerCase())) : campaigns
+  , [campaigns, search])
 
   // KPI counts
   const active    = campaigns.filter(c => c.status === 'active').length
@@ -283,25 +288,36 @@ export default function CampaignsList() {
         <KpiCard label="Draft"     value={fmtNum(draft)}     loading={loading} />
       </div>
 
-      <FilterBar onReset={() => { setTypeFilter(''); setStatusFilter('') }}>
-        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Types</option>
-          <option value="email">Email</option>
-          <option value="sms">SMS</option>
-          <option value="multi">Multi-channel</option>
-        </select>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Statuses</option>
-          <option value="draft">Draft</option>
-          <option value="scheduled">Scheduled</option>
-          <option value="active">Active</option>
-          <option value="paused">Paused</option>
-          <option value="completed">Completed</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
-      </FilterBar>
-
-      <SectionCard title="All Campaigns" badge={campaigns.length} padding={false} actions={<button onClick={() => exportCampaignsCsv(campaigns)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="All Campaigns" badge={displayed.length} padding={false} actions={<button onClick={() => exportCampaignsCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[
+            {
+              key: 'type',
+              label: 'Type',
+              options: [
+                { value: 'email', label: 'Email', color: BLUE },
+                { value: 'sms', label: 'SMS', color: PURPLE },
+                { value: 'multi', label: 'Multi-channel', color: GREEN },
+              ],
+              selected: fTypes,
+              onChange: setFTypes,
+            },
+            {
+              key: 'status',
+              label: 'Status',
+              options: ['draft', 'scheduled', 'active', 'paused', 'completed', 'cancelled'].map(v => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1) })),
+              selected: fStatuses,
+              onChange: setFStatuses,
+            },
+          ] as FilterGroupDef[]}
+          onReset={() => { setSearch(''); setFTypes(new Set()); setFStatuses(new Set()) }}
+          onApply={load}
+          resultCount={displayed.length}
+          totalCount={total}
+          placeholder="Search campaigns…"
+        />
         {hasMore && (
           <div style={{ padding: '6px 16px', background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)', fontSize: TEXT.sm, color: 'var(--txt3)' }}>
             Showing {campaigns.length} of {fmtNum(total)} campaigns
@@ -309,13 +325,11 @@ export default function CampaignsList() {
         )}
         <DataTable<Campaign>
           cols={cols}
-          rows={campaigns}
+          rows={displayed}
           keyFn={r => r.id}
           onRowClick={r => navigate(`/campaigns/${r.id}/report`)}
           emptyText="No campaigns found."
           skeletonRows={loading ? 8 : 0}
-          searchKeys={['name', 'status', 'type']}
-          searchPlaceholder="Search campaigns…"
           pageSize={20}
         />
         {hasMore && (

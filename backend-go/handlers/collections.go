@@ -1,8 +1,13 @@
 package handlers
 
 import (
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -11,8 +16,8 @@ import (
 func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("collections"))
 	r.Get("/kpis", collectionsKPIs(db))
-	r.Get("/portfolio-kpis", collectionsPortfolioKPIs(db)) // loan-platform DPD KPIs
-	r.Get("/dpd-trend",      collectionsDPDTrend(db))      // 6-month PAR trend from collection_assignments
+	r.Get("/portfolio-kpis", collectionsPortfolioKPIs(db))
+	r.Get("/dpd-trend",      collectionsDPDTrend(db))
 	r.Get("/by-agent", collectionsByAgent(db))
 	r.Get("/by-mode", collectionsByMode(db))
 	r.Get("/monthly-trend", collectionsMonthlyTrend(db))
@@ -22,6 +27,15 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Get("/promise-kpis", collectionsPromiseKPIs(db))
 	r.Get("/repayment-kpis", collectionsRepaymentKPIs(db))
 	r.Get("/writeoff-kpis", collectionsWriteoffKPIs(db))
+
+	// Portfolio + watchlist (all collections roles can read)
+	r.Get("/portfolio", collectionsPortfolioAccounts(db))
+	r.Get("/watchlist", collectionsWatchlistList(db))
+	r.Post("/watchlist", collectionsWatchlistAdd(db))
+	r.Put("/watchlist/{id}/resolve", collectionsWatchlistResolve(db))
+
+	// Batch payment upload
+	r.Post("/payments/batch", collectionsBatchPayment(db))
 }
 
 // collectionsPortfolioKPIs returns PAR-based KPIs from collection_assignments.
@@ -455,5 +469,298 @@ func collectionsWriteoffKPIs(db *core.DB) http.HandlerFunc {
 			return
 		}
 		respond(w, rows[0], "pg")
+	}
+}
+
+// ── Portfolio: all active loan accounts, DPD-sorted ─────────────────────────
+
+func collectionsPortfolioAccounts(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		search := strings.TrimSpace(qstr(r, "q"))
+		territory := qstr(r, "territory") // "collections" | "recovery" | ""
+		onWatchlist := qstr(r, "watchlist") // "true" | ""
+
+		query := `
+			SELECT
+			    la.id                                                AS loan_id,
+			    la.applicant_cif,
+			    la.status                                            AS loan_status,
+			    ca.dpd_bucket,
+			    CAST(
+			        COALESCE(
+			            NULLIF(REGEXP_REPLACE(SPLIT_PART(COALESCE(ca.dpd_bucket,'0'),'-',1), '[^0-9]','','g'), ''),
+			            '0'
+			        ) AS INT
+			    )                                                    AS dpd_lower,
+			    COALESCE(ca.outstanding_kobo, la.disbursement_amount_kobo, 0) AS outstanding_kobo,
+			    ca.current_stage,
+			    u.full_name                                          AS agent_name,
+			    (SELECT cw.id FROM collections_watchlist cw
+			     WHERE cw.account_cif = la.applicant_cif AND cw.status = 'active' LIMIT 1) AS watchlist_id,
+			    (SELECT cw.scenario FROM collections_watchlist cw
+			     WHERE cw.account_cif = la.applicant_cif AND cw.status = 'active' LIMIT 1) AS watchlist_scenario
+			FROM loan_applications la
+			LEFT JOIN collection_assignments ca ON ca.account_cif = la.applicant_cif
+			LEFT JOIN o3c_users u ON u.id = ca.agent_user_id
+			WHERE la.status IN ('active','booked')`
+		args := []any{}
+		n := 1
+
+		if search != "" {
+			query += fmt.Sprintf(" AND la.applicant_cif ILIKE $%d", n)
+			args = append(args, "%"+search+"%")
+			n++
+		}
+		if territory == "collections" {
+			query += ` AND CAST(COALESCE(NULLIF(REGEXP_REPLACE(SPLIT_PART(COALESCE(ca.dpd_bucket,'0'),'-',1),'[^0-9]','','g'),''),'0') AS INT) <= 90`
+		} else if territory == "recovery" {
+			query += ` AND CAST(COALESCE(NULLIF(REGEXP_REPLACE(SPLIT_PART(COALESCE(ca.dpd_bucket,'0'),'-',1),'[^0-9]','','g'),''),'0') AS INT) > 90`
+		}
+		if onWatchlist == "true" {
+			query += " AND EXISTS (SELECT 1 FROM collections_watchlist cw WHERE cw.account_cif = la.applicant_cif AND cw.status = 'active')"
+		}
+		_ = n
+
+		query += " ORDER BY dpd_lower DESC LIMIT 500"
+
+		rows, err := db.PGQuery(ctx, query, args...)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+// ── Watchlist CRUD ────────────────────────────────────────────────────────────
+
+func collectionsWatchlistList(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		status := qstr(r, "status")
+		if status == "" {
+			status = "active"
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+			    cw.id, cw.account_cif, cw.scenario, cw.notes,
+			    cw.dpd_at_flag, cw.outstanding_kobo, cw.status,
+			    cw.resolved_at, cw.resolution_notes, cw.created_at,
+			    u.full_name AS flagged_by_name
+			FROM collections_watchlist cw
+			LEFT JOIN o3c_users u ON u.id = cw.flagged_by
+			WHERE cw.status = $1
+			ORDER BY cw.created_at DESC
+			LIMIT 200`, status)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+func collectionsWatchlistAdd(db *core.DB) http.HandlerFunc {
+	type body struct {
+		AccountCIF      string `json:"account_cif"`
+		Scenario        string `json:"scenario"`
+		Notes           string `json:"notes"`
+		DPDAtFlag       int    `json:"dpd_at_flag"`
+		OutstandingKobo int64  `json:"outstanding_kobo"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.AccountCIF == "" || b.Scenario == "" {
+			respondErr(w, 422, "account_cif and scenario are required")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO collections_watchlist
+			    (account_cif, flagged_by, scenario, notes, dpd_at_flag, outstanding_kobo, status, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, 'active', NOW())
+			RETURNING id, account_cif, scenario, notes, dpd_at_flag, outstanding_kobo, status, created_at`,
+			b.AccountCIF, user.ID, b.Scenario, b.Notes, b.DPDAtFlag, b.OutstandingKobo)
+		if err != nil {
+			respondErr(w, 500, "Insert failed")
+			return
+		}
+		respond(w, rows[0], "pg")
+	}
+}
+
+func collectionsWatchlistResolve(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Status          string `json:"status"` // resolved | escalated_to_recovery
+		ResolutionNotes string `json:"resolution_notes"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Invalid ID")
+			return
+		}
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.Status != "resolved" && b.Status != "escalated_to_recovery" {
+			respondErr(w, 422, "status must be resolved or escalated_to_recovery")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		rows, err := db.PGQuery(r.Context(), `
+			UPDATE collections_watchlist
+			SET status = $1, resolved_at = NOW(), resolved_by = $2, resolution_notes = $3
+			WHERE id = $4
+			RETURNING id, account_cif, scenario, status, resolved_at, resolution_notes`,
+			b.Status, user.ID, b.ResolutionNotes, id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Watchlist entry not found")
+			return
+		}
+		respond(w, rows[0], "pg")
+	}
+}
+
+// ── Batch payment upload ──────────────────────────────────────────────────────
+
+func collectionsBatchPayment(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(4 << 20); err != nil {
+			respondErr(w, 400, "Invalid multipart form")
+			return
+		}
+		file, _, err := r.FormFile("file")
+		if err != nil {
+			respondErr(w, 400, "Missing file field")
+			return
+		}
+		defer file.Close()
+
+		reader := csv.NewReader(file)
+		reader.TrimLeadingSpace = true
+		records, err := reader.ReadAll()
+		if err != nil {
+			respondErr(w, 400, "Invalid CSV")
+			return
+		}
+		if len(records) < 2 {
+			respondErr(w, 422, "CSV has no data rows")
+			return
+		}
+
+		user := core.UserFromCtx(r.Context())
+		ctx := r.Context()
+
+		type result struct {
+			Row     int    `json:"row"`
+			CIF     string `json:"cif"`
+			Success bool   `json:"success"`
+			Error   string `json:"error,omitempty"`
+		}
+		var results []result
+		processed, failed := 0, 0
+
+		for i, rec := range records[1:] {
+			rowNum := i + 2
+			if len(rec) < 5 {
+				results = append(results, result{Row: rowNum, Error: "not enough columns (need: cif,amount_naira,payment_date,channel,reference)"})
+				failed++
+				continue
+			}
+			cif := strings.TrimSpace(rec[0])
+			amtNaira, parseErr := strconv.ParseFloat(strings.TrimSpace(rec[1]), 64)
+			payDate := strings.TrimSpace(rec[2])
+			channel := strings.TrimSpace(rec[3])
+			reference := strings.TrimSpace(rec[4])
+
+			if parseErr != nil || amtNaira <= 0 {
+				results = append(results, result{Row: rowNum, CIF: cif, Error: "invalid amount"})
+				failed++
+				continue
+			}
+			if payDate == "" || channel == "" {
+				results = append(results, result{Row: rowNum, CIF: cif, Error: "payment_date and channel required"})
+				failed++
+				continue
+			}
+			amtKobo := int64(amtNaira * 100)
+
+			loanRows, qErr := db.PGQuery(ctx, `
+				SELECT id FROM loan_applications WHERE applicant_cif = $1 AND status IN ('active','booked')
+				ORDER BY created_at DESC LIMIT 1`, cif)
+			if qErr != nil || len(loanRows) == 0 {
+				results = append(results, result{Row: rowNum, CIF: cif, Error: "no active loan found for CIF"})
+				failed++
+				continue
+			}
+			loanID, _ := loanRows[0]["id"].(int64)
+
+			tx, txErr := db.PG.BeginTx(ctx, nil)
+			if txErr != nil {
+				results = append(results, result{Row: rowNum, CIF: cif, Error: "tx start failed"})
+				failed++
+				continue
+			}
+
+			var payID int64
+			insErr := tx.QueryRowContext(ctx, `
+				INSERT INTO loan_repayments (application_id, amount_kobo, payment_date, payment_method, reference, received_by, created_at)
+				VALUES ($1, $2, $3, $4, $5, $6, NOW())
+				RETURNING id`,
+				loanID, amtKobo, payDate, channel, reference, user.ID,
+			).Scan(&payID)
+			if insErr != nil {
+				tx.Rollback() //nolint:errcheck
+				results = append(results, result{Row: rowNum, CIF: cif, Error: "insert failed"})
+				failed++
+				continue
+			}
+
+			if jErr := postJournalTx(ctx, tx, glEntry{
+				Date:          time.Now(),
+				Description:   fmt.Sprintf("Batch collection payment — CIF %s", cif),
+				Reference:     fmt.Sprintf("COL-BATCH-%d", payID),
+				DebitAccount:  "1001",
+				CreditAccount: "1100",
+				AmountKobo:    amtKobo,
+				SourceType:    "loan_repayment",
+				SourceID:      payID,
+				PostedBy:      user.ID,
+			}); jErr != nil {
+				tx.Rollback() //nolint:errcheck
+				results = append(results, result{Row: rowNum, CIF: cif, Error: "GL post failed"})
+				failed++
+				continue
+			}
+
+			if cErr := tx.Commit(); cErr != nil {
+				results = append(results, result{Row: rowNum, CIF: cif, Error: "commit failed"})
+				failed++
+				continue
+			}
+
+			results = append(results, result{Row: rowNum, CIF: cif, Success: true})
+			processed++
+		}
+
+		respond(w, map[string]any{
+			"processed": processed,
+			"failed":    failed,
+			"total":     processed + failed,
+			"results":   results,
+		}, "pg")
 	}
 }

@@ -1,9 +1,9 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { Page, SectionCard, DataTable, StatusBadge, filterInputStyle, SearchInput, ErrBanner, Spinner, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import { Page, SectionCard, DataTable, StatusBadge, filterInputStyle, ExpandableFilterBar, ErrBanner, Spinner, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDatetime, monthStart, today } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 function exportPostingsCsv(rows: Posting[]) {
@@ -156,21 +156,14 @@ function ProposeModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
-  pending:  { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
-  approved: { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
-  rejected: { bg: 'rgba(192,0,0,.08)',    txt: '#C00000' },
-}
-
 export default function FinanceManualPosting() {
   const [rows, setRows] = useState<Posting[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [fStatuses, setFStatuses] = useState<Set<string>>(new Set())
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
-  const [filterOpen, setFilterOpen] = useState(false)
   const [showPropose, setShowPropose] = useState(false)
   const [sel, setSel] = useState<Set<string | number>>(new Set())
 
@@ -178,7 +171,7 @@ export default function FinanceManualPosting() {
     setLoading(true); setError(null)
     try {
       const params = new URLSearchParams()
-      if (statusFilter) params.set('status', statusFilter)
+      if (fStatuses.size) params.set('status', [...fStatuses].join(','))
       params.set('limit', '200')
       params.set('date_from', dateFrom)
       params.set('date_to', dateTo)
@@ -189,7 +182,7 @@ export default function FinanceManualPosting() {
     } finally {
       setLoading(false)
     }
-  }, [statusFilter, dateFrom, dateTo])
+  }, [fStatuses, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -227,8 +220,6 @@ export default function FinanceManualPosting() {
     }
   }
 
-  const activeFilterCount = statusFilter ? 1 : 0
-
   const filtered = useMemo(() => rows.filter(r => {
     if (search) {
       const q = search.toLowerCase()
@@ -239,7 +230,7 @@ export default function FinanceManualPosting() {
 
   const cols = PostingCols(handleApprove, handleReject)
 
-  function resetFilters() { setSearch(''); setStatusFilter('') }
+  function resetFilters() { setSearch(''); setFStatuses(new Set()) }
 
   return (
     <Page
@@ -271,125 +262,31 @@ export default function FinanceManualPosting() {
       {!loading && !error && (
         <SectionCard title="Postings" badge={filtered.length} padding={false}>
 
-          {/* Filter bar */}
-          <div style={{
-            padding: `${SP[3]} 18px`,
-            borderBottom: filterOpen ? 'none' : '1px solid var(--bdr)',
-            display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap' as const,
-          }}>
-            <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
-
-            <button
-              onClick={() => setFilterOpen(o => !o)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '6px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
-                border: `1.5px solid ${activeFilterCount > 0 ? RED : 'var(--input-bdr)'}`,
-                background: 'transparent',
-                color: activeFilterCount > 0 ? RED : 'var(--txt2)',
-                cursor: 'pointer', fontFamily: SORA, position: 'relative' as const,
-              }}
-            >
-              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>tune</span>
-              Filters
-              {activeFilterCount > 0 && (
-                <span style={{
-                  position: 'absolute', top: -6, right: -6,
-                  width: 16, height: 16, borderRadius: '50%',
-                  background: RED, color: '#fff',
-                  fontSize: 9, fontWeight: FW.bold, fontFamily: INTER,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>{activeFilterCount}</span>
-              )}
-            </button>
-
-            <div style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
-              {filtered.length} of {rows.length}
-            </div>
-          </div>
-
-          {/* Expandable filter panel */}
-          {filterOpen && (
-            <div style={{ borderBottom: '1px solid var(--bdr)' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '20px 20px 0' }}>
-
-                {/* Status */}
-                <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
-                  <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase' as const, letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>STATUS</div>
-                  {[
-                    { value: '',         label: 'All statuses', color: NAVY },
-                    { value: 'pending',  label: 'Pending',      color: AMBER },
-                    { value: 'approved', label: 'Approved',     color: GREEN },
-                    { value: 'rejected', label: 'Rejected',     color: RED },
-                  ].map(opt => {
-                    const sc = STATUS_COLORS[opt.value]
-                    const count = opt.value ? rows.filter(r => r.status === opt.value).length : rows.length
-                    return (
-                      <label key={opt.value || 'all'} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
-                        <input type="radio" name="posting_status" value={opt.value} checked={statusFilter === opt.value} onChange={() => setStatusFilter(opt.value)}
-                          style={{ accentColor: opt.color, width: 14, height: 14, cursor: 'pointer' }} />
-                        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: sc?.bg ?? 'var(--chip-bg)', color: sc?.txt ?? 'var(--chip-txt)', textTransform: 'capitalize' as const }}>
-                          {opt.label}
-                        </span>
-                        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
-                      </label>
-                    )
-                  })}
-                </div>
-
-                <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }} />
-                <div style={{ paddingLeft: 20 }} />
-
-              </div>
-
-              <div style={{
-                padding: '14px 20px', borderTop: '1px solid var(--bdr)', marginTop: 16,
-                display: 'flex', alignItems: 'center', gap: SP[3],
-              }}>
-                <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: SORA }}>
-                  {activeFilterCount === 0
-                    ? `No filters — showing all ${rows.length} postings`
-                    : `1 filter active`}
-                </span>
-                <button onClick={resetFilters} style={{
-                  padding: '5px 12px', borderRadius: 7, fontSize: TEXT.sm, fontWeight: FW.semibold,
-                  border: '1.5px solid var(--input-bdr)', background: 'transparent',
-                  color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA,
-                }}>Reset</button>
-                <button onClick={() => setFilterOpen(false)} style={{
-                  marginLeft: 'auto', padding: '5px 16px', borderRadius: 7,
-                  fontSize: TEXT.sm, fontWeight: FW.semibold, border: 'none', background: RED, color: '#fff',
-                  cursor: 'pointer', fontFamily: SORA,
-                }}>Apply · {filtered.length} results</button>
-              </div>
-            </div>
-          )}
-
-          {/* Active chips */}
-          {!filterOpen && statusFilter && (
-            <div style={{
-              padding: '8px 18px', borderBottom: '1px solid var(--bdr)',
-              display: 'flex', alignItems: 'center', gap: 6,
-            }}>
-              {(() => {
-                const sc = STATUS_COLORS[statusFilter]
-                return (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: sc.bg, color: sc.txt, textTransform: 'capitalize' as const }}>
-                    {statusFilter}
-                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setStatusFilter('')}>close</span>
-                  </span>
-                )
-              })()}
-            </div>
-          )}
+          <ExpandableFilterBar
+            search={search}
+            onSearch={setSearch}
+            groups={[{
+              key: 'status', label: 'Status',
+              options: [
+                { value: 'pending',  label: 'Pending',  color: AMBER },
+                { value: 'approved', label: 'Approved', color: GREEN },
+                { value: 'rejected', label: 'Rejected', color: RED   },
+              ],
+              selected: fStatuses,
+              onChange: setFStatuses,
+            }]}
+            onReset={resetFilters}
+            onApply={() => load()}
+            resultCount={filtered.length}
+            totalCount={rows.length}
+            placeholder="Search narrative, accounts…"
+          />
 
           <DataTable
             cols={cols}
             rows={filtered}
             keyFn={r => r.id}
             emptyText="No manual postings pending approval"
-            searchKeys={['narrative', 'dr_account', 'cr_account', 'status']}
-            searchPlaceholder="Search narrative, accounts, status…"
             pageSize={20}
             selectable
             selectedIds={sel}

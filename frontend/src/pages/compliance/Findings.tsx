@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, SectionCard, DataTable, ExpandableFilterBar,
   Modal, ConfirmModal, ErrBanner, Spinner, Tabs, btnPrimary, DateFilter,
   NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
@@ -100,8 +100,9 @@ export default function Findings() {
   const [findings, setFindings] = useState<Finding[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
-  const [sevFilter, setSevFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [search, setSearch]   = useState('')
+  const [fSev, setFSev]       = useState(new Set<string>())
+  const [fStatus, setFStatus] = useState(new Set<string>())
   const [sel, setSel] = useState<Set<string | number>>(new Set())
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo] = useState(today())
@@ -122,15 +123,13 @@ export default function Findings() {
     setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
-      if (sevFilter)    p.set('severity', sevFilter)
-      if (statusFilter) p.set('status', statusFilter)
       if (dateFrom) p.set('from', dateFrom)
       if (dateTo)   p.set('to', dateTo)
       const data = await apiFetch<Finding[]>(`/api/compliance/findings?${p}`)
       setFindings(Array.isArray(data) ? data : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [sevFilter, statusFilter, dateFrom, dateTo])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -231,6 +230,16 @@ export default function Findings() {
     },
   ]
 
+  const filtered = useMemo(() => findings.filter(r => {
+    if (fSev.size && !fSev.has(r.severity)) return false
+    if (fStatus.size && !fStatus.has(r.status)) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (![r.description, r.severity, r.status, r.finding_ref].some(f => f?.toLowerCase().includes(q))) return false
+    }
+    return true
+  }), [findings, fSev, fStatus, search])
+
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
     fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
@@ -252,34 +261,41 @@ export default function Findings() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <FilterBar onReset={() => { setSevFilter(''); setStatusFilter('') }}>
-        <select value={sevFilter} onChange={e => setSevFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Severities</option>
-          {['Critical', 'High', 'Medium', 'Low'].map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Statuses</option>
-          <option value="open">Open</option>
-          <option value="in_progress">In Progress</option>
-          <option value="closed">Closed</option>
-        </select>
-      </FilterBar>
-
       <SectionCard title="Findings" badge={findings.length} padding={false} actions={
         <button onClick={() => exportFindingsCsv(findings)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
           <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
           Export CSV
         </button>
       }>
+        <ExpandableFilterBar
+          search={search} onSearch={setSearch}
+          groups={[
+            {
+              key: 'severity', label: 'Severity',
+              options: ['Critical', 'High', 'Medium', 'Low'].map(s => ({ value: s, color: SEV_STYLE[s]?.color, count: findings.filter(r => r.severity === s).length })),
+              selected: fSev, onChange: (next: Set<string>) => setFSev(next),
+            },
+            {
+              key: 'status', label: 'Status',
+              options: [
+                { value: 'open',        label: 'Open',        color: RED,   count: findings.filter(r => r.status === 'open').length },
+                { value: 'in_progress', label: 'In Progress', color: AMBER, count: findings.filter(r => r.status === 'in_progress').length },
+                { value: 'closed',      label: 'Closed',      color: GREEN, count: findings.filter(r => r.status === 'closed').length },
+              ],
+              selected: fStatus, onChange: (next: Set<string>) => setFStatus(next),
+            },
+          ]}
+          onReset={() => { setSearch(''); setFSev(new Set()); setFStatus(new Set()) }}
+          resultCount={filtered.length} totalCount={findings.length}
+          placeholder="Search findings…"
+        />
         <DataTable<Finding>
           cols={cols}
-          rows={findings}
+          rows={filtered}
           keyFn={r => r.id}
           onRowClick={openDetail}
           emptyText="No findings found."
           skeletonRows={loading ? 5 : 0}
-          searchKeys={['description', 'status', 'severity']}
-          searchPlaceholder="Search findings…"
           pageSize={20}
           selectable
           selectedIds={sel}

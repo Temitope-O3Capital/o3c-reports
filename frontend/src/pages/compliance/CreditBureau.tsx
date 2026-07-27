@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Page, SectionCard, ErrBanner, Spinner, DataTable, Modal, btnPrimary, btnSecondary } from '../../components/UI'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { Page, SectionCard, ErrBanner, Spinner, DataTable, ExpandableFilterBar, Modal, btnPrimary, btnSecondary } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, today } from '../../lib/fmt'
@@ -46,6 +46,10 @@ export default function CreditBureau() {
   const [showLog,   setShowLog]   = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [dlMonth,   setDlMonth]   = useState(currentMonth())
+
+  const [search, setSearch]       = useState('')
+  const [fBureau, setFBureau]     = useState(new Set<string>())
+  const [fStatus, setFStatus]     = useState(new Set<string>())
 
   // Log submission form
   const [formMonth,  setFormMonth]  = useState(currentMonth())
@@ -105,6 +109,16 @@ export default function CreditBureau() {
     } catch (e: any) { toast.error(e.message) }
     finally { setSaving(false) }
   }
+
+  const filtered = useMemo(() => logs.filter(r => {
+    if (fBureau.size && !fBureau.has(r.bureau)) return false
+    if (fStatus.size && !fStatus.has(r.status)) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (![r.month, r.bureau, r.submitted_by, r.status].some(f => f?.toLowerCase().includes(q))) return false
+    }
+    return true
+  }), [logs, fBureau, fStatus, search])
 
   const COLS: TableCol<Submission>[] = [
     { key: 'month',        label: 'Month',     render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY }}>{r.month}</span> },
@@ -170,14 +184,34 @@ export default function CreditBureau() {
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner size={32} /></div>
       ) : (
-        <SectionCard title="Submission Log" badge={logs.length}>
+        <SectionCard title="Submission Log" badge={logs.length} padding={false}>
+          <ExpandableFilterBar
+            search={search} onSearch={setSearch}
+            groups={[
+              {
+                key: 'bureau', label: 'Bureau',
+                options: ['CRC', 'FirstCentral', 'CreditRegistry'].map(b => ({ value: b, count: logs.filter(r => r.bureau === b).length })),
+                selected: fBureau, onChange: (next: Set<string>) => setFBureau(next),
+              },
+              {
+                key: 'status', label: 'Status',
+                options: [
+                  { value: 'submitted',    label: 'Submitted',    color: AMBER, count: logs.filter(r => r.status === 'submitted').length },
+                  { value: 'acknowledged', label: 'Acknowledged', color: GREEN, count: logs.filter(r => r.status === 'acknowledged').length },
+                  { value: 'rejected',     label: 'Rejected',     color: RED,   count: logs.filter(r => r.status === 'rejected').length },
+                ],
+                selected: fStatus, onChange: (next: Set<string>) => setFStatus(next),
+              },
+            ]}
+            onReset={() => { setSearch(''); setFBureau(new Set()); setFStatus(new Set()) }}
+            resultCount={filtered.length} totalCount={logs.length}
+            placeholder="Search by month, bureau or status…"
+          />
           <DataTable
             cols={COLS}
-            rows={logs}
+            rows={filtered}
             keyFn={r => r.id}
             emptyText="No submissions recorded yet"
-            searchKeys={['month', 'bureau', 'submitted_by', 'status']}
-            searchPlaceholder="Search by month, bureau or status…"
           />
         </SectionCard>
       )}

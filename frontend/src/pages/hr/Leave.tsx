@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, SectionCard, DataTable, ExpandableFilterBar,
   Modal, ConfirmModal, ErrBanner, Spinner, StatusBadge, btnPrimary, DateFilter,
   NameCell, ActionRow,
 } from '../../components/UI'
@@ -62,8 +62,9 @@ export default function Leave() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const [typeFilter, setTypeFilter]     = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [search, setSearch]   = useState('')
+  const [fType, setFType]     = useState(new Set<string>())
+  const [fStatus, setFStatus] = useState(new Set<string>())
 
   const [newOpen, setNewOpen]       = useState(false)
   const [form, setForm]             = useState(BLANK)
@@ -80,8 +81,6 @@ export default function Leave() {
     setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
-      if (typeFilter)   p.set('leave_type', typeFilter)
-      if (statusFilter) p.set('status', statusFilter)
       p.set('from', dateFrom)
       p.set('to', dateTo)
       const [ls, ts] = await Promise.all([
@@ -92,7 +91,7 @@ export default function Leave() {
       setLeaveTypes(Array.isArray(ts.data) ? ts.data : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [typeFilter, statusFilter, dateFrom, dateTo])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -163,6 +162,18 @@ export default function Leave() {
     fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', outline: 'none', boxSizing: 'border-box',
   }
 
+  const uniqueTypes = useMemo(() => leaveTypes.map(t => t.name), [leaveTypes])
+
+  const filtered = useMemo(() => leaves.filter(r => {
+    if (fType.size && !fType.has(r.leave_type)) return false
+    if (fStatus.size && !fStatus.has(r.status)) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (![r.employee_name, r.leave_type, r.status].some(f => f?.toLowerCase().includes(q))) return false
+    }
+    return true
+  }), [leaves, fType, fStatus, search])
+
   const cols: TableCol<Leave>[] = [
     {
       key: 'employee_name', label: 'Employee',
@@ -219,28 +230,35 @@ export default function Leave() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <FilterBar onReset={() => { setTypeFilter(''); setStatusFilter('') }}>
-        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Types</option>
-          {leaveTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-        </select>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Statuses</option>
-          <option value="pending">Pending</option>
-          <option value="approved">Approved</option>
-          <option value="declined">Declined</option>
-        </select>
-      </FilterBar>
-
       <SectionCard title="Leave Requests" badge={leaves.length} padding={false} actions={<button onClick={() => exportLeaveCsv(leaves)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+        <ExpandableFilterBar
+          search={search} onSearch={setSearch}
+          groups={[
+            {
+              key: 'type', label: 'Leave Type',
+              options: uniqueTypes.map(t => ({ value: t, color: TYPE_COLORS[t], count: leaves.filter(r => r.leave_type === t).length })),
+              selected: fType, onChange: (next: Set<string>) => setFType(next),
+            },
+            {
+              key: 'status', label: 'Status',
+              options: [
+                { value: 'pending',  label: 'Pending',  color: AMBER, count: leaves.filter(r => r.status === 'pending').length },
+                { value: 'approved', label: 'Approved', color: GREEN, count: leaves.filter(r => r.status === 'approved').length },
+                { value: 'declined', label: 'Declined', color: '#C00000', count: leaves.filter(r => r.status === 'declined').length },
+              ],
+              selected: fStatus, onChange: (next: Set<string>) => setFStatus(next),
+            },
+          ]}
+          onReset={() => { setSearch(''); setFType(new Set()); setFStatus(new Set()) }}
+          resultCount={filtered.length} totalCount={leaves.length}
+          placeholder="Search leave requests…"
+        />
         <DataTable<Leave>
           cols={cols}
-          rows={leaves}
+          rows={filtered}
           keyFn={r => r.id}
           emptyText="No leave requests found."
           skeletonRows={loading ? 6 : 0}
-          searchKeys={['employee_name', 'leave_type', 'status']}
-          searchPlaceholder="Search leave requests…"
           pageSize={20}
 
           selectable

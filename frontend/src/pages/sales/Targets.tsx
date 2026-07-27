@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, ErrBanner, Spinner, Modal, DataTable, DateFilter,
-  NameCell, ActionRow,
+  NameCell, ActionRow, ExpandableFilterBar,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -79,6 +79,7 @@ export default function SalesTargets() {
   const [showForm, setShowForm] = useState(false)
   const [saving,   setSaving]   = useState(false)
   const [bulkSel,  setBulkSel]  = useState<Set<string | number>>(new Set())
+  const [search,   setSearch]   = useState('')
 
   // form state
   const [fUserId,  setFUserId]  = useState('')
@@ -122,11 +123,17 @@ export default function SalesTargets() {
     finally { setSaving(false) }
   }
 
-  // Merge actuals with any targets not yet in actuals
+  // Merge actuals with any targets not yet in actuals — then search-filter
   const leaderboard: Actual[] = actuals.map(a => {
     const t = targets.find(t => t.user_id === a.user_id)
     return { ...a, target_loans: t?.loan_count ?? a.target_loans, target_kobo: t?.disbursement_kobo ?? a.target_kobo }
   })
+
+  const filteredBoard = useMemo(() => {
+    if (!search) return leaderboard
+    const q = search.toLowerCase()
+    return leaderboard.filter(r => r.full_name.toLowerCase().includes(q))
+  }, [leaderboard, search])
 
   const totalTargetLoans = leaderboard.reduce((s, r) => s + Number(r.target_loans), 0)
   const totalActualLoans = leaderboard.reduce((s, r) => s + Number(r.actual_loans), 0)
@@ -213,14 +220,21 @@ export default function SalesTargets() {
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}><Spinner size={32} /></div>
       ) : (
-        <SectionCard title="Leaderboard" badge={leaderboard.length}>
+        <SectionCard title="Leaderboard" badge={leaderboard.length} padding={false}>
+          <ExpandableFilterBar
+            search={search}
+            onSearch={setSearch}
+            placeholder="Search officer…"
+            groups={[]}
+            onReset={() => setSearch('')}
+            resultCount={filteredBoard.length}
+            totalCount={leaderboard.length}
+          />
           <DataTable
             cols={COLS}
-            rows={leaderboard}
+            rows={filteredBoard}
             keyFn={r => r.user_id}
             emptyText="No targets set for this period"
-            searchKeys={['full_name']}
-            searchPlaceholder="Search officer…"
             selectable
             selectedIds={bulkSel}
             onSelect={setBulkSel}

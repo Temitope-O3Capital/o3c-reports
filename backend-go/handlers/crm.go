@@ -46,13 +46,16 @@ var crmAccess = core.RequirePages(
 var crmReportAccess = core.RequirePages("crm_reports")
 
 func RegisterCRM(r chi.Router, db *core.DB) {
-	// Contacts
+	// Contacts (leads & prospects)
 	r.With(crmAccess).Get("/contacts", listContacts(db))
 	r.With(crmAccess).Post("/contacts", createContact(db))
 	r.With(crmAccess).Get("/contacts/{id}", getContact(db))
 	r.With(crmAccess).Put("/contacts/{id}", updateContact(db))
 	r.With(crmAccess).Delete("/contacts/{id}", deleteContact(db))
 	r.With(crmAccess).Get("/contacts/{id}/360", customer360(db))
+
+	// Accounts (converted customers — AM view)
+	r.With(crmAccess).Get("/accounts", listAccounts(db))
 
 	// Pipeline / Deals
 	r.With(crmAccess).Get("/stages", listStages(db))
@@ -119,7 +122,7 @@ var contactUpdateCols = []string{
 	"first_name", "last_name", "phone", "email", "state", "city", "address",
 	"date_of_birth", "gender", "occupation", "employer", "income_range",
 	"id_type", "source", "cif_number", "status",
-	"assigned_to", "tags", "notes",
+	"assigned_to", "account_manager_id", "tags", "notes",
 }
 
 func listContacts(db *core.DB) http.HandlerFunc {
@@ -141,8 +144,20 @@ func listContacts(db *core.DB) http.HandlerFunc {
 			where += fmt.Sprintf(" AND c.status=$%d", n)
 			args = append(args, v); n++
 		}
+		if v := qstr(r, "exclude_status"); v != "" {
+			where += fmt.Sprintf(" AND c.status != $%d", n)
+			args = append(args, v); n++
+		}
 		if v := qstr(r, "source"); v != "" {
 			where += fmt.Sprintf(" AND c.source=$%d", n)
+			args = append(args, v); n++
+		}
+		if v := qstr(r, "source_type"); v != "" {
+			where += fmt.Sprintf(" AND c.source_type=$%d", n)
+			args = append(args, v); n++
+		}
+		if v := qstr(r, "employer_id"); v != "" {
+			where += fmt.Sprintf(" AND c.employer_id=$%d", n)
 			args = append(args, v); n++
 		}
 		if v := qstr(r, "assigned_to"); v != "" {
@@ -162,12 +177,14 @@ func listContacts(db *core.DB) http.HandlerFunc {
 			SELECT c.*,
 			       u.full_name  AS assigned_name,
 			       cb.full_name AS created_by_name,
+			       e.name       AS employer_name,
 			       (SELECT COUNT(*) FROM crm_deals      d WHERE d.contact_id=c.id)                       AS deal_count,
 			       (SELECT COUNT(*) FROM crm_activities a WHERE a.contact_id=c.id)                       AS activity_count,
 			       (SELECT COUNT(*) FROM crm_tasks      t WHERE t.contact_id=c.id AND t.status='open')   AS open_tasks
 			FROM crm_contacts c
 			LEFT JOIN o3c_users u  ON u.id=c.assigned_to
 			LEFT JOIN o3c_users cb ON cb.id=c.created_by
+			LEFT JOIN employers e  ON e.id=c.employer_id
 			WHERE %s
 			ORDER BY c.updated_at DESC
 			LIMIT $%d OFFSET $%d`, where, n, n+1), append(args, limit, offset)...)
@@ -307,6 +324,21 @@ func updateContact(db *core.DB) http.HandlerFunc {
 			}
 			delete(body, "id_number")
 		}
+		// When converting to customer, auto-assign account_manager_id from assigned_to
+		// if caller hasn't explicitly set it.
+		if st, ok := body["status"].(string); ok && st == "customer" {
+			if _, hasAM := body["account_manager_id"]; !hasAM {
+				existing, _ := db.PGQuery(r.Context(),
+					`SELECT assigned_to, account_manager_id FROM crm_contacts WHERE id=$1`, id)
+				if len(existing) > 0 {
+					if am := existing[0]["account_manager_id"]; am == nil {
+						if at := existing[0]["assigned_to"]; at != nil {
+							body["account_manager_id"] = at
+						}
+					}
+				}
+			}
+		}
 		allowedCols := append(contactUpdateCols, "id_number_enc", "id_number_hmac")
 		parts, args := buildSet(body, allowedCols, 1)
 		if len(parts) == 0 {
@@ -335,6 +367,71 @@ func deleteContact(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		db.PGExec(r.Context(), "DELETE FROM crm_contacts WHERE id=$1", chi.URLParam(r, "id")) //nolint:errcheck
 		w.WriteHeader(204)
+	}
+}
+
+func listAccounts(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		isHead := user.Role == "sales_head" || user.Role == "head_sales"
+
+		where := "c.status = 'customer'"
+		args := []any{}
+		n := 1
+		if !isHead {
+			where += fmt.Sprintf(" AND c.account_manager_id=$%d", n)
+			args = append(args, user.ID)
+			n++
+		}
+		if q := qstr(r, "q"); q != "" {
+			where += fmt.Sprintf(
+				` AND (c.first_name ILIKE $%d OR c.last_name ILIKE $%d OR c.cif_number ILIKE $%d OR c.email ILIKE $%d)`,
+				n, n, n, n)
+			args = append(args, "%"+q+"%")
+			n++ //nolint:ineffassign
+		}
+
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT
+			  c.id, c.first_name, c.last_name, c.phone, c.email,
+			  c.cif_number, c.status, c.source, c.source_type,
+			  c.employer_id, c.bd_assignment_id,
+			  c.account_manager_id, c.assigned_to,
+			  c.tags, c.notes, c.updated_at, c.created_at,
+			  am.full_name   AS account_manager_name,
+			  e.name         AS employer_name,
+			  -- Loan aggregates
+			  COUNT(DISTINCT la.id)                                                          AS loan_count,
+			  COUNT(DISTINCT la.id) FILTER (WHERE la.status IN ('active','booked'))          AS active_loans,
+			  COALESCE(SUM(la.amount_approved_kobo) FILTER (WHERE la.status IN ('active','booked')), 0)
+			                                                                                 AS outstanding_kobo,
+			  COALESCE(MAX(la.dpd), 0)                                                       AS max_dpd,
+			  -- FD aggregates (active = inflow where maturity is in the future)
+			  COUNT(DISTINCT fd.id) FILTER (WHERE fd.transaction_type='inflow'
+			    AND (fd.maturity_date IS NULL OR fd.maturity_date > NOW()::date))            AS active_fd_count,
+			  COALESCE(SUM(fd.ngn_amount) FILTER (WHERE fd.transaction_type='inflow'
+			    AND (fd.maturity_date IS NULL OR fd.maturity_date > NOW()::date)), 0)        AS fd_total_kobo,
+			  MIN(fd.maturity_date) FILTER (WHERE fd.transaction_type='inflow'
+			    AND fd.maturity_date > NOW()::date)                                          AS fd_next_maturity,
+			  -- CRM
+			  (SELECT COUNT(*) FROM crm_deals d
+			     WHERE d.contact_id=c.id AND d.stage_id NOT IN
+			           (SELECT id FROM crm_pipeline_stages WHERE name ILIKE 'won' OR name ILIKE 'lost'))
+			                                                                                 AS open_deals,
+			  (SELECT COUNT(*) FROM crm_activities a WHERE a.contact_id=c.id)               AS activity_count
+			FROM crm_contacts c
+			LEFT JOIN o3c_users        am ON am.id = c.account_manager_id
+			LEFT JOIN employers        e  ON e.id  = c.employer_id
+			LEFT JOIN loan_applications la ON la.applicant_cif = c.cif_number
+			LEFT JOIN fd_transactions  fd ON fd.cif_number     = c.cif_number
+			WHERE %s
+			GROUP BY c.id, am.full_name, e.name
+			ORDER BY c.updated_at DESC`, where), args...)
+		if err != nil {
+			respondErr(w, 500, "Query failed"); return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"data": rows, "total": len(rows)}) //nolint:errcheck
 	}
 }
 

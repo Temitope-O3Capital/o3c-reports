@@ -575,6 +575,228 @@ export function SearchInput({
   )
 }
 
+// ── Expandable filter bar (BD Pipeline pattern) ───────────────────────────────
+// Usage: drop inside a SectionCard padding={false} — renders toolbar + panel + chips.
+// Pass onApply for server-side tables (triggers re-fetch); omit for client-side tables.
+
+export interface FilterOption {
+  value: string
+  label?: string       // display text — falls back to value
+  count?: number       // shown on right
+  color?: string       // renders a colored pill instead of plain text
+  avatarName?: string  // renders avatar circle (uses avatarColor + nameInitials)
+}
+
+export interface FilterGroupDef {
+  key: string
+  label: string
+  options: FilterOption[]
+  selected: Set<string>
+  onChange: (next: Set<string>) => void
+}
+
+export function ExpandableFilterBar({
+  search, onSearch,
+  groups, onReset, onApply,
+  resultCount, totalCount,
+  placeholder = 'Search…',
+}: {
+  search: string
+  onSearch: (v: string) => void
+  groups: FilterGroupDef[]
+  onReset: () => void
+  onApply?: () => void  // undefined = instant client-side; defined = server-side (shows Apply button)
+  resultCount: number
+  totalCount: number
+  placeholder?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const activeCount = groups.reduce((s, g) => s + g.selected.size, 0)
+  const cols = Math.max(1, Math.min(groups.length, 3))
+
+  return (
+    <>
+      {/* ── toolbar row ────────────────────────────────────────────────────── */}
+      <div style={{
+        padding: '10px 18px',
+        borderBottom: (open || activeCount > 0) ? 'none' : '1px solid var(--bdr)',
+        display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+      }}>
+        <SearchInput value={search} onChange={onSearch} onClear={() => onSearch('')} placeholder={placeholder} />
+
+        {groups.length > 0 && (
+          <button
+            onClick={() => setOpen(o => !o)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 13px', borderRadius: RADIUS.md,
+              fontSize: TEXT.sm, fontWeight: FW.semibold,
+              border: `1.5px solid ${activeCount > 0 ? RED : 'var(--input-bdr)'}`,
+              background: 'transparent', color: activeCount > 0 ? RED : 'var(--txt2)',
+              cursor: 'pointer', fontFamily: "'Sora', sans-serif",
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>tune</span>
+            Filters
+            {activeCount > 0 && (
+              <span style={{
+                minWidth: 17, height: 17, borderRadius: '999px',
+                background: RED, color: '#fff',
+                fontSize: 10, fontWeight: 700, fontFamily: "'Inter', sans-serif",
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              }}>{activeCount}</span>
+            )}
+          </button>
+        )}
+
+        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: "'Inter', sans-serif" }}>
+          {resultCount === totalCount ? `${totalCount} results` : `${resultCount} of ${totalCount}`}
+        </span>
+      </div>
+
+      {/* ── expandable panel ───────────────────────────────────────────────── */}
+      {open && (
+        <div style={{ borderBottom: '1px solid var(--bdr)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, padding: '20px 20px 0' }}>
+            {groups.map((group, gi) => (
+              <div key={group.key} style={{
+                paddingRight: gi < groups.length - 1 ? 20 : 0,
+                paddingLeft: gi > 0 ? 20 : 0,
+                borderRight: gi < groups.length - 1 ? '1px solid var(--bdr)' : 'none',
+              }}>
+                <div style={{
+                  fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const,
+                  letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12,
+                  fontFamily: "'Inter', sans-serif",
+                }}>{group.label}</div>
+
+                {group.options.length === 0 ? (
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>None available</span>
+                ) : group.options.map(opt => {
+                  const label = opt.label ?? opt.value
+                  const checked = group.selected.has(opt.value)
+                  return (
+                    <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          const next = new Set(group.selected)
+                          next.has(opt.value) ? next.delete(opt.value) : next.add(opt.value)
+                          group.onChange(next)
+                        }}
+                        style={{ accentColor: opt.color ?? RED, width: 14, height: 14, cursor: 'pointer', flexShrink: 0 }}
+                      />
+                      {opt.avatarName ? (
+                        <>
+                          <div style={{
+                            width: 22, height: 22, borderRadius: '999px',
+                            background: avatarColor(opt.avatarName), flexShrink: 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 10, fontWeight: 700, color: '#fff', fontFamily: "'Inter', sans-serif",
+                          }}>{nameInitials(opt.avatarName)}</div>
+                          <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: "'Sora', sans-serif", flex: 1 }}>{label}</span>
+                        </>
+                      ) : opt.color ? (
+                        <span style={{
+                          fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: '999px',
+                          background: `${opt.color}18`, color: opt.color,
+                          textTransform: 'capitalize' as const, whiteSpace: 'nowrap' as const, flex: 1,
+                        }}>{label}</span>
+                      ) : (
+                        <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: "'Sora', sans-serif", flex: 1 }}>{label}</span>
+                      )}
+                      {opt.count !== undefined && (
+                        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: "'Inter', sans-serif", flexShrink: 0 }}>
+                          {opt.count}
+                        </span>
+                      )}
+                    </label>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+
+          {/* panel footer */}
+          <div style={{
+            padding: '14px 20px', borderTop: '1px solid var(--bdr)', marginTop: 16,
+            display: 'flex', alignItems: 'center', gap: 12,
+          }}>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: "'Sora', sans-serif" }}>
+              {activeCount === 0
+                ? `No filters applied — showing all ${totalCount}`
+                : `${activeCount} filter${activeCount !== 1 ? 's' : ''} active`}
+            </span>
+            <button
+              onClick={onReset}
+              style={{
+                padding: '5px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
+                border: '1.5px solid var(--input-bdr)', background: 'transparent',
+                color: 'var(--txt2)', cursor: 'pointer', fontFamily: "'Sora', sans-serif",
+              }}
+            >Reset</button>
+            <button
+              onClick={() => { setOpen(false); onApply?.() }}
+              style={{
+                marginLeft: 'auto', padding: '5px 16px', borderRadius: RADIUS.md,
+                fontSize: TEXT.sm, fontWeight: FW.semibold,
+                border: 'none', background: RED, color: '#fff',
+                cursor: 'pointer', fontFamily: "'Sora', sans-serif",
+              }}
+            >{onApply ? `Apply · ${resultCount} results` : `Done · ${resultCount}`}</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── active filter chips (panel closed) ─────────────────────────────── */}
+      {!open && activeCount > 0 && (
+        <div style={{
+          padding: '8px 18px', borderBottom: '1px solid var(--bdr)',
+          display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
+        }}>
+          {groups.flatMap(group =>
+            [...group.selected].map(value => {
+              const opt = group.options.find(o => o.value === value)
+              const label = opt?.label ?? value
+              const color = opt?.color
+              return (
+                <span key={`${group.key}:${value}`} style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  padding: '3px 8px', borderRadius: '999px',
+                  fontSize: TEXT.xs, fontWeight: FW.semibold,
+                  background: color ? `${color}18` : 'var(--chip-bg)',
+                  color: color ?? 'var(--chip-txt)',
+                }}>
+                  {label}
+                  <span
+                    className="material-symbols-rounded"
+                    style={{ fontSize: 13, cursor: 'pointer' }}
+                    onClick={() => {
+                      const next = new Set(group.selected)
+                      next.delete(value)
+                      group.onChange(next)
+                      onApply?.()
+                    }}
+                  >close</span>
+                </span>
+              )
+            })
+          )}
+          <button
+            onClick={() => { onReset(); onApply?.() }}
+            style={{
+              marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer',
+              fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', padding: 0,
+              fontFamily: "'Sora', sans-serif",
+            }}
+          >Clear all</button>
+        </div>
+      )}
+    </>
+  )
+}
+
 // ── Table toolbar search (fixed-width variant; same visual as SearchInput) ────
 
 export function TblSearch({

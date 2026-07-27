@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, SectionCard, DataTable, ExpandableFilterBar,
   Modal, ErrBanner, Spinner, StatusBadge, btnPrimary, DateFilter,
   NameCell, ActionRow,
 } from '../../components/UI'
@@ -72,8 +72,9 @@ export default function Performance() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const [periodFilter, setPeriodFilter] = useState('')
-  const [deptFilter, setDeptFilter]     = useState('')
+  const [search, setSearch]   = useState('')
+  const [fPeriod, setFPeriod] = useState(new Set<string>())
+  const [fDept, setFDept]     = useState(new Set<string>())
 
   const [newOpen, setNewOpen] = useState(false)
   const [form, setForm]       = useState(BLANK)
@@ -85,8 +86,6 @@ export default function Performance() {
     setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
-      if (periodFilter) p.set('period', periodFilter)
-      if (deptFilter)   p.set('department', deptFilter)
       p.set('from', dateFrom)
       p.set('to', dateTo)
       const [apps, cs] = await Promise.all([
@@ -97,7 +96,7 @@ export default function Performance() {
       setCycles(Array.isArray(cs) ? cs : [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [periodFilter, deptFilter, dateFrom, dateTo])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -173,7 +172,18 @@ export default function Performance() {
     },
   ]
 
-  const periods = [...new Set(appraisals.map(a => a.period))].filter(Boolean)
+  const periods = useMemo(() => [...new Set(appraisals.map(a => a.period))].filter(Boolean) as string[], [appraisals])
+  const uniqueDepts = useMemo(() => [...new Set(appraisals.map(a => a.department).filter(Boolean))] as string[], [appraisals])
+
+  const filtered = useMemo(() => appraisals.filter(a => {
+    if (fPeriod.size && !fPeriod.has(a.period)) return false
+    if (fDept.size && !fDept.has(a.department ?? '')) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (![a.employee_name, a.department, a.period, a.status, a.reviewer_name].some(f => f?.toLowerCase().includes(q))) return false
+    }
+    return true
+  }), [appraisals, fPeriod, fDept, search])
 
   return (
     <Page
@@ -193,25 +203,6 @@ export default function Performance() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <FilterBar onReset={() => { setPeriodFilter(''); setDeptFilter('') }}>
-        <select value={periodFilter} onChange={e => setPeriodFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Periods</option>
-          {periods.map(p => <option key={p} value={p}>{p}</option>)}
-        </select>
-        <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ ...filterInputStyle, minWidth: 160 }}>
-          <option value="">All Departments</option>
-          <option value="Operations">Operations</option>
-          <option value="Finance">Finance</option>
-          <option value="HR">HR</option>
-          <option value="Technology">Technology</option>
-          <option value="Sales">Sales</option>
-          <option value="Collections">Collections</option>
-          <option value="Risk">Risk</option>
-          <option value="Compliance">Compliance</option>
-          <option value="Cards">Cards</option>
-        </select>
-      </FilterBar>
-
       {/* Score distribution chart */}
       {deptScores.length > 0 && (
         <SectionCard title="Avg Score by Department" subtitle="0–5 scale">
@@ -228,14 +219,30 @@ export default function Performance() {
       )}
 
       <SectionCard title="Appraisals" badge={appraisals.length} padding={false} actions={<button onClick={() => exportAppraisalsCsv(appraisals)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+        <ExpandableFilterBar
+          search={search} onSearch={setSearch}
+          groups={[
+            {
+              key: 'period', label: 'Period',
+              options: periods.map(p => ({ value: p, count: appraisals.filter(a => a.period === p).length })),
+              selected: fPeriod, onChange: (next: Set<string>) => setFPeriod(next),
+            },
+            {
+              key: 'department', label: 'Department',
+              options: uniqueDepts.map(d => ({ value: d, count: appraisals.filter(a => a.department === d).length })),
+              selected: fDept, onChange: (next: Set<string>) => setFDept(next),
+            },
+          ]}
+          onReset={() => { setSearch(''); setFPeriod(new Set()); setFDept(new Set()) }}
+          resultCount={filtered.length} totalCount={appraisals.length}
+          placeholder="Search appraisals…"
+        />
         <DataTable<Appraisal>
           cols={cols}
-          rows={appraisals}
+          rows={filtered}
           keyFn={r => r.id}
           emptyText="No appraisals found."
           skeletonRows={loading ? 6 : 0}
-          searchKeys={['employee_name', 'department', 'period', 'status', 'reviewer_name']}
-          searchPlaceholder="Search appraisals…"
           pageSize={20}
           selectable
           selectedIds={sel}

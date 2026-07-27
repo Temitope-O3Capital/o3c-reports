@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Page, SectionCard, DataTable, FilterBar, filterInputStyle,
+  Page, SectionCard, DataTable, ExpandableFilterBar,
   Modal, ErrBanner, Spinner, StatusBadge, btnPrimary, DateFilter,
   NameCell, ActionRow,
 } from '../../components/UI'
@@ -65,7 +65,9 @@ export default function Training() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const [statusFilter, setStatusFilter] = useState('')
+  const [search, setSearch]   = useState('')
+  const [fStatus, setFStatus] = useState(new Set<string>())
+  const [fType, setFType]     = useState(new Set<string>())
 
   const [newOpen, setNewOpen] = useState(false)
   const [form, setForm]       = useState(BLANK)
@@ -79,14 +81,13 @@ export default function Training() {
     setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
-      if (statusFilter) p.set('status', statusFilter)
       p.set('from', dateFrom)
       p.set('to', dateTo)
       const data = await apiFetch<{ data: Training[] }>(`/api/hr/training?${p}`)
       setTrainings(data.data ?? [])
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [statusFilter, dateFrom, dateTo])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -163,6 +164,16 @@ export default function Training() {
 
   const TYPES = ['Technical', 'Compliance', 'Leadership', 'Soft Skills', 'Onboarding']
 
+  const filtered = useMemo(() => trainings.filter(r => {
+    if (fStatus.size && !fStatus.has(r.status)) return false
+    if (fType.size && !fType.has(r.training_type ?? '')) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (![r.title, r.training_type, r.facilitator, r.status].some(f => f?.toLowerCase().includes(q))) return false
+    }
+    return true
+  }), [trainings, fStatus, fType, search])
+
   return (
     <Page
       title="Training"
@@ -181,26 +192,37 @@ export default function Training() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <FilterBar onReset={() => setStatusFilter('')}>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All Statuses</option>
-          <option value="planned">Planned</option>
-          <option value="ongoing">Ongoing</option>
-          <option value="completed">Completed</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
-      </FilterBar>
-
       <SectionCard title="Training Records" badge={trainings.length} padding={false} actions={<button onClick={() => exportTrainingCsv(trainings)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+        <ExpandableFilterBar
+          search={search} onSearch={setSearch}
+          groups={[
+            {
+              key: 'type', label: 'Type',
+              options: TYPES.map(t => ({ value: t, color: TYPE_COLORS[t], count: trainings.filter(r => r.training_type === t).length })),
+              selected: fType, onChange: (next: Set<string>) => setFType(next),
+            },
+            {
+              key: 'status', label: 'Status',
+              options: [
+                { value: 'planned',   label: 'Planned',   color: BLUE,      count: trainings.filter(r => r.status === 'planned').length },
+                { value: 'ongoing',   label: 'Ongoing',   color: AMBER,     count: trainings.filter(r => r.status === 'ongoing').length },
+                { value: 'completed', label: 'Completed', color: GREEN,     count: trainings.filter(r => r.status === 'completed').length },
+                { value: 'cancelled', label: 'Cancelled', color: '#6B7280', count: trainings.filter(r => r.status === 'cancelled').length },
+              ],
+              selected: fStatus, onChange: (next: Set<string>) => setFStatus(next),
+            },
+          ]}
+          onReset={() => { setSearch(''); setFType(new Set()); setFStatus(new Set()) }}
+          resultCount={filtered.length} totalCount={trainings.length}
+          placeholder="Search training…"
+        />
         <DataTable<Training>
           cols={cols}
-          rows={trainings}
+          rows={filtered}
           keyFn={r => r.id}
           onRowClick={openDetail}
           emptyText="No training records found."
           skeletonRows={loading ? 5 : 0}
-          searchKeys={['title', 'training_type', 'facilitator', 'status']}
-          searchPlaceholder="Search training…"
           pageSize={20}
           selectable
           selectedIds={sel}

@@ -44,14 +44,17 @@ const ExecCollections = lazy(() => import('./pages/executive/Collections'))
 const ExecRisk        = lazy(() => import('./pages/executive/Risk'))
 const ExecHR          = lazy(() => import('./pages/executive/HR'))
 const ExecSettlements = lazy(() => import('./pages/executive/Settlements'))
-const Interswitch     = lazy(() => import('./pages/cards/Interswitch'))
+const Interswitch          = lazy(() => import('./pages/cards/Interswitch'))
+const InterswitchReport    = lazy(() => import('./pages/cards/InterswitchReport'))
+const InterswitchImport    = lazy(() => import('./pages/cards/InterswitchImport'))
 // C360Drawer imported directly (not lazy) so slide animation works on first open
 
 // BD
-const BDOverview   = lazy(() => import('./pages/bd/Overview'))
-const BDPipeline   = lazy(() => import('./pages/bd/Pipeline'))
-const BDEmployers  = lazy(() => import('./pages/bd/Employers'))
-const BDAnalytics  = lazy(() => import('./pages/bd/Analytics'))
+const BDOverview     = lazy(() => import('./pages/bd/Overview'))
+const BDPipeline     = lazy(() => import('./pages/bd/Pipeline'))
+const BDEmployers    = lazy(() => import('./pages/bd/Employers'))
+const BDAnalytics    = lazy(() => import('./pages/bd/Analytics'))
+const BDAssignments  = lazy(() => import('./pages/bd/Assignments'))
 
 // Campaigns
 const CampaignsList     = lazy(() => import('./pages/campaigns/List'))
@@ -75,13 +78,12 @@ const SalesCohortDetail = lazy(() => import('./pages/sales/CohortDetail'))
 const SalesReports   = lazy(() => import('./pages/sales/Reports'))
 const SalesTargets   = lazy(() => import('./pages/sales/Targets'))
 const CRMContacts    = lazy(() => import('./pages/sales/Customers'))
+const SalesAccounts  = lazy(() => import('./pages/sales/MyAccounts'))
 const CRMContactDetail = lazy(() => import('./pages/sales/ContactDetail'))
 const ContactProfile   = lazy(() => import('./pages/contacts/ContactProfile'))
 const ContactSegments  = lazy(() => import('./pages/contacts/Segments'))
 const CRMPipelinePg  = lazy(() => import('./pages/sales/CRMPipeline'))
 const CRMTasks       = lazy(() => import('./pages/sales/Tasks'))
-const MeDashboard    = lazy(() => import('./pages/me/Dashboard'))
-
 // LOS (loan origination)
 const LOSQueue         = lazy(() => import('./pages/los/Queue'))
 const LOSNewApp        = lazy(() => import('./pages/los/NewApplication'))
@@ -92,7 +94,10 @@ const CollectionsOverview  = lazy(() => import('./pages/collections/Overview'))
 const CollectionsQueue     = lazy(() => import('./pages/collections/Queue'))
 const CollectionsPromises  = lazy(() => import('./pages/collections/Promises'))
 const CollectionsPlans     = lazy(() => import('./pages/collections/RepaymentPlans'))
-const CollectionsWriteoffs = lazy(() => import('./pages/collections/WriteoffQueue'))
+const CollectionsWriteoffs    = lazy(() => import('./pages/collections/WriteoffQueue'))
+const CollectionsPortfolio    = lazy(() => import('./pages/collections/Portfolio'))
+const CollectionsWoRequests   = lazy(() => import('./pages/collections/WriteoffRequests'))
+const CollectionsRecoveryPmts = lazy(() => import('./pages/collections/RecoveryPaymentApprovals'))
 
 // Risk
 const RiskAppReview    = lazy(() => import('./pages/risk/AppReview'))
@@ -105,7 +110,6 @@ const RiskCreditFile   = lazy(() => import('./pages/risk/CreditFile'))
 const RecoveryOverview = lazy(() => import('./pages/recovery/Overview'))
 const RecoveryCases    = lazy(() => import('./pages/recovery/Cases'))
 const RecoveryLegal    = lazy(() => import('./pages/recovery/Legal'))
-const RecoveryTPA      = lazy(() => import('./pages/recovery/TPA'))
 const RecoveryDebtSale = lazy(() => import('./pages/recovery/DebtSale'))
 
 // Collections Ops
@@ -919,7 +923,9 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/executive/risk"         element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecRisk /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/executive/hr"           element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecHR /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/executive/settlements"  element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecSettlements /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/cards/interswitch"      element={<RequireAccess page="cards" user={user}><PageErrorBoundary><Interswitch /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/settlements/interswitch"           element={<RequireAccess page="settlements" user={user}><PageErrorBoundary><Interswitch /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/settlements/interswitch/half-year" element={<RequireAccess page="settlements" user={user}><PageErrorBoundary><InterswitchReport /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/settlements/interswitch/import"    element={<RequireAccess page="settlements" user={user}><PageErrorBoundary><InterswitchImport /></PageErrorBoundary></RequireAccess>} />
 
                   <Route path="/approvals" element={<PageErrorBoundary><ApprovalsPage /></PageErrorBoundary>} />
 
@@ -927,7 +933,8 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/bd"             element={<RequireAccess page="bd" user={user}><PageErrorBoundary><BDOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/bd/leads"       element={<RequireAccess page="bd" user={user}><PageErrorBoundary><BDPipeline /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/bd/pipeline"    element={<RequireAccess page="bd_pipeline" user={user}><PageErrorBoundary><BDPipeline /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/bd/employers"   element={<RequireAccess page="bd_employers" user={user}><PageErrorBoundary><BDEmployers /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/bd/employers"    element={<RequireAccess page="bd_employers" user={user}><PageErrorBoundary><BDEmployers /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/bd/assignments"  element={<RequireAccess page="bd" user={user}><PageErrorBoundary><BDAssignments /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/bd/analytics"   element={<RequireAccess page="bd" user={user}><PageErrorBoundary><BDAnalytics /></PageErrorBoundary></RequireAccess>} />
 
                   <Route path="/campaigns"            element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignsList /></PageErrorBoundary></RequireAccess>} />
@@ -945,11 +952,12 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/sales/cohort/:month"  element={<RequireAccess page="cohort" user={user}><PageErrorBoundary><SalesCohortDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/reports"   element={<RequireAccess page="crm_reports" user={user}><PageErrorBoundary><SalesReports /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/targets"   element={<RequireAccess page="sales" user={user}><PageErrorBoundary><SalesTargets /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/accounts"      element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><SalesAccounts /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/customers"     element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><CRMContacts /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/customers/:id" element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><CRMContactDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/contacts/:id"        element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><ContactProfile /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/contact-segments"    element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><ContactSegments /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/me"                  element={<PageErrorBoundary><MeDashboard /></PageErrorBoundary>} />
+
                   <Route path="/sales/crm"           element={<RequireAccess page="crm_pipeline" user={user}><PageErrorBoundary><CRMPipelinePg /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/tasks"         element={<RequireAccess page="crm_tasks" user={user}><PageErrorBoundary><CRMTasks /></PageErrorBoundary></RequireAccess>} />
 
@@ -1003,13 +1011,15 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/collections/queue"           element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsQueue /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/promises"        element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPromises /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/repayment-plans" element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPlans /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/collections/writeoffs"       element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsWriteoffs /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/writeoffs"            element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsWriteoffs /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/portfolio"            element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPortfolio /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/writeoff-requests"    element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsWoRequests /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/recovery-approvals"   element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsRecoveryPmts /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Recovery */}
                   <Route path="/recovery"            element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/recovery/cases"      element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryCases /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/recovery/legal"      element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryLegal /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/recovery/tpa"        element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryTPA /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/recovery/debt-sales" element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryDebtSale /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Collections Ops */}

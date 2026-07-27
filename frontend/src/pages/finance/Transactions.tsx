@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, filterInputStyle, SearchInput, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, filterInputStyle, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, API } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtDatetime, fmtNum, today, monthStart } from '../../lib/fmt'
-import { GREEN, RED, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { GREEN, RED, NAVY, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 interface TxnKPIs {
@@ -96,15 +96,11 @@ export default function FinanceTransactions() {
   const [loading,    setLoading]    = useState(true)
   const [error,      setError]      = useState<string | null>(null)
   const [exporting,  setExporting]  = useState(false)
-  const [filterOpen, setFilterOpen] = useState(false)
 
   const [search,     setSearch]     = useState('')
-  const [sign,       setSign]       = useState('')
-  const [branch,     setBranch]     = useState('')
+  const [fSign,      setFSign]      = useState<Set<string>>(new Set())
   const [dateFrom,   setDateFrom]   = useState(monthStart())
   const [dateTo,     setDateTo]     = useState(today())
-  const [amountMin,  setAmountMin]  = useState('')
-  const [amountMax,  setAmountMax]  = useState('')
 
   const abortRef = useRef<AbortController | null>(null)
 
@@ -114,13 +110,10 @@ export default function FinanceTransactions() {
     p.set('offset', String(off))
     p.set('date_from', dateFrom)
     p.set('date_to', dateTo)
-    if (search)    p.set('q', search)
-    if (sign)      p.set('sign', sign)
-    if (branch)    p.set('branch', branch)
-    if (amountMin) p.set('amount_min', String(Math.round(parseFloat(amountMin) * 100)))
-    if (amountMax) p.set('amount_max', String(Math.round(parseFloat(amountMax) * 100)))
+    if (search)       p.set('q', search)
+    if (fSign.size)   p.set('sign', [...fSign].join(','))
     return p.toString()
-  }, [dateFrom, dateTo, search, sign, branch, amountMin, amountMax])
+  }, [dateFrom, dateTo, search, fSign])
 
   const load = useCallback(async (off = 0) => {
     abortRef.current?.abort()
@@ -145,9 +138,8 @@ export default function FinanceTransactions() {
   useEffect(() => { load(0) }, [load])
 
   function handleReset() {
-    setSearch(''); setSign(''); setBranch('')
+    setSearch(''); setFSign(new Set())
     setDateFrom(monthStart()); setDateTo(today())
-    setAmountMin(''); setAmountMax('')
   }
 
   async function handleExport() {
@@ -173,11 +165,6 @@ export default function FinanceTransactions() {
   const currentPage  = Math.floor(offset / PAGE_SIZE) + 1
   const showStart    = total === 0 ? 0 : offset + 1
   const showEnd      = Math.min(offset + PAGE_SIZE, total)
-
-  const activeFilterCount = useMemo(
-    () => (sign ? 1 : 0) + (branch ? 1 : 0) + (amountMin ? 1 : 0) + (amountMax ? 1 : 0),
-    [sign, branch, amountMin, amountMax]
-  )
 
   const kpiLoading = loading && !kpis
 
@@ -212,153 +199,24 @@ export default function FinanceTransactions() {
 
       <SectionCard title="Transactions" badge={total} padding={false}>
 
-        {/* Filter bar */}
-        <div style={{
-          padding: `${SP[3]} 18px`,
-          borderBottom: filterOpen ? 'none' : '1px solid var(--bdr)',
-          display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap' as const,
-        }}>
-          <SearchInput
-            value={search}
-            onChange={setSearch}
-            onSearch={() => load(0)}
-            onClear={() => { setSearch(''); }}
-            style={{ maxWidth: 280 }}
-          />
-
-          <button
-            onClick={() => setFilterOpen(o => !o)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
-              border: `1.5px solid ${activeFilterCount > 0 ? RED : 'var(--input-bdr)'}`,
-              background: 'transparent',
-              color: activeFilterCount > 0 ? RED : 'var(--txt2)',
-              cursor: 'pointer', fontFamily: SORA, position: 'relative' as const,
-            }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>tune</span>
-            Filters
-            {activeFilterCount > 0 && (
-              <span style={{
-                position: 'absolute', top: -6, right: -6,
-                width: 16, height: 16, borderRadius: '50%',
-                background: RED, color: '#fff',
-                fontSize: 9, fontWeight: FW.bold, fontFamily: INTER,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>{activeFilterCount}</span>
-            )}
-          </button>
-
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
-              {total.toLocaleString()} records
-            </span>
-          </div>
-        </div>
-
-        {/* Expandable filter panel */}
-        {filterOpen && (
-          <div style={{ borderBottom: '1px solid var(--bdr)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '20px 20px 0' }}>
-
-              {/* Channel (sign) */}
-              <div style={{ paddingRight: 20, borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase' as const, letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>CHANNEL</div>
-                {[
-                  { value: '',   label: 'All channels' },
-                  { value: 'CR', label: 'Credit (CR)' },
-                  { value: 'DR', label: 'Debit (DR)' },
-                ].map(opt => (
-                  <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
-                    <input type="radio" name="sign" value={opt.value} checked={sign === opt.value} onChange={() => setSign(opt.value)}
-                      style={{ accentColor: opt.value === 'CR' ? '#16A34A' : opt.value === 'DR' ? RED : NAVY, width: 14, height: 14, cursor: 'pointer' }} />
-                    <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA }}>{opt.label}</span>
-                  </label>
-                ))}
-              </div>
-
-              {/* Branch */}
-              <div style={{ padding: '0 20px', borderRight: '1px solid var(--bdr)' }}>
-                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase' as const, letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>BRANCH</div>
-                <input
-                  type="text"
-                  value={branch}
-                  onChange={e => setBranch(e.target.value)}
-                  placeholder="Filter by branch name…"
-                  style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const }}
-                />
-              </div>
-
-              {/* Amount range */}
-              <div style={{ paddingLeft: 20 }}>
-                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, textTransform: 'uppercase' as const, letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3], fontFamily: INTER }}>AMOUNT (₦)</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-                  <div>
-                    <label style={{ fontSize: TEXT.xs, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>Min</label>
-                    <input type="number" min="0" placeholder="e.g. 10000" value={amountMin} onChange={e => setAmountMin(e.target.value)}
-                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const }} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: TEXT.xs, color: 'var(--txt2)', display: 'block', marginBottom: 4, fontFamily: INTER }}>Max</label>
-                    <input type="number" min="0" placeholder="e.g. 500000" value={amountMax} onChange={e => setAmountMax(e.target.value)}
-                      style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const }} />
-                  </div>
-                </div>
-              </div>
-
-            </div>
-
-            <div style={{
-              padding: '14px 20px', borderTop: '1px solid var(--bdr)', marginTop: 16,
-              display: 'flex', alignItems: 'center', gap: SP[3],
-            }}>
-              <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: SORA }}>
-                {activeFilterCount === 0
-                  ? 'No filters active — showing all results'
-                  : `${activeFilterCount} filter${activeFilterCount !== 1 ? 's' : ''} active`}
-              </span>
-              <button onClick={handleReset} style={{
-                padding: '5px 12px', borderRadius: 7, fontSize: TEXT.sm, fontWeight: FW.semibold,
-                border: '1.5px solid var(--input-bdr)', background: 'transparent',
-                color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA,
-              }}>Reset</button>
-              <button onClick={() => { load(0); setFilterOpen(false) }} style={{
-                marginLeft: 'auto', padding: '5px 16px', borderRadius: 7,
-                fontSize: TEXT.sm, fontWeight: FW.semibold, border: 'none', background: RED, color: '#fff',
-                cursor: 'pointer', fontFamily: SORA,
-              }}>Apply</button>
-            </div>
-          </div>
-        )}
-
-        {/* Active chips */}
-        {!filterOpen && activeFilterCount > 0 && (
-          <div style={{
-            padding: '8px 18px', borderBottom: '1px solid var(--bdr)',
-            display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const,
-          }}>
-            {sign && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: sign === 'CR' ? 'rgba(22,163,74,.12)' : 'rgba(192,0,0,.08)', color: sign === 'CR' ? '#16A34A' : RED }}>
-                {sign === 'CR' ? 'Credit only' : 'Debit only'}
-                <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => { setSign(''); load(0) }}>close</span>
-              </span>
-            )}
-            {branch && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
-                Branch: {branch}
-                <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => { setBranch(''); load(0) }}>close</span>
-              </span>
-            )}
-            {(amountMin || amountMax) && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
-                ₦{amountMin || '0'} – ₦{amountMax || '∞'}
-                <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => { setAmountMin(''); setAmountMax(''); load(0) }}>close</span>
-              </span>
-            )}
-            <button onClick={() => { handleReset(); load(0) }} style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', padding: 0, fontFamily: SORA }}>Clear all</button>
-          </div>
-        )}
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[{
+            key: 'sign', label: 'Channel',
+            options: [
+              { value: 'CR', label: 'Credit (CR)', color: '#16A34A' },
+              { value: 'DR', label: 'Debit (DR)',  color: '#C00000' },
+            ],
+            selected: fSign,
+            onChange: setFSign,
+          }]}
+          onReset={handleReset}
+          onApply={() => load(0)}
+          resultCount={total}
+          totalCount={total}
+          placeholder="Search transactions…"
+        />
 
         <DataTable cols={COLS} rows={rows} keyFn={(r, i) => r.id ?? i} loading={loading} emptyText="No transactions found" />
 

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, FilterBar, filterInputStyle, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, ExpandableFilterBar, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, today, monthStart } from '../../lib/fmt'
@@ -56,7 +56,8 @@ export default function SettlementBatches() {
   const [rows, setRows] = useState<Batch[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState('')
+  const [fStatuses, setFStatuses] = useState<Set<string>>(new Set())
+  const [search,    setSearch]    = useState('')
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo] = useState(today())
 
@@ -65,7 +66,7 @@ export default function SettlementBatches() {
     setError(null)
     try {
       const qs = new URLSearchParams({ date_from: dateFrom, date_to: dateTo })
-      if (statusFilter) qs.set('status', statusFilter)
+      if (fStatuses.size) qs.set('status', [...fStatuses].join(','))
       const res = await apiFetch<Batch[]>(`/api/settlements/batches?${qs}`)
       setRows(res ?? [])
     } catch (e: any) {
@@ -73,7 +74,7 @@ export default function SettlementBatches() {
     } finally {
       setLoading(false)
     }
-  }, [dateFrom, dateTo, statusFilter])
+  }, [dateFrom, dateTo, fStatuses])
 
   useEffect(() => { load() }, [load])
 
@@ -102,7 +103,11 @@ export default function SettlementBatches() {
   }
 
   return (
-    <Page title="Settlement Batches" subtitle="NIP/NIBSS daily settlement overview">
+    <Page
+      title="Settlement Batches"
+      subtitle="NIP/NIBSS daily settlement overview"
+      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
+    >
       <ErrBanner error={error} onRetry={load} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[5] }}>
@@ -112,26 +117,32 @@ export default function SettlementBatches() {
         <KpiCard label="Exceptions" value={String(totalExceptions)} icon="warning" accent={totalExceptions > 0 ? RED : NAVY} loading={loading} />
       </div>
 
-      <FilterBar onReset={() => { setStatusFilter(''); setDateFrom(monthStart()); setDateTo(today()) }}>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterInputStyle}>
-          <option value="">All statuses</option>
-          <option value="pending">Pending</option>
-          <option value="reconciled">Reconciled</option>
-          <option value="exceptions">Has Exceptions</option>
-        </select>
-        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
-        <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
-      </FilterBar>
-
       <SectionCard padding={false} actions={<button onClick={() => exportBatchesCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[{
+            key: 'status', label: 'Status',
+            options: [
+              { value: 'pending',    label: 'Pending',        color: AMBER },
+              { value: 'reconciled', label: 'Reconciled',     color: GREEN },
+              { value: 'exceptions', label: 'Has Exceptions', color: RED   },
+            ],
+            selected: fStatuses,
+            onChange: setFStatuses,
+          }]}
+          onReset={() => { setFStatuses(new Set()); setSearch('') }}
+          onApply={load}
+          resultCount={rows.length}
+          totalCount={rows.length}
+          placeholder="Search batch ref, type…"
+        />
         <DataTable
           cols={COLS}
           rows={rows}
           keyFn={r => r.id}
           loading={loading}
           emptyText="No settlement batches for this period"
-          searchKeys={['batch_ref', 'batch_type', 'status']}
-          searchPlaceholder="Search ref, type, status…"
           pageSize={20}
         />
       </SectionCard>

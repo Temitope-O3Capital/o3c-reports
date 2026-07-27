@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter, ConfirmModal, NameCell, ActionRow, StatusBadge, avatarColor, nameInitials } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, DateFilter, ConfirmModal, NameCell, ActionRow, StatusBadge, avatarColor, nameInitials } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtDatetime, monthStart, today } from '../../lib/fmt'
@@ -356,11 +356,10 @@ export default function AdminUsers() {
   const [search,    setSearch]    = useState('')
   const [dateFrom,  setDateFrom]  = useState(monthStart())
   const [dateTo,    setDateTo]    = useState(today())
-  const [roleFilter,   setRoleFilter]   = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
-  const [deptFilter,   setDeptFilter]   = useState('')
+  const [fRoles,    setFRoles]    = useState<Set<string>>(new Set())
+  const [fStatuses, setFStatuses] = useState<Set<string>>(new Set())
+  const [fDepts,    setFDepts]    = useState<Set<string>>(new Set())
   const [selected,  setSelected]  = useState<Set<string | number>>(new Set())
-  const [filterOpen, setFilterOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [deactivateOpen, setDeactivateOpen] = useState(false)
 
@@ -378,7 +377,7 @@ export default function AdminUsers() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(1) }, [search, roleFilter, statusFilter, deptFilter])
+  useEffect(() => { setPage(1) }, [search, fRoles, fStatuses, fDepts])
 
   async function resetUserPassword(userId: number) {
     try {
@@ -399,19 +398,16 @@ export default function AdminUsers() {
     }
   }
 
-  const filtered = useMemo(() => {
-    return rows.filter(u => {
-      if (roleFilter && u.role !== roleFilter) return false
-      if (statusFilter === 'active' && !u.is_active) return false
-      if (statusFilter === 'inactive' && u.is_active) return false
-      if (deptFilter && u.department !== deptFilter) return false
-      if (search) {
-        const q = search.toLowerCase()
-        return u.full_name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.role.includes(q)
-      }
-      return true
-    })
-  }, [rows, search, roleFilter, statusFilter, deptFilter])
+  const filtered = useMemo(() => rows.filter(u => {
+    if (fRoles.size && !fRoles.has(u.role)) return false
+    if (fStatuses.size && !fStatuses.has(u.is_active ? 'active' : 'inactive')) return false
+    if (fDepts.size && !fDepts.has(u.department)) return false
+    if (search) {
+      const q = search.toLowerCase()
+      return u.full_name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.role.includes(q)
+    }
+    return true
+  }), [rows, search, fRoles, fStatuses, fDepts])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE))
   const safePage   = Math.min(page, totalPages)
@@ -419,7 +415,7 @@ export default function AdminUsers() {
   const showStart  = filtered.length === 0 ? 0 : (safePage - 1) * PER_PAGE + 1
   const showEnd    = Math.min(safePage * PER_PAGE, filtered.length)
 
-  const activeFilterCount = (roleFilter ? 1 : 0) + (statusFilter ? 1 : 0) + (deptFilter ? 1 : 0)
+  function resetFilters() { setSearch(''); setFRoles(new Set()); setFStatuses(new Set()); setFDepts(new Set()) }
 
   async function batchDeactivate() {
     try {
@@ -478,60 +474,42 @@ export default function AdminUsers() {
 
       <SectionCard title="All Users" badge={filtered.length} padding={false}>
 
-        {/* Toolbar */}
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: SP[2], alignItems: 'center' }}>
-          <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
-          <button
-            onClick={() => setFilterOpen(o => !o)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: SP[1], padding: '7px 14px', borderRadius: RADIUS.md,
-              border: `1.5px solid ${filterOpen || activeFilterCount > 0 ? NAVY : 'var(--input-bdr)'}`,
-              background: filterOpen ? `${NAVY}10` : 'transparent',
-              color: filterOpen || activeFilterCount > 0 ? NAVY : 'var(--txt2)',
-              fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER,
-            }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>tune</span>
-            Filters
-            {activeFilterCount > 0 && (
-              <span style={{ background: NAVY, color: '#fff', borderRadius: RADIUS.lg, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '1px 6px' }}>{activeFilterCount}</span>
-            )}
-          </button>
-          <span style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{rows.length} total</span>
-        </div>
-
-        {/* Filter panel */}
-        {filterOpen && (
-          <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--bdr)', background: '#F0F4FF' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: SP[4] }}>
-              <div>
-                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Role</div>
-                <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)}
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--card)', fontSize: TEXT.sm, color: 'var(--txt)', outline: 'none' }}>
-                  <option value="">All roles</option>
-                  {[...new Set(rows.map(u => u.role))].sort().map(r => <option key={r} value={r}>{roleLabel(r)}</option>)}
-                </select>
-              </div>
-              <div>
-                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Status</div>
-                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--card)', fontSize: TEXT.sm, color: 'var(--txt)', outline: 'none' }}>
-                  <option value="">All statuses</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-              </div>
-              <div>
-                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Department</div>
-                <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)}
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--card)', fontSize: TEXT.sm, color: 'var(--txt)', outline: 'none' }}>
-                  <option value="">All departments</option>
-                  {depts.map(d => <option key={d}>{d}</option>)}
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[
+            {
+              key: 'role',
+              label: 'Role',
+              options: [...new Set(rows.map(u => u.role))].sort().map(r => ({
+                value: r,
+                label: roleLabel(r),
+              })),
+              selected: fRoles,
+              onChange: setFRoles,
+            },
+            {
+              key: 'status',
+              label: 'Status',
+              options: [
+                { value: 'active',   label: 'Active',   color: GREEN },
+                { value: 'inactive', label: 'Inactive', color: RED },
+              ],
+              selected: fStatuses,
+              onChange: setFStatuses,
+            },
+            {
+              key: 'dept',
+              label: 'Department',
+              options: depts.map(d => ({ value: d })),
+              selected: fDepts,
+              onChange: setFDepts,
+            },
+          ]}
+          onReset={resetFilters}
+          resultCount={filtered.length}
+          totalCount={rows.length}
+        />
 
         {/* Batch bar */}
         {selected.size > 0 && (
@@ -543,36 +521,6 @@ export default function AdminUsers() {
             <button onClick={() => setSelected(new Set())} style={{ padding: '5px 10px', borderRadius: 7, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.sm, cursor: 'pointer' }}>
               Clear
             </button>
-          </div>
-        )}
-
-        {/* Active chips */}
-        {activeFilterCount > 0 && (
-          <div style={{ padding: '8px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: SP[1], flexWrap: 'wrap' }}>
-            {roleFilter && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, background: `${NAVY}12`, color: NAVY, borderRadius: RADIUS['2xl'], padding: '3px 10px', fontSize: TEXT.xs, fontWeight: FW.semibold }}>
-                Role: {roleLabel(roleFilter)}
-                <button onClick={() => setRoleFilter('')} style={{ border: 'none', background: 'none', cursor: 'pointer', color: NAVY, display: 'flex', padding: 0 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.base }}>close</span>
-                </button>
-              </span>
-            )}
-            {statusFilter && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, background: `${NAVY}12`, color: NAVY, borderRadius: RADIUS['2xl'], padding: '3px 10px', fontSize: TEXT.xs, fontWeight: FW.semibold }}>
-                Status: {statusFilter}
-                <button onClick={() => setStatusFilter('')} style={{ border: 'none', background: 'none', cursor: 'pointer', color: NAVY, display: 'flex', padding: 0 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.base }}>close</span>
-                </button>
-              </span>
-            )}
-            {deptFilter && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, background: `${NAVY}12`, color: NAVY, borderRadius: RADIUS['2xl'], padding: '3px 10px', fontSize: TEXT.xs, fontWeight: FW.semibold }}>
-                Dept: {deptFilter}
-                <button onClick={() => setDeptFilter('')} style={{ border: 'none', background: 'none', cursor: 'pointer', color: NAVY, display: 'flex', padding: 0 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.base }}>close</span>
-                </button>
-              </span>
-            )}
           </div>
         )}
 

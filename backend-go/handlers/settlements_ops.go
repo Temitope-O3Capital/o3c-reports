@@ -94,7 +94,15 @@ func soaBatchList(db *core.DB) http.HandlerFunc {
 			where += fmt.Sprintf(" AND batch_date <= $%d::date", n); args = append(args, dateTo); n++
 		}
 		if status != "" {
-			where += fmt.Sprintf(" AND LOWER(status)=LOWER($%d)", n); args = append(args, status); n++
+			parts := strings.Split(status, ",")
+			phs := make([]string, len(parts))
+			for i, p := range parts { phs[i] = fmt.Sprintf("LOWER($%d)", n+i); args = append(args, strings.TrimSpace(p)) }
+			n += len(parts)
+			if len(parts) == 1 {
+				where += fmt.Sprintf(" AND LOWER(status)=%s", phs[0])
+			} else {
+				where += fmt.Sprintf(" AND LOWER(status) IN (%s)", strings.Join(phs, ","))
+			}
 		}
 		args = append(args, limit)
 
