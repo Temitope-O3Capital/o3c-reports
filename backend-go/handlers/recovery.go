@@ -490,6 +490,12 @@ func recoveryAddLegalMilestone(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Insert returned no result")
 			return
 		}
+		cif := ""
+		if cifRows, _ := db.PGQuery(r.Context(), `SELECT account_cif FROM recovery_cases WHERE id = $1`, id); len(cifRows) > 0 {
+			cif = str(cifRows[0]["account_cif"])
+		}
+		logCreditEvent(r.Context(), db, r, "recovery", "legal_milestone", fmt.Sprint(rows[0]["id"]), cif, "legal_milestone_added",
+			fmt.Sprintf("Legal milestone: %s", b.MilestoneType), nil, map[string]any{"milestone": b.MilestoneType})
 		go NotifyRoles(context.Background(), db, []string{"recovery_head", "compliance_officer"}, NotifPayload{
 			EventType: EvtRecoveryLegalMilestone,
 			Title:     "Legal Milestone Recorded",
@@ -621,6 +627,9 @@ func recoveryCreateDebtSale(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Commit failed")
 			return
 		}
+
+		logCreditEvent(ctx, db, r, "recovery", "debt_sale", fmt.Sprint(saleID), "", "debt_sale_created",
+			fmt.Sprintf("Debt sale created — buyer: %s, sale price ₦%s", body.BuyerName, fmtKoboStr(body.SalePriceKobo)), nil, map[string]any{"buyer_name": body.BuyerName, "sale_price_kobo": body.SalePriceKobo})
 
 		row := core.Row{
 			"id": saleID, "buyer_name": buyerName, "sale_date": saleDate,

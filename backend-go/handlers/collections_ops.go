@@ -335,6 +335,8 @@ func collectionsOpsLogPayment(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		logCreditEvent(ctx, db, r, "collections", "payment", fmt.Sprint(payID), cif, "payment_logged",
+			fmt.Sprintf("Collection payment of ₦%s logged via %s", fmtKoboStr(b.AmountKobo), b.Channel), nil, map[string]any{"amount_kobo": b.AmountKobo, "channel": b.Channel})
 		slog.Info("collections payment logged", "pay_id", payID, "cif", cif, "amount_kobo", b.AmountKobo, "by", user.ID)
 		respond(w, map[string]any{"id": payID, "amount_kobo": b.AmountKobo}, "json")
 	}
@@ -380,6 +382,8 @@ func collectionsOpsContact(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Log contact failed")
 			return
 		}
+		logCreditEvent(r.Context(), db, r, "collections", "contact", fmt.Sprint(rows[0]["id"]), cif, "contact_logged",
+			fmt.Sprintf("Contact logged via %s — outcome: %s", b.ContactType, b.Outcome), nil, map[string]any{"contact_type": b.ContactType, "outcome": b.Outcome, "notes": b.Notes})
 		respond(w, rows[0], "pg")
 	}
 }
@@ -422,6 +426,8 @@ func collectionsOpsPromise(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Log promise failed")
 			return
 		}
+		logCreditEvent(r.Context(), db, r, "collections", "promise", fmt.Sprint(rows[0]["id"]), pCif, "promise_created",
+			fmt.Sprintf("Promise to pay ₦%s by %s created", fmtKoboStr(b.AmountKobo), b.PromiseDate), nil, map[string]any{"amount_kobo": b.AmountKobo, "promised_date": b.PromiseDate})
 		respond(w, rows[0], "pg")
 	}
 }
@@ -458,6 +464,12 @@ func collectionsOpsHonourPromise(db *core.DB) http.HandlerFunc {
 			respondErr(w, 403, "Promise not found or does not belong to you")
 			return
 		}
+		cif := ""
+		if cifRows, _ := db.PGQuery(r.Context(), `SELECT cif_number FROM collection_promises WHERE id = $1`, pid); len(cifRows) > 0 {
+			cif = str(cifRows[0]["cif_number"])
+		}
+		logCreditEvent(r.Context(), db, r, "collections", "promise", fmt.Sprint(pid), cif, "promise_honoured",
+			"Promise to pay marked as kept", nil, map[string]any{"honoured": true})
 		respondOK(w, "Promise marked as honoured")
 	}
 }
@@ -494,6 +506,9 @@ func collectionsOpsBrokenPromise(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Update failed")
 			return
 		}
+
+		logCreditEvent(r.Context(), db, r, "collections", "promise", fmt.Sprint(pid), str(pRows[0]["cif_number"]), "promise_broken",
+			"Promise to pay marked as broken", nil, map[string]any{"broken": true})
 
 		if len(pRows) > 0 {
 			p := pRows[0]
@@ -753,6 +768,9 @@ func collectionsOpsSendToRecovery(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		logCreditEvent(ctx, db, r, "collections", "assignment", fmt.Sprint(id), accountCIF, "sent_to_recovery",
+			fmt.Sprintf("Account escalated to recovery — case %s created", caseRef), nil, map[string]any{"case_ref": caseRef})
+
 		// Notify collections head
 		sendNotification(ctx, db, user.ID, "sent_to_recovery", //nolint:errcheck
 			fmt.Sprintf("Account %s sent to recovery", accountCIF),
@@ -982,6 +1000,9 @@ func collectionsOpsCreatePlan(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Plan creation failed"); return
 		}
 
+		logCreditEvent(ctx, db, r, "collections", "repayment_plan", fmt.Sprint(planID), b.AccountCIF, "plan_created",
+			fmt.Sprintf("Repayment plan created with %d instalments", len(instalments)), nil, map[string]any{"account_cif": b.AccountCIF})
+
 		// Notify the creating agent that their plan is live.
 		go Notify(context.Background(), db, NotifPayload{
 			EventType: EvtRepaymentPlanCreated,
@@ -1085,6 +1106,8 @@ func collectionsOpsMarkPaid(db *core.DB) http.HandlerFunc {
 		if err = tx.Commit(); err != nil {
 			respondErr(w, 500, "Commit failed"); return
 		}
+		logCreditEvent(ctx, db, r, "collections", "repayment_plan", iid, accountCIF, "instalment_paid",
+			fmt.Sprintf("Repayment plan instalment of ₦%s marked as paid", fmtKoboStr(amountKobo)), nil, map[string]any{"amount_kobo": amountKobo})
 		respond(w, map[string]any{"status": "paid"}, "json")
 	}
 }
@@ -1496,6 +1519,8 @@ func collectionsOpsCreateWriteoffRequest(db *core.DB) http.HandlerFunc {
 		if err != nil {
 			respondErr(w, 500, "Insert failed"); return
 		}
+		logCreditEvent(r.Context(), db, r, "collections", "writeoff_request", fmt.Sprint(rows[0]["id"]), b.AccountCIF, "writeoff_requested",
+			fmt.Sprintf("Write-off request submitted — type: %s, reason: %s", b.WriteoffType, b.Reason), nil, map[string]any{"writeoff_type": b.WriteoffType, "reason": b.Reason, "amount_kobo": b.AmountKobo})
 		respond(w, rows[0], "pg")
 	}
 }
@@ -1614,6 +1639,8 @@ func collectionsOpsApproveWriteoffRequest(db *core.DB) http.HandlerFunc {
 		if err := tx.Commit(); err != nil {
 			respondErr(w, 500, "Commit failed"); return
 		}
+		logCreditEvent(ctx, db, r, "collections", "writeoff_request", fmt.Sprint(id), str(wr["account_cif"]), "writeoff_request_approved",
+			"Write-off request approved by collections head", nil, map[string]any{"notes": b.ReviewNotes})
 		respond(w, map[string]any{"id": id, "status": "approved", "gl_amount_kobo": glAmountKobo}, "json")
 	}
 }
@@ -1634,11 +1661,13 @@ func collectionsOpsRejectWriteoffRequest(db *core.DB) http.HandlerFunc {
 			UPDATE collections_writeoff_requests
 			SET status = 'rejected', reviewed_by = $1, reviewed_at = NOW(), review_notes = $2
 			WHERE id = $3 AND status = 'pending'
-			RETURNING id, status`,
+			RETURNING id, status, account_cif`,
 			user.ID, b.ReviewNotes, id)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "Request not found or already reviewed"); return
 		}
+		logCreditEvent(r.Context(), db, r, "collections", "writeoff_request", fmt.Sprint(id), str(rows[0]["account_cif"]), "writeoff_request_rejected",
+			fmt.Sprintf("Write-off request rejected — reason: %s", b.ReviewNotes), nil, map[string]any{"notes": b.ReviewNotes})
 		respond(w, rows[0], "pg")
 	}
 }

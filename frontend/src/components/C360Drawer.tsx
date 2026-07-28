@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { fmtKobo, fmtDate } from '../lib/fmt'
-import { RED, GREEN, AMBER, NAVY, SORA, MONO } from '../lib/design'
+import { RED, GREEN, AMBER, NAVY, BLUE, SORA, MONO, TEXT, FW, RADIUS } from '../lib/design'
 import { IcoClose } from '../lib/icons'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -19,10 +19,6 @@ interface Product {
   product_name?: string; card_type?: string; status?: string
 }
 
-interface Transaction {
-  date?: string; description?: string; amount_kobo?: number; type?: string
-}
-
 interface LoanApplication {
   product_type?: string; amount_requested_kobo?: number; stage?: string
 }
@@ -31,9 +27,21 @@ interface Profile {
   cif?: string; name?: string; phone?: string; email?: string
   account?: Account
   products?: Product[]
-  transactions?: Transaction[]
   loan_applications?: LoanApplication[]
   financial_summary?: { dpd_bucket?: string | null }
+}
+
+interface ActivityEvent {
+  id: number
+  ts: string
+  module: string
+  actor_name: string
+  actor_role: string
+  entity_type: string
+  action: string
+  description: string
+  previous_state?: string | null
+  new_state?: string | null
 }
 
 const REJECTED = new Set(['rejected', 'cancelled', 'declined'])
@@ -44,12 +52,49 @@ function dpdColor(bucket: string | null | undefined): string {
   return RED
 }
 
-// ── Shared section-title style ────────────────────────────────────────────────
-
 const SEC_TITLE: React.CSSProperties = {
   fontSize: 10.5, fontWeight: 600, letterSpacing: '.1em',
   textTransform: 'uppercase', color: 'var(--txt3)',
   marginBottom: 12, fontFamily: MONO,
+}
+
+// ── Action config ─────────────────────────────────────────────────────────────
+
+const ACTION_META: Record<string, { label: string; color: string; icon: string }> = {
+  contact_logged:            { label: 'Contact',         color: BLUE,    icon: 'phone_in_talk' },
+  promise_created:           { label: 'PTP Created',     color: NAVY,    icon: 'handshake' },
+  promise_honoured:          { label: 'PTP Honoured',    color: GREEN,   icon: 'check_circle' },
+  promise_broken:            { label: 'PTP Broken',      color: RED,     icon: 'cancel' },
+  payment_logged:            { label: 'Payment',         color: BLUE,    icon: 'payments' },
+  payment_approved:          { label: 'Payment OK',      color: GREEN,   icon: 'check_circle' },
+  payment_rejected:          { label: 'Payment Rej.',    color: RED,     icon: 'cancel' },
+  writeoff_requested:        { label: 'W/O Request',     color: AMBER,   icon: 'request_page' },
+  writeoff_request_approved: { label: 'W/O Approved',    color: RED,     icon: 'do_not_disturb_on' },
+  writeoff_request_rejected: { label: 'W/O Rejected',    color: AMBER,   icon: 'undo' },
+  writeoff_approved:         { label: 'Written Off',     color: RED,     icon: 'do_not_disturb_on' },
+  watchlist_flagged:         { label: 'Watchlisted',     color: AMBER,   icon: 'flag' },
+  watchlist_resolved:        { label: 'Flag Resolved',   color: GREEN,   icon: 'flag_circle' },
+  sent_to_recovery:          { label: 'To Recovery',     color: RED,     icon: 'gavel' },
+  field_visit_logged:        { label: 'Field Visit',     color: BLUE,    icon: 'location_on' },
+  debt_sale_created:         { label: 'Debt Sale',       color: '#7C3AED', icon: 'sell' },
+  plan_created:              { label: 'Plan Created',    color: NAVY,    icon: 'calendar_today' },
+  instalment_paid:           { label: 'Instalment',      color: GREEN,   icon: 'paid' },
+  legal_milestone_added:     { label: 'Legal',           color: '#7C3AED', icon: 'balance' },
+}
+
+function EventDot({ action }: { action: string }) {
+  const meta = ACTION_META[action]
+  const color = meta?.color ?? 'var(--txt3)'
+  const icon  = meta?.icon  ?? 'circle'
+  return (
+    <div style={{
+      width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+      background: `${color}18`, border: `1.5px solid ${color}40`,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 14, color }}>{icon}</span>
+    </div>
+  )
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -59,16 +104,15 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
   onClose: () => void
   initialCustomer?: C360Customer | null
 }) {
-  const navigate  = useNavigate()
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [loading, setLoading] = useState(false)
+  const navigate = useNavigate()
 
-  // Load profile whenever the drawer opens with a customer
-  useEffect(() => {
-    if (!open || !initialCustomer) {
-      if (!open) setProfile(null)
-      return
-    }
+  const [profile,   setProfile]   = useState<Profile | null>(null)
+  const [events,    setEvents]    = useState<ActivityEvent[]>([])
+  const [loading,   setLoading]   = useState(false)
+  const [evtLoading,setEvtLoading]= useState(false)
+
+  const loadProfile = useCallback(() => {
+    if (!initialCustomer) return
     setLoading(true)
     setProfile(null)
     apiFetch<Profile>(`/api/customer360/${initialCustomer.cif}`)
@@ -86,12 +130,29 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
         email: initialCustomer.email,
       }))
       .finally(() => setLoading(false))
-  }, [open, initialCustomer])
+  }, [initialCustomer])
+
+  const loadEvents = useCallback(() => {
+    if (!initialCustomer?.cif) return
+    setEvtLoading(true)
+    apiFetch<{ data: ActivityEvent[] }>(`/api/collections/activity/cif/${initialCustomer.cif}`)
+      .then(r => setEvents(r.data ?? []))
+      .catch(() => setEvents([]))
+      .finally(() => setEvtLoading(false))
+  }, [initialCustomer])
+
+  useEffect(() => {
+    if (!open || !initialCustomer) {
+      if (!open) { setProfile(null); setEvents([]) }
+      return
+    }
+    loadProfile()
+    loadEvents()
+  }, [open, initialCustomer, loadProfile, loadEvents])
 
   const dpdBucket   = profile?.financial_summary?.dpd_bucket ?? 'Current'
   const activeLoans = (profile?.loan_applications ?? []).filter(l => !REJECTED.has(l.stage ?? ''))
-
-  const products = [
+  const products    = [
     ...(profile?.products ?? []).map(p => ({
       name: p.product_name ?? p.card_type ?? 'Product',
       amt:  p.status ?? '',
@@ -102,8 +163,6 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
     })),
   ]
 
-  const activity = (profile?.transactions ?? []).slice(0, 6)
-
   const profileKVs: [string, string | undefined][] = [
     ['Phone',     profile?.phone],
     ['Email',     profile?.email],
@@ -113,23 +172,17 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
 
   return (
     <>
-      {/* Veil */}
       {open && (
         <div
           onClick={onClose}
-          style={{
-            position: 'fixed', inset: 0,
-            background: 'rgba(14,40,65,.4)',
-            zIndex: 55,
-          }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(14,40,65,.4)', zIndex: 55 }}
         />
       )}
 
-      {/* Slide-over panel — always in DOM so transition works */}
       <div style={{
         position: 'fixed', top: 0,
-        right: open ? 0 : -460,
-        width: 440, maxWidth: '94vw', height: '100%',
+        right: open ? 0 : -480,
+        width: 460, maxWidth: '94vw', height: '100%',
         background: 'var(--card)',
         borderLeft: '1px solid var(--bdr)',
         zIndex: 56,
@@ -139,7 +192,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
         fontSize: 13,
       }}>
 
-        {/* ── Head ── */}
+        {/* ── Header ── */}
         <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
           <button
             onClick={onClose}
@@ -152,14 +205,9 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
             <IcoClose size={18} />
           </button>
 
-          {loading && (
-            <div style={{ color: 'var(--txt3)', fontSize: 13 }}>Loading…</div>
-          )}
-
+          {loading && <div style={{ color: 'var(--txt3)', fontSize: 13 }}>Loading…</div>}
           {!loading && !profile && (
-            <div style={{ color: 'var(--txt3)', fontSize: 13 }}>
-              Search for a customer in the bar above
-            </div>
+            <div style={{ color: 'var(--txt3)', fontSize: 13 }}>Search for a customer in the bar above</div>
           )}
 
           {profile && (
@@ -174,15 +222,21 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
                 <span style={{
                   fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
                   background: `${NAVY}22`, color: NAVY,
-                }}>
-                  Customer
-                </span>
+                }}>Customer</span>
                 <span style={{
                   fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
                   background: `${dpdColor(dpdBucket)}18`, color: dpdColor(dpdBucket),
                 }}>
                   DPD: {dpdBucket}
                 </span>
+                {events.length > 0 && (
+                  <span style={{
+                    fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+                    background: `${BLUE}12`, color: BLUE,
+                  }}>
+                    {events.length} credit events
+                  </span>
+                )}
               </div>
             </>
           )}
@@ -192,7 +246,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {profile ? (
             <>
-              {/* Profile section */}
+              {/* Profile */}
               {profileKVs.length > 0 && (
                 <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--bdr)' }}>
                   <div style={SEC_TITLE}>Profile</div>
@@ -207,7 +261,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
                 </div>
               )}
 
-              {/* Products & exposure section */}
+              {/* Products & exposure */}
               {products.length > 0 && (
                 <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--bdr)' }}>
                   <div style={SEC_TITLE}>Products &amp; exposure</div>
@@ -219,41 +273,102 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
                       fontSize: 12.5,
                     }}>
                       <span style={{ fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{p.name}</span>
-                      <span style={{
-                        marginLeft: 'auto', fontFamily: MONO, fontWeight: 500,
-                        fontVariantNumeric: 'tabular-nums', color: 'var(--txt2)', fontSize: 12,
-                      }}>{p.amt}</span>
+                      <span style={{ marginLeft: 'auto', fontFamily: MONO, fontVariantNumeric: 'tabular-nums', color: 'var(--txt2)', fontSize: 12 }}>{p.amt}</span>
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* Recent activity section */}
-              {activity.length > 0 && (
-                <div style={{ padding: '16px 24px' }}>
-                  <div style={SEC_TITLE}>Recent activity</div>
-                  {activity.map((tx, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 12, padding: '8px 0', fontSize: 12, color: 'var(--txt)' }}>
-                      <span style={{ fontFamily: MONO, fontSize: 10.5, color: 'var(--txt3)', minWidth: 52, paddingTop: 1, flexShrink: 0 }}>
-                        {tx.date ? fmtDate(tx.date).slice(0, 6) : '—'}
-                      </span>
-                      <span style={{ flex: 1, lineHeight: 1.45 }}>
-                        {tx.description ?? '—'}
-                        {tx.amount_kobo != null && (
-                          <span style={{
-                            color: tx.type === 'credit' ? GREEN : RED,
-                            fontFamily: MONO, marginLeft: 6, fontSize: 11,
-                          }}>
-                            {tx.type === 'credit' ? '+' : '-'}{fmtKobo(Math.abs(tx.amount_kobo))}
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  ))}
+              {/* Credit Activity Timeline */}
+              <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--bdr)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
+                  <div style={{ ...SEC_TITLE, marginBottom: 0 }}>Credit History</div>
+                  {events.length > 0 && (
+                    <button
+                      onClick={() => { onClose(); navigate(`/collections/activity-log?cif=${profile.cif}`) }}
+                      style={{
+                        marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer',
+                        fontSize: 11, color: NAVY, fontWeight: 600, fontFamily: SORA,
+                        padding: 0,
+                      }}
+                    >
+                      View all →
+                    </button>
+                  )}
                 </div>
-              )}
 
-              {products.length === 0 && activity.length === 0 && profileKVs.length === 0 && (
+                {evtLoading && (
+                  <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: 12 }}>
+                    Loading history…
+                  </div>
+                )}
+
+                {!evtLoading && events.length === 0 && (
+                  <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: 12 }}>
+                    No credit events on record
+                  </div>
+                )}
+
+                {!evtLoading && events.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                    {events.slice(0, 12).map((evt, i) => {
+                      const meta  = ACTION_META[evt.action]
+                      const color = meta?.color ?? 'var(--txt3)'
+                      const isLast = i === Math.min(events.length, 12) - 1
+                      return (
+                        <div key={evt.id} style={{ display: 'flex', gap: 12, position: 'relative' }}>
+                          {/* Timeline line */}
+                          {!isLast && (
+                            <div style={{
+                              position: 'absolute', left: 13, top: 32, bottom: 0,
+                              width: 1.5, background: 'var(--bdr)',
+                            }} />
+                          )}
+                          <div style={{ paddingTop: 4 }}>
+                            <EventDot action={evt.action} />
+                          </div>
+                          <div style={{ flex: 1, paddingBottom: isLast ? 0 : 18 }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 3 }}>
+                              <span style={{
+                                fontSize: 10.5, fontWeight: FW.bold, padding: '1px 6px',
+                                borderRadius: RADIUS['2xl'],
+                                background: `${color}18`, color,
+                                whiteSpace: 'nowrap', flexShrink: 0,
+                              }}>
+                                {meta?.label ?? evt.action}
+                              </span>
+                              <span style={{ fontSize: 10.5, color: 'var(--txt3)', fontFamily: MONO, paddingTop: 2 }}>
+                                {new Date(evt.ts).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' })}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--txt)', lineHeight: 1.5, marginBottom: 2 }}>
+                              {evt.description}
+                            </div>
+                            <div style={{ fontSize: 10.5, color: 'var(--txt3)' }}>
+                              {evt.actor_name} · <span style={{ textTransform: 'capitalize' }}>{evt.actor_role.replace(/_/g, ' ')}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {events.length > 12 && (
+                      <button
+                        onClick={() => { onClose(); navigate(`/collections/activity-log?cif=${profile.cif}`) }}
+                        style={{
+                          width: '100%', padding: '8px', marginTop: 8,
+                          border: '1px dashed var(--bdr)', borderRadius: RADIUS.md,
+                          background: 'transparent', cursor: 'pointer',
+                          fontSize: 12, color: NAVY, fontWeight: 600, fontFamily: SORA,
+                        }}
+                      >
+                        + {events.length - 12} more events — View full history
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {products.length === 0 && events.length === 0 && profileKVs.length === 0 && (
                 <div style={{ padding: '48px 24px', color: 'var(--txt3)', fontSize: 13, textAlign: 'center' }}>
                   No additional data available
                 </div>
@@ -268,7 +383,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
           )}
         </div>
 
-        {/* ── Foot ── */}
+        {/* ── Footer ── */}
         {profile && (
           <div style={{
             padding: '14px 24px', borderTop: '1px solid var(--bdr)',

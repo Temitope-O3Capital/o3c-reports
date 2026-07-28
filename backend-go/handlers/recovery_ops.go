@@ -283,6 +283,13 @@ func recoveryOpsPayment(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		cif := ""
+		if cifRows, _ := db.PGQuery(ctx, `SELECT account_cif FROM recovery_cases WHERE id = $1`, id); len(cifRows) > 0 {
+			cif = str(cifRows[0]["account_cif"])
+		}
+		logCreditEvent(ctx, db, r, "recovery", "recovery_payment", fmt.Sprint(payID), cif, "payment_logged",
+			fmt.Sprintf("Recovery payment of ₦%s submitted via %s — pending approval", fmtKoboStr(b.AmountKobo), b.Channel), nil, map[string]any{"amount_kobo": b.AmountKobo, "channel": b.Channel})
+
 		respond(w, core.Row{
 			"id":           payID,
 			"amount_kobo":  b.AmountKobo,
@@ -399,6 +406,12 @@ func recoveryOpsApprovePayment(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Commit failed")
 			return
 		}
+		cif := ""
+		if cifRows, _ := db.PGQuery(ctx, `SELECT account_cif FROM recovery_cases WHERE id = $1`, caseID); len(cifRows) > 0 {
+			cif = str(cifRows[0]["account_cif"])
+		}
+		logCreditEvent(ctx, db, r, "recovery", "recovery_payment", fmt.Sprint(pid), cif, "payment_approved",
+			fmt.Sprintf("Recovery payment of ₦%s approved", fmtKoboStr(amtKobo)), nil, map[string]any{"approved": true})
 		respond(w, map[string]any{"id": pid, "status": "approved"}, "json")
 	}
 }
@@ -426,6 +439,12 @@ func recoveryOpsRejectPayment(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Payment not found or already processed")
 			return
 		}
+		cif := ""
+		if cifRows, _ := db.PGQuery(r.Context(), `SELECT rc.account_cif FROM recovery_payments rp JOIN recovery_cases rc ON rc.id = rp.case_id WHERE rp.id = $1`, pid); len(cifRows) > 0 {
+			cif = str(cifRows[0]["account_cif"])
+		}
+		logCreditEvent(r.Context(), db, r, "recovery", "recovery_payment", fmt.Sprint(pid), cif, "payment_rejected",
+			fmt.Sprintf("Recovery payment rejected — reason: %s", b.RejectionReason), nil, map[string]any{"reason": b.RejectionReason})
 		respond(w, rows[0], "pg")
 	}
 }
@@ -465,6 +484,12 @@ func recoveryOpsAddLegal(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Add legal proceeding failed")
 			return
 		}
+		cif := ""
+		if cifRows, _ := db.PGQuery(r.Context(), `SELECT account_cif FROM recovery_cases WHERE id = $1`, id); len(cifRows) > 0 {
+			cif = str(cifRows[0]["account_cif"])
+		}
+		logCreditEvent(r.Context(), db, r, "recovery", "legal_milestone", fmt.Sprint(rows[0]["id"]), cif, "legal_milestone_added",
+			fmt.Sprintf("Legal milestone added: %s", b.ProceedingType), nil, map[string]any{"milestone": b.ProceedingType})
 		go NotifyRoles(context.Background(), db, []string{"recovery_head", "compliance_officer"}, NotifPayload{
 			EventType: EvtRecoveryLegalMilestone,
 			Title:     "Legal Proceeding Filed",
@@ -607,6 +632,12 @@ func recoveryOpsVisit(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Log visit failed")
 			return
 		}
+		cif := ""
+		if cifRows, _ := db.PGQuery(r.Context(), `SELECT account_cif FROM recovery_cases WHERE id = $1`, id); len(cifRows) > 0 {
+			cif = str(cifRows[0]["account_cif"])
+		}
+		logCreditEvent(r.Context(), db, r, "recovery", "recovery_visit", fmt.Sprint(rows[0]["id"]), cif, "field_visit_logged",
+			fmt.Sprintf("Field visit logged — outcome: %s", b.Outcome), nil, map[string]any{"outcome": b.Outcome, "notes": b.Notes})
 		respond(w, rows[0], "pg")
 	}
 }
@@ -644,6 +675,12 @@ func recoveryOpsWriteOff(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Create write-off request failed")
 			return
 		}
+		cif := ""
+		if cifRows, _ := db.PGQuery(r.Context(), `SELECT account_cif FROM recovery_cases WHERE id = $1`, id); len(cifRows) > 0 {
+			cif = str(cifRows[0]["account_cif"])
+		}
+		logCreditEvent(r.Context(), db, r, "recovery", "writeoff_request", fmt.Sprint(rows[0]["id"]), cif, "writeoff_requested",
+			fmt.Sprintf("Write-off request submitted for ₦%s", fmtKoboStr(b.AmountKobo)), nil, map[string]any{"amount_kobo": b.AmountKobo})
 		respond(w, rows[0], "pg")
 	}
 }
@@ -751,6 +788,13 @@ func recoveryOpsApproveWriteOff(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Write-off commit failed — please retry")
 			return
 		}
+
+		cif := ""
+		if cifRows, _ := db.PGQuery(ctx, `SELECT rc.account_cif FROM recovery_write_off_approvals wa JOIN recovery_cases rc ON rc.id = wa.case_id WHERE wa.id = $1`, wid); len(cifRows) > 0 {
+			cif = str(cifRows[0]["account_cif"])
+		}
+		logCreditEvent(ctx, db, r, "recovery", "writeoff_approval", fmt.Sprint(wid), cif, "writeoff_approved",
+			fmt.Sprintf("Write-off of ₦%s approved", fmtKoboStr(writeOffKobo)), nil, map[string]any{"approved": true})
 
 		respondOK(w, fmt.Sprintf("Write-off advanced to '%s'", prog.next))
 	}

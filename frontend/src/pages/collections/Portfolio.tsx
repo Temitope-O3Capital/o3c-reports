@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   Page, SectionCard, DataTable, ErrBanner, Spinner, Modal,
@@ -44,17 +45,17 @@ type WatchlistModal =
   | null
 
 const SCENARIOS = [
-  { value: 'unreachable',          label: 'Unreachable' },
-  { value: 'legal_threat',         label: 'Legal Threat' },
-  { value: 'dispute',              label: 'Dispute' },
-  { value: 'employer_terminated',  label: 'Employer Terminated' },
-  { value: 'property_risk',        label: 'Property Risk' },
-  { value: 'other',                label: 'Other' },
+  { value: 'unreachable',         label: 'Unreachable' },
+  { value: 'legal_threat',        label: 'Legal Threat' },
+  { value: 'dispute',             label: 'Dispute' },
+  { value: 'employer_terminated', label: 'Employer Terminated' },
+  { value: 'property_risk',       label: 'Property Risk' },
+  { value: 'other',               label: 'Other' },
 ]
 
 const RESOLVE_STATUSES = [
-  { value: 'resolved',               label: 'Mark Resolved' },
-  { value: 'escalated_to_recovery',  label: 'Escalate to Recovery' },
+  { value: 'resolved',              label: 'Mark Resolved' },
+  { value: 'escalated_to_recovery', label: 'Escalate to Recovery' },
 ]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -82,21 +83,20 @@ function DpdBadge({ dpd, bucket }: { dpd: number; bucket: string | null }) {
 function TerritoryBadge({ dpd }: { dpd: number }) {
   const isRecovery = dpd > 90
   const color = isRecovery ? RED : NAVY
-  const label = isRecovery ? 'Recovery' : 'Collections'
   return (
     <span style={{
-      fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.03em',
+      fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.04em',
       padding: '2px 7px', borderRadius: RADIUS['2xl'],
       background: `${color}12`, color, whiteSpace: 'nowrap',
       textTransform: 'uppercase',
     }}>
-      {label}
+      {isRecovery ? 'Recovery' : 'Collections'}
     </span>
   )
 }
 
 function WatchlistBadge({ scenario }: { scenario: string | null }) {
-  if (!scenario) return null
+  if (!scenario) return <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>—</span>
   const label = SCENARIOS.find(s => s.value === scenario)?.label ?? scenario
   return (
     <span style={{
@@ -114,23 +114,25 @@ function WatchlistBadge({ scenario }: { scenario: string | null }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function CollectionsPortfolio() {
+  const navigate = useNavigate()
+
   const [rows, setRows]           = useState<PortfolioRow[]>([])
   const [watchlist, setWatchlist] = useState<WatchlistEntry[]>([])
   const [loading, setLoading]     = useState(true)
   const [error, setError]         = useState<string | null>(null)
-  const [tab, setTab]             = useState<'all' | 'collections' | 'recovery' | 'watchlist'>('all')
+  const [tab, setTab]             = useState<'all' | 'collections' | 'recovery'>('all')
   const [search, setSearch]       = useState('')
   const [modal, setModal]         = useState<WatchlistModal>(null)
 
-  // Add-to-watchlist form state
-  const [wlScenario, setWlScenario]   = useState('unreachable')
-  const [wlNotes, setWlNotes]         = useState('')
-  const [wlSaving, setWlSaving]       = useState(false)
+  // Add-to-watchlist form
+  const [wlScenario, setWlScenario] = useState('unreachable')
+  const [wlNotes, setWlNotes]       = useState('')
+  const [wlSaving, setWlSaving]     = useState(false)
 
-  // Resolve-watchlist form state
-  const [rvStatus, setRvStatus]       = useState('resolved')
-  const [rvNotes, setRvNotes]         = useState('')
-  const [rvSaving, setRvSaving]       = useState(false)
+  // Resolve-watchlist form
+  const [rvStatus, setRvStatus] = useState('resolved')
+  const [rvNotes, setRvNotes]   = useState('')
+  const [rvSaving, setRvSaving] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
@@ -154,7 +156,6 @@ export default function CollectionsPortfolio() {
     let base = rows
     if (tab === 'collections') base = rows.filter(r => r.dpd_lower <= 90)
     if (tab === 'recovery')    base = rows.filter(r => r.dpd_lower > 90)
-    if (tab === 'watchlist')   base = rows.filter(r => r.watchlist_id != null)
     if (!search.trim()) return base
     const q = search.toLowerCase()
     return base.filter(r =>
@@ -180,9 +181,7 @@ export default function CollectionsPortfolio() {
         outstanding_kobo: modal.row.outstanding_kobo,
       })
       toast.success('Added to watchlist')
-      setModal(null)
-      setWlNotes('')
-      setWlScenario('unreachable')
+      setModal(null); setWlNotes(''); setWlScenario('unreachable')
       load()
     } catch (e: any) {
       toast.error(e.message)
@@ -200,9 +199,7 @@ export default function CollectionsPortfolio() {
         resolution_notes: rvNotes,
       })
       toast.success(rvStatus === 'resolved' ? 'Marked resolved' : 'Escalated to recovery')
-      setModal(null)
-      setRvNotes('')
-      setRvStatus('resolved')
+      setModal(null); setRvNotes(''); setRvStatus('resolved')
       load()
     } catch (e: any) {
       toast.error(e.message)
@@ -212,122 +209,102 @@ export default function CollectionsPortfolio() {
   }
 
   const TABS: { key: typeof tab; label: string; count: number }[] = [
-    { key: 'all',         label: 'All',         count: rows.length },
-    { key: 'collections', label: 'Collections', count: collCount },
-    { key: 'recovery',    label: 'Recovery',    count: recCount },
-    { key: 'watchlist',   label: 'Watchlist',   count: wlCount },
+    { key: 'all',         label: 'All Accounts',  count: rows.length },
+    { key: 'collections', label: 'Collections',   count: collCount },
+    { key: 'recovery',    label: 'Recovery',      count: recCount },
   ]
 
   const portfolioCols: TableCol<PortfolioRow>[] = [
     {
-      key: 'applicant_cif', label: 'CIF',
+      key: 'applicant_cif', label: 'Account / CIF', sortable: true,
       render: r => (
         <NameCell
           name={r.applicant_cif}
-          sub={r.watchlist_scenario ? <WatchlistBadge scenario={r.watchlist_scenario} /> as any : null}
+          sub={r.current_stage ?? null}
+          avatar={false}
         />
       ),
     },
     {
-      key: 'dpd_bucket', label: 'DPD',
+      key: 'dpd_bucket', label: 'DPD', sortable: true,
       render: r => <DpdBadge dpd={r.dpd_lower} bucket={r.dpd_bucket} />,
     },
     {
-      key: 'outstanding_kobo', label: 'Outstanding', align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: r.dpd_lower > 90 ? RED : 'var(--txt)' }}>{fmtKobo(r.outstanding_kobo)}</span>,
-    },
-    {
-      key: 'current_stage', label: 'Stage',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.current_stage ?? '—'}</span>,
-    },
-    {
-      key: 'agent_name', label: 'Agent',
-      render: r => <span style={{ fontSize: TEXT.sm }}>{r.agent_name ?? '—'}</span>,
-    },
-    {
-      key: 'loan_status', label: 'Territory',
+      key: 'loan_status', label: 'Territory', sortable: true,
       render: r => <TerritoryBadge dpd={r.dpd_lower} />,
     },
     {
-      key: 'loan_id', label: '',
+      key: 'outstanding_kobo', label: 'Outstanding', align: 'right', sortable: true,
       render: r => (
-        r.watchlist_id ? (
+        <span style={{
+          ...NUM, fontWeight: FW.bold,
+          color: r.dpd_lower > 90 ? RED : r.dpd_lower > 30 ? AMBER : 'var(--txt)',
+        }}>
+          {fmtKobo(r.outstanding_kobo)}
+        </span>
+      ),
+    },
+    {
+      key: 'agent_name', label: 'Handler', sortable: true,
+      render: r => (
+        <span style={{ fontSize: TEXT.sm, color: r.agent_name ? 'var(--txt)' : 'var(--txt3)' }}>
+          {r.agent_name ?? 'Unassigned'}
+        </span>
+      ),
+    },
+    {
+      key: 'watchlist_scenario', label: 'Watchlist', sortable: true,
+      render: r => <WatchlistBadge scenario={r.watchlist_scenario} />,
+    },
+    {
+      key: 'loan_id', label: '', sortable: false,
+      render: r => (
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <button
             onClick={e => {
               e.stopPropagation()
-              const entry = watchlist.find(w => w.account_cif === r.applicant_cif)
-              if (entry) { setModal({ type: 'resolve', entry }); setRvStatus('resolved'); setRvNotes('') }
-              else { toast.error('Watchlist entry not found — try refreshing') }
+              navigate(`/collections/activity-log?cif=${r.applicant_cif}`)
             }}
             style={{
-              padding: '4px 10px', borderRadius: RADIUS.sm, cursor: 'pointer',
-              border: `1.5px solid ${AMBER}50`, background: `${AMBER}0C`, color: AMBER,
-              fontSize: TEXT.xs, fontWeight: FW.semibold, whiteSpace: 'nowrap',
-            }}
-          >
-            Resolve Flag
-          </button>
-        ) : (
-          <button
-            onClick={e => {
-              e.stopPropagation()
-              setModal({ type: 'add', row: r }); setWlScenario('unreachable'); setWlNotes('')
-            }}
-            style={{
-              padding: '4px 10px', borderRadius: RADIUS.sm, cursor: 'pointer',
+              padding: '3px 9px', borderRadius: RADIUS.sm, cursor: 'pointer',
               border: `1.5px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY,
               fontSize: TEXT.xs, fontWeight: FW.semibold, whiteSpace: 'nowrap',
             }}
           >
-            Add to Watchlist
+            Activity
           </button>
-        )
-      ),
-    },
-  ]
-
-  const wlCols: TableCol<WatchlistEntry>[] = [
-    {
-      key: 'account_cif', label: 'CIF',
-      render: r => <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY }}>{r.account_cif}</span>,
-    },
-    {
-      key: 'scenario', label: 'Scenario',
-      render: r => <WatchlistBadge scenario={r.scenario} />,
-    },
-    {
-      key: 'dpd_at_flag', label: 'DPD at Flag', align: 'right',
-      render: r => r.dpd_at_flag != null ? <span style={{ ...NUM, color: dpdColor(r.dpd_at_flag) }}>{r.dpd_at_flag}d</span> : <span style={{ color: 'var(--txt3)' }}>—</span>,
-    },
-    {
-      key: 'outstanding_kobo', label: 'Outstanding', align: 'right',
-      render: r => <span style={NUM}>{r.outstanding_kobo != null ? fmtKobo(r.outstanding_kobo) : '—'}</span>,
-    },
-    {
-      key: 'notes', label: 'Notes',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.notes ?? '—'}</span>,
-    },
-    {
-      key: 'flagged_by_name', label: 'Flagged By',
-      render: r => <span style={{ fontSize: TEXT.sm }}>{r.flagged_by_name ?? '—'}</span>,
-    },
-    {
-      key: 'created_at', label: 'Date',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span>,
-    },
-    {
-      key: 'id', label: '',
-      render: r => (
-        <button
-          onClick={e => { e.stopPropagation(); setModal({ type: 'resolve', entry: r }); setRvStatus('resolved'); setRvNotes('') }}
-          style={{
-            padding: '4px 10px', borderRadius: RADIUS.sm, cursor: 'pointer',
-            border: `1.5px solid ${AMBER}50`, background: `${AMBER}0C`, color: AMBER,
-            fontSize: TEXT.xs, fontWeight: FW.semibold, whiteSpace: 'nowrap',
-          }}
-        >
-          Resolve
-        </button>
+          {r.watchlist_id ? (
+            <button
+              onClick={e => {
+                e.stopPropagation()
+                const entry = watchlist.find(w => w.account_cif === r.applicant_cif)
+                if (entry) { setModal({ type: 'resolve', entry }); setRvStatus('resolved'); setRvNotes('') }
+                else { toast.error('Watchlist entry not found — try refreshing') }
+              }}
+              style={{
+                padding: '3px 9px', borderRadius: RADIUS.sm, cursor: 'pointer',
+                border: `1.5px solid ${AMBER}50`, background: `${AMBER}0C`, color: AMBER,
+                fontSize: TEXT.xs, fontWeight: FW.semibold, whiteSpace: 'nowrap',
+              }}
+            >
+              Resolve
+            </button>
+          ) : (
+            <button
+              onClick={e => {
+                e.stopPropagation()
+                setModal({ type: 'add', row: r }); setWlScenario('unreachable'); setWlNotes('')
+              }}
+              style={{
+                padding: '3px 9px', borderRadius: RADIUS.sm, cursor: 'pointer',
+                border: `1.5px solid var(--bdr)`, background: 'transparent', color: 'var(--txt2)',
+                fontSize: TEXT.xs, fontWeight: FW.semibold, whiteSpace: 'nowrap',
+              }}
+            >
+              Flag
+            </button>
+          )}
+        </div>
       ),
     },
   ]
@@ -357,11 +334,24 @@ export default function CollectionsPortfolio() {
           </span>
         </button>
       ))}
+      <div style={{ flex: 1 }} />
+      <button
+        onClick={() => navigate('/collections/watchlist')}
+        style={{
+          padding: '5px 12px', borderRadius: RADIUS.md, cursor: 'pointer',
+          border: `1.5px solid ${AMBER}50`, background: `${AMBER}08`, color: AMBER,
+          fontSize: TEXT.xs, fontWeight: FW.semibold,
+          display: 'inline-flex', alignItems: 'center', gap: 5,
+        }}
+      >
+        <span className="material-symbols-rounded" style={{ fontSize: 13 }}>flag</span>
+        Watchlist ({wlCount})
+      </button>
     </div>
   )
 
   if (loading && rows.length === 0) return (
-    <Page title="Collections Portfolio">
+    <Page title="Credit Portfolio">
       <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner size={32} /></div>
     </Page>
   )
@@ -380,18 +370,32 @@ export default function CollectionsPortfolio() {
 
   return (
     <Page
-      title="Collections Portfolio"
-      subtitle="All active loan accounts sorted by DPD — 0–90 days is Collections territory, 90+ is Recovery"
+      title="Credit Portfolio"
+      subtitle="All delinquent loan accounts — 0–90 DPD is Collections, 90d+ is Recovery territory"
+      actions={
+        <button
+          onClick={() => navigate('/collections/activity-log')}
+          style={{
+            padding: '6px 14px', borderRadius: RADIUS.md, cursor: 'pointer',
+            border: `1.5px solid ${NAVY}40`, background: `${NAVY}08`, color: NAVY,
+            fontSize: TEXT.sm, fontWeight: FW.semibold,
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+          }}
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>history</span>
+          Activity Log
+        </button>
+      }
     >
       <ErrBanner error={error} onRetry={load} />
 
-      {/* Territory summary strip */}
+      {/* Summary strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[4] }}>
         {[
-          { label: 'Total Accounts',   value: rows.length,  color: NAVY, icon: 'people' },
-          { label: 'Collections (0–90d)', value: collCount, color: GREEN, icon: 'collections_bookmark' },
-          { label: 'Recovery (90d+)',   value: recCount,    color: RED,  icon: 'gavel' },
-          { label: 'On Watchlist',      value: wlCount,     color: AMBER, icon: 'flag' },
+          { label: 'Total Accounts',      value: rows.length, color: NAVY,  icon: 'people' },
+          { label: 'Collections (0–90d)', value: collCount,   color: GREEN, icon: 'collections_bookmark' },
+          { label: 'Recovery (90d+)',      value: recCount,    color: RED,   icon: 'gavel' },
+          { label: 'On Watchlist',         value: wlCount,     color: AMBER, icon: 'flag' },
         ].map(s => (
           <div key={s.label} style={{
             background: 'var(--card)', border: '1px solid var(--bdr)',
@@ -407,7 +411,7 @@ export default function CollectionsPortfolio() {
         ))}
       </div>
 
-      {/* Recovery territory separator when showing all */}
+      {/* Recovery territory notice */}
       {tab === 'all' && recCount > 0 && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 12, marginBottom: SP[3],
@@ -416,51 +420,45 @@ export default function CollectionsPortfolio() {
         }}>
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: RED }}>gavel</span>
           <span style={{ fontSize: TEXT.sm, color: RED, fontWeight: FW.semibold }}>
-            {recCount} account{recCount !== 1 ? 's' : ''} above 90 DPD — in Recovery territory
+            {recCount} account{recCount !== 1 ? 's' : ''} are 90+ DPD — handled by the Recovery team
           </span>
+          <button
+            onClick={() => setTab('recovery')}
+            style={{
+              marginLeft: 'auto', padding: '3px 10px', borderRadius: RADIUS.sm, cursor: 'pointer',
+              border: `1.5px solid ${RED}40`, background: 'transparent', color: RED,
+              fontSize: TEXT.xs, fontWeight: FW.semibold,
+            }}
+          >
+            View Recovery
+          </button>
         </div>
       )}
 
       <SectionCard
-        title={tab === 'watchlist' ? 'Watchlist' : 'Portfolio Accounts'}
-        badge={tab === 'watchlist' ? watchlist.length : displayed.length}
+        title="Portfolio Accounts"
+        badge={displayed.length}
         padding={false}
       >
         {tabBar}
-        {tab !== 'watchlist' ? (
-          <>
-            <ExpandableFilterBar
-              search={search}
-              onSearch={setSearch}
-              groups={[]}
-              onReset={() => setSearch('')}
-              resultCount={displayed.length}
-              totalCount={tab === 'all' ? rows.length : tab === 'collections' ? collCount : recCount}
-              placeholder="Search CIF, agent, stage…"
-            />
-            <DataTable
-              cols={portfolioCols}
-              rows={displayed}
-              keyFn={r => r.loan_id}
-              loading={loading}
-              skeletonRows={10}
-              pageSize={25}
-              emptyText="No active loan accounts"
-            />
-          </>
-        ) : (
-          <DataTable
-            cols={wlCols}
-            rows={watchlist}
-            keyFn={r => r.id}
-            loading={loading}
-            skeletonRows={5}
-            pageSize={20}
-            searchKeys={['account_cif', 'scenario', 'notes', 'flagged_by_name']}
-            searchPlaceholder="Search CIF, scenario, notes…"
-            emptyText="No accounts on watchlist"
-          />
-        )}
+        <ExpandableFilterBar
+          search={search}
+          onSearch={setSearch}
+          groups={[]}
+          onReset={() => setSearch('')}
+          resultCount={displayed.length}
+          totalCount={tab === 'all' ? rows.length : tab === 'collections' ? collCount : recCount}
+          placeholder="Search CIF, handler, stage…"
+        />
+        <DataTable
+          cols={portfolioCols}
+          rows={displayed}
+          keyFn={r => r.loan_id}
+          loading={loading}
+          skeletonRows={10}
+          pageSize={25}
+          emptyText="No accounts found"
+        />
       </SectionCard>
 
       {/* Add to Watchlist Modal */}
@@ -503,7 +501,8 @@ export default function CollectionsPortfolio() {
                   key={s.value}
                   onClick={() => setWlScenario(s.value)}
                   style={{
-                    padding: '5px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
+                    padding: '5px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm,
+                    fontWeight: FW.semibold, cursor: 'pointer',
                     border: `1.5px solid ${wlScenario === s.value ? AMBER : 'var(--bdr)'}`,
                     background: wlScenario === s.value ? AMBER : 'var(--card)',
                     color: wlScenario === s.value ? '#fff' : 'var(--txt)',
@@ -567,7 +566,8 @@ export default function CollectionsPortfolio() {
                   key={s.value}
                   onClick={() => setRvStatus(s.value)}
                   style={{
-                    flex: 1, padding: '8px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
+                    flex: 1, padding: '8px 12px', borderRadius: RADIUS.md,
+                    fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
                     border: `1.5px solid ${rvStatus === s.value ? (s.value === 'resolved' ? GREEN : RED) : 'var(--bdr)'}`,
                     background: rvStatus === s.value ? (s.value === 'resolved' ? GREEN : RED) : 'var(--card)',
                     color: rvStatus === s.value ? '#fff' : 'var(--txt)',

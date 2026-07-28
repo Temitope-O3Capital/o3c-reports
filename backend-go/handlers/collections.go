@@ -37,6 +37,10 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 
 	// Batch payment upload
 	r.Post("/payments/batch", collectionsBatchPayment(db))
+
+	// Credit activity log
+	r.Get("/activity", creditActivityFeed(db))
+	r.Get("/activity/cif/{cif}", creditActivityByCIF(db))
 }
 
 // collectionsPortfolioKPIs returns PAR-based KPIs from collection_assignments.
@@ -599,6 +603,8 @@ func collectionsWatchlistAdd(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Insert failed")
 			return
 		}
+		logCreditEvent(r.Context(), db, r, "collections", "watchlist", fmt.Sprint(rows[0]["id"]), b.AccountCIF, "watchlist_flagged",
+			fmt.Sprintf("Account added to watchlist — scenario: %s", b.Scenario), nil, map[string]any{"scenario": b.Scenario, "notes": b.Notes})
 		respond(w, rows[0], "pg")
 	}
 }
@@ -634,7 +640,89 @@ func collectionsWatchlistResolve(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Watchlist entry not found")
 			return
 		}
+		cif := ""
+		if len(rows) > 0 {
+			cif = str(rows[0]["account_cif"])
+		}
+		logCreditEvent(r.Context(), db, r, "collections", "watchlist", fmt.Sprint(id), cif, "watchlist_resolved",
+			fmt.Sprintf("Watchlist flag resolved — status: %s", b.Status), nil, map[string]any{"status": b.Status, "notes": b.ResolutionNotes})
 		respond(w, rows[0], "pg")
+	}
+}
+
+// ── Credit activity log endpoints ─────────────────────────────────────────────
+
+func creditActivityFeed(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx   := r.Context()
+		page  := qint(r, "page", 1, 1, 500)
+		size  := qint(r, "size", 50, 1, 200)
+		from  := r.URL.Query().Get("from")
+		to    := r.URL.Query().Get("to")
+		mod   := r.URL.Query().Get("module")
+		act   := r.URL.Query().Get("action")
+		etype := r.URL.Query().Get("entity_type")
+		cif   := r.URL.Query().Get("cif")
+		actor := r.URL.Query().Get("actor_id")
+
+		where := " WHERE 1=1"
+		args  := []any{}
+
+		addFilter := func(col, val string) {
+			if val != "" {
+				args  = append(args, val)
+				where += fmt.Sprintf(" AND %s = $%d", col, len(args))
+			}
+		}
+		if from != "" { args = append(args, from); where += fmt.Sprintf(" AND ts >= $%d::date", len(args)) }
+		if to   != "" { args = append(args, to);   where += fmt.Sprintf(" AND ts <  $%d::date + INTERVAL '1 day'", len(args)) }
+		addFilter("module", mod)
+		addFilter("action", act)
+		addFilter("entity_type", etype)
+		addFilter("account_cif", cif)
+		addFilter("actor_id::text", actor)
+
+		// Snapshot filter args before adding LIMIT/OFFSET for the COUNT query.
+		countArgs := make([]any, len(args))
+		copy(countArgs, args)
+
+		offset := (page - 1) * size
+		args = append(args, size, offset)
+		limitClause := fmt.Sprintf(" ORDER BY ts DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+
+		rows, err := db.PGQuery(ctx,
+			`SELECT cal.id, cal.ts, cal.module, cal.actor_id, cal.actor_name, cal.actor_role,
+			        cal.entity_type, cal.entity_id, cal.account_cif, cal.action, cal.description,
+			        cal.previous_state, cal.new_state, cal.ip_address
+			 FROM credit_activity_log cal`+where+limitClause, args...)
+		if err != nil { respondErr(w, 500, err.Error()); return }
+		if rows == nil { rows = []core.Row{} }
+
+		var total int
+		_ = db.PG.QueryRowContext(ctx, "SELECT COUNT(*) FROM credit_activity_log"+where, countArgs...).Scan(&total)
+
+		respond(w, map[string]any{"data": rows, "total": total, "page": page, "size": size}, "credit_activity_feed")
+	}
+}
+
+func creditActivityByCIF(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		cif := chi.URLParam(r, "cif")
+		if cif == "" { respondErr(w, 400, "cif required"); return }
+
+		rows, err := db.PGQuery(ctx, `
+			SELECT id, ts, module, actor_id, actor_name, actor_role,
+			       entity_type, entity_id, action, description,
+			       previous_state, new_state
+			FROM credit_activity_log
+			WHERE account_cif = $1
+			ORDER BY ts DESC
+			LIMIT 200`, cif)
+		if err != nil { respondErr(w, 500, err.Error()); return }
+		if rows == nil { rows = []core.Row{} }
+
+		respond(w, map[string]any{"data": rows}, "credit_activity_cif")
 	}
 }
 

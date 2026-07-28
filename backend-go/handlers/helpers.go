@@ -367,6 +367,62 @@ func postJournal(ctx context.Context, db *core.DB, e glEntry) error {
 	return tx.Commit()
 }
 
+// ── Credit activity log helpers ───────────────────────────────────────────────
+
+// fmtKoboStr converts a kobo integer (any numeric type) to a 2-decimal naira string.
+func fmtKoboStr(kobo any) string {
+	var k int64
+	switch v := kobo.(type) {
+	case int64:
+		k = v
+	case float64:
+		k = int64(v)
+	case int:
+		k = int64(v)
+	}
+	return fmt.Sprintf("%.2f", float64(k)/100)
+}
+
+// logCreditEvent writes one structured event to credit_activity_log.
+// It is fire-and-forget: errors are logged but never propagated to callers.
+func logCreditEvent(ctx context.Context, db *core.DB, r *http.Request, module, entityType, entityID, cif, action, description string, prev, next any) {
+	user := core.UserFromCtx(ctx)
+	if user == nil {
+		return
+	}
+	ip := ""
+	if r != nil {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			ip = strings.TrimSpace(parts[len(parts)-1])
+		} else {
+			ip = r.RemoteAddr
+		}
+	}
+	var prevJSON, nextJSON any
+	if prev != nil {
+		if b, err := json.Marshal(prev); err == nil {
+			prevJSON = string(b)
+		}
+	}
+	if next != nil {
+		if b, err := json.Marshal(next); err == nil {
+			nextJSON = string(b)
+		}
+	}
+	if _, err := db.PGQuery(ctx, `
+		INSERT INTO credit_activity_log
+			(module, actor_id, actor_name, actor_role, entity_type, entity_id,
+			 account_cif, action, description, previous_state, new_state, ip_address)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		module, user.ID, user.FullName, user.Role,
+		entityType, entityID, cif,
+		action, description, prevJSON, nextJSON, ip,
+	); err != nil {
+		slog.Error("logCreditEvent", "module", module, "action", action, "err", err)
+	}
+}
+
 // ── CSV helper ────────────────────────────────────────────────────────────────
 
 func streamCSV(w http.ResponseWriter, filename string, rows []map[string]any) {

@@ -98,6 +98,10 @@ const CollectionsWriteoffs    = lazy(() => import('./pages/collections/WriteoffQ
 const CollectionsPortfolio    = lazy(() => import('./pages/collections/Portfolio'))
 const CollectionsWoRequests   = lazy(() => import('./pages/collections/WriteoffRequests'))
 const CollectionsRecoveryPmts = lazy(() => import('./pages/collections/RecoveryPaymentApprovals'))
+const CollectionsWatchlist    = lazy(() => import('./pages/collections/Watchlist'))
+const CollectionsActivityLog  = lazy(() => import('./pages/collections/ActivityLog'))
+const RecoveryActivityLog     = lazy(() => import('./pages/recovery/ActivityLog'))
+const CreditAuditTrail        = lazy(() => import('./pages/compliance/CreditAuditTrail'))
 
 // Risk
 const RiskAppReview    = lazy(() => import('./pages/risk/AppReview'))
@@ -1014,14 +1018,17 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/collections/repayment-plans" element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPlans /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/writeoffs"            element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsWriteoffs /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/portfolio"            element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPortfolio /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/watchlist"            element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsWatchlist /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/writeoff-requests"    element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsWoRequests /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/recovery-approvals"   element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><CollectionsRecoveryPmts /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/activity-log"         element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsActivityLog /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Recovery */}
-                  <Route path="/recovery"            element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryOverview /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/recovery/cases"      element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryCases /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/recovery/legal"      element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryLegal /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/recovery/debt-sales" element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryDebtSale /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/recovery"                element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/recovery/cases"          element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryCases /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/recovery/legal"          element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryLegal /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/recovery/activity-log"   element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryActivityLog /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/recovery/debt-sales"     element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryDebtSale /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Collections Ops */}
                   <Route path="/collections-ops/agent" element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollOpsAgentDash /></PageErrorBoundary></RequireAccess>} />
@@ -1063,7 +1070,8 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/compliance/regulatory"  element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceRegCalendar /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/findings"    element={<RequireAccess page="audit_findings" user={user}><PageErrorBoundary><ComplianceFindings /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/checklists"  element={<RequireAccess page="compliance_checklists" user={user}><PageErrorBoundary><ComplianceChecklists /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/compliance/audit-trail" element={<RequireAccess page="audit_trail" user={user}><PageErrorBoundary><ComplianceAuditTrail /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/audit-trail"        element={<RequireAccess page="audit_trail" user={user}><PageErrorBoundary><ComplianceAuditTrail /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/credit-audit-trail" element={<RequireAccess page="audit_trail" user={user}><PageErrorBoundary><CreditAuditTrail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/kyc-expiry"   element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceKYCExpiry /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/aml-rules"    element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceAMLRules /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/prudential"      element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><CompliancePrudential /></PageErrorBoundary></RequireAccess>} />
