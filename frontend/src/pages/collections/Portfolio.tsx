@@ -7,8 +7,12 @@ import {
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtKobo, fmtDate } from '../../lib/fmt'
+import { fmtKobo } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+
+function getStoredRole(): string {
+  try { return (JSON.parse(localStorage.getItem('o3c_user') ?? 'null') as { role?: string } | null)?.role ?? '' } catch { return '' }
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -115,6 +119,8 @@ function WatchlistBadge({ scenario }: { scenario: string | null }) {
 
 export default function CollectionsPortfolio() {
   const navigate = useNavigate()
+  const role = getStoredRole()
+  const isHead = ['collections_head', 'head_collections', 'admin', 'management', 'md', 'coo'].includes(role)
 
   const [rows, setRows]           = useState<PortfolioRow[]>([])
   const [watchlist, setWatchlist] = useState<WatchlistEntry[]>([])
@@ -123,6 +129,7 @@ export default function CollectionsPortfolio() {
   const [tab, setTab]             = useState<'all' | 'collections' | 'recovery'>('all')
   const [search, setSearch]       = useState('')
   const [modal, setModal]         = useState<WatchlistModal>(null)
+  const [checkedIds, setCheckedIds] = useState<Set<string | number>>(new Set())
 
   // Add-to-watchlist form
   const [wlScenario, setWlScenario] = useState('unreachable')
@@ -458,6 +465,33 @@ export default function CollectionsPortfolio() {
           skeletonRows={10}
           pageSize={25}
           emptyText="No accounts found"
+          onRowClick={r => navigate(`/collections/accounts/${r.applicant_cif}`)}
+          selectable={isHead}
+          selectedIds={checkedIds}
+          onSelect={setCheckedIds}
+          bulkBar={isHead && checkedIds.size > 0 ? (
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                onClick={() => {
+                  // Navigate to bulk reassign — open a quick modal or navigate to queue
+                  toast.info(`Bulk reassign ${checkedIds.size} accounts — use the Queue page for agent assignment`)
+                  setCheckedIds(new Set())
+                }}
+                style={{ padding: '4px 12px', borderRadius: RADIUS.sm, border: `1.5px solid ${NAVY}40`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
+              >
+                Reassign {checkedIds.size}
+              </button>
+              <button
+                onClick={() => {
+                  toast.info(`To send to recovery in bulk, use the Queue page escalate action`)
+                  setCheckedIds(new Set())
+                }}
+                style={{ padding: '4px 12px', borderRadius: RADIUS.sm, border: `1.5px solid ${RED}40`, background: `${RED}08`, color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
+              >
+                Escalate {checkedIds.size}
+              </button>
+            </div>
+          ) : undefined}
         />
       </SectionCard>
 

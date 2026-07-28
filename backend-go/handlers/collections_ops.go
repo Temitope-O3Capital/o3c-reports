@@ -52,6 +52,10 @@ func RegisterCollectionsOps(r chi.Router, db *core.DB) {
 	r.With(base).Get("/writeoff-requests", collectionsOpsListWriteoffRequests(db))
 	r.With(head).Put("/writeoff-requests/{id}/approve", collectionsOpsApproveWriteoffRequest(db))
 	r.With(head).Put("/writeoff-requests/{id}/reject", collectionsOpsRejectWriteoffRequest(db))
+
+	// Bulk operations (head only)
+	r.With(head).Post("/bulk/reassign", collectionsOpsBulkReassign(db))
+	r.With(head).Post("/bulk/send-to-recovery", collectionsOpsBulkSendToRecovery(db))
 }
 
 func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
@@ -1669,5 +1673,63 @@ func collectionsOpsRejectWriteoffRequest(db *core.DB) http.HandlerFunc {
 		logCreditEvent(r.Context(), db, r, "collections", "writeoff_request", fmt.Sprint(id), str(rows[0]["account_cif"]), "writeoff_request_rejected",
 			fmt.Sprintf("Write-off request rejected — reason: %s", b.ReviewNotes), nil, map[string]any{"notes": b.ReviewNotes})
 		respond(w, rows[0], "pg")
+	}
+}
+
+/* ── Bulk operations ─────────────────────────────────────────────────────── */
+
+func collectionsOpsBulkReassign(db *core.DB) http.HandlerFunc {
+	type body struct {
+		AssignmentIDs []int64 `json:"assignment_ids"`
+		AgentUserID   int64   `json:"agent_user_id"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		if b.AgentUserID == 0 || len(b.AssignmentIDs) == 0 {
+			respondErr(w, 422, "assignment_ids and agent_user_id are required"); return
+		}
+		ctx := r.Context()
+		_, err := db.PG.ExecContext(ctx, `
+			UPDATE collection_assignments
+			SET agent_user_id = $1, updated_at = NOW()
+			WHERE id = ANY($2)`, b.AgentUserID, b.AssignmentIDs)
+		if err != nil {
+			respondErr(w, 500, "Bulk reassign failed"); return
+		}
+		logCreditEvent(ctx, db, r, "collections", "assignment", fmt.Sprintf("%d", len(b.AssignmentIDs)), "", "bulk_reassigned",
+			fmt.Sprintf("Bulk reassigned %d accounts to agent %d", len(b.AssignmentIDs), b.AgentUserID),
+			nil, map[string]any{"agent_user_id": b.AgentUserID, "count": len(b.AssignmentIDs)})
+		respond(w, map[string]any{"updated": len(b.AssignmentIDs)}, "json")
+	}
+}
+
+func collectionsOpsBulkSendToRecovery(db *core.DB) http.HandlerFunc {
+	type body struct {
+		AssignmentIDs []int64 `json:"assignment_ids"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		if len(b.AssignmentIDs) == 0 {
+			respondErr(w, 422, "assignment_ids is required"); return
+		}
+		ctx := r.Context()
+		_, err := db.PG.ExecContext(ctx, `
+			UPDATE collection_assignments
+			SET current_stage = 'sent_to_recovery', updated_at = NOW()
+			WHERE id = ANY($1)
+			  AND current_stage != 'sent_to_recovery'`, b.AssignmentIDs)
+		if err != nil {
+			respondErr(w, 500, "Bulk send to recovery failed"); return
+		}
+		logCreditEvent(ctx, db, r, "collections", "assignment", fmt.Sprintf("%d", len(b.AssignmentIDs)), "", "bulk_sent_to_recovery",
+			fmt.Sprintf("Bulk staged %d accounts for recovery", len(b.AssignmentIDs)),
+			nil, map[string]any{"count": len(b.AssignmentIDs)})
+		respond(w, map[string]any{"updated": len(b.AssignmentIDs)}, "json")
 	}
 }

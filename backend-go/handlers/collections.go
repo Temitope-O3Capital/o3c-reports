@@ -41,6 +41,64 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 	// Credit activity log
 	r.Get("/activity", creditActivityFeed(db))
 	r.Get("/activity/cif/{cif}", creditActivityByCIF(db))
+
+	// Account detail snapshot by CIF
+	r.Get("/accounts/{cif}", collectionsAccountDetail(db))
+}
+
+// collectionsAccountDetail returns a full account snapshot for a given CIF.
+func collectionsAccountDetail(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cif := chi.URLParam(r, "cif")
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+			    la.id                                                AS loan_id,
+			    la.applicant_cif,
+			    COALESCE(la.applicant_name, la.applicant_cif)       AS applicant_name,
+			    la.product_type,
+			    COALESCE(la.disbursement_amount_kobo, 0)            AS principal_kobo,
+			    la.status                                           AS loan_status,
+			    la.created_at                                       AS loan_created_at,
+			    ca.id                                               AS assignment_id,
+			    ca.agent_user_id,
+			    u.full_name                                         AS agent_name,
+			    ca.assignment_date,
+			    ca.dpd_bucket,
+			    COALESCE(ca.outstanding_kobo, 0)                    AS outstanding_kobo,
+			    ca.current_stage,
+			    ca.notes                                            AS assignment_notes,
+			    CAST(COALESCE(NULLIF(REGEXP_REPLACE(SPLIT_PART(COALESCE(ca.dpd_bucket,'0'),'-',1),'[^0-9]','','g'),''),'0') AS INT) AS dpd_lower,
+			    cw.id                                               AS watchlist_id,
+			    cw.scenario                                         AS watchlist_scenario,
+			    cw.notes                                            AS watchlist_notes,
+			    wbu.full_name                                       AS watchlist_flagged_by,
+			    cw.created_at                                       AS watchlist_flagged_at,
+			    (SELECT COUNT(*) FROM collection_contacts WHERE cif_number = la.applicant_cif)         AS total_contacts,
+			    (SELECT COUNT(*) FROM collection_promises WHERE cif_number = la.applicant_cif)         AS ptps_created,
+			    (SELECT COUNT(*) FROM collection_promises WHERE cif_number = la.applicant_cif AND status = 'kept') AS ptps_kept,
+			    (SELECT COALESCE(SUM(lr.amount_kobo), 0)
+			     FROM loan_repayments lr JOIN loan_applications lax ON lax.id = lr.application_id
+			     WHERE lax.applicant_cif = la.applicant_cif)                                           AS total_paid_kobo,
+			    (SELECT MAX(cc.created_at) FROM collection_contacts cc WHERE cc.cif_number = la.applicant_cif)  AS last_contact_at,
+			    (SELECT cc.outcome FROM collection_contacts cc WHERE cc.cif_number = la.applicant_cif ORDER BY cc.created_at DESC LIMIT 1) AS last_contact_outcome
+			FROM loan_applications la
+			LEFT JOIN collection_assignments ca ON ca.account_cif = la.applicant_cif
+			LEFT JOIN o3c_users u ON u.id = ca.agent_user_id
+			LEFT JOIN LATERAL (
+			    SELECT id, scenario, notes, created_at, flagged_by FROM collections_watchlist
+			    WHERE account_cif = la.applicant_cif AND status = 'active' LIMIT 1
+			) cw ON TRUE
+			LEFT JOIN o3c_users wbu ON wbu.id = cw.flagged_by
+			WHERE la.applicant_cif = $1
+			  AND la.status IN ('active','booked')
+			ORDER BY la.created_at DESC
+			LIMIT 1`, cif)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Account not found")
+			return
+		}
+		respond(w, rows[0], "pg")
+	}
 }
 
 // collectionsPortfolioKPIs returns PAR-based KPIs from collection_assignments.

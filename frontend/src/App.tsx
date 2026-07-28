@@ -96,6 +96,7 @@ const CollectionsPromises  = lazy(() => import('./pages/collections/Promises'))
 const CollectionsPlans     = lazy(() => import('./pages/collections/RepaymentPlans'))
 const CollectionsWriteoffs    = lazy(() => import('./pages/collections/WriteoffQueue'))
 const CollectionsPortfolio    = lazy(() => import('./pages/collections/Portfolio'))
+const CollectionsAccountDetail = lazy(() => import('./pages/collections/AccountDetail'))
 const CollectionsWoRequests   = lazy(() => import('./pages/collections/WriteoffRequests'))
 const CollectionsRecoveryPmts = lazy(() => import('./pages/collections/RecoveryPaymentApprovals'))
 const CollectionsWatchlist    = lazy(() => import('./pages/collections/Watchlist'))
@@ -1018,6 +1019,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/collections/repayment-plans" element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPlans /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/writeoffs"            element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsWriteoffs /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/portfolio"            element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPortfolio /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/accounts/:cif"        element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsAccountDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/watchlist"            element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsWatchlist /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/writeoff-requests"    element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsWoRequests /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/recovery-approvals"   element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><CollectionsRecoveryPmts /></PageErrorBoundary></RequireAccess>} />

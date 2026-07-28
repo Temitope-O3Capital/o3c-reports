@@ -653,13 +653,19 @@ function DetailPanel({
               Assigned to: {assignment.agent_name ?? 'Unassigned'}
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <DpdBadge bucket={assignment.dpd_bucket} />
+            <button
+              onClick={() => navigate(`/collections/accounts/${assignment.account_cif}`)}
+              style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${NAVY}`, background: NAVY, color: '#fff', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
+            >
+              Full Detail →
+            </button>
             <button
               onClick={() => navigate(`/contacts/${assignment.account_cif}`)}
               style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
             >
-              Full profile →
+              C360 →
             </button>
           </div>
         </div>
