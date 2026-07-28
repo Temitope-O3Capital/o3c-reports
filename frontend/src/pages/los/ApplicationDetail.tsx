@@ -11,52 +11,53 @@ import { toast } from 'sonner'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Application {
-  id:                  number
-  reference:           string
-  applicant_name:      string
-  applicant_email:     string
-  applicant_phone:     string
-  applicant_cif:       string
-  product_type:        string
-  amount_requested_kobo: number
-  amount_approved_kobo:  number
-  tenor_months:        number
-  interest_rate_bps:   number
-  purpose:             string
-  employer:            string
-  monthly_income_kobo: number
+  id:                     number
+  reference:              string
+  applicant_name:         string
+  applicant_email:        string
+  applicant_phone:        string
+  applicant_cif:          string
+  product_type:           string
+  amount_requested_kobo:  number
+  amount_approved_kobo:   number
+  tenor_months:           number
+  interest_rate_bps:      number
+  purpose:                string
+  employer:               string
+  monthly_income_kobo:    number
   monthly_obligation_kobo: number | null
-  status:              string
-  stage:               string
-  decline_reason:      string | null
-  sales_officer_id:    number | null
-  assigned_to_user_id: number | null
-  submitted_at:        string | null
-  finance_approved_at: string | null
-  booked_at:           string | null
-  created_at:          string
-  updated_at:          string
-  eye_score:           number | null
-  eye_rating:          string | null
-  bureau_summary:      string | null
-  dti_pct:             number | null
+  status:                 string
+  stage:                  string
+  decline_reason:         string | null
+  sales_officer_id:       number | null
+  assigned_to_user_id:    number | null
+  submitted_at:           string | null
+  finance_approved_at:    string | null
+  booked_at:              string | null
+  created_at:             string
+  updated_at:             string
+  eye_score:              number | null
+  eye_rating:             string | null
+  bureau_summary:         string | null
+  dti_pct:                number | null
 }
 
 interface AppEvent {
-  id:            number
-  application_id:number
-  event_type:    string
-  from_stage:    string | null
-  to_stage:      string | null
-  actor_user_id: number | null
-  actor_name:    string | null
-  notes:         string | null
-  created_at:    string
+  id:             number
+  application_id: number
+  event_type:     string
+  from_stage:     string | null
+  to_stage:       string | null
+  actor_user_id:  number | null
+  actor_name:     string | null
+  notes:          string | null
+  created_at:     string
 }
 
 interface AppNote {
   id:          number
   author_id:   number
+  author_name: string | null
   body:        string
   is_internal: boolean
   created_at:  string
@@ -67,6 +68,7 @@ interface AppCondition {
   condition_text: string
   is_met:         boolean
   met_by:         number | null
+  met_by_name:    string | null
   met_at:         string | null
   created_at:     string
 }
@@ -114,8 +116,7 @@ function StagePill({ stage, size = 'md' }: { stage: string; size?: 'sm' | 'md' }
   const label = stage.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
   return (
     <span style={{
-      ...NUM,
-      display: 'inline-flex', alignItems: 'center',
+      ...NUM, display: 'inline-flex', alignItems: 'center',
       fontSize: size === 'sm' ? 10.5 : 12, fontWeight: 600,
       padding: size === 'sm' ? '1px 7px' : '3px 10px',
       borderRadius: 20, background: s.bg, color: s.txt, whiteSpace: 'nowrap',
@@ -126,20 +127,18 @@ function StagePill({ stage, size = 'md' }: { stage: string; size?: 'sm' | 'md' }
 }
 
 function ProductPill({ product }: { product: string }) {
-  const label = product.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
   return (
     <span style={{
       ...NUM, fontSize: 12, fontWeight: 600,
       padding: '3px 10px', borderRadius: 20,
-      background: 'var(--chip-bg)', color: 'var(--chip-txt)',
-      whiteSpace: 'nowrap',
+      background: 'var(--chip-bg)', color: 'var(--chip-txt)', whiteSpace: 'nowrap',
     }}>
-      {label}
+      {product.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
     </span>
   )
 }
 
-// ── Info grid item ────────────────────────────────────────────────────────────
+// ── Info row ──────────────────────────────────────────────────────────────────
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -154,25 +153,33 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
-// ── Tabs ──────────────────────────────────────────────────────────────────────
+// ── Tabs config ───────────────────────────────────────────────────────────────
 
 const TABS = [
-  { key: 'summary',            label: 'Summary' },
-  { key: 'verification',       label: 'Verification' },
-  { key: 'credit_assessment',  label: 'Credit Assessment' },
-  { key: 'bank_details',       label: 'Bank Details' },
-  { key: 'documents',          label: 'Documents' },
-  { key: 'approval_chain',     label: 'Approval Chain' },
-  { key: 'timeline',           label: 'Timeline' },
+  { key: 'summary',           label: 'Summary' },
+  { key: 'credit_assessment', label: 'Credit Assessment' },
+  { key: 'conditions',        label: 'Conditions' },
+  { key: 'notes',             label: 'Notes' },
+  { key: 'documents',         label: 'Documents' },
+  { key: 'approval_chain',    label: 'Approval Chain' },
+  { key: 'timeline',          label: 'Timeline' },
 ]
 
 // ── Credit File Drawer ────────────────────────────────────────────────────────
 
 interface CreditFileData {
-  eye_score: number | null; eye_rating: string | null; bureau_summary: string | null
-  dti_pct: number | null; monthly_income_kobo: number; monthly_obligation_kobo: number | null
-  amount_requested_kobo: number; amount_approved_kobo: number; tenor_months: number
-  outstanding_kobo: number; dpd: number; employer: string
+  eye_score:              number | null
+  eye_rating:             string | null
+  bureau_summary:         string | null
+  dti_pct:                number | null
+  monthly_income_kobo:    number
+  monthly_obligation_kobo: number | null
+  amount_requested_kobo:  number
+  amount_approved_kobo:   number
+  tenor_months:           number
+  outstanding_kobo:       number
+  dpd:                    number
+  employer:               string
 }
 
 function CreditFileDrawer({ cif, open, onClose }: { cif: string; open: boolean; onClose: () => void }) {
@@ -184,14 +191,13 @@ function CreditFileDrawer({ cif, open, onClose }: { cif: string; open: boolean; 
     if (!open || !cif) return
     setCfLoading(true); setCfError(null)
     apiFetch<{ data: CreditFileData }>(`/api/risk/credit-file/${cif}`)
-      .then(r => setCfData((r as any).data ?? r ?? null))
+      .then(r => setCfData((r as any).data ?? null))
       .catch(e => setCfError(e.message ?? 'Failed'))
       .finally(() => setCfLoading(false))
   }, [cif, open])
 
-  const scoreColor = (s: number | null) => {
-    if (!s) return 'var(--txt3)'; if (s >= 700) return GREEN; if (s >= 500) return AMBER; return RED
-  }
+  const scoreColor = (s: number | null) =>
+    !s ? 'var(--txt3)' : s >= 700 ? GREEN : s >= 500 ? AMBER : RED
 
   return (
     <Modal open={open} onClose={onClose} title={`Credit File — ${cif}`} width={540}>
@@ -200,7 +206,7 @@ function CreditFileDrawer({ cif, open, onClose }: { cif: string; open: boolean; 
       {cfData && !cfLoading && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
           <div style={{ display: 'flex', gap: SP[4], alignItems: 'center', padding: SP[3], borderRadius: RADIUS.md, background: 'var(--th-bg)', border: '1px solid var(--bdr)' }}>
-            <div style={{ textAlign: 'center' }}>
+            <div style={{ textAlign: 'center', flexShrink: 0 }}>
               <div style={{ ...NUM, fontSize: 48, fontWeight: FW.extrabold, color: scoreColor(cfData.eye_score), lineHeight: 1 }}>
                 {cfData.eye_score ?? '—'}
               </div>
@@ -220,7 +226,6 @@ function CreditFileDrawer({ cif, open, onClose }: { cif: string; open: boolean; 
               { label: 'Employer',            value: cfData.employer || '—' },
               { label: 'Amount Disbursed',    value: fmtKobo(cfData.amount_approved_kobo || cfData.amount_requested_kobo) },
               { label: 'Outstanding',         value: fmtKobo(cfData.outstanding_kobo) },
-              { label: 'Tenor',               value: cfData.tenor_months ? `${cfData.tenor_months} months` : '—' },
               { label: 'DPD',                 value: `${cfData.dpd ?? 0} days` },
             ].map(row => (
               <div key={row.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -235,37 +240,64 @@ function CreditFileDrawer({ cif, open, onClose }: { cif: string; open: boolean; 
   )
 }
 
+// ── Summary tab ───────────────────────────────────────────────────────────────
+
+function SummaryTab({ app }: { app: Application }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <SectionCard title="Personal Information">
+        <InfoRow label="Full Name"  value={app.applicant_name} />
+        <InfoRow label="Phone"      value={app.applicant_phone} />
+        <InfoRow label="Email"      value={app.applicant_email} />
+        <InfoRow label="CIF"        value={app.applicant_cif} />
+        <InfoRow label="Submitted"  value={fmtDatetime(app.submitted_at)} />
+        <InfoRow label="Created"    value={fmtDate(app.created_at)} />
+      </SectionCard>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <SectionCard title="Employment">
+          <InfoRow label="Employer"        value={app.employer} />
+          <InfoRow label="Monthly Income"  value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} />
+          {app.monthly_obligation_kobo !== null && (
+            <InfoRow label="Monthly Obligations" value={fmtKobo(app.monthly_obligation_kobo)} />
+          )}
+        </SectionCard>
+        <SectionCard title="Loan Terms">
+          <InfoRow label="Product"          value={<ProductPill product={app.product_type || '—'} />} />
+          <InfoRow label="Amount Requested" value={fmtKobo(app.amount_requested_kobo)} />
+          <InfoRow label="Amount Approved"  value={app.amount_approved_kobo ? fmtKobo(app.amount_approved_kobo) : 'Pending'} />
+          <InfoRow label="Tenor"            value={app.tenor_months ? `${app.tenor_months} months` : null} />
+          <InfoRow label="Interest Rate"    value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} />
+          <InfoRow label="Purpose"          value={app.purpose} />
+          {app.decline_reason && (
+            <InfoRow label="Decline Reason" value={<span style={{ color: RED }}>{app.decline_reason}</span>} />
+          )}
+        </SectionCard>
+      </div>
+    </div>
+  )
+}
+
 // ── Verification tab ──────────────────────────────────────────────────────────
 
 function VerificationTab({ app }: { app: Application }) {
   const items = [
-    { label: 'Phone Number',          icon: 'phone',           verified: !!app.applicant_phone },
-    { label: 'Email Address',         icon: 'email',           verified: !!app.applicant_email },
-    { label: 'CIF / Account Number',  icon: 'fingerprint',     verified: !!app.applicant_cif },
-    { label: 'Government-Issued ID',  icon: 'badge',           verified: false },
-    { label: 'Employment Offer Letter', icon: 'description',   verified: false },
-    { label: 'Latest Payslip',        icon: 'receipt_long',    verified: false },
-    { label: 'Bank Statement (6m)',   icon: 'account_balance', verified: false },
+    { label: 'Phone Number',           icon: 'phone',           verified: !!app.applicant_phone },
+    { label: 'Email Address',          icon: 'email',           verified: !!app.applicant_email },
+    { label: 'CIF / Account Number',   icon: 'fingerprint',     verified: !!app.applicant_cif },
+    { label: 'Government-Issued ID',   icon: 'badge',           verified: false },
+    { label: 'Employment Offer Letter',icon: 'description',     verified: false },
+    { label: 'Latest Payslip',         icon: 'receipt_long',    verified: false },
+    { label: 'Bank Statement (6m)',    icon: 'account_balance', verified: false },
   ]
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {items.map(item => (
         <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 0', borderBottom: '1px solid var(--bdr)' }}>
-          <div style={{
-            width: 34, height: 34, borderRadius: 9, flexShrink: 0,
-            background: item.verified ? 'rgba(22,163,74,.12)' : 'var(--chip-bg)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16, color: item.verified ? GREEN : 'var(--txt2)' }}>
-              {item.icon}
-            </span>
+          <div style={{ width: 34, height: 34, borderRadius: 9, flexShrink: 0, background: item.verified ? 'rgba(22,163,74,.12)' : 'var(--chip-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 16, color: item.verified ? GREEN : 'var(--txt2)' }}>{item.icon}</span>
           </div>
           <div style={{ flex: 1, fontSize: 13.5, fontWeight: 500, color: 'var(--txt)' }}>{item.label}</div>
-          <span style={{
-            fontSize: 11.5, fontWeight: 600, padding: '2px 9px', borderRadius: 20,
-            background: item.verified ? 'rgba(22,163,74,.12)' : 'rgba(217,119,6,.12)',
-            color: item.verified ? GREEN : AMBER,
-          }}>
+          <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 9px', borderRadius: 20, background: item.verified ? 'rgba(22,163,74,.12)' : 'rgba(217,119,6,.12)', color: item.verified ? GREEN : AMBER }}>
             {item.verified ? 'Verified' : 'Pending'}
           </span>
         </div>
@@ -276,171 +308,357 @@ function VerificationTab({ app }: { app: Application }) {
 
 // ── Credit Assessment tab ─────────────────────────────────────────────────────
 
-const RATING_COLORS: Record<string, string> = {
-  Excellent: GREEN, Good: GREEN, Fair: AMBER, Poor: RED, Bad: RED,
-}
+const RATING_COLORS: Record<string, string> = { Excellent: GREEN, Good: GREEN, Fair: AMBER, Poor: RED, Bad: RED }
 
 function CreditAssessmentTab({ app, onRefresh }: { app: Application; onRefresh: () => void }) {
-  const userRole = (() => {
-    try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}')?.role ?? '' } catch { return '' }
-  })()
-  const isRisk = userRole === 'Risk Officer' || userRole === 'Risk Head'
+  const userRole = (() => { try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}')?.role ?? '' } catch { return '' } })()
+  const isRisk = userRole.toLowerCase().includes('risk')
 
-  const [form, setForm] = useState({ eye_score: '', eye_rating: '', bureau_summary: '', dti_pct: '' })
+  // Always initialise from existing values so edits are possible
+  const [form, setForm] = useState({
+    eye_score:      app.eye_score !== null ? String(app.eye_score) : '',
+    eye_rating:     app.eye_rating ?? '',
+    bureau_summary: app.bureau_summary ?? '',
+    dti_pct:        app.dti_pct !== null ? String(app.dti_pct) : '',
+  })
   const [saving, setSaving] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   const monthlyRepayment = (app.tenor_months && app.amount_requested_kobo)
     ? Math.round(app.amount_requested_kobo / app.tenor_months * (1 + (app.interest_rate_bps ?? 0) / 10000))
     : 0
   const dtiPct = app.dti_pct ?? ((app.monthly_income_kobo && monthlyRepayment)
-    ? (monthlyRepayment / app.monthly_income_kobo) * 100
-    : null)
+    ? (monthlyRepayment / app.monthly_income_kobo) * 100 : null)
   const dtiColor = dtiPct === null ? 'var(--txt2)' : dtiPct > 50 ? RED : dtiPct > 33 ? AMBER : GREEN
-  const netAfter = (app.monthly_income_kobo && monthlyRepayment)
-    ? app.monthly_income_kobo - monthlyRepayment
-    : null
+  const netAfter = (app.monthly_income_kobo && monthlyRepayment) ? app.monthly_income_kobo - monthlyRepayment : null
 
   const score = app.eye_score
-  const scoreColor = score === null ? 'var(--txt2)' : score >= 650 ? GREEN : score >= 500 ? AMBER : RED
+  const scoreColor = score === null ? 'var(--txt3)' : score >= 650 ? GREEN : score >= 500 ? AMBER : RED
 
   async function saveAssessment() {
     setSaving(true)
     try {
       await apiPut(`/api/los/${app.id}/credit-assessment`, {
-        eye_score:   form.eye_score   ? Number(form.eye_score)   : null,
-        eye_rating:  form.eye_rating  || null,
+        eye_score:      form.eye_score      ? Number(form.eye_score)   : null,
+        eye_rating:     form.eye_rating     || null,
         bureau_summary: form.bureau_summary || null,
-        dti_pct:     form.dti_pct     ? Number(form.dti_pct)     : null,
+        dti_pct:        form.dti_pct        ? Number(form.dti_pct)     : null,
       })
       toast.success('Credit assessment saved')
+      setEditing(false)
       onRefresh()
     } catch (e: any) {
       toast.error(e.message ?? 'Failed to save')
-    } finally {
-      setSaving(false)
-    }
+    } finally { setSaving(false) }
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-      <SectionCard title="Income Assessment">
-        <InfoRow label="Monthly Income"            value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} />
-        <InfoRow label="Monthly Obligations"       value={app.monthly_obligation_kobo ? fmtKobo(app.monthly_obligation_kobo) : null} />
-        <InfoRow label="Est. Monthly Repayment"    value={monthlyRepayment ? fmtKobo(monthlyRepayment) : null} />
-        <InfoRow label="DTI Ratio" value={
-          dtiPct !== null
-            ? <span style={{ color: dtiColor, fontWeight: 700 }}>{dtiPct.toFixed(1)}%</span>
-            : null
-        } />
-        <InfoRow label="Net After Deduction"       value={netAfter !== null ? fmtKobo(netAfter) : null} />
-      </SectionCard>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        {/* Income */}
+        <SectionCard title="Income Assessment">
+          <InfoRow label="Monthly Income"          value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} />
+          <InfoRow label="Monthly Obligations"     value={app.monthly_obligation_kobo ? fmtKobo(app.monthly_obligation_kobo) : null} />
+          <InfoRow label="Est. Monthly Repayment"  value={monthlyRepayment ? fmtKobo(monthlyRepayment) : null} />
+          <InfoRow label="DTI Ratio"               value={dtiPct !== null ? <span style={{ color: dtiColor, fontWeight: 700 }}>{dtiPct.toFixed(1)}%</span> : null} />
+          <InfoRow label="Net After Deduction"     value={netAfter !== null ? fmtKobo(netAfter) : null} />
+        </SectionCard>
 
-      <SectionCard title="Credit Score (Eye)">
-        {score !== null ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              <span style={{ fontSize: 52, fontWeight: 800, color: scoreColor, ...NUM, lineHeight: 1 }}>{score}</span>
-              {app.eye_rating && (
-                <span style={{
-                  fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
-                  background: `${RATING_COLORS[app.eye_rating] ?? 'var(--txt2)'}22`,
-                  color: RATING_COLORS[app.eye_rating] ?? 'var(--txt2)',
-                }}>{app.eye_rating}</span>
+        {/* Eye Score */}
+        <SectionCard
+          title="Credit Score (Eye)"
+          actions={isRisk && !editing ? (
+            <button onClick={() => setEditing(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: 12, cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 13 }}>edit</span>
+              {score !== null ? 'Update' : 'Enter Score'}
+            </button>
+          ) : undefined}
+        >
+          {!editing && score !== null ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <span style={{ fontSize: 52, fontWeight: 800, color: scoreColor, ...NUM, lineHeight: 1 }}>{score}</span>
+                {app.eye_rating && (
+                  <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: `${RATING_COLORS[app.eye_rating] ?? 'var(--txt2)'}22`, color: RATING_COLORS[app.eye_rating] ?? 'var(--txt2)' }}>
+                    {app.eye_rating}
+                  </span>
+                )}
+              </div>
+              {app.bureau_summary && <p style={{ fontSize: 13, color: 'var(--txt2)', lineHeight: 1.6, margin: 0 }}>{app.bureau_summary}</p>}
+              {dtiPct !== null && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12, color: 'var(--txt2)' }}>DTI:</span>
+                  <span style={{ ...NUM, fontSize: 13, fontWeight: 700, color: dtiColor }}>{dtiPct.toFixed(1)}%</span>
+                </div>
               )}
             </div>
-            {app.bureau_summary && (
-              <p style={{ fontSize: 13, color: 'var(--txt2)', lineHeight: 1.6, margin: 0 }}>{app.bureau_summary}</p>
-            )}
-          </div>
-        ) : isRisk ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <label style={{ fontSize: 12, color: 'var(--txt2)' }}>Eye Score (0–850)
-              <input type="number" min={0} max={850} value={form.eye_score}
-                onChange={e => setForm(f => ({ ...f, eye_score: e.target.value }))}
-                style={{ display: 'block', width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid var(--bdr)', borderRadius: 6, fontSize: 14, boxSizing: 'border-box' }} />
-            </label>
-            <label style={{ fontSize: 12, color: 'var(--txt2)' }}>Rating
-              <select value={form.eye_rating}
-                onChange={e => setForm(f => ({ ...f, eye_rating: e.target.value }))}
-                style={{ display: 'block', width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid var(--bdr)', borderRadius: 6, fontSize: 14, boxSizing: 'border-box' }}>
-                <option value="">— select —</option>
-                {['Excellent','Good','Fair','Poor','Bad'].map(r => <option key={r}>{r}</option>)}
-              </select>
-            </label>
-            <label style={{ fontSize: 12, color: 'var(--txt2)' }}>DTI % (override)
-              <input type="number" step="0.01" value={form.dti_pct}
-                onChange={e => setForm(f => ({ ...f, dti_pct: e.target.value }))}
-                style={{ display: 'block', width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid var(--bdr)', borderRadius: 6, fontSize: 14, boxSizing: 'border-box' }} />
-            </label>
-            <label style={{ fontSize: 12, color: 'var(--txt2)' }}>Bureau Summary
-              <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" rows={3} value={form.bureau_summary}
-                onChange={e => setForm(f => ({ ...f, bureau_summary: e.target.value }))}
-                style={{ display: 'block', width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid var(--bdr)', borderRadius: 6, fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }} />
-            </label>
-            <button onClick={saveAssessment} disabled={saving || !form.eye_score}
-              style={{ alignSelf: 'flex-start', padding: '6px 16px', borderRadius: 6, border: 'none', cursor: saving ? 'not-allowed' : 'pointer', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, opacity: (saving || !form.eye_score) ? 0.6 : 1 }}>
-              {saving ? 'Saving…' : 'Save Assessment'}
-            </button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px 0', gap: 10 }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 36, color: 'var(--txt3)', opacity: 0.6 }}>analytics</span>
-            <div style={{ fontSize: 13, color: 'var(--txt2)', textAlign: 'center' }}>Eye credit score is generated during risk review</div>
-            <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 9px', borderRadius: 20, background: 'rgba(217,119,6,.12)', color: AMBER }}>Pending</span>
-          </div>
-        )}
-      </SectionCard>
-    </div>
-  )
-}
-
-// ── Bank Details tab ──────────────────────────────────────────────────────────
-
-function BankDetailsTab() {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 0', gap: 12 }}>
-      <span className="material-symbols-rounded" style={{ fontSize: 44, color: 'var(--txt3)', opacity: 0.4 }}>account_balance</span>
-      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>Bank Details Not Yet Collected</div>
-      <div style={{ fontSize: 13, color: 'var(--txt2)', textAlign: 'center', maxWidth: 360, lineHeight: 1.6 }}>
-        Bank account details (account number, bank name, BVN match) will be captured during the document collection stage.
-      </div>
-    </div>
-  )
-}
-
-// ── Summary tab ───────────────────────────────────────────────────────────────
-
-function SummaryTab({ app }: { app: Application }) {
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-      {/* Left: personal */}
-      <SectionCard title="Personal Information">
-        <InfoRow label="Full Name"      value={app.applicant_name} />
-        <InfoRow label="Phone"          value={app.applicant_phone} />
-        <InfoRow label="Email"          value={app.applicant_email} />
-        <InfoRow label="CIF"            value={app.applicant_cif} />
-        <InfoRow label="Submitted"      value={fmtDatetime(app.submitted_at)} />
-        <InfoRow label="Created"        value={fmtDate(app.created_at)} />
-      </SectionCard>
-
-      {/* Right: employment + loan terms */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <SectionCard title="Employment">
-          <InfoRow label="Employer"          value={app.employer} />
-          <InfoRow label="Monthly Income"    value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} />
-        </SectionCard>
-        <SectionCard title="Loan Terms">
-          <InfoRow label="Product"           value={<ProductPill product={app.product_type || '—'} />} />
-          <InfoRow label="Amount Requested"  value={fmtKobo(app.amount_requested_kobo)} />
-          <InfoRow label="Amount Approved"   value={app.amount_approved_kobo ? fmtKobo(app.amount_approved_kobo) : 'Pending'} />
-          <InfoRow label="Tenor"             value={app.tenor_months ? `${app.tenor_months} months` : null} />
-          <InfoRow label="Interest Rate"     value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} />
-          <InfoRow label="Purpose"           value={app.purpose} />
-          {app.decline_reason && (
-            <InfoRow label="Decline Reason"  value={<span style={{ color: RED }}>{app.decline_reason}</span>} />
+          ) : !editing && !isRisk ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px 0', gap: 10 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 36, color: 'var(--txt3)', opacity: 0.6 }}>analytics</span>
+              <div style={{ fontSize: 13, color: 'var(--txt2)', textAlign: 'center' }}>Eye credit score is generated during risk review</div>
+              <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 9px', borderRadius: 20, background: 'rgba(217,119,6,.12)', color: AMBER }}>Pending</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <label style={{ fontSize: 12, color: 'var(--txt2)' }}>Eye Score (0–850)
+                <input type="number" min={0} max={850} value={form.eye_score}
+                  onChange={e => setForm(f => ({ ...f, eye_score: e.target.value }))}
+                  style={{ display: 'block', width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid var(--bdr)', borderRadius: 6, fontSize: 14, boxSizing: 'border-box', background: 'var(--input-bg)', color: 'var(--txt)' }} />
+              </label>
+              <label style={{ fontSize: 12, color: 'var(--txt2)' }}>Rating
+                <select value={form.eye_rating}
+                  onChange={e => setForm(f => ({ ...f, eye_rating: e.target.value }))}
+                  style={{ display: 'block', width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid var(--bdr)', borderRadius: 6, fontSize: 14, boxSizing: 'border-box', background: 'var(--input-bg)', color: 'var(--txt)' }}>
+                  <option value="">— select —</option>
+                  {['Excellent','Good','Fair','Poor','Bad'].map(r => <option key={r}>{r}</option>)}
+                </select>
+              </label>
+              <label style={{ fontSize: 12, color: 'var(--txt2)' }}>DTI % (override)
+                <input type="number" step="0.01" value={form.dti_pct}
+                  onChange={e => setForm(f => ({ ...f, dti_pct: e.target.value }))}
+                  style={{ display: 'block', width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid var(--bdr)', borderRadius: 6, fontSize: 14, boxSizing: 'border-box', background: 'var(--input-bg)', color: 'var(--txt)' }} />
+              </label>
+              <label style={{ fontSize: 12, color: 'var(--txt2)' }}>Bureau Summary
+                <textarea rows={3} value={form.bureau_summary}
+                  spellCheck={false} data-gramm="false" data-gramm_editor="false"
+                  onChange={e => setForm(f => ({ ...f, bureau_summary: e.target.value }))}
+                  style={{ display: 'block', width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid var(--bdr)', borderRadius: 6, fontSize: 13, resize: 'vertical', boxSizing: 'border-box', background: 'var(--input-bg)', color: 'var(--txt)' }} />
+              </label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={saveAssessment} disabled={saving || !form.eye_score}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 6, border: 'none', cursor: (saving || !form.eye_score) ? 'not-allowed' : 'pointer', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, opacity: (saving || !form.eye_score) ? 0.6 : 1 }}>
+                  {saving && <Spinner size={13} color="#fff" />}
+                  {score !== null ? 'Update Assessment' : 'Save Assessment'}
+                </button>
+                {score !== null && (
+                  <button onClick={() => setEditing(false)} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+                )}
+              </div>
+            </div>
           )}
         </SectionCard>
       </div>
+
+      {/* Risk summary bar — shown when score exists */}
+      {score !== null && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, padding: '14px 18px', borderRadius: 10, background: 'var(--th-bg)', border: '1px solid var(--bdr)' }}>
+          {[
+            { label: 'Eye Score',    value: String(score),                                     color: scoreColor },
+            { label: 'Band',         value: app.eye_rating ?? 'Unrated',                       color: app.eye_rating ? RATING_COLORS[app.eye_rating] ?? 'var(--txt)' : 'var(--txt3)' },
+            { label: 'DTI',          value: dtiPct !== null ? `${dtiPct.toFixed(1)}%` : '—',  color: dtiColor },
+            { label: 'Net / Month',  value: netAfter !== null ? fmtKobo(netAfter) : '—',       color: netAfter !== null && netAfter > 0 ? GREEN : RED },
+          ].map(item => (
+            <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{item.label}</span>
+              <span style={{ ...NUM, fontSize: 15, fontWeight: 800, color: item.color }}>{item.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Conditions tab ────────────────────────────────────────────────────────────
+
+function ConditionsTab({ appId, conditions, onRefresh, canManage }: {
+  appId: number
+  conditions: AppCondition[]
+  onRefresh: () => void
+  canManage: boolean
+}) {
+  const [newText, setNewText]         = useState('')
+  const [addingNew, setAddingNew]     = useState(false)
+  const [saving, setSaving]           = useState(false)
+  const [marking, setMarking]         = useState<Record<number, boolean>>({})
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { if (addingNew) inputRef.current?.focus() }, [addingNew])
+
+  async function addCondition() {
+    if (!newText.trim()) return
+    setSaving(true)
+    try {
+      await apiPost(`/api/los/${appId}/conditions`, { condition_text: newText.trim() })
+      toast.success('Condition added')
+      setNewText(''); setAddingNew(false)
+      onRefresh()
+    } catch (e: any) { toast.error(e.message ?? 'Failed') }
+    finally { setSaving(false) }
+  }
+
+  async function markMet(condId: number) {
+    setMarking(m => ({ ...m, [condId]: true }))
+    try {
+      await apiPut(`/api/los/${appId}/conditions/${condId}`, { is_met: true })
+      toast.success('Condition marked as met')
+      onRefresh()
+    } catch (e: any) { toast.error(e.message ?? 'Failed') }
+    finally { setMarking(m => ({ ...m, [condId]: false })) }
+  }
+
+  const unmet = conditions.filter(c => !c.is_met)
+  const met   = conditions.filter(c => c.is_met)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Summary bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', borderRadius: 10, background: 'var(--th-bg)', border: '1px solid var(--bdr)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 18, color: unmet.length === 0 ? GREEN : AMBER }}>
+            {unmet.length === 0 ? 'check_circle' : 'pending_actions'}
+          </span>
+          <span style={{ ...NUM, fontSize: 13, fontWeight: 700, color: unmet.length === 0 ? GREEN : AMBER }}>
+            {unmet.length === 0 ? 'All conditions met' : `${unmet.length} condition${unmet.length !== 1 ? 's' : ''} outstanding`}
+          </span>
+        </div>
+        <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{met.length} of {conditions.length} satisfied</span>
+        {canManage && (
+          <button onClick={() => setAddingNew(true)} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 500, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>add</span>Add Condition
+          </button>
+        )}
+      </div>
+
+      {/* Add condition input */}
+      {addingNew && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '12px 14px', borderRadius: 8, border: `1px solid ${NAVY}20`, background: `${NAVY}04` }}>
+          <input ref={inputRef}
+            type="text" value={newText} onChange={e => setNewText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') addCondition(); if (e.key === 'Escape') { setAddingNew(false); setNewText('') } }}
+            placeholder="Describe the condition that must be satisfied before disbursement…"
+            style={{ flex: 1, padding: '7px 10px', border: '1px solid var(--bdr)', borderRadius: 6, fontSize: 13.5, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: 'inherit' }} />
+          <button onClick={addCondition} disabled={saving || !newText.trim()}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 6, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: (saving || !newText.trim()) ? 'not-allowed' : 'pointer', opacity: (saving || !newText.trim()) ? 0.6 : 1, whiteSpace: 'nowrap' }}>
+            {saving && <Spinner size={12} color="#fff" />}Add
+          </button>
+          <button onClick={() => { setAddingNew(false); setNewText('') }}
+            style={{ padding: '7px 12px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Unmet conditions */}
+      {unmet.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 8 }}>Outstanding</div>
+          {unmet.map(c => (
+            <div key={c.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 0', borderBottom: '1px solid var(--bdr)' }}>
+              <div style={{ width: 22, height: 22, borderRadius: '50%', border: `2px solid ${AMBER}`, background: 'transparent', flexShrink: 0, marginTop: 1 }} />
+              <div style={{ flex: 1, fontSize: 13.5, color: 'var(--txt)', lineHeight: 1.55 }}>{c.condition_text}</div>
+              {canManage && (
+                <button onClick={() => markMet(c.id)} disabled={!!marking[c.id]}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: `1px solid ${GREEN}40`, background: `${GREEN}08`, color: GREEN, fontSize: 12, fontWeight: 600, cursor: marking[c.id] ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
+                  {marking[c.id] ? <Spinner size={11} color={GREEN} /> : <span className="material-symbols-rounded" style={{ fontSize: 13 }}>check</span>}
+                  Mark Met
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Met conditions */}
+      {met.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 8 }}>Satisfied</div>
+          {met.map(c => (
+            <div key={c.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 0', borderBottom: '1px solid var(--bdr)', opacity: 0.75 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 20, color: GREEN, flexShrink: 0, marginTop: 1 }}>check_circle</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13.5, color: 'var(--txt)', lineHeight: 1.55, textDecoration: 'line-through' }}>{c.condition_text}</div>
+                {c.met_at && (
+                  <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 3 }}>
+                    Met {fmtDatetime(c.met_at)}{c.met_by_name ? ` · ${c.met_by_name}` : ''}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {conditions.length === 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 0', gap: 10 }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 38, color: 'var(--txt3)', opacity: 0.5 }}>fact_check</span>
+          <div style={{ fontSize: 13, color: 'var(--txt2)' }}>No conditions have been set for this application</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Notes tab — inline compose, no modal (fixes cursor-leaving bug) ────────────
+
+function NotesTab({ appId, notes, onRefresh }: {
+  appId: number
+  notes: AppNote[]
+  onRefresh: () => void
+}) {
+  // State is LOCAL to this component — parent never re-renders when user types
+  const [body,    setBody]    = useState('')
+  const [saving,  setSaving]  = useState(false)
+
+  async function submit() {
+    if (!body.trim()) return
+    setSaving(true)
+    try {
+      await apiPost(`/api/los/${appId}/notes`, { body: body.trim(), is_internal: true })
+      toast.success('Note saved')
+      setBody('')
+      onRefresh()
+    } catch (e: any) { toast.error(e.message ?? 'Failed to save note') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Compose area */}
+      <div style={{ borderRadius: 10, border: '1px solid var(--bdr)', background: 'var(--card)', overflow: 'hidden' }}>
+        <textarea
+          value={body} onChange={e => setBody(e.target.value)}
+          rows={4} placeholder="Write an internal note…"
+          spellCheck={false} data-gramm="false" data-gramm_editor="false"
+          style={{
+            width: '100%', padding: '12px 14px', border: 'none', resize: 'vertical',
+            fontSize: 13.5, lineHeight: 1.6, background: 'transparent', color: 'var(--txt)',
+            fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box',
+            minHeight: 90,
+          }}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderTop: '1px solid var(--bdr)', background: 'var(--th-bg)' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 600, padding: '1px 7px', borderRadius: 10, background: 'rgba(217,119,6,.12)', color: AMBER }}>Internal</span>
+          <button onClick={submit} disabled={saving || !body.trim()}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 7, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: (saving || !body.trim()) ? 'not-allowed' : 'pointer', opacity: (saving || !body.trim()) ? 0.6 : 1 }}>
+            {saving && <Spinner size={13} color="#fff" />}
+            Save Note
+          </button>
+        </div>
+      </div>
+
+      {/* Notes list */}
+      {notes.length === 0 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 0', gap: 8 }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 34, color: 'var(--txt3)', opacity: 0.5 }}>note_stack</span>
+          <div style={{ fontSize: 13, color: 'var(--txt2)' }}>No notes yet. Be the first to add one.</div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {[...notes].reverse().map(note => (
+            <div key={note.id} style={{ padding: '12px 14px', borderRadius: 10, background: 'var(--input-bg)', border: '1px solid var(--bdr)' }}>
+              <div style={{ fontSize: 13.5, color: 'var(--txt)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{note.body}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+                <span style={{ fontSize: 11.5, color: 'var(--txt2)' }}>{fmtDatetime(note.created_at)}</span>
+                {note.author_name && <span style={{ fontSize: 11.5, color: 'var(--txt2)' }}>· {note.author_name}</span>}
+                {note.is_internal && (
+                  <span style={{ fontSize: 10.5, fontWeight: 600, padding: '1px 6px', borderRadius: 8, background: 'rgba(217,119,6,.12)', color: AMBER }}>Internal</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -448,36 +666,29 @@ function SummaryTab({ app }: { app: Application }) {
 // ── Documents tab ─────────────────────────────────────────────────────────────
 
 const DOC_SLOTS = [
-  { key: 'government_id',      label: 'Government-Issued ID',      icon: 'badge' },
-  { key: 'payslip',            label: 'Latest Payslip',            icon: 'receipt_long' },
-  { key: 'bank_statement',     label: 'Bank Statement (6 months)', icon: 'account_balance' },
-  { key: 'offer_letter',       label: 'Employment Offer Letter',   icon: 'description' },
+  { key: 'government_id',  label: 'Government-Issued ID',      icon: 'badge' },
+  { key: 'payslip',        label: 'Latest Payslip',            icon: 'receipt_long' },
+  { key: 'bank_statement', label: 'Bank Statement (6 months)', icon: 'account_balance' },
+  { key: 'offer_letter',   label: 'Employment Offer Letter',   icon: 'description' },
 ]
 
 interface LosDoc {
-  id:               number
-  application_id:   number
-  doc_type:         string
-  file_name:        string
-  file_url:         string
-  file_size_bytes:  number
-  created_at:       string
-  uploaded_by_name: string | null
+  id: number; application_id: number; doc_type: string
+  file_name: string; file_url: string; file_size_bytes: number
+  created_at: string; uploaded_by_name: string | null
 }
 
 function DocumentsTab({ appId }: { appId: number }) {
-  const [docs,       setDocs]       = useState<LosDoc[]>([])
-  const [uploading,  setUploading]  = useState<Record<string, boolean>>({})
-  const [deleting,   setDeleting]   = useState<Record<number, boolean>>({})
+  const [docs,      setDocs]      = useState<LosDoc[]>([])
+  const [uploading, setUploading] = useState<Record<string, boolean>>({})
+  const [deleting,  setDeleting]  = useState<Record<number, boolean>>({})
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const loadDocs = useCallback(async () => {
     try {
       const res = await apiFetch<{ data: LosDoc[] }>(`/api/los/applications/${appId}/documents`)
       setDocs(Array.isArray(res.data) ? res.data : [])
-    } catch {
-      // silently ignore — tab can still be used
-    }
+    } catch { /* silently ignore */ }
   }, [appId])
 
   useEffect(() => { loadDocs() }, [loadDocs])
@@ -490,18 +701,12 @@ function DocumentsTab({ appId }: { appId: number }) {
       form.append('file', file)
       form.append('doc_type', docType)
       const res = await fetch(`/api/los/applications/${appId}/documents`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: form,
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form,
       })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Upload failed' }))
-        throw new Error(err.error ?? 'Upload failed')
-      }
+      if (!res.ok) { const err = await res.json().catch(() => ({ error: 'Upload failed' })); throw new Error(err.error ?? 'Upload failed') }
       await loadDocs()
-    } catch (e: any) {
-      alert(e.message ?? 'Upload failed')
-    } finally {
+    } catch (e: any) { alert(e.message ?? 'Upload failed') }
+    finally {
       setUploading(u => ({ ...u, [docType]: false }))
       const ref = fileRefs.current[docType]
       if (ref) ref.value = ''
@@ -511,32 +716,20 @@ function DocumentsTab({ appId }: { appId: number }) {
   async function handleDelete(doc: LosDoc) {
     if (!confirm(`Delete "${doc.file_name}"?`)) return
     setDeleting(d => ({ ...d, [doc.id]: true }))
-    try {
-      await apiDelete(`/api/los/documents/${doc.id}`)
-      setDocs(ds => ds.filter(d => d.id !== doc.id))
-    } catch (e: any) {
-      alert(e.message ?? 'Delete failed')
-    } finally {
-      setDeleting(d => ({ ...d, [doc.id]: false }))
-    }
+    try { await apiDelete(`/api/los/documents/${doc.id}`); setDocs(ds => ds.filter(d => d.id !== doc.id)) }
+    catch (e: any) { alert(e.message ?? 'Delete failed') }
+    finally { setDeleting(d => ({ ...d, [doc.id]: false })) }
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {DOC_SLOTS.map(slot => {
-        const uploaded = docs.filter(d => d.doc_type === slot.key)
+        const uploaded   = docs.filter(d => d.doc_type === slot.key)
         const isUploading = uploading[slot.key]
-
         return (
-          <div key={slot.key} style={{
-            borderRadius: 10, border: '1px solid var(--bdr)', background: 'var(--card)', overflow: 'hidden',
-          }}>
-            {/* Slot header */}
+          <div key={slot.key} style={{ borderRadius: 10, border: '1px solid var(--bdr)', background: 'var(--card)', overflow: 'hidden' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px' }}>
-              <div style={{
-                width: 34, height: 34, borderRadius: 9, background: 'var(--chip-bg)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-              }}>
+              <div style={{ width: 34, height: 34, borderRadius: 9, background: 'var(--chip-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--txt2)' }}>{slot.icon}</span>
               </div>
               <div style={{ flex: 1 }}>
@@ -545,56 +738,26 @@ function DocumentsTab({ appId }: { appId: number }) {
                   {uploaded.length === 0 ? 'No file uploaded' : `${uploaded.length} file${uploaded.length > 1 ? 's' : ''}`}
                 </div>
               </div>
-              <span style={{
-                fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
-                background: uploaded.length > 0 ? 'rgba(22,163,74,.12)' : 'rgba(217,119,6,.12)',
-                color: uploaded.length > 0 ? GREEN : AMBER,
-              }}>
+              <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: uploaded.length > 0 ? 'rgba(22,163,74,.12)' : 'rgba(217,119,6,.12)', color: uploaded.length > 0 ? GREEN : AMBER }}>
                 {uploaded.length > 0 ? 'Uploaded' : 'Pending'}
               </span>
             </div>
-
-            {/* Uploaded files */}
             {uploaded.map(doc => (
-              <div key={doc.id} style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '8px 16px', borderTop: '1px solid var(--bdr)',
-                background: 'var(--canvas)',
-              }}>
+              <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', borderTop: '1px solid var(--bdr)', background: 'var(--canvas)' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 16, color: GREEN }}>check_circle</span>
-                <span style={{ flex: 1, fontSize: 12.5, color: 'var(--txt)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {doc.file_name}
-                </span>
-                <span style={{ fontSize: 11, color: 'var(--txt3)', whiteSpace: 'nowrap' }}>
-                  {(doc.file_size_bytes / 1024).toFixed(0)} KB
-                </span>
-                <a href={doc.file_url} target="_blank" rel="noreferrer"
-                  style={{ fontSize: 11.5, color: NAVY, fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
-                  View
-                </a>
-                <button
-                  onClick={() => handleDelete(doc)}
-                  disabled={deleting[doc.id]}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: RED, padding: 2 }}
-                >
+                <span style={{ flex: 1, fontSize: 12.5, color: 'var(--txt)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.file_name}</span>
+                <span style={{ fontSize: 11, color: 'var(--txt3)', whiteSpace: 'nowrap' }}>{(doc.file_size_bytes / 1024).toFixed(0)} KB</span>
+                <a href={doc.file_url} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: NAVY, fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>View</a>
+                <button onClick={() => handleDelete(doc)} disabled={deleting[doc.id]} style={{ background: 'none', border: 'none', cursor: 'pointer', color: RED, padding: 2 }}>
                   <span className="material-symbols-rounded" style={{ fontSize: 16 }}>delete</span>
                 </button>
               </div>
             ))}
-
-            {/* Upload row */}
             <div style={{ padding: '8px 16px', borderTop: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input
-                ref={el => { fileRefs.current[slot.key] = el }}
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                style={{ flex: 1, fontSize: 12 }}
-                onChange={e => {
-                  const f = e.target.files?.[0]
-                  if (f) handleUpload(slot.key, f)
-                }}
-                disabled={isUploading}
-              />
+              <input ref={el => { fileRefs.current[slot.key] = el }} type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style={{ flex: 1, fontSize: 12 }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(slot.key, f) }}
+                disabled={isUploading} />
               {isUploading && <Spinner size={14} />}
             </div>
           </div>
@@ -606,13 +769,7 @@ function DocumentsTab({ appId }: { appId: number }) {
 
 // ── Approval chain tab ────────────────────────────────────────────────────────
 
-interface ApprovalEntry {
-  stage:    string
-  label:    string
-  role:     string
-}
-
-const APPROVAL_CHAIN: ApprovalEntry[] = [
+const APPROVAL_CHAIN = [
   { stage: 'submitted',           label: 'Submission',          role: 'Sales Officer' },
   { stage: 'document_collection', label: 'Document Collection', role: 'Sales Officer' },
   { stage: 'risk_review',         label: 'Risk Review',         role: 'Risk Officer' },
@@ -625,62 +782,30 @@ const APPROVAL_CHAIN: ApprovalEntry[] = [
 
 function ApprovalChainTab({ app, events }: { app: Application; events: AppEvent[] }) {
   const currentIdx = STAGE_ORDER.indexOf(app.stage)
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {APPROVAL_CHAIN.map((entry, i) => {
         const entryIdx = STAGE_ORDER.indexOf(entry.stage)
         const done     = entryIdx <= currentIdx && app.stage !== 'declined'
         const declined = app.stage === 'declined'
-
-        // Find event for this stage transition
-        const ev = events.find(e => e.to_stage === entry.stage)
-
-        let decision: string
-        let decisionColor: string
-        if (declined && entryIdx > currentIdx) {
-          decision = 'N/A'; decisionColor = 'var(--txt3)'
-        } else if (done) {
-          decision = 'Approved'; decisionColor = GREEN
-        } else {
-          decision = 'Pending'; decisionColor = AMBER
-        }
-
+        const ev       = events.find(e => e.to_stage === entry.stage)
+        let decision: string; let decisionColor: string
+        if (declined && entryIdx > currentIdx) { decision = 'N/A'; decisionColor = 'var(--txt3)' }
+        else if (done) { decision = 'Approved'; decisionColor = GREEN }
+        else { decision = 'Pending'; decisionColor = AMBER }
         return (
-          <div key={entry.stage} style={{
-            display: 'flex', alignItems: 'flex-start', gap: 14,
-            padding: '14px 0',
-            borderBottom: i < APPROVAL_CHAIN.length - 1 ? '1px solid var(--bdr)' : undefined,
-          }}>
-            {/* Step circle */}
-            <div style={{
-              width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: done ? 'rgba(22,163,74,.12)' : 'var(--chip-bg)',
-              border: `2px solid ${done ? GREEN : 'var(--bdr)'}`,
-            }}>
-              {done
-                ? <span className="material-symbols-rounded" style={{ fontSize: 15, color: GREEN }}>check</span>
-                : <span style={{ ...NUM, fontSize: 11, fontWeight: 700, color: 'var(--txt3)' }}>{i + 1}</span>
-              }
+          <div key={entry.stage} style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '14px 0', borderBottom: i < APPROVAL_CHAIN.length - 1 ? '1px solid var(--bdr)' : undefined }}>
+            <div style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: done ? 'rgba(22,163,74,.12)' : 'var(--chip-bg)', border: `2px solid ${done ? GREEN : 'var(--bdr)'}` }}>
+              {done ? <span className="material-symbols-rounded" style={{ fontSize: 15, color: GREEN }}>check</span>
+                : <span style={{ ...NUM, fontSize: 11, fontWeight: 700, color: 'var(--txt3)' }}>{i + 1}</span>}
             </div>
-            {/* Content */}
             <div style={{ flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.label}</span>
-                <span style={{ fontSize: 11.5, color: 'var(--txt2)', background: 'var(--chip-bg)', padding: '1px 7px', borderRadius: 12 }}>
-                  {entry.role}
-                </span>
-                <span style={{ ...NUM, fontSize: 11.5, fontWeight: 600, color: decisionColor }}>
-                  {decision}
-                </span>
+                <span style={{ fontSize: 11.5, color: 'var(--txt2)', background: 'var(--chip-bg)', padding: '1px 7px', borderRadius: 12 }}>{entry.role}</span>
+                <span style={{ ...NUM, fontSize: 11.5, fontWeight: 600, color: decisionColor }}>{decision}</span>
               </div>
-              {ev && (
-                <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 4 }}>
-                  {fmtDatetime(ev.created_at)}
-                  {ev.actor_name && ` · ${ev.actor_name}`}
-                </div>
-              )}
+              {ev && <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 4 }}>{fmtDatetime(ev.created_at)}{ev.actor_name && ` · ${ev.actor_name}`}</div>}
             </div>
           </div>
         )
@@ -692,78 +817,36 @@ function ApprovalChainTab({ app, events }: { app: Application; events: AppEvent[
 // ── Timeline tab ──────────────────────────────────────────────────────────────
 
 const EVENT_ICONS: Record<string, string> = {
-  stage_advance: 'arrow_circle_right',
-  declined:      'cancel',
-  request_info:  'info',
-  assigned:      'person',
-  note:          'note',
-  created:       'add_circle',
+  stage_advance: 'arrow_circle_right', declined: 'cancel',
+  request_info: 'info', assigned: 'person', note: 'note', created: 'add_circle',
 }
 
 function TimelineTab({ events }: { events: AppEvent[] }) {
   if (events.length === 0) {
-    return (
-      <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)', fontSize: 13 }}>
-        No timeline events yet.
-      </div>
-    )
+    return <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)', fontSize: 13 }}>No timeline events yet.</div>
   }
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {events.map((ev, i) => {
-        const icon = EVENT_ICONS[ev.event_type] ?? 'history'
+        const icon   = EVENT_ICONS[ev.event_type] ?? 'history'
         const isLast = i === events.length - 1
-
         let description = ev.event_type.replace(/_/g, ' ')
-        if (ev.event_type === 'stage_advance' && ev.from_stage && ev.to_stage) {
-          const from = ev.from_stage.replace(/_/g, ' ')
-          const to   = ev.to_stage.replace(/_/g, ' ')
-          description = `Moved from ${from} → ${to}`
-        } else if (ev.event_type === 'declined') {
-          description = 'Application declined'
-        } else if (ev.event_type === 'request_info') {
-          description = 'Sent back for more information'
-        }
-
+        if (ev.event_type === 'stage_advance' && ev.from_stage && ev.to_stage)
+          description = `Moved from ${ev.from_stage.replace(/_/g, ' ')} → ${ev.to_stage.replace(/_/g, ' ')}`
+        else if (ev.event_type === 'declined')      description = 'Application declined'
+        else if (ev.event_type === 'request_info')  description = 'Sent back for more information'
         return (
           <div key={ev.id} style={{ display: 'flex', gap: 14, paddingBottom: isLast ? 0 : 20, position: 'relative' }}>
-            {/* Line */}
-            {!isLast && (
-              <div style={{
-                position: 'absolute', left: 15, top: 32, bottom: 0,
-                width: 1, background: 'var(--bdr)',
-              }} />
-            )}
-            {/* Icon */}
-            <div style={{
-              width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: 'var(--chip-bg)', border: '1px solid var(--bdr)',
-              zIndex: 1,
-            }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt2)' }}>
-                {icon}
-              </span>
+            {!isLast && <div style={{ position: 'absolute', left: 15, top: 32, bottom: 0, width: 1, background: 'var(--bdr)' }} />}
+            <div style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--chip-bg)', border: '1px solid var(--bdr)', zIndex: 1 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt2)' }}>{icon}</span>
             </div>
-            {/* Content */}
             <div style={{ flex: 1, paddingTop: 6 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)', textTransform: 'capitalize' }}>
-                {description}
-              </div>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)', textTransform: 'capitalize' }}>{description}</div>
               <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 2 }}>
-                {fmtDatetime(ev.created_at)}
-                {ev.actor_name && ` · ${ev.actor_name}`}
+                {fmtDatetime(ev.created_at)}{ev.actor_name && ` · ${ev.actor_name}`}
               </div>
-              {ev.notes && (
-                <div style={{
-                  marginTop: 6, fontSize: 13, color: 'var(--txt)',
-                  background: 'var(--input-bg)', border: '1px solid var(--bdr)',
-                  borderRadius: 8, padding: '8px 12px', lineHeight: 1.5,
-                }}>
-                  {ev.notes}
-                </div>
-              )}
+              {ev.notes && <div style={{ marginTop: 6, fontSize: 13, color: 'var(--txt)', background: 'var(--input-bg)', border: '1px solid var(--bdr)', borderRadius: 8, padding: '8px 12px', lineHeight: 1.5 }}>{ev.notes}</div>}
             </div>
           </div>
         )
@@ -772,7 +855,7 @@ function TimelineTab({ events }: { events: AppEvent[] }) {
   )
 }
 
-// ── Action modals ─────────────────────────────────────────────────────────────
+// ── Shared input styles (for modals only) ──────────────────────────────────────
 
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '0 12px', height: 38,
@@ -792,49 +875,43 @@ const textareaStyle: React.CSSProperties = {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ApplicationDetail() {
-  const { id }     = useParams<{ id: string }>()
-  const navigate   = useNavigate()
+  const { id }   = useParams<{ id: string }>()
+  const navigate = useNavigate()
 
-  const [data,     setData]     = useState<DetailData | null>(null)
-  const [loading,  setLoading]  = useState(true)
-  const [error,    setError]    = useState<string | null>(null)
+  const [data,    setData]    = useState<DetailData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error,   setError]   = useState<string | null>(null)
 
-  // role detection (before activeTab so we can use it in initial state)
-  const userRole = (() => {
-    try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}')?.role ?? '' } catch { return '' }
-  })()
-  const isRisk = ['risk_officer', 'risk_head', 'Risk Officer', 'Risk Head'].some(r => userRole.toLowerCase().includes(r.toLowerCase()))
+  // Role
+  const userRole = (() => { try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}')?.role ?? '' } catch { return '' } })()
+  const isRisk     = userRole.toLowerCase().includes('risk')
+  const isFinance  = userRole.toLowerCase().includes('finance')
+
   const [activeTab, setActiveTab] = useState(isRisk ? 'credit_assessment' : 'summary')
 
-  // modals
-  const [advanceOpen,    setAdvanceOpen]    = useState(false)
-  const [declineOpen,    setDeclineOpen]    = useState(false)
-  const [reqInfoOpen,    setReqInfoOpen]    = useState(false)
-  const [addNoteOpen,    setAddNoteOpen]    = useState(false)
-  const [committeeOpen,  setCommitteeOpen]  = useState(false)
+  // Modals (advance / decline / request-info / committee)
+  const [advanceOpen,   setAdvanceOpen]   = useState(false)
+  const [declineOpen,   setDeclineOpen]   = useState(false)
+  const [reqInfoOpen,   setReqInfoOpen]   = useState(false)
+  const [committeeOpen, setCommitteeOpen] = useState(false)
   const [showCreditFile, setShowCreditFile] = useState(false)
 
-  // action state
-  const [toStage,        setToStage]        = useState('')
-  const [advanceNotes,   setAdvanceNotes]   = useState('')
-  const [declineReason,  setDeclineReason]  = useState('')
-  const [reqInfoNotes,   setReqInfoNotes]   = useState('')
-  const [noteBody,       setNoteBody]       = useState('')
-  const [committeeNote,  setCommitteeNote]  = useState('')
-  const [actionLoading,  setActionLoading]  = useState(false)
+  // Modal-local state (kept in parent only because modals are small)
+  const [toStage,       setToStage]       = useState('')
+  const [advanceNotes,  setAdvanceNotes]  = useState('')
+  const [declineReason, setDeclineReason] = useState('')
+  const [reqInfoNotes,  setReqInfoNotes]  = useState('')
+  const [committeeNote, setCommitteeNote] = useState('')
+  const [actionLoading, setActionLoading] = useState(false)
 
   const load = useCallback(async () => {
     if (!id) return
-    setLoading(true)
-    setError(null)
+    setLoading(true); setError(null)
     try {
       const res = await apiFetch<{ data: DetailData }>(`/api/los/${id}`)
       setData(res.data)
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to load')
-    } finally {
-      setLoading(false)
-    }
+    } catch (e: any) { setError(e.message ?? 'Failed to load') }
+    finally { setLoading(false) }
   }, [id])
 
   useEffect(() => { load() }, [load])
@@ -846,16 +923,9 @@ export default function ApplicationDetail() {
     setActionLoading(true)
     try {
       await apiPut(`/api/los/${id}/advance`, { to_stage: toStage, notes: advanceNotes })
-      toast.success('Stage advanced')
-      setAdvanceOpen(false)
-      setToStage('')
-      setAdvanceNotes('')
-      load()
-    } catch (e: any) {
-      toast.error(e.message ?? 'Advance failed')
-    } finally {
-      setActionLoading(false)
-    }
+      toast.success('Stage advanced'); setAdvanceOpen(false); setToStage(''); setAdvanceNotes(''); load()
+    } catch (e: any) { toast.error(e.message ?? 'Advance failed') }
+    finally { setActionLoading(false) }
   }
 
   async function doDecline() {
@@ -863,76 +933,37 @@ export default function ApplicationDetail() {
     setActionLoading(true)
     try {
       await apiPut(`/api/los/${id}/decline`, { reason: declineReason })
-      toast.success('Application declined')
-      setDeclineOpen(false)
-      setDeclineReason('')
-      load()
-    } catch (e: any) {
-      toast.error(e.message ?? 'Decline failed')
-    } finally {
-      setActionLoading(false)
-    }
+      toast.success('Application declined'); setDeclineOpen(false); setDeclineReason(''); load()
+    } catch (e: any) { toast.error(e.message ?? 'Decline failed') }
+    finally { setActionLoading(false) }
   }
 
   async function doReqInfo() {
     setActionLoading(true)
     try {
       await apiPut(`/api/los/${id}/request-info`, { notes: reqInfoNotes })
-      toast.success('Sent back for more information')
-      setReqInfoOpen(false)
-      setReqInfoNotes('')
-      load()
-    } catch (e: any) {
-      toast.error(e.message ?? 'Request info failed')
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  async function doAddNote() {
-    if (!noteBody.trim()) { toast.error('Note body is required'); return }
-    setActionLoading(true)
-    try {
-      await apiPost(`/api/los/${id}/notes`, { body: noteBody, is_internal: true })
-      toast.success('Note added')
-      setAddNoteOpen(false)
-      setNoteBody('')
-      load()
-    } catch (e: any) {
-      toast.error(e.message ?? 'Add note failed')
-    } finally {
-      setActionLoading(false)
-    }
+      toast.success('Sent back for more information'); setReqInfoOpen(false); setReqInfoNotes(''); load()
+    } catch (e: any) { toast.error(e.message ?? 'Failed') }
+    finally { setActionLoading(false) }
   }
 
   async function doReferToCommittee() {
     if (!committeeNote.trim()) { toast.error('Reason is required'); return }
     setActionLoading(true)
     try {
-      await apiPost(`/api/los/${id}/notes`, {
-        body: `[COMMITTEE REFERRAL] ${committeeNote}`,
-        is_internal: true,
-      })
-      toast.success('Referred to committee')
-      setCommitteeOpen(false)
-      setCommitteeNote('')
-      load()
-    } catch (e: any) {
-      toast.error(e.message ?? 'Referral failed')
-    } finally {
-      setActionLoading(false)
-    }
+      await apiPost(`/api/los/${id}/notes`, { body: `[COMMITTEE REFERRAL] ${committeeNote}`, is_internal: true })
+      toast.success('Referred to committee'); setCommitteeOpen(false); setCommitteeNote(''); load()
+    } catch (e: any) { toast.error(e.message ?? 'Failed') }
+    finally { setActionLoading(false) }
   }
 
-  // ── Loading state ─────────────────────────────────────────────────────────
+  // ── Loading / error states ─────────────────────────────────────────────────
 
   if (loading && !data) {
     return (
-      <Page title="Application" subtitle="Loading...">
+      <Page title="Application" subtitle="Loading…">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Sk h={44} />
-          <Sk h={200} />
-          <Sk h={300} />
+          <Sk h={64} /><Sk h={200} /><Sk h={300} />
         </div>
       </Page>
     )
@@ -941,15 +972,8 @@ export default function ApplicationDetail() {
   if (error) {
     return (
       <Page title="Application" subtitle="Error">
-        <div style={{
-          padding: '14px 18px', borderRadius: 10,
-          background: 'rgba(192,0,0,0.08)', border: '1px solid rgba(192,0,0,0.2)',
-          fontSize: 13, color: RED,
-        }}>
-          {error} —{' '}
-          <button onClick={load} style={{ textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 'inherit' }}>
-            Retry
-          </button>
+        <div style={{ padding: '14px 18px', borderRadius: 10, background: 'rgba(192,0,0,0.08)', border: '1px solid rgba(192,0,0,0.2)', fontSize: 13, color: RED }}>
+          {error} — <button onClick={load} style={{ textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 'inherit' }}>Retry</button>
         </div>
       </Page>
     )
@@ -958,457 +982,228 @@ export default function ApplicationDetail() {
   if (!data) return null
 
   const app        = data.application
-  const events     = data.events ?? []
-  const notes      = data.notes ?? []
-  const nextStages  = ALLOWED_TRANSITIONS[app.stage] ?? []
-  const isTerminal  = app.stage === 'active' || app.stage === 'declined'
+  const events     = data.events    ?? []
+  const notes      = data.notes     ?? []
+  const conditions = data.conditions ?? []
+  const nextStages = ALLOWED_TRANSITIONS[app.stage] ?? []
+  const isTerminal = app.stage === 'active' || app.stage === 'declined'
 
-  const isRiskRole    = ['risk_officer', 'risk_head'].includes(userRole)
-  const isFinanceRole = ['finance_officer', 'finance_head'].includes(userRole)
-  const isRiskStage   = ['risk_review', 'risk_head_review'].includes(app.stage)
+  const isRiskStage    = ['risk_review', 'risk_head_review'].includes(app.stage)
   const isFinanceStage = ['finance_approval', 'booking'].includes(app.stage)
-  const showRiskActions    = isRiskRole && isRiskStage && !isTerminal
-  const showFinanceActions = isFinanceRole && isFinanceStage && !isTerminal
+  const showRiskActions    = isRisk    && isRiskStage    && !isTerminal
+  const showFinanceActions = isFinance && isFinanceStage && !isTerminal
+  const unmetCount = conditions.filter(c => !c.is_met).length
+
+  const tabsWithBadges = TABS.map(t => {
+    if (t.key === 'timeline')    return { ...t, badge: events.length }
+    if (t.key === 'notes')       return { ...t, badge: notes.length }
+    if (t.key === 'conditions')  return { ...t, badge: unmetCount > 0 ? unmetCount : conditions.length }
+    return t
+  })
 
   return (
     <Page
-      title={`APP-${app.id}`}
-      subtitle={`Applications / APP-${app.id}`}
+      title={app.reference || `APP-${app.id}`}
+      subtitle={app.applicant_name}
       actions={
-        <button
-          onClick={() => navigate('/sales/applications')}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '7px 13px', background: 'var(--card)', color: 'var(--txt)',
-            border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, fontWeight: 500,
-            cursor: 'pointer',
-          }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>arrow_back</span>
-          Back to Applications
+        <button onClick={() => navigate('/sales/applications')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt)', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>arrow_back</span>Back
         </button>
       }
     >
-      {/* Header strip */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-        padding: '14px 18px', marginBottom: 16,
-        background: 'var(--card)', border: '1px solid var(--card-bdr)',
-        borderRadius: 12, boxShadow: 'var(--card-shadow)',
-      }}>
+      {/* ── Header strip ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '14px 18px', marginBottom: 16, background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, boxShadow: 'var(--card-shadow)' }}>
+
+        {/* Key fields */}
         <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 3 }}>
-            Reference
-          </div>
-          <div style={{ ...NUM, fontSize: 15, fontWeight: 700, color: NAVY }}>{app.reference}</div>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Product</div>
+          <ProductPill product={app.product_type || 'Unknown'} />
         </div>
-
         <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
-
         <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 3 }}>
-            Applicant
-          </div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>{app.applicant_name}</div>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Requested</div>
+          <div style={{ ...NUM, fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{fmtKobo(app.amount_requested_kobo)}</div>
         </div>
-
+        {app.tenor_months > 0 && (
+          <>
+            <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
+            <div>
+              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Tenor</div>
+              <div style={{ ...NUM, fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>{app.tenor_months}m</div>
+            </div>
+          </>
+        )}
+        {app.eye_score !== null && (
+          <>
+            <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
+            <div>
+              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Eye Score</div>
+              <div style={{ ...NUM, fontSize: 14, fontWeight: 800, color: app.eye_score >= 650 ? GREEN : app.eye_score >= 500 ? AMBER : RED }}>{app.eye_score} {app.eye_rating ? `· ${app.eye_rating}` : ''}</div>
+            </div>
+          </>
+        )}
         <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
-
-        <ProductPill product={app.product_type || 'unknown'} />
-
-        <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
-
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 3 }}>
-            Amount
-          </div>
-          <div style={{ ...NUM, fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>
-            {fmtKobo(app.amount_requested_kobo)}
-          </div>
-        </div>
-
-        <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
-
         <StagePill stage={app.stage} />
 
         {/* Action buttons — pushed right */}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {app.applicant_cif && (
-            <button
-              onClick={() => navigate(`/contacts/${app.applicant_cif}`)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', background: 'var(--card)', border: `1px solid ${NAVY}30`, borderRadius: 7, fontSize: 12, fontWeight: 600, color: NAVY, cursor: 'pointer' }}
-            >
-              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>person</span>
-              View profile
+            <button onClick={() => navigate(`/contacts/${app.applicant_cif}`)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', background: 'var(--card)', border: `1px solid ${NAVY}30`, borderRadius: 7, fontSize: 12, fontWeight: 600, color: NAVY, cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>person</span>C360
+            </button>
+          )}
+          {app.applicant_cif && (
+            <button onClick={() => setShowCreditFile(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 7, fontSize: 12, fontWeight: 600, color: 'var(--txt2)', cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>insert_drive_file</span>Credit File
             </button>
           )}
 
-          {/* Risk role actions */}
+          {/* Risk actions */}
           {showRiskActions && (
             <>
-              <button
-                onClick={() => { setToStage(nextStages[0]); setAdvanceOpen(true) }}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: GREEN, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
-              >
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>check_circle</span>
-                Approve Application
+              <button onClick={() => setCommitteeOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--card)', color: AMBER, border: `1px solid ${AMBER}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>groups</span>Committee
               </button>
-              <button
-                onClick={() => setCommitteeOpen(true)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--card)', color: AMBER, border: `1px solid ${AMBER}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
-              >
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>groups</span>
-                Refer to Committee
+              <button onClick={() => { setToStage(nextStages[0]); setAdvanceOpen(true) }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: GREEN, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>check_circle</span>Approve
               </button>
             </>
           )}
 
-          {/* Finance role actions */}
+          {/* Finance actions */}
           {showFinanceActions && (
             <>
-              <button
-                onClick={() => { setToStage(nextStages[0]); setAdvanceOpen(true) }}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
-              >
+              <button onClick={() => setReqInfoOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--card)', color: AMBER, border: `1px solid ${AMBER}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>pause_circle</span>Hold
+              </button>
+              <button onClick={() => { setToStage(nextStages[0]); setAdvanceOpen(true) }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 15 }}>payments</span>
-                {app.stage === 'booking' ? 'Disburse' : 'Approve Finance'}
-              </button>
-              <button
-                onClick={() => setReqInfoOpen(true)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--card)', color: AMBER, border: `1px solid ${AMBER}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
-              >
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>pause_circle</span>
-                Hold
+                {app.stage === 'booking' ? 'Disburse' : 'Approve'}
               </button>
             </>
           )}
 
-          {/* Generic actions — shown when not in a role-gated stage */}
-          {!showRiskActions && !showFinanceActions && !isTerminal && (
-            <>
-              {nextStages.length > 0 && (
-                <button
-                  onClick={() => { setToStage(nextStages[0]); setAdvanceOpen(true) }}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
-                >
-                  <span className="material-symbols-rounded" style={{ fontSize: 15 }}>arrow_circle_right</span>
-                  Advance Stage
-                </button>
-              )}
-              <button
-                onClick={() => setReqInfoOpen(true)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--card)', color: AMBER, border: `1px solid ${AMBER}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
-              >
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>info</span>
-                Request Info
-              </button>
-              <button
-                onClick={() => setDeclineOpen(true)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--card)', color: RED, border: `1px solid ${RED}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
-              >
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>cancel</span>
-                Decline
-              </button>
-            </>
+          {/* Generic advance / decline when not role-gated */}
+          {!showRiskActions && !showFinanceActions && !isTerminal && nextStages.length > 0 && (
+            <button onClick={() => { setToStage(nextStages[0]); setAdvanceOpen(true) }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>arrow_circle_right</span>Advance
+            </button>
           )}
-
-          <button
-            onClick={() => setAddNoteOpen(true)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--card)', color: 'var(--txt)', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>note_add</span>
-            Add Note
-          </button>
+          {!isTerminal && (
+            <button onClick={() => setDeclineOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--card)', color: RED, border: `1px solid ${RED}40`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>cancel</span>Decline
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Decision panel */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], marginBottom: SP[4], padding: SP[3], borderRadius: RADIUS.md, background: 'var(--card)', border: '1px solid var(--bdr)', flexWrap: 'wrap' }}>
-        <StagePill stage={app.stage} />
-        {app.status === 'declined' && <span style={{ fontSize: TEXT.sm, color: RED, fontWeight: FW.semibold }}>Declined</span>}
-        <div style={{ flex: 1 }} />
-        <button
-          onClick={() => setShowCreditFile(true)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>insert_drive_file</span>
-          Credit File
-        </button>
-        {app.stage !== 'active' && app.status !== 'declined' && (
-          <button
-            onClick={() => setDeclineOpen(true)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: RADIUS.sm, border: `1px solid ${RED}40`, background: `${RED}08`, color: RED, cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>cancel</span>
-            Decline
-          </button>
-        )}
-        {nextStages.length > 0 && !isTerminal && (
-          <button
-            onClick={() => { setToStage(nextStages[0]); setAdvanceOpen(true) }}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: RADIUS.sm, border: 'none', background: NAVY, color: '#fff', cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>arrow_circle_right</span>
-            Advance Stage
-          </button>
-        )}
-      </div>
+      {/* ── Declined banner ── */}
+      {app.stage === 'declined' && app.decline_reason && (
+        <div style={{ display: 'flex', gap: 10, padding: '12px 16px', borderRadius: 10, background: 'rgba(192,0,0,.06)', border: '1px solid rgba(192,0,0,.2)', marginBottom: 16 }}>
+          <span className="material-symbols-rounded" style={{ color: RED, fontSize: 18, flexShrink: 0 }}>cancel</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: RED }}>Application Declined</div>
+            <div style={{ fontSize: 13, color: 'var(--txt)', marginTop: 2 }}>{app.decline_reason}</div>
+          </div>
+        </div>
+      )}
 
-      {/* Tabs */}
+      {/* ── Conditions warning banner ── */}
+      {app.stage === 'pending_conditions' && unmetCount > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, background: 'rgba(124,58,237,.06)', border: '1px solid rgba(124,58,237,.2)', marginBottom: 16, cursor: 'pointer' }} onClick={() => setActiveTab('conditions')}>
+          <span className="material-symbols-rounded" style={{ color: '#7C3AED', fontSize: 16 }}>pending_actions</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#7C3AED' }}>{unmetCount} condition{unmetCount !== 1 ? 's' : ''} outstanding before finance can proceed</span>
+          <span style={{ marginLeft: 'auto', fontSize: 12, color: '#7C3AED', fontWeight: 600 }}>View →</span>
+        </div>
+      )}
+
+      {/* ── Main tab card ── */}
       <SectionCard padding={false}>
         <div style={{ padding: '0 18px' }}>
-          <Tabs
-            tabs={TABS.map(t => t.key === 'timeline' ? { ...t, badge: events.length } : t)}
-            active={activeTab}
-            onChange={setActiveTab}
-          />
+          <Tabs tabs={tabsWithBadges} active={activeTab} onChange={setActiveTab} />
         </div>
-        <div style={{ padding: '0 18px 20px' }}>
-          {activeTab === 'summary'           && <SummaryTab app={app} />}
-          {activeTab === 'verification'      && <VerificationTab app={app} />}
-          {activeTab === 'credit_assessment' && <CreditAssessmentTab app={app} onRefresh={load} />}
-          {activeTab === 'bank_details'      && <BankDetailsTab />}
-          {activeTab === 'documents'         && <DocumentsTab appId={app.id} />}
-          {activeTab === 'approval_chain'    && <ApprovalChainTab app={app} events={events} />}
-          {activeTab === 'timeline'          && <TimelineTab events={events} />}
+        <div style={{ padding: '0 18px 24px' }}>
+          {activeTab === 'summary'          && <SummaryTab app={app} />}
+          {activeTab === 'verification'     && <VerificationTab app={app} />}
+          {activeTab === 'credit_assessment'&& <CreditAssessmentTab app={app} onRefresh={load} />}
+          {activeTab === 'conditions'       && <ConditionsTab appId={app.id} conditions={conditions} onRefresh={load} canManage={isRisk || isFinance} />}
+          {activeTab === 'notes'            && <NotesTab appId={app.id} notes={notes} onRefresh={load} />}
+          {activeTab === 'documents'        && <DocumentsTab appId={app.id} />}
+          {activeTab === 'approval_chain'   && <ApprovalChainTab app={app} events={events} />}
+          {activeTab === 'timeline'         && <TimelineTab events={events} />}
         </div>
-
-        {/* Notes section always shown below tabs when on summary */}
-        {activeTab === 'summary' && notes.length > 0 && (
-          <div style={{ padding: '0 18px 20px' }}>
-            <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 10 }}>
-                Notes ({notes.length})
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {notes.map(note => (
-                  <div key={note.id} style={{
-                    padding: '10px 14px', borderRadius: 8,
-                    background: 'var(--input-bg)', border: '1px solid var(--bdr)',
-                  }}>
-                    <div style={{ fontSize: 13, color: 'var(--txt)', lineHeight: 1.55 }}>{note.body}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginTop: 4 }}>
-                      {fmtDatetime(note.created_at)}
-                      {note.is_internal && (
-                        <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 600, color: AMBER }}>Internal</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
       </SectionCard>
 
-      {/* ── Advance Stage modal ── */}
-      <ConfirmModal
-        open={advanceOpen}
-        title="Advance Stage"
-        confirmLabel="Advance"
-        loading={actionLoading}
-        onConfirm={doAdvance}
-        onClose={() => { setAdvanceOpen(false); setToStage(''); setAdvanceNotes('') }}
-      >
+      {/* ── Modals ── */}
+
+      <ConfirmModal open={advanceOpen} title="Advance Stage" confirmLabel="Advance" loading={actionLoading}
+        onConfirm={doAdvance} onClose={() => { setAdvanceOpen(false); setToStage(''); setAdvanceNotes('') }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
-              Move to stage
-            </div>
-            <select
-              value={toStage}
-              onChange={e => setToStage(e.target.value)}
-              style={{ ...inputStyle }}
-            >
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>Move to stage</div>
+            <select value={toStage} onChange={e => setToStage(e.target.value)} style={inputStyle}>
               <option value="">Select next stage</option>
-              {nextStages.map(s => (
-                <option key={s} value={s}>
-                  {s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
-                </option>
-              ))}
+              {nextStages.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
             </select>
           </div>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
-              Notes (optional)
-            </div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>Notes (optional)</div>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
-              value={advanceNotes}
-              onChange={e => setAdvanceNotes(e.target.value)}
-              style={{ ...textareaStyle }}
-              placeholder="Add any notes about this stage transition…"
-            />
+              value={advanceNotes} onChange={e => setAdvanceNotes(e.target.value)}
+              style={textareaStyle} placeholder="Add any notes about this stage transition…" />
           </div>
         </div>
       </ConfirmModal>
 
-      {/* ── Decline modal ── */}
-      <ConfirmModal
-        open={declineOpen}
-        title="Decline Application"
-        confirmLabel="Decline Application"
-        danger
-        loading={actionLoading}
-        onConfirm={doDecline}
-        onClose={() => { setDeclineOpen(false); setDeclineReason('') }}
-      >
+      <ConfirmModal open={declineOpen} title="Decline Application" confirmLabel="Decline Application" danger loading={actionLoading}
+        onConfirm={doDecline} onClose={() => { setDeclineOpen(false); setDeclineReason('') }}>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
-            Reason <span style={{ color: RED }}>*</span>
-          </div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>Reason <span style={{ color: RED }}>*</span></div>
           <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
-            value={declineReason}
-            onChange={e => setDeclineReason(e.target.value)}
-            style={{ ...textareaStyle }}
-            placeholder="State the reason for declining this application…"
-          />
+            value={declineReason} onChange={e => setDeclineReason(e.target.value)}
+            style={textareaStyle} placeholder="State the reason for declining…" />
         </div>
       </ConfirmModal>
 
-      {/* ── Request Info modal ── */}
-      <Modal
-        open={reqInfoOpen}
-        title="Request More Information"
+      <Modal open={reqInfoOpen} title="Request More Information"
         onClose={() => { setReqInfoOpen(false); setReqInfoNotes('') }}
         footer={
           <>
-            <button
-              onClick={() => { setReqInfoOpen(false); setReqInfoNotes('') }}
-              style={{
-                padding: '8px 16px', borderRadius: 8,
-                border: '1px solid var(--bdr)', background: 'var(--card)',
-                color: 'var(--txt)', fontSize: 13, fontWeight: 500, cursor: 'pointer',
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={doReqInfo}
-              disabled={actionLoading}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                padding: '8px 18px', borderRadius: 8, border: 'none',
-                background: AMBER, color: '#fff',
-                fontSize: 13, fontWeight: 600,
-                cursor: actionLoading ? 'wait' : 'pointer',
-                opacity: actionLoading ? 0.7 : 1,
-              }}
-            >
-              {actionLoading && <Spinner size={14} color="#fff" />}
-              Send Request
+            <button onClick={() => { setReqInfoOpen(false); setReqInfoNotes('') }} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={doReqInfo} disabled={actionLoading} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 18px', borderRadius: 8, border: 'none', background: AMBER, color: '#fff', fontSize: 13, fontWeight: 600, cursor: actionLoading ? 'wait' : 'pointer', opacity: actionLoading ? 0.7 : 1 }}>
+              {actionLoading && <Spinner size={14} color="#fff" />}Send Request
             </button>
           </>
-        }
-      >
+        }>
         <div>
-          <p style={{ margin: '0 0 14px', fontSize: 13.5, color: 'var(--txt2)', lineHeight: 1.55 }}>
-            The application will be sent back to the previous stage for more information. The applicant/officer will be notified.
-          </p>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
-            Notes
-          </div>
+          <p style={{ margin: '0 0 14px', fontSize: 13.5, color: 'var(--txt2)', lineHeight: 1.55 }}>The application will be sent back for more information. The assigned officer will be notified.</p>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>Notes</div>
           <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
-            value={reqInfoNotes}
-            onChange={e => setReqInfoNotes(e.target.value)}
-            style={{ ...textareaStyle }}
-            placeholder="Describe what additional information is needed…"
-          />
+            value={reqInfoNotes} onChange={e => setReqInfoNotes(e.target.value)}
+            style={textareaStyle} placeholder="Describe what additional information is needed…" />
         </div>
       </Modal>
 
-      {/* ── Refer to Committee modal ── */}
-      <Modal
-        open={committeeOpen}
-        title="Refer to Credit Committee"
+      <Modal open={committeeOpen} title="Refer to Credit Committee"
         onClose={() => { setCommitteeOpen(false); setCommitteeNote('') }}
         footer={
           <>
-            <button
-              onClick={() => { setCommitteeOpen(false); setCommitteeNote('') }}
-              style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={doReferToCommittee}
-              disabled={actionLoading}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 18px', borderRadius: 8, border: 'none', background: AMBER, color: '#fff', fontSize: 13, fontWeight: 600, cursor: actionLoading ? 'wait' : 'pointer', opacity: actionLoading ? 0.7 : 1 }}
-            >
-              {actionLoading && <Spinner size={14} color="#fff" />}
-              Refer
+            <button onClick={() => { setCommitteeOpen(false); setCommitteeNote('') }} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={doReferToCommittee} disabled={actionLoading} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 18px', borderRadius: 8, border: 'none', background: AMBER, color: '#fff', fontSize: 13, fontWeight: 600, cursor: actionLoading ? 'wait' : 'pointer', opacity: actionLoading ? 0.7 : 1 }}>
+              {actionLoading && <Spinner size={14} color="#fff" />}Refer
             </button>
           </>
-        }
-      >
+        }>
         <div>
-          <p style={{ margin: '0 0 12px', fontSize: 13.5, color: 'var(--txt2)', lineHeight: 1.55 }}>
-            This will post an internal note and flag the application for committee review.
-          </p>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
-            Reason <span style={{ color: RED }}>*</span>
-          </div>
+          <p style={{ margin: '0 0 12px', fontSize: 13.5, color: 'var(--txt2)', lineHeight: 1.55 }}>This will post an internal note flagging the application for committee review.</p>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>Reason <span style={{ color: RED }}>*</span></div>
           <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
-            value={committeeNote}
-            onChange={e => setCommitteeNote(e.target.value)}
-            style={{ ...textareaStyle }}
-            placeholder="State why this application needs committee review…"
-          />
+            value={committeeNote} onChange={e => setCommitteeNote(e.target.value)}
+            style={textareaStyle} placeholder="State why this application needs committee review…" />
         </div>
       </Modal>
 
-      <CreditFileDrawer
-        cif={app.applicant_cif}
-        open={showCreditFile}
-        onClose={() => setShowCreditFile(false)}
-      />
-
-      {/* ── Add Note modal ── */}
-      <Modal
-        open={addNoteOpen}
-        title="Add Note"
-        onClose={() => { setAddNoteOpen(false); setNoteBody('') }}
-        footer={
-          <>
-            <button
-              onClick={() => { setAddNoteOpen(false); setNoteBody('') }}
-              style={{
-                padding: '8px 16px', borderRadius: 8,
-                border: '1px solid var(--bdr)', background: 'var(--card)',
-                color: 'var(--txt)', fontSize: 13, fontWeight: 500, cursor: 'pointer',
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={doAddNote}
-              disabled={actionLoading}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                padding: '8px 18px', borderRadius: 8, border: 'none',
-                background: NAVY, color: '#fff',
-                fontSize: 13, fontWeight: 600,
-                cursor: actionLoading ? 'wait' : 'pointer',
-                opacity: actionLoading ? 0.7 : 1,
-              }}
-            >
-              {actionLoading && <Spinner size={14} color="#fff" />}
-              Save Note
-            </button>
-          </>
-        }
-      >
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
-            Note <span style={{ color: RED }}>*</span>
-          </div>
-          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
-            value={noteBody}
-            onChange={e => setNoteBody(e.target.value)}
-            style={{ ...textareaStyle, minHeight: 120 }}
-            placeholder="Write your note here…"
-          />
-        </div>
-      </Modal>
+      <CreditFileDrawer cif={app.applicant_cif} open={showCreditFile} onClose={() => setShowCreditFile(false)} />
     </Page>
   )
 }
