@@ -131,7 +131,7 @@ const ACTION_META: Record<string, { label: string; color: string }> = {
   bulk_sent_to_recovery:    { label: 'Bulk Rcvry',  color: RED   },
 }
 
-const POLL_INTERVAL = 30_000 // 30s
+const POLL_INTERVAL = 10_000 // 10s
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -806,7 +806,7 @@ export default function CollectionsAccountDetail() {
           ))}
           <div style={{ flex: 1 }} />
           <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', alignSelf: 'center', paddingRight: 8 }}>
-            Auto-refresh every 30s
+            Live · updates every 10s
           </span>
         </div>
 
